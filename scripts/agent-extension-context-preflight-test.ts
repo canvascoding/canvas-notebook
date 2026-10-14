@@ -55,6 +55,7 @@ async function main() {
     const { resolveAgentExecutionContextForStoredSession } = await import('../app/lib/pi/session-workspace-context');
     const { resolveEffectiveExtensionContext, readEffectiveExtensionContext } = await import('../app/lib/capabilities/extensions/effective-context');
     const { getPiTools } = await import('../app/lib/pi/tool-registry');
+    const { parseIntegrationRequest } = await import('../app/lib/integration-tools/contracts');
     await storage.writePiRuntimeConfig({ ...DEFAULT_PI_CONFIG, activeProvider: 'google',
       runtimeMigrations: { skillToolsDefaultEnabled: true }, providers: { ...DEFAULT_PI_CONFIG.providers,
         google: { ...DEFAULT_PI_CONFIG.providers.google, model: 'fixture-metadata-only-model', enabledTools: ['read'] } } });
@@ -116,8 +117,21 @@ async function main() {
         const rendered = renderEffectiveExtensionContext(data, tools, query);
         assert(rendered.budget.usedBytes <= EXTENSION_CONTEXT_MAX_BYTES);
         assert.equal(Buffer.byteLength(rendered.prompt), rendered.budget.usedBytes);
-        if (hasProvider) assert(rendered.prompt.includes(`"query":${JSON.stringify(query)}`),
-          'The actual provider recipe must include this worst-case query, rather than silently dropping the mandatory route.');
+        if (hasProvider) {
+          const recipes = rendered.prompt.split('\n').filter(line => /^C\d+ exact tool search template:/u.test(line));
+          assert.equal(recipes.length, 1, 'The genuine selected provider retains its exact tool-search route under the UTF-8 budget.');
+          const recipe = recipes[0]!, start = recipe.indexOf('{');
+          assert(start >= 0);
+          const request = parseIntegrationRequest(JSON.parse(recipe.slice(start, recipe.indexOf('}', start) + 1)));
+          assert(request.action === 'search' && request.target === 'tools');
+          assert.equal(request.providerRef, data.workflowProjection!.selectedProviders[0]!.providerRef);
+          assert.equal(request.query, '<short tool name>');
+          assert(!recipe.includes(JSON.stringify(query)), 'The tool-search template never copies the original task payload into its query.');
+          const substituted = parseIntegrationRequest({ ...request, query: 'echo' });
+          assert(substituted.action === 'search' && substituted.target === 'tools');
+          assert.equal(substituted.providerRef, request.providerRef); assert.equal(substituted.query, 'echo',
+            'Replacing the placeholder with a short tool name produces a valid actual integration request without changing the provider.');
+        }
       }
     };
 

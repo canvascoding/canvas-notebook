@@ -123,6 +123,9 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
     .map(skill => ({ skill, key: skillKey(skill), explicit: explicit.has(skill.resourceId), score: scoreExtensionMetadata(skill, query) }))
     .sort((left, right) => Number(right.explicit) - Number(left.explicit)
       || Number(right.skill.required) - Number(left.skill.required) || right.score - left.score || left.key.localeCompare(right.key, 'en'));
+  const skillIds = new Map(skills.map(({ key }, index) => [key, `S${index + 1}`]));
+  const solePluginChildren = new Set(packages.filter(pkg => pkg.kind === 'plugin' && pkg.skills.length === 1)
+    .map(pkg => skillKey(pkg.skills[0]!)));
   const providers = [...new Map((projection?.selectedProviders ?? []).map(provider => [provider.providerRef, provider])).values()];
   const providerIds = new Map(providers.map((provider, index) => [provider.providerRef, `C${index + 1}`]));
   const lines = [
@@ -135,17 +138,25 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
     `Live connection readiness: unknown (no provider probe). Required selection missing/unavailable: ${projection?.unavailable ? 'yes; external workflow actions are blocked. Local skill context remains available.' : 'not reported; a binding does not establish readiness.'}`,
   ];
 
-  if (read) lines.push('Read each listed SKILL.md via its registered route before use. Discover omitted paths; never construct a path from a name.');
+  if (read) lines.push('Read each listed SKILL.md via its registered route before use. Before applying a selected plugin Pn workflow through a connection, read its task-relevant Sn child below. A connection or declaration does not replace its instructions. Discover omitted paths; never construct a path from a name.');
   else lines.push('Skill reading is unavailable: no registered read route. No paths or read recipes are supplied; metadata grants no skill execution.');
 
-  if (discovery) lines.push(`Permitted local metadata discovery: ${operationRecipe(discovery,
-    { query: taskQuery(query), types: ['plugin', 'skill'], limit: 8 })}. Scoped installed metadata only; no attachment, account probe or tool grant.`);
-  else lines.push('Additional skill/plugin metadata discovery is unavailable; request explicit permitted context.');
+  if (discovery) {
+    lines.push(`Permitted local metadata discovery: ${operationRecipe(discovery,
+      { query: taskQuery(query), types: ['plugin', 'skill'], limit: 8 })}. Scoped installed metadata only; no attachment, account probe or tool grant.`);
+    if (discovery.operation) lines.push('For this gateway, action "search" lists operation names only. To search installed metadata, use action "call", the operation name in "operation", and the query inside "arguments" as shown above.');
+    lines.push('Before answering a request that depends on internal or workspace-specific policies, procedures or workflows, look up the permitted source. If selected context has not already identified a relevant SKILL.md, search this metadata with task terms first. Generic assumptions do not establish internal criteria or responsible people; report when no applicable permitted source is found.');
+    if (read) lines.push('Read the exact relevant SKILL.md returned by discovery before applying its internal policy or workflow instructions.');
+  } else lines.push('Additional skill/plugin metadata discovery is unavailable; request explicit permitted context.');
 
   if (providers.length && hasIntegrationGateway && ceiling) {
     lines.push('Use the exact providerRef below. Describe the returned toolRef to obtain its schemaRef; call that same toolRef and schemaRef with valid arguments only when permitted. Never guess refs, swap accounts or infer readiness.');
   } else if (providers.length) {
     lines.push('Selected connections have no usable exact gateway route: integrations or its policy ceiling is unavailable. Legacy toolkit search is not an exact account route; never substitute a first account.');
+  }
+  if (providers.some(provider => hasIntegrationGateway && providerAllowed(policy, provider)
+    && isIntegrationProviderOperationAllowed(policy!, provider.source, provider.providerRef, 'search_tools'))) {
+    lines.push('Tool-search JSON below is a template. Replace "<short tool name>" with a short tool name or action term, from the read child guide for a plugin. Never execute the placeholder or copy task payload/unique IDs into query; business values belong only in schema-valid call arguments.');
   }
   providers.forEach((provider, index) => {
     const allowed = hasIntegrationGateway && providerAllowed(policy, provider);
@@ -155,8 +166,8 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
     lines.push(`Connection C${index + 1}: ${JSON.stringify({ source: provider.source, providerRef: provider.providerRef,
       name: provider.displayName, state: provider.state, authorization: provider.authorized, readiness: 'unknown',
       permitted: { search: Boolean(search), describe: Boolean(describe), call: Boolean(call) } })}`);
-    if (search) lines.push(`C${index + 1} exact tool search: "integrations" ${JSON.stringify({ action: 'search', target: 'tools',
-      providerRef: provider.providerRef, query: taskQuery(query) })}. ${describe ? 'Describe its returned toolRef before use.' : 'Schema description is not permitted.'} ${call ? 'Use the returned current schemaRef for the same toolRef.' : 'Execution is not permitted; do not call.'}`);
+    if (search) lines.push(`C${index + 1} exact tool search template: "integrations" ${JSON.stringify({ action: 'search', target: 'tools',
+      providerRef: provider.providerRef, query: '<short tool name>' })}. ${describe ? 'Describe its returned toolRef before use.' : 'Schema description is not permitted.'} ${call ? 'Use the returned current schemaRef for the same toolRef.' : 'Execution is not permitted; do not call.'}`);
     else lines.push(`C${index + 1}: exact tool discovery is not permitted; this connection is not usable through an alternative guessed route.`);
   });
 
@@ -168,7 +179,8 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
   for (const pkg of packages) {
     const id = packageIds.get(packageKey(pkg))!;
     lines.push(`${id} ${JSON.stringify({ kind: pkg.kind, name: pkg.name, version: pkg.version, resourceRef: pkg.resourceRef,
-      publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum, selectedSkills: pkg.skills.length })}`);
+      publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum,
+      skills: [...new Set(pkg.skills.flatMap(skill => { const child = skillIds.get(skillKey(skill)); return child ? [child] : []; }))] })}`);
     for (const declaration of pkg.declarations) {
       const required = declaration.capabilities.filter(capability => capability.required);
       if (required.length) lines.push(`${id} required declarations ${JSON.stringify(required.map(capability => ({
@@ -176,11 +188,11 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
       })))}`);
     }
   }
-  skills.forEach(({ skill, explicit: isExplicit }, index) => {
+  skills.forEach(({ skill, key, explicit: isExplicit }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));
     lines.push(`S${index + 1} ${JSON.stringify({ name: skill.name, ...(pkg ? { package: pkg, root: skill.package!.relativeRoot }
       : { resourceId: skill.resourceId }), ...(skill.core ? { core: true } : {}), ...(skill.required ? { required: true } : {}) })}`);
-    if (read && (skill.required || skill.core || isExplicit || !pkg || !discovery)) {
+    if (read && (skill.required || skill.core || isExplicit || !pkg || !discovery || solePluginChildren.has(key))) {
       lines.push(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
     }
   });
@@ -232,9 +244,9 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
 
   // Relevant paths precede optional prose. Irrelevant paths cannot crowd out the
   // selected package's actual description/default prompts.
-  skills.forEach(({ skill, explicit: isExplicit, score }, index) => {
+  skills.forEach(({ skill, key, explicit: isExplicit, score }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));
-    if (read && discovery && pkg && score > 0 && !skill.required && !skill.core && !isExplicit) append(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
+    if (read && discovery && pkg && score > 0 && !skill.required && !skill.core && !isExplicit && !solePluginChildren.has(key)) append(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
   });
   for (const pkg of packages) {
     const id = packageIds.get(packageKey(pkg))!;
@@ -242,9 +254,9 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
     pkg.defaultPrompts.forEach((value, index) => appendData(`${id} untrusted default prompt ${index + 1}`, value));
   }
   skills.forEach(({ skill }, index) => appendData(`S${index + 1} untrusted description`, skill.description));
-  skills.forEach(({ skill, explicit: isExplicit, score }, index) => {
+  skills.forEach(({ skill, key, explicit: isExplicit, score }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));
-    if (read && discovery && pkg && score === 0 && !skill.required && !skill.core && !isExplicit) append(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
+    if (read && discovery && pkg && score === 0 && !skill.required && !skill.core && !isExplicit && !solePluginChildren.has(key)) append(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
   });
   return Object.freeze({ prompt, budget: Object.freeze({ usedBytes: bytes(prompt), maxBytes: EXTENSION_CONTEXT_MAX_BYTES,
     detailStatus: compacted ? 'compacted' : 'complete', omittedDetails }) });

@@ -44,7 +44,8 @@ async function assertFreePort() {
 
 async function launch() {
   const chatInline = process.argv.length === 3 && process.argv[2] === '--chat-inline';
-  assert(process.argv.length === 2 || chatInline, 'Choose the default or fixed --chat-inline acceptance.');
+  const chatModel = process.argv.length === 3 && process.argv[2] === '--chat-model';
+  assert(process.argv.length === 2 || chatInline || chatModel, 'Choose the default, fixed --chat-inline or --chat-model acceptance.');
   await assertFreePort();
   const privateEnv = parseEnv(await readPrivateFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env')));
   assert(privateEnv.BOOTSTRAP_ADMIN_EMAIL?.trim() && privateEnv.BOOTSTRAP_ADMIN_PASSWORD?.length >= 8,
@@ -64,8 +65,9 @@ async function launch() {
     BOOTSTRAP_ADMIN_PASSWORD: privateEnv.BOOTSTRAP_ADMIN_PASSWORD,
     NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
+    ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1' } : {}),
   });
-  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : [])], {
+  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : chatModel ? ['--chat-model'] : [])], {
     cwd: repo, env: clean, stdio: ['ignore', 'inherit', 'inherit'],
   });
   const cancel = () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); };
@@ -298,7 +300,8 @@ async function activateFixtureLicense(ready, env) {
 
 async function runFixture() {
   const chatInline = process.argv.length === 4 && process.argv[3] === '--chat-inline' && process.env.CANVAS_CHAT_INLINE_E2E === '1';
-  assert((process.argv.length === 3 || chatInline) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
+  const chatModel = process.argv.length === 4 && process.argv[3] === '--chat-model' && process.env.CANVAS_CHAT_MODEL_E2E === '1';
+  assert((process.argv.length === 3 || chatInline || chatModel) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
   await assertFreePort();
   const maintenance = new URL(process.env.DATABASE_URL); assert(maintenance.hostname === '127.0.0.1' && maintenance.port === '55433' && maintenance.pathname === '/postgres');
   const nonce = randomBytes(16).toString('hex'), marker = randomBytes(24).toString('hex');
@@ -320,6 +323,7 @@ async function runFixture() {
   Object.assign(env, {
     [ownFlag]: '1', CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
+    ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1', CANVAS_NATURAL_MODEL_INPUT: path.join(root, 'natural-model-input.json') } : {}),
     DATABASE_URL: runtimeURL.toString(), CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_POOL_MAX: '8',
     DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_APP_ROOT: repo, CANVAS_ENV_FILE: emptyEnv, TMPDIR: tmpRoot,
     CANVAS_INSTANCE_ID: `agent-settings-browser-${nonce}`, CANVAS_ORGANIZATION_ID: `agent-settings-browser-${nonce}`,
@@ -337,6 +341,13 @@ async function runFixture() {
     PLUGIN_EXTENSION_E2E_FIXTURE: path.join(root, 'fixture.json'), PLUGIN_EXTENSION_E2E_CONTROL_TOKEN: randomBytes(32).toString('base64url'),
   });
   for (const key of Object.keys(process.env)) delete process.env[key]; Object.assign(process.env, env);
+  if (chatModel) {
+    // The genuine local Ollama service owns cloud credentials. The normal API
+    // provisioner in the model spec verifies this saved installation; no model
+    // response or tool call is supplied by this runner.
+    await fs.writeFile(env.CANVAS_NATURAL_MODEL_INPUT, JSON.stringify({ version: 1, providerId: 'ollama',
+      ollamaHost: 'http://127.0.0.1:11434', modelId: 'kimi-k2.6:cloud' }), { mode: 0o600, flag: 'wx' });
+  }
   const administration = new Pool({ connectionString: maintenance.toString(), max: 1, connectionTimeoutMillis: 5000, query_timeout: 30_000 });
   const children = []; let database, issuer, host, provider, consent, mcp, registry, registryTls, modelFixture, failure;
   const originalModuleLoad = Module._load;
@@ -466,7 +477,7 @@ async function runFixture() {
       sources: [{ kind: 'plugin', registryId: 'store-extensions', entryKey: packageName, version: '1.0.0', checksum: source.checksum },
         { kind: 'skill', registryId: 'store-extensions', entryKey: skillName, version: '1.0.0', checksum: skill.checksum }] };
     const { prepareAgentExtensionToolBrowserFixture, verifyAgentExtensionToolBrowserFixture } = await import('./helpers/agent-extension-tool-browser-fixture.ts');
-    fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
+    if (!chatModel) fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600, flag: 'wx' });
     if (chatInline) {
       // The admission/claim process must actually terminate before the new
@@ -483,10 +494,13 @@ async function runFixture() {
       await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600 });
     }
     receipt.phase = 'build'; await persist(); console.log(`PLUGIN_EXTENSION_E2E_BUILD ${root}`);
-    const build = start('npm', ['run', 'build'], 'build', { NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192', NODE_EXTRA_CA_CERTS: caBundlePath }); assert.equal(await wait(build, 15 * 60_000), 0, 'The current worktree production build must pass.');
+    const build = start('npm', ['run', 'build'], 'build', { NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192', NODE_EXTRA_CA_CERTS: caBundlePath }); assert.equal(await wait(build, (chatModel ? 30 : 15) * 60_000), 0, 'The current worktree production build must pass.');
     fixture.buildId = (await fs.readFile(path.join(repo, '.next/BUILD_ID'), 'utf8')).trim(); assert(fixture.buildId);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600 });
-    await assertFreePort(); host = start(process.execPath, ['--import', 'tsx', 'server.js'], 'host', { NODE_ENV: 'production', NODE_EXTRA_CA_CERTS: caBundlePath }); receipt.serverPid = host.pid; await persist();
+    await assertFreePort(); host = start(process.execPath, [
+      ...(chatModel ? ['--import', './scripts/helpers/chat-extension-model-observer.mjs'] : []),
+      '--import', 'tsx', 'server.js',
+    ], 'host', { NODE_ENV: 'production', NODE_EXTRA_CA_CERTS: caBundlePath }); receipt.serverPid = host.pid; await persist();
     const deadline = Date.now() + 120_000; let healthy = false;
     while (!healthy && !host.ended && Date.now() < deadline) {
       abort.signal.throwIfAborted();
@@ -508,13 +522,20 @@ async function runFixture() {
       model: modelFixture.counts(),
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
     assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');
-    assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
+    assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, chatModel ? 1 : 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
     assert(modelFixture.counts().catalogReads > 0); assert.equal(modelFixture.counts().forbiddenRequests, 0, 'The model fixture must receive only its explicitly supported requests.');
     if (chatInline) assert(modelFixture.counts().completions.some(row => row.hasSkillSentinel), 'A real SDK model request must receive the exact selected skill context.');
-    assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
+    if (!chatModel) assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
-    const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
-    await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
+    if (chatModel) {
+      const { verifyChatExtensionNaturalModelFixture } = await import('./helpers/chat-extension-natural-model-proof.ts');
+      const verified = await verifyChatExtensionNaturalModelFixture(fixture, { mcpToolCalls: mcp.stats.toolCalls,
+        composioBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length });
+      await fs.writeFile(path.join(root, 'chat-extension-natural-model-verified.json'), JSON.stringify({ version: 1, nonce, ...verified }), { mode: 0o600 });
+    } else {
+      const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
+      await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
+    }
     if (chatInline) {
       const { verifyChatQueueRecoveryBrowserFixture } = await import('./helpers/chat-queue-recovery-browser-fixture.ts');
       const queueRecovery = await verifyChatQueueRecoveryBrowserFixture(fixture, fixture.queueRecovery);

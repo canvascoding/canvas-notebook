@@ -183,19 +183,33 @@ export async function reissueAcceptedTurnRuntimeSelection(contextInput: AgentExe
 /** Package freshness alone; all standalone reads occur after this short owned lease is closed. */
 async function assertOwnedRuntimePackages(context: AgentExecutionContext,
   selection: AuthorizedAgentWorkflowPackageSelections): Promise<void> {
-  const database = await openDb();
-  let active = false, discard: Error | undefined;
-  try {
-    await database.run('BEGIN ISOLATION LEVEL SERIALIZABLE'); active = true;
-    await withRevalidatedAgentWorkflowPackageSelectionOnConnection(database, context, selection, async () => undefined);
-    await database.run('COMMIT'); active = false;
-  } catch (error) {
-    if (active) {
-      try { await database.run('ROLLBACK'); }
-      catch (rollbackError) { discard = rollbackError instanceof Error ? rollbackError : new Error('Runtime package rollback could not be confirmed.'); }
+  // Retry only this pure SQL/filesystem freshness check, never the enclosing
+  // execution. Each attempt revalidates the same genuine selection from a new
+  // SERIALIZABLE snapshot after the previous lease has been fully closed.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const database = await openDb();
+    let active = false, commitAttempted = false, discard: Error | undefined;
+    try {
+      await database.run('BEGIN ISOLATION LEVEL SERIALIZABLE'); active = true;
+      await withRevalidatedAgentWorkflowPackageSelectionOnConnection(database, context, selection, async () => undefined);
+      commitAttempted = true;
+      await database.run('COMMIT'); active = false;
+      return;
+    } catch (error) {
+      let rolledBack = false;
+      if (active) {
+        try { await database.run('ROLLBACK'); rolledBack = true; }
+        catch (rollbackError) { discard = rollbackError instanceof Error ? rollbackError : new Error('Runtime package rollback could not be confirmed.'); }
+      } else {
+        discard = error instanceof Error ? error : new Error('Runtime package transaction start could not be confirmed.');
+      }
+      if (!rolledBack || commitAttempted || attempt === 2 || !error || typeof error !== 'object'
+        || !('code' in error) || error.code !== '40001') throw error;
+    } finally {
+      // A failed close also escapes: it must never permit another checkout.
+      await database.close(discard);
     }
-    throw error;
-  } finally { await database.close(discard); }
+  }
 }
 
 /** Durable personal MCP/local-Composio identities can be checked from actual local state.

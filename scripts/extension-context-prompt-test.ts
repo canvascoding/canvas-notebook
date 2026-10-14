@@ -97,9 +97,34 @@ assert.match(result.prompt, /Package descriptions and default prompts.*untrusted
 assert.match(result.prompt, /"canvas_extensions" \{"action":"describe","operation":"search_canvas_extensions"\}/u);
 assert.match(result.prompt, /"action":"call","operation":"search_canvas_extensions","arguments":\{"query":"make a canvas brief","types":\["plugin","skill"\],"limit":8\}/u);
 assert.doesNotMatch(result.prompt, /"search_canvas_extensions" \{"query"/u, 'An operation behind a gateway is never presented as a direct tool.');
+assert.match(result.prompt, /action "search" lists operation names only/u);
+assert.match(result.prompt, /use action "call", the operation name in "operation", and the query inside "arguments"/u);
+assert.match(result.prompt, /Before answering a request that depends on internal or workspace-specific policies, procedures or workflows, look up the permitted source/u);
+assert.match(result.prompt, /If selected context has not already identified a relevant SKILL\.md, search this metadata with task terms first/u,
+  'Internal lookup is required when the held context has not identified the relevant source; it does not require a redundant search for an already identified skill.');
+assert.match(result.prompt, /Generic assumptions do not establish internal criteria or responsible people; report when no applicable permitted source is found/u);
+assert.match(result.prompt, /Read the exact relevant SKILL\.md returned by discovery before applying its internal policy or workflow instructions/u);
 assert.equal(result.budget.usedBytes, new TextEncoder().encode(result.prompt).byteLength);
 assert.ok(result.budget.usedBytes <= EXTENSION_CONTEXT_MAX_BYTES);
 assert.ok(Object.isFrozen(result) && Object.isFrozen(result.budget));
+
+// One actual selected child must remain usable even without lexical overlap or
+// an explicit ranking override. Each metadata field respects its real bound;
+// optional package prose/default prompts can still consume the whole 8 KiB.
+const soleChild = child('only-held-guide', { description: 'Unrelated stable instructions' });
+const solePackage = pkg([soleChild], { description: '界'.repeat(1024), defaultPrompts: Array.from({ length: 4 }, () => '備'.repeat(1024)) });
+const sole = renderEffectiveExtensionContext(context({ packages: [solePackage], skills: [soleChild] }), actual, 'Prüfe Ziffer X42Q7N');
+assert(sole.prompt.includes(JSON.stringify({ path: soleChild.runtimePath })),
+  'The sole actual selected plugin child read route is mandatory before optional package prose, without ranking/name reconstruction.');
+assert.equal(sole.prompt.split(soleChild.runtimePath).length - 1, 1, 'A mandatory sole-child route must not be appended twice.');
+assert.equal(sole.budget.detailStatus, 'compacted');
+assert.equal(sole.budget.usedBytes, Buffer.byteLength(sole.prompt));
+assert(sole.budget.usedBytes <= EXTENSION_CONTEXT_MAX_BYTES);
+assert.match(sole.prompt, /Before applying a selected plugin Pn workflow through a connection, read its task-relevant Sn child/u,
+  'An exact selected connection does not replace reading the linked plugin instructions.');
+const soleNoRead = renderEffectiveExtensionContext(context({ packages: [solePackage], skills: [soleChild] }), [discovery], 'Prüfe Ziffer X42Q7N').prompt;
+assert(!soleNoRead.includes(soleChild.runtimePath));
+assert.doesNotMatch(soleNoRead, /Before applying a selected plugin Pn workflow/u, 'The workflow read instruction requires a genuinely registered read route.');
 
 for (const mode of ['fixed', 'legacy_specialized'] as const) {
   const text = renderEffectiveExtensionContext(context({ mode, skills: [core, unrelated] }), [read, discovery], 'unrelated').prompt;
@@ -109,14 +134,22 @@ for (const mode of ['fixed', 'legacy_specialized'] as const) {
 const noGrantFromRanking = renderEffectiveExtensionContext(context({ skills: [unrelated] }), actual, 'unselected',
   { explicitSkillRefs: [unrelated.resourceId] }).prompt;
 assert.doesNotMatch(noGrantFromRanking, /unselected-inherited-skill/u, 'Ranking IDs cannot attach an unrelated general skill.');
+assert.match(noGrantFromRanking, /search this metadata with task terms first/u,
+  'The internal-source instruction preserves on-demand discovery instead of attaching the general agent’s unrelated inherited catalog.');
 
 const withoutRead = renderEffectiveExtensionContext(general, [discovery], 'brief').prompt;
 assert.match(withoutRead, /Skill reading is unavailable/u);
 assert.doesNotMatch(withoutRead, /\/owned-fixture\/skills/u);
 assert.doesNotMatch(withoutRead, /S\d+ read:/u);
+assert.match(withoutRead, /look up the permitted source/u, 'Metadata lookup remains possible without a read tool.');
+assert.match(withoutRead, /report when no applicable permitted source is found/u);
+assert.doesNotMatch(withoutRead, /Read the exact relevant SKILL\.md returned by discovery/u,
+  'A metadata route must not invent a registered skill-reading route.');
 const withoutDiscovery = renderEffectiveExtensionContext(general, [read, operationGateway('canvas_extensions', ['list_canvas_package_store'])], 'brief').prompt;
 assert.match(withoutDiscovery, /metadata discovery is unavailable/u);
 assert.doesNotMatch(withoutDiscovery, /search_canvas_extensions/u);
+assert.doesNotMatch(withoutDiscovery, /search this metadata with task terms first|Read the exact relevant SKILL\.md returned by discovery/u,
+  'Without actual discovery the prompt cannot prescribe discovery or a returned-path read.');
 assert.match(withoutDiscovery, /S\d+ read: "read" \{"path":"\/owned-fixture\/skills\/explicit-child\/SKILL.md"\}/u,
   'Without metadata discovery the exact selected skill path must remain in the required index.');
 assert.equal((withoutDiscovery.match(/read: "read" \{"path":"\/owned-fixture\/skills\/explicit-child\/SKILL.md"\}/gu) ?? []).length, 1,
@@ -124,6 +157,13 @@ assert.equal((withoutDiscovery.match(/read: "read" \{"path":"\/owned-fixture\/sk
 const directDiscovery = renderEffectiveExtensionContext(context(), [tool('search_canvas_extensions')], 'brief').prompt;
 assert.match(directDiscovery, /"search_canvas_extensions" \{"query":"brief","types":\["plugin","skill"\],"limit":8\}/u);
 assert.doesNotMatch(directDiscovery, /"operation":"search_canvas_extensions"/u);
+assert.doesNotMatch(directDiscovery, /For this gateway/u, 'Direct discovery receives no gateway-only wrapper instructions.');
+assert.match(directDiscovery, /search this metadata with task terms first/u);
+assert.doesNotMatch(directDiscovery, /Read the exact relevant SKILL\.md returned by discovery/u);
+const noLookupRoutes = renderEffectiveExtensionContext(context(), [], 'internal campaign approval policy').prompt;
+assert.match(noLookupRoutes, /metadata discovery is unavailable; request explicit permitted context/u);
+assert.match(noLookupRoutes, /Skill reading is unavailable/u);
+assert.doesNotMatch(noLookupRoutes, /look up the permitted source|search this metadata with task terms first|Read the exact relevant SKILL\.md returned by discovery/u);
 const routedRead = renderEffectiveExtensionContext(context({ skills: [core] }), [operationGateway('filesystem', ['read'])], 'guide').prompt;
 assert.match(routedRead, /"filesystem" \{"action":"describe","operation":"read"\}/u);
 assert.match(routedRead, /"operation":"read","arguments":\{"path":"\/owned-fixture\/skills\/core-guide\/SKILL.md"\}/u);
@@ -138,6 +178,24 @@ assert.match(recipe, new RegExp(`"action":"search","target":"tools","providerRef
 assert.match(recipe, /Describe the returned toolRef to obtain its schemaRef; call that same toolRef/u);
 assert.match(recipe, /Live connection readiness: unknown \(no provider probe\)/u);
 assert.doesNotMatch(recipe, /connectionRef|healthy|COMPOSIO_SEARCH_TOOLS/u);
+const businessQuery = 'Prüfe die Kennung ECHO_BUSINESS_NONCE_42 gegen Vorgang X42Q7N.';
+const queryRecipes = renderEffectiveExtensionContext(providerContext, actual, businessQuery).prompt;
+const exactToolRecipes = queryRecipes.split('\n').filter(line => /^C\d+ exact tool search/u.test(line));
+assert.equal(exactToolRecipes.length, 2);
+for (const line of exactToolRecipes) {
+  assert.match(line, /template/u);
+  const start = line.indexOf('{');
+  const request = JSON.parse(line.slice(start, line.indexOf('}', start) + 1)) as Record<string, unknown>;
+  assert.equal(request.action, 'search'); assert.equal(request.target, 'tools');
+  assert([accountA.providerRef, accountB.providerRef].includes(String(request.providerRef)));
+  assert.equal(request.query, '<short tool name>');
+  assert(!line.includes(businessQuery) && !line.includes('ECHO_BUSINESS_NONCE_42') && !line.includes('X42Q7N'),
+    'Tool-search templates never insert user argument values or the full task into a catalogue query.');
+}
+assert.match(queryRecipes, /Replace "<short tool name>" with a short tool name or action term, from the read child guide for a plugin/u);
+assert.match(queryRecipes, /Never execute the placeholder/u, 'The template must not invite an actual literal placeholder request.');
+const metadataRecipe = queryRecipes.split('\n').find(line => line.startsWith('Permitted local metadata discovery:'));
+assert(metadataRecipe?.includes(JSON.stringify(businessQuery)), 'Natural installed-metadata discovery retains the original bounded task query.');
 const selectedConnection = { configurationId: 'selected-slot', slotRef: `agent-extension:${'s'.repeat(43)}`,
   source: 'composio' as const, required: false, origin: 'fixed' as const, state: 'selected' as const, providerRef: accountA.providerRef };
 const indexedConnection = renderEffectiveExtensionContext(context({ mode: 'fixed', workflowProjection: projection([accountA], {
@@ -162,6 +220,7 @@ assert.doesNotMatch(legacyOnly, /"target":"tools"|"action":"call"/u);
 const denySource = { ...policy, allowedSources: ['mcp'] as const };
 const denied = renderEffectiveExtensionContext(providerContext, [gateway(denySource)], 'create').prompt;
 assert.doesNotMatch(denied, /"target":"tools"/u);
+assert.doesNotMatch(denied, /Tool-search JSON below is a template/u, 'A denied tool route receives no executable search template guidance.');
 assert.match(denied, /"search":false,"describe":false,"call":false/u);
 const retainedDeny = renderEffectiveExtensionContext(providerContext, [gateway(denySource)], 'create', { integrationPolicyCeiling: policy }).prompt;
 assert.doesNotMatch(retainedDeny, /"target":"tools"/u, 'An option cannot widen an actual tool ceiling.');
@@ -178,6 +237,8 @@ assert.match(restricted, /"target":"tools"/u);
 assert.match(restricted, /Execution is not permitted; do not call/u);
 assert.match(restricted, /"call":false/u);
 const manifest = buildEffectiveToolManifest(actual);
+assert.match(renderEffectiveExtensionContext(context(), manifest, 'internal approval').prompt, /search this metadata with task terms first/u,
+  'The actual serialized tool manifest retains its registered lookup instruction.');
 assert.doesNotMatch(renderEffectiveExtensionContext(providerContext, manifest, 'inspect').prompt, /"target":"tools"/u);
 assert.match(renderEffectiveExtensionContext(providerContext, manifest, 'inspect', { integrationPolicyCeiling: policy }).prompt, /"target":"tools"/u);
 
@@ -199,6 +260,25 @@ const duplicates = renderEffectiveExtensionContext(context({ mode: 'fixed',
 assert.equal((duplicates.match(/S\d+ \{"name":"same"/gu) ?? []).length, 2, 'The same held path/pin collapses; distinct versions remain.');
 assert.match(duplicates, /"version":"1.2.3"/u);
 assert.match(duplicates, /"version":"2.0.0"/u);
+const identityRows = duplicates.split('\n').flatMap(line => {
+  const match = /^([PS]\d+) (\{.*\})$/u.exec(line);
+  return match ? [{ alias: match[1]!, value: JSON.parse(match[2]!) as Record<string, unknown> }] : [];
+});
+const packageRows = identityRows.filter(entry => entry.alias.startsWith('P'));
+assert.equal(packageRows.length, 2);
+for (const entry of packageRows) {
+  const exactVersion = entry.value.publishedRevisionRef === pin.publishedRevisionRef ? preciseDuplicate : otherVersion;
+  assert.equal(entry.value.resourceRef, exactVersion.package!.resourceRef);
+  assert.equal(entry.value.publishedRevisionRef, exactVersion.package!.publishedRevisionRef);
+  assert.equal(entry.value.checksum, exactVersion.package!.checksum);
+  const selectedSkills = identityRows.filter(skillRow => skillRow.alias.startsWith('S') && skillRow.value.package === entry.alias);
+  assert.equal(selectedSkills.length, 1);
+  assert.deepEqual(entry.value.skills, selectedSkills.map(skillRow => skillRow.alias),
+    'Every package lists only the selected skill aliases for its exact pin, even when another version has the same name/root.');
+  assert.equal(selectedSkills[0]!.value.root, exactVersion.package!.relativeRoot);
+  assert(duplicates.includes(`${selectedSkills[0]!.alias} read: "read" ${JSON.stringify({ path: exactVersion.runtimePath })}`),
+    'The package-to-skill alias must lead to its exact version read route.');
+}
 const rankA = skill('z-last', { description: 'spreadsheet report' });
 const rankB = skill('spreadsheet', { description: 'unrelated' });
 assert.match(renderEffectiveExtensionContext(context({ mode: 'fixed', skills: [rankA, rankB] }), [read], 'spreadsheet report').prompt,
@@ -216,7 +296,11 @@ assert.match(large.prompt, /70 selected skill identities/u);
 assert.match(large.prompt, /Context fingerprint: "f{64}"/u, 'The held fingerprint is mandatory even under detail compaction.');
 assert.equal((large.prompt.match(/S\d+ \{"name":"s\d+"/gu) ?? []).length, 70, 'The mandatory child index is never silently dropped.');
 assert.match(large.prompt, /Additional child descriptions\/read paths may be omitted/u);
+assert((large.prompt.match(/S\d+ read:/gu) ?? []).length < largeChildren.length,
+  'Multiple selected children keep lazy read discovery instead of making every path mandatory.');
 assert.match(large.prompt, /source metadata compacted/u);
+assert.match(large.prompt, /search this metadata with task terms first/u, 'The source-lookup rule remains in the required prompt during detail compaction.');
+assert.match(large.prompt, /Read the exact relevant SKILL\.md returned by discovery/u);
 assert.doesNotMatch(large.prompt, /�/u);
 assert.throws(() => renderEffectiveExtensionContext(context({ mode: 'fixed', packages: [pkg(largeChildren)], skills: largeChildren }), [read], 'design'),
   error => isAgentWorkflowError(error) && error.code === 'AGENT_EXTENSION_CONTEXT_TOO_LARGE',
