@@ -891,6 +891,10 @@ Der [begrenzte authentisierte Session-Readfix](./yjs-native-session-read-retry-e
 
 Der [V22-Browserbefund nach dem HTTP-Readfix](./yjs-native-session-browser-join-busy-evidence.md) bestätigt einen einzigen echten frischen Build auf `a1ffb8769`, Source/Artifact unverändert vor und nach Lauf. Erste Suite: sechs gestartet, einer bestanden, fünf fehlgeschlagen, keine Skips/Testtimeouts; weitere Suites und beide Neustarts starten nicht. Alle fünf Nativefälle erreichen zunächst HTTP 200. Home-Peer, Dateibrowser und Vollimport zeigen spätere Verbindungsautorisierungsfehler; Markdown-Body und HTML zusätzlich HTTP-Busy. Home erreicht zuvor echten ersten Paste, Native-Tree und Undo/Redo. Root bestätigt Reporter/Network/DOM, tatsächliche Live-/PG-Identitäten, null abschließende DB-Sessions und unabhängig alle 39 beobachteten PIDs/zehn Gruppen abwesend. Kein einheitlicher Fehlergrund oder ursprünglicher Lockhalter wird behauptet. Peer-/Socketgegenprobe und erneute originale Browsermatrix bleiben nächste Gates; I-03b ist inzwischen separat source-/PG-geprüft; der Peer-/Socketbefund bleibt davon unabhängig und Rootgate bleibt false.
 
+Die [kontrollierte Native-Peer-Sperrgegenprobe](./yjs-native-peer-busy-counter-evidence.md) besteht acht tatsächliche Source-/PG-/Netzwerkfamilien. Sie belegt temporäres Capture-/Join-Busy als AuthDenied trotz vorigem HTTP 200 sowie einen getrennten HTTP-Factory-Row-Lock-Pfad zu 403; bestehende Connected-/Message-1013-Fälle arbeiten wie erwartet. Der ursprüngliche V22-Lockhalter bleibt unbekannt. Produktkorrektur und neue ursprüngliche Browsermatrix bleiben offen.
+
+Die [einzelne Compiled-Mobile-Protokollprobe](./yjs-mobile-compiled-protocol-precondition-evidence.md) auf dem unveränderten V22-Build scheitert bereits beim echten Login mit HTTP 429. Kein Mobile-POST oder Socket wird erreicht. Eigene Runtime ist geschlossen, Fixture/DBs bleiben preserved; Root bestätigt tatsächliche DB-Marker/OIDs und null Sessions nach dem Lauf. Kein Mobile- oder Browser-Abschluss wird daraus abgeleitet.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |
