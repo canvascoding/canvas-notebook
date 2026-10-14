@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import type { SqlConnection } from '@/app/lib/db';
 import type { AgentManagementActor } from '@/app/lib/agents/management-actions';
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
@@ -22,6 +23,7 @@ import {
   getPreparedStandaloneExtensionBinding,
   prepareStandaloneExtensionSelection,
   revalidatePreparedStandaloneExtensionSelection,
+  withRevalidatedStandaloneTurnSelectionOnConnection,
   type PreparedStandaloneExtensionSelection,
 } from './standalone-preparation';
 
@@ -72,6 +74,7 @@ type AcceptedRecord = {
   actorKey: string;
   publicNamespace: string;
   data: StoredAcceptedTurnExtensionSelection;
+  prepared: readonly PreparedStandaloneExtensionSelection[];
 };
 const host = globalThis as typeof globalThis & {
   __canvasAcceptedTurnExtensionSelectionsV1?: WeakMap<object, AcceptedRecord>;
@@ -141,7 +144,7 @@ export async function prepareAcceptedTurnExtensionSelection(contextInput: AgentE
   const publicNamespace = JSON.stringify(data.publicSelection);
   const fingerprint = createHash('sha256').update(JSON.stringify([namespace, publicNamespace, data.privateFixedBindings])).digest('hex');
   const handle = Object.freeze({ kind: 'accepted_turn_extension_selection' as const, fingerprint });
-  records.set(handle, { actorKey: namespace, publicNamespace, data });
+  records.set(handle, { actorKey: namespace, publicNamespace, data, prepared: Object.freeze([...prepared]) });
   return handle;
 }
 
@@ -159,4 +162,56 @@ export function readAcceptedTurnExtensionSelection(handle: AcceptedTurnExtension
     throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The accepted turn selection does not match this context.', 403);
   }
   return record.data;
+}
+
+/** Only actual intake provenance can cross the SQL admission boundary. Stored JSON cannot mint it. */
+export async function withRevalidatedAcceptedTurnExtensionSelectionOnConnection<T>(database: SqlConnection,
+  context: AgentExecutionContext, handle: AcceptedTurnExtensionSelection,
+  callback: (selection: StoredAcceptedTurnExtensionSelection) => Promise<T>): Promise<T> {
+  const { resolveVerifiedAgentActorContextOnConnection } = await import('@/app/lib/agents/actor-context');
+  const { readStoredAgentWorkspaceOnConnection, workspaceToAgentExecutionContext } = await import('@/app/lib/pi/session-workspace-context');
+  const data = readAcceptedTurnExtensionSelection(handle, context), record = records.get(handle)!;
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+  const actor: AgentManagementActor = Object.freeze({ userId: context.userId, source: 'system', sourceAgentId: context.agentId,
+    sessionId: context.sessionId, organizationId: context.organizationId, workspaceId: context.workspaceId, projectId: context.projectId });
+  const verifyActor = async () => {
+    if (!context.agentId || !context.workspaceId) throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'A stored Agent session is required.', 403);
+    const verified = await resolveVerifiedAgentActorContextOnConnection(actor, database, { lock: true });
+    const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: context.userId, sessionId: context.sessionId,
+      agentId: context.agentId, workspaceId: context.workspaceId, permissions: ['canRead', 'canRunAgent'] });
+    const fresh = { ...context, ...workspaceToAgentExecutionContext({ workspace, userId: context.userId,
+      sessionId: context.sessionId, agentId: context.agentId }) };
+    if (verified.organizationId !== context.organizationId || actorKey(fresh) !== record.actorKey) {
+      throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The actual session or workspace changed before admission.', 403);
+    }
+    readAcceptedTurnExtensionSelection(handle, context);
+    const currentTransaction = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+    if (!transactionId || currentTransaction !== transactionId) {
+      throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The actual admission transaction changed.', 403);
+    }
+  };
+  await verifyActor();
+  if (!Array.isArray(record.prepared) || record.prepared.length !== data.privateFixedBindings.length) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The actual prepared turn sources are unavailable.', 403);
+  }
+  // Every invocation acquires the complete stable source order before the Agent callback.
+  const sourceOrder = (binding: FixedBinding) => binding.entry.target.kind === 'shared'
+    ? `0:${binding.entry.target.connectionRef}` : `1:${JSON.stringify(binding.entry.selection)}`;
+  const sources = record.prepared.map((proof, index) => ({ proof, binding: data.privateFixedBindings[index] }))
+    .sort((left, right) => sourceOrder(left.binding).localeCompare(sourceOrder(right.binding)));
+  const hold = async (index: number): Promise<T> => {
+    readAcceptedTurnExtensionSelection(handle, context);
+    if (index === sources.length) {
+      const result = await callback(data);
+      await verifyActor();
+      readAcceptedTurnExtensionSelection(handle, context);
+      return result;
+    }
+    const { proof, binding } = sources[index];
+    if (JSON.stringify(selectedFixedBinding(proof, actor)) !== JSON.stringify(binding)) {
+      throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The actual prepared source no longer matches this turn.', 403);
+    }
+    return withRevalidatedStandaloneTurnSelectionOnConnection(database, proof, actor, () => hold(index + 1));
+  };
+  return hold(0);
 }

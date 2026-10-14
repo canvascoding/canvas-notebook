@@ -5,11 +5,16 @@ import { getAuthorizedAgentWorkflowPackageSelections, isAuthorizedAgentWorkflowP
   type AuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { IntegrationContractError, type IntegrationExecutionContext, type IntegrationPolicy,
   type IntegrationProviderDescriptor, type IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
-import { authorizeIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
+import { authorizeIntegrationConnection, lockIntegrationConnectionBindingsOnConnection,
+  revalidateIntegrationConnectionRuntimeSourceOnConnection } from '@/app/lib/integration-tools/connections/store';
+import type { AuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/contracts';
+import type { SqlConnection } from '@/app/lib/db';
+import { readAgentWorkflowSharedSourceMetadata } from './workflow-source-metadata';
 import { createSharedIntegrationProviderRef, findSharedIntegrationConnectionAuthorization } from '@/app/lib/integration-tools/connections/provider-authorization';
 import { createSharedIntegrationPolicyDescriptor } from '@/app/lib/integration-tools/connections/provider-policy';
 import { integrationPolicyAllowedToolNames, isIntegrationProviderOperationAllowed, isIntegrationProviderVisible } from '@/app/lib/integration-tools/policy';
 import { attachPersonalWorkflowProviderTargets, verifyStoredPersonalWorkflowProviderTarget, getPreparedPersonalWorkflowProviderTarget,
+  revalidatePreparedPersonalWorkflowMetadataOnConnection,
   type PreparedPersonalWorkflowProviderTarget } from '@/app/lib/integration-tools/workflow-personal-bindings';
 import { getAttachedPersonalWorkflowProviderDescriptor } from '@/app/lib/integration-tools/workflow-personal-provenance';
 import { schemaFingerprint } from '@/app/lib/integration-tools/schema';
@@ -31,6 +36,10 @@ export type AgentWorkflowRuntimeProjection = Readonly<{ policy: IntegrationPolic
   selectedProviders: readonly IntegrationProviderDescriptor[];
   standaloneSelections: readonly AgentStandaloneRuntimeSelection[]; unavailable: boolean }>;
 type ProjectionProof = { actorKey: string; prepared: readonly PreparedPersonalWorkflowProviderTarget[];
+  admissionPrepared: readonly PreparedPersonalWorkflowProviderTarget[];
+  admissionNamespace: string; turnSource: AgentExecutionContext['turnExtensionSource'];
+  selection: AuthorizedAgentWorkflowPackageSelections;
+  shared: readonly { authorization: AuthorizedIntegrationConnection; metadata: string }[];
   requiredTools: readonly RequiredProviderTools[]; requiredProviders: readonly RequiredProvider[];
   associations: readonly WorkflowProviderAssociation[]; unavailable: boolean };
 const host = globalThis as typeof globalThis & { __canvasAgentWorkflowRuntimeV1?: WeakMap<object, ProjectionProof> };
@@ -117,6 +126,7 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
   const rules = new Map<string, IntegrationProviderToolRule>();
   const descriptors = new Map<string, IntegrationProviderDescriptor>();
   const prepared: PreparedPersonalWorkflowProviderTarget[] = [];
+  const shared: Array<{ authorization: AuthorizedIntegrationConnection; metadata: string }> = [];
   const requirements = new Map<string, RequiredProviderTools>();
   const requiredProviders = new Map<string, RequiredProvider>();
   const associations = new Map<string, WorkflowProviderAssociation>();
@@ -164,10 +174,12 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
             if (!definition?.enabled || definition.revision !== target.verifiedMcpMapping.definitionRevision) return deny();
           }
         }
+        const metadata = await readAgentWorkflowSharedSourceMetadata(authorization);
         providerRef = createSharedIntegrationProviderRef(authorization.resource);
         descriptors.set(providerRef, await createSharedIntegrationPolicyDescriptor(metadataContext, authorization));
         permitted = intersectTools(toolCap, authorization.allowedToolNames);
         authorityRevisions.push([providerRef, authorization.authorizationRevision]);
+        shared.push({ authorization, metadata });
       } else {
         if (!target.personalBinding || !target.boundProviderRef || !target.bindingFingerprint || target.ownerUserId !== actor.userId
           || target.personalBinding.source !== alternative.source || alternative.source === 'composio'
@@ -215,6 +227,14 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
   }
   const standalone = await resolveAgentStandaloneRuntimeProviders(context, selection, { skipProviderResolution: unavailable,
     ...(context.turnExtensionSource ? { turnSource: context.turnExtensionSource } : {}), ...(packageFocus ? { packageFocus } : {}) });
+  const admissionPrepared = [...prepared];
+  for (const provider of standalone.admissionProviders ?? standalone.providers) {
+    if (provider.personalProof) admissionPrepared.push(provider.personalProof);
+    if (provider.sharedAuthorization) {
+      if (!provider.sharedSourceMetadata) return deny();
+      shared.push({ authorization: provider.sharedAuthorization, metadata: provider.sharedSourceMetadata });
+    }
+  }
   unavailable ||= standalone.unavailable;
   if (!unavailable) for (const provider of standalone.providers) {
     const { descriptor, toolCap, selected } = provider;
@@ -249,10 +269,69 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
     choices: selection.snapshot.choices, packages: selection.fingerprint, authorityRevisions,
     standaloneSelections: standalone.selections, unavailable, policy }),
     selectedProviders: unavailable ? [] : [...descriptors.values()], standaloneSelections: standalone.selections, unavailable });
-  projections.set(projection, { actorKey: actorKey(context), prepared: unavailable ? [] : prepared,
+  projections.set(projection, { actorKey: actorKey(context), admissionNamespace: admissionSourceNamespace(context),
+    turnSource: context.turnExtensionSource, selection, shared, admissionPrepared, prepared: unavailable ? [] : prepared,
     requiredTools: unavailable ? [] : [...requirements.values()], requiredProviders: unavailable ? [] : [...requiredProviders.values()],
     associations: unavailable ? [] : [...associations.values()], unavailable });
   return projection;
+}
+
+function admissionSourceNamespace(context: AgentExecutionContext): string {
+  return JSON.stringify([actorKey(context), context.agentTurnId ?? null, context.turnExtensions ?? null,
+    context.turnExtensionSource?.fingerprint ?? null, context.workspaceType, context.workspaceRoot,
+    context.workspaceRootRelativePath, context.projectId, context.customerId, context.canWrite, context.canDelete,
+    context.canShare, context.legacy]);
+}
+
+/** Lock the complete selected Shared union before Personal, Package and Agent locks.
+ * Additional refs are structural locks only; no supplied DTO can issue runtime authority. */
+export async function withRevalidatedAgentWorkflowProjectionSourcesOnConnection<T>(database: SqlConnection,
+  contextInput: AgentExecutionContext, projection: AgentWorkflowRuntimeProjection | null,
+  options: { additionalSharedRefs?: readonly string[] }, callback: () => Promise<T>): Promise<T> {
+  const { resolveVerifiedAgentActorContextOnConnection } = await import('./actor-context');
+  const { readStoredAgentWorkspaceOnConnection, workspaceToAgentExecutionContext } = await import('@/app/lib/pi/session-workspace-context');
+  const context = { ...contextInput, ...(contextInput.turnExtensions ? { turnExtensions: structuredClone(contextInput.turnExtensions) } : {}) };
+  const namespace = admissionSourceNamespace(context);
+  const proof = projection ? projections.get(projection) : null;
+  if (projection && (!proof || proof.admissionNamespace !== namespace || proof.turnSource !== context.turnExtensionSource
+    || !isAuthorizedAgentWorkflowPackageSelections(proof.selection, context))) return deny();
+  if (!projection && (context.turnExtensionSource || context.turnExtensions?.selections.length)) return deny();
+  const actor = agentWorkflowRuntimeActor(context);
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+  const verifyActor = async () => {
+    const current = await resolveVerifiedAgentActorContextOnConnection(actor, database, { lock: true });
+    if (!context.agentId || !context.workspaceId) return deny();
+    const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: context.userId, sessionId: context.sessionId,
+      agentId: context.agentId, workspaceId: context.workspaceId, permissions: ['canRead', 'canRunAgent'] });
+    const fresh = { ...context, ...workspaceToAgentExecutionContext({ workspace, userId: context.userId,
+      sessionId: context.sessionId, agentId: context.agentId }) };
+    if (admissionSourceNamespace(fresh) !== namespace || admissionSourceNamespace(contextInput) !== namespace
+      || contextInput.turnExtensionSource !== context.turnExtensionSource) return deny();
+    const currentTransaction = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+    if (!transactionId || transactionId !== currentTransaction) return deny();
+    if (proof && (!isAuthorizedAgentWorkflowPackageSelections(proof.selection, context)
+      || projections.get(projection!) !== proof)) return deny();
+    if (!projection) {
+      const snapshot = await (await import('./workflow-configuration')).readManagedAgentWorkflow(actor, context.agentId, { database });
+      if (snapshot.workflowVersion !== null) return deny();
+    }
+    return current;
+  };
+  const current = await verifyActor();
+  await lockIntegrationConnectionBindingsOnConnection(database, { userId: context.userId, ...current.context },
+    [...(proof?.shared.map(entry => entry.authorization.resource.connectionRef) ?? []), ...(options.additionalSharedRefs ?? [])]);
+  const verify = async () => {
+    await verifyActor();
+    for (const entry of proof?.shared ?? []) {
+      await revalidateIntegrationConnectionRuntimeSourceOnConnection(database, entry.authorization);
+      if (await readAgentWorkflowSharedSourceMetadata(entry.authorization, database) !== entry.metadata) return deny();
+    }
+    for (const personal of proof?.admissionPrepared ?? []) await revalidatePreparedPersonalWorkflowMetadataOnConnection(database, personal);
+  };
+  await verify();
+  const result = await callback();
+  await verify();
+  return result;
 }
 
 /** JSON clones and another session cannot attach a workflow's personal provider authority. */

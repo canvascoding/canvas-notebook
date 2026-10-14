@@ -2,12 +2,20 @@ import 'server-only';
 
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import { openDb, type SqlConnection } from '@/app/lib/db';
+import { resolveVerifiedAgentActorContextOnConnection } from '@/app/lib/agents/actor-context';
+import { readStoredAgentWorkspaceOnConnection, workspaceToAgentExecutionContext } from '@/app/lib/pi/session-workspace-context';
+import { readManagedAgentWorkflow } from '@/app/lib/agents/workflow-configuration';
+import { resolveSettingsStoragePath, resolveLegacySettingsStoragePath } from '@/app/lib/settings-storage';
+import { resolveUserSettingsDir } from '@/app/lib/runtime-data-paths';
+import { readIntegrationToolGatewayAvailability } from '@/app/lib/integration-tool-gateway-availability';
 
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { loadCapabilityCandidates, resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import { resolveEffectiveCapabilities } from '@/app/lib/capabilities/effective-resolver';
-import { withCapabilityPolicyStore } from '@/app/lib/capabilities/policy-store';
+import { CapabilityPolicyStore, withCapabilityPolicyStore } from '@/app/lib/capabilities/policy-store';
 import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import type { CapabilityCandidate, EffectiveCapabilitySnapshot } from '@/app/lib/capabilities/types';
@@ -70,7 +78,7 @@ type PinnedPackage = { configuration: StoredAgentWorkflowPackage; sourceConfigur
   published: CapabilityPackagePublishedRevision; skills: CapabilityCandidate[]; metadata: PackageExtensionSourceMetadata;
   extensionSelections?: readonly StoredPackageExtensionSelectionEntry[]; turnSelections: readonly ExtensionSelectionEntry[] };
 type WorkflowSelectionProof = { actorKey: string; effective: EffectiveCapabilitySnapshot; pinned: PinnedPackage[];
-  delegatedSource?: HeldDelegatedExtensionSource };
+  delegatedSource?: HeldDelegatedExtensionSource; admissionStamp?: string };
 const workflowRegistryKey = Symbol.for('canvas.capability.workflow-package-selections.v1');
 const workflowGlobal = globalThis as typeof globalThis & { [workflowRegistryKey]?: WeakMap<object, WorkflowSelectionProof> };
 const workflowRegistry = workflowGlobal[workflowRegistryKey] ??= new WeakMap<object, WorkflowSelectionProof>();
@@ -412,8 +420,171 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
           candidate.matchedPolicies.map(policy => [policy.id, policy.revision, policy.effect])]), packageTurns, pinned.map(entry => [entry.published.resourceRef,
         entry.published.revisionRef, entry.published.checksum, entry.candidate.resourceMetadata?.metadataRevision,
         entry.candidate.resourceMetadata?.grantsRevision, entry.extensionSelections, entry.configuration.selectedSkills, entry.configuration.declarations])])).digest('hex') });
-  workflowRegistry.set(result, { actorKey: actorKey(context), effective: projected, pinned, delegatedSource });
+  const admissionDatabase = await openDb();
+  let admissionStamp: string;
+  try { admissionStamp = await readWorkflowAdmissionStamp(admissionDatabase, context); }
+  finally { await admissionDatabase.close(); }
+  workflowRegistry.set(result, { actorKey: actorKey(context), effective: projected, pinned, delegatedSource, admissionStamp });
   return result;
+}
+
+async function existingAdmissionFile(file: string): Promise<string | null> {
+  try { return createHash('sha256').update(await fs.readFile(file)).digest('hex'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+}
+
+/** Compare actual native/model/policy inputs; never bootstrap config or borrow SQL under a held frame. */
+async function readWorkflowAdmissionStamp(database: SqlConnection, context: AgentExecutionContext, lock = false): Promise<string> {
+  const organizationId = context.organizationId ?? '', suffix = lock ? ' FOR SHARE' : '';
+  const values = [
+    await database.all(`SELECT * FROM capability_policies WHERE organization_id=$1 ORDER BY id${suffix}`, [organizationId]),
+    await database.all(`SELECT * FROM ai_runtime_defaults WHERE organization_id=$1 ORDER BY organization_id${suffix}`, [organizationId]),
+    await database.all(`SELECT * FROM ai_provider_installations WHERE organization_id=$1 ORDER BY id${suffix}`, [organizationId]),
+    await database.all(`SELECT * FROM ai_provider_models WHERE organization_id=$1 ORDER BY provider_installation_id,model_id${suffix}`, [organizationId]),
+    await database.all(`SELECT * FROM ai_workspace_model_policies WHERE organization_id=$1 AND workspace_id=$2 ORDER BY workspace_id${suffix}`,
+      [organizationId, context.workspaceId ?? '']),
+    await database.all(`SELECT * FROM ai_user_model_preferences WHERE organization_id=$1 AND user_id=$2 ORDER BY workspace_id,agent_id${suffix}`,
+      [organizationId, context.userId]),
+    await database.all(`SELECT * FROM ai_user_workspace_provider_grants WHERE organization_id=$1 AND user_id=$2 ORDER BY id${suffix}`,
+      [organizationId, context.userId]),
+    await database.all(`SELECT * FROM ai_user_provider_verifications WHERE organization_id=$1 AND user_id=$2 ORDER BY provider_installation_id${suffix}`,
+      [organizationId, context.userId]),
+    ...await Promise.all([
+      existingAdmissionFile(resolveSettingsStoragePath('pi-runtime-config.json')),
+      existingAdmissionFile(resolveLegacySettingsStoragePath('pi-runtime-config.json')),
+      existingAdmissionFile(path.join(resolveUserSettingsDir(context.userId), 'capabilities.json')),
+    ]),
+  ];
+  return createHash('sha256').update(JSON.stringify([values, readIntegrationToolGatewayAvailability()])).digest('hex');
+}
+
+function workflowAdmissionActorKey(context: AgentExecutionContext): string {
+  return JSON.stringify([actorKey(context), context.workspaceRoot, context.workspaceRootRelativePath,
+    context.canWrite, context.canDelete, context.canShare, context.legacy]);
+}
+
+function workflowAdmissionSnapshotKey(snapshot: AgentWorkflowInternalSnapshot): string {
+  return JSON.stringify([snapshot.agent, snapshot.workflowVersion, snapshot.workflowRevision, snapshot.bindings,
+    snapshot.preferenceRevision, snapshot.choices]);
+}
+
+function workflowAdmissionSkillKey(effective: EffectiveCapabilitySnapshot, agentId: string | null | undefined,
+  snapshot: AgentWorkflowInternalSnapshot, pinned: readonly PinnedPackage[]): string {
+  const skills = selectExtensionRuntimeSkillCandidates({ effective,
+    agentKind: normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special',
+    relevantSkills: snapshot.agent.relevantSkills, workflowVersion: snapshot.workflowVersion,
+    packageSkills: pinned.flatMap(entry => entry.skills) });
+  return JSON.stringify(skills.map(skill => {
+    const current = effective.capabilities.find(candidate => candidate.ref.resourceId === skill.ref.resourceId);
+    return [skill.ref.resourceId, skill.ref.name, skill.ref.checksum, skill.runtimePath,
+      current?.effectiveEnabled, current?.readiness, current?.effectivePolicy, skill.resourceAccess?.canUse,
+      skill.resourceMetadata?.grantsRevision, skill.resourceMetadata?.ownership,
+      current?.matchedPolicies.map(policy => [policy.id, policy.revision, policy.effect])];
+  }).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}
+
+/** Keep exact package Use sources and current masks until the caller's admission write finishes.
+ * Only the original issued selection is accepted. No snapshot DTO, default-head substitution,
+ * checkout or transaction lifecycle belongs to this borrowed-connection boundary. */
+export async function withRevalidatedAgentWorkflowPackageSelectionOnConnection<T>(database: SqlConnection,
+  contextInput: AgentExecutionContext, selection: AuthorizedAgentWorkflowPackageSelections,
+  callback: () => Promise<T>): Promise<T> {
+  const context = { ...contextInput, ...(contextInput.turnExtensions ? { turnExtensions: structuredClone(contextInput.turnExtensions) } : {}) };
+  const namespace = workflowAdmissionActorKey(context), proof = requireWorkflowProof(selection, context);
+  if (!proof.admissionStamp || !context.agentId || !context.workspaceId) {
+    throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'A genuine prepared package selection and stored session are required.', 403);
+  }
+  const actor = { userId: context.userId, source: 'system' as const, sourceAgentId: context.agentId, sessionId: context.sessionId,
+    organizationId: context.organizationId, workspaceId: context.workspaceId, projectId: context.projectId };
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+  const verifyTransaction = async () => {
+    const current = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+    if (!transactionId || current !== transactionId) throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The actual admission transaction changed.', 403);
+  };
+  const verifyActor = async () => {
+    const current = await resolveVerifiedAgentActorContextOnConnection(actor, database, { lock: true });
+    const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: context.userId, sessionId: context.sessionId,
+      agentId: context.agentId!, workspaceId: context.workspaceId!, permissions: ['canRead', 'canRunAgent'] });
+    const fresh = { ...context, ...workspaceToAgentExecutionContext({ workspace, userId: context.userId,
+      sessionId: context.sessionId, agentId: context.agentId }) };
+    if (current.organizationId !== context.organizationId || workflowAdmissionActorKey(fresh) !== namespace
+      || workflowAdmissionActorKey(contextInput) !== namespace) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The originating actor, session or workspace changed.', 403);
+    }
+    requireWorkflowProof(selection, contextInput);
+    return current;
+  };
+  const verified = await verifyActor();
+  await verifyTransaction();
+  const sources = [...proof.pinned].sort((left, right) => left.storage.resourceId.localeCompare(right.storage.resourceId));
+  const currentSources = new Map<string, PinnedPackage>();
+  const verify = async () => {
+    await verifyTransaction();
+    await verifyActor();
+    if (await readWorkflowAdmissionStamp(database, context, true) !== proof.admissionStamp) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'Native tools, model configuration or source policies changed.', 409);
+    }
+    const snapshot = await readManagedAgentWorkflow(actor, context.agentId!, { database });
+    if (!snapshot.access.canUse || workflowAdmissionSnapshotKey(snapshot) !== workflowAdmissionSnapshotKey(selection.snapshot)) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The Agent configuration or personal choices changed.', 409);
+    }
+    const input = { userId: context.userId, organizationId: context.organizationId ?? '',
+      role: verified.organizationRole, workspaceId: context.workspaceId, projectId: context.projectId };
+    const candidates = await loadCapabilityCandidates(input, { resolveConnections: false, database });
+    const policies = context.organizationId ? await new CapabilityPolicyStore(database).listOrganizationPolicies(context.organizationId) : [];
+    const effective = resolveEffectiveCapabilities({ context: input, candidates: candidates.map(candidate => candidate.ref.resourceType === 'plugin'
+      ? { ...candidate, connectionRequirementCount: 0 } : candidate), policies });
+    const pinned: PinnedPackage[] = [];
+    for (const original of proof.pinned) {
+      const held = currentSources.get(original.storage.resourceId)!;
+      const published = await getCapabilityPackagePublishedRevision(original.published.resourceRef, original.published.revisionRef, database);
+      if (!published || JSON.stringify(published) !== JSON.stringify(original.published)) {
+        throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The immutable selected revision changed.', 409);
+      }
+      await verifyCapabilityPackageSnapshot(original.location);
+      const candidate = effective.capabilities.find(row => row.ref.resourceId === original.candidate.ref.resourceId);
+      if (!candidate || selection.workflowVersion === null && (!candidate.effectiveEnabled || candidate.readiness !== 'available'
+        || candidate.resourceAccess?.canUse === false)) {
+        throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'A selected package is no longer enabled or available.', 403);
+      }
+      const all = projectPinnedExtensionSkillCandidates({ candidate, effective, metadata: held.metadata, published: held.published,
+        resourceAccess: held.candidate.resourceAccess!, resourceMetadata: held.candidate.resourceMetadata! });
+      const selected = new Set(original.configuration.selectedSkills.map(skill => skill.name));
+      pinned.push({ ...held, skills: all.filter(skill => selected.has(skill.ref.name)) });
+    }
+    const projected = projectPinnedExtensionEffectiveCapabilities({ effective, workflowVersion: selection.workflowVersion,
+      packages: pinned, role: verified.organizationRole, policies });
+    if (workflowAdmissionSkillKey(projected, context.agentId, snapshot, pinned)
+      !== workflowAdmissionSkillKey(proof.effective, context.agentId, selection.snapshot, proof.pinned)) {
+      throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The selected, required or inherited skill mask changed.', 409);
+    }
+  };
+  const hold = async (index: number): Promise<T> => {
+    if (index === sources.length) {
+      await verify();
+      const result = await callback();
+      await verify();
+      return result;
+    }
+    const original = sources[index];
+    return withAuthorizedCapabilityPackageResource({ userId: context.userId, workspaceId: context.workspaceId }, original.storage, 'use', undefined,
+      async (authorization, connection) => {
+        const state = await findCapabilityPackageStateForStorage(original.storage, connection);
+        const published = state?.resourceRef === original.published.resourceRef
+          ? await getCapabilityPackagePublishedRevision(original.published.resourceRef, original.published.revisionRef, connection) : null;
+        if (!published || published.checksum !== original.published.checksum || published.kind !== original.published.kind
+          || JSON.stringify(authorization.record.metadata.ownership) !== JSON.stringify(original.candidate.resourceMetadata?.ownership)
+          || authorization.record.metadata.grantsRevision !== original.candidate.resourceMetadata?.grantsRevision) {
+          throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The exact published package or its grants changed.', 409);
+        }
+        await verifyCapabilityPackageSnapshot(original.location);
+        const metadata = await readPackageExtensionSourceMetadata(original.location);
+        currentSources.set(original.storage.resourceId, { ...original, published, metadata,
+          candidate: { ...original.candidate, resourceAccess: authorization.access, resourceMetadata: authorization.record.metadata } });
+        return hold(index + 1);
+      }, { database });
+  };
+  return hold(0);
 }
 
 function selectedRuntimeSkills(snapshot: EffectiveCapabilitySnapshot, agentId: string | null | undefined,

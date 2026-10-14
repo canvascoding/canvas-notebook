@@ -14,6 +14,8 @@ import {
   type IntegrationProviderDescriptor,
 } from '@/app/lib/integration-tools/contracts';
 import { authorizeIntegrationConnection, revalidateAuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
+import type { AuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/contracts';
+import { readAgentWorkflowSharedSourceMetadata } from '@/app/lib/agents/workflow-source-metadata';
 import { createSharedIntegrationPolicyDescriptor } from '@/app/lib/integration-tools/connections/provider-policy';
 import {
   attachPersonalWorkflowProviderTargets,
@@ -61,9 +63,12 @@ export type AgentStandaloneRuntimeProvider = Readonly<{
   toolCap: readonly string[] | null;
   authorityRevision: string;
   personalProof?: PreparedPersonalWorkflowProviderTarget;
+  sharedAuthorization?: AuthorizedIntegrationConnection;
+  sharedSourceMetadata?: string;
 }>;
 export type AgentStandaloneRuntimeProviders = Readonly<{
   providers: readonly AgentStandaloneRuntimeProvider[];
+  admissionProviders: readonly AgentStandaloneRuntimeProvider[];
   selections: readonly AgentStandaloneRuntimeSelection[];
   unavailable: boolean;
 }>;
@@ -207,7 +212,9 @@ async function resolveSelectedProvider(context: AgentExecutionContext,
     const actual = await revalidateAuthorizedIntegrationConnection(authorization, 'inspect');
     const toolCap = choice.toolCap === null ? actual.allowedToolNames
       : actual.allowedToolNames === null ? [...choice.toolCap] : choice.toolCap.filter(name => actual.allowedToolNames!.includes(name));
-    return freeze({ selected, descriptor, toolCap, authorityRevision: actual.authorizationRevision });
+    const sharedSourceMetadata = await readAgentWorkflowSharedSourceMetadata(actual);
+    return freeze({ selected, descriptor, toolCap, authorityRevision: actual.authorizationRevision,
+      sharedAuthorization: actual, sharedSourceMetadata });
   }
   if (target.ownerUserId !== actor.userId) return denied();
   const proof = await verifyStoredPersonalWorkflowProviderTarget({ actor, target: { binding: target.personalBinding,
@@ -271,9 +278,9 @@ export async function resolveAgentStandaloneRuntimeProviders(context: AgentExecu
     ...(selected.choice ? { selection: selected.choice.selection } : {}) }));
   // A missing required choice is known from SQL. Do not inspect unrelated providers to discover it.
   if (configured.some(selected => selected.required && !selected.choice)) {
-    return freeze({ providers: [], selections: summaries, unavailable: true });
+    return freeze({ providers: [], admissionProviders: [], selections: summaries, unavailable: true });
   }
-  if (options.skipProviderResolution) return freeze({ providers: [], selections: summaries, unavailable: false });
+  if (options.skipProviderResolution) return freeze({ providers: [], admissionProviders: [], selections: summaries, unavailable: false });
   const providers: AgentStandaloneRuntimeProvider[] = [];
   let unavailable = false;
   for (let index = 0; index < configured.length; index += 1) {
@@ -288,5 +295,5 @@ export async function resolveAgentStandaloneRuntimeProviders(context: AgentExecu
       if (selected.required) unavailable = true;
     }
   }
-  return freeze({ providers: unavailable ? [] : providers, selections: summaries, unavailable });
+  return freeze({ providers: unavailable ? [] : providers, admissionProviders: providers, selections: summaries, unavailable });
 }

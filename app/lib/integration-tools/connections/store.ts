@@ -476,6 +476,58 @@ export async function authorizeIntegrationConnectionOnConnection(database: SqlCo
     fail('CONNECTION_ACCESS_DENIED', 'An active account and seat are required.', 403));
   return authorizeOn(database, actor, await recordOn(database, ref), operation, toolName, false);
 }
+
+/** Hold a genuine runtime Use source on the caller's lease, before its Agent/session locks.
+ * This is not the configuration-binding path and never accepts a fabricated target Agent.
+ * The caller owns the transaction; no checkout or transaction lifecycle occurs here. */
+export async function withRevalidatedIntegrationConnectionUseOnConnection<T>(database: SqlConnection,
+  previous: AuthorizedIntegrationConnection, callback: () => Promise<T>): Promise<T> {
+  if (!isAuthorizedIntegrationConnection(previous) || previous.operation !== 'use') {
+    fail('CONNECTION_ACCESS_DENIED', 'A genuine current Use authorization is required.', 403);
+  }
+  const actor = actorSnapshot(previous.actor), ref = validateIntegrationConnectionRef(previous.resource.connectionRef);
+  await assertUserSeatAccess({ userId: actor.userId, database, readOnlyLicense: true }).catch(() =>
+    fail('CONNECTION_ACCESS_DENIED', 'An active account and seat are required.', 403));
+  const initial = await authority(database, actor, true);
+  if (!initial.valid || !initial.contextValid) fail('CONNECTION_ACCESS_DENIED', 'The current connection context is unavailable.', 403);
+  const entry = await recordOn(database, ref, true);
+  const grants = await grantsOn(database, ref);
+  await lockCapabilityScopeWorkspaceAuthority(database, initial, entry.resource.ownership,
+    grants.flatMap(grant => grant.targetType === 'agent' ? [] : [{ targetType: grant.targetType, targetId: grant.targetId }]));
+  await lockOwnership(database, entry.resource.ownership, initial);
+  const verify = async () => {
+    // Runtime Agent locks belong to the outer admission callback, after ALL sources.
+    const current = await authorizeOn(database, actor, await recordOn(database, ref), 'use', undefined, false);
+    if (current.authorizationRevision !== previous.authorizationRevision) {
+      fail('CONNECTION_BINDING_CHANGED', 'The selected source or its permissions changed before admission.', 409);
+    }
+  };
+  await verify();
+  const result = await callback();
+  await verify();
+  return result;
+}
+
+/** Fresh runtime Use checks for a genuine compiler inspection, after the caller locked its source batch.
+ * Empty callable-tool bounds remain valid metadata; configuration authority is never issued here. */
+export async function revalidateIntegrationConnectionRuntimeSourceOnConnection(database: SqlConnection,
+  previous: AuthorizedIntegrationConnection): Promise<void> {
+  if (!isAuthorizedIntegrationConnection(previous) || !previous.access.canUse
+    || !['inspect', 'use'].includes(previous.operation)) {
+    fail('CONNECTION_ACCESS_DENIED', 'A genuine selected runtime source is required.', 403);
+  }
+  await assertUserSeatAccess({ userId: previous.actor.userId, database, readOnlyLicense: true }).catch(() =>
+    fail('CONNECTION_ACCESS_DENIED', 'An active account and seat are required.', 403));
+  const actor = actorSnapshot(previous.actor), initial = await authority(database, actor, true);
+  const entry = await recordOn(database, previous.resource.connectionRef), grants = await grantsOn(database, previous.resource.connectionRef);
+  await lockCapabilityScopeWorkspaceAuthority(database, initial, entry.resource.ownership,
+    grants.flatMap(grant => grant.targetType === 'agent' ? [] : [{ targetType: grant.targetType, targetId: grant.targetId }]));
+  await lockOwnership(database, entry.resource.ownership, initial);
+  const current = await authorizeOn(database, actor, entry, 'inspect', undefined, false);
+  if (!current.access.canUse || current.authorizationRevision !== previous.authorizationRevision) {
+    fail('CONNECTION_BINDING_CHANGED', 'The selected runtime source or its grants changed.', 409);
+  }
+}
 export async function revalidateAuthorizedIntegrationConnection(previous: AuthorizedIntegrationConnection,
   operation?: IntegrationConnectionOperation, toolName?: string): Promise<AuthorizedIntegrationConnection> {
   if (!isAuthorizedIntegrationConnection(previous)) fail('CONNECTION_ACCESS_DENIED', 'A current server-issued connection authorization is required.', 403);

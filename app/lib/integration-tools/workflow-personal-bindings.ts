@@ -189,49 +189,70 @@ export async function preparePersonalWorkflowProviderTarget(input: { actor: Agen
 
 /** Only called on a private target read from the actual workflow configuration by server code. */
 export async function verifyStoredPersonalWorkflowProviderTarget(input: { actor: AgentManagementActor;
-  target: PersonalWorkflowProviderTargetSnapshot }, options: { checkProviderReadiness?: boolean } = {}): Promise<PreparedPersonalWorkflowProviderTarget> {
+  target: PersonalWorkflowProviderTargetSnapshot }, options: { checkProviderReadiness?: boolean; database?: SqlConnection } = {}): Promise<PreparedPersonalWorkflowProviderTarget> {
   const actor = { ...input.actor }; const target = snapshot(input.target);
+  if (options.database && options.checkProviderReadiness !== false) return denied();
   if (target.binding.ownerUserId !== actor.userId) return denied();
-  const context = await withActor(actor, undefined, false, async (_database, current) => current);
+  const context = await withActor(actor, options.database, Boolean(options.database), async (_database, current) => current);
   if (options.checkProviderReadiness === false) {
     const { createIntegrationProviderRef } = await import('./references');
     let displayName: string;
+    let metadataStamp: string;
+    const { readUnifiedEnvState, assertUnifiedEnvReadable } = await import('@/app/lib/secrets/unified-env-store');
+    const environment = await readUnifiedEnvState({ userId: actor.userId });
+    assertUnifiedEnvReadable(environment);
     if (target.binding.source === 'composio') {
-      const database = await (await import('@/app/lib/db')).openDb();
+      const database = options.database ?? await (await import('@/app/lib/db')).openDb();
       try {
-        const row = await database.get(`SELECT owner_user_id,scope_type,status,name FROM composio_connection_profiles WHERE id=$1`, [target.binding.profileId]) as Record<string, unknown> | undefined;
+        const row = await database.get(`SELECT * FROM composio_connection_profiles WHERE id=$1${options.database ? ' FOR SHARE' : ''}`, [target.binding.profileId]) as Record<string, unknown> | undefined;
         if (!row || row.owner_user_id !== actor.userId || row.scope_type !== 'user' || row.status !== 'active') return denied();
         const base = createIntegrationProviderRef({ source: 'composio', profileId: target.binding.profileId, toolkit: target.binding.toolkit,
           scope: { type: 'user', resourceId: `profile:${target.binding.profileId}:${target.binding.toolkit}`, ownerUserId: actor.userId } });
         if (base !== target.baseProviderRef) return denied();
-        const { getComposioMode } = await import('@/app/lib/composio/composio-client');
+        const { getComposioMode, getLocalComposioApiKey } = await import('@/app/lib/composio/composio-client');
         const mode = await getComposioMode({ secretScope: 'user', userId: actor.userId });
         if (mode !== target.binding.mode) return changed();
         displayName = `${target.binding.toolkit} · ${typeof row.name === 'string' ? row.name : 'Personal connection'}`;
-      } finally { await database.close(); }
+        metadataStamp = schemaFingerprint([row, mode, environment.revision,
+          hash(await getLocalComposioApiKey({ secretScope: 'user', userId: actor.userId }) ?? ''), target]);
+      } finally { if (!options.database) await database.close(); }
     } else {
       const binding = target.binding;
-      const { readMcpConfig } = await import('@/app/lib/mcp/config');
-      const { assertMcpConnectionAccess } = await import('@/app/lib/mcp/access');
-      const database = await (await import('@/app/lib/db')).openDb();
+      const { resolveMcpConfigPath } = await import('@/app/lib/mcp/config');
+      const { readExistingConfig } = await import('@/app/lib/mcp/read-only-config');
+      const { assertPersonalMcpConnectionMetadataAccess } = await import('@/app/lib/mcp/access');
+      const database = options.database ?? await (await import('@/app/lib/db')).openDb();
       try {
         const row = context.organizationId ? await database.get('SELECT role,status FROM organization_user_permissions WHERE organization_id=$1 AND user_id=$2', [context.organizationId, actor.userId]) as { role: string; status: string } | undefined
           : await database.get('SELECT role FROM "user" WHERE id=$1', [actor.userId]) as { role: string; status?: string } | undefined;
         if (!row || context.organizationId && (row.status !== 'active' || row.role === 'external')) return denied();
         const canManageDefinitions = row.role === 'owner' || row.role === 'admin';
-        const access = await assertMcpConnectionAccess(binding.connectionId, { userId: actor.userId, organizationId: context.organizationId },
-          { allowDisabled: true, actor: { userId: actor.userId, organizationId: context.organizationId ?? null, canManageDefinitions } });
-        const connection = Object.values((await readMcpConfig({ userId: actor.userId, organizationId: context.organizationId })).mcpServers)
-          .find(item => item.connectionId === binding.connectionId && item.ownerUserId === actor.userId);
-        if (!connection || (connection.serverDefinitionId || null) !== binding.serverDefinitionId) return changed();
+        const scope = { userId: actor.userId, organizationId: context.organizationId };
+        const matches = Object.entries((await readExistingConfig(resolveMcpConfigPath(scope))).mcpServers)
+          .filter(([, item]) => item.connectionId === binding.connectionId && item.ownerUserId === actor.userId);
+        const selected = matches[0], connection = selected?.[1];
+        if (matches.length !== 1 || !connection || (connection.serverDefinitionId || null) !== binding.serverDefinitionId) return changed();
+        await assertPersonalMcpConnectionMetadataAccess(connection, scope,
+          { userId: actor.userId, organizationId: context.organizationId ?? null, canManageDefinitions }, { allowDisabled: true });
         const base = createIntegrationProviderRef({ source: 'mcp', connectionId: connection.connectionId!,
           scope: { type: 'user', resourceId: connection.connectionId!, ownerUserId: actor.userId } });
         if (base !== target.baseProviderRef) return denied();
-        displayName = connection.displayName || access.serverName;
-      } finally { await database.close(); }
+        displayName = connection.displayName || selected[0];
+        const { hashMcpAuthConfig } = await import('@/app/lib/mcp/connection-identity');
+        const { readMcpOAuthLifecycle } = await import('@/app/lib/mcp/oauth-lifecycle');
+        const { listMcpServerDefinitions } = await import('@/app/lib/mcp/server-definitions');
+        const lifecycle = await readMcpOAuthLifecycle(binding.connectionId, { userId: binding.ownerUserId });
+        const definition = binding.serverDefinitionId && connection.organizationId
+          ? (await listMcpServerDefinitions(connection.organizationId)).find(item => item.id === binding.serverDefinitionId) : null;
+        metadataStamp = schemaFingerprint([target, displayName, hashMcpAuthConfig(connection), connection.enabled !== false,
+          connection.authVersion || 1, lifecycle.generation, environment.revision, definition?.enabled ?? null,
+          definition?.revision ?? null, definition?.config ?? null, context]);
+      } finally { if (!options.database) await database.close(); }
     }
     const provider = presentPersonalWorkflowProvider(target, displayName);
-    return issue(actor, context, target, { provider, bindingRevision: target.bindingFingerprint, binding: null }, undefined, true);
+    const proof = issue(actor, context, target, { provider, bindingRevision: target.bindingFingerprint, binding: null }, undefined, true);
+    metadataProofs.set(proof, metadataStamp);
+    return proof;
   }
   if (target.binding.source === 'mcp') {
     const { inspectPersonalMcpIntegrationProvider } = await import('./adapters/mcp-runtime');
@@ -246,6 +267,19 @@ export async function verifyStoredPersonalWorkflowProviderTarget(input: { actor:
   const expected = composioTarget(current, target.binding.connectedAccountId);
   if (JSON.stringify(expected.binding) !== JSON.stringify(target.binding) || expected.bindingFingerprint !== target.bindingFingerprint) return changed();
   return issue(actor, context, target, resolvePersonalComposioInspection(current, target.binding.connectedAccountId), current);
+}
+
+const metadataHost = globalThis as typeof globalThis & { __canvasPersonalWorkflowMetadataProofsV1?: WeakMap<object, string> };
+const metadataProofs = metadataHost.__canvasPersonalWorkflowMetadataProofsV1 ??= new WeakMap<object, string>();
+
+/** Local admission freshness of the original genuine metadata proof; never execution authority. */
+export async function revalidatePreparedPersonalWorkflowMetadataOnConnection(database: SqlConnection,
+  proof: PreparedPersonalWorkflowProviderTarget): Promise<void> {
+  const record = preparedRecord(proof), expected = metadataProofs.get(proof);
+  if (!record.staticOnly || !expected) return denied();
+  const current = await verifyStoredPersonalWorkflowProviderTarget({ actor: record.actor, target: record.target },
+    { checkProviderReadiness: false, database });
+  if (metadataProofs.get(current) !== expected) return changed();
 }
 
 /** No BEGIN, COMMIT, connection borrowing or provider requests occur when a caller supplies its transaction. */

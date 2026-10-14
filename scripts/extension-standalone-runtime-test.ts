@@ -116,6 +116,18 @@ const loader = Module as typeof Module & { _load: (name: string, parent: NodeMod
 const original = loader._load;
 loader._load = (name, parent, isMain) => {
   if (name === 'server-only') return {};
+  if (name === './workflow-source-metadata' || name === '@/app/lib/agents/workflow-source-metadata'
+    || /\/agents\/workflow-source-metadata(?:\.ts)?$/u.test(name)) return {
+    // This existing control-flow fixture supplies synthetic source authority.
+    // Its new local metadata boundary preserves that exact source and revision;
+    // actual files, SQL rights and borrowed leases are covered by Source SQL.
+    readAgentWorkflowSharedSourceMetadata: async (value: ReturnType<typeof sharedAuthorization>) => {
+      assert(authorizations.has(value), 'Metadata cannot accept a cloned or invented source.');
+      assert.equal(value.resource.bindingRevision, bindingRevision);
+      assert.equal(value.resource.source, source);
+      return hash([value.resource, value.backend, value.authorizationRevision]);
+    },
+  };
   if (name === '@/app/lib/agents/workflow-runtime' || /\/agents\/workflow-runtime(?:\.ts)?$/u.test(name)) {
     const actual = original(name, parent, isMain) as Record<string, unknown>;
     return { ...actual, readAgentWorkflowPackageTurnFocus: (handle: object, actualContext: AgentExecutionContext, selection: object, turn: object) => {

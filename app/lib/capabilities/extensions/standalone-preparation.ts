@@ -9,6 +9,7 @@ import { createIntegrationProviderRef } from '@/app/lib/integration-tools/refere
 import {
   authorizeIntegrationConnection,
   revalidateAuthorizedIntegrationConnection,
+  withRevalidatedIntegrationConnectionUseOnConnection,
 } from '@/app/lib/integration-tools/connections/store';
 import {
   getPreparedPersonalWorkflowProviderTarget,
@@ -154,4 +155,25 @@ export async function revalidatePreparedStandaloneExtensionSelection(proof: Prep
   if (record.shared) await revalidateAuthorizedIntegrationConnection(record.shared, 'use');
   recordFor(proof, actor);
   return record.binding;
+}
+
+/** Admission of exact turn intent uses current ActorUse, never target-Agent configuration authority. */
+export async function withRevalidatedStandaloneTurnSelectionOnConnection<T>(database: SqlConnection,
+  proof: PreparedStandaloneExtensionSelection, actor: AgentManagementActor, callback: () => Promise<T>): Promise<T> {
+  const record = recordFor(proof, actor);
+  const verify = async () => {
+    const current = await verifiedActor(structuredClone(actor), database);
+    if (actorKey(current) !== record.verifiedActorKey) {
+      throw new IntegrationContractError('provider_denied', 'The current extension selection context changed.');
+    }
+    if (record.personal) await revalidatePreparedPersonalWorkflowProviderTarget(record.personal, { database });
+    recordFor(proof, actor);
+  };
+  await verify();
+  const run = async () => {
+    const result = await callback();
+    await verify();
+    return result;
+  };
+  return record.shared ? withRevalidatedIntegrationConnectionUseOnConnection(database, record.shared, run) : run();
 }
