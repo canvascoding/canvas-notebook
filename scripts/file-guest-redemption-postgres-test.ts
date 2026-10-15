@@ -1077,7 +1077,126 @@ async function main(): Promise<void> {
           await unregister(); await monitor.dispose();
         }
       });
-      assert.equal(cases, 37);
+      const { WorkspaceRequestPrincipalError, withFileGuestInvitationAuthority, withFileGuestInvitationAuthorityOnConnection }
+        = await import('../app/lib/workspaces/request-principal');
+      const { executeLifecycleTransaction } = await import('../app/lib/collaboration/lifecycle-transaction');
+      const { readFileGuestNativeTargetOnConnection } = await import('../app/lib/file-guests/target');
+      const { withWorkspaceSideEffectWriterFenceOnConnection } = await import('../app/lib/files/workspace-side-effect-writer-fence');
+      const { fileGuestErrorResponse } = await import('../app/lib/file-guests/http');
+      for (const family of ['access','verify','swallowed-authority'] as const)
+      for (const fault of family === 'swallowed-authority' ? ['clean'] as const : ['clean','rollback-ack-loss','release-throws'] as const)
+      await check(`actual ${family} SQL busy preserves ${fault} cleanup precedence without publication`, async () => {
+        const target = await seed(), issued = await guests.verify(target.id,target.code,'Before actual cleanup fault');
+        const nativeBefore = await nativeProof(target), invitationBefore = fingerprintRows([await invitation(target.id)]);
+        const sessionsBefore = fingerprintRows(await sessionRows(target.id));
+        const blocker = new Client({connectionString,connectionTimeoutMillis:5000,
+          options:`-c search_path=${schema},pg_catalog -c statement_timeout=15000 -c application_name=guest-cleanup-precedence-blocker`});
+        blocker.on('error',() => undefined);
+        const rollbackAck = new Error('Owned real rollback acknowledgement delivery failed.');
+        const releaseError = new Error('Owned actual checkout release acknowledgement failed.');
+        let holding = false, published = false, rolledBack = false, released = false, discarded = false;
+        let lockAttempts = 0, rollbacks = 0, commits = 0, disposals = 0, dml = 0, pid = 0;
+        let sqlFailure: unknown, swallowedBusy: unknown, reader: Client | undefined;
+        let originalRelease: ((error?:Error) => void) | undefined;
+        try {
+          await blocker.connect(); await blocker.query('BEGIN'); holding = true;
+          await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',[workspace.workspaceId,target.filePath]);
+          await observeQueries(query => {
+            if (/^SELECT\s+pg_advisory_xact_lock(?:_shared)?\(hashtext\(\$1\),\s*hashtext\(\$2\)\)/iu.test(query.sql)
+              && query.values[0] === workspace.workspaceId && query.values[1] === target.filePath) {
+              lockAttempts++; assert.equal(reader,undefined); reader = query.client;
+              pid = Number(Reflect.get(query.client,'processID')); assert(Number.isSafeInteger(pid) && pid > 0);
+              originalRelease = Reflect.get(query.client,'release') as (error?:Error) => void;
+              assert.equal(typeof originalRelease,'function');
+              Reflect.set(query.client,'release',(error?:Error) => {
+                disposals++; discarded = error instanceof Error;
+                const result = Reflect.apply(originalRelease!,query.client,[error]); released = true;
+                if (fault === 'release-throws') throw releaseError;
+                return result;
+              });
+              // openDb's actual query path uses the real pg Promise result.
+              // Only observe the genuine lock rejection; do not synthesize it.
+              assert.notEqual(typeof query.args.at(-1),'function');
+              return Promise.resolve(query.run()).catch(error => {
+                assert.equal(Reflect.get(error as object,'code'),'55P03'); sqlFailure = error; throw error;
+              });
+            }
+            if (reader === query.client) {
+              if (/^(INSERT|UPDATE|DELETE)\b/iu.test(query.sql)) dml++;
+              if (query.sql === 'COMMIT') commits++;
+              if (query.sql === 'ROLLBACK') {
+                rollbacks++;
+                return afterRealQuery(query,() => {
+                  rolledBack = true;
+                  if (fault === 'rollback-ack-loss') throw rollbackAck;
+                });
+              }
+            }
+            return query.run();
+          },async () => {
+            const operation = family === 'access' ? guests.access(target.id,{token:issued.token})
+              : family === 'verify' ? guests.verify(target.id,target.code,'Actual blocked redemption')
+                : withFileGuestInvitationAuthority(target.id,'access',async authority => {
+                  try {
+                    await executeLifecycleTransaction<unknown>({openConnection:database.openDb,
+                      execute:async connection => {
+                        await connection.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE');
+                        return withFileGuestInvitationAuthorityOnConnection(connection,authority,async access => {
+                          const actual = await readFileGuestNativeTargetOnConnection(connection,access.workspace,access.invitation);
+                          return withWorkspaceSideEffectWriterFenceOnConnection(connection,{workspace:access.workspace,targets:[actual]},() =>
+                            connection.get('SELECT pg_advisory_xact_lock_shared(hashtext($1), hashtext($2))',
+                              [access.workspace.workspaceId,actual.path]) as Promise<unknown>);
+                        });
+                      },recoverCommitted:async () => assert.fail('A rejected authority phase must never reach COMMIT recovery.')});
+                  } catch (error) {
+                    assert(error instanceof WorkspaceRequestPrincipalError); assert.equal(error.code,'PRINCIPAL_BUSY');
+                    swallowedBusy = error;
+                  }
+                  return 'A swallowed authorization failure must not publish this value.';
+                });
+            let rejection: unknown;
+            await assert.rejects(operation.then(() => { published = true; }),error => {
+              rejection = error;
+              assert(sqlFailure); assert(rolledBack); assert(released);
+              if (fault === 'rollback-ack-loss') {
+                assert(error instanceof AggregateError,'The actual lifecycle rollback AggregateError must outrank the earlier poisoned busy error.');
+                assert.equal(error.errors.length,2); assert(error.errors[0] instanceof WorkspaceRequestPrincipalError);
+                assert.equal(error.errors[0].code,'PRINCIPAL_BUSY'); assert.equal(error.errors[1],rollbackAck);
+              } else if (fault === 'release-throws') assert.equal(error,releaseError,'The actual release failure object must survive the outer authority wrapper.');
+              else {
+                assert(error instanceof WorkspaceRequestPrincipalError); assert.equal(error.code,'PRINCIPAL_BUSY');
+                if (family === 'swallowed-authority') assert.equal(error,swallowedBusy);
+              }
+              assert.equal(isFileGuestInvitationReaderBusy(error),family === 'access' && fault === 'clean');
+              return true;
+            });
+            const response = fileGuestErrorResponse(rejection);
+            assert.equal(response.headers.get('set-cookie'),null); assert.equal((await response.json()).success,false);
+            if (fault === 'clean') assert.equal(response.status,409);
+            else { assert.notEqual(response.status,409); assert(response.status >= 500); }
+          });
+          assert.equal(published,false); assert.equal(lockAttempts,1); assert.equal(rollbacks,1);
+          assert.equal(commits,0); assert.equal(disposals,1); assert.equal(dml,0);
+          assert.equal(discarded,fault === 'rollback-ack-loss');
+          if (discarded) await waitFor(async () => (await fixture.query(
+            'SELECT NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1) AS absent',[pid])).rows[0].absent === true,
+          'The actually discarded cleanup-fault backend remained present.');
+          else await waitFor(async () => (await fixture.query(
+            "SELECT NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND (state<>'idle' OR xact_start IS NOT NULL)) AS idle",[pid])).rows[0].idle === true,
+          'The genuinely released checkout retained an active transaction.');
+          assert.equal(fingerprintRows([await invitation(target.id)]),invitationBefore);
+          assert.equal(fingerprintRows(await sessionRows(target.id)),sessionsBefore); assert.equal(await nativeProof(target),nativeBefore);
+          if (reader && originalRelease) Reflect.set(reader,'release',originalRelease);
+          originalRelease = undefined;
+          await blocker.query('ROLLBACK'); holding = false;
+          assert.equal((await guests.access(target.id,{token:issued.token})).state.documentId,target.documentId);
+        } finally {
+          if (reader && originalRelease) Reflect.set(reader,'release',originalRelease);
+          if (holding) await blocker.query('ROLLBACK').catch(() => undefined);
+          await blocker.end().catch(() => undefined);
+        }
+      });
+      assert.equal(cases, 44);
       assert.equal(networkCalls, 0);
       passedFamilies = cases;
     } finally { Object.assign(fileGuestService, originalService); }

@@ -112,7 +112,7 @@ async function main(): Promise<void> {
       [`session-${userId}`,token,userId,Date.now()+3600000,now]);
     };
     await seedSession(); await seedSession('member');
-    const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
+    const { getPostgresRuntimeQueryable, openDb } = await import('../app/lib/db');
     const runtime = getPostgresRuntimeQueryable(); assert(runtime); pool = runtime as typeof pool;
     assert.equal((await runtime.query('SELECT current_schema() AS schema')).rows[0].schema,schema);
     const { getLicenseStatus } = await import('../app/lib/license');
@@ -120,7 +120,9 @@ async function main(): Promise<void> {
     assert.equal((await verifyLicenseJwtDetailed(process.env.CANVAS_LICENSE_CERT!,process.env.CANVAS_INSTANCE_ID!)).ok,true);
     const license = await getLicenseStatus(); assert.equal(license.licensed,true); assert.equal(license.edition,'team'); assert.equal(license.seatLimit,2);
     const { auth } = await import('../app/lib/auth');
-    const { withWorkspaceRequestPrincipal: capture,withWorkspaceRequestPrincipalOnConnection: phase } = await import('../app/lib/workspaces/request-principal');
+    const { withWorkspaceRequestPrincipal: capture,withWorkspaceRequestPrincipalOnConnection: phase,
+      WorkspaceRequestPrincipalError } = await import('../app/lib/workspaces/request-principal');
+    const { executeLifecycleTransaction } = await import('../app/lib/collaboration/lifecycle-transaction');
     const { LEGACY_PERSONAL_WORKSPACE_ID } = await import('../app/lib/workspaces/context');
     const request = async (userId='owner',cookie=false) => {
       const headers = new Headers({ 'x-canvas-workspace-id':'org-space' });
@@ -786,6 +788,125 @@ async function main(): Promise<void> {
         }),expected('PRINCIPAL_INVALID'));
       }
     });
+    for(const mode of ['confirmed-busy','rollback-ack-lost','release-ack-lost','rollback-and-discard-ack-lost',
+      'swallowed-busy','swallowed-detached'] as const)
+    await check(`actual member factory and lifecycle error precedence ${mode}`,async()=>{
+      const blocker=await ownClient(),lockPath=`principal-error-precedence-${crypto.randomUUID()}`;
+      const rollbackAckError=new Error('Owned member fixture lost the actual ROLLBACK acknowledgement.');
+      const releaseAckError=new Error('Owned member fixture failed after the actual checkout release.');
+      const loseRollbackAck=mode==='rollback-ack-lost'||mode==='rollback-and-discard-ack-lost';
+      const loseReleaseAck=mode==='release-ack-lost'||mode==='rollback-and-discard-ack-lost';
+      const swallow=mode==='swallowed-busy'||mode==='swallowed-detached';
+      let blockerPid=0,writerPid=0,checkouts=0,phaseCallbacks=0,commits=0,rollbacks=0,rollbackAcknowledged=false;
+      let closes=0,released=false,published=false,recoveries=0,actualSqlError:unknown,phaseError:unknown,callbackError:unknown;
+      const closeArguments:Array<Error|undefined>=[];
+      try{
+        await blocker.query('BEGIN');
+        await blocker.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',['org-space',lockPath]);
+        blockerPid=Number((await blocker.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+        const outcome=await captured(async principal=>{
+          try{
+            return await executeLifecycleTransaction({
+              openConnection:async():Promise<SqlConnection>=>{
+                const actual=await openDb();checkouts++;
+                writerPid=Number((await actual.get('SELECT pg_backend_pid() AS pid') as {pid:number}).pid);
+                assert(Number.isSafeInteger(writerPid)&&writerPid>0);assert.notEqual(writerPid,blockerPid);
+                // Delegate every actual SQL query and every original close
+                // argument. Only delivery after real completion may fail.
+                return {...actual,run:async(sql,values)=>{
+                  if(sql==='COMMIT')commits++;
+                  if(sql==='ROLLBACK')rollbacks++;
+                  const result=await actual.run(sql,values);
+                  if(sql==='ROLLBACK'){
+                    rollbackAcknowledged=true;
+                    if(loseRollbackAck)throw rollbackAckError;
+                  }
+                  return result;
+                },close:async(error?:Error)=>{
+                  closes++;closeArguments.push(error);assert.equal(closes,1);
+                  await actual.close(error);released=true;
+                  if(loseReleaseAck)throw releaseAckError;
+                }};
+              },
+              execute:async database=>{
+                await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE');
+                try{
+                  return await phase(database,principal,async access=>{
+                    phaseCallbacks++;
+                    assert.equal(access.userId,'owner');assert.equal(access.sessionId,'session-owner');
+                    assert.equal(access.workspace.workspaceId,'org-space');
+                    if(mode==='swallowed-detached'){
+                      // The original phase must drain this genuine SQL check
+                      // and poison its factory even when the caller catches it.
+                      void access.assertCurrent().catch(()=>undefined);
+                      return 'a detached phase must never publish this';
+                    }
+                    try{
+                      await database.get('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',['org-space',lockPath]);
+                    }catch(error){actualSqlError=error;throw error;}
+                    assert.fail('The original held advisory lock must produce an actual PostgreSQL 55P03.');
+                  });
+                }catch(error){phaseError=error;throw error;}
+              },
+              recoverCommitted:async()=>{recoveries++;assert.fail('Failed principal execution must never enter COMMIT recovery.');},
+            });
+          }catch(error){
+            callbackError=error;
+            if(swallow)return 'a poisoned factory must never publish this';
+            throw error;
+          }
+        }).then(value=>{published=true;return {ok:true as const,value};},error=>({ok:false as const,error}));
+        assert.equal(outcome.ok,false,'Even a swallowed phase poison must reject the original member factory.');
+        if(outcome.ok)assert.fail('A poisoned principal unexpectedly published a value.');
+        const error:unknown=outcome.error;
+        assert(phaseError instanceof WorkspaceRequestPrincipalError);
+        assert.equal(phaseError.code,mode==='swallowed-detached'?'PRINCIPAL_DETACHED':'PRINCIPAL_BUSY');
+        assert.equal(checkouts,1);assert.equal(phaseCallbacks,1);assert.equal(published,false);
+        assert.equal(commits,0);assert.equal(rollbacks,1);assert.equal(rollbackAcknowledged,true);
+        assert.equal(closes,1);assert.equal(released,true);assert.equal(recoveries,0);
+        if(mode==='swallowed-detached')assert.equal(actualSqlError,undefined);
+        else{
+          assert(actualSqlError&&typeof actualSqlError==='object');
+          assert.equal(Reflect.get(actualSqlError,'code'),'55P03');
+        }
+        if(loseRollbackAck){
+          assert(closeArguments[0] instanceof Error);assert.equal(closeArguments[0].cause,rollbackAckError);
+          await waitForPrincipalRegression(async()=>(await admin.query(
+            'SELECT NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1) AS absent',[writerPid])).rows[0].absent===true,
+          'The actually discarded principal backend must leave PostgreSQL.');
+        }else{
+          assert.deepEqual(closeArguments,[undefined],'A clean ROLLBACK must keep the original ordinary release argument.');
+          await waitForPrincipalRegression(async()=>{
+            const rows=(await admin.query('SELECT state,xact_start FROM pg_stat_activity WHERE pid=$1',[writerPid])).rows;
+            return rows.length===0||rows[0].state==='idle'&&rows[0].xact_start===null;
+          },'An ordinarily released principal backend must retain no open transaction.');
+        }
+        await waitForPrincipalRegression(()=>runtime.totalCount===runtime.idleCount&&runtime.waitingCount===0,
+          'The genuine principal lifecycle must leave no runtime checkout or pool waiter behind.');
+        // Emit the genuine SQL/rollback/release witness before checking error
+        // precedence, so the original RED cannot masquerade as a setup failure.
+        console.log('Actual member principal error-precedence witness:',JSON.stringify({mode,blockerPid,writerPid,
+          sqlCode:mode==='swallowed-detached'?null:'55P03',checkouts,rollbacks,rollbackAcknowledged,closes,
+          discarded:loseRollbackAck,released,commits,recoveries,published,
+          callbackErrorName:callbackError instanceof Error?callbackError.name:typeof callbackError,
+          propagatedErrorName:error instanceof Error?error.name:typeof error,
+          propagatedCode:error&&typeof error==='object'?Reflect.get(error,'code')??null:null}));
+        if(loseRollbackAck){
+          assert(callbackError instanceof AggregateError,'The real lifecycle helper must first aggregate its actual failures.');
+          assert.deepEqual(callbackError.errors,loseReleaseAck?[phaseError,rollbackAckError,releaseAckError]:[phaseError,rollbackAckError]);
+          assert(error instanceof AggregateError,'A later failed ROLLBACK acknowledgement must not collapse to the earlier principal poison.');
+          assert.equal(error,callbackError);
+        }else if(loseReleaseAck){
+          assert.equal(callbackError,releaseAckError);
+          assert.equal(error,releaseAckError,'A real later checkout release failure must not collapse to PRINCIPAL_BUSY.');
+        }else{
+          assert.equal(callbackError,phaseError);
+          assert.equal(error,phaseError,'Confirmed busy and swallowed poison must retain the original actual principal error.');
+        }
+      }finally{
+        await blocker.query('ROLLBACK').catch(()=>undefined);await endClient(blocker);
+      }
+    });
     // Integration stays on the original request factory and runtime pool. These
     // rows are fixture data in the same owned schema, never Principal grants.
     const { updateWorkspaceFileMetadata,metadataFileWriteFailure,enrichWorkspaceFileNodes } = await import('../app/lib/files/workspace-file-metadata');
@@ -1244,7 +1365,7 @@ async function main(): Promise<void> {
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
       await assert.rejects(captured(async()=>assert.fail(),'member'),expected('PRINCIPAL_AUTH_REVOKED'));
     });
-    assert.equal(cases,60);
+    assert.equal(cases,66);
     assert.equal(fetches,0);
     console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team principal and actual metadata-service transaction, identity, admission, room-owner and partial-patch concurrency families passed.`);
   } finally {

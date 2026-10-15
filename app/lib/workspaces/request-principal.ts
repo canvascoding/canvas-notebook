@@ -161,13 +161,16 @@ async function withRequestPrincipal<T>(request: NextRequest,
     ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(source.schema_oid), searchPath: String(source.search_path) }) } } : {}) };
   const principal = Object.freeze({}) as WorkspaceRequestPrincipal; requests.set(principal,captured);
   try {
-    let result: T | undefined;
-    try { result = await operation(principal); } catch (error) { captured.failure ??= reason(error); }
+    let result: T | undefined, operationFailure: unknown;
+    try { result = await operation(principal); }
+    catch (error) { operationFailure = reason(error); captured.failure ??= operationFailure; }
     captured.accepting = false;
     if (captured.pending.size) {
       captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
       await Promise.allSettled([...captured.pending]);
     }
+    // Preserve later transaction cleanup failures after draining held work.
+    if (operationFailure !== undefined) throw operationFailure;
     if (captured.failure !== undefined) throw captured.failure;
     return result as T;
   } finally { captured.active = false; captured.accepting = false; requests.delete(principal); }
@@ -520,13 +523,16 @@ export async function withFileGuestInvitationAuthority<T>(invitationId: string, 
   const authority = Object.freeze({}) as FileGuestInvitationAuthority;
   invitationAuthorities.set(authority,captured);
   try {
-    let result: T | undefined;
-    try { result = await operation(authority); } catch (error) { captured.failure ??= reason(error); }
+    let result: T | undefined, operationFailure: unknown;
+    try { result = await operation(authority); }
+    catch (error) { operationFailure = reason(error); captured.failure ??= operationFailure; }
     captured.accepting = false;
     if (captured.pending.size) {
       captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
       await Promise.allSettled([...captured.pending]);
     }
+    // The callback owns rollback/disposal; its later error must survive poison.
+    if (operationFailure !== undefined) throw operationFailure;
     if (captured.failure !== undefined) throw captured.failure;
     return result as T;
   } finally { captured.active = false; captured.accepting = false; invitationAuthorities.delete(authority); }
