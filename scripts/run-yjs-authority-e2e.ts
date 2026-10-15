@@ -155,8 +155,11 @@ async function createRealUsers(origin: string, env: NodeJS.ProcessEnv): Promise<
   const workspaces = await ownJson(origin, '/api/workspaces', undefined, peerAgain.cookie);
   assert(workspaces.value.workspaces.some((entry: { id: string; permissions?: { canWrite: boolean } }) => entry.id === shared.value.workspace.id && entry.permissions?.canWrite));
   const review = await fetch(new URL('/api/admin/experimental-settings', origin), { method: 'PATCH', redirect: 'error', signal: AbortSignal.timeout(30_000),
-    headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: owner.cookie }, body: JSON.stringify({ documentReviewEnabled: true }) });
+    headers: { Origin: origin, 'Content-Type': 'application/json', Cookie: owner.cookie }, body: JSON.stringify({ documentReviewEnabled: false }) });
   assert(review.ok);
+  assert.equal((await review.json()).data.documentReviewEnabled, false);
+  const settings = await ownJson(origin, '/api/server-settings', undefined, owner.cookie);
+  assert.equal(settings.value.data.documentReviewEnabled, false, 'Review must be disabled before the first acceptance file operation.');
 }
 
 export async function runOwnedYjsAcceptance(repo: string, specs: string[], expectedCpHead: string,
