@@ -123,6 +123,7 @@ import { MarkdownModeBar, MarkdownRichMigration, MarkdownSaveState, useLiveMarkd
 import { isMarkdownSourceModeSupported } from '@/app/lib/editor/markdown-mode-availability';
 import { MarkdownTableMenu } from './MarkdownTableMenu';
 import { MarkdownInsertDialog } from './MarkdownInsertDialog';
+import { useMenuDialogFocusHandoff } from '@/app/lib/editor/use-menu-dialog-focus-handoff';
 import { MarkdownSelectionMenu } from './MarkdownSelectionMenu';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import { ClipboardCopyButton } from '@/app/components/shared/ClipboardCopyButton';
@@ -3900,6 +3901,9 @@ function MarkdownToolbar({
   actions?: React.ReactNode;
 }) {
   const t = useTranslations('notebook');
+  const insertMenuFocus = useMenuDialogFocusHandoff();
+  const blockMenuFocus = useMenuDialogFocusHandoff();
+  const formulaMenuFocus = useMenuDialogFocusHandoff();
   const [linkDialogOpen, setLinkDialogOpen] = useState(false);
   const [linkDialogSeed, setLinkDialogSeed] = useState<LinkDialogSeed>({
     id: 0,
@@ -4171,56 +4175,56 @@ function MarkdownToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={blockMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarBlocks')} disabled={!canUseCommands} active={toolbarState.isBlockquote || toolbarState.isCallout || toolbarState.isDetails || toolbarState.isCodeBlock} testId="markdown-toolbar-blocks">
               <Layers className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={blockMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarBlocks')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <ToolbarDropdownItem Icon={Quote} label={labels.items.quote.title} active={toolbarState.isBlockquote} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleBlockquote().run()} />
-            <ToolbarDropdownItem Icon={BadgeInfo} label={labels.items.callout.title} active={toolbarState.isCallout} disabled={!canUseCommands} onSelect={insertCallout} />
-            <ToolbarDropdownItem Icon={ListCollapse} label={labels.items.details.title} active={toolbarState.isDetails} disabled={!canUseCommands} onSelect={insertDetails} />
-            <ToolbarDropdownItem Icon={Superscript} label={labels.items.footnote.title} disabled={!canUseCommands} onSelect={insertFootnote} />
+            <ToolbarDropdownItem Icon={BadgeInfo} label={labels.items.callout.title} active={toolbarState.isCallout} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertCallout)} />
+            <ToolbarDropdownItem Icon={ListCollapse} label={labels.items.details.title} active={toolbarState.isDetails} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertDetails)} />
+            <ToolbarDropdownItem Icon={Superscript} label={labels.items.footnote.title} disabled={!canUseCommands} onSelect={() => blockMenuFocus.openDialog(insertFootnote)} />
             <ToolbarDropdownItem Icon={Code2} label={labels.items.codeBlock.title} active={toolbarState.isCodeBlock} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleCodeBlock().run()} />
             <ToolbarDropdownItem Icon={Minus} label={labels.items.divider.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().setHorizontalRule().run()} />
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={insertMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarInsert')} disabled={!canUseCommands} active={toolbarState.isLink} testId="markdown-toolbar-insert">
               <Plus className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={insertMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarInsert')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <ToolbarDropdownItem Icon={LinkIcon} label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onSelect={openToolbarLinkDialog} />
-            <ToolbarDropdownItem Icon={ImageIcon} label={labels.items.image.title} disabled={!canUseCommands} onSelect={() => onImageDialogOpenChange(true, getCurrentToolbarRange())} />
-            <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => onOpenTableDialog(getCurrentToolbarRange())} />
-            <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => onOpenEmojiDialog(getCurrentToolbarRange())} />
+            <ToolbarDropdownItem Icon={LinkIcon} label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(openToolbarLinkDialog)} />
+            <ToolbarDropdownItem Icon={ImageIcon} label={labels.items.image.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onImageDialogOpenChange(true, getCurrentToolbarRange()))} />
+            <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenTableDialog(getCurrentToolbarRange()))} />
+            <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenEmojiDialog(getCurrentToolbarRange()))} />
             <ToolbarDropdownItem Icon={AtSign} label={labels.items.mention.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().insertContent('@').run()} />
             {onOpenMarkdownDialog ? <>
               <DropdownMenuSeparator />
-              <ToolbarDropdownItem Icon={FileText} label={t('markdownInsert.title')} disabled={!canUseCommands} onSelect={() => onOpenMarkdownDialog(getCurrentToolbarRange())} />
+              <ToolbarDropdownItem Icon={FileText} label={t('markdownInsert.title')} disabled={!canUseCommands} onSelect={() => insertMenuFocus.openDialog(() => onOpenMarkdownDialog(getCurrentToolbarRange()))} />
             </> : null}
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={formulaMenuFocus.onOpenChange}>
           <DropdownMenuTrigger asChild>
             <ToolbarDropdownTrigger label={t('markdownEditorToolbarFormula')} disabled={!canUseCommands} testId="markdown-toolbar-formula">
               <Sigma className="size-4" />
             </ToolbarDropdownTrigger>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
+          <DropdownMenuContent align="start" onCloseAutoFocus={formulaMenuFocus.onCloseAutoFocus}>
             <DropdownMenuLabel>{t('markdownEditorToolbarFormula')}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <ToolbarDropdownItem Icon={Sigma} label={labels.items.inlineMath.title} disabled={!canUseCommands} onSelect={() => insertMath('inline')} />
-            <ToolbarDropdownItem Icon={SquareSigma} label={labels.items.blockMath.title} disabled={!canUseCommands} onSelect={() => insertMath('block')} />
+            <ToolbarDropdownItem Icon={Sigma} label={labels.items.inlineMath.title} disabled={!canUseCommands} onSelect={() => formulaMenuFocus.openDialog(() => insertMath('inline'))} />
+            <ToolbarDropdownItem Icon={SquareSigma} label={labels.items.blockMath.title} disabled={!canUseCommands} onSelect={() => formulaMenuFocus.openDialog(() => insertMath('block'))} />
           </DropdownMenuContent>
         </DropdownMenu>
 

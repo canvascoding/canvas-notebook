@@ -12,6 +12,7 @@ import { readNativeRichCandidate } from './helpers/native-rich-candidate';
 import { observeNativeDurabilityAcknowledgements } from './helpers/native-durability-ack';
 import { installOwnedCollaborationOutage } from './helpers/owned-collaboration-outage';
 import { readNativeRichLocalRecovery } from './helpers/native-rich-local-recovery';
+import { installPassiveEditorFocusObservation, type PassiveEditorFocusObservation, type PassiveEditorFocusSnapshot } from './helpers/passive-editor-focus-observation';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const importTitle = 'Insert Markdown…';
@@ -487,16 +488,33 @@ test.describe('Manual document creation and first content', () => {
   test('manual empty document imports a Markdown body and retains rejected full-document drafts', async ({ page }, info) => {
     const workspace = await login(page);
     const path = `manual-markdown-${randomUUID()}.md`;
+    let focusObservation: PassiveEditorFocusObservation | undefined;
     try {
       await createInUi(page, workspace, path, 'home');
       const identity = await session(page, workspace, path);
+      focusObservation = await installPassiveEditorFocusObservation(page, editorSelector);
       let dialog = await insertDialog(page);
       await clipboardPaste(page, dialog.getByRole('textbox', { name: 'Markdown', exact: true }), markdownBody);
       await expect(dialog.getByRole('textbox', { name: 'Markdown', exact: true })).toHaveValue(markdownBody);
+      await focusObservation.snapshot('before_insert');
       await dialog.getByRole('button', { name: 'Insert', exact: true }).click();
+      await focusObservation.snapshot('after_insert');
       const editor = page.locator(editorSelector);
       await expect(dialog).toHaveCount(0);
-      await expect(editor).toBeFocused();
+      try { await expect(editor).toBeFocused(); }
+      catch (error) {
+        let diagnostic: PassiveEditorFocusSnapshot | { version: 1; observationUnavailable: true } = { version: 1, observationUnavailable: true };
+        try {
+          await focusObservation.snapshot('focus_assertion_failed');
+          diagnostic = await focusObservation.read();
+        } catch { /* Retain the original focus assertion if observation is unavailable. */ }
+        try {
+          await info.attach('passive-editor-focus-observation', {
+            contentType: 'application/json', body: Buffer.from(JSON.stringify(diagnostic)),
+          });
+        } catch { /* Artifact collection must not replace the original assertion. */ }
+        throw error;
+      }
       await expect(editor.getByRole('heading', { name: 'Imported heading', exact: true })).toBeVisible();
       await expect(editor.locator('strong')).toHaveText('bold');
       await expect(editor.locator('li')).toHaveText(['First', 'Second']);
@@ -519,6 +537,7 @@ test.describe('Manual document creation and first content', () => {
       await page.reload(); await expect.poll(() => tree(page)).toEqual(imported);
       await page.screenshot({ path: info.outputPath('manual-markdown-body.png'), animations: 'disabled' });
     } finally {
+      await focusObservation?.dispose().catch(() => undefined);
       await page.goto('about:blank').catch(() => undefined);
       await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
     }
