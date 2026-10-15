@@ -1339,6 +1339,7 @@
     "markdownCreateResume": "Erstellung erneut prüfen",
     "markdownCreateHide": "Eintrag ausblenden",
     "markdownCreateHideHint": "Ausblenden entfernt nur diese lokale Erinnerung. Das Dokument kann bereits bestehen.",
+    "markdownCreateOtherWorkspace": "In einem anderen Arbeitsbereich",
     "markdownCreateChecking": "Dokumenterstellung wird geprüft…",
     "markdownCreateUnconfirmed": "Die Dokumenterstellung ist noch nicht bestätigt. Prüfe dieselbe Erstellung erneut, bevor du das Dokument öffnest.",
     "markdownCreateProjectionPending": "Das Dokument wird gespeichert. Prüfe die Erstellung erneut, um zu bestätigen, dass es bereit ist.",

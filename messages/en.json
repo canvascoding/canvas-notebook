@@ -1340,6 +1340,7 @@
     "markdownCreateResume": "Check creation again",
     "markdownCreateHide": "Hide this entry",
     "markdownCreateHideHint": "Hiding only removes this local reminder. The document may already exist.",
+    "markdownCreateOtherWorkspace": "In another workspace",
     "markdownCreateChecking": "Checking document creation…",
     "markdownCreateUnconfirmed": "Document creation has not been confirmed. Check the same creation again before opening it.",
     "markdownCreateProjectionPending": "The document is being saved. Check creation again to confirm it is ready.",

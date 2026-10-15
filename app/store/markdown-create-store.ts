@@ -8,12 +8,18 @@ export type MarkdownCreateEntry = ManualMarkdownCreateAttempt & { scope: OpenedD
 export const useMarkdownCreateStore = create<{ attempts: Record<string, MarkdownCreateEntry> }>(() => ({ attempts: {} }));
 const storagePrefix = 'canvas-markdown-create-resumes:v1:';
 const maxAttempts = 16;
+const maxStorageLength = 128 * 1024;
 let hydratedScope: OpenedDocumentAuthScope | null = null;
+let oversizedScope: OpenedDocumentAuthScope | null = null;
 const keyFor = (item: ManualMarkdownCreateCoordinates) => JSON.stringify([item.workspaceId, item.requestId]);
 const storageKey = (userId: string) => storagePrefix + encodeURIComponent(userId);
 
 function publicAttempt(entry: ManualMarkdownCreateAttempt): ManualMarkdownCreateAttempt {
   return { requestId: entry.requestId, workspaceId: entry.workspaceId, targetPath: entry.targetPath, status: entry.status };
+}
+
+function serializeAttempts(scope: OpenedDocumentAuthScope, attempts: readonly ManualMarkdownCreateAttempt[]): string {
+  return JSON.stringify({ version: 1, accountId: scope.userId, attempts: attempts.map(publicAttempt) });
 }
 
 function validAttempt(value: unknown): value is ManualMarkdownCreateAttempt {
@@ -24,11 +30,13 @@ function validAttempt(value: unknown): value is ManualMarkdownCreateAttempt {
 
 function persistAttempts(): void {
   const scope = openedDocumentAuthScope();
-  if (typeof window === 'undefined' || !scope || scope !== hydratedScope) return;
+  if (typeof window === 'undefined' || !scope || scope !== hydratedScope || scope === oversizedScope) return;
   const attempts = Object.values(useMarkdownCreateStore.getState().attempts)
-    .filter(entry => entry.scope === scope).map(publicAttempt);
+    .filter(entry => entry.scope === scope);
+  const raw = serializeAttempts(scope, attempts);
+  if (raw.length > maxStorageLength) return;
   try {
-    window.localStorage.setItem(storageKey(scope.userId), JSON.stringify({ version: 1, accountId: scope.userId, attempts }));
+    window.localStorage.setItem(storageKey(scope.userId), raw);
   } catch { /* The current page retains its attempts when browser storage is unavailable. */ }
 }
 
@@ -38,7 +46,9 @@ export function hydrateMarkdownCreateAttempts(scope: OpenedDocumentAuthScope): v
   hydratedScope = scope;
   try {
     const raw = window.localStorage.getItem(storageKey(scope.userId));
-    if (!raw || raw.length > 128 * 1024) return;
+    if (raw && raw.length > maxStorageLength) { oversizedScope = scope; return; }
+    oversizedScope = null;
+    if (!raw) return;
     const saved = JSON.parse(raw);
     if (!saved || Object.keys(saved).sort().join(',') !== 'accountId,attempts,version'
       || saved.version !== 1 || saved.accountId !== scope.userId || !Array.isArray(saved.attempts)
@@ -75,6 +85,7 @@ export function reserveMarkdownCreateAttempt(input: {
   const scope = openedDocumentAuthScope();
   if (!scope) throw new MarkdownCreateAttemptError('MARKDOWN_CREATE_SCOPE_CHANGED');
   hydrateMarkdownCreateAttempts(scope);
+  if (oversizedScope === scope) throw new MarkdownCreateAttemptError('MARKDOWN_CREATE_LIMIT');
   const attempts = useMarkdownCreateStore.getState().attempts;
   const sameTarget = Object.values(attempts).find(entry => entry.scope === scope
     && entry.workspaceId === input.workspaceId && entry.targetPath === input.targetPath);
@@ -91,7 +102,11 @@ export function reserveMarkdownCreateAttempt(input: {
   const attempt = { workspaceId: input.workspaceId, targetPath: input.targetPath, requestId };
   if (!validManualMarkdownCreateCoordinates(attempt)) throw new Error('The document name or creation request is invalid.');
   const entry: MarkdownCreateEntry = { ...attempt, status: found?.status ?? 'unconfirmed', scope, busy: true };
-  useMarkdownCreateStore.setState({ attempts: { ...attempts, [keyFor(entry)]: entry } });
+  const next = { ...attempts, [keyFor(entry)]: entry };
+  if (serializeAttempts(scope, Object.values(next).filter(item => item.scope === scope)).length > maxStorageLength) {
+    throw new MarkdownCreateAttemptError('MARKDOWN_CREATE_LIMIT');
+  }
+  useMarkdownCreateStore.setState({ attempts: next });
   return entry;
 }
 
@@ -119,6 +134,7 @@ useMarkdownCreateStore.subscribe(persistAttempts);
 subscribeOpenedDocumentAuthInvalidation(() => {
   const scope = hydratedScope;
   hydratedScope = null;
+  oversizedScope = null;
   if (scope) {
     try { if (typeof window !== 'undefined') window.localStorage.removeItem(storageKey(scope.userId)); } catch { /* Account scoped only. */ }
   }

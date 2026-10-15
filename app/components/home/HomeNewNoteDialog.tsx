@@ -96,7 +96,10 @@ export function HomeNewNoteDialog({ workspaceId, onClose }: { workspaceId: strin
           </details>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <MarkdownCreatePendingAttempts workspaceId={workspaceId} disabled={busy || creatingDirectory}
-            onResume={attempt => submitNote(attempt.targetPath, attempt.requestId)} />
+            onResume={async attempt => {
+              if (attempt.workspaceId !== workspaceId) return;
+              await submitNote(attempt.targetPath, attempt.requestId);
+            }} />
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={onClose} disabled={busy || creatingDirectory}>{t('cancel')}</Button>
             <Button type="submit" disabled={busy || creatingDirectory || !name.trim()}>{busy ? t('creating') : t('createAndOpen')}</Button>
