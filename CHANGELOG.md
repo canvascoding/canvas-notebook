@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.15.1] - 2026-10-15
+
+### Added
+
+- Added an authoritative headless Excalidraw scene service with authenticated agent tools, reviewed operations, checkpoint inspection, and an updated seed workflow.
+- Added Markdown export for chat sessions and localized 404 recovery pages for guests and signed-in users.
+- Added Mermaid diagrams to Markdown reading and editing, with bounded PDF previews, Canvas themes, and export branding.
+- Added Matplotlib to the agent Python runtime.
+
+### Changed
+
+- Improved permissions for managed Excalidraw scenes and workspace scoping for personal To-do items.
+- Allowed Composio OAuth callbacks to complete when the browser does not return cookies.
+
+### Fixed
+
+- Handled OpenAI dictation response failures safely.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.12.12] - 2026-10-12
 
 ### Added
