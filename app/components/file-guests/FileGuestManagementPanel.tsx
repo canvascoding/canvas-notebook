@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
 import type { FileGuestInvitationView, FileGuestPermission } from '@/app/lib/file-guests/types';
+import type { WorkspaceFileMetadataTarget } from '@/app/lib/files/workspace-file-metadata-contract';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,6 +15,24 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { ShareExpiryField } from '../file-browser/ShareExpiryField';
 import { expiryFromInput, isCancelledShareRequest, localExpiryInput, useScopedShareRequest } from '../file-browser/sharing-client';
+
+/** A target is historical Info evidence, never permission to change a file. */
+export function fileGuestTargetMatches(value: unknown, workspaceId: string, path: string): value is WorkspaceFileMetadataTarget {
+  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) return false;
+  const target = value as Record<string, unknown>;
+  if (target.version !== 1 || target.workspaceId !== workspaceId || target.path !== path) return false;
+  const fields = target.kind === 'native_file' ? ['documentId', 'lifecycleGeneration']
+    : target.kind === 'filesystem' ? ['fileVersion', 'entryType'] : null;
+  if (!fields || Object.keys(target).length !== 6 || !['version', 'kind', 'workspaceId', 'path', ...fields]
+    .every(field => Object.prototype.hasOwnProperty.call(target, field))) return false;
+  if (target.kind === 'native_file') return typeof target.documentId === 'string' && target.documentId.length > 0
+    && target.documentId.length <= 256 && target.documentId === target.documentId.trim()
+    && !/[\u0000-\u001f\u007f]/u.test(target.documentId)
+    && Number.isSafeInteger(target.lifecycleGeneration) && Number(target.lifecycleGeneration) >= 1;
+  return typeof target.fileVersion === 'string' && target.fileVersion.length <= 1024
+    && /^[0-9]+:[0-9]+:[0-9]+:-?[0-9]+(?:\.[0-9]+)?:-?[0-9]+(?:\.[0-9]+)?$/u.test(target.fileVersion)
+    && (target.entryType === 'file' || target.entryType === 'directory');
+}
 
 function PermissionField({ value, onChange, canWrite, disabled }: { value: FileGuestPermission; onChange: (value: FileGuestPermission) => void; canWrite: boolean; disabled?: boolean }) {
   const t = useTranslations('fileSharing');
@@ -116,12 +135,19 @@ function GuestVersionHistory({ path, workspace }: { path: string; workspace: Cli
   </section>;
 }
 
-export function FileGuestManagementPanel({ path, workspace }: { path: string; workspace: ClientWorkspaceSummary }) {
+export function FileGuestManagementPanel({ path, workspace, loadTarget }: {
+  path: string;
+  workspace: ClientWorkspaceSummary;
+  /** Shares the dialog's genuine scoped Info request; true always refreshes it. */
+  loadTarget: (refresh?: boolean) => Promise<WorkspaceFileMetadataTarget>;
+}) {
   const t = useTranslations('fileSharing');
   const { data: session } = authClient.useSession();
   const request = useScopedShareRequest(workspace.id);
   const sequence = useRef(0);
+  const invalidateLoads = useCallback(() => { sequence.current++; }, []);
   const [invitations, setInvitations] = useState<FileGuestInvitationView[]>([]);
+  const [expectedTarget, setExpectedTarget] = useState<WorkspaceFileMetadataTarget | null>(null);
   const [email, setEmail] = useState('');
   const [permission, setPermission] = useState<FileGuestPermission>('read');
   const [expiry, setExpiry] = useState(() => localExpiryInput(new Date(Date.now() + 30 * 86400000).toISOString()));
@@ -129,23 +155,43 @@ export function FileGuestManagementPanel({ path, workspace }: { path: string; wo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const emailId = useId();
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
     const current = ++sequence.current;
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setExpectedTarget(null); setInvitations([]);
     try {
-      const payload = await request<{ invitations: FileGuestInvitationView[] }>(`/api/security/file-guests?${new URLSearchParams({ path })}`);
-      if (current === sequence.current) setInvitations(payload.invitations);
-    } catch (err) { if (current === sequence.current && !isCancelledShareRequest(err)) setError(err instanceof Error ? err.message : t('loadFailed')); }
+      const [target, payload] = await Promise.all([
+        loadTarget(refresh),
+        request<{ invitations: FileGuestInvitationView[] }>(`/api/security/file-guests?${new URLSearchParams({ path })}`),
+      ]);
+      if (!fileGuestTargetMatches(target, workspace.id, path)) throw new Error(t('loadFailed'));
+      if (current === sequence.current) {
+        setExpectedTarget(Object.freeze({ ...target })); setInvitations(payload.invitations);
+      }
+    } catch (err) {
+      if (current === sequence.current) {
+        setExpectedTarget(null); setInvitations([]);
+        if (!isCancelledShareRequest(err)) setError(err instanceof Error ? err.message : t('loadFailed'));
+      }
+    }
     finally { if (current === sequence.current) setLoading(false); }
-  }, [path, request, t]);
-  useEffect(() => { queueMicrotask(() => void load()); }, [load]);
+  }, [loadTarget, path, request, t, workspace.id]);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void load(); });
+    return () => { active = false; invalidateLoads(); };
+  }, [invalidateLoads, load]);
+  const targetCurrent = fileGuestTargetMatches(expectedTarget, workspace.id, path);
   const create = async () => {
-    if (busy || loading) return;
+    if (busy || loading || !targetCurrent || !expectedTarget) return;
     setBusy(true); setError('');
     try {
-      await request('/api/security/file-guests', { method: 'POST', body: { path, email, permission, expiresAt: expiryFromInput(expiry) } });
-      setEmail(''); toast.success(t('inviteCreated')); await load();
-    } catch (err) { if (!isCancelledShareRequest(err)) setError(err instanceof Error ? err.message : t('error')); }
+      await request('/api/security/file-guests', { method: 'POST', body: { path, expectedTarget,
+        email, permission, expiresAt: expiryFromInput(expiry) } });
+      setEmail(''); toast.success(t('inviteCreated')); await load(true);
+    } catch (err) {
+      setExpectedTarget(null);
+      if (!isCancelledShareRequest(err)) setError(err instanceof Error ? err.message : t('error'));
+    }
     finally { setBusy(false); }
   };
   return <div className="space-y-4">
@@ -156,11 +202,11 @@ export function FileGuestManagementPanel({ path, workspace }: { path: string; wo
       <PermissionField value={permission} onChange={setPermission} canWrite={workspace.permissions.canWrite} disabled={busy || loading} />
       <ShareExpiryField value={expiry} onChange={setExpiry} disabled={busy || loading} />
       <p className="text-xs text-muted-foreground">{t('inviteHelp')}</p>
-      <Button type="submit" disabled={busy || loading || !email.trim()}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Users className="size-4" />}{t('invite')}</Button>
+      <Button type="submit" disabled={busy || loading || !targetCurrent || !email.trim()}>{busy ? <Loader2 className="size-4 animate-spin" /> : <Users className="size-4" />}{t('invite')}</Button>
     </form>
-    {error && <div role="alert" className="text-sm text-destructive">{error} <Button variant="link" size="sm" onClick={() => void load()} disabled={busy}>{t('retry')}</Button></div>}
+    {error && <div role="alert" className="text-sm text-destructive">{error} <Button variant="link" size="sm" onClick={() => void load(true)} disabled={busy}>{t('retry')}</Button></div>}
     <div className="space-y-2 text-xs text-muted-foreground"><p>{t('assetsHelp')}</p><p>{t('policyHelp')}</p><p>{t('lifecycleHelp')}</p></div>
-    {loading ? <Loader2 aria-label={t('refresh')} className="size-5 animate-spin" /> : invitations.length ? invitations.map((invitation) => <GuestInvitationCard key={`${invitation.id}:${invitation.policyRevision}`} invitation={invitation} workspace={workspace} userId={session?.user.id} onChanged={() => void load()} />) : <p className="text-sm text-muted-foreground">{t('noGuests')}</p>}
+    {loading ? <Loader2 aria-label={t('refresh')} className="size-5 animate-spin" /> : invitations.length ? invitations.map((invitation) => <GuestInvitationCard key={`${invitation.id}:${invitation.policyRevision}`} invitation={invitation} workspace={workspace} userId={session?.user.id} onChanged={() => void load(true)} />) : <p className="text-sm text-muted-foreground">{t('noGuests')}</p>}
     {workspace.permissions.canWrite && invitations.length > 0 && <GuestVersionHistory path={path} workspace={workspace} />}
   </div>;
 }

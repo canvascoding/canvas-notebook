@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import fsPromises, { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'dotenv';
@@ -205,6 +205,66 @@ async function main(): Promise<void> {
         VALUES($1,$2,'principal-org',$3,'organization',$4,$5,'active',$6,1,1,$7)`,[id,lineage,workspaceId,filePath,provider,version,marker]);return selection(filePath,{kind:'pristine',documentId:id});
     };
     const permission = async (write: boolean) => admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=$1 WHERE organization_id='principal-org' AND user_id='member'", [write ? 1 : 0]);
+    const { GET: infoRoute } = await import('../app/api/files/info/route');
+    const infoVersion = async (filePath: string, cookie = false): Promise<string> => {
+      const authenticated = await request('owner', cookie);
+      const response = await infoRoute(new NextRequest(`http://localhost/api/files/info?${new URLSearchParams({ path: filePath })}`,
+        { headers: authenticated.headers }));
+      assert.equal(response.status, 200);
+      const target = (await response.json()).data.metadataTarget;
+      assert.equal(target.kind, 'filesystem'); assert.equal(target.entryType, 'file');
+      assert.equal(target.workspaceId, workspaceId); assert.equal(target.path, filePath);
+      assert.equal(typeof target.fileVersion, 'string'); return target.fileVersion;
+    };
+    await check('actual Info physical target pins absent/pristine bootstrap and cannot silently adopt an initialized winner', async () => {
+      for (const registered of [false, true]) {
+        const input = registered ? await pristine('info-pristine.md') : selection('info-absent.md');
+        const bytes = Buffer.from('# Exact Info target\n'); await original(input.path, bytes);
+        input.expectedFileVersion = await infoVersion(input.path, registered);
+        const { result } = await invoke(input, {}, 'owner', registered); await roundtrip(result, bytes);
+        const before = await state(result);
+        await assert.rejects(bootstrap(await request('owner'), input, factory()), code('MARKDOWN_IMPORT_TARGET_CHANGED'));
+        assert.deepEqual((await state(result)).yjsState, before.yjsState);
+        assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_markdown_file_import_receipts WHERE operation_id=$1', [input.operationId])).rows[0].count, 1);
+      }
+    });
+    await check('stale actual Info fileVersion rejects current replacement bytes before any native birth', async () => {
+      const input = selection('stale-info.md'); await original(input.path, '# Before\n');
+      input.expectedFileVersion = await infoVersion(input.path);
+      await original(input.path, '# A different file version after Info\n');
+      const owned = factory();
+      await assert.rejects(bootstrap(await request('owner'), input, owned), code('MARKDOWN_IMPORT_TARGET_CHANGED'));
+      assert(!owned.events.some(event => ['lineage','registry','state','receipt'].includes(event.step)));
+      await empty(input); assert.equal(await readFile(path.join(root,input.path),'utf8'), '# A different file version after Info\n');
+    });
+    await check('actual descriptor identity rejects a source change after the initial Info CAS observation', async () => {
+      const input = selection('descriptor-info.md'); await original(input.path, '# Before descriptor\n');
+      input.expectedFileVersion = await infoVersion(input.path);
+      // The production descriptor is opened below realpath(workspace.rootPath).
+      // macOS /var and /tmp aliases must not bypass this real filesystem race.
+      const fullPath = await fsPromises.realpath(path.join(root,input.path)), originalOpen = fsPromises.open;
+      let changed = false;
+      fsPromises.open = (async (...args: Parameters<typeof fsPromises.open>) => {
+        if (!changed && args[0] === fullPath) {
+          changed = true; await writeFile(fullPath, '# Changed immediately before actual descriptor open\n');
+        }
+        return originalOpen(...args);
+      }) as typeof fsPromises.open;
+      const owned = factory();
+      try { await assert.rejects(bootstrap(await request('owner'), input, owned), code('physical-source-changed','physical-scope-changed')); }
+      finally { fsPromises.open = originalOpen; }
+      assert.equal(changed, true); await empty(input);
+      assert(!owned.events.some(event => ['lineage','registry','state','receipt'].includes(event.step)));
+      assert.equal(await readFile(fullPath,'utf8'), '# Changed immediately before actual descriptor open\n');
+    });
+    await check('malformed expected file versions reject before bootstrap connections while omitted version keeps its prior contract', async () => {
+      for (const value of [null,1,'','1:2:3','1:2:3:4:5:6','1:2:3:4:NaN','1:2:3:4:5\n','x'.repeat(1025)]) {
+        const input = { ...selection('bad-info.md'), expectedFileVersion: value } as unknown as PristineOriginalWorkspaceFileRequest;
+        const owned = factory();
+        await assert.rejects(bootstrap(await request('owner'), input, owned), code('MARKDOWN_IMPORT_INVALID_INPUT'));
+        assert.equal(owned.events.length, 0); await empty(input);
+      }
+    });
     await check('FIXED canWrite refuses an actual CanRead member before native initialization', async () => {
       const input = selection('read-member.md'); await original(input.path, '# Original\n');
       const owned = factory();
@@ -320,5 +380,7 @@ async function main(): Promise<void> {
         finally{await control.end();await rm(dataRoot,{recursive:true,force:true});for(const key of Object.keys(process.env))if(!(key in environment))delete process.env[key];Object.assign(process.env,environment);}}}
   }
 }
-main().catch(error=>{console.error('Owned Original Bootstrap fixture failed:',{stage,name:error instanceof Error?error.name:'unknown',code:error&&typeof error==='object'?Reflect.get(error,'code')??null:null,
+main().catch(error=>{const actual=error&&typeof error==='object'?Reflect.get(error,'actual'):undefined;
+  console.error('Owned Original Bootstrap fixture failed:',{stage,name:error instanceof Error?error.name:'unknown',code:error&&typeof error==='object'?Reflect.get(error,'code')??null:null,
+  message:error instanceof Error?error.message:undefined,actual:actual&&typeof actual==='object'?{name:Reflect.get(actual,'name'),code:Reflect.get(actual,'code')??null}:undefined,
   frames:error instanceof Error?error.stack?.split('\n').slice(1).filter(line=>line.includes('/app/lib/')||line.includes('/scripts/')):undefined});process.exitCode=1;});

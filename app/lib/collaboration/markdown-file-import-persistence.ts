@@ -231,6 +231,8 @@ function mutateEmpty(state: PersistedCollaborationState, input: Captured): Persi
 export type PristineOriginalWorkspaceFileRequest = {
   workspaceId: string; path: string; operationId: string; requestId: string;
   expectedTarget: Extract<MarkdownImportTarget, { kind: 'absent' | 'pristine' }>;
+  /** Historical physical identity from Info; never permission or native identity. */
+  expectedFileVersion?: string;
   /** Explicit modes never normalize or fall back. TXT permits only Auto/Plain. */
   initialRepresentation?: TextCollaborationRepresentation | 'auto';
   /** Auto-only preference. Omitted Auto keeps the current Blocks default. */
@@ -411,6 +413,12 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
   const lineage: BootstrapLineage = { id: existing?.id ?? `file-lineage-${randomUUID()}`,
     organizationId: workspace.organizationId ?? null, existing: !!existing };
   const source = await observeBootstrapOriginal(workspace, selection.path);
+  // The descriptor reader below rechecks this same observed identity before
+  // and after reading. Never replace the caller's earlier Info expectation
+  // with whatever file happens to occupy this path at bootstrap time.
+  if (selection.expectedFileVersion !== undefined && source.observed.identity !== selection.expectedFileVersion) {
+    return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  }
   const verify = async () => {
     await access.assertCurrent(); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame);
     await assertBootstrapVirgin(database, documentId);
@@ -433,6 +441,7 @@ async function captureOriginalBootstrap(database: SqlConnection, frame: Bootstra
     fingerprint: hash(JSON.stringify({ domain: 'canvas-pristine-original-bootstrap-v1', workspaceId: workspace.workspaceId,
       organizationId: workspace.organizationId ?? null, path: selection.path, operationId: selection.operationId, requestId: selection.requestId,
       userId: access.userId, sessionId: access.sessionId, expectedTarget: selection.expectedTarget,
+      ...(selection.expectedFileVersion === undefined ? {} : { expectedFileVersion: selection.expectedFileVersion }),
       ...(frame.permission === 'canWrite' ? { requiredPermission: 'canWrite' } : {}),
       ...(frame.expectedScope ? { expectedRequestScope: frame.expectedScope } : {}),
       ...(initialRepresentation === 'auto' ? {} : { initialRepresentation }),
@@ -589,7 +598,7 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
   if (!(request instanceof NextRequest) || !selection || typeof selection !== 'object'
     || Object.getPrototypeOf(selection) !== Object.prototype
     || Reflect.ownKeys(selection).some(key => typeof key !== 'string'
-      || !['workspaceId', 'path', 'operationId', 'requestId', 'expectedTarget', 'richFormat', 'initialRepresentation'].includes(key)
+      || !['workspaceId', 'path', 'operationId', 'requestId', 'expectedTarget', 'expectedFileVersion', 'richFormat', 'initialRepresentation'].includes(key)
       || !Object.getOwnPropertyDescriptor(selection, key)?.enumerable
       || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(selection, key), 'value'))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const copied = structuredClone(selection), original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
@@ -600,6 +609,10 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
     || copied.expectedTarget.kind === 'absent' && !knownKeys(copied.expectedTarget, ['kind'])
     || copied.expectedTarget.kind === 'pristine' && (!validId(copied.expectedTarget.documentId) || !knownKeys(copied.expectedTarget, ['kind', 'documentId']))
     || !['absent', 'pristine'].includes(copied.expectedTarget.kind)
+    || copied.expectedFileVersion !== undefined && (typeof copied.expectedFileVersion !== 'string'
+      || copied.expectedFileVersion.length > 1024
+      || copied.expectedFileVersion !== copied.expectedFileVersion.trim()
+      || !/^[0-9]+:[0-9]+:[0-9]+:-?[0-9]+(?:\.[0-9]+)?:-?[0-9]+(?:\.[0-9]+)?$/u.test(copied.expectedFileVersion))
     || copied.richFormat !== undefined && !['tiptap_xml', 'tiptap_blocks'].includes(copied.richFormat)
     || copied.initialRepresentation !== undefined && !['auto', 'plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(copied.initialRepresentation)
     || copied.initialRepresentation !== undefined && copied.initialRepresentation !== 'auto' && copied.richFormat !== undefined
