@@ -10,7 +10,7 @@ import { installOwnedGuestStaleUpdate } from './helpers/owned-guest-stale-update
 import { fileGuestCookieName } from '../app/lib/file-guests/types';
 import type { FileGuestDocumentResponse } from '../app/lib/file-guests/content-contract';
 import { removeOwnedFileGuestFixtureProjection, seedOwnedFileGuestFixture } from '../scripts/lib/owned-file-guest-fixture';
-import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page, type Response as BrowserResponse } from '@playwright/test';
 import * as Y from 'yjs';
 import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 
@@ -65,7 +65,7 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
       const result = stdout.split('\n').find(line => line.startsWith('CANVAS_GUEST_CHALLENGE_RESULT='));
       if (!result) throw new Error('Challenge driver returned no result.');
       deliveredCode = (JSON.parse(result.slice('CANVAS_GUEST_CHALLENGE_RESULT='.length)) as { code: string }).code;
-      expect(deliveredCode).toMatch(/^\d{6}$/u);
+      expect(typeof deliveredCode === 'string' && /^\d{6}$/u.test(deliveredCode), 'The delivered fixture code must be six digits.').toBe(true);
       await route.fulfill({ status: 200, json: { success: true, message: 'Der Code wurde an die eingeladene E-Mail-Adresse gesendet.' } });
     } catch (error) {
       const diagnostics = (error as { stderr?: string }).stderr || (error instanceof Error ? error.name : 'Unknown error');
@@ -81,17 +81,59 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
   await page.getByRole('button', { name: 'Code per E-Mail anfordern' }).click();
   await expect(page.getByLabel('Sechsstelliger Code')).toBeVisible({ timeout: 30_000 });
   expect(Boolean(deliveredCode), 'The real service must deliver the fixture challenge.').toBe(true);
+  const cookieName = fileGuestCookieName(invitation.id);
+  const submit = page.getByRole('button', { name: 'Datei öffnen' });
+  const isVerification = (response: BrowserResponse) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'POST' && url.origin === targetOrigin.origin
+      && url.pathname === `/api/guest/files/${invitation.id}/verify`;
+  };
+  let busyResubmitted = false;
+  const submitVerification = async (expectedCode: string): Promise<BrowserResponse> => {
+    const pending = page.waitForResponse(isVerification);
+    await submit.click();
+    const response = await pending;
+    if (response.status() !== 409) return response;
+    const body: unknown = await response.json().catch(() => null);
+    const actualBusy = Boolean(body && typeof body === 'object'
+      && Reflect.get(body, 'success') === false && Reflect.get(body, 'code') === 'PRINCIPAL_BUSY');
+    expect(actualBusy, 'Only an actual named PRINCIPAL_BUSY response permits the explicit UI resubmit.').toBe(true);
+    expect(busyResubmitted, 'Wrong-code and valid-code submission share one resubmit allowance for this login.').toBe(false);
+    await expect(page.locator('section [role="alert"]')).toHaveText('Datei oder Berechtigung wird gerade geändert. Bitte den aktuellen Stand neu laden.');
+    const setGuestCookie = (await response.headerValues('set-cookie')).some(value => value.split('=', 1)[0].trim() === cookieName);
+    expect(setGuestCookie, 'Busy must not issue an invitation cookie.').toBe(false);
+    const hasGuestCookie = (await page.context().cookies()).some(cookie => cookie.name === cookieName);
+    expect(hasGuestCookie, 'Busy must leave the browser without an invitation cookie.').toBe(false);
+    let submittedBody: unknown;
+    try { submittedBody = response.request().postDataJSON(); } catch { submittedBody = null; }
+    expect(Boolean(submittedBody && typeof submittedBody === 'object'
+      && Reflect.get(submittedBody, 'code') === expectedCode && Reflect.get(submittedBody, 'displayName') === displayName),
+    'The actual busy request must carry the expected code and display name.').toBe(true);
+    expect((await page.getByLabel('Sechsstelliger Code').inputValue()) === expectedCode, 'Busy must preserve the submitted code.').toBe(true);
+    expect((await page.getByLabel('Dein Anzeigename').inputValue()) === displayName, 'Busy must preserve the display name.').toBe(true);
+    await expect(submit).toBeEnabled();
+    busyResubmitted = true;
+    const resubmitted = page.waitForResponse(isVerification);
+    await submit.click(); // One real user action, with the unchanged inputs.
+    const result = await resubmitted;
+    let resubmittedBody: unknown;
+    try { resubmittedBody = result.request().postDataJSON(); } catch { resubmittedBody = null; }
+    expect(Boolean(resubmittedBody && typeof resubmittedBody === 'object'
+      && Reflect.get(resubmittedBody, 'code') === expectedCode && Reflect.get(resubmittedBody, 'displayName') === displayName),
+    'The one actual resubmitted request must preserve the code and display name.').toBe(true);
+    return result;
+  };
   await page.getByLabel('Dein Anzeigename').fill(displayName);
-  await page.getByLabel('Sechsstelliger Code').fill(deliveredCode === '000000' ? '111111' : '000000');
-  const rejected = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
-  await page.getByRole('button', { name: 'Datei öffnen' }).click();
-  expect((await rejected).status()).toBe(401);
+  const wrongCode = deliveredCode === '000000' ? '111111' : '000000';
+  await page.getByLabel('Sechsstelliger Code').fill(wrongCode);
+  const rejected = await submitVerification(wrongCode);
+  expect(rejected.status()).toBe(401);
   await expect(page.locator('section [role="alert"]')).toHaveText('Der Code ist ungültig oder abgelaufen. Bitte einen neuen anfordern.');
+  expect((await rejected.headerValues('set-cookie')).some(value => value.split('=', 1)[0].trim() === cookieName)).toBe(false);
   expect((await page.context().cookies()).some(cookie => cookie.name === fileGuestCookieName(invitation.id))).toBe(false);
   await page.getByLabel('Sechsstelliger Code').fill(deliveredCode!);
-  const verified = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
-  await page.getByRole('button', { name: 'Datei öffnen' }).click();
-  expect((await verified).ok()).toBe(true);
+  const verified = await submitVerification(deliveredCode!);
+  expect(verified.ok()).toBe(true);
   const editor = page.locator('.tiptap-editor-shell .ProseMirror');
   await expect(editor).toBeVisible({ timeout: 30_000 });
   return editor;
@@ -391,8 +433,9 @@ test.describe('real file guest collaboration', () => {
     }
   });
 
-  test('actual People create on a projected outer-space native table preserves subsequent native-only read write assets and live revocation', async ({ browser }) => {
+  test('actual People create on a projected outer-space native table preserves subsequent native-only read write assets and live revocation', async ({ browser }, testInfo) => {
     const ownerContext = await fixtureContext(browser), writerContext = await fixtureContext(browser), readerContext = await fixtureContext(browser);
+    const staleUpdate = await installOwnedGuestStaleUpdate(writerContext);
     const owner = await ownerContext.newPage(), writer = await writerContext.newPage(), reader = await readerContext.newPage();
     const invitations: Invitation[] = []; let workspaceId = '';
     try {
@@ -425,18 +468,44 @@ test.describe('real file guest collaboration', () => {
       await readerEditor.click(); await reader.keyboard.type('READER_NATIVE_MUST_NOT_WRITE');
       expect(await text(readerEditor)).not.toContain('READER_NATIVE_MUST_NOT_WRITE');
       await expect(reader.getByTestId('markdown-toolbar-insert')).toHaveCount(0);
-      const revoked = owner.waitForResponse(response => response.request().method() === 'DELETE'
-        && new URL(response.url()).pathname === `/api/security/file-guests/${writeInvitation.id}`);
-      await dialog.locator('article').filter({ hasText: writeInvitation.email }).getByRole('button', { name: /Revoke|Widerrufen|widerrufen/u }).click();
-      const response = await revoked; expect(response.ok()).toBe(true);
-      expect(response.request().postDataJSON()).toEqual({ policyRevision: writeInvitation.policyRevision });
       const before = await text(readerEditor);
+      const beforeLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      const beforeClock = Y.decodeStateVector(Buffer.from(beforeLocal.stateVector, 'base64')).get(beforeLocal.localClient) ?? 0;
+      staleUpdate.arm(content.session.documentName);
       const attempted = await guestEditor.evaluate(element => {
         const editor = (element as EditorElement).editor;
+        const wasEditable = editor.isEditable;
         const applied = !editor.isDestroyed && editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'REVOKED_NATIVE_MUST_NOT_PERSIST');
-        return { applied, destroyed: editor.isDestroyed, localMutation: element.textContent?.includes('REVOKED_NATIVE_MUST_NOT_PERSIST') };
+        return { applied, wasEditable, destroyed: editor.isDestroyed, localMutation: element.textContent?.includes('REVOKED_NATIVE_MUST_NOT_PERSIST'),
+          editorStateMutation: editor.state.doc.textContent.includes('REVOKED_NATIVE_MUST_NOT_PERSIST') };
       });
-      expect(attempted).toMatchObject({ applied: true, destroyed: false, localMutation: true });
+      expect(attempted).toMatchObject({ applied: true, wasEditable: true, destroyed: false, localMutation: true, editorStateMutation: true });
+      const afterLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      expect(afterLocal.guid).toBe(beforeLocal.guid); expect(afterLocal.localClient).toBe(beforeLocal.localClient);
+      expect(afterLocal.stateProof).not.toBe(beforeLocal.stateProof);
+      expect(JSON.stringify(afterLocal.document)).toContain('REVOKED_NATIVE_MUST_NOT_PERSIST');
+      const afterClock = Y.decodeStateVector(Buffer.from(afterLocal.stateVector, 'base64')).get(afterLocal.localClient) ?? 0;
+      expect(afterClock).toBeGreaterThan(beforeClock);
+      const mutation = { localClient: afterLocal.localClient, beforeClock, afterClock, marker: 'REVOKED_NATIVE_MUST_NOT_PERSIST' };
+      await expect.poll(() => staleUpdate.mutation(mutation), 'The native-table edit must produce its original held Yjs update.').not.toBeNull();
+      const held = staleUpdate.mutation(mutation)!;
+      expect(await text(readerEditor)).toBe(before);
+      const revoked = owner.waitForResponse(response => response.request().method() === 'DELETE'
+        && new URL(response.url()).pathname === `/api/security/file-guests/${writeInvitation.id}`);
+      staleUpdate.beginRevoke();
+      await dialog.locator('article').filter({ hasText: writeInvitation.email }).getByRole('button', { name: /Revoke|Widerrufen|widerrufen/u }).click();
+      const response = await revoked; expect(response.status()).toBe(200);
+      expect(response.request().postDataJSON()).toEqual({ policyRevision: writeInvitation.policyRevision });
+      const release = staleUpdate.releaseAfterRevoke(response.status());
+      expect(release).toMatchObject({ markerFrameAttempts: 1, markerFrameSha256: held.markerFrameSha256, sendIsDeliveryReceipt: false });
+      expect(release.originalFrameAttempts).toBe(held.frames);
+      await expect.poll(() => {
+        const evidence = staleUpdate.evidence();
+        return evidence.accessRevoked.length > 0 && evidence.logicalClose.length > 0;
+      }, 'The original native-table Guest connection must receive actual document revocation.').toBe(true);
+      await testInfo.attach('native-table original update release and actual server denial', {
+        body: Buffer.from(JSON.stringify({ held, release, evidence: staleUpdate.evidence() })), contentType: 'application/json',
+      });
       await expect(guestEditor).toHaveAttribute('contenteditable', 'false', { timeout: 25_000 });
       expect(await text(readerEditor)).toBe(before);
       const denied = await writer.request.post(`/api/guest/files/${writeInvitation.id}/session`, { headers: { Origin: BASE_URL }, data: {} });
@@ -447,6 +516,7 @@ test.describe('real file guest collaboration', () => {
       expect(JSON.stringify(final.bootstrap)).not.toContain('REVOKED_NATIVE_MUST_NOT_PERSIST');
       expect(JSON.stringify(final.bootstrap)).not.toContain('READER_NATIVE_MUST_NOT_WRITE');
     } finally {
+      staleUpdate.discard();
       for (const invitation of invitations) await owner.request.delete(`/api/security/file-guests/${invitation.id}`, {
         headers: { 'x-canvas-workspace-id': workspaceId, Origin: BASE_URL }, data: { policyRevision: invitation.policyRevision },
       }).catch(() => undefined);
