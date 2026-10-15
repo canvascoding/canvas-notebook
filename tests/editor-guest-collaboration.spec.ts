@@ -80,7 +80,7 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
   const rejected = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
   await page.getByRole('button', { name: 'Datei öffnen' }).click();
   expect((await rejected).status()).toBe(401);
-  await expect(page.getByRole('alert')).toContainText('ungültig');
+  await expect(page.locator('section [role="alert"]')).toHaveText('Der Code ist ungültig oder abgelaufen. Bitte einen neuen anfordern.');
   expect((await page.context().cookies()).some(cookie => cookie.name === fileGuestCookieName(invitation.id))).toBe(false);
   await page.getByLabel('Sechsstelliger Code').fill(deliveredCode!);
   const verified = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
