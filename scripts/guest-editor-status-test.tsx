@@ -5,10 +5,13 @@ import { createRoot } from 'react-dom/client';
 import { NextIntlClientProvider } from 'next-intl';
 import { JSDOM } from 'jsdom';
 import * as Y from 'yjs';
-import type { JSONContent } from '@tiptap/core';
+import { getSchema, type JSONContent } from '@tiptap/core';
 import type { CollaborationDocument } from '../app/lib/collaboration/client';
 import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import { createInitialTextCollaborationClientState } from '../app/lib/collaboration/client-state';
+import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
+import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
+import { isFileGuestContentBootstrap, type FileGuestContentBootstrap } from '../app/lib/file-guests/content-contract';
 import messages from '../messages/en.json';
 
 const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'https://canvas.test/guest', pretendToBeVisual: true });
@@ -27,6 +30,11 @@ async function main() {
   const { createRichMarkdownYDoc, convertRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
   const legacy = createRichMarkdownYDoc('Shared draft');
   const doc = convertRichMarkdownYDoc(legacy, 'tiptap_blocks'); legacy.destroy();
+  const lossyDoc = createRichMarkdownYDoc('| Native width |\n| --- |\n| Preserved cell |', 'tiptap_blocks');
+  const lossyTree = new CollaborationBlockTree(lossyDoc, getSchema(codec.richMarkdownCodecExtensions()));
+  for (const record of lossyTree.records.values()) if (['tableCell', 'tableHeader'].includes((record.get('shape') as { type: string }).type)) {
+    (record.get('attributes') as Y.Map<unknown>).set('colwidth', [120]);
+  }
   const plainDoc = new Y.Doc(); plainDoc.getText('content').insert(0, '<div>Shared source</div>\n');
   const session: CollaborationSessionResponse = {
     success: true, documentId: 'guest-doc', documentName: 'guest-doc', provider: 'yjs', representation: 'tiptap_blocks',
@@ -54,15 +62,19 @@ async function main() {
     if (request === '@/app/lib/collaboration/client') return { useCollaborationDocument: () => current };
     if (request === '@/app/lib/markdown/rich-markdown-codec') return { ...codec, createRichMarkdownManager: () => {
       const manager = codec.createRichMarkdownManager();
-      return { ...manager, serialize: (json: JSONContent) => {
+      const serialize = manager.serialize.bind(manager);
+      // Preserve the real instance: lossless checks also call its prototype parse method.
+      manager.serialize = (json: JSONContent) => {
         if (failSerialization) throw new Error('Private serializer diagnostic');
-        return manager.serialize(json);
-      } };
+        return serialize(json);
+      };
+      return manager;
     } };
     // This test isolates the actual guest shell, projection hook and common recovery panel.
     // guest-editor-controls-test exercises the real rich editor and account/guest command parity.
     if (request === '@/app/components/editor/MarkdownEditor') return {
-      RichMarkdownEditor: ({ readOnly }: { readOnly: boolean }) => <div data-testid="native-editor" data-readonly={String(readOnly)} />,
+      RichMarkdownEditor: ({ readOnly, collaborationDocument }: { readOnly: boolean; collaborationDocument: CollaborationDocument }) =>
+        <div data-testid="native-editor" data-readonly={String(readOnly)} data-document-guid={collaborationDocument.doc.guid} />,
       useMobileKeyboardActive: () => false, useVisualViewportBottomOffset() {},
     };
     if (request === '@uiw/react-codemirror') return { __esModule: true,
@@ -91,9 +103,10 @@ async function main() {
   const button = (label: string) => [...document.querySelectorAll('button')].find((item) => item.textContent === label);
   const native = () => document.querySelector('[data-testid="native-editor"]');
   const panel = () => document.querySelector('[data-testid="markdown-save-state"]');
+  let bootstrap: FileGuestContentBootstrap = { kind: 'markdown', markdown: 'Shared draft' };
   const render = async (key = 'same') => act(async () => root.render(<StrictMode>
     <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
-      <GuestMarkdownEditor key={key} session={session} path="shared.md" fileName="shared.md" initialMarkdown="Shared draft"
+      <GuestMarkdownEditor key={key} session={session} path="shared.md" fileName="shared.md" bootstrap={bootstrap}
         assets={[]} onReload={() => { reloads++; }} />
     </NextIntlClientProvider>
   </StrictMode>));
@@ -124,8 +137,40 @@ async function main() {
       projectionError: { code: 'COLLABORATION_CHECKPOINT_ROUNDTRIP_UNSTABLE', sequence: 2 } });
     assert.equal(panel(), null); assert.equal(checkpoints, 0);
     assert(!text().includes('roundtrip') && !text().includes('persisted_yjs'));
+    assert.equal(button(labels.guestDownloadCopy)?.disabled, false, 'the actual Shared draft document has a lossless Markdown projection');
     await act(async () => button(labels.guestDownloadCopy)!.click());
+    assert.equal(downloads.length, 1, 'the enabled download produces the actual Markdown copy');
     assert.equal(downloads[0].name, 'shared.md'); assert.equal(await downloads[0].blob.text(), 'Shared draft');
+
+    assert(isFileGuestContentBootstrap({ kind: 'markdown', markdown: '' }), 'an actual empty Markdown document remains valid');
+    assert.equal(isFileGuestContentBootstrap({ kind: 'native_document', content: { kind: 'binary', bytes: '' } }), false);
+    assert.equal(isFileGuestContentBootstrap({ kind: 'native_document', content: {
+      kind: 'rich_text', document: { type: 'unsupported' }, frontmatter: '', bodyFinalLineEnding: '',
+    } }), false);
+    bootstrap = { kind: 'native_document', content: { kind: 'rich_text', document: readRichDocumentJson(doc),
+      frontmatter: '', bodyFinalLineEnding: '' } };
+    await update({ ready: false }, { indexedDbHydrated: false, ready: false });
+    assert.equal(native(), null, 'native bootstrap JSON must not initialize an editable substitute for the Yjs room');
+    assert.equal(button(labels.guestDownloadCopy)?.disabled, true, 'native bootstrap never claims an empty Markdown fallback is available');
+    await act(async () => button(labels.guestDownloadCopy)!.click());
+    assert.equal(downloads.length, 1, 'an unhydrated native document cannot produce a fake empty Markdown download');
+    await update({ ready: true }, { indexedDbHydrated: true, ready: true });
+    assert.equal(native()?.getAttribute('data-document-guid'), doc.guid);
+    assert.equal(native()?.getAttribute('data-readonly'), 'false');
+    assert.equal(button(labels.guestDownloadCopy)?.disabled, false, 'a genuinely lossless hydrated projection may be downloaded');
+
+    bootstrap = { kind: 'native_document', content: { kind: 'rich_text', document: readRichDocumentJson(lossyDoc),
+      frontmatter: '', bodyFinalLineEnding: '' } };
+    await update({ doc: lossyDoc });
+    assert.equal(native()?.getAttribute('data-document-guid'), lossyDoc.guid);
+    assert.equal(native()?.getAttribute('data-readonly'), 'false', 'a valid native table does not require a lossless Markdown export to be edited');
+    assert.equal(panel(), null, 'lossy Markdown availability alone is not a native document failure');
+    assert.equal(button(labels.guestDownloadCopy)?.disabled, true, 'a serializer result that drops native column widths is not a downloadable copy');
+    await act(async () => button(labels.guestDownloadCopy)!.click());
+    assert.equal(downloads.length, 1);
+    assert.match(JSON.stringify(readRichDocumentJson(lossyDoc)), /"colwidth":\[120\]/u);
+    bootstrap = { kind: 'markdown', markdown: 'Shared draft' };
+    await update({ doc });
 
     failSerialization = true;
     await act(async () => doc.getText('frontmatter').insert(0, '\n'));
@@ -186,14 +231,14 @@ async function main() {
     await update({ ready: false }, { ready: false });
     assert.equal(button(labels.source), undefined);
     assert.equal(document.querySelector('[data-testid="source-editor"]'), null, 'loading never mounts a source writer');
-    console.log('Guest shell: source capabilities/fallback, rights, silent sync, native projection fallback and exact Yjs backup passed.');
+    console.log('Guest shell: explicit native bootstrap, lossless-only Markdown downloads, source capabilities/fallback, rights, silent sync, native projection fallback and exact Yjs backup passed.');
   } finally {
     await act(async () => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 1_050));
     internals._load = originalLoad; globalThis.fetch = originalFetch;
     URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke;
     dom.window.HTMLAnchorElement.prototype.click = originalClick;
-    doc.destroy(); plainDoc.destroy(); dom.window.close();
+    doc.destroy(); lossyDoc.destroy(); plainDoc.destroy(); dom.window.close();
   }
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

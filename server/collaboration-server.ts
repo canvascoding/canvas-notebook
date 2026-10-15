@@ -24,6 +24,7 @@ import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics'
 import { reportCollaborationStartupFailure, type CollaborationStartupPhase } from '../app/lib/collaboration/startup-diagnostics';
 import { auth } from '@/app/lib/auth';
 import { fileGuestService } from '@/app/lib/file-guests/service';
+import { isFileGuestInvitationReaderBusy } from '@/app/lib/file-guests/writer';
 import { fileGuestCookieName } from '@/app/lib/file-guests/types';
 import { assertFileGuestUpdateAllowed } from '@/app/lib/file-guests/update-policy';
 import { createCollaborationAccessMonitor } from '@/app/lib/collaboration/access-monitor';
@@ -683,21 +684,24 @@ export function createCollaborationServer(server: http.Server, options: {
       }));
       connection.close({ code: 4403, reason: 'Collaboration access revoked' });
     },
-    isTransient: isAuthenticatedNativeSessionTransportBusy,
+    isTransient: error => isAuthenticatedNativeSessionTransportBusy(error) || isFileGuestInvitationReaderBusy(error),
   });
-  // Retain this concrete frame while genuine pre-callback peer contention
-  // clears. Each attempt mints and finishes a fresh phase; no write authority
-  // is saved. Exhaustion closes the actual socket so its state-vector handshake
+  // Retain this concrete frame while genuine peer/read contention clears.
+  // Each attempt finishes a fresh authorization phase; no write authority is
+  // saved. Exhaustion closes the actual socket so its state-vector handshake
   // can recover a locally retained one-shot update on a fresh connection.
   const retryNativePeerCheck = async <T>(connection: Connection<CollaborationContext>, operation: () => Promise<T>): Promise<T> => {
     for (let attempt = 0; ; attempt++) {
       try {
-        if (connection.context.nativePeer && (nativeClosing || !connection.document.hasConnection(connection))) {
+        if ((connection.context.nativePeer || connection.context.claims.guestInvitationId)
+          && (nativeClosing || !connection.document.hasConnection(connection))) {
           throw new Error('Collaboration connection is closed.');
         }
         return await operation();
       } catch (error) {
-        if (!connection.context.nativePeer || !isAuthenticatedNativeSessionTransportBusy(error)) throw error;
+        const retryable = connection.context.nativePeer && isAuthenticatedNativeSessionTransportBusy(error)
+          || connection.context.claims.guestInvitationId && isFileGuestInvitationReaderBusy(error);
+        if (!retryable) throw error;
         if (attempt === 2) {
           connection.webSocket.close(1013, 'Collaboration peer busy; reconnect to synchronize');
           throw error;

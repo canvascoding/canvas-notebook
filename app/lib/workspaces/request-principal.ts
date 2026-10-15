@@ -36,7 +36,7 @@ type RequestCapture = AuthorizationCapture & {
 };
 declare const guestInvitationAuthorityBrand: unique symbol;
 export type FileGuestInvitationAuthority = Readonly<{ [guestInvitationAuthorityBrand]: never }>;
-export type FileGuestInvitationAuthorityPurpose = 'challenge' | 'redeem' | 'failed_challenge_cleanup';
+export type FileGuestInvitationAuthorityPurpose = 'challenge' | 'redeem' | 'failed_challenge_cleanup' | 'access';
 export type FileGuestInvitationAuthorityTarget = Readonly<{
   id: string; workspaceId: string; path: string; documentId: string; lineageId: string; lifecycleGeneration: number;
   policyRevision: number; permission: 'read' | 'write'; createdByUserId: string;
@@ -459,7 +459,11 @@ export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnec
 export class FileGuestInvitationAuthorityError extends Error {
   constructor(readonly code: 'FILE_GUEST_INVITATION_INVALID' | 'FILE_GUEST_INVITATION_UNAVAILABLE'
     | 'FILE_GUEST_INVITATION_SCOPE_CHANGED' | 'FILE_GUEST_INVITATION_AUTHORITY_REQUIRED') {
-    super(code); this.name = 'FileGuestInvitationAuthorityError';
+    super(code === 'FILE_GUEST_INVITATION_INVALID' ? 'Eine gültige Einladung ist erforderlich.'
+      : code === 'FILE_GUEST_INVITATION_UNAVAILABLE' ? 'Diese Einladung ist abgelaufen oder wurde widerrufen.'
+        : code === 'FILE_GUEST_INVITATION_SCOPE_CHANGED' ? 'Die ursprüngliche Dokumentbindung wurde geändert. Eine neue Einladung ist nötig.'
+          : 'Die Gastaktion ist nicht autorisiert.');
+    this.name = 'FileGuestInvitationAuthorityError';
   }
   get status(): number {
     return this.code === 'FILE_GUEST_INVITATION_INVALID' ? 400 : this.code === 'FILE_GUEST_INVITATION_UNAVAILABLE' ? 410
@@ -484,7 +488,7 @@ function invitationTarget(row: Row | undefined): { invitation: FileGuestInvitati
  * WorkspaceRequestPrincipal. The verified license is captured before held SQL. */
 export async function withFileGuestInvitationAuthority<T>(invitationId: string, purpose: FileGuestInvitationAuthorityPurpose,
   operation: (authority: FileGuestInvitationAuthority) => Promise<T>): Promise<T> {
-  if (!isFileGuestId(invitationId) || !['challenge','redeem','failed_challenge_cleanup'].includes(purpose)
+  if (!isFileGuestId(invitationId) || !['challenge','redeem','failed_challenge_cleanup','access'].includes(purpose)
     || typeof operation !== 'function') guestFail('FILE_GUEST_INVITATION_INVALID');
   const license = freeze(structuredClone(await requireTeamRuntimeLicense()));
   if (!license.licensed || !['active','grace'].includes(license.licenseState)) fail('PRINCIPAL_EXPIRED');

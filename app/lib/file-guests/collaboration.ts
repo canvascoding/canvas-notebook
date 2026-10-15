@@ -14,8 +14,9 @@ import { loadCollaborationProjectionStatus, recordCollaborationProjectionFailure
 import { classifyCollaborationProjectionError } from '@/app/lib/collaboration/projection-errors';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 
-export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
-  const { user, guestSession, state, invitation } = await fileGuestService.access(id, { token });
+async function sessionForActualAccess(found: Awaited<ReturnType<typeof fileGuestService.access>>): Promise<CollaborationSessionResponse> {
+  const {user,guestSession,state,invitation} = found;
+  const id = invitation.id;
   const issued = issueCollaborationTicket({ userId: user.id, sessionId: guestSession.id,
     guestInvitationId: id, guestPolicyRevision: invitation.policyRevision,
     workspaceId: state.workspaceId, organizationId: state.organizationId, documentId: state.documentId,
@@ -33,6 +34,17 @@ export async function fileGuestCollaborationSession(id: string, token: string): 
     user: { id: user.id, name: user.name, ...collaborationUserColors(user.id) },
     guestAccess: { invitationId: id, workspaceId: state.workspaceId },
   };
+}
+
+export async function fileGuestCollaborationSession(id: string, token: string): Promise<CollaborationSessionResponse> {
+  return sessionForActualAccess(await fileGuestService.access(id,{token}));
+}
+
+/** Both native bootstrap and ticket parameters derive from this one actual
+ * current invitation/session read. No caller-provided access object is accepted. */
+export async function fileGuestCollaborationContent(id:string,token:string) {
+  const content = await fileGuestService.content(id,token);
+  return {content,session:await sessionForActualAccess(content)};
 }
 
 export async function fileGuestCheckpoint(id: string, token: string, ticket: string, stateVector: string, stateProof: unknown) {

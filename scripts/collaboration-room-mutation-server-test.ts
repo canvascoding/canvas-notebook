@@ -153,6 +153,9 @@ async function main() {
   let rejectGuestUpdate = false;
   const denied = new Set<Connection>();
   let accessChecks = 0;
+  const guestBusy = new Error('Owned Guest reader contention');
+  const guestBusyAttempts = new Map<Connection, number>();
+  const socketCloseCodes = new Map<Connection, number[]>();
   let stores = 0;
   const historyCaptures: Array<{ source: string; actorUserId: string | null; actorType: string }> = [];
   let directHistoryContext: unknown;
@@ -277,8 +280,13 @@ async function main() {
       dispose() {}, add: () => () => {}, check: async (connection: Connection) => {
         accessChecks++;
         if (denied.has(connection) || !connection.document.hasConnection(connection)) throw new Error('Collaboration access is closed.');
+        const remaining = guestBusyAttempts.get(connection) ?? 0;
+        if (remaining > 0) { guestBusyAttempts.set(connection, remaining - 1); throw guestBusy; }
       },
     }) };
+    // This harness controls only the SQL/classifier boundary; real Reader
+    // provenance and monitor denial semantics are covered by the PG fixture.
+    if (name === '@/app/lib/file-guests/writer') return { isFileGuestInvitationReaderBusy: (error: unknown) => error === guestBusy };
     if (name === '@/app/lib/file-guests/update-policy') return { assertFileGuestUpdateAllowed: () => {
       if (rejectGuestUpdate) throw new Error('Deliberate guest update rejection');
     } };
@@ -302,8 +310,10 @@ async function main() {
   const sockets: Connection<TestContext>[] = [];
   const request = new Request('http://localhost/ws/collaboration');
   const socket = (document: Document, id: string, readOnly = false) => {
-    const websocket = { readyState: 1, send() {}, close() {} } as ConstructorParameters<typeof Connection>[0];
+    const closeCodes: number[] = [];
+    const websocket = { readyState: 1, send() {}, close(code: number) { closeCodes.push(code); } } as ConstructorParameters<typeof Connection>[0];
     const connection = new Connection(websocket, request, document, id, contextFor(document.name), readOnly);
+    socketCloseCodes.set(connection, closeCodes);
     const hookMetadata = { instance, clientsCount: document.getConnectionsCount(), socketId: id,
       requestHeaders: request.headers, requestParameters: new URLSearchParams() };
     connection.beforeHandleMessage((_connection, update) => instance.hooks('beforeHandleMessage', {
@@ -460,6 +470,29 @@ async function main() {
     expected += 'Q';
     assert.equal(room.getText('content').toString(), expected);
     console.log('PASS closed queued socket cannot edit');
+
+    const retryingGuest = socket(room, 'guest-read-contention');
+    retryingGuest.context.claims.guestInvitationId = 'owned-guest';
+    guestBusyAttempts.set(retryingGuest, 2);
+    const beforeGuestRetry = accessChecks;
+    await send(retryingGuest, updateFrame('doc', appendUpdate(room, 'G')));
+    assert.equal(room.getText('content').toString(), expected + 'G', 'The retained frame applies once after a fresh successful Guest check');
+    assert.equal(accessChecks, beforeGuestRetry + 4, 'Two failed reads, a fresh successful read and the queued-write recheck are distinct');
+    assert.deepEqual(socketCloseCodes.get(retryingGuest), []);
+    expected += 'G';
+    console.log('PASS Guest contention retries fresh checks before applying the retained frame once');
+
+    const busyGuest = socket(room, 'guest-read-contention-exhausted');
+    busyGuest.context.claims.guestInvitationId = 'owned-guest';
+    guestBusyAttempts.set(busyGuest, 3);
+    const beforeGuestExhaustion = accessChecks;
+    const retainedGuestUpdate = appendUpdate(room, 'MUST REMAIN LOCAL');
+    await send(busyGuest, updateFrame('doc', retainedGuestUpdate));
+    assert.equal(room.getText('content').toString(), expected, 'Exhausted Guest contention never applies the update');
+    assert.equal(accessChecks, beforeGuestExhaustion + 3);
+    assert(socketCloseCodes.get(busyGuest)?.includes(1013), 'A retryable close requests a fresh synchronization');
+    assert(retainedGuestUpdate.byteLength > 0, 'The caller retains the original one-shot payload');
+    console.log('PASS exhausted Guest contention closes for resynchronization without applying the local payload');
 
     // Persist returns a union containing a peer branch that is ahead of the
     // live room. Reconciliation must wait for the room lease and preserve the

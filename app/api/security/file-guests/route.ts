@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     if (typeof body.path !== 'string' || typeof body.email !== 'string') throw new FileGuestError('Dateipfad und E-Mail-Adresse sind erforderlich.', 400);
     let expiresAt: Date | null | undefined;
     try { expiresAt = parsePublicSharePolicy(body).expiresAt; } catch (error) { throw new FileGuestError(error instanceof Error ? error.message : 'Ungültiger Ablauf.', 400); }
-    const invitation = await fileGuestService.create({ workspace: access.workspace, path: body.path, email: body.email,
+    const invitation = await fileGuestService.create(request,{ workspaceId:access.workspace.workspaceId, path: body.path, expectedTarget:body.expectedTarget, email: body.email,
       permission: parseFileGuestPermission(body.permission), expiresAt: expiresAt === undefined ? new Date(Date.now() + 30 * 86_400_000) : expiresAt });
     return fileGuestJson({ success: true, invitation });
   } catch (error) { return fileGuestErrorResponse(error); }
