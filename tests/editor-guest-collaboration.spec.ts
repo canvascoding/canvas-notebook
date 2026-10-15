@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import path from 'node:path';
 import { promisify } from 'node:util';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
@@ -52,8 +51,10 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
   await page.route(`**/api/guest/files/${invitation.id}/challenge`, async (route) => {
     try {
       const encoded = Buffer.from(JSON.stringify({ invitationId: invitation.id, workspaceId, path: filePath, email: invitation.email })).toString('base64url');
-      const { stdout } = await execFileAsync(path.join(process.cwd(), 'node_modules/.bin/tsx'),
-        ['--conditions', 'react-server', 'scripts/collaboration-guest-challenge-driver.ts', encoded],
+      // Direct Node loading avoids tsx CLI's Unix socket under the long private
+      // macOS TMPDIR while retaining the original driver and all its checks.
+      const { stdout } = await execFileAsync(process.execPath,
+        ['--conditions=react-server', '--import', 'tsx', 'scripts/collaboration-guest-challenge-driver.ts', encoded],
         { env: process.env, maxBuffer: 64 * 1024 });
       const result = stdout.split('\n').find(line => line.startsWith('CANVAS_GUEST_CHALLENGE_RESULT='));
       if (!result) throw new Error('Challenge driver returned no result.');
