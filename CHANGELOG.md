@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.15.2] - 2026-10-15
+
+### Changed
+
+- Standardized OpenAI image request handling across Studio generation and aspect-ratio workflows.
+- Aligned Studio image controls with provider capabilities while preserving compatibility with older clients.
+
+### Fixed
+
+- Preserved image-generation failures and partial outputs across Studio and mobile flows.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.15.1] - 2026-10-15
 
 ### Added
