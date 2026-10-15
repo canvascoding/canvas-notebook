@@ -15,6 +15,10 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
+import { useWorkspaceDirectoryTree } from '@/app/components/file-browser/useWorkspaceDirectoryTree';
+import { useWorkspaceFileSearch } from '@/app/components/file-browser/useWorkspaceFileSearch';
+import { WorkspaceSearchPagination } from '@/app/components/file-browser/WorkspaceSearchPagination';
+import { findNodeInTree } from '@/app/lib/files/tree-utils';
 
 import { cn } from '@/lib/utils';
 
@@ -24,22 +28,6 @@ type FileNode = {
   type: 'file' | 'directory';
   children?: FileNode[];
 };
-
-function collectExpandedPaths(nodes: FileNode[], paths = new Set<string>()): Set<string> {
-  for (const node of nodes) {
-    if (node.type !== 'directory') {
-      continue;
-    }
-
-    paths.add(node.path);
-
-    if (node.children?.length) {
-      collectExpandedPaths(node.children, paths);
-    }
-  }
-
-  return paths;
-}
 
 function collectAncestorPaths(path: string | undefined): Set<string> {
   if (!path) {
@@ -72,33 +60,6 @@ function toDirectoryTree(nodes: FileNode[]): FileNode[] {
   });
 }
 
-function filterDirectoryTree(nodes: FileNode[], query: string): FileNode[] {
-  if (!query) {
-    return nodes;
-  }
-
-  const normalizedQuery = query.toLowerCase();
-  const filtered: FileNode[] = [];
-
-  for (const node of nodes) {
-    if (node.type !== 'directory') {
-      continue;
-    }
-
-    const filteredChildren = node.children ? filterDirectoryTree(node.children, normalizedQuery) : [];
-    const matchesSelf = node.path.toLowerCase().includes(normalizedQuery);
-
-    if (matchesSelf || filteredChildren.length > 0) {
-      filtered.push({
-        ...node,
-        children: filteredChildren,
-      });
-    }
-  }
-
-  return filtered;
-}
-
 function buildDirectoryLabel(path: string, rootLabel: string): string {
   return path === '.' ? rootLabel : path;
 }
@@ -124,40 +85,17 @@ export function WorkspaceDirectoryPickerDialog({
   workspaceId,
 }: WorkspaceDirectoryPickerDialogProps) {
   const t = useTranslations('automationen.directoryPicker');
-  const [directories, setDirectories] = useState<FileNode[]>([]);
   const [search, setSearch] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [pendingSelectedPath, setPendingSelectedPath] = useState<string | null>(null);
 
-  async function loadDirectories() {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const query = new URLSearchParams({ path: '.', depth: '6', noCache: '1' });
-      if (workspaceId) {
-        query.set('workspaceId', workspaceId);
-      }
-      const response = await fetch(`/api/files/tree?${query.toString()}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('errors.loadDirectories'));
-      }
-
-      const nextDirectories = toDirectoryTree(payload.data || []);
-      setDirectories(nextDirectories);
-    } catch (loadError) {
-      setDirectories([]);
-      setError(loadError instanceof Error ? loadError.message : t('errors.loadDirectories'));
-    } finally {
-      setIsLoading(false);
-    }
-  }
+  const directoryTree = useWorkspaceDirectoryTree(workspaceId ?? null, open);
+  const hasSearch = Boolean(search.trim());
+  const directorySearch = useWorkspaceFileSearch({ workspaceId: workspaceId ?? null,
+    query: search, enabled: open && hasSearch, entryType: 'directory' });
+  const isLoading = hasSearch ? directorySearch.isLoading : directoryTree.isLoading;
+  const error = hasSearch ? directorySearch.error : directoryTree.error;
+  const loadDirectories = () => hasSearch ? directorySearch.refresh() : directoryTree.refresh();
 
   useEffect(() => {
     if (!open) {
@@ -167,23 +105,21 @@ export function WorkspaceDirectoryPickerDialog({
     }
 
     setExpandedPaths(collectAncestorPaths(selectedPath));
-    void loadDirectories();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDirectories is a plain function, no stale closure risk
   }, [open, selectedPath, workspaceId]);
 
   const filteredDirectories = useMemo(() => {
-    return filterDirectoryTree(directories, search.trim());
-  }, [directories, search]);
-
-  const visibleExpandedPaths = useMemo(() => {
-    if (!search.trim()) {
-      return expandedPaths;
-    }
-
-    const next = new Set(expandedPaths);
-    collectExpandedPaths(filteredDirectories, next);
-    return next;
-  }, [expandedPaths, filteredDirectories, search]);
+    return hasSearch ? directorySearch.results : toDirectoryTree(directoryTree.tree);
+  }, [hasSearch, directorySearch.results, directoryTree.tree]);
+  const visibleExpandedPaths = expandedPaths;
+  const { tree, isLoading: isLoadingTree, loadDirectory } = directoryTree;
+  useEffect(() => {
+    if (!open || hasSearch || isLoadingTree) return;
+    const unloaded = [...collectAncestorPaths(selectedPath)].find((path) => {
+      const node = findNodeInTree(path, tree);
+      return node?.type === 'directory' && node.children === undefined;
+    });
+    if (unloaded) void loadDirectory(unloaded);
+  }, [open, hasSearch, selectedPath, tree, isLoadingTree, loadDirectory]);
 
   const visibleSelectedPath = pendingSelectedPath ?? normalizeSelectionPath(selectedPath);
 
@@ -203,6 +139,7 @@ export function WorkspaceDirectoryPickerDialog({
     if (!hasChildren || normalizedPath === '') {
       return;
     }
+    void directoryTree.loadDirectory(path);
 
     setExpandedPaths((current) => {
       if (current.has(path)) {
@@ -222,7 +159,7 @@ export function WorkspaceDirectoryPickerDialog({
 
   function renderDirectoryNodes(nodes: FileNode[], depth = 0): ReactNode {
     return nodes.filter((node) => node.type === 'directory').map((directory) => {
-      const hasChildren = Boolean(directory.children?.length);
+      const hasChildren = !hasSearch && (directory.children === undefined || directory.children.length > 0);
       const isExpanded = visibleExpandedPaths.has(directory.path);
       const normalizedPath = normalizeSelectionPath(directory.path);
       const isSelected = visibleSelectedPath === normalizedPath;
@@ -234,6 +171,7 @@ export function WorkspaceDirectoryPickerDialog({
           open={hasChildren ? isExpanded : false}
           onOpenChange={(open) => {
             if (!hasChildren) return;
+            if (open) void directoryTree.loadDirectory(directory.path);
             setExpandedPaths((current) => {
               const next = new Set(current);
               if (open) {
@@ -262,13 +200,13 @@ export function WorkspaceDirectoryPickerDialog({
               )}
               aria-label={hasChildren ? t('toggleFolder') : t('noSubfolders')}
             >
-              <ChevronRight
+              {directoryTree.loadingDirs.has(directory.path) ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronRight
                 className={cn(
                   'h-4 w-4 transition',
                   hasChildren ? '' : 'opacity-30',
                   isExpanded ? 'rotate-90' : '',
                 )}
-              />
+              />}
             </CollapsibleTrigger>
             <button
               type="button"
@@ -329,7 +267,7 @@ export function WorkspaceDirectoryPickerDialog({
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   {t('loading')}
                 </div>
-              ) : filteredDirectories.length === 0 ? (
+              ) : error ? null : filteredDirectories.length === 0 ? (
                 <div className="flex h-28 items-center justify-center text-sm text-muted-foreground">
                   {t('empty')}
                 </div>
@@ -353,6 +291,9 @@ export function WorkspaceDirectoryPickerDialog({
                 </div>
               )}
             </div>
+            {hasSearch && !isLoading && !error ? <WorkspaceSearchPagination
+              loaded={directorySearch.results.length} total={directorySearch.total} hasMore={directorySearch.hasMore}
+              isLoading={directorySearch.isLoadingMore} onLoadMore={directorySearch.loadMore} /> : null}
           </div>
 
           <div className="flex min-h-0 shrink-0 flex-col gap-3 overflow-y-auto rounded-lg border border-border bg-muted/30 p-4 lg:overflow-visible">

@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
-  buildFileTree,
   getFileStats,
   readFile,
   type WorkspaceFileOperationOptions,
@@ -43,13 +42,12 @@ import {
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { Doc as YDoc } from 'yjs';
 import { isRichTextCollaborationRepresentation, type TextCollaborationRepresentation } from '@/app/lib/collaboration/types';
-import type { FileNode } from '@/app/lib/files/types';
+import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
 const MOBILE_TEXT_DOCUMENT_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, '.txt']);
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
-const MAX_INDEXED_DOCUMENTS = 5_000;
 const MAX_CONTENT_SEARCH_DOCUMENTS = 200;
 const MAX_CONTENT_SEARCH_BYTES = 512 * 1024;
 const MAX_LIST_LIMIT = 50;
@@ -179,18 +177,6 @@ function offsetFromCursor(cursor: unknown, query: string): number {
   }
 }
 
-function collectMarkdownFiles(nodes: FileNode[], result: NotebookFile[] = []): NotebookFile[] {
-  for (const node of nodes) {
-    if (result.length >= MAX_INDEXED_DOCUMENTS) break;
-    if (node.type === 'file' && isMarkdownPath(node.path)) {
-      result.push({ path: node.path, size: node.size || 0, modified: node.modified || 0 });
-    } else if (node.type === 'directory' && node.children) {
-      collectMarkdownFiles(node.children, result);
-    }
-  }
-  return result;
-}
-
 function contentTitle(content: string, filePath: string): string {
   const heading = content.match(/^\s*#\s+(.+?)\s*$/mu)?.[1]
     ?.replace(/[*_`~[\]]/gu, '')
@@ -250,12 +236,15 @@ export async function listMobileNotebookDocuments(input: {
   if (!Number.isSafeInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > MAX_LIST_LIMIT) {
     throw new MobileNotebookError(`limit must be between 1 and ${MAX_LIST_LIMIT}.`, 400, 'INVALID_LIMIT');
   }
-  const tree = await buildFileTree('.', 12, 0, { ...input.fileOptions, includeMetadata: true });
-  const files = collectMarkdownFiles(tree).sort(
+  const entries = await getCachedFileReferenceEntries(false, input.fileOptions);
+  const files = entries.filter((entry) => isMarkdownPath(entry.path))
+    .map((entry) => ({ path: entry.path, size: entry.size ?? 0, modified: entry.modified ?? 0 })).sort(
     (left, right) => right.modified - left.modified || left.path.localeCompare(right.path),
   );
   const contentCache = new Map<string, string>();
   let matches: ScoredNotebookFile[];
+  let contentSearch: { complete: boolean; scannedDocuments: number; totalDocuments: number;
+    excludedLargeDocuments: number; unreadableDocuments: number; maxBytesPerDocument: number } | null = null;
 
   if (query) {
     const needle = query.toLowerCase();
@@ -266,13 +255,21 @@ export async function listMobileNotebookDocuments(input: {
       else if (file.path.toLowerCase().includes(needle)) pathMatches.push({ ...file, match: 'path', score: 2 });
     }
     const matchedPaths = new Set(pathMatches.map((file) => file.path));
-    const searchCandidates = files.filter((file) => !matchedPaths.has(file.path)).slice(0, MAX_CONTENT_SEARCH_DOCUMENTS);
+    const unmatchedFiles = files.filter((file) => !matchedPaths.has(file.path));
+    const eligibleFiles = unmatchedFiles.filter((file) => file.size <= MAX_CONTENT_SEARCH_BYTES);
+    const searchCandidates = eligibleFiles.slice(0, MAX_CONTENT_SEARCH_DOCUMENTS);
+    let unreadableDocuments = 0;
     const contentMatches = (await Promise.all(searchCandidates.map(async (file) => {
       const content = await readSearchableContent(file, input.fileOptions);
+      if (content === null) unreadableDocuments += 1;
       if (!content || !content.toLowerCase().includes(needle)) return null;
       contentCache.set(file.path, content);
       return { ...file, match: 'content' as const, score: 1 };
     }))).filter((file): file is NonNullable<typeof file> => file !== null);
+    contentSearch = { complete: unmatchedFiles.length === searchCandidates.length && unreadableDocuments === 0,
+      scannedDocuments: searchCandidates.length, totalDocuments: unmatchedFiles.length,
+      excludedLargeDocuments: unmatchedFiles.length - eligibleFiles.length, unreadableDocuments,
+      maxBytesPerDocument: MAX_CONTENT_SEARCH_BYTES };
     matches = [...pathMatches, ...contentMatches].sort(
       (left, right) => right.score - left.score || right.modified - left.modified || left.path.localeCompare(right.path),
     );
@@ -290,6 +287,7 @@ export async function listMobileNotebookDocuments(input: {
   return {
     items,
     nextCursor: nextOffset < matches.length ? cursorFor(nextOffset, query) : null,
+    contentSearch,
   };
 }
 

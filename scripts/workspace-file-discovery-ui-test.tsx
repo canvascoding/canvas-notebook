@@ -16,7 +16,7 @@ async function main() {
   let releaseOld!: (value: FileNode[]) => void;
   const oldRoot = new Promise<FileNode[]>((resolve) => { releaseOld = resolve; });
   const treeRequests: Array<{ directory: string; depth: number; workspaceId: string }> = [];
-  const searchRequests: Array<{ query: string; workspaceId: string; cursor: string | null; extensions: string[] }> = [];
+  const searchRequests: Array<{ query: string; workspaceId: string; cursor: string | null; extensions: string[]; entryType?: string }> = [];
   const mocks: Record<string, unknown> = {
     '@/app/lib/files/client': {
       WorkspaceFileApiError: class extends Error {},
@@ -28,6 +28,7 @@ async function main() {
       },
       searchWorkspaceFileReferences: async (options: typeof searchRequests[number]) => {
         searchRequests.push(options);
+        if (options.entryType === 'directory') return { files: [{ path: `deep/${options.query}`, name: options.query, type: 'directory' }], total: 1, nextCursor: null };
         const name = options.cursor ? 'later.png' : `${options.query}.png`;
         return { files: [{ path: `deep/${name}`, name, type: 'file', isImage: true }],
           total: 2, nextCursor: options.cursor ? null : 'page-two' };
@@ -38,7 +39,8 @@ async function main() {
     const file = path.resolve(relativePath);
     const native = createRequire(file);
     const source = ts.transpileModule(await fs.readFile(file, 'utf8'), {
-      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+      fileName: file,
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     }).outputText;
     const exported: Record<string, unknown> = {};
     new Function('require', 'module', 'exports', source)((name: string) => mocks[name] ?? native(name), { exports: exported }, exported);
@@ -94,6 +96,41 @@ async function main() {
     assert.doesNotMatch(ui.getByTestId('results').textContent || '', /Terra|later/);
     await waitFor(() => assert.match(ui.getByTestId('results').textContent || '', /new-query.png/));
     console.log('workspace-file-discovery-ui-test: shallow navigation through 18 levels, late workspace response, scoped media search, pagination and query reset passed');
+    cleanup();
+    const block = ({ children }: { children?: React.ReactNode }) => <div>{children}</div>;
+    const collapseContext = React.createContext({ open: false, onOpenChange: (_open: boolean) => {} });
+    mocks['next-intl'] = { useTranslations: () => (key: string) => key };
+    mocks['lucide-react'] = new Proxy({}, { get: () => () => null });
+    mocks['@/lib/utils'] = { cn: (...parts: unknown[]) => parts.filter(Boolean).join(' ') };
+    mocks['@/components/ui/dialog'] = { Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => open ? <div role="dialog">{children}</div> : null,
+      DialogContent: block, DialogDescription: block, DialogFooter: block, DialogHeader: block, DialogTitle: block };
+    mocks['@/components/ui/button'] = { Button: ({ children, variant: _variant, size: _size, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string; size?: string }) => <button {...props}>{children}</button> };
+    mocks['@/components/ui/input'] = { Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} /> };
+    mocks['@/components/ui/collapsible'] = {
+      Collapsible: ({ children, open, onOpenChange }: { children: React.ReactNode; open: boolean; onOpenChange: (value: boolean) => void }) =>
+        <collapseContext.Provider value={{ open, onOpenChange }}>{children}</collapseContext.Provider>,
+      CollapsibleTrigger: ({ children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement>) => {
+        const state = React.useContext(collapseContext);
+        return <button {...props} onClick={() => state.onOpenChange(!state.open)}>{children}</button>;
+      },
+      CollapsibleContent: block,
+    };
+    mocks['@/app/components/file-browser/useWorkspaceDirectoryTree'] = { useWorkspaceDirectoryTree };
+    mocks['@/app/components/file-browser/useWorkspaceFileSearch'] = { useWorkspaceFileSearch };
+    mocks['@/app/components/file-browser/WorkspaceSearchPagination'] = { WorkspaceSearchPagination: () => null };
+    const { WorkspaceDirectoryPickerDialog } = await compile('app/apps/automations/components/WorkspaceDirectoryPickerDialog.tsx') as
+      typeof import('../app/apps/automations/components/WorkspaceDirectoryPickerDialog');
+    let selectedPath = '';
+    let closed = false;
+    const automation = render(<WorkspaceDirectoryPickerDialog open workspaceId="current"
+      onOpenChange={(open) => { closed = !open; }} onSelect={(selected) => { selectedPath = selected; }} />);
+    await act(async () => fireEvent.change(automation.getByPlaceholderText('searchPlaceholder'), { target: { value: 'empty' } }));
+    await waitFor(() => assert.ok(automation.queryByTestId('automation-directory-option-deep-empty')));
+    await act(async () => fireEvent.click(automation.getByTestId('automation-directory-option-deep-empty')));
+    await act(async () => fireEvent.click(automation.getByTestId('automation-directory-picker-confirm')));
+    assert.equal(selectedPath, 'deep/empty');
+    assert.equal(closed, true);
+    console.log('automation directory picker: global directory search and empty-folder selection passed');
   } finally {
     cleanup();
     dom.window.close();
