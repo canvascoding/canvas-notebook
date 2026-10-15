@@ -1325,7 +1325,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query(`
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint
-        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check') THEN
+        WHERE conname = 'collaboration_documents_yjs_state_lifecycle_check'
+          AND conrelid = 'collaboration_documents'::regclass) THEN
         ALTER TABLE collaboration_documents ADD CONSTRAINT collaboration_documents_yjs_state_lifecycle_check
           CHECK (yjs_state_lifecycle IN ('never_initialized', 'initialized', 'legacy_unknown'));
       END IF;
@@ -1344,7 +1345,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query(`
     DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized') THEN
+      IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'collaboration_yjs_state_initialized'
+        AND tgrelid = 'collaboration_yjs_states'::regclass) THEN
         CREATE TRIGGER collaboration_yjs_state_initialized
           AFTER INSERT ON collaboration_yjs_states FOR EACH ROW
           EXECUTE FUNCTION mark_collaboration_yjs_state_initialized();
