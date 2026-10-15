@@ -1,4 +1,5 @@
 import type { SqlConnection } from '../db';
+import { FILE_GUEST_TARGET_BINDING_CHECK_SQL } from './file-guest-target-migration';
 
 const safeClock = (column: string) => `${column} BETWEEN 0 AND 9007199254740990`;
 const safeId = (column: string, nullable = false) => `${nullable ? `${column} IS NULL OR ` : ''}(length(${column}) BETWEEN 1 AND 256 AND ${column}!~'[[:cntrl:]]')`;
@@ -19,11 +20,16 @@ export const NATIVE_FILE_SIDE_EFFECT_ROW_SPECS = [
     json: "jsonb_build_object('workspaceId',workspace_id,'userId',user_id,'path',path,'isFavorite',is_favorite<>0,'pinnedAt',pinned_at,'createdAt',created_at,'updatedAt',updated_at)",
     bounds: `${safeId('user_id')} AND is_favorite IN(0,1) AND (pinned_at IS NULL OR ${safeClock('pinned_at')}) AND ${safeClock('created_at')} AND ${safeClock('updated_at')}` },
   { key: 'guests', table: 'file_guest_invitations', path: 'path', active: "status='active'", id: 'id',
-    order: 'id', columns: ['id','workspace_id','path','document_id','email','permission','status','policy_revision','created_by_user_id','assets_json','expires_at',
+    order: 'id', columns: ['id','workspace_id','path','document_id','lifecycle_generation','lineage_id','email','permission','status','policy_revision','created_by_user_id','assets_json','expires_at',
       'created_at','updated_at','challenge_id','challenge_hash','challenge_expires_at','challenge_attempts','challenge_sent_at','challenge_window_at','challenge_send_count'],
+    // Freeze the legacy private projection: adding nullable binding columns must
+    // not change an old unbound row's JSON or V1 preserved-row digest. A bound
+    // row adds an explicit versioned binding, covered by stage/receipt digests.
     json: `jsonb_build_object('id',id,'workspaceId',workspace_id,'documentId',document_id,'path',path,'status',status,'policyRevision',policy_revision,
-      'challengeCleared',challenge_hash IS NULL,'updatedAt',updated_at,'preservedRowProof',${preserved('file_guest_invitations',['status','policy_revision','challenge_hash','updated_at'])})`,
-    bounds: `${safeId('id')} AND ${safeId('document_id')} AND ${safeId('created_by_user_id')} AND ${boundedField('email',320)}
+      'challengeCleared',challenge_hash IS NULL,'updatedAt',updated_at,'preservedRowProof',${preserved('file_guest_invitations',['status','policy_revision','challenge_hash','updated_at','lifecycle_generation','lineage_id'])})
+      || CASE WHEN lifecycle_generation IS NULL AND lineage_id IS NULL THEN '{}'::jsonb
+        ELSE jsonb_build_object('guestBinding',jsonb_build_object('version',1,'lineageId',lineage_id,'lifecycleGeneration',lifecycle_generation)) END`,
+    bounds: `${FILE_GUEST_TARGET_BINDING_CHECK_SQL} AND ${safeId('id')} AND ${safeId('document_id')} AND ${safeId('created_by_user_id')} AND ${boundedField('email',320)}
       AND ${boundedField('permission',64)} AND ${boundedField('assets_json',65536)} AND ${boundedField('challenge_id')} AND ${boundedField('challenge_hash')}
       AND ${optionalClock('expires_at')} AND ${optionalClock('challenge_expires_at')} AND ${optionalClock('challenge_sent_at')} AND ${optionalClock('challenge_window_at')}
       AND ${safeClock('challenge_attempts')} AND ${safeClock('challenge_send_count')} AND ${safeClock('created_at')}
@@ -155,7 +161,14 @@ export const NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS = [
           OR NOT native_file_side_effect_rows_match(effect->'beforeRows',effect#>>'{source,workspaceId}',paths,false)
           OR EXISTS(SELECT 1 FROM jsonb_each(effect->'beforeRows') fields(k,rows),jsonb_array_elements(rows) r WHERE k<>'locks' AND (
             r->>'path' IS DISTINCT FROM effect#>>'{source,path}' OR r->>'workspaceId' IS DISTINCT FROM effect#>>'{source,workspaceId}'
-            OR k='guests' AND r->>'documentId' IS DISTINCT FROM effect#>>'{source,documentId}'
+            OR k='guests' AND (r->>'documentId' IS DISTINCT FROM effect#>>'{source,documentId}'
+              OR r ? 'guestBinding' AND (jsonb_typeof(r->'guestBinding') IS DISTINCT FROM 'object'
+                OR r#>'{guestBinding,version}' IS DISTINCT FROM '1'::jsonb
+                OR r#>>'{guestBinding,lineageId}' IS DISTINCT FROM effect->>'lineageId'
+                OR CASE WHEN jsonb_typeof(r#>'{guestBinding,lifecycleGeneration}')='number'
+                    AND r#>>'{guestBinding,lifecycleGeneration}' ~ '^[1-9][0-9]*$'
+                  THEN (r#>>'{guestBinding,lifecycleGeneration}')::numeric BETWEEN 1 AND (effect#>>'{source,lifecycleGeneration}')::numeric
+                  ELSE false END IS NOT TRUE))
             OR k='publicShares' AND r->'organizationId' IS DISTINCT FROM effect#>'{source,organizationId}'))
           OR EXISTS(SELECT 1 FROM jsonb_array_elements(effect#>'{beforeRows,locks}') r WHERE
             r->>'workspaceId' IS DISTINCT FROM effect#>>'{source,workspaceId}' OR r->'organizationId' IS DISTINCT FROM effect#>'{source,organizationId}'

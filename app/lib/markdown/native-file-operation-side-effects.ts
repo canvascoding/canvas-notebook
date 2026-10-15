@@ -153,6 +153,19 @@ function checkRows(effect: Effect, actor: Binding['actor'], now: number): void {
       || 'organizationId' in row && row.organizationId !== source.organizationId
       || 'documentId' in row && row.documentId !== source.documentId) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
   }
+  for (const row of beforeRows.guests) {
+    // An unbound legacy invitation gains no authority here: it is only revoked
+    // through its existing exact document/path. Older bound generations of the
+    // same lineage may also be revoked; they must not permanently block a move.
+    if (!Object.hasOwn(row, 'guestBinding')) continue;
+    const binding = row.guestBinding;
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)
+      || Object.keys(binding).some(key => !['version','lineageId','lifecycleGeneration'].includes(key))) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
+    const target = binding as Row;
+    if (target.version !== 1 || target.lineageId !== effect.lineageId
+      || !Number.isSafeInteger(target.lifecycleGeneration) || Number(target.lifecycleGeneration) < 1
+      || Number(target.lifecycleGeneration) > source.lifecycleGeneration) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
+  }
   for (const row of beforeRows.locks) {
     if (row.organizationId !== source.organizationId || row.workspaceId !== source.workspaceId
       || row.lineageId !== null && row.path === source.path && row.lineageId !== effect.lineageId) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');

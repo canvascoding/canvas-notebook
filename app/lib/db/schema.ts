@@ -2,6 +2,7 @@ import { desc, sql } from "drizzle-orm";
 import { pgTable, text, bigint, bigserial, doublePrecision as real, index, uniqueIndex, primaryKey, check, customType } from "drizzle-orm/pg-core";
 import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 import { normalizeDatabaseTimestamp } from './timestamps';
+import { FILE_GUEST_TARGET_BINDING_CHECK_SQL } from './file-guest-target-migration';
 
 // OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
 // plain `$type<T>()` only affects TypeScript; PostgreSQL otherwise persists
@@ -2456,6 +2457,8 @@ export const fileGuestInvitations = pgTable('file_guest_invitations', {
   workspaceId: text('workspace_id').notNull(),
   path: text('path').notNull(),
   documentId: text('document_id').notNull(),
+  lifecycleGeneration: bigint('lifecycle_generation', { mode: 'number' }),
+  lineageId: text('lineage_id'),
   email: text('email').notNull(),
   permission: text('permission').notNull(),
   status: text('status').notNull().default('active'),
@@ -2473,6 +2476,7 @@ export const fileGuestInvitations = pgTable('file_guest_invitations', {
   challengeWindowAt: pgTimestamp('challenge_window_at'),
   challengeSendCount: bigint('challenge_send_count', { mode: 'number' }).notNull().default(0),
 }, (table) => ({
+  targetBindingCheck: check('file_guest_target_binding_check', sql.raw(FILE_GUEST_TARGET_BINDING_CHECK_SQL)),
   activeEmailIdx: uniqueIndex('idx_file_guest_active_email').on(table.workspaceId, table.documentId, table.email).where(sql`${table.status} = 'active'`),
   documentIdx: index('idx_file_guest_document').on(table.documentId, table.status),
 }));

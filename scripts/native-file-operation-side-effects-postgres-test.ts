@@ -28,11 +28,44 @@ import { applyNativeFileOperationMutationOnConnection,
   stageNativeFileOperationBundleOnConnection, type NativeFileOperationBundle } from '../app/lib/markdown/native-file-operation-handoff';
 
 import { runNativeFileOperationSideEffectMigration } from '../app/lib/db/native-file-operation-side-effects-migration';
+import { runFileGuestTargetBindingMigration } from '../app/lib/db/file-guest-target-migration';
 import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection,
   readCommittedNativeFileOperationSideEffectsOnConnection } from '../app/lib/markdown/native-file-operation-side-effects';
 
-let stage = 'private local environment';
+type SnapshotRow = Record<string, unknown>;
+
+const FIXTURE_WATCHDOG_MS = 180_000;
+let stage = 'module evaluated';
+let failureStage: string | undefined;
+let fixtureSettled = false;
+let fixtureCompleted = false;
+let incompleteExitReported = false;
+
+function enterStage(next: string): void {
+  // Callers supply static fixture labels, never paths, SQL, IDs, or ENV values.
+  stage = next;
+  console.log(`Native file side effects PostgreSQL fixture stage: ${stage}`);
+}
+
+function guardIncompleteExit(reason: 'beforeExit' | 'exit' | 'watchdog'): void {
+  if (fixtureSettled || fixtureCompleted) return;
+  if (!incompleteExitReported) console.error(`Native file side effects PostgreSQL fixture INCOMPLETE (${reason}) at ${stage}; cleanup completion is unconfirmed.`);
+  incompleteExitReported = true;
+  process.exitCode = 1;
+}
+
+process.once('beforeExit', () => guardIncompleteExit('beforeExit'));
+process.once('exit', () => guardIncompleteExit('exit'));
+// An unresolved Promise does not keep Node alive. Keep one bounded reference
+// until main settles, and fail rather than report a successful partial run.
+const fixtureWatchdog = setTimeout(() => {
+  guardIncompleteExit('watchdog');
+  process.exit(1);
+}, FIXTURE_WATCHDOG_MS);
+fixtureWatchdog.ref();
+
 async function main() {
+  enterStage('private local environment');
   assert.equal(process.env.NODE_ENV, 'test');
   const envPath = process.env.CANVAS_NATIVE_SIDE_EFFECT_TEST_ENV_FILE; assert(envPath);
   assert.equal((await stat(envPath)).mode & 0o077, 0);
@@ -71,10 +104,11 @@ async function main() {
     };
   };
   try {
+    enterStage('connect local PostgreSQL');
     await control.connect(); const server = (await control.query(`SELECT current_database() AS name,current_setting('server_version_num')::integer AS version,
       to_regclass('public.collaboration_yjs_states') IS NOT NULL AS states`)).rows[0];
     assert.equal(server.name, 'canvas_notebook'); assert.equal(Math.floor(server.version / 10000), 18); assert.equal(server.states, true);
-    stage = 'isolated generated schema'; await control.query(`CREATE SCHEMA "${schema}"`); created = true;
+    enterStage('isolated generated schema'); await control.query(`CREATE SCHEMA "${schema}"`); created = true;
     for (const table of ['collaboration_documents','file_collaboration_lineages','collaboration_yjs_states',
       'collaboration_file_projections','collaboration_agent_operations','workspace_file_metadata',
       'workspace_file_user_states','file_guest_invitations','public_file_shares','file_locks']) await control.query(`CREATE TABLE "${schema}".${table} (LIKE public.${table} INCLUDING ALL)`);
@@ -93,9 +127,11 @@ async function main() {
           throw error;
         }
       }, close: () => undefined };
+    enterStage('isolated schema migrations');
     await pool.query(COLLABORATION_ROOM_OWNER_UP_SQL); await pool.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
     for (const sql of COLLABORATION_ADMISSION_STATEMENTS) await pool.query(sql);
     await runNativeFileOperationHandoffMigration(connection);
+    await runFileGuestTargetBindingMigration(connection); await runFileGuestTargetBindingMigration(connection);
     await runNativeFileOperationSideEffectMigration(connection); await runNativeFileOperationSideEffectMigration(connection);
     const workspace: WorkspaceContext = { workspaceId: `native-file-${randomUUID()}`, workspaceType: 'personal', organizationId: null,
       rootPath: temporaryRoot, legacy: false, status: 'active', permissions: { canRead: true, canWrite: true, canDelete: true,
@@ -180,8 +216,10 @@ async function main() {
       await pool!.query(`INSERT INTO workspace_file_user_states(workspace_id,user_id,path,is_favorite,pinned_at,created_at,updated_at)
         VALUES($1,'first-user',$2,1,250,100,101),($1,'second-user',$2,0,300,102,103)`, [workspace.workspaceId, source.source.path]);
       await pool!.query(`INSERT INTO file_guest_invitations(id,workspace_id,path,document_id,email,permission,status,policy_revision,
-        created_by_user_id,challenge_hash,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'read','active',3,'owner',$6,100,101)`,
-      [`guest-${source.mutationId}`, workspace.workspaceId, source.source.path, source.source.documentId, `${privateSentinel}@fixture.invalid`, privateSentinel]);
+        created_by_user_id,challenge_hash,created_at,updated_at,lifecycle_generation,lineage_id)
+        VALUES($1,$2,$3,$4,$5,'read','active',3,'owner',$6,100,101,$7,$8)`,
+      [`guest-${source.mutationId}`, workspace.workspaceId, source.source.path, source.source.documentId,
+        `${privateSentinel}@fixture.invalid`, privateSentinel,source.source.lifecycleGeneration,source.lineageId]);
       await pool!.query(`INSERT INTO public_file_shares(id,token,token_hash,token_preview,workspace_id,workspace_type,workspace_path,
         file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at)
         VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101)`,
@@ -241,7 +279,13 @@ async function main() {
             }
             if (options.detached) {
               const originalGet = database.get;
-              database.get = async (sql, values) => { if (sql.includes('current_schema()')) await gate; return originalGet(sql, values); };
+              database.get = async (sql, values) => {
+                if (sql.includes('current_schema()')) {
+                  console.log('Native file side effects PostgreSQL fixture checkpoint: detached persistence reached fixture gate.');
+                  await gate;
+                }
+                return originalGet(sql, values);
+              };
               pending = applyNativeFileOperationSideEffectsOnConnection(database, { workspace, operationId: bundle.operationId }).catch(error => error);
               return {};
             }
@@ -253,7 +297,11 @@ async function main() {
             return { nativeFileReceiptSetProof: await nativeFileOperationReceiptSetProofOnConnection(database, bundle.action, bundle.operationId),
               nativeFileSideEffectSetProof: forgedProof ?? applied.nativeFileSideEffectSetProof };
           } });
-      } finally { release(); await pending; }
+      } finally {
+        if (options.detached) console.log('Native file side effects PostgreSQL fixture checkpoint: handoff settled; releasing detached fixture gate.');
+        release(); await pending;
+        if (options.detached) console.log('Native file side effects PostgreSQL fixture checkpoint: detached persistence settled.');
+      }
     };
     const committed = async (bundle: NativeFileOperationBundle, request: CollaborationAdmissionRequest, actor = bundle.actor) => {
       const database = await openConnection();
@@ -268,7 +316,7 @@ async function main() {
         [item.bundle.operationId])).rows[0].n), 0);
     };
 
-    stage = 'move/rename transport all annotations; revoke source grants; preserve lock identity and TTL';
+    enterStage('move/rename transport all annotations; revoke source grants; preserve lock identity and TTL');
     for (const action of ['move','rename'] as const) {
       const item = await seed(action, { rich: true }); item.bundle.action = action; await annotations(item, { expiredDestination: true });
       const before = await rows(item); const request = await requestFor(item.bundle); const outcome = await apply(item.bundle, request);
@@ -295,7 +343,7 @@ async function main() {
         await assert.rejects(pool.query(`DELETE FROM ${table} WHERE operation_id=$1`, [item.bundle.operationId]), { code: '55000' });
       }
     }
-    stage = 'archive removes active annotations with private before-image; expires/releases exact locks';
+    enterStage('archive removes active annotations with private before-image; expires/releases exact locks');
     for (const expiredSource of [false, true]) {
       const item = await seed(`archive-${expiredSource}`, { archive: true, rich: true }); await annotations(item, { expiredSource });
       const before = await rows(item); const request = await requestFor(item.bundle); await apply(item.bundle, request); const after = await rows(item);
@@ -304,7 +352,7 @@ async function main() {
       const archived = await current(item.state.documentId); assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, 2);
       assert(Buffer.from(archived.yjsState).equals(Buffer.from(item.state.yjsState))); assert(await committed(item.bundle, request));
     }
-    stage = 'link-only external source and unclaimed guard retain lifecycle side effects';
+    enterStage('link-only external source and unclaimed guard retain lifecycle side effects');
     const move = await seed('with-link'); const linked = await seed('external-link', { links: true }); const guard = await seed('extra-guard');
     await annotations(move); await annotations(linked); await annotations(guard); const linkedBefore = await rows(linked); const guardBefore = await rows(guard);
     linked.bundle.mutations[0].kind = 'link'; linked.bundle.mutations[0].destinationPath = null; move.bundle.mutations.push(linked.bundle.mutations[0]);
@@ -319,8 +367,8 @@ async function main() {
     assert.equal((await current(linked.state.documentId)).documentSequence, 8); assert.equal((await current(guard.state.documentId)).documentSequence, 7);
     assert.equal(JSON.parse((await pool.query('SELECT receipt_text FROM collaboration_native_file_operation_side_effect_receipts WHERE operation_id=$1', [move.bundle.operationId])).rows[0].receipt_text).effects.length, 1);
 
-    stage = 'foreign exact lock, destination annotation, scoped descendants and nonterminal agent reject before native mutation';
-    for (const kind of ['foreignLock','foreignSession','destinationLock','foreignPublicScope','foreignGuestDoc','unscopedPublic','destinationTitle','destinationFavorite','descendant','agentReady','agentUnknown'] as const) {
+    enterStage('foreign exact lock, destination annotation, scoped descendants and nonterminal agent reject before native mutation');
+    for (const kind of ['foreignLock','foreignSession','destinationLock','foreignPublicScope','foreignGuestDoc','foreignGuestLineage','futureGuestGeneration','unscopedPublic','destinationTitle','destinationFavorite','descendant','agentReady','agentUnknown'] as const) {
       const item = await seed(kind); await annotations(item, { foreignLock: kind === 'foreignLock' });
       if (kind === 'foreignSession') await pool.query('UPDATE file_locks SET locked_by_session_id=\'foreign-session\' WHERE id=$1', [`lock-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'destinationLock') await pool.query(`INSERT INTO file_locks(id,workspace_id,workspace_type,path,locked_by_user_id,
@@ -328,6 +376,8 @@ async function main() {
       [randomUUID(), workspace.workspaceId, item.bundle.mutations[0].destinationPath, Date.now() + 120_000]);
       if (kind === 'foreignPublicScope') await pool.query('UPDATE public_file_shares SET organization_id=\'foreign-organization\' WHERE id=$1', [`public-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'foreignGuestDoc') await pool.query('UPDATE file_guest_invitations SET document_id=\'foreign-document\' WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
+      if (kind === 'foreignGuestLineage') await pool.query('UPDATE file_guest_invitations SET lineage_id=\'foreign-lineage\' WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
+      if (kind === 'futureGuestGeneration') await pool.query('UPDATE file_guest_invitations SET lifecycle_generation=lifecycle_generation+1 WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'unscopedPublic') await pool.query('UPDATE public_file_shares SET workspace_id=NULL WHERE id=$1', [`public-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'destinationTitle' || kind === 'descendant') await pool.query('INSERT INTO workspace_file_metadata(workspace_id,path,title,created_at,updated_at) VALUES($1,$2,\'peer\',100,101)',
         [workspace.workspaceId, kind === 'descendant' ? `${item.state.path}/unexpected.md` : item.bundle.mutations[0].destinationPath]);
@@ -340,14 +390,65 @@ async function main() {
       await assert.rejects(apply(item.bundle, request), { code: ['foreignLock','foreignSession','destinationLock'].includes(kind) || kind.startsWith('agent') ? 'NATIVE_FILE_SIDE_EFFECTS_BUSY' : 'NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED' });
       await unchanged(item, before);
     }
-    stage = 'historical applied agent operation is retained and never cancelled';
+    enterStage('old unbound and stale bound generations are terminally revoked without regranting authority');
+    for (const kind of ['unbound','stale'] as const) {
+      const item = await seed(`guest-${kind}`); await annotations(item);
+      const mutation = item.bundle.mutations[0], guestId = `guest-${mutation.mutationId}`;
+      if (kind === 'unbound') await pool.query('UPDATE file_guest_invitations SET lifecycle_generation=NULL,lineage_id=NULL WHERE id=$1', [guestId]);
+      else {
+        await pool.query('UPDATE collaboration_yjs_states SET lifecycle_generation=2 WHERE document_id=$1', [item.state.documentId]);
+        mutation.source.lifecycleGeneration = 2;
+      }
+      const before: SnapshotRow = (await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [guestId])).rows[0];
+      const request = await requestFor(item.bundle); await apply(item.bundle, request);
+      const after: SnapshotRow = (await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [guestId])).rows[0];
+      assert.equal(Number(after.policy_revision), 4);
+      assert.deepEqual(after, { ...before, status: 'revoked', policy_revision: after.policy_revision, challenge_hash: null, updated_at: after.updated_at });
+      const receipt = JSON.parse((await pool.query('SELECT receipt_text FROM collaboration_native_file_operation_side_effect_receipts WHERE operation_id=$1', [item.bundle.operationId])).rows[0].receipt_text);
+      const oldRow = receipt.effects[0].beforeRows.guests[0], newRow = receipt.effects[0].afterRows.guests[0];
+      if (kind === 'unbound') { assert.equal(Object.hasOwn(oldRow, 'guestBinding'), false); assert.equal(Object.hasOwn(newRow, 'guestBinding'), false); }
+      else assert.deepEqual(oldRow.guestBinding, { version: 1, lineageId: mutation.lineageId, lifecycleGeneration: 1 });
+      assert.deepEqual(newRow.guestBinding, oldRow.guestBinding);
+      assert.equal(newRow.preservedRowProof, oldRow.preservedRowProof);
+      assert(await committed(item.bundle, request));
+    }
+    enterStage('actual SQL stage guard rejects a forged future generation or foreign lineage matching the current private row');
+    for (const kind of ['future','lineage'] as const) {
+      const item = await seed(`guest-sql-${kind}`); await annotations(item);
+      const before = await rows(item), request = await requestFor(item.bundle);
+      let submitted = false;
+      await assert.rejects(handoff.execute(request, { authorize: async () => undefined,
+        prepare: async database => {
+          const originalRun = database.run;
+          database.run = async (sql, parameters) => {
+            if (sql.startsWith('INSERT INTO') && sql.includes('collaboration_native_file_operation_side_effect_stages')) {
+              const values = [...parameters!], stageRow = JSON.parse(String(values[2]));
+              const guest = stageRow.effects[0].beforeRows.guests[0];
+              if (kind === 'future') {
+                guest.guestBinding.lifecycleGeneration += 1;
+                await originalRun('UPDATE file_guest_invitations SET lifecycle_generation=lifecycle_generation+1 WHERE id=$1', [guest.id]);
+              } else {
+                guest.guestBinding.lineageId = 'foreign-lineage';
+                await originalRun('UPDATE file_guest_invitations SET lineage_id=$1 WHERE id=$2', ['foreign-lineage',guest.id]);
+              }
+              values[2] = JSON.stringify(stageRow); values[3] = digest(String(values[2])); submitted = true;
+              return originalRun(sql, values);
+            }
+            return originalRun(sql, parameters);
+          };
+          await captureNativeFileOperationSideEffectsOnConnection(database, { workspace, request, operationId: item.bundle.operationId });
+        }, mutate: async () => { assert.fail('The actual SQL before-stage guard must prevent mutation.'); },
+      }), (error: unknown) => (error as { code?: string }).code === '23514');
+      assert.equal(submitted, true); await unchanged(item, before);
+    }
+    enterStage('historical applied agent operation is retained and never cancelled');
     const history = await seed('history'); await annotations(history); const historicalOperation = randomUUID();
     await pool.query(`INSERT INTO collaboration_agent_operations(operation_id,document_id,workspace_id,initiated_by_user_id,actor_id,
       idempotency_key,payload_hash,status,base_state_vector,created_at,updated_at) VALUES($1,$2,$3,'peer','peer',$4,$5,'persisted_yjs',$6,100,101)`,
     [historicalOperation, history.state.documentId, workspace.workspaceId, randomUUID(), 'a'.repeat(64), Buffer.from(history.state.stateVector)]);
     await apply(history.bundle, await requestFor(history.bundle)); assert.equal((await pool.query('SELECT status FROM collaboration_agent_operations WHERE operation_id=$1', [historicalOperation])).rows[0].status, 'persisted_yjs');
 
-    stage = 'Apply alone rejects fully permitted foreign workspace/organization and rolls back the entire native transaction';
+    enterStage('Apply alone rejects fully permitted foreign workspace/organization and rolls back the entire native transaction');
     for (const kind of ['workspace','organization'] as const) {
       const item = await seed(`apply-scope-${kind}`, { rich: true }); await annotations(item);
       const before = await rows(item), nativeBefore = await current(item.state.documentId);
@@ -376,8 +477,10 @@ async function main() {
       assert.equal((await pool.query('SELECT outcome_text FROM collaboration_admission_requests WHERE request_id=$1', [request.requestId])).rows[0].outcome_text, null);
     }
 
-    stage = 'missing stage, wrapper, detached and backend/schema drift fail closed and roll back';
+    enterStage('missing stage, wrapper, detached and backend/schema drift fail closed and roll back');
     for (const kind of ['missing','wrapper','detached','schema','backend'] as const) {
+      enterStage({ missing: 'fail-closed missing stage', wrapper: 'fail-closed wrapper', detached: 'fail-closed detached persistence',
+        schema: 'fail-closed schema drift', backend: 'fail-closed backend drift' }[kind]);
       const item = await seed(kind); await annotations(item); const before = await rows(item); const request = await requestFor(item.bundle);
       const options: ApplyOptions = { skipStage: kind === 'missing', wrapApply: kind === 'wrapper', detached: kind === 'detached' };
       let peer: SqlConnection | undefined;
@@ -388,7 +491,7 @@ async function main() {
       finally { if (peer) await peer.close(new Error('Discarding owned cross-backend fixture.')); }
       await unchanged(item, before);
     }
-    stage = 'annotation phantoms before apply and after receipt reject entire native commit';
+    enterStage('annotation phantoms before apply and after receipt reject entire native commit');
     for (const timing of ['before','after'] as const) {
       const item = await seed(`phantom-${timing}`); await annotations(item); const before = await rows(item); const request = await requestFor(item.bundle);
       const insert = async (database: SqlConnection) => { await database.run(`INSERT INTO workspace_file_user_states(workspace_id,user_id,path,is_favorite,created_at,updated_at)
@@ -396,12 +499,12 @@ async function main() {
       await assert.rejects(apply(item.bundle, request, timing === 'before' ? { beforeApply: insert } : { afterApply: insert }),
         { code: timing === 'before' ? 'NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED' : 'ADMISSION_RECOVERY_REQUIRED' }); await unchanged(item, before);
     }
-    stage = 'deferred ledger rejects forged metadata, renewed TTL, unknown attrs and forged native set even if Outcome hash matches';
+    enterStage('deferred ledger rejects forged metadata, renewed TTL, unknown attrs and forged native set even if Outcome hash matches');
     for (const forge of ['title','lock','unknown','nativeProof'] as const) {
       const item = await seed(`forged-${forge}`); await annotations(item); const before = await rows(item); const request = await requestFor(item.bundle);
       await assert.rejects(apply(item.bundle, request, { forge }), { code: 'ADMISSION_RECOVERY_REQUIRED' }); await unchanged(item, before);
     }
-    stage = 'private full-row proof detects omitted guest/public/lock attributes after receipt with otherwise correct Outcome';
+    enterStage('private full-row proof detects omitted guest/public/lock attributes after receipt with otherwise correct Outcome');
     for (const table of ['file_guest_invitations','public_file_shares','file_locks'] as const) {
       const item = await seed(`opaque-${table}`); await annotations(item); const before = await rows(item); const request = await requestFor(item.bundle);
       await assert.rejects(apply(item.bundle, request, { afterApply: async database => {
@@ -412,7 +515,18 @@ async function main() {
         else await database.run('UPDATE file_locks SET customer_id=$1 WHERE id=$2', ['unexpected-customer', `lock-${item.bundle.mutations[0].mutationId}`]);
       } }), { code: 'ADMISSION_RECOVERY_REQUIRED' }); await unchanged(item, before);
     }
-    stage = 'unknown metadata schema, relation shadowing and row budget reject before large capture';
+    enterStage('explicit Guest binding remains covered by the deferred receipt when legacy private proof is unchanged');
+    for (const kind of ['generation','lineage'] as const) {
+      const item = await seed(`binding-receipt-${kind}`); await annotations(item);
+      const before = await rows(item), request = await requestFor(item.bundle);
+      await assert.rejects(apply(item.bundle, request, { afterApply: async database => {
+        const guestId = `guest-${item.bundle.mutations[0].mutationId}`;
+        if (kind === 'generation') await database.run('UPDATE file_guest_invitations SET lifecycle_generation=lifecycle_generation+1 WHERE id=$1', [guestId]);
+        else await database.run('UPDATE file_guest_invitations SET lineage_id=$1 WHERE id=$2', ['changed-after-receipt',guestId]);
+      } }), { code: 'ADMISSION_RECOVERY_REQUIRED' });
+      await unchanged(item, before);
+    }
+    enterStage('unknown metadata schema, relation shadowing and row budget reject before large capture');
     for (const kind of ['newColumn','newGuestColumn','shadow','rowBudget','rawByteBudget','badClock'] as const) {
       const item = await seed(kind); await annotations(item); const request = await requestFor(item.bundle);
       if (kind === 'newColumn') await pool.query('ALTER TABLE workspace_file_metadata ADD COLUMN future_native_value text');
@@ -436,7 +550,7 @@ async function main() {
         assert.equal(result.rows[0].valid, false);
       }
     }
-    stage = 'real metadata row lock blocks competing writer until commit; absent-row writer fence remains activation gate';
+    enterStage('real metadata row lock blocks competing writer until commit; absent-row writer fence remains activation gate');
     const concurrent = await seed('concurrent'); await annotations(concurrent); const concurrentRequest = await requestFor(concurrent.bundle);
     let competing: Promise<{ rowCount: number | null }> | undefined; let completed = false; let concurrentClient: Client | undefined;
     await apply(concurrent.bundle, concurrentRequest, { afterCapture: async () => {
@@ -447,7 +561,7 @@ async function main() {
     } });
     assert(competing); assert.equal((await competing).rowCount, 0); await concurrentClient!.end();
 
-    stage = 'lost COMMIT rollback and durable-reply loss recover only immutable committed receipts, never replay later peer content';
+    enterStage('lost COMMIT rollback and durable-reply loss recover only immutable committed receipts, never replay later peer content');
     for (const injected of ['before','after','after-peer'] as const) {
       const item = await seed(`commit-${injected}`); await annotations(item); const before = await rows(item); const request = await requestFor(item.bundle); fault = injected;
       if (injected === 'after-peer') pendingPeer = async () => {
@@ -468,18 +582,36 @@ async function main() {
       }
     }
     assert(discarded >= 3);
-    console.log('Native file side effects PG18: exact move/rename/archive, private immutable scope receipts, metadata/grant/lock semantics, real row locks, bounds, phantoms, authorities and lost-COMMIT recovery passed; writer phantom activation gate remains open.');
+  } catch (error) {
+    failureStage = stage;
+    throw error;
   } finally {
+    enterStage('cleanup dedicated PostgreSQL clients');
     for (const client of clients) await client.end().catch(() => undefined);
-    await pool?.end(); if (created) await control.query(`DROP SCHEMA "${schema}" CASCADE`); await control.end();
+    enterStage('cleanup PostgreSQL pool');
+    await pool?.end();
+    enterStage('cleanup isolated PostgreSQL schema');
+    if (created) await control.query(`DROP SCHEMA "${schema}" CASCADE`);
+    enterStage('cleanup PostgreSQL control connection');
+    await control.end();
+    enterStage('cleanup owned temporary data');
     if (previousData === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = previousData;
     await rm(temporaryRoot, { recursive: true, force: true });
+    enterStage('cleanup complete');
   }
 }
-main().catch(error => {
-  console.error(`Native file side effects PostgreSQL fixture failed at ${stage}:`, error instanceof Error ? error.name : 'Unknown',
+void main().then(() => {
+  fixtureCompleted = true;
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.log('Native file side effects PG18: exact move/rename/archive, private immutable scope receipts, metadata/grant/lock semantics, real row locks, bounds, phantoms, authorities and lost-COMMIT recovery passed; writer phantom activation gate remains open.');
+  console.log('Native file side effects PostgreSQL fixture COMPLETED: all assertions and cleanup settled.');
+}, error => {
+  process.exitCode = 1;
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.error(`Native file side effects PostgreSQL fixture failed at ${failureStage ?? stage}; last stage ${stage}:`, error instanceof Error ? error.name : 'Unknown',
     typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : 'no-code');
   if (error instanceof Error) console.error(error.message.replace(/postgres(?:ql)?:\/\/\S+/giu, '[database-url-redacted]').replace(/password\s*=\s*\S+/giu, 'password=[redacted]'));
   if (error instanceof Error) console.error(error.stack?.split('\n').filter(line => /^\s+at /u.test(line)).slice(0, 3).join('\n'));
-  process.exitCode = 1;
 });

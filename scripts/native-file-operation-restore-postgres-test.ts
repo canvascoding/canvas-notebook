@@ -29,7 +29,12 @@ import { applyNativeFileOperationMutationOnConnection,
   stageNativeFileOperationBundleOnConnection, type NativeFileOperationBundle } from '../app/lib/markdown/native-file-operation-handoff';
 
 import { runNativeFileOperationSideEffectMigration } from '../app/lib/db/native-file-operation-side-effects-migration';
-import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection } from '../app/lib/markdown/native-file-operation-side-effects';
+import { runFileGuestTargetBindingMigration } from '../app/lib/db/file-guest-target-migration';
+import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection,
+  readCommittedNativeFileOperationSideEffectsOnConnection } from '../app/lib/markdown/native-file-operation-side-effects';
+import { runNativeFileOperationSideEffectMigration as runLegacySideEffectMigration } from './fixtures/file-guest-target-v1/native-file-operation-side-effects-migration';
+import { captureNativeFileOperationSideEffectsOnConnection as captureLegacySideEffects,
+  applyNativeFileOperationSideEffectsOnConnection as applyLegacySideEffects } from './fixtures/file-guest-target-v1/native-file-operation-side-effects';
 
 import { inspectArchivedNativeSnapshot } from '../app/lib/collaboration/archived-native-snapshot';
 import { runNativeFileRestoreMigration } from '../app/lib/db/native-file-operation-restore-migration';
@@ -89,6 +94,12 @@ async function main() {
     pool = new Pool({ connectionString, max: 6, connectionTimeoutMillis: 5000,
       options: `-c search_path=${schema} -c statement_timeout=15000 -c lock_timeout=4000` });
     assert.equal((await pool.query('SELECT current_schema() AS name')).rows[0].name, schema);
+    // Only the empty owned schema is reset to the genuine pre-migration shape.
+    // The shared public schema and all historical records remain untouched.
+    await pool.query(`ALTER TABLE file_guest_invitations
+      DROP CONSTRAINT IF EXISTS file_guest_target_binding_check,
+      DROP COLUMN IF EXISTS lifecycle_generation,
+      DROP COLUMN IF EXISTS lineage_id`);
     const connection: SqlConnection = { get: async (sql, values) => (await pool!.query(sql, values)).rows[0],
       all: async (sql, values) => (await pool!.query(sql, values)).rows,
       run: async (sql, values) => {
@@ -104,7 +115,7 @@ async function main() {
     await pool.query(COLLABORATION_ROOM_OWNER_UP_SQL); await pool.query(COLLABORATION_ROOM_RELEASE_UP_SQL);
     for (const sql of COLLABORATION_ADMISSION_STATEMENTS) await pool.query(sql);
     await runNativeFileOperationHandoffMigration(connection);
-    await runNativeFileOperationSideEffectMigration(connection); await runNativeFileOperationSideEffectMigration(connection);
+    await runLegacySideEffectMigration(connection);
     await runNativeFileRestoreMigration(connection); await runNativeFileRestoreMigration(connection);
     const workspace: WorkspaceContext = { workspaceId: `native-file-${randomUUID()}`, workspaceType: 'personal', organizationId: null,
       rootPath: temporaryRoot, legacy: false, status: 'active', actor: { userId: 'owner', role: 'owner' }, permissions: { canRead: true, canWrite: true, canDelete: true,
@@ -172,7 +183,7 @@ async function main() {
     };
     type Fixture = Awaited<ReturnType<typeof seed>>;
     const privateSentinel = `private-${randomUUID()}`;
-    const annotations = async (item: Fixture, options: { foreignLock?: boolean; expiredSource?: boolean; expiredDestination?: boolean } = {}) => {
+    const annotations = async (item: Fixture, options: { foreignLock?: boolean; expiredSource?: boolean; expiredDestination?: boolean; legacy?: boolean } = {}) => {
       const source = item.bundle.mutations[0]; const now = Date.now();
       await pool!.query('INSERT INTO workspace_file_metadata(workspace_id,path,title,created_at,updated_at) VALUES($1,$2,$3,100,101)',
         [workspace.workspaceId, source.source.path, `Owned title ${privateSentinel}`]);
@@ -180,7 +191,10 @@ async function main() {
         VALUES($1,'first-user',$2,1,250,100,101),($1,'second-user',$2,0,300,102,103)`, [workspace.workspaceId, source.source.path]);
       await pool!.query(`INSERT INTO file_guest_invitations(id,workspace_id,path,document_id,email,permission,status,policy_revision,
         created_by_user_id,challenge_hash,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'read','active',3,'owner',$6,100,101)`,
-      [`guest-${source.mutationId}`, workspace.workspaceId, source.source.path, source.source.documentId, `${privateSentinel}@fixture.invalid`, privateSentinel]);
+      [`guest-${source.mutationId}`, workspace.workspaceId, source.source.path, source.source.documentId,
+        `${privateSentinel}@fixture.invalid`, privateSentinel]);
+      if (!options.legacy) await pool!.query('UPDATE file_guest_invitations SET lifecycle_generation=$1,lineage_id=$2 WHERE id=$3',
+        [source.source.lifecycleGeneration,source.lineageId,`guest-${source.mutationId}`]);
       await pool!.query(`INSERT INTO public_file_shares(id,token,token_hash,token_preview,workspace_id,workspace_type,workspace_path,
         file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at)
         VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101)`,
@@ -205,16 +219,16 @@ async function main() {
     };
 
     const digest = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-    const archiveItem = async (item: Fixture, supplemental = true) => {
+    const archiveItem = async (item: Fixture, supplemental = true, legacy = false) => {
       const request = await requestFor(item.bundle);
       const outcome = await handoff.execute(request, { authorize: async () => undefined,
-        prepare: async database => { if (supplemental) await captureNativeFileOperationSideEffectsOnConnection(database, { workspace, request, operationId: item.bundle.operationId }); },
+        prepare: async database => { if (supplemental) await (legacy ? captureLegacySideEffects : captureNativeFileOperationSideEffectsOnConnection)(database, { workspace, request, operationId: item.bundle.operationId }); },
         mutate: async (database): Promise<Readonly<Record<string, string>>> => {
           for (const mutation of item.bundle.mutations) await applyNativeFileOperationMutationOnConnection(database,
             { workspace, action: 'archive', operationId: item.bundle.operationId, mutationId: mutation.mutationId });
           const nativeFileReceiptSetProof = await nativeFileOperationReceiptSetProofOnConnection(database, 'archive', item.bundle.operationId);
           if (!supplemental) return { nativeFileReceiptSetProof };
-          const applied = await applyNativeFileOperationSideEffectsOnConnection(database, { workspace, operationId: item.bundle.operationId });
+          const applied = await (legacy ? applyLegacySideEffects : applyNativeFileOperationSideEffectsOnConnection)(database, { workspace, operationId: item.bundle.operationId });
           return { nativeFileReceiptSetProof, nativeFileSideEffectSetProof: applied.nativeFileSideEffectSetProof };
         } });
       const archived = await current(item.state.documentId), snapshot = inspectArchivedNativeSnapshot(archived);
@@ -267,6 +281,39 @@ async function main() {
     const stillArchived = async (archived: Archived) => {
       assert.deepEqual(await current(archived.item.state.documentId), archived.archived); assert.equal(await receiptCount(archived.intent), 0);
     };
+
+    stage = 'genuine pre-migration V1 archive receipt survives additive Guest binding migration and current Restore';
+    const historical = await seed('historical-before-guest-binding', { archive: true });
+    await annotations(historical, { legacy: true });
+    assert.equal(Number((await pool.query(`SELECT count(*) AS n FROM information_schema.columns
+      WHERE table_schema=$1 AND table_name='file_guest_invitations' AND column_name IN('lineage_id','lifecycle_generation')`, [schema])).rows[0].n), 0);
+    const oldArchive = await archiveItem(historical, true, true);
+    const historicalBytes = async () => (await pool!.query(`SELECT s.stage_text,s.stage_digest,r.receipt_text,r.receipt_digest,r.stage_digest AS receipt_stage_digest
+      FROM collaboration_native_file_operation_side_effect_stages s
+      JOIN collaboration_native_file_operation_side_effect_receipts r USING(operation_id) WHERE s.operation_id=$1`, [historical.bundle.operationId])).rows[0];
+    const beforeMigration = await historicalBytes();
+    assert.equal(Object.hasOwn(JSON.parse(beforeMigration.receipt_text).effects[0].beforeRows.guests[0], 'guestBinding'), false);
+    const oldGuest = (await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [`guest-${historical.bundle.mutations[0].mutationId}`])).rows[0];
+    await runFileGuestTargetBindingMigration(connection); await runFileGuestTargetBindingMigration(connection);
+    await runNativeFileOperationSideEffectMigration(connection); await runNativeFileOperationSideEffectMigration(connection);
+    assert.deepEqual(await historicalBytes(), beforeMigration);
+    assert.deepEqual((await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [oldGuest.id])).rows[0],
+      { ...oldGuest, lifecycle_generation: null, lineage_id: null });
+    const historicalReader = await openConnection();
+    try {
+      await historicalReader.run('BEGIN');
+      const result = await readCommittedNativeFileOperationSideEffectsOnConnection(historicalReader, {
+        request: oldArchive.intent.archive.request, operationId: historical.bundle.operationId, actor: historical.bundle.actor });
+      assert.equal(result?.nativeFileSideEffectSetProof, oldArchive.intent.archive.sideEffectSetProof);
+      await historicalReader.run('COMMIT');
+    } finally { await historicalReader.close(new Error('Closing owned migrated historical receipt reader.')); }
+    const oldRestoreRequest = await restoreRequest(oldArchive.intent);
+    await restore(oldArchive.intent, oldRestoreRequest);
+    assert(await readReceipt(oldArchive.intent, oldRestoreRequest));
+    assert.deepEqual(await historicalBytes(), beforeMigration);
+    assert.deepEqual((await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [oldGuest.id])).rows[0],
+      { ...oldGuest, lifecycle_generation: null, lineage_id: null });
+    assert.equal((await current(historical.state.documentId)).status, 'active');
 
     stage = 'real Combined+Sideeffects archive followed by identity-preserving native restore';
     for (const rich of [false, true]) {
