@@ -2,7 +2,7 @@
 
 Stand: 15. Oktober 2026. Ergänzung zum [Yjs-Konsolidierungsplan](./yjs-document-authority-consolidation-plan.md), verbindlicher Scope gemäß Nutzerauftrag. Dies ist ein Umsetzungs- und Abnahmeplan; die unten genannten neuen Anschlüsse sind noch nicht als implementiert oder bestanden ausgewiesen.
 
-Zuerst folgt U-01 aus [§0 des Hauptplans](./yjs-document-authority-consolidation-plan.md#0-zuerst-undo-verlassen-und-bestätigte-speicherung): gespeichertes Undo/Wiederöffnen, abgebrochenes Verlassen und erzwungenes Verlassen mit Recovery getrennt beweisen. Danach werden die zentralen Datei-/Linkoperationen vervollständigt. Das experimentelle Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags; autorisierte Änderungen benötigen keine zusätzliche menschliche Annahme.
+U-01 aus [§0 des Hauptplans](./yjs-document-authority-consolidation-plan.md#0-zuerst-undo-verlassen-und-bestätigte-speicherung) ist lokal abgenommen: gespeichertes Undo/Wiederöffnen, abgebrochenes Verlassen und ausdrücklich erzwungenes Verlassen mit bereits committed lokaler Recovery bestehen getrennt. V14 auf Code `6d8fc7079` / QA `fbe5fb27b` besteht die enge Webmatrix mit 37/37 einschließlich zweier echter Hostneustarts; Build und eigener Ressourcenabschluss sind unabhängig bestätigt. Die folgenden zentralen Datei-/Link-, API-/SDK-, PDF- und Sandboxverträge bleiben als weitere Arbeit offen. Das experimentelle Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags; autorisierte Änderungen benötigen keine zusätzliche menschliche Annahme.
 
 ## 1. Gemeinsamer Zielvertrag
 
