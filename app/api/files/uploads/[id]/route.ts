@@ -23,7 +23,8 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
@@ -32,7 +33,7 @@ export async function GET(
       sessionId: id,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
-      request,
+      request: original,
     });
     return NextResponse.json({ success: true, upload: publicWorkspaceUploadSession(upload) });
   } catch (error) {

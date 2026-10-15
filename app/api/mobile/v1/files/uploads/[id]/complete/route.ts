@@ -11,7 +11,8 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
   const limited = rateLimit(request, { limit: 2_000, windowMs: 60_000, keyPrefix: 'mobile-files-upload-complete' });
   if (!limited.ok) return limited.response;
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
-      request,
+      request: original,
       afterMarkdownCompletion: afterCompletion,
       commit: async ({ file, sourcePath, persistOfficeAttempt }) => {
         await runWorkspaceUploadWrite({

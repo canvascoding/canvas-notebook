@@ -17,7 +17,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  // Capture credentials with the same constructor used by the native services.
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
 
   const limited = rateLimit(request, {
@@ -63,7 +65,7 @@ export async function POST(
       fileId,
       userId: workspaceResult.session.user.id,
       workspace: workspaceResult.workspace,
-      request,
+      request: original,
       afterMarkdownCompletion: afterCompletion,
       includeFullSession: false,
       commit: async ({ file, sourcePath, persistOfficeAttempt }) => {

@@ -31,7 +31,9 @@ import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspa
 import { completeManualMarkdownCreate, MarkdownManualCreateError } from '@/app/lib/files/workspace-markdown-manual-create';
 
 export async function POST(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
+  // Native services require the local NextRequest constructor, also in compiled routes.
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canWrite' });
   if (workspaceResult.response) return workspaceResult.response;
   const fileOptions = workspaceFileOptions(workspaceResult.workspace);
 
@@ -57,7 +59,7 @@ export async function POST(request: NextRequest) {
 
     if (type === 'file' && typeof path === 'string' && /\.(?:md|markdown)$/iu.test(path)) {
       if (template !== undefined) return jsonError('A Markdown document cannot use a drawing template.', 400, { code: 'MARKDOWN_CREATE_INVALID_TEMPLATE' });
-      const completion = await completeManualMarkdownCreate(request, { workspaceId: workspaceResult.workspace.workspaceId, path, requestId: body.requestId! });
+      const completion = await completeManualMarkdownCreate(original, { workspaceId: workspaceResult.workspace.workspaceId, path, requestId: body.requestId! });
       return completion.status === 'completed' ? jsonSuccess({ completion })
         : jsonError('The document creation is not yet confirmed. Keep this attempt and check it again.', 409, { code: completion.code, completion });
     }
