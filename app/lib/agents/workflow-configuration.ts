@@ -692,9 +692,9 @@ async function readWorkflowConnectionOptions(actor: AgentManagementActor, snapsh
       if (target.ownerUserId !== actor.userId) { options.set(key, unavailable); continue; }
       const helpers = await import('@/app/lib/integration-tools/workflow-personal-bindings');
       try {
-        await helpers.verifyStoredPersonalWorkflowProviderTarget({ actor, target: { binding: target.personalBinding!, boundProviderRef: target.boundProviderRef!,
+        const prepared = await helpers.verifyStoredPersonalWorkflowProviderTarget({ actor, target: { binding: target.personalBinding!, boundProviderRef: target.boundProviderRef!,
           baseProviderRef: target.providerRef, bindingFingerprint: target.bindingFingerprint! } }, { checkProviderReadiness: false });
-        options.set(key, { label: target.source === 'mcp' ? 'Personal MCP connection' : 'Personal Composio connection', availability: 'available',
+        options.set(key, { label: helpers.readPreparedPersonalWorkflowConnectionLabel(prepared), availability: 'available',
           status: 'unknown', source: target.source, scopeLabel: 'personal' });
       } catch { options.set(key, unavailable); }
       continue;

@@ -109,6 +109,16 @@ export function isPreparedPersonalWorkflowProviderTarget(value: unknown): value 
 export function getPreparedPersonalWorkflowProviderTarget(proof: PreparedPersonalWorkflowProviderTarget): PersonalWorkflowProviderTargetSnapshot {
   return freeze(structuredClone(preparedRecord(proof).target));
 }
+/** Presentation from an issued, currently owned metadata proof only; no account/provider probe. */
+export function readPreparedPersonalWorkflowConnectionLabel(proof: PreparedPersonalWorkflowProviderTarget): string {
+  const current = preparedRecord(proof), binding = current.target.binding;
+  const displayName = current.resolved.provider.displayName.replace(/[\p{Cc}\p{Cf}]/gu, '').replace(/\s+/gu, ' ').trim().slice(0, 240)
+    || (binding.source === 'mcp' ? 'Personal MCP connection' : binding.toolkit);
+  if (binding.source !== 'composio' || binding.accountBinding === 'no_auth') return displayName;
+  // Account names are live provider metadata. A short digest distinguishes exact
+  // stored selections without pretending we retained a friendly account label.
+  return `${displayName} · Account ${createHash('sha256').update(binding.connectedAccountId!).digest('hex').slice(0, 10)}`;
+}
 function composioTarget(inspection: PersonalComposioProviderInspection, accountId: string | null): PersonalWorkflowProviderTargetSnapshot {
   const binding: PersonalWorkflowProviderBinding = { source: 'composio', ownerUserId: inspection.executionContext.actorUserId,
     profileId: inspection.context.profileId, toolkit: inspection.provider.application!, mode: inspection.mode,
