@@ -132,6 +132,7 @@
     "test:pi:usage": "tsx --conditions react-server scripts/pi-usage-test.ts",
     "test:pi:tools": "tsx scripts/pi-tool-registry-test.ts && npm run test:pi:search-process",
     "test:pi:search-process": "tsx --conditions react-server scripts/agent-search-process-test.ts",
+    "test:pi:owned-tool-model": "node --import tsx --test scripts/owned-agent-tool-model-test.mts",
     "test:pi:tool-outputs": "tsx --conditions react-server scripts/tool-output-characterization-test.ts && tsx --conditions react-server scripts/tool-output-store-test.ts && tsx --conditions react-server scripts/tool-output-read-test.ts && tsx --conditions react-server scripts/tool-output-lifecycle-test.ts && tsx --conditions react-server scripts/tool-output-maintenance-test.ts && tsx --conditions react-server scripts/tool-output-search-test.ts",
     "test:pi:tool-output-preview": "tsx scripts/tool-output-preview-test.tsx && tsx --conditions react-server scripts/tool-output-route-test.ts",
     "test:pi:tool-output-budgets": "tsx --conditions react-server scripts/tool-output-block-budget-test.ts && tsx --conditions react-server scripts/delegated-tool-output-budget-test.ts",
