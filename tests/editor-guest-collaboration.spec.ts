@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { fileGuestCookieName } from '../app/lib/file-guests/types';
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import * as Y from 'yjs';
 
@@ -74,6 +75,12 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
   await expect(page.getByLabel('Sechsstelliger Code')).toBeVisible({ timeout: 30_000 });
   expect(Boolean(deliveredCode), 'The real service must deliver the fixture challenge.').toBe(true);
   await page.getByLabel('Dein Anzeigename').fill(displayName);
+  await page.getByLabel('Sechsstelliger Code').fill(deliveredCode === '000000' ? '111111' : '000000');
+  const rejected = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
+  await page.getByRole('button', { name: 'Datei öffnen' }).click();
+  expect((await rejected).status()).toBe(401);
+  await expect(page.getByRole('alert')).toContainText('ungültig');
+  expect((await page.context().cookies()).some(cookie => cookie.name === fileGuestCookieName(invitation.id))).toBe(false);
   await page.getByLabel('Sechsstelliger Code').fill(deliveredCode!);
   const verified = page.waitForResponse((response) => response.url().endsWith(`/api/guest/files/${invitation.id}/verify`));
   await page.getByRole('button', { name: 'Datei öffnen' }).click();
@@ -105,6 +112,14 @@ test.describe('real file guest collaboration', () => {
     let workspaceId = '';
     try {
       await authenticateManagedTestPage(owner);
+      const reviewOff = await owner.request.patch('/api/admin/experimental-settings', {
+        headers: { Origin: BASE_URL }, data: { documentReviewEnabled: false },
+      });
+      expect(reviewOff.ok()).toBe(true);
+      expect(await reviewOff.json()).toMatchObject({ success: true, data: { documentReviewEnabled: false } });
+      const settings = await owner.request.get('/api/server-settings');
+      expect(settings.ok()).toBe(true);
+      expect((await settings.json()).data.documentReviewEnabled).toBe(false);
       const workspaces = (await (await owner.request.get('/api/workspaces')).json()).workspaces as Array<{
         id: string; name: string; permissions: { canWrite: boolean; canCreatePublicLinks: boolean } }>;
       const workspace = workspaces.find((candidate) => candidate.name === 'Shared Test Workspace');

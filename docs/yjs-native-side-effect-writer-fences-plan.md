@@ -6,6 +6,8 @@ Aktualisierung 2026-10-15: Der echte Metadata-PATCH ist nun an Request-Principal
 
 ## 1. Entscheidung und offene Grenzen
 
+Enger Guest-Vorabschluss vom 15. Oktober: Der reguläre Verify-Service bindet Codeverbrauch, Versuchszähler, Sessioncleanup und Sitzungsanlage jetzt an eine tatsächliche gemeinsame Transaktion mit Policy-/Zielvergleich; elf echte PG18-Familien, TypeScript und Scoped-Lint bestehen. Vollständiger Guest-Shared-Fence, Inviter-ACL und persistierte Generation bleiben offen. Build-/Browserabschluss dieses Anschlusses folgt. [Vertrag, RED/GREEN und Grenzen](./yjs-guest-redemption-atomicity-evidence.md).
+
 Normale Metadaten-/Grant-/Lock-Schreiber brauchen eine **gemeinsame transaktionale Workspace-Sperre** auf dem vorhandenen `collaborationAdmissionLockKey(workspaceId)`, danach eine frische Pfad-/Dokument-Admission- und Identitätsprüfung auf **derselben Connection**, dann ihre enge SQL-Mutation und COMMIT. Sie müssen weder native Inhalte exportieren noch aktive Room-Owner sperren, prüfen oder drainen.
 
 Dieser neue Writervertrag darf nicht aus [assertWorkspaceFileLifecycleSqlAvailable](../app/lib/files/workspace-file-lifecycle-guard.ts), Zeilen 28–58, abgeleitet werden: Der bestehende Helfer nimmt den Workspace-Key exklusiv, prüft Reservations, native Owner-Tupel, Connectioncount und fremde Dokument-Advisory-Locks. Er ist für Datei-Lifecycleoperationen gedacht; seine Verwendung für Favoriten oder Titel würde laufende Editor-Räume unnötig blockieren.

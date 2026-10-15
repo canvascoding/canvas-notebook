@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash, createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomInt, randomUUID } from 'node:crypto';
 import { promises as fs, type Stats } from 'node:fs';
 import path from 'node:path';
 import { and, desc, eq, gt, isNull, lt, lte, or, sql } from 'drizzle-orm';
@@ -21,6 +21,7 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { isSensitiveWorkspacePath, publicShareFileIdentityMatches } from '@/app/lib/public-sharing/public-file-shares';
 import { collectPublicMarkdownImageWorkspacePaths } from '@/app/lib/public-sharing/public-markdown-images';
 import { recordFileGuestVersion } from './versions';
+import { redeemFileGuestCode } from './redemption';
 import { fileGuestUrl, isFileGuestId, type FileGuestAsset, type FileGuestInvitationView, type FileGuestPermission } from './types';
 
 export class FileGuestError extends Error {
@@ -233,22 +234,13 @@ export function createFileGuestService(dependencies: {
 
   async function verify(id: string, code: string, displayName: string) {
     if (!/^\d{6}$/u.test(code) || !displayName.trim() || displayName.trim().length > 80) throw new FileGuestError('Sechsstelligen Code und einen Namen mit höchstens 80 Zeichen eingeben.', 400);
-    await activeInvitation(id);
-    const now = new Date();
-    const [attempt] = await db.update(invitations).set({ challengeAttempts: sql`${invitations.challengeAttempts} + 1` })
-      .where(and(eq(invitations.id, id), active(now), gt(invitations.challengeExpiresAt, now), lt(invitations.challengeAttempts, 5))).returning();
-    if (!attempt?.challengeId || !attempt.challengeHash) throw new FileGuestError('Der Code ist ungültig oder abgelaufen. Bitte einen neuen anfordern.', 401);
-    const expected = Buffer.from(codeHash(id, attempt.challengeId, code), 'hex');
-    const actual = Buffer.from(attempt.challengeHash, 'hex');
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new FileGuestError('Der Code ist ungültig oder abgelaufen.', 401);
-    const consumed = await db.update(invitations).set({ challengeHash: null })
-      .where(and(eq(invitations.id, id), active(), eq(invitations.challengeId, attempt.challengeId), eq(invitations.challengeHash, attempt.challengeHash))).returning({ id: invitations.id });
-    if (!consumed.length) throw new FileGuestError('Dieser Code wurde bereits verwendet. Bitte einen neuen anfordern.', 401);
-    const token = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Math.min(Date.now() + 12 * 3_600_000, attempt.expiresAt?.getTime() ?? Infinity));
-    await db.delete(sessions).where(and(eq(sessions.invitationId, id), lte(sessions.expiresAt, now)));
-    await db.insert(sessions).values({ id: randomUUID(), invitationId: id, tokenHash: digest(token), displayName: displayName.trim(), expiresAt, createdAt: now });
-    return { token, expiresAt };
+    const { row } = await activeInvitation(id);
+    const result = await redeemFileGuestCode({ invitation: row, displayName: displayName.trim(),
+      hashCode: challengeId => codeHash(id, challengeId, code) });
+    if (result.kind === 'changed') throw new FileGuestError('Die Einladung wurde zwischenzeitlich geändert. Bitte erneut laden.', 409);
+    if (result.kind === 'expired') throw new FileGuestError('Diese Einladung ist abgelaufen oder wurde widerrufen.', 410);
+    if (result.kind === 'invalid') throw new FileGuestError('Der Code ist ungültig oder abgelaufen. Bitte einen neuen anfordern.', 401);
+    return { token: result.token, expiresAt: result.expiresAt };
   }
 
   async function access(id: string, credential: { token: string } | { sessionId: string }) {

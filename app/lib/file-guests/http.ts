@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FileGuestError } from './service';
 import { FileGuestVersionError } from './versions';
 import { FileGuestCheckpointRequestError } from './checkpoint-error';
+import { FileGuestRedemptionCommitError } from './redemption';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { fileGuestCookieName } from './types';
@@ -17,6 +18,7 @@ export const fileGuestJson = (body: unknown, status = 200) => NextResponse.json(
 export const guestRequestToken = (request: NextRequest, id: string) => request.cookies.get(fileGuestCookieName(id))?.value || '';
 
 export function fileGuestErrorResponse(error: unknown) {
+  if (error instanceof FileGuestRedemptionCommitError) return fileGuestJson({ success: false, code: error.code, error: error.message }, error.status);
   if (error instanceof FileGuestCheckpointRequestError) return fileGuestJson(error.payload, error.status);
   if (error instanceof FileGuestError || error instanceof FileGuestVersionError) return fileGuestJson({ success: false, error: error.message }, error.status);
   if (error instanceof SyntaxError) return fileGuestJson({ success: false, error: 'Ungültiges JSON.' }, 400);
