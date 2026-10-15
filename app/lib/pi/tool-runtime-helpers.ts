@@ -42,6 +42,7 @@ import {
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { withAgentToolInvocation } from '@/app/lib/pi/agent-tool-invocation';
 import { createBrowserGatewayTool, type BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
@@ -101,12 +102,13 @@ export function wrapToolWithExecutionContext(
       // The runtime rotates agentTurnId between user messages. An in-flight tool
       // must retain the turn that started it, including across its awaits.
       const invocationContext = { ...context };
-      return runWithAgentExecutionContext(invocationContext, async () => {
-        await maybeCleanupToolOutputOrphans(invocationContext);
-        const result = await execute(toolCallId, params, signal, onUpdate);
-        return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, invocationContext),
-          identity: invocationContext, toolCallId, toolName: scopedTool.name });
-      });
+      return runWithAgentExecutionContext(invocationContext, () => withAgentToolInvocation(invocationContext,
+        { toolName: scopedTool.name, toolCallId, signal }, async () => {
+          await maybeCleanupToolOutputOrphans(invocationContext);
+          const result = await execute(toolCallId, params, signal, onUpdate);
+          return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, invocationContext),
+            identity: invocationContext, toolCallId, toolName: scopedTool.name });
+        }));
     },
   };
 }

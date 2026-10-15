@@ -11,6 +11,11 @@ import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contra
 import { isFileGuestId } from '../file-guests/types';
 import { assertUserSeatAccess } from '../license/seat-limit';
 import type { LicenseStatus } from '../license/types';
+import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, withCapturedAgentToolInvocation,
+  type AgentToolInvocation, type AgentToolInvocationOrigin } from '../pi/agent-tool-invocation';
+import { readStoredAgentWorkspaceOnConnection } from '../pi/session-workspace-context';
+import { normalizeManagedAgentId } from '../agents/registry';
+import { resolveVerifiedAgentActorContextOnConnection } from '../agents/actor-context';
 import { resolveWorkspaceActor } from './context';
 import { readPostgresWorkspaceForActorOnConnection } from './postgres-runtime';
 import { requireExistingSelectedRequestWorkspace } from './request';
@@ -34,6 +39,20 @@ type RequestCapture = AuthorizationCapture & {
   kind: 'member'; sessionId: string; tokenHash: string; impersonatedBy: unknown;
   originalOrigin?: { observe: WorkspaceRequestHistoricalOriginObserver; realm: Readonly<{ schemaOid: number; searchPath: string }> };
 };
+declare const agentToolPrincipalBrand: unique symbol;
+export type WorkspaceAgentToolPrincipal = Readonly<{ [agentToolPrincipalBrand]: never }>;
+export type WorkspaceAgentToolPrincipalAccess = Readonly<{
+  workspace: WorkspaceContext; userId: string; agentId: string; piSessionId: string;
+  toolName: string; toolCallId: string; assertCurrent: () => Promise<void>;
+}>;
+type AgentProfilePin = Readonly<{
+  id: number; revision: number; enabledToolsJson: string | null;
+  workflowVersion: number | null; workflowRevision: number;
+}>;
+type AgentCapture = AuthorizationCapture & {
+  kind: 'agent_tool'; invocation: AgentToolInvocation; origin: AgentToolInvocationOrigin;
+  agentId: string; piSessionDbId: number; profile: AgentProfilePin;
+};
 declare const guestInvitationAuthorityBrand: unique symbol;
 export type FileGuestInvitationAuthority = Readonly<{ [guestInvitationAuthorityBrand]: never }>;
 export type FileGuestInvitationAuthorityPurpose = 'challenge' | 'redeem' | 'failed_challenge_cleanup' | 'access';
@@ -55,10 +74,11 @@ export type WorkspaceRequestHistoricalOrigin = Readonly<{
   schema: string; schemaOid: number; searchPath: string; databaseOid: number;
 }>;
 export type WorkspaceRequestHistoricalOriginObserver = (origin: WorkspaceRequestHistoricalOrigin) => void;
-type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture; database: SqlConnection;
+type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture | AgentCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>> };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
 const invitationAuthorities = new WeakMap<FileGuestInvitationAuthority, InvitationCapture>();
+const agentToolPrincipals = new WeakMap<WorkspaceAgentToolPrincipal, AgentCapture>();
 const phases = new WeakMap<SqlConnection, Phase>();
 const MAX_ORGANIZATIONS = 16, MAX_ROWS = 1024, MAX_PHASE_MS = 5000;
 const tables = ['canvas_organization_settings', 'team_memberships', 'team_membership_sync_state', 'user', 'session',
@@ -77,6 +97,21 @@ const expectedFks = [
   ['canvas_project_members','project_id','canvas_projects','id'],
   ['canvas_project_members','user_id','user','id'],
   ['session','user_id','user','id'],
+] as const;
+const agentTables = ['pi_sessions', 'agents', 'agent_members', 'agent_grants'];
+const agentFks = [
+  ['pi_sessions','user_id','user','id'],
+  ['agents','organization_id','canvas_organization_settings','organization_id'],
+  ['agents','owner_user_id','user','id'],
+  ['agents','created_by_user_id','user','id'],
+  ['agent_members','agent_id','agents','agent_id'],
+  ['agent_members','organization_id','canvas_organization_settings','organization_id'],
+  ['agent_members','user_id','user','id'],
+  ['agent_members','invited_by_user_id','user','id'],
+  ['agent_grants','agent_id','agents','agent_id'],
+  ['agent_grants','organization_id','canvas_organization_settings','organization_id'],
+  ['agent_grants','created_by_user_id','user','id'],
+  ['agent_grants','updated_by_user_id','user','id'],
 ] as const;
 const quote = (s: string) => `"${s.replaceAll('"','""')}"`;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -185,6 +220,7 @@ function active(phase: Phase): void {
   }
   if (phase.failure !== undefined) throw phase.failure;
   if (phase.request.failure !== undefined) throw phase.request.failure;
+  if (phase.request.kind === 'agent_tool') assertCurrentAgentToolInvocation(phase.request.invocation);
   if (performance.now() > phase.deadline) fail('PRINCIPAL_EXPIRED');
   if (phase.request.kind === 'file_guest' && phase.request.expiresAt !== null
     && phase.request.expiresAt <= Date.now()) guestFail('FILE_GUEST_INVITATION_UNAVAILABLE');
@@ -212,11 +248,15 @@ async function identity(phase: Phase): Promise<Identity> {
 async function checkIdentity(phase: Phase): Promise<void> {
   const current = await identity(phase), before = phase.identity;
   if (!before || Object.keys(before).some(k => Reflect.get(before,k) !== Reflect.get(current,k))) fail('PRINCIPAL_SCOPE_CHANGED');
-  const requiredTables = phase.request.kind === 'file_guest' ? [...tables, 'file_guest_invitations'] : tables;
+  const requiredTables = principalRelations(phase);
   const rows = await phase.database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
     FROM unnest($2::text[]) names(name)`, [quote(before.schema),requiredTables]) as Row[];
   active(phase);
   if (rows.length !== requiredTables.length || rows.some(row => row.same !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
+}
+function principalRelations(phase: Phase): readonly string[] {
+  if (phase.request.kind === 'agent_tool') return [...tables.filter(name => name !== 'session'), ...agentTables];
+  return phase.request.kind === 'file_guest' ? [...tables, 'file_guest_invitations'] : tables;
 }
 const table = (phase: Phase, name: string) => `${quote(phase.identity!.schema)}.${quote(name)}`;
 async function observeOriginalOrigin(phase: Phase): Promise<void> {
@@ -272,10 +312,15 @@ async function schema(phase: Phase): Promise<void> {
   // Freeze auth/ACL DML and trigger DDL through caller transaction completion.
   // SHARE is compatible with other principal readers; ROW EXCLUSIVE followed
   // by the organization SHARE lock made those readers exclude each other.
-  await phase.database.run(`LOCK TABLE ${tables.map(name => table(phase,name)).join(',')} IN SHARE MODE NOWAIT`);
+  const sharedTables = phase.request.kind === 'agent_tool'
+    ? principalRelations(phase).filter(name => name !== 'pi_sessions') : tables;
+  await phase.database.run(`LOCK TABLE ${sharedTables.map(name => table(phase,name)).join(',')} IN SHARE MODE NOWAIT`);
   // Keep the invitation relation/FK stable while permitting cooperating Guest
   // DML on other rows. Its actual row lock belongs after the Shared fence.
   if (phase.request.kind === 'file_guest') await phase.database.run(`LOCK TABLE ${table(phase,'file_guest_invitations')} IN ROW SHARE MODE NOWAIT`);
+  // A genuine PI row is locked below. Other chats may continue to save; the
+  // unrelated Better Auth session relation is not an Agent authority source.
+  if (phase.request.kind === 'agent_tool') await phase.database.run(`LOCK TABLE ${table(phase,'pi_sessions')} IN ROW EXCLUSIVE MODE NOWAIT`);
   await checkIdentity(phase);
   const rows = await phase.database.all(`SELECT child.relname AS child,parent.relname AS parent,ca.attname AS column,
     pa.attname AS parent_column,c.convalidated,c.condeferrable,c.conenforced,
@@ -288,7 +333,8 @@ async function schema(phase: Phase): Promise<void> {
       AND child.relnamespace=$1::regnamespace AND parent.relnamespace=$1::regnamespace`, [phase.identity!.schema]) as Row[];
   active(phase);
   const requiredFks = phase.request.kind === 'file_guest'
-    ? [...expectedFks, ['file_guest_invitations','created_by_user_id','user','id'] as const] : expectedFks;
+    ? [...expectedFks, ['file_guest_invitations','created_by_user_id','user','id'] as const]
+    : phase.request.kind === 'agent_tool' ? [...expectedFks.filter(([child]) => child !== 'session'), ...agentFks] : expectedFks;
   for (const [child,column,parent,parentColumn] of requiredFks) {
     const matched = rows.filter(row => row.child === child && row.column === column && row.parent === parent && row.parent_column === parentColumn);
     if (matched.length !== 1 || matched[0].convalidated !== true || matched[0].condeferrable !== false
@@ -359,6 +405,7 @@ async function locks(phase: Phase): Promise<void> {
   bounded(await db.all(`SELECT user_id FROM ${table(phase,'canvas_workspace_members')}
     WHERE workspace_id=$1 ORDER BY user_id COLLATE "C" LIMIT 1025 FOR SHARE NOWAIT`, [workspace.id]) as Row[]);
   if (phase.request.kind === 'member') await lockMemberSession(phase, phase.request);
+  if (phase.request.kind === 'agent_tool') await lockAgentOrigin(phase, phase.request);
   await checkIdentity(phase);
 }
 async function lockMemberSession(phase: Phase, request: RequestCapture): Promise<void> {
@@ -405,8 +452,18 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
 export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnection, principal: WorkspaceRequestPrincipal,
   operation: (access: WorkspaceRequestPrincipalAccess) => Promise<T>): Promise<T> {
   const request = requests.get(principal);
+  return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), current,
+    (workspace, assertCurrent) => Object.freeze({ workspace, userId: request!.userId, sessionId: request!.sessionId, assertCurrent }), operation);
+}
+
+/** Shared phase mechanics only. Each private adapter supplies its actual
+ * captured origin and fixed authorization reader; callers never supply either. */
+function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, request: Phase['request'] | undefined,
+  unavailable: Error, readCurrent: (phase: Phase) => Promise<WorkspaceContext>,
+  makeAccess: (workspace: WorkspaceContext, assertCurrent: () => Promise<void>) => Access,
+  operation: (access: Access) => Promise<T>): Promise<T> {
   if (!request || !request.active || !request.accepting || request.failure !== undefined) {
-    const error = new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), held = phases.get(database);
+    const error = unavailable, held = phases.get(database);
     if (held) { held.failure ??= error; held.request.failure ??= error; }
     return Promise.reject(error);
   }
@@ -428,27 +485,27 @@ export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnec
     try {
       phase.identity = await identity(phase); await checkIdentity(phase);
       await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'; SET LOCAL transaction_timeout='5s'");
-      await observeOriginalOrigin(phase);
+      if (request.kind === 'member') await observeOriginalOrigin(phase);
       await schema(phase); await locks(phase);
-      const workspace = await current(phase);
+      const workspace = await readCurrent(phase);
       const assertCurrent = (): Promise<void> => {
         if (phase.checking) {
           phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'); request.failure ??= phase.failure;
           return Promise.reject(phase.failure);
         }
         phase.checking = true;
-        const checked = current(phase).then(() => undefined).catch(error => { phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure; })
+        const checked = readCurrent(phase).then(() => undefined).catch(error => { phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure; })
           .finally(() => { phase.checking = false; });
         phase.pending.add(checked);
         void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
         return checked;
       };
-      const result = await operation(Object.freeze({ workspace,userId:request.userId,sessionId:request.sessionId,assertCurrent }));
+      const result = await operation(makeAccess(workspace, assertCurrent));
       if (phase.pending.size) {
         phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
         await Promise.allSettled([...phase.pending]); throw phase.failure;
       }
-      await current(phase); return result;
+      await readCurrent(phase); return result;
     } catch (error) {
       if ((error as { code?: string })?.code === '55P03') error = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
       return poison(request,error);
@@ -567,56 +624,169 @@ async function currentInvitation(phase: Phase): Promise<WorkspaceContext> {
 export function withFileGuestInvitationAuthorityOnConnection<T>(database: SqlConnection, authority: FileGuestInvitationAuthority,
   operation: (access: FileGuestInvitationAuthorityAccess) => Promise<T>): Promise<T> {
   const request = invitationAuthorities.get(authority);
-  if (!request || !request.active || !request.accepting || request.failure !== undefined) {
-    const error = new FileGuestInvitationAuthorityError('FILE_GUEST_INVITATION_AUTHORITY_REQUIRED'),held = phases.get(database);
-    if (held) { held.failure ??= error; held.request.failure ??= error; }
-    return Promise.reject(error);
-  }
-  if (!database || typeof database !== 'object' || !['get','all','run'].every(key => typeof Reflect.get(database,key) === 'function')
-    || typeof operation !== 'function') {
-    const error = new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'),held = phases.get(database);
-    if (held) { held.failure ??= error; held.request.failure ??= error; }
-    return Promise.reject((request.failure ??= error));
-  }
-  if (performance.now() > request.enterBefore) return Promise.reject((request.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_EXPIRED')));
-  if (request.pending.size || phases.has(database)) {
-    const error = new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'),held = phases.get(database);
-    if (held) { held.failure ??= error; held.request.failure ??= error; }
-    return Promise.reject((request.failure ??= error));
-  }
-  const phase: Phase = { active: true,request,database,deadline: performance.now()+MAX_PHASE_MS,checking: false,pending: new Set() };
-  phases.set(database,phase);
-  const pending = (async () => {
+  return withCapturedPrincipalOnConnection(database, request,
+    new FileGuestInvitationAuthorityError('FILE_GUEST_INVITATION_AUTHORITY_REQUIRED'), currentInvitation,
+    (workspace, assertCurrent) => Object.freeze({ workspace, invitation: request!.invitation, userId: request!.userId, assertCurrent }), operation);
+}
+
+function agentOptions(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string }) {
+  if (!input || Object.getPrototypeOf(input) !== Object.prototype
+    || !Object.hasOwn(input,'permission')
+    || Reflect.ownKeys(input).some(key => typeof key !== 'string' || !['permission','workspaceId'].includes(key)
+      || !Object.getOwnPropertyDescriptor(input,key)?.enumerable
+      || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(input,key),'value'))
+    || !['canRead','canWrite'].includes(input.permission)
+    || input.workspaceId !== undefined && !id(input.workspaceId)) fail('PRINCIPAL_INVALID');
+  return Object.freeze({ permission: input.permission, workspaceId: input.workspaceId });
+}
+
+async function readAgentSession(database: SqlConnection, schemaName: string, origin: AgentToolInvocationOrigin,
+  agentId: string, lock = false): Promise<number> {
+  const rows = await database.all(`SELECT id,session_id,user_id,agent_id,workspace_id,workspace_type,
+    organization_id,customer_id,project_id,workspace_root_relative_path,archived_at
+    FROM ${quote(schemaName)}.pi_sessions WHERE user_id=$1 AND session_id=$2 LIMIT 2${lock ? ' FOR SHARE NOWAIT' : ''}`,
+  [origin.userId, origin.sessionId]) as Row[];
+  const row = rows[0];
+  if (rows.length !== 1 || !number(row?.id,1) || row.session_id !== origin.sessionId || row.user_id !== origin.userId
+    || row.agent_id !== agentId || row.archived_at !== null) fail('PRINCIPAL_AUTH_REVOKED');
+  if (row.workspace_id !== origin.workspaceId || row.workspace_type !== origin.workspaceType
+    || (row.organization_id ?? null) !== origin.organizationId || (row.customer_id ?? null) !== origin.customerId
+    || (row.project_id ?? null) !== origin.projectId
+    || row.workspace_root_relative_path !== origin.workspaceRootRelativePath) fail('PRINCIPAL_SCOPE_CHANGED');
+  return Number(row.id);
+}
+
+async function readAgentProfilePin(database: SqlConnection, schemaName: string, agentId: string, lock = false): Promise<AgentProfilePin> {
+  const row = await database.get(`SELECT id,revision,enabled_tools_json,workflow_version,workflow_revision
+    FROM ${quote(schemaName)}.agents WHERE agent_id=$1${lock ? ' FOR SHARE NOWAIT' : ''}`, [agentId]) as Row | undefined;
+  if (!row || !number(row.id,1) || !number(row.revision,1) || !number(row.workflow_revision)
+    || row.workflow_version !== null && Number(row.workflow_version) !== 1
+    || row.enabled_tools_json !== null && (typeof row.enabled_tools_json !== 'string' || row.enabled_tools_json.length > 1024*1024)) fail('PRINCIPAL_ACCESS_DENIED');
+  return Object.freeze({ id: Number(row.id), revision: Number(row.revision), enabledToolsJson: row.enabled_tools_json as string | null,
+    workflowVersion: row.workflow_version === null ? null : Number(row.workflow_version), workflowRevision: Number(row.workflow_revision) });
+}
+function sameAgentProfile(expected: AgentProfilePin, actual: AgentProfilePin): boolean {
+  return Object.keys(expected).every(key => Reflect.get(expected,key) === Reflect.get(actual,key));
+}
+function matchesAgentWorkspace(origin: AgentToolInvocationOrigin, workspace: WorkspaceContext): boolean {
+  return !origin.legacy && workspace.legacy === false && workspace.status === 'active'
+    && workspace.actor?.userId === origin.userId && workspace.workspaceId === origin.workspaceId
+    && workspace.workspaceType === origin.workspaceType && (workspace.organizationId ?? null) === origin.organizationId
+    && (workspace.customerId ?? null) === origin.customerId && (workspace.projectId ?? null) === origin.projectId
+    && workspace.rootPath === origin.workspaceRoot && workspace.rootRelativePath === origin.workspaceRootRelativePath;
+}
+
+/** Reuses the stored PI and Agent ACL resolvers, including the independent
+ * account/seat/workspace check required for built-in Agent.canUse shortcuts. */
+async function readAgentWorkspace(database: SqlConnection, schemaName: string, origin: AgentToolInvocationOrigin,
+  agentId: string, permission: AuthorizationCapture['permission'], license: LicenseStatus,
+  assertAlive: () => unknown, lock: boolean): Promise<WorkspaceContext> {
+  assertAlive();
+  const user = await database.get(`SELECT id,banned FROM ${quote(schemaName)}."user" WHERE id=$1`, [origin.userId]) as Row | undefined;
+  assertAlive();
+  if (!user || user.id !== origin.userId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
+  await assertUserSeatAccess({ userId: origin.userId, database, licenseStatus: license }); assertAlive();
+  await resolveVerifiedAgentActorContextOnConnection({ userId: origin.userId, organizationId: origin.organizationId,
+    workspaceId: origin.workspaceId, projectId: origin.projectId }, database, { lock }); assertAlive();
+  const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: origin.userId, sessionId: origin.sessionId,
+    agentId, workspaceId: origin.workspaceId, permissions: ['canRead','canRunAgent',permission] });
+  assertAlive();
+  if (!matchesAgentWorkspace(origin,workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
+  return freeze(structuredClone(workspace));
+}
+
+async function lockAgentOrigin(phase: Phase, request: AgentCapture): Promise<void> {
+  const currentSessionId = await readAgentSession(phase.database, phase.identity!.schema, request.origin, request.agentId, true);
+  active(phase);
+  if (currentSessionId !== request.piSessionDbId) fail('PRINCIPAL_AUTH_REVOKED');
+  const profile = await readAgentProfilePin(phase.database, phase.identity!.schema, request.agentId, true);
+  active(phase);
+  if (!sameAgentProfile(request.profile,profile)) fail('PRINCIPAL_SCOPE_CHANGED');
+  bounded(await phase.database.all(`SELECT id FROM ${table(phase,'agent_grants')} WHERE agent_id=$1
+    ORDER BY id COLLATE "C" LIMIT 1025 FOR SHARE NOWAIT`, [request.agentId]) as Row[]);
+  bounded(await phase.database.all(`SELECT user_id FROM ${table(phase,'agent_members')} WHERE agent_id=$1
+    ORDER BY user_id COLLATE "C" LIMIT 1025 FOR SHARE NOWAIT`, [request.agentId]) as Row[]);
+  active(phase);
+}
+
+async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
+  await checkIdentity(phase);
+  const request = phase.request;
+  if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');
+  const rawWorkspace = await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
+    FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
+  active(phase); assertWorkspaceRow(phase,rawWorkspace);
+  const sessionId = await readAgentSession(phase.database, phase.identity!.schema, request.origin, request.agentId);
+  active(phase);
+  if (sessionId !== request.piSessionDbId) fail('PRINCIPAL_AUTH_REVOKED');
+  const profile = await readAgentProfilePin(phase.database, phase.identity!.schema, request.agentId);
+  active(phase);
+  if (!sameAgentProfile(request.profile,profile)) fail('PRINCIPAL_SCOPE_CHANGED');
+  const workspace = await readAgentWorkspace(phase.database, phase.identity!.schema, request.origin, request.agentId,
+    request.permission, request.license, () => active(phase), true);
+  if (!scope(workspace,request.workspace)) fail('PRINCIPAL_SCOPE_CHANGED');
+  await checkIdentity(phase);
+  return workspace;
+}
+
+/** Actual wrapped Agent invocation only. No caller context, user/session ID,
+ * synthetic web request, credential or license override can mint this origin.
+ * The captured scope spans the caller's transaction and its COMMIT cleanup. */
+export async function withWorkspaceAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
+  operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>): Promise<T> {
+  const selected = agentOptions(input);
+  if (typeof operation !== 'function') return Promise.reject(new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'));
+  const invocation = captureCurrentAgentToolInvocation();
+  return withCapturedAgentToolInvocation(invocation, async assertInvocation => {
+    const origin = assertInvocation();
+    if (origin.legacy || !id(origin.userId) || !id(origin.sessionId) || !id(origin.workspaceId)
+      || origin.agentId !== null && !id(origin.agentId)
+      || selected.workspaceId !== undefined && selected.workspaceId !== origin.workspaceId
+      || typeof origin.workspaceRootRelativePath !== 'string' || origin.workspaceRootRelativePath.length > 4096) fail('PRINCIPAL_ACCESS_DENIED');
+    const agentId = normalizeManagedAgentId(origin.agentId);
+    if (!id(agentId)) fail('PRINCIPAL_INVALID');
+    const license = freeze(structuredClone(await getLicenseStatus())); assertInvocation();
+    const database = await openDb();
+    let captured: AgentCapture;
     try {
-      phase.identity = await identity(phase); await checkIdentity(phase);
-      await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'; SET LOCAL transaction_timeout='5s'");
-      await schema(phase); await locks(phase);
-      const workspace = await currentInvitation(phase);
-      const assertCurrent = (): Promise<void> => {
-        if (phase.checking) {
-          phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'); request.failure ??= phase.failure;
-          return Promise.reject(phase.failure);
-        }
-        phase.checking = true;
-        const checked = currentInvitation(phase).then(() => undefined).catch(error => {
-          phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure;
-        }).finally(() => { phase.checking = false; });
-        phase.pending.add(checked);
-        void checked.then(() => phase.pending.delete(checked),() => phase.pending.delete(checked));
-        return checked;
-      };
-      const result = await operation(Object.freeze({ workspace,invitation: request.invitation,userId: request.userId,assertCurrent }));
-      if (phase.pending.size) {
-        phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
-        await Promise.allSettled([...phase.pending]); throw phase.failure;
+      const realm = await database.get(`SELECT current_schema() AS schema,
+        (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database`) as Row | undefined;
+      assertInvocation();
+      if (!realm || typeof realm.schema !== 'string' || !realm.schema || !number(realm.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
+      const piSessionDbId = await readAgentSession(database, realm.schema, origin, agentId); assertInvocation();
+      const profile = await readAgentProfilePin(database, realm.schema, agentId); assertInvocation();
+      const workspace = await readAgentWorkspace(database, realm.schema, origin, agentId, selected.permission, license, assertInvocation, false);
+      captured = { kind: 'agent_tool', invocation, origin, agentId, piSessionDbId, profile, active: true, accepting: true,
+        pending: new Set(), userId: origin.userId, workspace, permission: selected.permission, license,
+        database: Number(realm.database), schema: realm.schema, enterBefore: 0 };
+    } finally { await database.close(); }
+    assertInvocation();
+    captured.enterBefore = performance.now()+MAX_PHASE_MS;
+    const principal = Object.freeze({}) as WorkspaceAgentToolPrincipal;
+    agentToolPrincipals.set(principal,captured);
+    try {
+      let result: T | undefined, operationFailure: unknown;
+      try { result = await operation(principal); }
+      catch (error) { operationFailure = reason(error); captured.failure ??= operationFailure; }
+      captured.accepting = false;
+      if (captured.pending.size) {
+        captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
+        await Promise.allSettled([...captured.pending]);
       }
-      await currentInvitation(phase); return result;
-    } catch (error) {
-      if ((error as { code?: string })?.code === '55P03') error = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
-      return poison(request,error);
-    } finally { phase.active = false; if (phases.get(database) === phase) phases.delete(database); }
-  })();
-  request.pending.add(pending);
-  void pending.then(() => request.pending.delete(pending),() => request.pending.delete(pending));
-  return pending;
+      if (operationFailure !== undefined) throw operationFailure;
+      if (captured.failure !== undefined) throw captured.failure;
+      assertInvocation();
+      return result as T;
+    } finally { captured.active = false; captured.accepting = false; agentToolPrincipals.delete(principal); }
+  });
+}
+
+/** Caller owns the same RC/RW transaction, admission and confirmed COMMIT.
+ * PI session identity remains explicit and never becomes a member session. */
+export function withWorkspaceAgentToolPrincipalOnConnection<T>(database: SqlConnection, principal: WorkspaceAgentToolPrincipal,
+  operation: (access: WorkspaceAgentToolPrincipalAccess) => Promise<T>): Promise<T> {
+  const request = agentToolPrincipals.get(principal);
+  return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), currentAgent,
+    (workspace, assertCurrent) => Object.freeze({ workspace, userId: request!.userId, agentId: request!.agentId,
+      piSessionId: request!.origin.sessionId, toolName: request!.origin.toolName, toolCallId: request!.origin.toolCallId, assertCurrent }), operation);
 }
