@@ -166,6 +166,7 @@ async function main(): Promise<void> {
     // substituted for an authenticated principal or an owner fence.
     const actualDb = await import('../app/lib/db');
     const transport = await import('../app/lib/collaboration/authenticated-native-session-transport');
+    const { NATIVE_PEER_ADMISSION_BUSY_REASON } = await import('../app/lib/collaboration/failure');
     const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
     const { POST } = await import('../app/api/files/collaboration/session/route');
     const waitUntil = async (condition: () => boolean | Promise<boolean>, label: string) => {
@@ -176,6 +177,11 @@ async function main(): Promise<void> {
     type Phase = 'http' | 'capture' | 'join' | 'connected' | 'beforeHandleMessage';
     type TransactionRecord = { id: number; pid?: number; phase?: Phase | string; events: string[]; sqlCodes: string[]; code?: string; privateBusy?: boolean };
     const transactions: TransactionRecord[] = [], records = new WeakMap<SqlConnection, TransactionRecord>();
+    const backendRecords = new Map<number, TransactionRecord>(), failureRecords = new WeakMap<object, TransactionRecord>();
+    const joinCaptures = new Map<number, number>();
+    const originRetirements: Array<{ recordId: number; phase?: string; events: string[]; eligible: boolean; captureRecordId: number | null }> = [];
+    const originDisposals: Array<{ completed: true; retirementCount: number }> = [];
+    const originTimeline: Array<{ event: 'capture_begin' | 'retire_complete' | 'dispose_complete'; recordId?: number }> = [];
     const captures = new WeakMap<Awaited<ReturnType<typeof transport.captureAuthenticatedNativeSessionTransportOnConnection>>, number>();
     const disposals: Array<{ capture: number; settled: boolean }> = [];
     let currentDocumentId = '', sequence = 0;
@@ -244,7 +250,15 @@ async function main(): Promise<void> {
         catch (error) { if (error && typeof error === 'object' && typeof Reflect.get(error, 'code') === 'string') record.sqlCodes.push(Reflect.get(error, 'code')); throw error; }
       };
       const observed: SqlConnection = {
-        get: (sql, values) => query(sql, () => actual.get(sql, values)), all: (sql, values) => query(sql, () => actual.all(sql, values)),
+        get: async (sql, values) => {
+          const result = await query(sql, () => actual.get(sql, values));
+          if (sql === 'SELECT pg_backend_pid() AS pid') {
+            assert(result && typeof result === 'object');
+            record.pid = Number(Reflect.get(result, 'pid')); assert(Number.isSafeInteger(record.pid));
+            backendRecords.set(record.pid, record);
+          }
+          return result;
+        }, all: (sql, values) => query(sql, () => actual.all(sql, values)),
         run: async (sql, values) => { const result = await query(sql, () => actual.run(sql, values)); if (/^(BEGIN|COMMIT|ROLLBACK)/u.test(sql)) record.events.push(sql.split(' ')[0]); return result; },
         close: async error => {
           await actual.close(error); record.events.push(error ? 'discard-close' : 'close');
@@ -255,18 +269,49 @@ async function main(): Promise<void> {
     };
     const hooks = new Map<string, string>();
     const observe = async <T>(database: SqlConnection, phase: Phase | string, operation: () => Promise<T>): Promise<T> => {
-      const record = records.get(database); assert(record); record.phase = phase;
-      record.pid = Number((await database.get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
+      const pid = Number((await database.get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
+      // Admission forwards through its own closure-observing wrapper. Match
+      // that actual handle using the same existing PID observation, not ALS or
+      // an injected principal/facade. SQL results remain unchanged.
+      const record = records.get(database) ?? backendRecords.get(pid); assert(record);
+      records.set(database, record); record.phase = phase; record.pid = pid;
       try { return await operation(); }
       catch (error) {
         record.code = error && typeof error === 'object' ? String(Reflect.get(error, 'code') ?? '') : '';
         record.privateBusy = transport.isAuthenticatedNativeSessionTransportBusy(error);
+        if (error && typeof error === 'object') failureRecords.set(error, record);
         if (record.privateBusy && plan?.phase === phase) plan.attempts++;
         throw error;
       }
     };
     const observedTransport = {
       ...transport,
+      captureAuthenticatedNativePeerOriginTransportOnConnection: async (...args: Parameters<typeof transport.captureAuthenticatedNativePeerOriginTransportOnConnection>) => {
+        const capability = await observe(args[0], 'capture', () => {
+          originTimeline.push({ event: 'capture_begin', recordId: records.get(args[0])!.id });
+          return transport.captureAuthenticatedNativePeerOriginTransportOnConnection(...args);
+        });
+        captures.set(capability, records.get(args[0])!.id); return capability;
+      },
+      withAuthenticatedNativePeerOriginJoinOnConnection: <T>(...args: Parameters<typeof transport.withAuthenticatedNativePeerOriginJoinOnConnection<T>>) =>
+        observe(args[0], 'join', () => {
+          const captured = captures.get(args[2]); assert(captured !== undefined, 'Join must use a genuinely returned Capture transport');
+          joinCaptures.set(records.get(args[0])!.id, captured);
+          return transport.withAuthenticatedNativePeerOriginJoinOnConnection(...args);
+        }),
+      retireAuthenticatedNativePeerOriginAttempt: async (...args: Parameters<typeof transport.retireAuthenticatedNativePeerOriginAttempt>) => {
+        const eligible = await transport.retireAuthenticatedNativePeerOriginAttempt(...args);
+        const record = args[1] && typeof args[1] === 'object' ? failureRecords.get(args[1]) : undefined; assert(record);
+        originRetirements.push({ recordId: record.id, phase: record.phase, events: [...record.events], eligible,
+          captureRecordId: joinCaptures.get(record.id) ?? null });
+        originTimeline.push({ event: 'retire_complete', recordId: record.id });
+        return eligible;
+      },
+      disposeAuthenticatedNativePeerOrigin: async (...args: Parameters<typeof transport.disposeAuthenticatedNativePeerOrigin>) => {
+        await transport.disposeAuthenticatedNativePeerOrigin(...args);
+        originDisposals.push({ completed: true, retirementCount: originRetirements.length });
+        originTimeline.push({ event: 'dispose_complete' });
+      },
       captureAuthenticatedNativeSessionTransportOnConnection: async (...args: Parameters<typeof transport.captureAuthenticatedNativeSessionTransportOnConnection>) => {
         const capability = await observe(args[0], 'capture', () => transport.captureAuthenticatedNativeSessionTransportOnConnection(...args));
         captures.set(capability, records.get(args[0])!.id); return capability;
@@ -291,9 +336,13 @@ async function main(): Promise<void> {
     const actualPeer = await evaluate<typeof import('../app/lib/collaboration/authenticated-native-peer')>('app/lib/collaboration/authenticated-native-peer.ts', {
       '../db': { ...actualDb, openDb: openObservedConnection }, './authenticated-native-session-transport': observedTransport,
     });
+    const actualAdmission = await evaluate<typeof import('../app/lib/collaboration/authenticated-native-peer-admission')>('app/lib/collaboration/authenticated-native-peer-admission.ts', {
+      '../db': { ...actualDb, openDb: openObservedConnection }, './authenticated-native-session-transport': observedTransport,
+    });
     const productServer = await evaluate<typeof import('../server/collaboration-server')>('server/collaboration-server.ts', {
       '@/app/lib/db': { ...actualDb, openDb: openObservedConnection },
       '@/app/lib/collaboration/authenticated-native-peer': actualPeer,
+      '@/app/lib/collaboration/authenticated-native-peer-admission': actualAdmission,
       '@/app/lib/collaboration/authenticated-native-session-transport': observedTransport,
     });
     process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1';
@@ -310,7 +359,10 @@ async function main(): Promise<void> {
       } catch { response.writeHead(500); response.end('{"success":false,"code":"FIXTURE_HTTP_FAILURE"}'); }
     });
     const sockets = new Set<WebSocket>(), documents = new Set<import('@hocuspocus/server').Document>();
+    const ownerObservations: Array<{ event: string; command?: string; sqlHash?: string; durationMs?: number;
+      errorCode?: string; backendPid: number | null }> = [];
     const actualRuntime: { hocuspocus?: Hocuspocus } = {};
+    const handledMessages = new Map<string, number>();
     const originalHooks = Hocuspocus.prototype.hooks;
     Hocuspocus.prototype.hooks = (async function (this: Hocuspocus, name: string, payload: { [key: string]: unknown }, ...args: unknown[]) {
       actualRuntime.hocuspocus = this;
@@ -318,11 +370,39 @@ async function main(): Promise<void> {
       const documentId = typeof payload.documentName === 'string' ? payload.documentName : connection?.document.name;
       if (connection) documents.add(connection.document);
       if (documentId) hooks.set(documentId, name);
-      try { return await (originalHooks as (...args: unknown[]) => Promise<unknown>).call(this, name, payload, ...args); }
+      try {
+        const result = await (originalHooks as (...args: unknown[]) => Promise<unknown>).call(this, name, payload, ...args);
+        if (documentId && name === 'afterHandleMessage') handledMessages.set(documentId, (handledMessages.get(documentId) ?? 0) + 1);
+        return result;
+      }
       finally { if (documentId && hooks.get(documentId) === name) hooks.delete(documentId); }
     }) as typeof originalHooks;
     const wss = productServer.createCollaborationServer(server, { roomOwner: { createSession: async onInvalidated => {
-      const client = await ownClient(); return createCollaborationRoomOwnerSession({ query: client.query.bind(client), on: client.on.bind(client), end: client.end.bind(client) }, onInvalidated);
+      const client = await ownClient(), backend = Reflect.get(client, 'processID');
+      const backendPid = Number.isSafeInteger(backend) ? Number(backend) : null;
+      const errorCode = (error: unknown) => {
+        const code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+        return typeof code === 'string' && /^[A-Z0-9_]{1,80}$/u.test(code) ? code : 'UNKNOWN';
+      };
+      client.on('error', error => { ownerObservations.push({ event: 'error', errorCode: errorCode(error), backendPid }); });
+      client.on('end', () => { ownerObservations.push({ event: 'end', backendPid }); });
+      const originalQuery = client.query;
+      const query = ((...args: unknown[]) => {
+        const sql = typeof args[0] === 'string' ? args[0] : '';
+        const observation = { event: 'query', command: sql.trim().split(/\s/u)[0],
+          sqlHash: crypto.createHash('sha256').update(sql).digest('hex'), backendPid,
+          durationMs: 0, errorCode: undefined as string | undefined };
+        ownerObservations.push(observation);
+        const started = performance.now();
+        return Promise.resolve(Reflect.apply(originalQuery, client, args)).then(result => {
+          observation.durationMs = performance.now() - started; return result;
+        }, error => {
+          observation.durationMs = performance.now() - started; observation.errorCode = errorCode(error); throw error;
+        });
+      }) as typeof client.query;
+      return createCollaborationRoomOwnerSession({ query, on: client.on.bind(client), end: client.end.bind(client) }, () => {
+        ownerObservations.push({ event: 'invalidated', backendPid }); onInvalidated();
+      });
     }, heartbeatMs: 1000 } });
     await new Promise<void>(done => server.listen(0, '127.0.0.1', done)); const address = server.address(); assert(address && typeof address === 'object');
     console.log('Owned Source rawserver ready:', { pid: process.pid, port: address.port, schema, evidenceRoot });
@@ -339,7 +419,7 @@ async function main(): Promise<void> {
     const frame = (documentId: string, type: number, write: (encoder: ReturnType<typeof encoding.createEncoder>) => void) => {
       const encoder = encoding.createEncoder(); encoding.writeVarString(encoder, documentId); encoding.writeVarUint(encoder, type); write(encoder); return encoding.toUint8Array(encoder);
     };
-    type Incoming = { type: number; auth?: number; scope?: string; reason?: string; bodyType?: string; code?: string; sync?: number };
+    type Incoming = { type: number; auth?: number; scope?: string; reason?: string; bodyType?: string; code?: string; sync?: number; acknowledged?: boolean };
     const connect = async (identity: ExistingNativeSessionIdentity, token: string) => {
       const original = await request('owner', true), incoming: Incoming[] = [];
       const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws/collaboration`, { headers: { origin: 'http://localhost', cookie: original.headers.get('cookie')!, 'x-canvas-workspace-id': workspaceId } }); sockets.add(socket);
@@ -354,6 +434,7 @@ async function main(): Promise<void> {
         } else if (type === MessageType.Stateless) {
           const body = JSON.parse(decoding.readVarString(decoder)); incoming.push({ type, bodyType: body.type, ...(typeof body.code === 'string' ? { code: body.code } : {}) });
         } else if (type === MessageType.Sync) incoming.push({ type, sync: decoding.readVarUint(decoder) });
+        else if (type === MessageType.SyncStatus) incoming.push({ type, acknowledged: decoding.readVarUint(decoder) === 1 });
         else incoming.push({ type });
       });
       await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
@@ -392,7 +473,9 @@ async function main(): Promise<void> {
       cases++; results.push({ name, ...value }); console.log('Native peer controlled counter:', { name, ...value });
       await writeFile(path.join(evidenceRoot, 'result.json'), JSON.stringify({ schema, pid: process.pid, cases, results }, null, 2), { mode: 0o600 });
     };
+    const incomingOnly = process.argv.includes('--incoming-preflight-only');
     try {
+      if (!incomingOnly) {
       const baseline = await newCase('baseline'), initial = await httpSession(baseline); assert.equal(initial.status, 200);
       assert.equal(initial.body.documentId, baseline.documentId); assert.equal(initial.body.permission, 'write');
       const healthy = await connect(baseline, String(initial.body.token)); await accepted(healthy); await closePeer(healthy);
@@ -418,21 +501,39 @@ async function main(): Promise<void> {
       }
       await report('actual HTTP distinguishes native table Busy from an unconfirmed fresh factory', { observations: httpObservations });
 
-      for (const [phase, kind] of [['capture', 'row'], ['join', 'table']] as const) {
+      for (const [phase, kind] of [['capture', 'table'], ['join', 'table']] as const) {
         const identity = await newCase(`${phase}-${kind}`), session = await httpSession(identity); assert.equal(session.status, 200);
         plan = { phase, kind, fired: false, releaseAfterClose: false, attempts: 0 }; const start = transactions.length;
+        const retiredBefore = originRetirements.length, disposedBefore = originDisposals.length;
+        const timelineBefore = originTimeline.length;
         const peer = await connect(identity, String(session.body.token));
-        assert(peer.incoming.some(message => message.auth === AuthMessageType.PermissionDenied && message.reason === 'permission-denied'));
+        assert(plan.fired, 'the actual selected Origin phase must reach its genuine lock gate');
+        assert(peer.incoming.some(message => message.auth === AuthMessageType.PermissionDenied && message.reason === NATIVE_PEER_ADMISSION_BUSY_REASON));
         assert(!peer.incoming.some(message => message.auth === AuthMessageType.Authenticated));
-        await waitUntil(() => transactions.slice(start).some(record => record.phase === phase && record.events.includes('close')), 'Rejected Auth B was not closed.');
-        const busy = inspectBusy(start, phase, false, 1), blocker = plan.blockerProof;
+        const retired = originRetirements.slice(retiredBefore), blocker = plan.blockerProof;
+        assert.equal(retired.length, 3, 'the entire Admission has exactly three qualified failed attempts');
+        assert.deepEqual(retired.map(record => record.phase), phase === 'capture' ? ['capture', 'capture', 'capture'] : ['join', 'capture', 'capture']);
+        for (const retirement of retired) {
+          assert.equal(retirement.eligible, true); assert.deepEqual(retirement.events, ['BEGIN', 'ROLLBACK', 'close']);
+        }
+        const timeline = originTimeline.slice(timelineBefore);
+        assert.deepEqual(timeline.map(entry => entry.event), ['capture_begin', 'retire_complete', 'capture_begin',
+          'retire_complete', 'capture_begin', 'retire_complete', 'dispose_complete'], 'actual retirement completion must precede the next Capture');
+        for (let attempt = 0; attempt < 3; attempt++) assert.equal(timeline[attempt * 2 + 1].recordId, retired[attempt].recordId);
+        assert.equal(originDisposals.length, disposedBefore + 1, 'actual Origin finally disposal must settle before AuthDenied');
+        const busy = [...inspectBusy(start, 'capture', false, phase === 'capture' ? 3 : 2),
+          ...(phase === 'join' ? inspectBusy(start, 'join', false, 1) : [])];
         if (phase === 'join') {
-          const capture = transactions.slice(start).find(record => record.phase === 'capture'); assert(capture);
-          assert.equal(capture.events.join(','), 'BEGIN,COMMIT,close'); assert(disposals.some(disposal => disposal.capture === capture.id && disposal.settled));
+          const capture = transactions.slice(start).find(record => record.phase === 'capture' && record.events.includes('COMMIT')); assert(capture);
+          assert.equal(capture.events.join(','), 'BEGIN,COMMIT,close');
+          assert.equal(retired[0].captureRecordId, capture.id, 'actual completed Join retirement owns the genuinely returned Capture transport disposal');
+        } else {
+          assert(retired.every(record => record.captureRecordId === null), 'failed Capture need not have returned any transport');
         }
         await releaseHolder(); plan = undefined; await closePeer(peer);
         const fresh = await connect(identity, String(session.body.token)); await accepted(fresh); await closePeer(fresh);
-        await report(`HTTP 200 → actual ${phase} ${kind} Busy becomes AuthDenied; fresh handshake succeeds`, { status: session.status, incoming: peer.incoming, busy, blocker, disposed: disposals.filter(disposal => disposal.capture >= (transactions[start]?.id ?? 0)), freshIncoming: fresh.incoming });
+        await report(`HTTP 200 → actual Origin ${phase} ${kind} exhausts three total attempts; fresh handshake succeeds`,
+          { status: session.status, incoming: peer.incoming, busy, blocker, retired, timeline, originFinallyDisposed: true, freshIncoming: fresh.incoming });
       }
 
       const revoked = await newCase('permanent-auth-denied'), revokedSession = await httpSession(revoked); assert.equal(revokedSession.status, 200);
@@ -475,8 +576,96 @@ async function main(): Promise<void> {
           await report(`${phase} ${kind}: ${releaseAfterClose ? 'actual single Busy release→fresh check succeeds' : 'actual three fresh Busy Bs close 1013'}`, { status: session.status, incoming: peer.incoming, busy, blocker, close: close ?? null, sequence: Number(state.document_sequence) });
         }
       }
-      assert.equal(cases, 8); assert.equal(fetches, 0);
+      assert.equal(cases, 8);
+      }
+      const { readCurrentCollaborationDocument } = await import('../app/lib/collaboration/document-access');
+      const survivor = await newCase('incoming-survivor'), survivorSession = await httpSession(survivor);
+      assert.equal(survivorSession.status, 200);
+      const survivorPeer = await connect(survivor, String(survivorSession.body.token)); await accepted(survivorPeer);
+      const survivorDocument = actualRuntime.hocuspocus!.documents.get(survivor.documentId); assert(survivorDocument);
+      const survivorProof = collaborationStateProof(survivorDocument, Y); assert(survivorProof);
+      const variants = [
+        { kind: 'structures', sync: 2 }, { kind: 'structures', sync: 1 },
+        { kind: 'deletions', sync: 2 }, { kind: 'deletions', sync: 1 },
+        { kind: 'malformed', sync: 2 },
+      ] as const;
+      for (const variant of variants) {
+        const identity = await newCase(`incoming-${variant.kind}-${variant.sync}`), session = await httpSession(identity);
+        assert.equal(session.status, 200);
+        const peer = await connect(identity, String(session.body.token)); await accepted(peer);
+        const live = actualRuntime.hocuspocus!.documents.get(identity.documentId); assert(live);
+        const before = Y.encodeStateAsUpdate(live), beforeProof = collaborationStateProof(live, Y); assert(beforeProof);
+        const source = new Y.Doc({ gc: false }), expected = new Y.Doc({ gc: false });
+        try {
+          source.getText('content').insert(0, 'A');
+          const prerequisite = Y.encodeStateVector(source), first = Y.encodeStateAsUpdate(source);
+          if (variant.kind === 'deletions') source.getText('content').delete(0, 1);
+          else source.getText('content').insert(1, 'B');
+          const delta = Y.encodeStateAsUpdate(source, prerequisite);
+          const candidate = variant.kind === 'malformed' ? new Uint8Array([255]) : delta;
+          const handledBefore = handledMessages.get(identity.documentId) ?? 0, incomingBefore = peer.incoming.length;
+          peer.socket.send(frame(identity.documentId, MessageType.Sync, encoder => {
+            encoding.writeVarUint(encoder, variant.sync); encoding.writeVarUint8Array(encoder, candidate);
+          }));
+          await waitUntil(() => !!peer.closed(), 'Rejected native candidate must close the actual socket.');
+          assert((handledMessages.get(identity.documentId) ?? 0) > handledBefore, 'actual receiver finally must settle');
+          const witness = { kind: variant.kind, sync: variant.sync,
+            pendingStructures: !!live.store.pendingStructs, pendingDeletes: !!live.store.pendingDs,
+            liveBytesUnchanged: Buffer.from(Y.encodeStateAsUpdate(live)).equals(Buffer.from(before)),
+            positiveCandidateAcks: peer.incoming.slice(incomingBefore).filter(message => message.acknowledged === true).length,
+            socketClose: peer.closed()!.code };
+          await writeFile(path.join(evidenceRoot, `incoming-${variant.kind}-${variant.sync}-witness.json`), JSON.stringify(witness, null, 2), { mode: 0o600 });
+          assert.equal(witness.pendingStructures, false); assert.equal(witness.pendingDeletes, false);
+          assert.equal(witness.liveBytesUnchanged, true); assert.equal(collaborationStateProof(live, Y), beforeProof);
+          assert.equal(witness.socketClose, 1013); assert.equal(witness.positiveCandidateAcks, 0);
+          assert(!peer.incoming.slice(incomingBefore).some(message => ['update_rejected', 'access_revoked'].includes(message.bodyType ?? '')));
+          // Closing the rejected peer may validly store/release its unchanged
+          // complete basis. That is never an ACK for the rejected candidate.
+          await unloadOwnRoom(identity.documentId);
+          const unchanged = (await admin.query('SELECT document_sequence,yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [identity.documentId])).rows[0];
+          assert.equal(Number(unchanged.document_sequence), 7);
+          assert.deepEqual(Buffer.from(unchanged.yjs_state), Buffer.from(before));
+          const readableProof: string | null = await readCurrentCollaborationDocument<string | null>({ documentId: survivor.documentId, workspaceId,
+            read: document => { assert.equal(document, survivorDocument); return collaborationStateProof(document, Y); } });
+          assert.equal(readableProof, survivorProof, 'one rejected candidate must not dispose the shared owner/reader');
+          assert.equal(survivorPeer.closed(), undefined);
+
+          // An explicit fresh join supplies the missing prerequisite. S2 cases
+          // exercise a legal dependent delta after A; Update cases exercise
+          // the complete client A+B SyncStep2 in a single frame.
+          const fresh = await connect(identity, String(session.body.token)); await accepted(fresh);
+          const sendAccepted = async (update: Uint8Array, sync: 1 | 2) => {
+            const ackBefore = fresh.incoming.filter(message => message.acknowledged === true).length;
+            fresh.socket.send(frame(identity.documentId, MessageType.Sync, encoder => {
+              encoding.writeVarUint(encoder, sync); encoding.writeVarUint8Array(encoder, update);
+            }));
+            await waitUntil(() => fresh.incoming.filter(message => message.acknowledged === true).length > ackBefore || !!fresh.closed(), 'Fresh complete native update did not settle.');
+            assert.equal(fresh.closed(), undefined); assert.equal(fresh.incoming.filter(message => message.acknowledged === true).length, ackBefore + 1);
+          };
+          if (variant.sync === 1) { await sendAccepted(first, 1); await sendAccepted(delta, 2); }
+          else await sendAccepted(Y.encodeStateAsUpdate(source), 1);
+          Y.applyUpdate(expected, before); Y.applyUpdate(expected, Y.encodeStateAsUpdate(source));
+          const expectedProof = collaborationStateProof(expected, Y); assert(expectedProof);
+          const currentProof = await readCurrentCollaborationDocument({ documentId: identity.documentId, workspaceId,
+            read: document => { assert(!document.store.pendingStructs && !document.store.pendingDs); return collaborationStateProof(document, Y); } });
+          assert.equal(currentProof, expectedProof);
+          await closePeer(fresh); await unloadOwnRoom(identity.documentId);
+          const persisted = (await admin.query('SELECT document_sequence,yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [identity.documentId])).rows[0];
+          const stored = new Y.Doc({ gc: false });
+          try {
+            Y.applyUpdate(stored, persisted.yjs_state);
+            assert(!stored.store.pendingStructs && !stored.store.pendingDs);
+            assert.equal(collaborationStateProof(stored, Y), expectedProof);
+            assert(Number(persisted.document_sequence) > 7);
+          } finally { stored.destroy(); }
+          await report('native preflight rejects candidate, preserves survivor, and fresh join persists complete state',
+            { ...witness, unchangedSequence: 7, survivorReaderAvailable: true, freshPersistedProofMatches: true });
+        } finally { source.destroy(); expected.destroy(); }
+      }
+      await closePeer(survivorPeer); await unloadOwnRoom(survivor.documentId);
+      assert.equal(cases, incomingOnly ? 5 : 13); assert.equal(fetches, 0);
     } finally {
+      try {
       Client.prototype.query = rawQuery;
       await releaseHolder(); plan = undefined; for (const socket of sockets) socket.terminate();
       await waitUntil(() => [...actualRuntime.hocuspocus?.documents.values() ?? []].every(document => document.getConnectionsCount() === 0), 'Owned Source connections did not close.');
@@ -485,6 +674,9 @@ async function main(): Promise<void> {
       await new Promise<void>(done => wss.close(() => done())); await new Promise<void>(done => server.close(() => done()));
       for (const document of documents) document.destroy(); Hocuspocus.prototype.hooks = originalHooks;
       await writeFile(path.join(evidenceRoot, 'source-counter-closure.json'), JSON.stringify({ pid: process.pid, serverListening: server.listening, remainingSockets: [...sockets].filter(socket => socket.readyState !== WebSocket.CLOSED).length, documentId: currentDocumentId }, null, 2), { mode: 0o600 });
+      } finally {
+        await writeFile(path.join(evidenceRoot, 'owner-observations.json'), JSON.stringify(ownerObservations, null, 2), { mode: 0o600 });
+      }
     }
   } finally {
     globalThis.fetch = originalFetch;

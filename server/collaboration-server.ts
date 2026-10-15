@@ -75,6 +75,7 @@ import {
 } from '@/app/lib/collaboration/runtime-state';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { Y } from '@/app/lib/collaboration/server-runtime';
+import { assertNativeCollaborationUpdateComplete, CollaborationIncomingUpdatePreflightError } from '@/app/lib/collaboration/incoming-update-preflight';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
@@ -1034,6 +1035,16 @@ export function createCollaborationServer(server: http.Server, options: {
         roomOwners?.fence(document);
         if (release && context.nativePeer) {
           if (!roomOwners) throw new CollaborationRoomOwnerError('ROOM_OWNER_LOST');
+          try { assertNativeCollaborationUpdateComplete(document, payload); }
+          catch (error) {
+            if (error instanceof CollaborationIncomingUpdatePreflightError) {
+              // Reject this frame before live apply/ACK. Keep local recovery
+              // available: update_rejected would mean permanent access denial.
+              connection.readOnly = true;
+              connection.webSocket.close(1013, 'Collaboration update requires complete resynchronization');
+            }
+            throw error;
+          }
           try { await retryNativePeerCheck(connection, () => context.nativePeer!.authorizeWrite(roomOwners!.fence(document))); }
           catch (error) {
             if (error instanceof AuthenticatedNativeSessionTransportError && error.code === 'NATIVE_TRANSPORT_QUARANTINED') {
