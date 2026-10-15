@@ -104,13 +104,16 @@ function runDetails(turn: Turn, pkg: Package, runtime: 'node' | 'python', mode: 
     && record(packet.event).type === 'tool_execution_end' ? [record(packet.event)] : []);
   expect(ends.map(event => event.toolName)).toEqual(['list_canvas_skill_scripts', 'describe_canvas_skill_script', 'run_canvas_skill_script']);
   expect(ends.every(event => event.isError === false)).toBe(true);
-  const result = record(ends[2].result), details = record(result.details);
+  const live = record(ends[2].result);
+  const original = turn.originalToolResults.find(value => value.toolCallId === ends[2].toolCallId);
+  assert(original && original.toolName === 'run_canvas_skill_script' && original.isError === false);
+  const result = original.result, details = record(result.details);
   expect(details).toMatchObject({ kind: 'skill_script_result', success: true, safeToAutoRetry: false,
     id: runtime, runtime, publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.published.checksum, stderr: '', files: [] });
   expect(details.error).toBeUndefined(); expect(details.terminateAgentTurn).toBeUndefined();
   const saved = turn.messages.filter(message => message.role === 'toolResult' && message.toolName === 'run_canvas_skill_script');
   expect(saved).toHaveLength(1);
-  expect(comparableOwnedSandboxToolResult(saved[0])).toEqual(comparableOwnedSandboxToolResult(result));
+  expect(comparableOwnedSandboxToolResult(saved[0])).toEqual(comparableOwnedSandboxToolResult(live));
   expect(typeof details.stdout).toBe('string');
   const receipt = record(JSON.parse(String(details.stdout).trim()));
   expect(receipt).toMatchObject({ kind: 'native-markdown-sandbox-receipt', runtime, mode, scratchWritten: true,
@@ -282,7 +285,13 @@ test('Real native Markdown denies Node/Python raw mutations and accepts the decl
     }
   }
   let closed: Awaited<ReturnType<Chat['close']>> | undefined;
-  try { if (chat) closed = await chat.close(); } catch (cause) { cleanupErrors.push(cause); }
+  try {
+    if (chat && failed) {
+      const preserved = await chat.stopAndPreserve();
+      try { await info.attach('native-sandbox-preserved-runtime.json', { contentType: 'application/json', body: JSON.stringify(preserved) }); }
+      catch (diagnosticFailure) { cleanupErrors.push(diagnosticFailure); }
+    } else if (chat) closed = await chat.close();
+  } catch (cause) { cleanupErrors.push(cause); }
   try { await model?.close(); } catch (cause) { cleanupErrors.push(cause); }
   if (!failed && cleanupErrors.length === 0 && pkg && closed) {
     try {

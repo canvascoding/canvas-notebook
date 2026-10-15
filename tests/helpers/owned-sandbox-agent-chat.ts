@@ -7,6 +7,7 @@ import type { ServerMessage } from '../../app/lib/websocket/protocol';
 import { projectAgentEventForExternal } from '../../app/lib/pi/visual-data-projection';
 import { requireOwnedYjsQaTarget } from '../../scripts/lib/owned-yjs-authority-qa';
 import type { OwnedModelStep, startOwnedAgentToolModel } from './owned-agent-tool-model';
+import { readOwnedSandboxToolResult, type OwnedSandboxOriginalResult } from './owned-sandbox-tool-result';
 
 type ModelFixture = Awaited<ReturnType<typeof startOwnedAgentToolModel>>;
 type Packet = ServerMessage & Record<string, unknown>;
@@ -213,15 +214,32 @@ export async function createOwnedSandboxAgentChat(input: {
             isError: event.isError === true, result: event.result as Record<string, unknown> }];
         });
         assert.equal(toolResults.length, model.active!.issued.length);
+        const originalToolResults: Array<OwnedSandboxToolEnd & Pick<OwnedSandboxOriginalResult, 'source'>> = [];
         for (const [index, issued] of model.active!.issued.entries()) {
           const observed = toolResults[index]; assert.equal(observed.toolCallId, issued.id); assert.equal(observed.toolName, issued.name);
           const saved = messages.filter(message => message.role === 'toolResult' && message.toolCallId === issued.id);
           assert.equal(saved.length, 1); assert.equal(saved[0].toolName, issued.name); assert.equal(saved[0].isError, observed.isError);
           assert.deepEqual(comparableOwnedSandboxToolResult(saved[0]), comparableOwnedSandboxToolResult(observed.result));
+          const original = await readOwnedSandboxToolResult({ request, sessionId: receipt.sessionId, agentId: receipt.agentId,
+            workspaceId: input.workspaceId, toolCallId: issued.id, live: observed.result, persisted: saved[0] });
+          originalToolResults.push({ ...observed, ...original });
         }
         receipt.closure!.turns.push({ marker, done, toolResults, finalStatus, messageSaved: true });
         running = false; receipt.phase = 'ready';
-        return { events: structuredClone(packets.slice(offset)) as Array<Record<string, unknown>>, messages, model };
+        return { events: structuredClone(packets.slice(offset)) as Array<Record<string, unknown>>, messages, model, originalToolResults };
+      } catch (cause) { return fail(cause); }
+    },
+    async stopAndPreserve() {
+      try {
+        receipt.phase = 'preserving-failed-acceptance';
+        let finalStatus: Record<string, unknown> | null = null;
+        if (socket?.readyState === WebSocket.OPEN) {
+          if (!idle(await status())) await exchange('control', { action: 'abort' });
+          await expect.poll(async () => idle(await status()), { timeout: 30_000 }).toBe(true);
+          finalStatus = await status(); assert(idle(finalStatus));
+        }
+        await closeSocket(); closed = true; receipt.phase = 'preserved';
+        return { receipt: structuredClone(receipt), finalStatus };
       } catch (cause) { return fail(cause); }
     },
     async close() {
