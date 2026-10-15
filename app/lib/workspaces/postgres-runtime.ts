@@ -2357,6 +2357,32 @@ export async function resolveExistingPostgresWorkspaceForActor(
   finally { await database.close(); }
 }
 
+/** Resolve an established selection without repairing organization or workspace
+ * setup. Native request capture still performs genuine authentication first;
+ * its later same-connection phase owns fresh permissions and document access. */
+export async function readInitializedPostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const database = await openDb();
+  try {
+    if (!await findPostgresUserById(database, actor.userId)) {
+      throw new OrganizationBootstrapError('NO_USERS', 'Cannot resolve workspace without a valid user.');
+    }
+    const organization = await getPrimaryOrganization(database);
+    if (!organization) {
+      throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
+    }
+    assertOrganizationIdMatchesEnvironment(organization.organization_id);
+    if (!await findPostgresUserById(database, organization.owner_user_id)) {
+      throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
+    }
+    return await resolveWorkspaceContextById(database, actor, workspaceId);
+  } finally {
+    await database.close();
+  }
+}
+
 export async function getPostgresOrganizationPermissionForUser(
   userId: string,
 ): Promise<OrganizationPermissionState> {

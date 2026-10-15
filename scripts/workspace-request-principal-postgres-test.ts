@@ -125,6 +125,7 @@ async function main(): Promise<void> {
     const license = await getLicenseStatus(); assert.equal(license.licensed,true); assert.equal(license.edition,'team'); assert.equal(license.seatLimit,2);
     const { auth } = await import('../app/lib/auth');
     const { withWorkspaceRequestPrincipal: capture,withWorkspaceRequestPrincipalOnConnection: phase } = await import('../app/lib/workspaces/request-principal');
+    const { LEGACY_PERSONAL_WORKSPACE_ID } = await import('../app/lib/workspaces/context');
     const request = async (userId='owner',cookie=false) => {
       const headers = new Headers({ 'x-canvas-workspace-id':'org-space' });
       if (cookie) headers.set('cookie',(await serializeSignedCookie('better-auth.session_token',tokens[userId],process.env.BETTER_AUTH_SECRET!)).split(';')[0]);
@@ -139,6 +140,22 @@ async function main(): Promise<void> {
     const check = async (name:string,operation:()=>Promise<void>) => { stage=name; await operation(); cases++; console.log(`Principal fixture passed: ${name}`); };
     const expected = (code:string) => (error:unknown) => !!error && typeof error==='object' && Reflect.get(error,'code')===code;
     const captured = async <T>(operation:(principal:WorkspaceRequestPrincipal)=>Promise<T>,userId='owner') => capture(await request(userId),{ permission:'canRead' },operation);
+    const observeAuthorizationDml = async (operation:()=>Promise<void>) => {
+      const authorizationTables=new Set(['canvas_organization_settings','team_memberships','team_membership_sync_state','user','session',
+        'organization_user_permissions','canvas_workspaces','canvas_projects','canvas_workspace_members','canvas_project_members']);
+      const dml:Array<{command:string;table:string}>=[];
+      const originalQuery=Client.prototype.query;
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        // Count every invocation, including callback overloads; forward the original arguments unchanged.
+        const sql=typeof args[0]==='string'?args[0]:args[0]&&typeof args[0]==='object'?String(Reflect.get(args[0],'text')??''):'';
+        const match=/^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE(?:\s+TABLE)?)\s+((?:"[^"]+"|[a-z_][a-z0-9_]*)(?:\.(?:"[^"]+"|[a-z_][a-z0-9_]*))?)/iu.exec(sql);
+        const table=match?.[2].split('.').at(-1)?.replaceAll('"','');
+        if(match&&table&&authorizationTables.has(table))dml.push({command:match[1].replace(/\s+/gu,' ').toUpperCase(),table});
+        return Reflect.apply(originalQuery,this,args);
+      } as typeof Client.prototype.query;
+      try{await operation();return dml;}
+      finally{Client.prototype.query=originalQuery;}
+    };
     await check('actual trusted verifier and BetterAuth cookie/bearer factory',async()=>{
       for (const cookie of [true,false]) {
         const actual = await request('owner',cookie);
@@ -150,6 +167,109 @@ async function main(): Promise<void> {
         })));
       }
       assert.equal(fetches,0);
+    });
+    await check('fresh Cookie/Bearer principal factories and same-B phases issue no authorization bootstrap DML',async()=>{
+      console.log('Owned fresh principal regression fixture:',JSON.stringify({pid:process.pid,schema,dataRoot}));
+      const observations:Array<{ mode:'cookie'|'bearer'; factoryCallbacks:number; phaseCallbacks:number; dml:Array<{ command:string; table:string }> }>=[];
+      for(const cookie of [true,false]){
+        const observed:typeof observations[number]={mode:cookie?'cookie':'bearer',factoryCallbacks:0,phaseCallbacks:0,dml:[]};observations.push(observed);
+        observed.dml=await observeAuthorizationDml(async()=>{
+          await capture(await request('owner',cookie),{permission:'canWrite'},principal=>{
+            observed.factoryCallbacks++;
+            return transaction(db=>phase(db,principal,async access=>{
+              observed.phaseCallbacks++;
+              assert.equal(access.userId,'owner');assert.equal(access.sessionId,'session-owner');
+              assert.equal(access.workspace.workspaceId,'org-space');assert.equal(access.workspace.permissions.canWrite,true);
+              await access.assertCurrent();
+            }));
+          });
+        });
+      }
+      console.log('Actual fresh principal authorization-DML witness:',JSON.stringify(observations.map(observed=>({...observed,dmlCount:observed.dml.length}))));
+      assert.deepEqual(observations.map(({mode,factoryCallbacks,phaseCallbacks})=>({mode,factoryCallbacks,phaseCallbacks})),[
+        {mode:'cookie',factoryCallbacks:1,phaseCallbacks:1},{mode:'bearer',factoryCallbacks:1,phaseCallbacks:1},
+      ]);
+      for(const observed of observations)assert.equal(observed.dml.length,0,`${observed.mode} fresh authorization must not issue bootstrap DML for an existing workspace`);
+    });
+    await check('a second genuine original-header factory and B2 coexist with an already open B1',async()=>{
+      let factoryCallbacks=0,phaseCallbacks=0;
+      const memberRequest=await request('member',true);
+      // The hour-expiry seed is refresh-due under actual BetterAuth defaults.
+      // Allow that genuine session update before B1, without minting its Principal early.
+      const refreshedMember=await auth.api.getSession({headers:memberRequest.headers});
+      assert.equal(refreshedMember?.user.id,'member');assert.equal(refreshedMember?.session.id,'session-member');
+      await captured(owner=>transaction((ownerDb,ownerClient)=>phase(ownerDb,owner,async ownerAccess=>{
+        const ownerPid=(await ownerClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        assert.equal(ownerAccess.userId,'owner');assert.equal(ownerAccess.sessionId,'session-owner');
+        assert.equal(ownerAccess.workspace.workspaceId,'org-space');assert.equal(ownerAccess.workspace.permissions.canWrite,true);
+        // Deliberately mint the second Principal only while B1 remains inside
+        // its callback; this factory still runs actual getSession on the original headers.
+        await capture(memberRequest,{permission:'canRead'},member=>{
+          factoryCallbacks++;
+          return transaction((memberDb,memberClient)=>phase(memberDb,member,async memberAccess=>{
+            phaseCallbacks++;
+            assert.notEqual((await memberClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid,ownerPid);
+            assert.equal(memberAccess.userId,'member');assert.equal(memberAccess.sessionId,'session-member');
+            assert.equal(memberAccess.workspace.workspaceId,'org-space');assert.equal(memberAccess.workspace.permissions.canRead,true);
+            assert.equal(memberAccess.workspace.permissions.canWrite,false);
+            await ownerAccess.assertCurrent();await memberAccess.assertCurrent();
+          }));
+        });
+        await ownerAccess.assertCurrent();
+      })));
+      assert.equal(factoryCallbacks,1);assert.equal(phaseCallbacks,1);
+    });
+    await check('initialized factories reject fallback selections and configured organization drift without repair',async()=>{
+      const metadataSql=`SELECT jsonb_build_object(
+        'organizations',(SELECT jsonb_agg(jsonb_build_array(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) ORDER BY organization_id) FROM canvas_organization_settings),
+        'users',(SELECT jsonb_agg(jsonb_build_array(id,role,banned,updated_at) ORDER BY id) FROM "user"),
+        'permissions',(SELECT jsonb_agg(jsonb_build_array(organization_id,user_id,role,status,updated_at) ORDER BY organization_id,user_id) FROM organization_user_permissions),
+        'workspaces',(SELECT jsonb_agg(jsonb_build_array(id,organization_id,type,owner_user_id,root_relative_path,status,updated_at) ORDER BY id) FROM canvas_workspaces)
+      ) AS snapshot`;
+      const before=(await admin.query(metadataSql)).rows[0].snapshot;
+      const configuredOrganization=process.env.CANVAS_ORGANIZATION_ID;
+      let rejectedCallbacks=0,restoredCallbacks=0;
+      try{
+        for(const cookie of [true,false]){
+          const actual=await request('owner',cookie);
+          const dml=await observeAuthorizationDml(async()=>{
+            for(const selection of [null,LEGACY_PERSONAL_WORKSPACE_ID,'missing-initialized-workspace']){
+              const headers=new Headers(actual.headers);
+              if(selection===null)headers.delete('x-canvas-workspace-id');
+              else headers.set('x-canvas-workspace-id',selection);
+              const selected=new NextRequest(actual.url,{headers});
+              await assert.rejects(capture(selected,{permission:'canRead'},async()=>{
+                rejectedCallbacks++;assert.fail('No factory callback for a missing, legacy or unknown selection.');
+              }),expected('PRINCIPAL_ACCESS_DENIED'));
+            }
+            try{
+              process.env.CANVAS_ORGANIZATION_ID='different-configured-organization';
+              const authenticated=await auth.api.getSession({headers:actual.headers});
+              assert.equal(authenticated?.user.id,'owner');assert.equal(authenticated?.session.id,'session-owner');
+              await assert.rejects(capture(actual,{permission:'canRead'},async()=>{
+                rejectedCallbacks++;assert.fail('No factory callback for unconfirmed organization configuration.');
+              }),expected('PRINCIPAL_WORKSPACE_UNCONFIRMED'));
+            }finally{
+              if(configuredOrganization===undefined)delete process.env.CANVAS_ORGANIZATION_ID;
+              else process.env.CANVAS_ORGANIZATION_ID=configuredOrganization;
+            }
+            await capture(actual,{permission:'canWrite'},principal=>{
+              restoredCallbacks++;
+              return transaction(db=>phase(db,principal,async access=>{
+                assert.equal(access.userId,'owner');assert.equal(access.sessionId,'session-owner');
+                assert.equal(access.workspace.workspaceId,'org-space');assert.equal(access.workspace.permissions.canWrite,true);
+                await access.assertCurrent();
+              }));
+            });
+          });
+          assert.deepEqual(dml,[],`${cookie?'cookie':'bearer'} initialized selection failures must not repair authorization state`);
+        }
+      }finally{
+        if(configuredOrganization===undefined)delete process.env.CANVAS_ORGANIZATION_ID;
+        else process.env.CANVAS_ORGANIZATION_ID=configuredOrganization;
+      }
+      assert.equal(rejectedCallbacks,0);assert.equal(restoredCallbacks,2);
+      assert.deepEqual((await admin.query(metadataSql)).rows[0].snapshot,before);
     });
     await check('read-only member and genuine forbidden write',async()=>{
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.workspace.permissions.canWrite,false))),'member');

@@ -10,6 +10,7 @@ import { WORKSPACE_ID_HEADER } from './constants';
 import { assertWorkspacePermission } from './permissions';
 import {
   getPostgresWorkspaceState,
+  readInitializedPostgresWorkspaceForActor,
   resolvePostgresWorkspaceForActor,
 } from './postgres-runtime';
 import type { WorkspaceContext, WorkspacePermissions } from './types';
@@ -145,6 +146,46 @@ export async function requireRequestWorkspace(
   }
 
   return result;
+}
+
+/** Fixed native request path for an explicit, already initialized selection.
+ * No caller session/actor/resolver or bootstrap/default-workspace fallback. */
+export async function requireExistingSelectedRequestWorkspace(
+  request: NextRequest,
+  options: {
+    workspaceId?: string | null;
+    permissions?: RequestWorkspacePermission | RequestWorkspacePermission[];
+  } = {},
+): Promise<RequestWorkspaceResult> {
+  // Capture selectors, permissions and actual credentials before any await.
+  const headers = new Headers(request.headers);
+  const workspaceId = (options.workspaceId ?? requestedWorkspaceIdFromRequest(request))?.trim() || null;
+  const permissions = [...normalizePermissions(options.permissions)];
+  const session = await auth.api.getSession({ headers });
+  if (!session) {
+    return { session: null, workspace: null,
+      response: NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }) };
+  }
+  if (!workspaceId || workspaceId === LEGACY_PERSONAL_WORKSPACE_ID) {
+    return { session: null, workspace: null,
+      response: NextResponse.json({ success: false, error: 'An existing workspace selection is required' }, { status: 404 }) };
+  }
+  const actor = resolveWorkspaceActor({ id: session.user.id, email: session.user.email, role: session.user.role });
+  let workspace: WorkspaceContext | null;
+  try {
+    workspace = await readInitializedPostgresWorkspaceForActor(actor, workspaceId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not resolve workspace';
+    return { session: null, workspace: null,
+      response: NextResponse.json({ success: false, error: message }, { status: 500 }) };
+  }
+  if (!workspace) {
+    return { session: null, workspace: null,
+      response: NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 404 }) };
+  }
+  const permissionResponse = assertWorkspacePermissions(workspace, permissions);
+  if (permissionResponse) return { session: null, workspace: null, response: permissionResponse };
+  return { session, workspace, response: null };
 }
 
 export async function requireRequestPersonalWorkspace(

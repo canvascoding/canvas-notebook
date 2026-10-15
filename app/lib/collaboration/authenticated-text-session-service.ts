@@ -5,7 +5,7 @@ import { NextRequest } from 'next/server';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import { WorkspaceOriginalFileSourceError } from '../files/workspace-original-file-source';
 import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } from '../workspaces/request-principal';
-import { requireRequestWorkspace } from '../workspaces/request';
+import { requireExistingSelectedRequestWorkspace } from '../workspaces/request';
 import { analyzeMarkdownRichMode } from '../markdown/rich-markdown-codec';
 import {
   captureAuthenticatedNativeSessionTransportOnConnection, disposeAuthenticatedNativeSessionTransport,
@@ -84,7 +84,7 @@ async function assertRequestScope(connection: SqlConnection, expected: PristineO
  * it once before retryable B so a failed first phase cannot reset the origin. */
 async function observeRequestOrigin(request: NextRequest, workspaceId: string,
   permission: 'read' | 'write'): Promise<PristineOriginalRequestScopeExpectation> {
-  const result = await requireRequestWorkspace(request, { workspaceId, permissions: permission === 'write' ? 'canWrite' : 'canRead' });
+  const result = await requireExistingSelectedRequestWorkspace(request, { workspaceId, permissions: permission === 'write' ? 'canWrite' : 'canRead' });
   if (result.response) {
     if (result.response.status === 500) throw new WorkspaceRequestPrincipalError('PRINCIPAL_WORKSPACE_UNCONFIRMED');
     throw new WorkspaceRequestPrincipalError(result.response.status === 401 ? 'PRINCIPAL_AUTH_REVOKED' : 'PRINCIPAL_ACCESS_DENIED');
