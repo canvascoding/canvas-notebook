@@ -26,3 +26,5 @@ NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canva
 GitNexus meldet für den globalen Startanschluss CRITICAL: ein direkter Aufrufer, 258 erfasste Abhängigkeiten, keine im Index zugeordneten Prozesse. Die Warnung erfolgte vor der Änderung. Der unabhängige Quellenreview bestätigt den engen Schema-Schnitt; die allgemeinen Dateiaktionsgates werden hierdurch nicht aktiviert.
 
 Auf dem kombinierten finalen Quellenstand dieser Korrektur und der [Receiptversionsprüfung](./yjs-native-file-operation-version-evidence.md) bestehen vollständiges TypeScript ohne inkrementellen Cache mit 8 GiB sowie fokussiertes ESLint, jeweils mit tatsächlichem Exit 0.
+
+Anschließend bestehen auch frischer Originalbuild und der [enge native App-/Browserlauf](./yjs-native-file-operation-version-evidence.md#frischer-app--und-browserabschluss-auf-dem-kombinierten-stand) auf Root `6ce930a5d` / QA `ceb948454`: genau ein Fall, echter Exit 0, unveränderte unabhängige Vor-/Nachbelege und abgeschlossene eigene Ressourcen. Das bestätigt den Appstart und den geprüften Agenten-/Editorweg; keine pauschale Abnahme aller Aufrufer des globalen Startpfads.
