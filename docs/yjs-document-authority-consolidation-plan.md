@@ -150,7 +150,7 @@ Binärdateien verwenden weiterhin den File Service. Office-Dokumente und Excalid
 
 ### 4.3 Nachgelagerte beziehungsweise ausgeschlossene Arbeiten
 
-- Versionierte öffentliche API und ein erstes Python-SDK sind als verbindlicher Anschluss YD-13 eingeplant. Ihre Implementierung folgt dem stabilen gemeinsamen internen Vertrag; rohe, frei eingebbare Yjs-Updates durch externe Clients bleiben ausgeschlossen.
+- Versionierte öffentliche API und ein erstes Python-SDK sind als verbindlicher Anschluss YD-13 eingeplant. Ihre Implementierung folgt dem stabilen gemeinsamen internen Vertrag; rohe, frei eingebbare Yjs-Updates durch externe Clients bleiben ausgeschlossen. YD-13S liefert dazu einen standardmäßig auffindbaren Dokument-Skill aus versionierter Marketplacequelle: kurzer Katalogeintrag, bei Bedarf geladene Anleitung/Referenzen, aktuelle Aufrufschemas und getrennt gelesener Dokumentkontext. Runtime-Python über die bestehende kontrollierte Skillbridge und externe HTTP-SDK-Programme werden getrennt erklärt und tatsächlich geprüft; keine vollständige API-Dokumentation im Systemprompt. Details stehen in [§4.1–4.3 des Anschlussplans](./central-notebook-file-api-import-plan.md#41-standard-skill-und-kontext-erst-bei-bedarf).
 - Neubau des Collaboration-Servers, Editors oder Version-/Review-Centers.
 - Automatische Reparatur historischer Dokumentzustände, fehlender Yjs-Daten oder unbekannter Mark-Konflikte.
 - Freigabe neuer Cross-Workspace-Move- oder Undo-Varianten, die heute bewusst nicht unterstützt werden.
@@ -529,7 +529,7 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 | YD-10 | P1 | UI, direktes Editieren, öffentliche Verträge und Betrieb | Read/Edit-Auswahl entfernt; Rich/zulässiges Source unmittelbar editierbar; neues Dokument + Text-/Markdown-Einfügen und Import gut erreichbar; kompakte Breiten-/Fokusaktionen ohne zusätzliche Zeile; echte Rechte und Sitzungsschutz erhalten. Status-/Fehlerdarstellung sowie Recovery/Notification/Agent/Mobile kompatibel. |
 | YD-11 | P1 | Integrierte Konkurrenz-/Crash-/Browser-Abnahme | Verpflichtende Matrix und tatsächliches UI-Create/Paste/Import nach §13.3 bestanden, Build/Checks dokumentiert, Ebenen der Evidenz getrennt; keine offenen Datenverlust-/Scope-/Wiederanlaufbefunde. |
 | YD-12 | P1 | Gemessene Optimierung und kontrollierter Rollout | Baseline/Shadow-Vergleich, Lastgrenzen, historische Rückstände, Aktivierungs-/Stop-/Rollback-Regeln nachgewiesen; Rollout separat beauftragt. |
-| YD-13 | P1 | Versionierte API und erstes Python-SDK | Auf stabilen internen Fähigkeiten dokumentbezogene Reads/gezielte Edits, Create/Import und Move/Copy/Delete anbieten; Auth/Scopes, Versionskonflikte, Idempotenz, Operationsstatus und Löschungs-/Dauerhaftigkeitsbelege mit tatsächlichem SDK-Client abnehmen. |
+| YD-13 | P1 | Versionierte API, erstes Python-SDK und Standard-Skill | Auf stabilen internen Fähigkeiten dokumentbezogene Reads/gezielte Edits, Create/Import und Move/Copy/Delete anbieten; Auth/Scopes, Versionskonflikte, Idempotenz, Operationsstatus und Löschungs-/Dauerhaftigkeitsbelege mit tatsächlichem SDK-Client abnehmen. YD-13S: Standard-Skill samt gezielt geladenen Referenzen, echten aktuellen Schemas und Dokumentkontext auch auf bestehenden Installationen; deklarierte und neu verfasste Runtime-Python-Skripte sowie externes HTTP-SDK getrennt abnehmen. |
 
 ### 12.1 Checkliste für die gemeinsame Fortschreibung
 
@@ -549,7 +549,7 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 - [ ] YD-10: Direktes Editieren, kompakte Ansichtsaktionen, öffentliche Verträge und UI/Betrieb geprüft.
 - [ ] YD-11: Integrierte Abnahme abgeschlossen.
 - [ ] YD-12: Optimierung und separat freigegebener Rollout abgeschlossen.
-- [ ] YD-13: Versionierte API und Python-SDK auf gemeinsamem zentralem Vertrag implementiert und tatsächlich abgenommen.
+- [ ] YD-13: Versionierte API und Python-SDK auf gemeinsamem zentralem Vertrag implementiert und tatsächlich abgenommen; YD-13S-Standard-Skill, bedarfsgerechter Kontext und echte Runtime-/externe Pythonwege eingeschlossen.
 
 Zu jedem Haken gehören Commit, betroffene Verträge, konkrete Tests/Evidenz, verbleibende Grenzen und gegebenenfalls ein neuer Entscheidungseintrag. Ein bestandener Unit-Test allein schließt kein integriertes Arbeitspaket ab.
 
