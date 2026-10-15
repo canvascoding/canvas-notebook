@@ -40,7 +40,11 @@ async function main() {
     assert.equal(second.nextCursor, null);
     assert.throws(() => queries.selectWorkspaceReferencePage(entries, { ...query, cursor: first.nextCursor }, 'other-workspace'),
       (error) => error instanceof queries.WorkspaceReferenceQueryError && error.status === 409);
-    assert.throws(() => queries.selectWorkspaceReferencePage(entries, { ...query, query: 'different', cursor: first.nextCursor }, workspace.workspaceId));
+    assert.throws(() => queries.selectWorkspaceReferencePage(entries, { ...query, query: 'different', cursor: first.nextCursor }, workspace.workspaceId),
+      (error) => error instanceof queries.WorkspaceReferenceQueryError && error.status === 409);
+    assert.throws(() => queries.selectWorkspaceReferencePage([], { ...query, cursor: first.nextCursor }, workspace.workspaceId),
+      (error) => error instanceof queries.WorkspaceReferenceQueryError && error.code === 'FILE_SEARCH_CHANGED',
+      'A shrinking result set must restart pagination, even if the old offset is beyond its new end.');
     assert.throws(() => queries.parseWorkspaceReferenceQuery(new URLSearchParams({ extensions: '../png' })));
     assert.throws(() => queries.selectWorkspaceReferencePage(entries, { ...query, cursor: 'bnVsbA' }, workspace.workspaceId));
     const emptyFolder = queries.selectWorkspaceReferencePage(entries,

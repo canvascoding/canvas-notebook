@@ -47,3 +47,6 @@ not solve this and makes the initial request more expensive.
 
 The tree endpoint retains its per-request depth bound. Navigation uses shallow
 requests relative to each opened folder, so this does not limit navigable depth.
+
+Completed verification and reviewed desktop/mobile screenshots are recorded in
+[the acceptance evidence](workspace-file-discovery/verification.md).

@@ -58,12 +58,13 @@ export function selectWorkspaceReferencePage(entries: FileReferenceEntry[], quer
     let cursor: { offset?: unknown; signature?: unknown };
     try { cursor = JSON.parse(Buffer.from(query.cursor, 'base64url').toString('utf8')); }
     catch { throw new WorkspaceReferenceQueryError('Invalid search cursor'); }
-    if (!cursor || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0 || Number(cursor.offset) > sorted.length) {
+    if (!cursor || !Number.isSafeInteger(cursor.offset) || Number(cursor.offset) < 0) {
       throw new WorkspaceReferenceQueryError('Invalid search cursor');
     }
     if (cursor.signature !== signature) {
       throw new WorkspaceReferenceQueryError('Search results changed. Refresh the search.', 409, 'FILE_SEARCH_CHANGED');
     }
+    if (Number(cursor.offset) > sorted.length) throw new WorkspaceReferenceQueryError('Invalid search cursor');
     offset = Number(cursor.offset);
   }
   const files = sorted.slice(offset, offset + query.limit);

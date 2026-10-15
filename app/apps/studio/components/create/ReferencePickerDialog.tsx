@@ -274,7 +274,7 @@ function TreeNode({
           'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition text-left',
           isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'
         )}
-        style={{ paddingLeft: `${20 + depth * 16}px` }}
+        style={{ paddingLeft: `${20 + Math.min(depth, 5) * 16}px` }}
         onClick={() => onToggleSelect(selectionPath)}
       >
         {isSelected ? (
@@ -293,7 +293,10 @@ function TreeNode({
           className="h-5 w-5 rounded-sm"
           fallbackIcon={mediaIcon(mediaKind)}
         />
-        <span className="truncate" title={node.path}>{showPath ? node.path : node.name}</span>
+        <span className="min-w-0" title={node.path}>
+          <span className="block truncate">{node.name}</span>
+          {showPath ? <span className="block truncate text-xs text-muted-foreground">{node.path}</span> : null}
+        </span>
       </button>
     );
   }
@@ -303,7 +306,7 @@ function TreeNode({
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition text-left"
-        style={{ paddingLeft: `${20 + depth * 16}px` }}
+        style={{ paddingLeft: `${20 + Math.min(depth, 5) * 16}px` }}
         onClick={() => onToggleDir(node.path)}
         aria-expanded={isExpanded}
       >
@@ -818,8 +821,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
             {/* Workspace tab */}
             <TabsContent value="workspace" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex overflow-hidden">
-              <div className="grid gap-2 py-3 shrink-0 sm:grid-cols-[minmax(180px,260px)_1fr_auto_auto]">
-                <label className="relative block min-w-0">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 py-3 shrink-0">
+                <label className="relative col-span-3 block min-w-0">
                   <span className="sr-only">{workspaceT('sourceWorkspace')}</span>
                   <select
                     value={effectiveReferenceWorkspaceId ?? ''}

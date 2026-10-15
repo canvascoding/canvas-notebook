@@ -189,7 +189,7 @@ export function WorkspaceDirectoryPickerDialog({
               'flex min-w-0 items-center gap-2 rounded-md border px-2 py-2',
               isSelected ? 'border-primary bg-primary/5' : 'border-transparent bg-background',
             )}
-            style={{ marginLeft: `${depth * 12}px` }}
+            style={{ marginLeft: `${Math.min(depth, 5) * 12}px` }}
           >
             <CollapsibleTrigger
               type="button"
