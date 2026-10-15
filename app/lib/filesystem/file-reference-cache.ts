@@ -17,7 +17,7 @@ interface FileReferenceCacheState {
 }
 
 // Share both completed and pending reads across the custom server and Next bundles.
-const fileReferenceCacheKey = Symbol.for('canvas.file-reference-cache.v1');
+const fileReferenceCacheKey = Symbol.for('canvas.file-reference-cache.v2');
 const cacheRuntime = globalThis as typeof globalThis & {
   [fileReferenceCacheKey]?: FileReferenceCacheState;
 };
@@ -35,41 +35,34 @@ async function collectFilesRecursive(
   options: WorkspaceFileOperationOptions | undefined,
   semaphore: AsyncSemaphore,
 ): Promise<FileReferenceEntry[]> {
-  // An unknown subtree or child is not an empty catalogue. Consumers must
-  // receive a failed scan rather than certify incomplete links as complete.
-  const entries = await semaphore.run(() => listDirectory(dirPath, {
-    ...options,
-    includeMetadata: true,
-    strictMetadata: true,
-  }));
-  const files: FileReferenceEntry[] = [];
-  const directories = [];
-
-  for (const entry of entries) {
-    if (entry.type === 'directory') {
-      directories.push(entry.path);
-      continue;
+  const pending = [dirPath];
+  const result: FileReferenceEntry[] = [];
+  for (let offset = 0; offset < pending.length;) {
+    const batch = pending.slice(offset, offset + FILE_REFERENCE_DIRECTORY_CONCURRENCY);
+    offset += batch.length;
+    const listings = await Promise.all(batch.map((directory) => semaphore.run(() => listDirectory(directory, {
+      ...options,
+      includeMetadata: true,
+      strictMetadata: true,
+    }))));
+    for (const entries of listings) {
+      for (const entry of entries) {
+        if (entry.type === 'directory') pending.push(entry.path);
+        const extension = entry.type === 'file' ? entry.path.split('.').pop()?.toLowerCase() : undefined;
+        result.push({
+          name: entry.name,
+          path: entry.path,
+          type: entry.type,
+          extension,
+          isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
+          size: entry.size,
+          created: entry.created,
+          modified: entry.modified,
+        });
+      }
     }
-
-    const extension = entry.path.split('.').pop()?.toLowerCase();
-    files.push({
-      name: entry.name,
-      path: entry.path,
-      type: 'file',
-      extension,
-      isImage: extension ? IMAGE_EXTENSIONS.has(extension) : false,
-      size: entry.size,
-      created: entry.created,
-      modified: entry.modified,
-    });
   }
-
-  const nestedFiles = await Promise.all(
-    directories.map((path) => collectFilesRecursive(path, options, semaphore)),
-  );
-  for (const entries of nestedFiles) files.push(...entries);
-
-  return files;
+  return result;
 }
 
 export function invalidateFileReferenceCache(options?: WorkspaceFileOperationOptions): void {
@@ -85,6 +78,14 @@ export function invalidateFileReferenceCache(options?: WorkspaceFileOperationOpt
 }
 
 export async function getCachedFileReferenceEntries(
+  forceRefresh = false,
+  options?: WorkspaceFileOperationOptions
+): Promise<FileReferenceEntry[]> {
+  const entries = await getCachedWorkspaceReferenceEntries(forceRefresh, options);
+  return entries.filter((entry) => entry.type === 'file');
+}
+
+export async function getCachedWorkspaceReferenceEntries(
   forceRefresh = false,
   options?: WorkspaceFileOperationOptions
 ): Promise<FileReferenceEntry[]> {
