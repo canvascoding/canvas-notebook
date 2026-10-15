@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -7,6 +7,7 @@ import { afterEach, test } from 'node:test';
 import { NextRequest } from 'next/server';
 import ts from 'typescript';
 import { getFileStats } from '../app/lib/filesystem/workspace-files';
+import { filesystemFileVersion } from '../app/lib/filesystem/file-version';
 import { createPlainTextYDoc } from '../app/lib/collaboration/markdown-state';
 import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import { withNativeWorkspaceFileRead } from '../app/lib/collaboration/workspace-native-file-read';
@@ -91,6 +92,8 @@ test('native-only and lagging zero-byte projections supply durable epoch-second 
     const response = await h.info(); assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
     const { data } = await response.json();
     assert.equal(data.modified, Date.UTC(2026, 9, 13, 12) / 1000); assert.equal(data.path, 'note.md'); assert.equal(data.type, 'file');
+    assert.deepEqual(data.metadataTarget, { version: 1, kind: 'native_file', workspaceId: h.controls.workspace.workspaceId,
+      path: h.controls.state!.path, documentId: h.controls.state!.documentId, lifecycleGeneration: h.controls.state!.lifecycleGeneration });
     assert.equal(data.title, 'Workspace title'); assert.equal(data.isFavorite, true);
     for (const key of ['size', 'created', 'permissions', 'sha256', 'fileVersion']) assert.equal(Object.hasOwn(data, key), false, key);
     assert.equal(h.calls.diskStats, 0); assert.equal(h.calls.states, 1); assert.equal(h.calls.enrichment, 1);
@@ -103,10 +106,14 @@ test('native-valid nonexportable rich content and quarantined metadata remain ac
   try {
     h.controls.state = { ...h.controls.state!, representation: 'tiptap_blocks', yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc) };
     const before = structuredClone(h.controls.state);
-    assert.equal((await h.info()).status, 200); assert.deepEqual(h.controls.state, before);
+    const initial = await h.info(); assert.equal(initial.status, 200); assert.deepEqual(h.controls.state, before);
+    const expectedTarget = { version: 1, kind: 'native_file', workspaceId: h.controls.workspace.workspaceId,
+      path: before.path, documentId: before.documentId, lifecycleGeneration: before.lifecycleGeneration };
+    assert.deepEqual((await initial.json()).data.metadataTarget, expectedTarget);
     h.controls.state.degraded = true;
     const response = await h.info(); assert.equal(response.status, 200);
-    assert.equal((await response.json()).data.modified, before.persistedAt / 1000);
+    const { data } = await response.json();
+    assert.equal(data.modified, before.persistedAt / 1000); assert.deepEqual(data.metadataTarget, expectedTarget);
     assert.equal(h.calls.diskStats, 0); assert.deepEqual(h.controls.state.yjsState, before.yjsState);
   } finally { doc.destroy(); }
 });
@@ -117,7 +124,10 @@ test('pending live edits omit the older durable modification time', async () => 
   const uninstall = installCollaborationDocumentReader(async (id, _workspace, read, loadState) => read(live, await loadState!(id) ?? undefined));
   try {
     const response = await h.info(); assert.equal(response.status, 200);
-    assert.equal(Object.hasOwn((await response.json()).data, 'modified'), false); assert.equal(h.calls.diskStats, 0);
+    const { data } = await response.json();
+    assert.equal(Object.hasOwn(data, 'modified'), false); assert.equal(h.calls.diskStats, 0);
+    assert.deepEqual(data.metadataTarget, { version: 1, kind: 'native_file', workspaceId: h.controls.workspace.workspaceId,
+      path: h.controls.state!.path, documentId: h.controls.state!.documentId, lifecycleGeneration: h.controls.state!.lifecycleGeneration });
   } finally { uninstall(); live.destroy(); }
 });
 
@@ -137,28 +147,44 @@ test('lost initialized state, foreign identity and typed catalogue failures stay
 
 test('native authority precedes a DOCX suffix while unregistered Office remains read-only physical metadata', async () => {
   const h = await harness(); h.controls.path = h.controls.cataloguePath = h.controls.state!.path = 'document.docx';
-  assert.equal((await h.info()).status, 200); assert.equal(h.calls.diskStats, 0);
+  const native = await h.info(); assert.equal(native.status, 200); assert.equal(h.calls.diskStats, 0);
+  assert.deepEqual((await native.json()).data.metadataTarget, { version: 1, kind: 'native_file',
+    workspaceId: h.controls.workspace.workspaceId, path: 'document.docx', documentId: h.controls.state!.documentId,
+    lifecycleGeneration: h.controls.state!.lifecycleGeneration });
   h.controls.unregistered = true; h.controls.state = null;
   await writeFile(path.join(h.controls.workspace.rootPath, h.controls.path), Buffer.from([0x50, 0x4b, 0xff]));
   const response = await h.info(); assert.equal(response.status, 200); const { data } = await response.json();
   assert.equal(data.size, 3); assert.equal(typeof data.modified, 'number'); assert.equal(typeof data.permissions, 'string');
+  assert.deepEqual(data.metadataTarget, { version: 1, kind: 'filesystem', workspaceId: h.controls.workspace.workspaceId,
+    path: h.controls.path, fileVersion: filesystemFileVersion(await stat(path.join(h.controls.workspace.rootPath, h.controls.path))),
+    entryType: 'file' });
   assert.equal(h.calls.diskStats, 1); assert.equal(h.calls.states, 1);
 });
 
 test('canonical native registry paths retain meaningful filename spaces', async () => {
   const h = await harness(); h.controls.path = h.controls.cataloguePath = h.controls.state!.path = ' native note.md ';
   const response = await h.info(); assert.equal(response.status, 200);
-  assert.equal((await response.json()).data.path, ' native note.md '); assert.equal(h.calls.diskStats, 0);
+  const { data } = await response.json();
+  assert.equal(data.path, ' native note.md '); assert.equal(h.calls.diskStats, 0);
+  assert.deepEqual(data.metadataTarget, { version: 1, kind: 'native_file', workspaceId: h.controls.workspace.workspaceId,
+    path: ' native note.md ', documentId: h.controls.state!.documentId, lifecycleGeneration: h.controls.state!.lifecycleGeneration });
 });
 
 test('pristine files and physical folders retain actual filesystem metadata under the same read fence', async () => {
   const h = await harness(); h.controls.authority = 'pristine'; h.controls.state = null;
   await writeFile(path.join(h.controls.workspace.rootPath, 'note.md'), 'Known physical bytes');
-  let response = await h.info(); assert.equal(response.status, 200); assert.equal((await response.json()).data.size, 20);
+  let response = await h.info(); assert.equal(response.status, 200); const physical = (await response.json()).data;
+  assert.equal(physical.size, 20);
+  assert.deepEqual(physical.metadataTarget, { version: 1, kind: 'filesystem', workspaceId: h.controls.workspace.workspaceId,
+    path: 'note.md', fileVersion: filesystemFileVersion(await stat(path.join(h.controls.workspace.rootPath, 'note.md'))),
+    entryType: 'file' });
   h.controls.path = 'folder'; h.controls.cataloguePath = 'folder/native.md';
   await mkdir(path.join(h.controls.workspace.rootPath, 'folder')); await writeFile(path.join(h.controls.workspace.rootPath, 'folder/physical.txt'), 'ABC');
   response = await h.info(); assert.equal(response.status, 200); const { data } = await response.json();
   assert.equal(data.type, 'directory'); assert.equal(data.size, 3); assert.equal(typeof data.modified, 'number');
+  assert.deepEqual(data.metadataTarget, { version: 1, kind: 'filesystem', workspaceId: h.controls.workspace.workspaceId,
+    path: 'folder', fileVersion: filesystemFileVersion(await stat(path.join(h.controls.workspace.rootPath, 'folder'))),
+    entryType: 'directory' });
   assert.equal(h.calls.states, 0);
 });
 
@@ -171,7 +197,18 @@ test('the actual root is a physical directory with no native fence or title-data
   const h = await harness(); h.controls.path = '.';
   const response = await h.info(); assert.equal(response.status, 200); const { data } = await response.json();
   assert.equal(data.path, '.'); assert.equal(data.type, 'directory'); assert.equal(typeof data.modified, 'number');
+  assert.equal(Object.hasOwn(data, 'metadataTarget'), false);
   assert.equal(h.calls.fences + h.calls.enrichment + h.calls.states, 0); assert.equal(h.calls.diskStats, 1);
+});
+
+test('physical paths with outer filename spaces cannot obtain the trimmed file target', async () => {
+  const h = await harness(); h.controls.unregistered = true; h.controls.state = null; h.controls.path = 'note.md ';
+  const response = await h.info(); assert.equal(response.status, 409);
+  const payload = await response.json();
+  assert.equal(Object.hasOwn(payload, 'data'), false);
+  assert.doesNotMatch(JSON.stringify(payload), /metadataTarget|fileVersion/u);
+  assert.equal(h.calls.diskStats + h.calls.states + h.calls.enrichment, 0);
+  assert.equal(h.calls.commands.at(-1), 'ROLLBACK');
 });
 
 test('denied, invalid and symlink-alias requests never expose stale projection statistics', async () => {

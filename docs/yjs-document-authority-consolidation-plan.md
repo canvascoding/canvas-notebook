@@ -4,6 +4,8 @@
 
 **Stand:** 15. Oktober 2026.
 
+**Aktueller Anschluss:** Der reguläre Metadata-PATCH nutzt nun die zentrale Request-/Transaktions-/Admissionkoordination mit stabilen nativen oder physischen Info-Zielreferenzen; Titel/Favorit/Pin schreiben atomar. 58 tatsächliche PG18-/Principal-/Metadatafamilien, elf Info-Regressionen, cachefreies TypeScript und Lint bestehen. Frischer Build und die beiden echten Metadata-Browserfälle sind noch offen. [Details und Grenzen](./yjs-native-metadata-writer-evidence.md). Guest-/Public-/Lockwriter und die vollständige Datei-/Linkkoordination bleiben erforderlich, bevor das allgemeine native Lifecycle-Gate aktiviert werden kann.
+
 **Verbindliche Priorisierung vom 15. Oktober:** Der erste Schritt U-01 ist mit V14 lokal abgenommen (§0). Nun stehen funktionierendes Verschieben, Kopieren und Löschen samt zentral korrekter Linkpflege und den noch offenen Kern-/Importanschlüssen im Mittelpunkt. Agent, UI und programmatische API/SDK-Zugriffe benutzen dieselbe zentrale Orchestrierung. Das bestehende `pdf_to_markdown` muss reguläre verwaltete Notizbuchdokumente erzeugen. Direkte Agentenschreibzugriffe auf deren `.md`-Projektion sind durch die OS-Sandbox zu verhindern. Das experimentelle Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags; berechtigte Änderungen benötigen keine zusätzliche menschliche Annahme. Details und Quellen: [zentraler Datei-/API-/SDK-/PDF-/Sandbox-Anschlussplan](./central-notebook-file-api-import-plan.md). Historische Nachweise weiter unten ändern diese aktuelle Vorgabe nicht.
 
 **Ursprüngliche Recherchebasis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`; spätere Implementierungsstände und ihre Belege stehen in §16.2.

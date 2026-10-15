@@ -6,7 +6,7 @@ import { jsonError, jsonServerError, jsonSuccess } from '@/app/lib/api/route-hel
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { withNativeWorkspaceFileRead, type NativeWorkspaceFileRead } from '@/app/lib/collaboration/workspace-native-file-read';
 import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboration/checkpoint-errors';
-import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath } from '@/app/lib/workspaces/path-guard';
+import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath, WorkspacePathAliasError } from '@/app/lib/workspaces/path-guard';
 import { isCanonicalAdmissionPath } from '@/app/lib/collaboration/room-admission-contract';
 import type { FileNode } from '@/app/lib/files/types';
 
@@ -25,16 +25,24 @@ export async function GET(request: NextRequest) {
         const modified = native.modifiedAt !== null && Number.isFinite(new Date(native.modifiedAt).getTime())
           ? Math.floor(native.modifiedAt / 1000) : undefined;
         node = { name: path.posix.basename(filePath), path: filePath, type: 'file',
-          ...(modified === undefined ? {} : { modified }) };
+          ...(modified === undefined ? {} : { modified }),
+          metadataTarget: { version: 1, kind: 'native_file', workspaceId: workspaceResult.workspace.workspaceId,
+            path: filePath, documentId: native.documentId, lifecycleGeneration: native.lifecycleGeneration } };
       } else {
         // An alias must not expose an initialized document's old projection
         // through a different catalogue path. Native-only files need no disk.
+        if (filePath !== filePath.trim()) throw new WorkspacePathAliasError();
         await assertWorkspacePathHasNoAliases(workspaceResult.workspace, filePath, { readOnly: true });
         const stats = await getFileStats(filePath, workspaceFileOptions(workspaceResult.workspace));
         if (filePath === '.' && !stats.isDirectory) throw new Error('The workspace root is not a directory.');
         node = { name: path.posix.basename(filePath), path: filePath,
           type: stats.isDirectory ? 'directory' : 'file', size: stats.size, modified: stats.modified,
-          created: stats.created, permissions: stats.permissions };
+          created: stats.created, permissions: stats.permissions,
+          ...(filePath !== '.' && (stats.isFile || stats.isDirectory) ? {
+            metadataTarget: { version: 1 as const, kind: 'filesystem' as const,
+              workspaceId: workspaceResult.workspace.workspaceId, path: filePath, fileVersion: stats.fileVersion,
+              entryType: stats.isDirectory ? 'directory' as const : 'file' as const },
+          } : {}) };
       }
       // Root has no file-title database identity. Directory sizes here retain
       // the physical contract; native namespace aggregates require a separate reader.

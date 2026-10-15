@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
+import * as Y from 'yjs';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../app/lib/workspaces/request-principal';
 
@@ -77,14 +78,7 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      let scopedSql = sql;
-      if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
-        assert(sql.trim().endsWith('$main_agent_id_migration$;'));
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        scopedSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(scopedSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
-      }
-      const result = await admin.query(scopedSql,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -790,6 +784,323 @@ async function main(): Promise<void> {
         }),expected('PRINCIPAL_INVALID'));
       }
     });
+    // Integration stays on the original request factory and runtime pool. These
+    // rows are fixture data in the same owned schema, never Principal grants.
+    const { updateWorkspaceFileMetadata,metadataFileWriteFailure } = await import('../app/lib/files/workspace-file-metadata');
+    const { PATCH: metadataPatch } = await import('../app/api/files/metadata/route');
+    const { filesystemFileVersion } = await import('../app/lib/filesystem/file-version');
+    const { createCollaborationAdmissionService } = await import('../app/lib/collaboration/room-admission');
+    const { collaborationAdmissionActionDigest } = await import('../app/lib/collaboration/room-admission-contract');
+    const { createCollaborationRoomOwnerSession, assertCollaborationRoomOwnerFence } = await import('../app/lib/collaboration/room-owner');
+    const { withWorkspaceFileLifecycleGuard } = await import('../app/lib/files/workspace-file-lifecycle-guard');
+    const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
+    const workspace = await captured(principal=>transaction(db=>phase(db,principal,async access=>access.workspace)));
+    assert.equal(workspace.workspaceId,'org-space');assert.equal(workspace.organizationId,'principal-org');
+    await mkdir(workspace.rootPath,{recursive:true});
+    const metadataOpenConnection = async ():Promise<SqlConnection> => {
+      const client=await ownClient();
+      return {...connection(client),close:async()=>endClient(client)};
+    };
+    const admission = createCollaborationAdmissionService({openConnection:metadataOpenConnection});
+    const nativeTarget = async (filePath:string) => {
+      const documentId=`metadata-${crypto.randomUUID()}`,lineageId=`metadata-lineage-${crypto.randomUUID()}`;
+      const doc=new Y.Doc();let update:Buffer,vector:Buffer;
+      try{doc.getText('content').insert(0,'Native metadata fixture.');update=Buffer.from(Y.encodeStateAsUpdate(doc));vector=Buffer.from(Y.encodeStateVector(doc));}
+      finally{doc.destroy();}
+      await admin.query(`INSERT INTO file_collaboration_lineages(id,workspace_id,workspace_type,organization_id,path,status,created_at)
+        VALUES($1,'org-space','organization','principal-org',$2,'active',100)`,[lineageId,filePath]);
+      await admin.query(`INSERT INTO collaboration_documents(id,lineage_id,workspace_id,workspace_type,organization_id,path,provider,
+        state_version,yjs_state_lifecycle,status,created_at,updated_at)
+        VALUES($1,$2,'org-space','organization','principal-org',$3,'yjs',7,'initialized','active',100,100)`,[documentId,lineageId,filePath]);
+      await admin.query(`INSERT INTO collaboration_yjs_states(document_id,workspace_id,organization_id,path,representation,lifecycle_generation,schema_version,
+        yjs_state,state_vector,document_sequence,persisted_at,checkpoint_sequence,checkpointed_at,canonical_hash,serialized_hash,newline_style,has_bom,degraded,status)
+        VALUES($1,'org-space','principal-org',$2,'plain_text',1,1,$3,$4,7,100,7,100,'fixture','fixture','lf',0,0,'active')`,[documentId,filePath,update!,vector!]);
+      return {expectedTarget:{version:1 as const,workspaceId:'org-space',path:filePath,kind:'native_file' as const,documentId,lifecycleGeneration:1},
+        scope:{documentId,workspaceId:'org-space',organizationId:'principal-org',path:filePath,representation:'plain_text' as const,lifecycleGeneration:1,schemaVersion:1},lineageId};
+    };
+    const physicalTarget = async (filePath:string,entryType:'file'|'directory'='file') => {
+      const absolute=path.join(workspace.rootPath,filePath);await mkdir(path.dirname(absolute),{recursive:true});
+      if(entryType==='directory')await mkdir(absolute);else await writeFile(absolute,'Physical metadata fixture.');
+      return {version:1 as const,workspaceId:'org-space',path:filePath,kind:'filesystem' as const,fileVersion:filesystemFileVersion(await stat(absolute)),entryType};
+    };
+    const metadataRows = async (filePath:string) => ({
+      title:(await admin.query('SELECT * FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2',['org-space',filePath])).rows,
+      users:(await admin.query('SELECT * FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2 ORDER BY user_id',['org-space',filePath])).rows,
+    });
+    const nativeRows = async (documentId:string) => ({
+      registry:(await admin.query('SELECT * FROM collaboration_documents WHERE id=$1',[documentId])).rows,
+      lineage:(await admin.query('SELECT l.* FROM file_collaboration_lineages l JOIN collaboration_documents d ON d.lineage_id=l.id WHERE d.id=$1',[documentId])).rows,
+      state:(await admin.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1',[documentId])).rows,
+    });
+    const metadataWrite = async (target:Record<string,unknown>,fields:Record<string,unknown>,userId='owner',cookie=false) =>
+      updateWorkspaceFileMetadata(await request(userId,cookie),{path:target.path,...fields,expectedTarget:target});
+    const metadataRoute = async (input:unknown,userId='owner',cookie=false) => {
+      const authenticated=await request(userId,cookie),headers=new Headers(authenticated.headers);headers.set('content-type','application/json');
+      return metadataPatch(new NextRequest(authenticated.url,{method:'PATCH',headers,body:JSON.stringify(input)}));
+    };
+    const metadataReject = async (input:unknown,code:string,userId='owner') =>
+      assert.rejects(updateWorkspaceFileMetadata(await request(userId),input),error=>{
+        if(!expected(code)(error))return false;
+        return !code.startsWith('FILE_METADATA_')&&!code.startsWith('SIDE_EFFECT_WRITER_')
+          || Reflect.get(error as object,'status')===(code==='FILE_METADATA_INVALID'?400:409);
+      });
+    await check('metadata original Cookie/Bearer service atomically commits native and physical annotations',async()=>{
+      const target=await nativeTarget('metadata-native.md'),before=await nativeRows(target.scope.documentId);
+      for(const cookie of [true,false]){
+        const returned=await metadataWrite(target.expectedTarget,{title:'  Native   title ',isFavorite:true,pinned:true},'owner',cookie);
+        assert.equal(returned.workspaceId,'org-space');assert.equal(returned.actor?.userId,'owner');
+        const rows=await metadataRows(target.scope.path);assert.equal(rows.title[0]?.title,'Native title');
+        assert.equal(rows.users.length,1);assert.equal(rows.users[0].user_id,'owner');assert.equal(Number(rows.users[0].is_favorite),1);assert(Number(rows.users[0].pinned_at)>0);
+      }
+      const response=await metadataRoute({path:target.scope.path,title:'Native title',isFavorite:true,pinned:true,expectedTarget:target.expectedTarget},'owner',true);
+      assert.equal(response.status,200);assert.deepEqual(await response.json(),{success:true});
+      assert.deepEqual(await nativeRows(target.scope.documentId),before,'Metadata must leave every native state/registry field unchanged.');
+      for(const entryType of ['file','directory'] as const){
+        const physical=await physicalTarget(`metadata-physical-${entryType}${entryType==='file'?'.txt':''}`,entryType);
+        const absolute=path.join(workspace.rootPath,physical.path),beforeStat=await stat(absolute);
+        const beforeBytes=entryType==='file'?await readFile(absolute):null;
+        await metadataWrite(physical,{title:'Physical title',isFavorite:true,pinned:true});
+        assert.equal((await metadataRows(physical.path)).title[0]?.title,'Physical title');
+        assert.equal(filesystemFileVersion(await stat(absolute)),filesystemFileVersion(beforeStat));
+        if(beforeBytes)assert.deepEqual(await readFile(absolute),beforeBytes);
+      }
+    });
+    await check('metadata expected target and field validation reject before any annotation mutation',async()=>{
+      const target=await nativeTarget('metadata-invalid.md'),before=await metadataRows(target.scope.path);
+      const physical=await physicalTarget('metadata-invalid-array.txt'),physicalBefore=await metadataRows(physical.path);
+      const base={path:target.scope.path,title:'Rejected',expectedTarget:target.expectedTarget};
+      for(const input of [null,[],{path:target.scope.path,title:'Missing identity'},
+        {...base,expectedTarget:{...target.expectedTarget,version:2}},
+        {...base,title:4},{...base,isFavorite:'true'},{...base,pinned:null},
+        {path:target.scope.path,expectedTarget:target.expectedTarget},
+        {...base,title:'x'.repeat(161)}, {...base,path:'../escape.md'},
+        // A physical field set makes each coercible array reach the former
+        // physical dispatch branch, rather than fail on unrelated missing keys.
+        ...[['native_file'],['filesystem']].map(kind=>({path:physical.path,title:'Rejected array kind',expectedTarget:{...physical,kind}})),
+        {path:physical.path,title:'Rejected array entry type',expectedTarget:{...physical,entryType:['file']}},
+      ]){
+        await metadataReject(input,'FILE_METADATA_INVALID');assert.deepEqual(await metadataRows(target.scope.path),before);
+        assert.deepEqual(await metadataRows(physical.path),physicalBefore);
+      }
+      assert.equal(filesystemFileVersion(await stat(path.join(workspace.rootPath,physical.path))),physical.fileVersion);
+      const response=await metadataRoute({path:target.scope.path,title:'Missing target'});
+      assert.equal(response.status,400);assert.equal((await response.json()).code,'FILE_METADATA_INVALID');
+    });
+    await check('metadata stale native generation path and replacement identities fail closed',async()=>{
+      const target=await nativeTarget('metadata-stale.md'),replacement=await nativeTarget('metadata-replacement.md');
+      const before=await metadataRows(target.scope.path);
+      for(const changed of [
+        {...target.expectedTarget,lifecycleGeneration:2},
+        {...target.expectedTarget,path:'metadata-no-longer-here.md'},
+        {...target.expectedTarget,documentId:replacement.scope.documentId},
+        {...target.expectedTarget,workspaceId:'personal-owner'},
+      ]){await metadataReject({path:changed.path,title:'Stale',isFavorite:true,expectedTarget:changed},'FILE_METADATA_SCOPE_CHANGED');}
+      await admin.query('UPDATE collaboration_yjs_states SET lifecycle_generation=2 WHERE document_id=$1',[target.scope.documentId]);
+      try{await metadataReject({path:target.scope.path,title:'Stale',expectedTarget:target.expectedTarget},'FILE_METADATA_SCOPE_CHANGED');}
+      finally{await admin.query('UPDATE collaboration_yjs_states SET lifecycle_generation=1 WHERE document_id=$1',[target.scope.documentId]);}
+      assert.deepEqual(await metadataRows(target.scope.path),before);
+      const physical=await physicalTarget('metadata-stale-physical.txt'),absolute=path.join(workspace.rootPath,physical.path);
+      await rename(absolute,`${absolute}.original`);await writeFile(absolute,'Replacement physical metadata fixture.');
+      assert.notEqual(filesystemFileVersion(await stat(absolute)),physical.fileVersion);
+      await metadataReject({path:physical.path,title:'Stale physical',expectedTarget:physical},'FILE_METADATA_SCOPE_CHANGED');
+      assert.deepEqual(await metadataRows(physical.path),{title:[],users:[]});
+      await rm(absolute);await rename(`${absolute}.original`,absolute);
+      const whitespace={...physical,path:` ${physical.path} `};
+      await metadataReject({path:whitespace.path,title:'Wrong trimmed target',expectedTarget:whitespace},'FILE_METADATA_SCOPE_CHANGED');
+      assert.deepEqual(await metadataRows(physical.path),{title:[],users:[]});
+      const response=await metadataRoute({path:target.scope.path,title:'Stale',expectedTarget:{...target.expectedTarget,lifecycleGeneration:2}});
+      assert.equal(response.status,409);assert.equal((await response.json()).code,'FILE_METADATA_SCOPE_CHANGED');
+    });
+    await check('metadata genuine exact and subtree admission reservations block only intersecting targets',async()=>{
+      const target=await nativeTarget('metadata-admission/target.md'),unrelated=await nativeTarget('metadata-unrelated.md');
+      for(const subtree of [false,true]){
+        const actionPayloadText=JSON.stringify({source:target.scope.path,destination:'metadata-moved.md'});
+        const reserved={requestId:crypto.randomUUID(),actorId:'owner',action:'move' as const,actionPayloadText,
+          actionDigest:collaborationAdmissionActionDigest('move',actionPayloadText),
+          scopes:[{workspaceId:'org-space',organizationId:'principal-org',path:subtree?'metadata-admission':target.scope.path,kind:subtree?'subtree' as const:'exact' as const}],
+          expectedDocuments:[{...target.scope,status:'active' as const}]};
+        await admission.reserve(reserved);
+        try{
+          await metadataReject({path:target.scope.path,title:'Blocked',isFavorite:true,expectedTarget:target.expectedTarget},'SIDE_EFFECT_WRITER_BUSY');
+          assert.deepEqual(await metadataRows(target.scope.path),{title:[],users:[]});
+          await metadataWrite(unrelated.expectedTarget,{title:'Unrelated remains available'});
+        }finally{await admission.cancel(reserved,1);}
+      }
+      await metadataWrite(target.expectedTarget,{title:'After genuine cancellation'});
+    });
+    await check('metadata active genuine room owner permits content growth without identity drift',async()=>{
+      const target=await nativeTarget('metadata-active-owner.md'),ownerClient=await ownClient();
+      const owner=await createCollaborationRoomOwnerSession(ownerClient),fence=await owner.acquire(target.scope);
+      const originalQuery=Client.prototype.query,release=principalRegressionSignal();
+      let paused=false,metadataPid:number|undefined;
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const sql=typeof args[0]==='string'?args[0]:'',values=Array.isArray(args[1])?args[1]:[];
+        if(!paused&&/^\s*INSERT INTO (?:"[^"]+"\.)?workspace_file_metadata\b/iu.test(sql)&&values.includes(target.scope.path)){
+          paused=true;metadataPid=Number(Reflect.get(this,'processID'));
+          return release.promise.then(()=>Reflect.apply(originalQuery,this,args));
+        }
+        return Reflect.apply(originalQuery,this,args);
+      } as typeof Client.prototype.query;
+      const writing=observePrincipalRegression(metadataWrite(target.expectedTarget,{title:'Room remains writable'}));
+      try{
+        await waitForPrincipalRegression(()=>paused||writing.isSettled(),'Actual metadata DML did not reach its room-owner barrier.');
+        assert(paused);assert(metadataPid);assert.notEqual(metadataPid,Number(Reflect.get(ownerClient,'processID')));
+        owner.assertActive(fence);await ownerClient.query('BEGIN');
+        try{
+          const row=(await ownerClient.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1 FOR UPDATE',[target.scope.documentId])).rows[0];
+          await assertCollaborationRoomOwnerFence(connection(ownerClient),row,fence);
+          const doc=new Y.Doc();
+          try{
+            Y.applyUpdate(doc,row.yjs_state);doc.getText('content').insert(doc.getText('content').length,' Room update.');
+            await ownerClient.query(`UPDATE collaboration_yjs_states SET yjs_state=$2,state_vector=$3,document_sequence=document_sequence+1,persisted_at=101 WHERE document_id=$1`,
+              [target.scope.documentId,Buffer.from(Y.encodeStateAsUpdate(doc)),Buffer.from(Y.encodeStateVector(doc))]);
+          }finally{doc.destroy();}
+          await ownerClient.query('UPDATE collaboration_documents SET state_version=state_version+1 WHERE id=$1',[target.scope.documentId]);
+          await ownerClient.query('COMMIT');
+        }catch(error){await ownerClient.query('ROLLBACK').catch(()=>undefined);throw error;}
+        release.release();const result=await writing.done;if(!result.ok)throw result.error;
+        assert.equal((await metadataRows(target.scope.path)).title[0]?.title,'Room remains writable');
+        const state=(await admin.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1',[target.scope.documentId])).rows[0];
+        assert.equal(Number(state.document_sequence),8);assert.equal(Number(state.lifecycle_generation),1);assert.equal(state.room_owner_token,fence.token);
+        const doc=new Y.Doc();try{Y.applyUpdate(doc,state.yjs_state);assert.equal(doc.getText('content').toString(),'Native metadata fixture. Room update.');}finally{doc.destroy();}
+      }finally{
+        release.release();await writing.done;Client.prototype.query=originalQuery;await owner.close();clients.delete(ownerClient);
+      }
+    });
+    await check('metadata personal fields are current-user only and read-only members cannot alter titles',async()=>{
+      const target=await nativeTarget('metadata-two-users.md');
+      await metadataWrite(target.expectedTarget,{title:'Owner title',isFavorite:true,pinned:true},'owner',true);
+      await metadataWrite(target.expectedTarget,{isFavorite:true,pinned:true},'member',false);
+      const before=await metadataRows(target.scope.path);assert.deepEqual(before.users.map(row=>row.user_id),['member','owner']);
+      await metadataReject({path:target.scope.path,title:'Forbidden',isFavorite:false,pinned:false,expectedTarget:target.expectedTarget},'PRINCIPAL_ACCESS_DENIED','member');
+      const response=await metadataRoute({path:target.scope.path,title:'Forbidden',expectedTarget:target.expectedTarget},'member',true);
+      assert.equal(response.status,403);assert.equal((await response.json()).code,'PRINCIPAL_ACCESS_DENIED');
+      assert.deepEqual(await metadataRows(target.scope.path),before,'A denied title must not partly change the personal fields.');
+      await metadataWrite(target.expectedTarget,{isFavorite:false,pinned:false},'member',true);
+      const after=await metadataRows(target.scope.path);assert.equal(after.title[0]?.title,'Owner title');
+      assert.deepEqual(after.users,[before.users.find(row=>row.user_id==='owner')]);
+    });
+    await check('metadata disjoint favorite and pin patches preserve both commits for missing and existing rows',async()=>{
+      for(const existing of [false,true])for(const favoriteFirst of [false,true]){
+        const target=await nativeTarget(`metadata-concurrency-${existing}-${favoriteFirst}.md`);
+        if(existing)await metadataWrite(target.expectedTarget,{isFavorite:true,pinned:true});
+        // The original kernel lock genuinely permits awaited reentrant calls.
+        // Hold it once so two actual service transactions reach the SQL path
+        // lock; no synthetic ALS lease or authority object is installed.
+        await withWorkspaceMutationLock('org-space',async()=>{
+        const originalQuery=Client.prototype.query,release=principalRegressionSignal();
+        let firstPid:number|undefined,paused=false;
+        Client.prototype.query=function(this:Client,...args:unknown[]){
+          const sql=typeof args[0]==='string'?args[0]:'',values=Array.isArray(args[1])?args[1]:[];
+          if(!paused&&/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]+"\.)?workspace_file_user_states\b/iu.test(sql)&&values.includes(target.scope.path)){
+            paused=true;firstPid=Number(Reflect.get(this,'processID'));
+            return release.promise.then(()=>Reflect.apply(originalQuery,this,args));
+          }
+          return Reflect.apply(originalQuery,this,args);
+        } as typeof Client.prototype.query;
+        // Existing-row case removes both fields; missing-row case adds both.
+        const favorite={isFavorite:!existing},pin={pinned:!existing};
+        const first=observePrincipalRegression(metadataWrite(target.expectedTarget,favoriteFirst?favorite:pin));
+        let second:ReturnType<typeof observePrincipalRegression<Awaited<ReturnType<typeof metadataWrite>>>>|undefined;
+        try{
+          await waitForPrincipalRegression(()=>paused||first.isSettled(),'The first real user-state DML did not reach its barrier.');assert(paused);assert(firstPid);
+          second=observePrincipalRegression(metadataWrite(target.expectedTarget,favoriteFirst?pin:favorite));
+          let waiter:Record<string,unknown>|undefined;
+          await waitForPrincipalRegression(async()=>{
+            waiter=(await admin.query(`SELECT pid,xact_start IS NOT NULL AS in_transaction,backend_xid IS NOT NULL AS xid_assigned
+              FROM pg_stat_activity WHERE $1::integer=ANY(pg_blocking_pids(pid))`,[firstPid])).rows[0];
+            return waiter!==undefined||second!.isSettled();
+          },'The second real service transaction did not reach its path-lock waiter.');
+          assert(waiter,'The second partial patch must wait at the real PostgreSQL path lock.');
+          assert.notEqual(waiter.pid,firstPid);assert.equal(waiter.in_transaction,true);assert.equal(waiter.xid_assigned,true);
+          assert.equal((await admin.query('SELECT xact_start IS NOT NULL AS active FROM pg_stat_activity WHERE pid=$1',[firstPid])).rows[0]?.active,true);
+          release.release();const outcomes=await Promise.all([first.done,second.done]);for(const outcome of outcomes)if(!outcome.ok)throw outcome.error;
+          const rows=await metadataRows(target.scope.path);
+          if(existing)assert.deepEqual(rows.users,[],'Both independent removals must survive.');
+          else{assert.equal(rows.users.length,1);assert.equal(Number(rows.users[0].is_favorite),1);assert(Number(rows.users[0].pinned_at)>0,'The omitted pin must survive the other patch.');}
+        }finally{release.release();await first.done;if(second)await second.done;Client.prototype.query=originalQuery;}
+        });
+      }
+    });
+    await check('metadata genuine SQL failure rolls back title and personal changes together',async()=>{
+      const target=await nativeTarget('metadata-rollback.md');await metadataWrite(target.expectedTarget,{title:'Before rollback'});
+      const before=await metadataRows(target.scope.path),nativeBefore=await nativeRows(target.scope.documentId);
+      await admin.query("ALTER TABLE workspace_file_user_states ADD CONSTRAINT metadata_fixture_reject CHECK(path<>'metadata-rollback.md')");
+      try{await assert.rejects(metadataWrite(target.expectedTarget,{title:'Must roll back',isFavorite:true,pinned:true}),expected('23514'));}
+      finally{await admin.query('ALTER TABLE workspace_file_user_states DROP CONSTRAINT metadata_fixture_reject');}
+      assert.deepEqual(await metadataRows(target.scope.path),before);assert.deepEqual(await nativeRows(target.scope.documentId),nativeBefore);
+      await metadataWrite(target.expectedTarget,{title:'After rollback',isFavorite:true,pinned:true});
+      assert.equal((await metadataRows(target.scope.path)).title[0]?.title,'After rollback');
+    });
+    for(const mode of ['lost-ack','lost-ack-discard-throws','confirmed-commit-release-throws'] as const)
+    await check(`metadata actual COMMIT/close ambiguity ${mode} reports named unconfirmed without replay`,async()=>{
+      const target=await nativeTarget(`metadata-${mode}.md`),originalQuery=Client.prototype.query;
+      const nativeBefore=await nativeRows(target.scope.documentId);
+      const actualClients=new Map<Client,(error?:Error)=>void>();
+      let pid:number|undefined,titleWrites=0,userUpserts=0,commits=0,rollbacks=0;
+      let committed=false,released=false,releaseCalls=0,releaseHadError=false,releaseThrew=false;
+      const injectedAck=Object.assign(new Error('Owned fixture lost the successful metadata COMMIT acknowledgement.'),{code:'ECONNRESET'});
+      const injectedClose=new Error('Owned fixture threw only after the actual checkout release completed.');
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const sql=(typeof args[0]==='string'?args[0]:'').trim(),values=Array.isArray(args[1])?args[1]:[];
+        if(/^INSERT INTO (?:"[^"]+"\.)?workspace_file_metadata\b/iu.test(sql)&&values.includes(target.scope.path)){
+          titleWrites++;pid=Number(Reflect.get(this,'processID'));
+          if(!actualClients.has(this)){
+            const release=Reflect.get(this,'release') as (error?:Error)=>void;assert.equal(typeof release,'function');
+            actualClients.set(this,release);
+            Reflect.set(this,'release',(error?:Error)=>{
+              releaseCalls++;releaseHadError=error instanceof Error;
+              const result=Reflect.apply(release,this,[error]);released=true;
+              if(mode!=='lost-ack'){releaseThrew=true;throw injectedClose;}
+              return result;
+            });
+          }
+        }
+        if(actualClients.has(this)&&/^INSERT INTO (?:"[^"]+"\.)?workspace_file_user_states\b/iu.test(sql))userUpserts++;
+        if(actualClients.has(this)&&sql==='ROLLBACK')rollbacks++;
+        if(actualClients.has(this)&&sql==='COMMIT'){
+          commits++;
+          return Promise.resolve(Reflect.apply(originalQuery,this,args)).then(result=>{
+            committed=true;if(mode!=='confirmed-commit-release-throws')throw injectedAck;return result;
+          });
+        }
+        return Reflect.apply(originalQuery,this,args);
+      } as typeof Client.prototype.query;
+      try{
+        await assert.rejects(metadataWrite(target.expectedTarget,{title:'Actually committed',isFavorite:true,pinned:true}),error=>{
+          assert.equal(committed,true);assert.equal(released,true,'The actual checkout release must precede the unconfirmed result.');
+          assert.equal(releaseHadError,mode!=='confirmed-commit-release-throws');assert.equal(releaseThrew,mode!=='lost-ack');
+          assert.equal((error as Error).name,'WorkspaceFileMetadataWriteError');assert(expected('FILE_METADATA_COMMIT_UNCONFIRMED')(error));
+          assert.equal(Reflect.get(error as object,'status'),503);
+          const failure=metadataFileWriteFailure(error);assert.equal(failure?.code,'FILE_METADATA_COMMIT_UNCONFIRMED');assert.equal(failure?.status,503);return true;
+        });
+        assert(pid);assert.equal(actualClients.size,1);assert.equal(commits,1);assert.equal(titleWrites,1);assert.equal(userUpserts,1);assert.equal(rollbacks,0);assert.equal(releaseCalls,1);
+        if(mode!=='confirmed-commit-release-throws'){
+          await waitForPrincipalRegression(async()=>(await admin.query('SELECT NOT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1) AS absent',[pid])).rows[0].absent===true,
+            'The actually discarded metadata backend did not leave PostgreSQL.');
+        }
+        const rows=await metadataRows(target.scope.path);assert.equal(rows.title[0]?.title,'Actually committed');
+        assert.equal(rows.users.length,1);assert.equal(Number(rows.users[0].is_favorite),1);assert(Number(rows.users[0].pinned_at)>0);
+        assert.deepEqual(await nativeRows(target.scope.documentId),nativeBefore);
+      }finally{
+        Client.prototype.query=originalQuery;for(const [client,release] of actualClients)Reflect.set(client,'release',release);
+      }
+    });
+    await check('metadata actual exclusive lifecycle guard rejects nested ordinary writer without partial fields',async()=>{
+      const target=await nativeTarget('metadata-exclusive.md'),before=await metadataRows(target.scope.path);
+      await withWorkspaceFileLifecycleGuard({workspaceId:'org-space',paths:[target.scope.path]},async()=>{
+        await metadataReject({path:target.scope.path,title:'Nested ordinary writer',isFavorite:true,expectedTarget:target.expectedTarget},'SIDE_EFFECT_WRITER_REENTRANT');
+        assert.deepEqual(await metadataRows(target.scope.path),before);
+      },metadataOpenConnection);
+      await metadataWrite(target.expectedTarget,{title:'Exclusive guard released'});
+      assert.equal((await metadataRows(target.scope.path)).title[0]?.title,'Exclusive guard released');
+      const physical=await physicalTarget('metadata-exclusive-physical.txt');
+      await withWorkspaceFileLifecycleGuard({workspaceId:'org-space',paths:[physical.path]},async()=>{
+        await metadataReject({path:physical.path,title:'Nested physical writer',isFavorite:true,expectedTarget:physical},'SIDE_EFFECT_WRITER_BUSY');
+        assert.deepEqual(await metadataRows(physical.path),{title:[],users:[]});
+      },metadataOpenConnection);
+      await metadataWrite(physical,{title:'Physical exclusive guard released'});
+    });
     await check('genuine trusted Solo owner and unauthorized member',async()=>{
       const soloBody=Buffer.from(JSON.stringify({...claims,edition:'solo',seatLimit:1,quotas:{users:1},entitlementsVersion:7})).toString('base64url');
       process.env.CANVAS_LICENSE_CERT=`${header}.${soloBody}.${crypto.sign('RSA-SHA256',Buffer.from(`${header}.${soloBody}`),keys.privateKey).toString('base64url')}`;
@@ -798,9 +1109,9 @@ async function main(): Promise<void> {
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
       await assert.rejects(captured(async()=>assert.fail(),'member'),expected('PRINCIPAL_AUTH_REVOKED'));
     });
-    assert.equal(cases,46);
+    assert.equal(cases,58);
     assert.equal(fetches,0);
-    console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team, scope, lifetime, revocation, predicate-lock and bounds matrix families passed; no API activation.`);
+    console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team principal and actual metadata-service transaction, identity, admission, room-owner and partial-patch concurrency families passed.`);
   } finally {
     globalThis.fetch=originalFetch;
     try { if(pool) await pool.end(); }

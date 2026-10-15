@@ -1,3 +1,5 @@
+import type { WorkspaceFileMetadataTarget } from './workspace-file-metadata-contract';
+
 export interface PublicShareState {
   id: string;
   workspaceId?: string | null;
@@ -25,6 +27,8 @@ export interface FileNode {
   /** Personal state for the requesting user. These fields are additive for future clients. */
   isFavorite?: boolean;
   pinnedAt?: number | null;
+  /** Comparison evidence from a fresh file-info read, never a write capability. */
+  metadataTarget?: WorkspaceFileMetadataTarget;
   children?: FileNode[];
   publicShare?: PublicShareState;
 }

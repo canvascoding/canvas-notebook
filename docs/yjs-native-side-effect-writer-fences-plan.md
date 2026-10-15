@@ -1,6 +1,8 @@
 # YD-06: Kooperative Writer-Fences für native Datei-Nebenwirkungen
 
-Stand: 2026-10-13, eigene Quellenbasis `aebdfb426`. Reine Sourceanalyse; keine Writer-, Router-, Runtime-, Datenbank- oder Containeränderung und keine neuen Laufzeittests. Der bestehende [Nebenwirkungsplan](yjs-native-file-lifecycle-side-effects-plan.md) bleibt erhalten. Combined-/Supplemental-Komponenten sind geschlossen, aber weiterhin `executionReady:false`; ihre bisherigen PG18-Tests belegen noch keinen geschlossenen kooperativen Writer-Fence.
+Ursprüngliche Sourceanalyse: 2026-10-13, eigene Quellenbasis `aebdfb426`. Das folgende Inventar beschreibt diese Ausgangsbasis. Der bestehende [Nebenwirkungsplan](yjs-native-file-lifecycle-side-effects-plan.md) bleibt erhalten. Combined-/Supplemental-Komponenten bleiben `executionReady:false`; ihre PG18-Tests belegen noch keinen vollständig geschlossenen kooperativen Writer-Fence.
+
+Aktualisierung 2026-10-15: Der echte Metadata-PATCH ist nun an Request-Principal, eine gemeinsame SQL-Transaktion, stabile Info-Zielreferenzen und die native Shared-Fence angebunden. Der physische Zweig besitzt Kernel-/Admission-/FD-Vergleich, persönliche Teilupdates erhalten unberührte Spalten. Alle 58 echten PG18-/Principal-/Metadatafamilien, elf Info-Regressionen, TypeScript und Lint bestehen; der frische Browserlauf ist noch offen. [Quellen, Vertrag und Nachweise](./yjs-native-metadata-writer-evidence.md). Die früher frei aufrufbaren Titel-/Userstate-Setter sind privat; sie haben keinen verschachtelten Lifecyclecaller. Move/Delete-Metadaten, Gast-/Public-/Lockwriter bleiben getrennte offene Anschlüsse. Das folgende historische Metadateninventar ist durch diesen Nachweis ersetzt; es ist keine Freigabe des globalen Ready-Gates.
 
 ## 1. Entscheidung und offene Grenzen
 

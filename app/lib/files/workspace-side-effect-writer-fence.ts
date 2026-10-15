@@ -143,8 +143,8 @@ async function checkTargets(database: SqlConnection, captured: Capture, targets 
 }
 
 /**
- * Inactive foundation: no production writer uses this yet. Caller owns one BEGIN
- * READ COMMITTED READ WRITE transaction, its narrow ACL/row locks, and COMMIT.
+ * Used by the normal native metadata writer. Caller owns one BEGIN READ
+ * COMMITTED READ WRITE transaction, its narrow ACL/row locks, and COMMIT.
  * On ANY failure caller MUST ROLLBACK; never catch and COMMIT partial mutations.
  * The shared existing admission key remains held until that caller's TX ends.
  * This is no DA04/native mutation, room ownership, ACL, filesystem or recovery grant.
