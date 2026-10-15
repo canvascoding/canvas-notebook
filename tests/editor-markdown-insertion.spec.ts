@@ -203,7 +203,14 @@ test.describe('Explicit Markdown insertion in the live editor', () => {
       await peer.locator(editorSelector).getByText('Before stays. Typed first.', { exact: true }).dblclick({ position: { x: 20, y: 10 } });
       await expect.poll(() => peer.evaluate(() => window.getSelection()?.toString())).toBe('Before');
       await peer.keyboard.insertText('Peer');
-      await expect(editor.getByText('Peer stays. Typed first.', { exact: true })).toBeVisible();
+      // Awareness labels can split the rendered text without changing content.
+      // Require the exact native replacement in the original visible block.
+      await expect.poll(async () => (await tree(page)).content?.[0]).toEqual({
+        ...before.content?.[0], content: [{ type: 'text', text: 'Peer stays. Typed first.' }],
+      });
+      const firstBlockId = before.content?.[0].attrs?.id;
+      expect(firstBlockId).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u);
+      await expect(editor.locator(`p[data-id="${firstBlockId}"]`)).toBeVisible();
       const peerChanged = await tree(page);
       const insert = dialog.getByRole('button', { name: 'Insert', exact: true });
       if (await insert.isEnabled()) await insert.click();
