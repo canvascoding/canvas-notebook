@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { projectNativeSdkCurrentTurn, type NativeSdkCurrentTurn } from './chat-extension-native-sdk-proof';
 
 export type ChatInlineFixtureModel = {
   providerInstallationId: string;
@@ -11,19 +12,42 @@ export type ChatInlineFixtureModel = {
   thinkingLevel: 'off';
   expectedCatalogRevision: number;
 };
+export type ChatInlineCompletion = { hasSkillSentinel: boolean; hasSkillLocation: boolean; toolCount: number; messageCount: number;
+  selectedPackages: Array<{ resourceRef: string; publishedRevisionRef: string; checksum: string }>;
+  selectedConnections: Array<{ source: string; providerRef: string }>; nativePlatforms: Array<'ios' | 'android'>;
+  nativeCurrentTurn?: NativeSdkCurrentTurn };
 export type ChatInlineModelFixture = {
   model: ChatInlineFixtureModel;
   origin: string;
-  counts: () => { catalogReads: number; forbiddenRequests: number; completions: Array<{ hasSkillSentinel: boolean; hasSkillLocation: boolean; toolCount: number; messageCount: number }> };
+  counts: () => { catalogReads: number; forbiddenRequests: number; completions: ChatInlineCompletion[] };
   close: () => Promise<void>;
 };
+
+/** The controlled provider reports the same explicit fixture usage over JSON and the actual SDK's SSE path. */
+export function writeChatInlineModelResponse(response: http.ServerResponse, input: { modelId: string; completionIndex: number; stream: boolean }): void {
+  const header = { id: `chatcmpl-${input.completionIndex}`, created: 1, model: input.modelId };
+  const content = 'Inline context received.', usage = { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 };
+  if (!input.stream) {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ ...header, object: 'chat.completion',
+      choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage })); return;
+  }
+  response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
+  const event = (choices: object[], extra: object = {}) => response.write(`data: ${JSON.stringify({ ...header,
+    object: 'chat.completion.chunk', choices, ...extra })}\n\n`);
+  event([{ index: 0, delta: { role: 'assistant', content }, finish_reason: null }]);
+  event([{ index: 0, delta: {}, finish_reason: 'stop' }]);
+  // OpenAI's final usage-only chunk has an empty choices array and precedes [DONE].
+  event([], { usage }); response.end('data: [DONE]\n\n');
+}
 
 /** Fail before mutation unless this is the runner's actual nonce-owned SQL scope. */
 async function requireOwnedChatModelFixture(input: { nonce: string; organizationId: string; actorUserId: string }): Promise<void> {
   assert.match(input.nonce, /^[a-f0-9]{32}$/u);
   assert.equal(process.env.NODE_ENV, 'test');
   assert.equal(process.env.CANVAS_PLUGIN_EXTENSION_E2E, '1');
-  assert.equal(process.env.CANVAS_CHAT_INLINE_E2E, '1');
+  assert((process.env.CANVAS_CHAT_INLINE_E2E === '1') !== (process.env.CANVAS_CHAT_NATIVE_E2E === '1'),
+    'Choose one fixed controlled Web-inline or native acceptance mode.');
   assert.equal(process.env.PLUGIN_EXTENSION_E2E_NONCE, input.nonce);
   assert.equal(process.env.CANVAS_ORGANIZATION_ID, input.organizationId);
   assert.equal(input.organizationId, `agent-settings-browser-${input.nonce}`);
@@ -61,7 +85,7 @@ export async function createChatInlineModelFixture(input: {
   assert.equal(previous.defaultSelection, null);
   const modelId = `agent-extension-${input.nonce.slice(0, 12)}:latest`;
   let catalogReads = 0, forbiddenRequests = 0, closed = false;
-  const completions: Array<{ hasSkillSentinel: boolean; hasSkillLocation: boolean; toolCount: number; messageCount: number }> = [];
+  const completions: ChatInlineCompletion[] = [];
   const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === `/__owned/${input.nonce}/proof`) {
       response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
@@ -75,19 +99,29 @@ export async function createChatInlineModelFixture(input: {
           messages?: Array<{ role: string; content?: unknown }>; tools?: unknown[] };
         assert.equal(body.model, modelId); assert(Array.isArray(body.messages)); assert(completions.length < 30);
         const system = body.messages.filter(row => row.role === 'system' || row.role === 'developer').map(row => JSON.stringify(row.content)).join('\n');
-        completions.push({ hasSkillSentinel: system.includes('INLINE_CONTEXT_SENTINEL'),
-          hasSkillLocation: system.includes('SKILL.md'), toolCount: body.tools?.length ?? 0, messageCount: body.messages.length });
-        const content = 'Inline context received.';
-        if (!body.stream) {
-          response.writeHead(200, { 'Content-Type': 'application/json' });
-          response.end(JSON.stringify({ id: `chatcmpl-${completions.length}`, object: 'chat.completion', created: 1, model: modelId,
-            choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
-            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })); return;
+        // Extract only exact public route metadata from the actual SDK system request.
+        // Never retain complete prompts, credentials, source contents or generated answers.
+        const systemText = body.messages.filter(row => row.role === 'system' || row.role === 'developer')
+          .flatMap(row => typeof row.content === 'string' ? [row.content] : Array.isArray(row.content)
+            ? row.content.flatMap(block => block && typeof block === 'object' && typeof block.text === 'string' ? [block.text] : []) : []).join('\n');
+        const selectedPackages: ChatInlineCompletion['selectedPackages'] = [], selectedConnections: ChatInlineCompletion['selectedConnections'] = [];
+        for (const line of systemText.split('\n')) {
+          const packageLine = /^P[0-9]+ (\{.*\})$/u.exec(line), connectionLine = /^Connection C[0-9]+: (\{.*\})$/u.exec(line);
+          if (packageLine) { const metadata = JSON.parse(packageLine[1]!) as Record<string, unknown>;
+            if (typeof metadata.resourceRef === 'string' && typeof metadata.publishedRevisionRef === 'string' && typeof metadata.checksum === 'string')
+              selectedPackages.push({ resourceRef: metadata.resourceRef, publishedRevisionRef: metadata.publishedRevisionRef, checksum: metadata.checksum }); }
+          if (connectionLine) { const metadata = JSON.parse(connectionLine[1]!) as Record<string, unknown>;
+            if (typeof metadata.source === 'string' && typeof metadata.providerRef === 'string') selectedConnections.push({ source: metadata.source, providerRef: metadata.providerRef }); }
         }
-        response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
-        const event = (delta: object, finish_reason: string | null) => response.write(`data: ${JSON.stringify({ id: `chatcmpl-${completions.length}`,
-          object: 'chat.completion.chunk', created: 1, model: modelId, choices: [{ index: 0, delta, finish_reason }] })}\n\n`);
-        event({ role: 'assistant', content }, null); event({}, 'stop'); response.end('data: [DONE]\n\n'); return;
+        const nativeCurrentTurn = process.env.CANVAS_CHAT_NATIVE_E2E === '1' ? projectNativeSdkCurrentTurn(body.messages, input.nonce) : undefined;
+        completions.push({ hasSkillSentinel: system.includes('INLINE_CONTEXT_SENTINEL'), hasSkillLocation: system.includes('SKILL.md'),
+          toolCount: body.tools?.length ?? 0, messageCount: body.messages.length, selectedPackages, selectedConnections,
+          ...(nativeCurrentTurn ? { nativeCurrentTurn } : {}),
+          nativePlatforms: (['ios', 'android'] as const).filter(platform => body.messages!.some(message => message.role === 'user'
+            && (typeof message.content === 'string' ? [message.content] : Array.isArray(message.content) ? message.content.flatMap(block =>
+              block && typeof block === 'object' && typeof block.text === 'string' ? [block.text] : []) : [])
+              .some(text => text.startsWith(`NATIVE-${input.nonce}-${platform}`)))) });
+        writeChatInlineModelResponse(response, { modelId, completionIndex: completions.length, stream: Boolean(body.stream) }); return;
       } catch { forbiddenRequests++; response.writeHead(400, { 'Content-Type': 'application/json' }); response.end('{"error":"Invalid owned model request"}'); return; }
     }
     if (request.method !== 'GET' || request.url !== '/api/tags') {

@@ -42,10 +42,85 @@ async function assertFreePort() {
   });
 }
 
+/** Native fixture diagnostics only. The generated preload never reads request data or changes its handling. */
+export async function writeOwnedNativeAgentRequestObserver(root, nonce, expectedPort = 3001) {
+  assert(process.env.CANVAS_CHAT_NATIVE_E2E === '1' && process.env[ownFlag] === '1');
+  assert.match(nonce, /^[a-f0-9]{32}$/u);
+  assert(path.isAbsolute(root) && path.basename(root).startsWith('canvas-plugin-extension-e2e-') && await fs.realpath(root) === root);
+  const held = await fs.lstat(root);
+  assert(held.isDirectory() && !held.isSymbolicLink() && held.uid === process.getuid?.() && (held.mode & 0o777) === 0o700);
+  assert(Number.isInteger(expectedPort) && expectedPort >= 1024 && expectedPort <= 65535);
+  const unit = expectedPort !== 3001;
+  assert(!unit || process.env.NODE_ENV === 'test' && process.env.CANVAS_NATIVE_REQUEST_OBSERVER_UNIT_TEST === '1');
+  const filename = path.join(root, 'request-observer.mjs');
+  const expected = { root, nonce, port: expectedPort, unit, uid: held.uid, dev: String(held.dev), ino: String(held.ino) };
+  const source = `import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { channel } from 'node:diagnostics_channel';
+import { constants, openSync, closeSync, fstatSync, lstatSync, realpathSync, writeSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const expected = ${JSON.stringify(expected)};
+const env = process.env, root = expected.root, pathname = '/api/mobile/v1/agents/configuration';
+assert(env.CANVAS_CHAT_NATIVE_E2E === '1' && env.CANVAS_PLUGIN_EXTENSION_E2E === '1');
+assert(env.NODE_ENV === (expected.unit ? 'test' : 'production'));
+assert(!expected.unit || env.CANVAS_NATIVE_REQUEST_OBSERVER_UNIT_TEST === '1');
+assert(env.PLUGIN_EXTENSION_E2E_ROOT === root && env.PLUGIN_EXTENSION_E2E_NONCE === expected.nonce
+  && env.DATA === path.join(root, 'data') && env.CANVAS_DATA_ROOT === env.DATA);
+assert(env.PLUGIN_EXTENSION_E2E_FIXTURE === path.join(root, 'fixture.json')
+  && env.AGENT_SETTINGS_TOOLS_BROWSER_FIXTURE === path.join(root, 'recovery.json'));
+const checkRoot = () => {
+  const current = lstatSync(root);
+  assert(current.isDirectory() && !current.isSymbolicLink() && current.uid === expected.uid && current.uid === process.getuid?.()
+    && (current.mode & 0o777) === 0o700 && String(current.dev) === expected.dev && String(current.ino) === expected.ino
+    && realpathSync(root) === root);
+};
+checkRoot();
+const privateFile = value => value.isFile() && value.nlink === 1 && value.uid === expected.uid && (value.mode & 0o777) === 0o600;
+assert(fileURLToPath(import.meta.url) === path.join(root, 'request-observer.mjs') && privateFile(lstatSync(fileURLToPath(import.meta.url))));
+const trace = path.join(root, 'native-agent-requests.jsonl');
+const descriptor = openSync(trace, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
+const original = fstatSync(descriptor);
+assert(privateFile(original) && original.size === 0);
+let requests = 0, events = 0, size = 0, active = true;
+const append = event => {
+  if (!active || events >= 128) return;
+  try {
+    checkRoot();
+    const held = fstatSync(descriptor), current = lstatSync(trace);
+    assert(privateFile(held) && privateFile(current) && held.dev === original.dev && held.ino === original.ino
+      && current.dev === held.dev && current.ino === held.ino && current.size === size && held.size === size);
+    const line = Buffer.from(JSON.stringify(event) + '\\n');
+    if (size + line.length > 65536) { active = false; return; }
+    assert.equal(writeSync(descriptor, line), line.length);
+    size += line.length; events++;
+  } catch { active = false; console.error('NATIVE_AGENT_REQUEST_OBSERVER_STOPPED'); }
+};
+channel('http.server.request.start').subscribe(({ request, response }) => {
+  if (!active || requests >= 64 || request.socket.localPort !== expected.port || request.url !== pathname
+    || !['POST', 'PATCH'].includes(request.method)) return;
+  requests++;
+  const requestId = randomUUID(), method = request.method;
+  append({ requestId, time: new Date().toISOString(), phase: 'start', method, path: pathname, status: null });
+  response.once('finish', () => append({ requestId, time: new Date().toISOString(), phase: 'finish', method, path: pathname, status: response.statusCode }));
+});
+process.once('exit', () => { try { closeSync(descriptor); } catch { /* No request or shutdown behavior changes. */ } });
+`;
+  await fs.writeFile(filename, source, { flag: 'wx', mode: 0o600 });
+  return filename;
+}
+
 async function launch() {
   const chatInline = process.argv.length === 3 && process.argv[2] === '--chat-inline';
   const chatModel = process.argv.length === 3 && process.argv[2] === '--chat-model';
-  assert(process.argv.length === 2 || chatInline || chatModel, 'Choose the default, fixed --chat-inline or --chat-model acceptance.');
+  const chatNative = process.argv.length === 3 && process.argv[2] === '--chat-native';
+  if (chatNative) {
+    const config = JSON.parse(await readPrivateFile(process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG || ''));
+    assert.equal(config.version, 1); assert.equal(config.applicationId, 'app.canvasnotebook.mobile.dev');
+    assert.equal(config.mobileRepo, await fs.realpath(config.mobileRepo));
+    await fs.access(path.join(config.mobileRepo, 'scripts/chat-extension-native-e2e.mjs'));
+  }
+  assert(process.argv.length === 2 || chatInline || chatModel || chatNative, 'Choose the default or one fixed Chat inline/model/native acceptance.');
   await assertFreePort();
   const privateEnv = parseEnv(await readPrivateFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env')));
   assert(privateEnv.BOOTSTRAP_ADMIN_EMAIL?.trim() && privateEnv.BOOTSTRAP_ADMIN_PASSWORD?.length >= 8,
@@ -66,8 +141,9 @@ async function launch() {
     NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
     ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1' } : {}),
+    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1', CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG: process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG } : {}),
   });
-  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : chatModel ? ['--chat-model'] : [])], {
+  const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : chatModel ? ['--chat-model'] : chatNative ? ['--chat-native'] : [])], {
     cwd: repo, env: clean, stdio: ['ignore', 'inherit', 'inherit'],
   });
   const cancel = () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); };
@@ -301,7 +377,8 @@ async function activateFixtureLicense(ready, env) {
 async function runFixture() {
   const chatInline = process.argv.length === 4 && process.argv[3] === '--chat-inline' && process.env.CANVAS_CHAT_INLINE_E2E === '1';
   const chatModel = process.argv.length === 4 && process.argv[3] === '--chat-model' && process.env.CANVAS_CHAT_MODEL_E2E === '1';
-  assert((process.argv.length === 3 || chatInline || chatModel) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
+  const chatNative = process.argv.length === 4 && process.argv[3] === '--chat-native' && process.env.CANVAS_CHAT_NATIVE_E2E === '1';
+  assert((process.argv.length === 3 || chatInline || chatModel || chatNative) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
   await assertFreePort();
   const maintenance = new URL(process.env.DATABASE_URL); assert(maintenance.hostname === '127.0.0.1' && maintenance.port === '55433' && maintenance.pathname === '/postgres');
   const nonce = randomBytes(16).toString('hex'), marker = randomBytes(24).toString('hex');
@@ -318,11 +395,12 @@ async function runFixture() {
     databaseDropped: false, serverPid: null, issuerPid: null, browserPid: null };
   const persist = async () => { const temporary = `${receiptPath}.tmp`; await fs.writeFile(temporary, JSON.stringify(receipt), { mode: 0o600 }); await fs.rename(temporary, receiptPath); };
   await persist();
-  const env = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'CANVAS_CONTROL_PLANE_TEST_ROOT']
+  const env = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ', 'BOOTSTRAP_ADMIN_EMAIL', 'BOOTSTRAP_ADMIN_PASSWORD', 'CANVAS_CONTROL_PLANE_TEST_ROOT', 'CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG']
     .flatMap(key => process.env[key] ? [[key, process.env[key]]] : []));
   Object.assign(env, {
     [ownFlag]: '1', CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
+    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1' } : {}),
     ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1', CANVAS_NATURAL_MODEL_INPUT: path.join(root, 'natural-model-input.json') } : {}),
     DATABASE_URL: runtimeURL.toString(), CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_POOL_MAX: '8',
     DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_APP_ROOT: repo, CANVAS_ENV_FILE: emptyEnv, TMPDIR: tmpRoot,
@@ -467,17 +545,17 @@ async function runFixture() {
     Module._load = function (name, parent, isMain) {
       return piModules.has(name) ? piModules.get(name) : originalModuleLoad.call(this, name, parent, isMain);
     };
-    const createModel = chatInline ? (await import('./helpers/chat-inline-model-fixture.ts')).createChatInlineModelFixture
+    const createModel = chatInline || chatNative ? (await import('./helpers/chat-inline-model-fixture.ts')).createChatInlineModelFixture
       : (await import('./helpers/agent-extension-model-fixture.ts')).createAgentExtensionModelFixture;
     modelFixture = await createModel({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id });
     const fixture = { version: 1, nonce, repo, root, actorId: owner.id, databaseName, dataRoot, baseURL,
       model: modelFixture.model,
-      ...(chatInline ? { modelProofUrl: `${modelFixture.origin}/__owned/${nonce}/proof` } : {}),
+      ...(chatInline || chatNative ? { modelProofUrl: `${modelFixture.origin}/__owned/${nonce}/proof` } : {}),
       packageName, skillName, mcpUrl: mcp.url, mcpSpki, composioOrigin: consent.origin, logoUrl: registryTls.logoUrl, registryId: 'store-extensions',
       sources: [{ kind: 'plugin', registryId: 'store-extensions', entryKey: packageName, version: '1.0.0', checksum: source.checksum },
         { kind: 'skill', registryId: 'store-extensions', entryKey: skillName, version: '1.0.0', checksum: skill.checksum }] };
     const { prepareAgentExtensionToolBrowserFixture, verifyAgentExtensionToolBrowserFixture } = await import('./helpers/agent-extension-tool-browser-fixture.ts');
-    if (!chatModel) fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
+    if (!chatModel && !chatNative) fixture.toolAgent = await prepareAgentExtensionToolBrowserFixture(fixture);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600, flag: 'wx' });
     if (chatInline) {
       // The admission/claim process must actually terminate before the new
@@ -497,8 +575,10 @@ async function runFixture() {
     const build = start('npm', ['run', 'build'], 'build', { NODE_ENV: 'production', NODE_OPTIONS: '--max-old-space-size=8192', NODE_EXTRA_CA_CERTS: caBundlePath }); assert.equal(await wait(build, (chatModel ? 30 : 15) * 60_000), 0, 'The current worktree production build must pass.');
     fixture.buildId = (await fs.readFile(path.join(repo, '.next/BUILD_ID'), 'utf8')).trim(); assert(fixture.buildId);
     await fs.writeFile(env.PLUGIN_EXTENSION_E2E_FIXTURE, JSON.stringify(fixture), { mode: 0o600 });
+    const nativeRequestObserver = chatNative ? await writeOwnedNativeAgentRequestObserver(root, nonce) : null;
     await assertFreePort(); host = start(process.execPath, [
       ...(chatModel ? ['--import', './scripts/helpers/chat-extension-model-observer.mjs'] : []),
+      ...(nativeRequestObserver ? ['--import', nativeRequestObserver] : []),
       '--import', 'tsx', 'server.js',
     ], 'host', { NODE_ENV: 'production', NODE_EXTRA_CA_CERTS: caBundlePath }); receipt.serverPid = host.pid; await persist();
     const deadline = Date.now() + 120_000; let healthy = false;
@@ -515,16 +595,37 @@ async function runFixture() {
     assert(cwd.split('\n').includes(`n${repo}`));
     assert.deepEqual(listener.split('\n').filter(line => /^p\d+$/u.test(line)), [`p${host.pid}`]);
     receipt.listenerVerified = true; receipt.phase = 'browser'; await persist();
+    if (chatNative) {
+      // Prove observation in the actual owned Next host before interpreting absent UI requests.
+      // No cookie, authorization or valid mutation input is supplied; this must be rejected.
+      const controlPath = '/api/mobile/v1/agents/configuration';
+      const control = await fetch(`${baseURL}${controlPath}`, { method: 'PATCH', redirect: 'error',
+        headers: { Origin: baseURL, 'Content-Type': 'application/json', 'x-canvas-workspace-id': '00000000-0000-4000-8000-000000000000' },
+        body: '{}', signal: AbortSignal.timeout(5000) });
+      await fs.writeFile(path.join(root, 'native-agent-observer-control-response.json'), JSON.stringify({ version: 1, nonce,
+        method: 'PATCH', path: controlPath, status: control.status }), { mode: 0o600, flag: 'wx' });
+      assert([401, 403].includes(control.status), 'The observer control must not authorize a mutation.');
+      await control.arrayBuffer();
+      const tracePath = path.join(root, 'native-agent-requests.jsonl');
+      const observed = (await readPrivateFile(tracePath)).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+      assert.equal(observed.length, 2, 'The actual owned HTTP observer must record its control before device interaction.');
+      assert.deepEqual(observed.map(row => row.phase), ['start', 'finish']);
+      assert(observed.every(row => row.method === 'PATCH' && row.path === controlPath));
+      assert.equal(observed[0].requestId, observed[1].requestId); assert.equal(observed[1].status, control.status);
+      await fs.writeFile(path.join(root, 'native-agent-observer-control.json'), JSON.stringify({ version: 1, nonce,
+        method: 'PATCH', path: controlPath, rejectedStatus: control.status, requestId: observed[0].requestId,
+        traceSha256: createHash('sha256').update(await readPrivateFile(tracePath)).digest('hex') }), { mode: 0o600, flag: 'wx' });
+    }
     console.log(`PLUGIN_EXTENSION_E2E_BROWSER ${root}`);
     const browser = start(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--config', 'tests/playwright/playwright.plugin-extensions.config.ts'], 'browser', {PLUGIN_EXTENSION_E2E_MCP_SPKI: mcpSpki}); receipt.browserPid = browser.pid; await persist();
-    const browserCode = await wait(browser, 20 * 60_000);
+    const browserCode = await wait(browser, (chatNative ? 45 : 20) * 60_000);
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
       model: modelFixture.counts(),
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
     assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');
     assert.equal(consent.counters.businessCalls, 0); assert.equal(mcp.stats.toolCalls, chatModel ? 1 : 0); assert.equal(consent.counters.blockedExternalRedirects, 0);
     assert(modelFixture.counts().catalogReads > 0); assert.equal(modelFixture.counts().forbiddenRequests, 0, 'The model fixture must receive only its explicitly supported requests.');
-    if (chatInline) assert(modelFixture.counts().completions.some(row => row.hasSkillSentinel), 'A real SDK model request must receive the exact selected skill context.');
+    if (chatInline || chatNative) assert(modelFixture.counts().completions.some(row => row.hasSkillSentinel), 'A real SDK model request must receive the exact selected skill context.');
     if (!chatModel) assert(mcp.stats.iconDiscoveryReads > 0 && mcp.stats.iconReads > 0, 'The real cold MCP logo must be discovered and loaded from the owned passive HTTP(S) fixture.');
     assert.equal(provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length, 0);
     if (chatModel) {
@@ -532,6 +633,10 @@ async function runFixture() {
       const verified = await verifyChatExtensionNaturalModelFixture(fixture, { mcpToolCalls: mcp.stats.toolCalls,
         composioBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length });
       await fs.writeFile(path.join(root, 'chat-extension-natural-model-verified.json'), JSON.stringify({ version: 1, nonce, ...verified }), { mode: 0o600 });
+    } else if (chatNative) {
+      const { verifyChatExtensionNativeFixture } = await import('./helpers/chat-extension-native-proof.ts');
+      const verified = await verifyChatExtensionNativeFixture(fixture);
+      await fs.writeFile(path.join(root, 'chat-extension-native-verified.json'), JSON.stringify({ version: 1, nonce, ...verified }), { mode: 0o600 });
     } else {
       const toolRoundtrip = await verifyAgentExtensionToolBrowserFixture(fixture);
       await fs.writeFile(path.join(root, 'agent-tool-roundtrip-verified.json'), JSON.stringify({ version: 1, nonce, ...toolRoundtrip }), { mode: 0o600 });
