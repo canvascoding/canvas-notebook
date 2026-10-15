@@ -9,6 +9,7 @@ import { collaborationCheckpointValidationFailure } from '@/app/lib/collaboratio
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath, WorkspacePathAliasError } from '@/app/lib/workspaces/path-guard';
 import { isCanonicalAdmissionPath } from '@/app/lib/collaboration/room-admission-contract';
 import type { FileNode } from '@/app/lib/files/types';
+import type { SqlConnection } from '@/app/lib/db';
 
 export async function GET(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
@@ -19,7 +20,7 @@ export async function GET(request: NextRequest) {
   try {
     // Already canonical registry paths may contain meaningful filename spaces.
     const filePath = isCanonicalAdmissionPath(requestedPath) ? requestedPath : normalizeWorkspaceRelativePath(requestedPath);
-    const respond = async (native: NativeWorkspaceFileRead | null) => {
+    const respond = async (native: NativeWorkspaceFileRead | null, connection?: SqlConnection) => {
       let node: FileNode;
       if (native) {
         const modified = native.modifiedAt !== null && Number.isFinite(new Date(native.modifiedAt).getTime())
@@ -48,7 +49,7 @@ export async function GET(request: NextRequest) {
       // the physical contract; native namespace aggregates require a separate reader.
       const [file] = filePath === '.' ? [node] : await enrichWorkspaceFileNodes({
         nodes: [node], workspace: workspaceResult.workspace, userId: workspaceResult.session.user.id,
-      });
+      }, connection);
       return jsonSuccess({ data: file }, { headers: { 'Cache-Control': 'no-store' } });
     };
     if (filePath === '.') return await respond(null);

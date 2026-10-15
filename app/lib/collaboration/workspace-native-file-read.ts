@@ -95,7 +95,7 @@ async function readNativeEntry(connection: SqlConnection, input: {
 /** Null means an explicitly pristine/unregistered path, never a failed native read. */
 export async function withNativeWorkspaceFileRead<T>(input: {
   workspace: WorkspaceContext; path: string; mode: 'metadata' | 'export'; maxBytes?: number;
-}, consume: (native: NativeWorkspaceFileRead | null) => Promise<T>, dependencies: Dependencies = {}): Promise<T> {
+}, consume: (native: NativeWorkspaceFileRead | null, connection: SqlConnection) => Promise<T>, dependencies: Dependencies = {}): Promise<T> {
   if (!input.workspace.permissions.canRead || input.workspace.status !== undefined && input.workspace.status !== 'active') {
     throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   }
@@ -114,7 +114,9 @@ export async function withNativeWorkspaceFileRead<T>(input: {
     const document = catalogue.find(entry => entry.path === input.path);
     if (document?.authority === 'missing-state') throw Object.assign(new Error('The native document state is unavailable.'), { status: 409 });
     const result = await readNativeEntry(connection, input, document, dependencies);
-    const consumed = await consume(result);
+    // Consumers that need SQL annotations reuse this read's checkout. Opening
+    // another pooled connection here can exhaust the pool under parallel reads.
+    const consumed = await consume(result, connection);
     await connection.run('COMMIT'); transaction = false;
     return consumed;
   } catch (error) {

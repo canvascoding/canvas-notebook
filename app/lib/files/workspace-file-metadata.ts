@@ -65,7 +65,7 @@ export async function enrichWorkspaceFileNodes(params: {
   nodes: FileNode[];
   workspace: WorkspaceContext;
   userId?: string | null;
-}): Promise<FileNode[]> {
+}, connection?: Pick<SqlConnection, 'all'>): Promise<FileNode[]> {
   const paths: string[] = [];
   const collect = (nodes: FileNode[]) => nodes.forEach((node) => {
     paths.push(node.path);
@@ -80,8 +80,21 @@ export async function enrichWorkspaceFileNodes(params: {
 
   // A combined metadata PATCH must not be observed as an old title together
   // with new personal fields between these SELECTs or query chunks.
-  await withFileCollaborationReadSnapshot(async (database) => {
+  const read = async (database: Pick<SqlConnection, 'all'>) => {
     for (const pathChunk of chunks(normalizedPaths, PATH_QUERY_CHUNK_SIZE)) {
+      if (connection) {
+        // Info already owns a native read fence and checkout. Read every
+        // annotation for its node in one statement even at READ COMMITTED;
+        // a combined metadata PATCH cannot tear title and personal fields.
+        const rows = await database.all(`SELECT requested.path,metadata.title,
+          COALESCE(personal.is_favorite,0) AS is_favorite,personal.pinned_at
+          FROM unnest($2::text[]) AS requested(path)
+          LEFT JOIN workspace_file_metadata metadata ON metadata.workspace_id=$1 AND metadata.path=requested.path
+          LEFT JOIN workspace_file_user_states personal ON personal.workspace_id=$1 AND personal.path=requested.path AND personal.user_id=$3`,
+        [params.workspace.workspaceId,pathChunk,params.userId ?? null]) as Array<MetadataRow & UserStateRow>;
+        rows.forEach(row => { metadata.set(row.path,row); userStates.set(row.path,row); });
+        continue;
+      }
       const placeholders = pathChunk.map((_, index) => `$${index + 2}`).join(', ');
       const rows = await database.all(
         `SELECT path, title FROM workspace_file_metadata WHERE workspace_id = $1 AND path IN (${placeholders})`,
@@ -98,7 +111,9 @@ export async function enrichWorkspaceFileNodes(params: {
         stateRows.forEach((row) => userStates.set(row.path, row));
       }
     }
-  }, openDb);
+  };
+  if (connection) await read(connection);
+  else await withFileCollaborationReadSnapshot(read, openDb);
 
   const enrich = (node: FileNode): FileNode => {
     const row = metadata.get(node.path);
