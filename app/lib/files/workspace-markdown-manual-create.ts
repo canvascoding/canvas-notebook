@@ -5,7 +5,7 @@ import { recordAuditEvent } from '../audit/audit-service';
 import { invalidateWorkspaceFileViews } from '../api/route-helpers';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
-import { classifyCollaborationProjectionError } from '../collaboration/projection-errors';
+import { classifyCollaborationProjectionError, inCollaborationProjectionPhase } from '../collaboration/projection-errors';
 import { logCollaborationDiagnostic } from '../collaboration/diagnostics';
 import { assertAuthenticatedManualMarkdownCreateRawRealm, assertAuthenticatedManualMarkdownCreateScope, captureAuthenticatedManualMarkdownCreateScope,
   observeAuthenticatedMarkdownManualCreateCompletion, persistAndProjectAuthenticatedMarkdownManualCreate,
@@ -50,13 +50,13 @@ export async function completeManualMarkdownCreate(request: NextRequest, selecti
   if (current.workspace.legacy || current.workspace.status !== 'active') return result('unavailable');
   const expectedScope = await captureAuthenticatedManualMarkdownCreateScope(original, selected.workspaceId);
   const dependencies = { openConnection: openDb, expectedRequestScope: expectedScope };
-  const observe = () => observeAuthenticatedMarkdownManualCreateCompletion(original, selected, dependencies);
+  const observe = () => inCollaborationProjectionPhase('create_observe', () => observeAuthenticatedMarkdownManualCreateCompletion(original, selected, dependencies));
   try {
     const before = await observe();
     if (!authenticatedNativeTextSessionEnabled()) return result(before === 'projection_pending' ? 'projection_pending'
       : before === 'completed' ? 'recovery_required' : 'unavailable');
     if (before !== 'completed') {
-      await persistAndProjectAuthenticatedMarkdownManualCreate(original, selected, dependencies);
+      await inCollaborationProjectionPhase('create_native', () => persistAndProjectAuthenticatedMarkdownManualCreate(original, selected, dependencies));
     }
     // Native/Birth and every real Source/Owner/helper descriptor have closed.
     // Reacquire only genuine lifecycle authority for normal Create effects.
@@ -77,7 +77,7 @@ export async function completeManualMarkdownCreate(request: NextRequest, selecti
       } };
     };
     let failure: unknown, hasFailure = false, completion: ManualMarkdownCreateCompletion | undefined;
-    try { completion = await withWorkspaceFileLifecycleGuard({ workspaceId: selected.workspaceId, paths: [selected.path] }, async () => {
+    try { completion = await inCollaborationProjectionPhase('create_effects', () => withWorkspaceFileLifecycleGuard({ workspaceId: selected.workspaceId, paths: [selected.path] }, async () => {
       if (await observe() !== 'completed') return result('recovery_required');
       await withWorkspaceRequestPrincipal(original, { workspaceId: selected.workspaceId, permission: 'canWrite' }, principal =>
         executeLifecycleTransaction({ openConnection: openVerified,
@@ -99,7 +99,7 @@ export async function completeManualMarkdownCreate(request: NextRequest, selecti
           recoverCommitted: async () => { throw new MarkdownManualCreateError('MARKDOWN_CREATE_RECOVERY_REQUIRED', 409, 'The document creation result could not be confirmed.'); },
         }));
       return result(await observe() === 'completed' ? 'completed' : 'recovery_required');
-    }, openOwner); } catch (error) { hasFailure = true; failure = error; }
+    }, openOwner)); } catch (error) { hasFailure = true; failure = error; }
     if (hasCloseFailure) {
       if (hasFailure) throw new AggregateError([failure, closeFailure], 'Manual create owner closure failed.');
       throw closeFailure;
@@ -116,7 +116,7 @@ export async function completeManualMarkdownCreate(request: NextRequest, selecti
       throw new MarkdownManualCreateError('PATH_EXISTS', 409, 'A file or folder already exists at this path.');
     }
     const diagnostic = classifyCollaborationProjectionError(error);
-    logCollaborationDiagnostic('warn', { event: 'projection_recovery_failed', phase: 'manual_create', code: diagnostic.code,
+    logCollaborationDiagnostic('warn', { event: 'projection_recovery_failed', phase: `manual_create:${diagnostic.phase}`, code: diagnostic.code,
       causeCode: diagnostic.causeCode, permanent: diagnostic.permanent });
     let observed: 'absent' | 'projection_pending' | 'completed' | undefined;
     try { observed = await observe(); } catch { /* Retain the public attempt for explicit recovery. */ }

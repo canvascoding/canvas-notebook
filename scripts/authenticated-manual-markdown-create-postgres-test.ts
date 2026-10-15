@@ -98,13 +98,11 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      let scoped = sql;
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        scoped = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(scoped.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      const result = await admin.query(scoped,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -305,13 +303,49 @@ async function main(): Promise<void> {
       finally{await admin.query('UPDATE "session" SET id=$1 WHERE id=$2',['session-owner','session-owner-next']);}
     });
     await check('B native commit and actual killed preparation helper keep pending; same request resumes',async()=>{
-      const filePath='native-before-projection.md',requestId=crypto.randomUUID(),actual=childModule.spawn;let killed=false;
+      const filePath='native-before-projection.md',requestId=crypto.randomUUID(),actual=childModule.spawn,actualWarn=console.warn;let killed=false;
+      const diagnostics:Array<{phaseMatches:boolean;causeMatches:boolean;metadataOnly:boolean}>=[];
+      let malformedDiagnostic=false;
       childModule.spawn=((...args:Parameters<typeof actual>)=>{const child=actual(...args);
         if(String(args[1]?.[1]).endsWith('markdown-create-birth.py')){let output='';child.stdout?.on('data',chunk=>{output+=String(chunk);if(!killed&&output.includes('"stage": "before_link"')){killed=true;child.kill('SIGKILL');}});}return child;
       })as typeof actual;syncBuiltinESMExports();
-      let value:Awaited<ReturnType<typeof create>>;try{value=await create(filePath,requestId);}finally{childModule.spawn=actual;syncBuiltinESMExports();}
-      assert(killed);assert.equal(value.response.status,409,JSON.stringify(value.json));assert.equal(value.json.completion.status,'projection_pending');assert.equal(await count('collaboration_documents',filePath),1);assert.equal(await exists(filePath),null);
-      assert.equal((await create(filePath,requestId)).response.status,200);assert.equal(await count('collaboration_documents',filePath),1);
+      // Capture only this actual Create call. Never retain or assert raw log
+      // text, filenames, exception messages, credentials or arbitrary payloads.
+      console.warn=(...args:unknown[])=>{
+        const marker='[WARN] [Collaboration] ',message=args.length===1&&typeof args[0]==='string'?args[0]:null;
+        const offset=message?.indexOf(marker)??-1;
+        if(message===null||offset<0){actualWarn(...args);return;}
+        let decoded:unknown;
+        try{decoded=JSON.parse(message.slice(offset+marker.length));}catch{malformedDiagnostic=true;return;}
+        if(!decoded||typeof decoded!=='object'||Array.isArray(decoded)){malformedDiagnostic=true;return;}
+        if(Reflect.get(decoded,'event')!=='projection_recovery_failed'){actualWarn(...args);return;}
+        const allowed=['event','documentId','workspaceId','operationId','generation','documentSequence','checkpointSequence',
+          'durationMs','lag','attempt','code','phase','causeCode','permanent'];
+        diagnostics.push({phaseMatches:Reflect.get(decoded,'phase')==='manual_create:birth_prepare',
+          causeMatches:Reflect.get(decoded,'causeCode')==='MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED',
+          metadataOnly:Object.keys(decoded).every(key=>allowed.includes(key))});
+      };
+      let value:Awaited<ReturnType<typeof create>>;
+      try{value=await create(filePath,requestId);}
+      finally{console.warn=actualWarn;childModule.spawn=actual;syncBuiltinESMExports();}
+      assert(killed);assert.equal(malformedDiagnostic,false);assert.equal(diagnostics.length,1);
+      assert.deepEqual(diagnostics[0],{phaseMatches:true,causeMatches:true,metadataOnly:true});
+      console.log('Manual Create killed-helper diagnostic witness',{event:'projection_recovery_failed',
+        phase:'manual_create:birth_prepare',causeCode:'MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED',count:diagnostics.length});
+      assert.equal(value.response.status,409);assert.equal(value.json.success,false);
+      assert.equal(value.json.code,'MARKDOWN_CREATE_PROJECTION_PENDING');assert.equal(value.json.completion.status,'projection_pending');
+      assert.equal(value.json.completion.code,'MARKDOWN_CREATE_PROJECTION_PENDING');
+      assert.equal(value.json.completion.requestId===requestId,true);assert.equal(value.json.completion.workspaceId===workspaceId,true);
+      assert.equal(value.json.completion.targetPath===filePath,true);
+      assert.equal(await count('collaboration_documents',filePath),1);assert.equal(await exists(filePath),null);
+      const pendingDocument=(await admin.query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',[workspaceId,filePath])).rows[0];
+      assert(pendingDocument);
+      const resumed=await create(filePath,requestId);assert.equal(resumed.response.status,200);assert.equal(resumed.json.success,true);
+      assert.equal(resumed.json.completion.status,'completed');assert.equal(resumed.json.completion.requestId===requestId,true);
+      assert.equal(resumed.json.completion.workspaceId===workspaceId,true);assert.equal(resumed.json.completion.targetPath===filePath,true);
+      assert.equal(await count('collaboration_documents',filePath),1);
+      const resumedDocument=(await admin.query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',[workspaceId,filePath])).rows[0];
+      assert.equal(resumedDocument?.id===pendingDocument.id,true,'Explicit same-UUID recovery must retain the original native document.');
     });
     await check('separate actual source process loses its response and durable retry confirms same native document',async()=>{
       const filePath='process-response-lost.md',requestId=crypto.randomUUID(),own=await runChild(filePath,requestId);assert.equal(own.status,200);

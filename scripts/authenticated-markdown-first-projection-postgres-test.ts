@@ -76,13 +76,11 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      let scoped = sql;
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        scoped = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(scoped.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      const result = await admin.query(scoped,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();

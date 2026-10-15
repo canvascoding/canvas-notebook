@@ -31,6 +31,7 @@ import { MARKDOWN_FILE_IMPORT_LIMIT, MarkdownFileImportError, prepareMarkdownFil
 import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from './persistence';
+import { inCollaborationProjectionPhase } from './projection-errors';
 import { assertCollaborationAdmissionOpen } from './room-admission';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
 import { lockIdentity } from './room-owner';
@@ -1390,7 +1391,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         });
       }));
   };
-  const publication = await executeLifecycleTransaction({ openConnection: openPhase,
+  const publication = await inCollaborationProjectionPhase('publication_authority', () => executeLifecycleTransaction({ openConnection: openPhase,
     execute: database => phase(database, async (scope, state) => {
       const beforeBoundary = async (stage?: string) => {
         // A real Principal holds Auth/Workspace rows throughout this concrete
@@ -1411,13 +1412,14 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         await claim.complete(state.serializedHash!, receipt.revisionId, beforeBoundary);
         return { revisionId: receipt.revisionId, serializedHash: state.serializedHash! };
       }
-      const fenced = await withCollaborationCheckpointFence<{ revisionId: string }>({ documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
+      const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<{ revisionId: string }>({ documentId: state.documentId, workspaceId: state.workspaceId, path: state.path,
         representation: state.representation, lifecycleGeneration: state.lifecycleGeneration, schemaVersion: state.schemaVersion,
         sequence: state.documentSequence, stateVector: state.stateVector,
         confirmProjection: (transaction, current, write) => recordCollaborationProjectionPending(transaction, current, write),
-        materialize: async current => {
-          const snapshot = authoritativeCollaborationSnapshot(current), serialized = serializeCanonicalText(snapshot.canonicalContent, current);
-          await beforeBoundary(); await beginCollaborationProjectionAttempt(current);
+        materialize: current => inCollaborationProjectionPhase('file_write', async () => {
+          const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(current));
+          const serialized = serializeCanonicalText(snapshot.canonicalContent, current);
+          await beforeBoundary(); await inCollaborationProjectionPhase('receipt_begin', () => beginCollaborationProjectionAttempt(current));
           await claim.publish(serialized, beforeBoundary, () => {
             if (!scope.active || firstProjectionPhases.getStore() !== scope || performance.now() >= scope.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
           });
@@ -1427,16 +1429,16 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
           await beforeBoundary(); await claim.verify();
           return { canonicalContent: snapshot.canonicalContent, serializedContent: serialized,
             result: { revisionId: revision.id }, rollback: async () => { await claim.verify(); } };
-        },
-      });
+        }),
+      }));
       if (!fenced?.state.serializedHash) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
       await beforeBoundary();
-      await finalizeCollaborationCheckpointProjection({ state: fenced.state, workspace: scope.access.workspace, revisionId: fenced.result.revisionId });
-      await finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId);
+      await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({ state: fenced.state, workspace: scope.access.workspace, revisionId: fenced.result.revisionId }));
+      await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
       await currentAuthenticatedMarkdownBirth(scope); await claim.complete(fenced.state.serializedHash, fenced.result.revisionId, beforeBoundary);
-      const changed = await database.get(`UPDATE collaboration_markdown_create_births SET finalized=1,revision_id=$1,serialized_hash=$2
+      const changed = await inCollaborationProjectionPhase('birth_finalize', async () => database.get(`UPDATE collaboration_markdown_create_births SET finalized=1,revision_id=$1,serialized_hash=$2
         WHERE workspace_id=$3 AND operation_id=$4 AND claim_id=$5 AND claim_fingerprint=$6 AND request_fingerprint=$7 AND finalized=0 RETURNING document_id`,
-      [fenced.result.revisionId, fenced.state.serializedHash, state.workspaceId, input.operationId, claim.id, claim.fingerprint, input.fingerprint]);
+      [fenced.result.revisionId, fenced.state.serializedHash, state.workspaceId, input.operationId, claim.id, claim.fingerprint, input.fingerprint]));
       if (!changed) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
       return { revisionId: fenced.result.revisionId, serializedHash: fenced.state.serializedHash };
     }),
@@ -1451,7 +1453,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       }),
       recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
     }),
-  });
+  }));
   await assertBootstrapOwner(frame); await source.assertCurrent(); await claim.verify();
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }

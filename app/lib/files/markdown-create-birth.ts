@@ -8,6 +8,7 @@ import path from 'node:path';
 import { resolveCanvasDataRoot } from '../runtime-data-paths';
 import { getFdPublicationBackend, type FdPublicationBackend } from './fd-publication';
 import { isDeepStrictEqual } from 'node:util';
+import { inCollaborationProjectionPhase } from '../collaboration/projection-errors';
 
 type Identity = Readonly<{ dev: string; ino: string; uid: number; mode: number }>;
 type Observation = Readonly<{ state: 'intent' | 'prepared' | 'born' | 'complete'; fingerprint: string;
@@ -182,51 +183,54 @@ async function root(frame: Frame): Promise<void> {
 }
 async function invoke(frame: Frame, action: 'open' | 'verify' | 'prepare' | 'observe' | 'complete',
   boundary: (stage?: string) => Promise<void>, fields: Record<string, unknown> = {}): Promise<Observation> {
-  await root(frame); await boundary();
-  if (frame.storePin) readStorePointer(frame);
-  const helper = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts/runtime/markdown-create-birth.py');
-  const observed = await new Promise<Observation>((resolve, reject) => {
-    const child = spawn(process.env.CANVAS_PYTHON_PATH?.trim() || 'python3', ['-I', helper], {
-      stdio: ['pipe', 'pipe', 'pipe', frame.data.fd, frame.workspace.fd],
+  const phase = { open: 'birth_open', verify: 'birth_verify', prepare: 'birth_prepare', observe: 'birth_observe', complete: 'birth_complete' } as const;
+  return inCollaborationProjectionPhase(phase[action], async () => {
+    await root(frame); await boundary();
+    if (frame.storePin) readStorePointer(frame);
+    const helper = path.join(process.env.CANVAS_APP_ROOT?.trim() || process.cwd(), 'scripts/runtime/markdown-create-birth.py');
+    const observed = await new Promise<Observation>((resolve, reject) => {
+      const child = spawn(process.env.CANVAS_PYTHON_PATH?.trim() || 'python3', ['-I', helper], {
+        stdio: ['pipe', 'pipe', 'pipe', frame.data.fd, frame.workspace.fd],
+      });
+      let buffer = '', value: Observation | undefined, hasFailure = false, failure: unknown;
+      let pending = Promise.resolve();
+      const rejectChild = (error: unknown) => { if (!hasFailure) { hasFailure = true; failure = error; } child.kill('SIGKILL'); };
+      const timer = setTimeout(() => rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED')), 30_000);
+      child.stdin!.on('error', () => undefined);
+      child.stderr!.on('data', () => undefined);
+      child.stdout!.setEncoding('utf8');
+      child.stdout!.on('data', chunk => {
+        buffer += String(chunk);
+        if (buffer.length > 256 * 1024) { rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED')); return; }
+        for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+          const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+          pending = pending.then(async () => {
+            if (hasFailure) return;
+            const result = JSON.parse(line);
+            if (typeof result.stage === 'string') { await root(frame); await boundary(result.stage); child.stdin!.write('continue\n'); }
+            else if (typeof result.error === 'string') rejectChild(new MarkdownCreateBirthError(result.error));
+            else if (result.result) value = result.result as Observation;
+            else rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
+          }).catch(rejectChild);
+        }
+      });
+      child.once('error', rejectChild);
+      child.once('close', code => {
+        clearTimeout(timer);
+        // Drain the exact authorization/ACK work before observing child closure.
+        void pending.then(() => {
+          if (hasFailure) reject(failure);
+          else if (code !== 0 || !value || !['intent', 'prepared', 'born', 'complete'].includes(value.state)
+            || !/^[a-f0-9]{64}$/u.test(value.fingerprint) || frame.fingerprint && value.fingerprint !== frame.fingerprint) reject(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
+          else resolve(value);
+        }, reject);
+      });
+      child.stdin!.write(JSON.stringify({ action, key: frame.key, intent: frame.intent, ...fields }) + '\n');
     });
-    let buffer = '', value: Observation | undefined, hasFailure = false, failure: unknown;
-    let pending = Promise.resolve();
-    const rejectChild = (error: unknown) => { if (!hasFailure) { hasFailure = true; failure = error; } child.kill('SIGKILL'); };
-    const timer = setTimeout(() => rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED')), 30_000);
-    child.stdin!.on('error', () => undefined);
-    child.stderr!.on('data', () => undefined);
-    child.stdout!.setEncoding('utf8');
-    child.stdout!.on('data', chunk => {
-      buffer += String(chunk);
-      if (buffer.length > 256 * 1024) { rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED')); return; }
-      for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
-        pending = pending.then(async () => {
-          if (hasFailure) return;
-          const result = JSON.parse(line);
-          if (typeof result.stage === 'string') { await root(frame); await boundary(result.stage); child.stdin!.write('continue\n'); }
-          else if (typeof result.error === 'string') rejectChild(new MarkdownCreateBirthError(result.error));
-          else if (result.result) value = result.result as Observation;
-          else rejectChild(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
-        }).catch(rejectChild);
-      }
-    });
-    child.once('error', rejectChild);
-    child.once('close', code => {
-      clearTimeout(timer);
-      // Drain the exact authorization/ACK work before observing child closure.
-      void pending.then(() => {
-        if (hasFailure) reject(failure);
-        else if (code !== 0 || !value || !['intent', 'prepared', 'born', 'complete'].includes(value.state)
-          || !/^[a-f0-9]{64}$/u.test(value.fingerprint) || frame.fingerprint && value.fingerprint !== frame.fingerprint) reject(new MarkdownCreateBirthError('MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'));
-        else resolve(value);
-      }, reject);
-    });
-    child.stdin!.write(JSON.stringify({ action, key: frame.key, intent: frame.intent, ...fields }) + '\n');
+    await root(frame); await boundary();
+    if (frame.storePin) readStorePointer(frame);
+    return observed;
   });
-  await root(frame); await boundary();
-  if (frame.storePin) readStorePointer(frame);
-  return observed;
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -501,8 +505,10 @@ export async function withMarkdownCreateBirthClaim<T>(input: { workspaceRoot: st
         const publicationBoundary = async (stage = 'boundary') => { await manualGuard?.(stage); await boundary(stage); };
         await invoke(current, 'prepare', publicationBoundary, { bytes: Buffer.from(serialized).toString('base64'), serializedHash: sha(serialized) });
         // invoke resolves only after the actual helper close and ACK drain.
-        await root(current); await publicationBoundary('parent_link');
-        synchronousBirth(current, serialized, assertWithinTurn);
+        await inCollaborationProjectionPhase('birth_publish', async () => {
+          await root(current); await publicationBoundary('parent_link');
+          synchronousBirth(current, serialized, assertWithinTurn);
+        });
         return invoke(current, 'observe', publicationBoundary);
       }),
       complete: (serializedHash, revisionId, completionBoundary) => run(async () => {
