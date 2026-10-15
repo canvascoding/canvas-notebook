@@ -5,14 +5,17 @@ import { promisify } from 'node:util';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { authenticateManagedTestPage } from './helpers/managed-test-context';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
+import { installOwnedGuestStaleUpdate } from './helpers/owned-guest-stale-update';
 import { fileGuestCookieName } from '../app/lib/file-guests/types';
 import type { FileGuestDocumentResponse } from '../app/lib/file-guests/content-contract';
 import { removeOwnedFileGuestFixtureProjection, seedOwnedFileGuestFixture } from '../scripts/lib/owned-file-guest-fixture';
 import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import * as Y from 'yjs';
+import { readRichDocumentJson } from '../app/lib/collaboration/rich-document';
 
 type Invitation = { id: string; policyRevision: number; email: string; url: string };
-type EditorElement = HTMLElement & { editor: { isEditable: boolean; isDestroyed: boolean; state: { doc: { content: { size: number } } };
+type EditorElement = HTMLElement & { editor: { isEditable: boolean; isDestroyed: boolean; state: { doc: { content: { size: number }; textContent: string } };
   commands: { insertContentAt: (position: number, text: string) => boolean } } };
 const BASE_URL = process.env.BASE_URL || 'http://127.0.0.1:3100';
 const execFileAsync = promisify(execFile);
@@ -171,6 +174,7 @@ test.describe('real file guest collaboration', () => {
     const ownerContext = await fixtureContext(browser);
     const writerContext = await fixtureContext(browser);
     const readerContext = await fixtureContext(browser);
+    const staleUpdate = await installOwnedGuestStaleUpdate(writerContext);
     const owner = await ownerContext.newPage();
     const writer = await writerContext.newPage();
     const reader = await readerContext.newPage();
@@ -267,25 +271,57 @@ test.describe('real file guest collaboration', () => {
       expect(readerSession.ok()).toBe(true);
       expect((await readerSession.json()).permission).toBe('read');
       const beforeRevoke = await text(ownerEditor);
-      const revoked = await owner.request.delete(`/api/security/file-guests/${invitations[0].id}`, { headers,
-        data: { policyRevision: invitations[0].policyRevision } });
-      expect(revoked.ok()).toBe(true);
-      // Exercise a real stale editor transaction after revocation; server checks must reject its update.
+      const content = await actualGuestContent(writer, invitations[0]);
+      expect(content.session.representation).toBe('tiptap_blocks');
+      const beforeLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      const beforeClock = Y.decodeStateVector(Buffer.from(beforeLocal.stateVector, 'base64')).get(beforeLocal.localClient) ?? 0;
+      staleUpdate.arm(content.session.documentName);
+      // Create the genuine local edit while authorized, holding its original
+      // outgoing update until the actual owner revoke has committed.
       const attempted = await guestEditor.evaluate((element) => {
         const editor = (element as EditorElement).editor;
         const wasEditable = editor.isEditable;
         const wasDestroyed = editor.isDestroyed;
         const applied = !wasDestroyed && editor.commands.insertContentAt(editor.state.doc.content.size - 1, 'REVOKED_GUEST_UPDATE');
-        return { applied, wasEditable, wasDestroyed, localMutation: element.textContent?.includes('REVOKED_GUEST_UPDATE') };
+        return { applied, wasEditable, wasDestroyed, localMutation: element.textContent?.includes('REVOKED_GUEST_UPDATE'),
+          editorStateMutation: editor.state.doc.textContent.includes('REVOKED_GUEST_UPDATE') };
       });
-      expect(attempted, 'This scenario must actually attempt a stale local mutation; an already destroyed editor needs a separate fixture.').toMatchObject({
-        applied: true, wasDestroyed: false, localMutation: true,
+      expect(attempted, 'The held update must originate in a real editable ProseMirror transaction.').toMatchObject({
+        applied: true, wasEditable: true, wasDestroyed: false, localMutation: true, editorStateMutation: true,
+      });
+      const afterLocal = await readNativeRichCandidate(writer, '.tiptap-editor-shell .ProseMirror');
+      expect(afterLocal.guid).toBe(beforeLocal.guid); expect(afterLocal.localClient).toBe(beforeLocal.localClient);
+      expect(afterLocal.stateProof).not.toBe(beforeLocal.stateProof);
+      expect(JSON.stringify(afterLocal.document)).toContain('REVOKED_GUEST_UPDATE');
+      const afterClock = Y.decodeStateVector(Buffer.from(afterLocal.stateVector, 'base64')).get(afterLocal.localClient) ?? 0;
+      expect(afterClock).toBeGreaterThan(beforeClock);
+      const mutation = { localClient: afterLocal.localClient, beforeClock, afterClock, marker: 'REVOKED_GUEST_UPDATE' };
+      await expect.poll(() => staleUpdate.mutation(mutation), 'The held frame must be the original marker-bearing native Yjs update.').not.toBeNull();
+      const held = staleUpdate.mutation(mutation)!;
+      expect(await text(ownerEditor)).toBe(beforeRevoke);
+      expect(await text(readerEditor)).toBe(beforeRevoke);
+      staleUpdate.beginRevoke();
+      const revoked = await owner.request.delete(`/api/security/file-guests/${invitations[0].id}`, { headers,
+        data: { policyRevision: invitations[0].policyRevision } });
+      expect(revoked.status()).toBe(200);
+      const release = staleUpdate.releaseAfterRevoke(revoked.status());
+      expect(release).toMatchObject({ markerFrameAttempts: 1, markerFrameSha256: held.markerFrameSha256, sendIsDeliveryReceipt: false });
+      expect(release.originalFrameAttempts).toBe(held.frames);
+      // A Hocuspocus logical CLOSE carries a reason, not a physical 4403 code.
+      // Denial may arrive during the revoke HTTP request, before its response.
+      await expect.poll(() => {
+        const evidence = staleUpdate.evidence();
+        return evidence.accessRevoked.length > 0 && evidence.logicalClose.length > 0;
+      }, 'The original bound server connection must actually deny the revoked document.').toBe(true);
+      await testInfo.attach('original guest update release and actual server denial', {
+        body: Buffer.from(JSON.stringify({ held, release, evidence: staleUpdate.evidence() })), contentType: 'application/json',
       });
       await expect(guestEditor).toHaveAttribute('contenteditable', 'false', { timeout: 25_000 });
       await expect(writer.getByTestId('markdown-save-state')).toBeVisible();
       const deniedSession = await writer.request.post(`/api/guest/files/${invitations[0].id}/session`, { headers: { Origin: BASE_URL }, data: {} });
       expect([403, 410]).toContain(deniedSession.status());
       expect(await text(ownerEditor)).toBe(beforeRevoke);
+      expect(await text(readerEditor)).toBe(beforeRevoke);
       await expect.poll(async () => {
         const response = await owner.request.get('/api/files/read', { headers, params: { path: filePath } });
         return (await response.json()).data.content as string;
@@ -299,10 +335,15 @@ test.describe('real file guest collaboration', () => {
       expect(backup.suggestedFilename()).toBe('canvas-recovery.yjs');
       const bytes = await readFile((await backup.path())!);
       const recovery = new Y.Doc();
-      try { Y.applyUpdate(recovery, bytes); expect(recovery.store.clients.size).toBeGreaterThan(0); }
+      try {
+        Y.applyUpdate(recovery, bytes); expect(recovery.store.clients.size).toBeGreaterThan(0);
+        expect(JSON.stringify(readRichDocumentJson(recovery))).toContain('REVOKED_GUEST_UPDATE');
+        expect(Y.decodeStateVector(Y.encodeStateVector(recovery)).get(afterLocal.localClient) ?? 0).toBeGreaterThanOrEqual(afterClock);
+      }
       finally { recovery.destroy(); }
       await testInfo.attach('guest editor after revocation', { body: await writer.screenshot(), contentType: 'image/png' });
     } finally {
+      staleUpdate.discard();
       if (workspaceId) {
         const headers = { 'x-canvas-workspace-id': workspaceId, Origin: BASE_URL };
         for (const invitation of invitations) await owner.request.delete(`/api/security/file-guests/${invitation.id}`, {
