@@ -539,9 +539,40 @@ test.describe('Explicit insertion cancellation and original-byte chunk import', 
         const completed = page.waitForResponse(response => /^\/api\/files\/uploads\/[^/]+\/complete$/u.test(new URL(response.url()).pathname)
           && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspace.id);
         await dialog.locator('input[type="file"]:not([webkitdirectory])').setInputFiles({ name: path, mimeType: 'text/markdown', buffer: bytes });
-        const response = await completed;
+        let response = await completed;
+        const endpoint = new URL(response.url()).pathname;
+        const uploadId = endpoint.split('/')[4], fileId = response.request().postDataJSON().fileId;
+        let payload = await response.json();
+        if (response.status() === 202) {
+          // A pending import retains its source; only a real user action may
+          // check the same attempt again. It is not a completed byte import.
+          expect(['projection_pending', 'recovery_required']).toContain(payload.completion?.status);
+          expect(payload.success).toBe(true);
+          expect(payload.completion).toEqual({ status: payload.completion.status, uploadId, fileId, targetPath: path,
+            code: payload.completion.status === 'projection_pending' ? 'MARKDOWN_UPLOAD_PROJECTION_PENDING' : 'MARKDOWN_UPLOAD_RECOVERY_REQUIRED' });
+          await expect(dialog.getByRole('status').filter({ hasText: path })).toContainText(
+            'The import has not been confirmed yet. Its upload source is retained for the same attempt.');
+          await expect.poll(() => page.evaluate(expected => Object.keys(localStorage)
+            .filter(key => key.startsWith('canvas-markdown-upload-resumes:v1:'))
+            .some(key => JSON.parse(localStorage.getItem(key)!).locators.some((locator: Record<string, unknown>) =>
+              Object.entries(expected).every(([name, value]) => locator[name] === value))),
+          { workspaceId: workspace.id, uploadId, fileId, targetPath: path, status: payload.completion.status })).toBe(true);
+          const checked = page.waitForResponse(candidate => new URL(candidate.url()).pathname === endpoint
+            && candidate.request().method() === 'POST'
+            && candidate.request().headers()['x-canvas-workspace-id'] === workspace.id
+            && candidate.request().postDataJSON()?.fileId === fileId);
+          await dialog.getByRole('button', { name: 'Check completion again', exact: true }).click();
+          response = await checked;
+          payload = await response.json();
+          expect(response.status()).toBe(200);
+          expect(payload.completion).toEqual({ status: 'completed', uploadId, fileId, targetPath: path });
+          await expect(dialog.getByRole('button', { name: 'Check completion again', exact: true })).toHaveCount(0);
+          await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+          info.annotations.push({ type: 'import-completion', description: 'Initial pending response; retained locator and one explicit UI check completed the same upload. No automatic test retry.' });
+        }
         expect(response.status()).toBe(200);
-        expect((await response.json()).completion).toMatchObject({ status: 'completed', targetPath: path });
+        expect(payload.success).toBe(true);
+        expect(payload.completion).toEqual({ status: 'completed', uploadId, fileId, targetPath: path });
         await expect(dialog).toHaveCount(0);
         expect(await exported()).toEqual(bytes);
         await page.goto(`/en/notebook?path=${encodeURIComponent(path)}&workspaceId=${workspace.id}`);
