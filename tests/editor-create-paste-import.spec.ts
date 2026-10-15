@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, writeFile } from 'node:fs/promises';
-import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
+import { expect, request as playwrightRequest, test, type Dialog, type Locator, type Page, type Response } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
 import { assertCompletedWorkspaceMarkdownCreate, authenticateManagedTestPage } from './helpers/managed-test-context';
@@ -8,6 +8,10 @@ import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 import { installPassiveNativeRichObservation } from './helpers/passive-native-rich-observation';
 import { installPassiveWebSocketObservation, type PassiveWebSocketObservation, type PassiveWebSocketSnapshot } from './helpers/passive-ws-observation';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
+import { observeNativeDurabilityAcknowledgements } from './helpers/native-durability-ack';
+import { installOwnedCollaborationOutage } from './helpers/owned-collaboration-outage';
+import { readNativeRichLocalRecovery } from './helpers/native-rich-local-recovery';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const importTitle = 'Insert Markdown…';
@@ -15,6 +19,10 @@ const plainText = 'First paste: äöü ß 😀\nSecond line preserves plain text
 const markdownBody = '# Imported heading\n\nA **bold** paragraph with a [link](https://example.test/docs).\n\n- First\n- Second\n\n| Name | Value |\n| --- | --- |\n| Alpha | Beta |\n\n```javascript\nconsole.log("hello");\n```\n';
 
 type Workspace = { id: string; headers: Record<string, string> };
+type NativeCandidate = Awaited<ReturnType<typeof readNativeRichCandidate>>;
+type TestSession = { documentId: string; lifecycleGeneration: number; representation: string; documentSequence: number;
+  success: boolean; provider: string; schemaVersion: number; richTextSchemaVersion: number; blockTreeFormatVersion: number;
+  stateProof: string; stateVector: string; degraded: boolean };
 
 async function login(page: Page, secondary = false): Promise<Workspace> {
   if (secondary) expect(Boolean(process.env.TEST_SECONDARY_EMAIL && process.env.TEST_SECONDARY_PASSWORD)).toBe(true);
@@ -111,7 +119,7 @@ async function readText(page: Page, workspace: Workspace, path: string): Promise
   return (await response.json()).data.content;
 }
 
-async function session(page: Page, workspace: Workspace, path: string) {
+async function session(page: Pick<Page, 'request'>, workspace: Workspace, path: string) {
   const response = await page.request.post('/api/files/collaboration/session', {
     headers: workspace.headers, data: { path, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES },
   });
@@ -119,7 +127,28 @@ async function session(page: Page, workspace: Workspace, path: string) {
   const value = await response.json();
   expect(value.documentId).toBeTruthy();
   expect(value.lifecycleGeneration).toBeGreaterThan(0);
-  return value as { documentId: string; lifecycleGeneration: number; representation: string; documentSequence: number };
+  return value as TestSession;
+}
+
+/** SessionPOST derives this proof from persisted native bytes, not a live text
+ * read or a merely older successful save. Never force a checkpoint here. */
+async function waitForPersistedNativeCandidate(page: Pick<Page, 'request'>, workspace: Workspace, path: string,
+  identity: { documentId: string; lifecycleGeneration: number }, candidate: NativeCandidate): Promise<TestSession> {
+  let latest: TestSession | undefined;
+  await expect.poll(async () => {
+    latest = await session(page, workspace, path);
+    return { success: latest.success, provider: latest.provider, documentId: latest.documentId,
+      lifecycleGeneration: latest.lifecycleGeneration, representation: latest.representation,
+      schemaVersion: latest.schemaVersion, richTextSchemaVersion: latest.richTextSchemaVersion,
+      blockTreeFormatVersion: latest.blockTreeFormatVersion, stateProof: latest.stateProof,
+      stateVector: latest.stateVector, degraded: latest.degraded };
+  }, { timeout: 20_000 }).toEqual({ success: true, provider: 'yjs', documentId: identity.documentId,
+    lifecycleGeneration: identity.lifecycleGeneration, representation: 'tiptap_blocks',
+    schemaVersion: COLLABORATION_SCHEMA_VERSION, richTextSchemaVersion: COLLABORATION_CLIENT_CAPABILITIES.richTextSchemaVersion,
+    blockTreeFormatVersion: COLLABORATION_CLIENT_CAPABILITIES.blockTreeFormatVersion,
+    stateProof: candidate.stateProof, stateVector: candidate.stateVector, degraded: false });
+  if (!latest) throw new Error('The exact native candidate has no persisted session witness.');
+  return latest;
 }
 
 function observeInitialUiSession(page: Page, workspace: Workspace, path: string) {
@@ -202,6 +231,13 @@ test.describe('Manual document creation and first content', () => {
       const path = `manual-paste-${entry}-${randomUUID()}.md`;
       const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL });
       const peer = await peerContext.newPage();
+      const acknowledgements = observeNativeDurabilityAcknowledgements(page);
+      const departureDialogs: string[] = [];
+      const preventPendingDeparture = async (dialog: Dialog) => {
+        departureDialogs.push(dialog.type());
+        await dialog.dismiss();
+      };
+      page.on('dialog', preventPendingDeparture);
       const openingSession = observeInitialUiSession(page, workspace, path);
       const nativeObservations: Awaited<ReturnType<typeof installPassiveNativeRichObservation>>[] = [];
       const wsObservers: Array<{ role: 'owner' | 'peer'; observer?: PassiveWebSocketObservation;
@@ -285,39 +321,167 @@ test.describe('Manual document creation and first content', () => {
         // Undo must remain local to the initiating user and preserve the peer's edit.
         await (await nativeParagraph(page, 'Second line preserves plain text.')).click();
         await page.keyboard.press('End'); await page.keyboard.insertText(' Own edit.');
+        const beforeUndo = await readNativeRichCandidate(page, editorSelector);
+        // The peer must actually receive the intermediate insertion. A later
+        // PM-only equality could otherwise pass against its untouched old doc.
+        await expect.poll(async () => {
+          const candidate = await readNativeRichCandidate(peer, editorSelector);
+          return { document: candidate.document, stateProof: candidate.stateProof, stateVector: candidate.stateVector };
+        }).toEqual({ document: beforeUndo.document, stateProof: beforeUndo.stateProof, stateVector: beforeUndo.stateVector });
         await page.keyboard.press('ControlOrMeta+z');
         await expect(page.locator(editorSelector)).not.toContainText('Own edit.');
         await expect(page.locator(editorSelector)).toContainText('Peer keeps this.');
-        const final = await tree(page);
+        const finalCandidate = await readNativeRichCandidate(page, editorSelector);
+        expect(finalCandidate.guid).toBe(beforeUndo.guid);
+        expect(finalCandidate.stateVector).toBe(beforeUndo.stateVector);
+        expect(finalCandidate.stateProof).not.toBe(beforeUndo.stateProof);
+        const final = finalCandidate.document;
         await expect.poll(() => tree(peer)).toEqual(final);
+        await expect.poll(async () => (await readNativeRichCandidate(peer, editorSelector)).stateProof).toBe(finalCandidate.stateProof);
         await expect.poll(() => readText(page, workspace, path), { timeout: 20_000 }).toContain('Peer keeps this.');
-        const persisted = await session(page, workspace, path);
+        const persisted = await waitForPersistedNativeCandidate(page, workspace, path, identity, finalCandidate);
         expect(persisted.documentId).toBe(identity.documentId);
         expect(persisted.lifecycleGeneration).toBe(identity.lifecycleGeneration);
         expect(persisted.documentSequence).toBeGreaterThan(identity.documentSequence);
+        await expect.poll(() => acknowledgements.hasAcknowledged(identity, finalCandidate)).toBe(true);
+        expect(await readNativeRichCandidate(page, editorSelector)).toEqual(finalCandidate);
+        await info.attach('final-undo-durability', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+          documentId: identity.documentId, generation: identity.lifecycleGeneration, sequence: persisted.documentSequence,
+          beforeUndoProof: beforeUndo.stateProof, stateProof: finalCandidate.stateProof,
+          stateVector: finalCandidate.stateVector, clientAcknowledged: true,
+        })) });
         await page.screenshot({ path: info.outputPath(`manual-${entry}-paste.png`), animations: 'disabled' });
         await Promise.allSettled(nativeObservations.map(observation => observation.finish(info)));
         await finishWs();
         await peerContext.close();
         await page.goto('about:blank');
+        expect(departureDialogs, 'A saved departure must not silently accept a pending warning.').toEqual([]);
         const freshContext = await browser.newContext({ baseURL: process.env.BASE_URL });
         try {
           const fresh = await freshContext.newPage();
           expect(await login(fresh)).toEqual(workspace);
           await open(fresh, workspace, path);
           await expect.poll(() => tree(fresh)).toEqual(final);
+          await expect.poll(async () => (await readNativeRichCandidate(fresh, editorSelector)).stateProof).toBe(finalCandidate.stateProof);
           await fresh.reload();
           await expect.poll(() => tree(fresh)).toEqual(final);
+          await expect.poll(async () => (await readNativeRichCandidate(fresh, editorSelector)).stateProof).toBe(finalCandidate.stateProof);
         } finally { await freshContext.close(); }
       } finally {
         await Promise.allSettled(nativeObservations.map(observation => observation.finish(info)));
         await finishWs();
+        acknowledgements.dispose();
+        page.off('dialog', preventPendingDeparture);
         openingSession.dispose();
         await peerContext.close();
         await page.goto('about:blank').catch(() => undefined);
         await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
       }
     });
+  }
+
+  for (const departure of ['stay', 'leave'] as const) {
+    test(`pending undo: ${departure === 'stay' ? 'stay keeps the live document' : 'explicit leave restores committed local recovery'} before reconnect`,
+      async ({ page, context }, info) => {
+        info.annotations.push({ type: 'recovery-scope', description:
+          'A real blocked WebSocket and offline browser; committed IndexedDB recovery is verified before explicit departure. No immediate crash-durability claim.' });
+        const outage = await installOwnedCollaborationOutage(context);
+        let remote: Awaited<ReturnType<typeof playwrightRequest.newContext>> | undefined;
+        let workspace: Workspace | undefined;
+        let active = page;
+        const path = `manual-pending-undo-${departure}-${randomUUID()}.md`;
+        try {
+          workspace = await login(page);
+          remote = await playwrightRequest.newContext({ baseURL: process.env.BASE_URL,
+            storageState: { cookies: await context.cookies(), origins: [] } });
+          const server = { request: remote };
+          await createInUi(page, workspace, path, 'home');
+          const identity = await session(server, workspace, path);
+          await clipboardPaste(page, page.locator(editorSelector), 'Pending undo baseline.');
+          await expect(page.locator(editorSelector)).toHaveText('Pending undo baseline.');
+          const baseline = await readNativeRichCandidate(page, editorSelector);
+          const savedBaseline = await waitForPersistedNativeCandidate(server, workspace, path, identity, baseline);
+          const remoteBaseline = { documentId: identity.documentId, generation: identity.lifecycleGeneration,
+            sequence: savedBaseline.documentSequence, proof: baseline.stateProof, vector: baseline.stateVector };
+          await outage.block();
+          await context.setOffline(true);
+          await (await nativeParagraph(page, 'Pending undo baseline.')).click();
+          await page.keyboard.press('End');
+          await page.keyboard.insertText(' Pending own edit.');
+          await expect(page.locator(editorSelector)).toHaveText('Pending undo baseline. Pending own edit.');
+          const inserted = await readNativeRichCandidate(page, editorSelector);
+          await page.keyboard.press('ControlOrMeta+z');
+          await expect(page.locator(editorSelector)).toHaveText('Pending undo baseline.');
+          const candidate = await readNativeRichCandidate(page, editorSelector);
+          expect(candidate.guid).toBe(baseline.guid);
+          expect(candidate.document).toEqual(baseline.document);
+          expect(candidate.stateVector).toBe(inserted.stateVector);
+          expect(candidate.stateVector).not.toBe(baseline.stateVector);
+          expect(candidate.stateProof).not.toBe(inserted.stateProof);
+          expect(candidate.stateProof).not.toBe(baseline.stateProof);
+          const expected = { document: candidate.document, stateProof: candidate.stateProof, stateVector: candidate.stateVector };
+          // A transaction-complete read of the actual local log must include
+          // the deletion. PM equality with the baseline cannot prove recovery.
+          await expect.poll(() => readNativeRichLocalRecovery(page, identity), { timeout: 20_000 }).toEqual(expected);
+          const stillRemote = await session(server, workspace, path);
+          expect({ documentId: stillRemote.documentId, generation: stillRemote.lifecycleGeneration,
+            sequence: stillRemote.documentSequence, proof: stillRemote.stateProof, vector: stillRemote.stateVector })
+            .toEqual(remoteBaseline);
+
+          // Installing the listener makes the decision explicit. Playwright's
+          // default beforeunload acceptance must never stand in for saved close.
+          const originalUrl = page.url();
+          const shown = page.waitForEvent('dialog');
+          const closing = page.close({ runBeforeUnload: true });
+          const dialog = await shown;
+          expect(dialog.type()).toBe('beforeunload');
+          if (departure === 'stay') {
+            await dialog.dismiss();
+            await closing;
+            expect(page.isClosed()).toBe(false);
+            expect(page.url()).toBe(originalUrl);
+            expect(await readNativeRichCandidate(page, editorSelector)).toEqual(candidate);
+          } else {
+            const closed = page.waitForEvent('close');
+            await dialog.accept();
+            await closing;
+            await closed;
+            await context.setOffline(false);
+            active = await context.newPage();
+            await open(active, workspace, path);
+            await expect.poll(async () => {
+              const restored = await readNativeRichCandidate(active, editorSelector);
+              return { document: restored.document, stateProof: restored.stateProof, stateVector: restored.stateVector };
+            }, { timeout: 20_000 }).toEqual(expected);
+            // HTTP is online, but all collaboration reconnects remain gated.
+            // The recovered document cannot be mistaken for a remote save.
+          }
+          const afterDecision = await session(server, workspace, path);
+          expect({ documentId: afterDecision.documentId, generation: afterDecision.lifecycleGeneration,
+            sequence: afterDecision.documentSequence, proof: afterDecision.stateProof, vector: afterDecision.stateVector })
+            .toEqual(remoteBaseline);
+          outage.restore();
+          await context.setOffline(false);
+          const saved = await waitForPersistedNativeCandidate(server, workspace, path, identity, candidate);
+          expect(saved.documentSequence).toBeGreaterThan(savedBaseline.documentSequence);
+          await expect.poll(() => tree(active)).toEqual(candidate.document);
+          await info.attach(`pending-undo-${departure}`, { contentType: 'application/json', body: Buffer.from(JSON.stringify({
+            documentId: identity.documentId, generation: identity.lifecycleGeneration, departure,
+            baselineSequence: savedBaseline.documentSequence, recoveredSequence: saved.documentSequence,
+            baselineProof: baseline.stateProof, candidateProof: candidate.stateProof,
+            committedLocalRecovery: true, explicitBeforeUnloadDecision: true,
+          })) });
+        } finally {
+          await context.setOffline(false);
+          try { await outage.dispose(); }
+          finally {
+            await Promise.allSettled(context.pages().map(target => target.goto('about:blank')));
+            try {
+              if (remote && workspace) await remote.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
+            } finally { await remote?.dispose(); }
+          }
+        }
+      });
   }
 
   test('manual empty document imports a Markdown body and retains rejected full-document drafts', async ({ page }, info) => {
