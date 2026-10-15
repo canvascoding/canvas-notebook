@@ -1,6 +1,6 @@
 # Plan: Yjs-Dokumentautorität und sichere Dateiaktionen konsolidieren
 
-**Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben. Aktuell: I-05-Einzeldatei-Chunkanschluss und Notebook-I-06 manuelles Create integriert und unabhängig geprüft; der betroffene Native-Createadapter ist separat committet. Der erste I-07-Browserlauf ist fehlgeschlagen; HTTP-Anschluss und zwei lokale Web-Recoverygrenzen werden vor der erneuten Abnahme korrigiert. Allgemeine Aktivierung bleibt offen.
+**Status:** Umsetzung am 13. Oktober 2026 freigegeben; Arbeitspakete und Abnahmen werden unten fortgeschrieben. Aktuell: I-05-Einzeldatei-Chunkanschluss und Notebook-I-06 manuelles Create integriert und unabhängig geprüft; der betroffene Native-Createadapter ist separat committet. HTTP-Anschluss und lokale Web-Recoverygrenzen sind korrigiert; der zweite I-07-Lauf bestätigt Create, scheitert jedoch an weiteren Live-Sync-/Ownerfehlern. Der begrenzte echte Provider-/WebSocket-Reproducer bestätigt einen möglichen Mechanismus fehlender Yjs-Abhängigkeiten nach Transportverlust. Die genaue Browserursache, Produktkorrektur und gemeinsame Abnahme bleiben offen. Allgemeine Aktivierung bleibt offen.
 
 **Stand:** 15. Oktober 2026.
 
