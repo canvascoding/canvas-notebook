@@ -183,7 +183,9 @@ test('Native metadata uses the active document identity without changing its dur
 test('Physical metadata requires the current file version and rejects an old version without partial changes', async ({ browser }) => {
   test.setTimeout(180_000);
   await withOwnedContext(browser, async (context, workspace) => {
-    const filePath = `owned-yjs-restart-${randomUUID()}.txt`, title = `Physical metadata ${randomUUID()}`;
+    // CSV uses revision_check; .txt creates an active CRDT document on read
+    // and correctly rejects the whole-file writer used by this countercase.
+    const filePath = `owned-yjs-restart-${randomUUID()}.csv`, title = `Physical metadata ${randomUUID()}`;
     const headers = { 'x-canvas-workspace-id': workspace.id };
     await waitForFileCreateBudget();
     expect(await json<{ success: boolean }>(await context.request.post('/api/files/create', {
