@@ -358,3 +358,29 @@ Der unabhängige Sourcecheck findet keinen verbleibenden Fehler im Marker-/Clean
 Die zusätzlichen bestehenden Rename- und Standortregressionen bestehen; der anschließende ursprüngliche Offline-Suitenaufruf endet insgesamt mit Exit1 am alten Offline-Clienttest (`denied` statt `offline`). Ein privater Preloader leitet ausschließlich dessen exakten `client.ts`-Quellread auf die gesicherte Originalfassung um: Dieselbe unveränderte alte Testquelle scheitert sowohl auf Original als auch Korrektur identisch. Nach ausschließlich vorgezogenem Import des tatsächlichen Authmoduls vor JSDOM besteht dieselbe neue Testquelle auf beiden Clientfassungen mit tatsächlichem Exit0; sämtliche fachlichen Offline-/Token-/Revocationassertionen bleiben unverändert. Test-SHA-256 `b4f86c701d5ab0482fdbaf0bfdb1db7dfa0625b2656ea75e757908fbd7a30993`, private Belege `canvas-owned-offline-client-baseline-a6lcy1_2` und `canvas-owned-offline-client-auth-preload-b2x0upq2`. Dies ist ein getrennt nachgewiesener Fixturebefund, kein behobener Produkt-Offlinefehler.
 
 Abschließend bestehen vollständiges TypeScript ohne Incrementalcache und Scoped-ESLint über alle sechs TS-/TSX-Dateien jeweils mit tatsächlichem Exit0. Ein AST-Abgleich bestätigt ausschließlich `requestSession` und `withAuthenticatedTextCollaborationSessionGrant` als geänderte bestehende Top-Level-Funktionskörper;31 beziehungsweise14 andere Körper bleiben bytegleich, hinzu kommen die beiden neuen Klassifikator-/Diagnosefunktionen. Die gestagte Änderungsanalyse ist LOW; die vorab gemeldete HIGH-Reichweite des gemeinsamen Clients bleibt als Aufrufergrenze relevant. Keine neue allgemeine Aktivierung, kein Containerbau und kein Produktionslauf.
+
+### Neunter Gesamtlauf: vollständige lokale 40-Fall-Abnahme
+
+Am16.Oktober besteht die vollständige erweiterte Webmatrix auf Root `c4bbc0c237bc3d74489cd05f541104dadcde2108` / QA `4578b01859cc4d7693d554bfd45547a8afd6ce55`. Der frische Originalbuild endet mit Exit0; unabhängige Vor-/Nachprüfung enden ebenfalls mit Exit0 und identischem Beleg: Quelle `3684432f58760224862b513b91dac573493fca7e05699e8ccdae9c3716b2dde1`, Build `e6205f1576bb10d6019cf6e5e91b60fb21018dc00369d29c5288bd0f070636f8`, Control Plane unverändert `27c8ce37da082244f006ca376068cde6b98845d5`. Root und QA unterscheiden sich im Produkt weiterhin ausschließlich durch den privaten Aktivierungspunkt; allgemein bleibt er aus.
+
+| Ursprüngliche Suite | Gestartet und bestanden |
+| --- | ---: |
+| Fokus/Breite | 1 |
+| Gastbearbeitung | 3 |
+| Create/Paste/Import | 15 |
+| Manual-Create-Recovery | 2 |
+| Markdown-Einfügung | 3 |
+| Rich-Workspace-Links | 1 |
+| Zielordner | 13 |
+| Eigene Hostneustarts | 2 |
+| Gesamt | 40 |
+
+Alle acht Originaloutcomes sind `passed`, ohne Fehler, Skips, Testtimeouts oder Unterbrechungen; der ursprüngliche Supervisor46316 endet tatsächlich mit Exit0. Beide echten Neustarts sind mit `restartCount:2` belegt. Der Markdown-Dialog- und der Desktop-Home-Reloadfall bestehen. Root prüft zusätzlich den tatsächlichen Fokus-/Breitenscreenshot: direkter Editor, kompakte Steuerung im Dokumentkopf, keine Read/Edit-Auswahl. Review Center bleibt im gesamten Lauf ausgeschaltet.
+
+V9 enthält zwei endliche Sessiondiagnosen, jeweils `phase:enroll`, `code:PRINCIPAL_ACCESS_DENIED`, `retryable:false` im ersten Hostlog; die beiden folgenden Hostlogs enthalten keine. Kein `retryable:true` ist belegt. Der Browserpass weist deshalb keinen natürlich ausgeführten qualifizierten Startup-Retry nach und erklärt den ursprünglichen V8-Busy weder kausal noch rückwirkend. Die gezielte neue Funktion ist durch die getrennten echten PG- und Hookgegenfälle abgesichert.
+
+Alle vier überlappenden Beobachter enden tatsächlich mit Exit0. Die ersten drei erreichen ihre jeweiligen600s-Stichprobenfenster bei noch aktiver Runtime und bleiben ausdrücklich unvollständige Fenster, keine früheren Closurebelege. V16 endet nach272 Stichproben/418,549s mit geschlossenem beobachtetem Fenster und ohne Fehler. Danach bestätigt ein frischer unabhängiger Checker mit Exit0 die Union von186 beobachteten Prozessidentitäten und23 Gruppen: keine Restidentitäten, Gruppenmitglieder, Beobachter oder Listener an Port56041, Runlock abwesend, DATA tatsächlich entfernt. Vollständige Childabdeckung wird nicht behauptet. Originalreceipt ist `cleaned`, `passed:true`, `uncertain:false`, alle acht Specs abgeschlossen, `databaseDropped:true`, `dataRemoved:true`; auch der ursprüngliche Issuerabschluss ist erfolgreich. Die Datenbankaussage beruht auf diesen Originalreceipts, kein zusätzliches SQL wurde ausgeführt.
+
+Privates Erfolgspaket `canvas-yjs-v9-success-evidence-lfryhg6p`, Manifest-SHA-256 `c22261641ab4d33f42dda5b2aab230f642b8691b16e6a079d3c3e24254bafb73`:59 geprüfte Originalkopien und50 Screenshot-Hashreferenzen, Rechte0700/0600. Build, acht Outcomes und Browserlogs, Recovery/Issuer, drei Hostlogs, alle vier Beobachter sowie unabhängiger Checker/Terminalbelege sind gebunden. Die bereits erfolgreich entfernte DATA-Runtimeausgabe steht nicht mehr zur Kopie zur Verfügung; dies bleibt eine ausdrücklich dokumentierte Grenze. Frühere Fehlerpakete bleiben getrennt erhalten.
+
+Damit ist dieses erweiterte lokale Web-/Guest-Gate abgeschlossen. Public-/Lockwriter, durchgängige native Datei-/Linkkoordination, Standard-Skill und externes SDK, PDF-Anschluss, übrige Sandbox-/Plattformmatrix, ursprünglicher Produktionsfehler und allgemeine Aktivierung bleiben weitere Aufgaben. Der nächste wichtige Anschluss folgt dem Writerplan; dieses Browserergebnis aktiviert keine unvollständige Dateiorchestrierung.

@@ -1,8 +1,10 @@
 # Zentrale Datei- und Dokumentoperationen: API, SDK, PDF und Sandbox
 
-Stand: 15. Oktober 2026. Ergänzung zum [Yjs-Konsolidierungsplan](./yjs-document-authority-consolidation-plan.md), verbindlicher Scope gemäß Nutzerauftrag. Dies ist ein Umsetzungs- und Abnahmeplan; die unten genannten neuen Anschlüsse sind noch nicht als implementiert oder bestanden ausgewiesen.
+Stand: 16. Oktober 2026. Ergänzung zum [Yjs-Konsolidierungsplan](./yjs-document-authority-consolidation-plan.md), verbindlicher Scope gemäß Nutzerauftrag. Dies ist ein Umsetzungs- und Abnahmeplan; die unten genannten neuen Anschlüsse sind noch nicht als implementiert oder bestanden ausgewiesen.
 
 U-01 aus [§0 des Hauptplans](./yjs-document-authority-consolidation-plan.md#0-zuerst-undo-verlassen-und-bestätigte-speicherung) ist lokal abgenommen: gespeichertes Undo/Wiederöffnen, abgebrochenes Verlassen und ausdrücklich erzwungenes Verlassen mit bereits committed lokaler Recovery bestehen getrennt. V14 auf Code `6d8fc7079` / QA `fbe5fb27b` besteht die enge Webmatrix mit 37/37 einschließlich zweier echter Hostneustarts; Build und eigener Ressourcenabschluss sind unabhängig bestätigt. Die folgenden zentralen Datei-/Link-, API-/SDK-, PDF- und Sandboxverträge bleiben als weitere Arbeit offen. Das experimentelle Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags; autorisierte Änderungen benötigen keine zusätzliche menschliche Annahme.
+
+Die [erweiterte lokale Web-/Guest-Abnahme V9](./yjs-guest-writer-binding-evidence.md#neunter-gesamtlauf-vollständige-lokale-40-fall-abnahme) ist inzwischen auf Root `c4bbc0c23` / QA `4578b0185` mit40/40 Fällen und beiden tatsächlichen Hostneustarts abgeschlossen. Frischer Build, identische Vor-/Nachbelege und eigener Ressourcenabschluss bestehen. Dies ergänzt den Editor-/Importnachweis; Public-/Lockwriter und die vollständige native Datei-/Linkkoordination bleiben Voraussetzungen der weiteren SDK-/Skill-/PDF-Anschlüsse. Allgemeine Aktivierung und Produktion bleiben unverändert offen.
 
 ## 1. Gemeinsamer Zielvertrag
 
