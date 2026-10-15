@@ -19,7 +19,9 @@ import { Loader2, Upload, RefreshCw, ChevronRight, ChevronsDownUp, ChevronsUpDow
 import { cn } from '@/lib/utils';
 import { toPreviewUrl, toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
-import { loadWorkspaceTree as loadWorkspaceTreeForWorkspace } from '@/app/lib/files/client';
+import { useWorkspaceDirectoryTree } from '@/app/components/file-browser/useWorkspaceDirectoryTree';
+import { useWorkspaceFileSearch } from '@/app/components/file-browser/useWorkspaceFileSearch';
+import { WorkspaceSearchPagination } from '@/app/components/file-browser/WorkspaceSearchPagination';
 import { ImagePreprocessDialog } from '@/app/components/shared/ImagePreprocessDialog';
 import type {
   ConvertParams,
@@ -112,29 +114,13 @@ function pruneEmptyMediaDirs(nodes: FileNode[], kind: MediaKind): FileNode[] {
   return nodes
     .map((node) => {
       if (node.type === 'file') return node;
+      if (node.children === undefined) return node;
       const prunedChildren = node.children ? pruneEmptyMediaDirs(node.children, kind) : [];
       return { ...node, children: prunedChildren };
     })
     .filter((node) => {
       if (node.type === 'file') return isMedia(node.name, kind);
-      return (node.children?.length ?? 0) > 0;
-    });
-}
-
-function filterTreeBySearch(nodes: FileNode[], query: string, kind: MediaKind): FileNode[] {
-  const lowerQuery = query.toLowerCase();
-  return nodes
-    .map((node) => {
-      if (node.type === 'file') {
-        return isMedia(node.name, kind) && node.name.toLowerCase().includes(lowerQuery) ? node : null;
-      }
-      const filteredChildren = node.children ? filterTreeBySearch(node.children, query, kind) : [];
-      return { ...node, children: filteredChildren };
-    })
-    .filter((node): node is FileNode => {
-      if (node === null) return false;
-      if (node.type === 'file') return true;
-      return (node.children?.length ?? 0) > 0;
+      return node.children === undefined || node.children.length > 0;
     });
 }
 
@@ -261,6 +247,8 @@ function TreeNode({
   multiple,
   mediaKind,
   sourceWorkspaceId,
+  loadingDirs,
+  showPath = false,
 }: {
   node: FileNode;
   depth?: number;
@@ -271,6 +259,8 @@ function TreeNode({
   multiple: boolean;
   mediaKind: MediaKind;
   sourceWorkspaceId?: string | null;
+  loadingDirs: Set<string>;
+  showPath?: boolean;
 }) {
   if (node.type === 'file') {
     if (!isMedia(node.name, mediaKind)) return null;
@@ -284,7 +274,7 @@ function TreeNode({
           'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm transition text-left',
           isSelected ? 'bg-primary/10 text-primary' : 'hover:bg-muted text-foreground'
         )}
-        style={{ paddingLeft: `${20 + depth * 16}px` }}
+        style={{ paddingLeft: `${20 + Math.min(depth, 5) * 16}px` }}
         onClick={() => onToggleSelect(selectionPath)}
       >
         {isSelected ? (
@@ -303,7 +293,10 @@ function TreeNode({
           className="h-5 w-5 rounded-sm"
           fallbackIcon={mediaIcon(mediaKind)}
         />
-        <span className="truncate">{node.name}</span>
+        <span className="min-w-0" title={node.path}>
+          <span className="block truncate">{node.name}</span>
+          {showPath ? <span className="block truncate text-xs text-muted-foreground">{node.path}</span> : null}
+        </span>
       </button>
     );
   }
@@ -313,10 +306,12 @@ function TreeNode({
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground hover:bg-muted transition text-left"
-        style={{ paddingLeft: `${20 + depth * 16}px` }}
+        style={{ paddingLeft: `${20 + Math.min(depth, 5) * 16}px` }}
         onClick={() => onToggleDir(node.path)}
+        aria-expanded={isExpanded}
       >
-        <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-90')} />
+        {loadingDirs.has(node.path) ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          : <ChevronRight className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', isExpanded && 'rotate-90')} />}
         <Folder className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate font-medium">{node.name}</span>
       </button>
@@ -333,6 +328,7 @@ function TreeNode({
             multiple={multiple}
             mediaKind={mediaKind}
             sourceWorkspaceId={sourceWorkspaceId}
+            loadingDirs={loadingDirs}
           />
         ))}
     </div>
@@ -355,10 +351,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [tree, setTree] = useState<FileNode[]>([]);
-  const [isTreeLoading, setIsTreeLoading] = useState(false);
-  const [treeError, setTreeError] = useState<string | null>(null);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [selectedWorkspaceAssets, setSelectedWorkspaceAssets] = useState<Map<string, ImageAsset>>(new Map());
 
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
 
@@ -395,13 +389,17 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     project: workspaceT('types.project'),
   } satisfies WorkspaceKindLabels), [workspaceT]);
 
-  const displayTree = useMemo(() => {
-    let result = pruneEmptyMediaDirs(tree, mediaKind);
-    if (search.trim()) {
-      result = filterTreeBySearch(result, search.trim(), mediaKind);
-    }
-    return result;
-  }, [tree, search, mediaKind]);
+  const workspaceTabActive = open && !studioOnly && tab === 'workspace';
+  const hasWorkspaceSearch = Boolean(search.trim());
+  const directoryTree = useWorkspaceDirectoryTree(effectiveReferenceWorkspaceId, workspaceTabActive);
+  const workspaceSearch = useWorkspaceFileSearch({ workspaceId: effectiveReferenceWorkspaceId, query: search,
+    enabled: workspaceTabActive && hasWorkspaceSearch, extensions: [...MEDIA_EXTS[mediaKind]] });
+  const tree = directoryTree.tree;
+  const isTreeLoading = hasWorkspaceSearch ? workspaceSearch.isLoading : directoryTree.isLoading;
+  const treeError = !effectiveReferenceWorkspaceId ? workspaceT('noWorkspaceAvailable')
+    : hasWorkspaceSearch ? workspaceSearch.error : directoryTree.error;
+  const displayTree = useMemo(() => hasWorkspaceSearch ? workspaceSearch.results : pruneEmptyMediaDirs(tree, mediaKind),
+    [hasWorkspaceSearch, workspaceSearch.results, tree, mediaKind]);
 
   const loadStudioAssets = useCallback(async () => {
     setIsLoading(true);
@@ -421,42 +419,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     }
   }, [search, mediaKind, veoGeneratedOnly]);
 
-  const loadWorkspaceTree = useCallback(async () => {
-    if (!effectiveReferenceWorkspaceId) {
-      setTree([]);
-      setExpandedDirs(new Set());
-      setTreeError(workspaceT('noWorkspaceAvailable'));
-      return;
-    }
-
-    setIsTreeLoading(true);
-    setTreeError(null);
-    try {
-      const root = await loadWorkspaceTreeForWorkspace('.', 8, true, 'Failed loading files', effectiveReferenceWorkspaceId);
-      setTree(root);
-      const initial = new Set<string>();
-      const queue: FileNode[] = [...root];
-      let depth = 0;
-      while (queue.length && depth < 2) {
-        const next: FileNode[] = [];
-        for (const n of queue) {
-          if (n.type === 'directory') {
-            initial.add(n.path);
-            if (n.children) next.push(...n.children);
-          }
-        }
-        queue.length = 0;
-        queue.push(...next);
-        depth++;
-      }
-      setExpandedDirs(initial);
-    } catch (e) {
-      setTreeError(e instanceof Error ? e.message : 'Failed loading files');
-      setTree([]);
-    } finally {
-      setIsTreeLoading(false);
-    }
-  }, [effectiveReferenceWorkspaceId, workspaceT]);
+  const loadWorkspaceTree = () => {
+    setExpandedDirs(new Set());
+    if (hasWorkspaceSearch) workspaceSearch.refresh();
+    else void directoryTree.refresh();
+  };
 
   const collapseAll = () => setExpandedDirs(new Set());
 
@@ -472,9 +439,10 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setSearch('');
     setUrlInput('');
     setReferenceWorkspaceId(activeWorkspace?.permissions.canRead ? activeWorkspace.id : null);
+    setExpandedDirs(new Set());
+    setSelectedWorkspaceAssets(new Map());
     /* eslint-enable react-hooks/set-state-in-effect */
     void loadStudioAssets();
-    void loadWorkspaceTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -487,12 +455,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     }
     if (tab === 'studio') {
       startTransition(() => { void loadStudioAssets(); });
-    } else if (tab === 'workspace') {
-      startTransition(() => { void loadWorkspaceTree(); });
     }
-  }, [loadStudioAssets, loadWorkspaceTree, open, search, studioOnly, tab]);
+  }, [loadStudioAssets, open, studioOnly, tab]);
 
   const toggleExpanded = (path: string) => {
+    if (!expandedDirs.has(path)) void directoryTree.loadDirectory(path);
     setExpandedDirs((prev) => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);
@@ -502,6 +469,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   };
 
   const toggleSelect = (path: string) => {
+    const node = [...workspaceSearch.results, ...walkMedia(tree, mediaKind)]
+      .find((file) => buildWorkspaceReferencePath(file.path, effectiveReferenceWorkspaceId) === path);
+    if (node) setSelectedWorkspaceAssets((previous) => new Map(previous).set(path, {
+      path, name: node.name, mediaUrl: path, previewUrl: toPreviewUrl(node.path, 200, { workspaceId: effectiveReferenceWorkspaceId }),
+      workspaceId: effectiveReferenceWorkspaceId, kind: mediaKind,
+    }));
     setSelectedPaths((prev) => {
       if (!multiple) {
         return prev.has(path) ? new Set<string>() : new Set([path]);
@@ -516,14 +489,15 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const handleReferenceWorkspaceChange = (workspaceId: string) => {
     if (!workspaceId || workspaceId === referenceWorkspaceId) return;
     setReferenceWorkspaceId(workspaceId);
-    setTree([]);
     setExpandedDirs(new Set());
+    setSelectedWorkspaceAssets(new Map());
     setSelectedPaths((prev) => new Set(Array.from(prev).filter((path) => !isWorkspaceReferencePath(path))));
   };
 
   const currentSelectionDisplay = useMemo(() => {
     const allAssets: ImageAsset[] = [];
     allAssets.push(...assets);
+    allAssets.push(...selectedWorkspaceAssets.values());
     allAssets.push(...walkMedia(tree, mediaKind).map((n) => ({
       path: buildWorkspaceReferencePath(n.path, effectiveReferenceWorkspaceId),
       name: n.name,
@@ -535,7 +509,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     return Array.from(selectedPaths)
       .map((p) => allAssets.find((a) => a.path === p))
       .filter(Boolean) as ImageAsset[];
-  }, [assets, effectiveReferenceWorkspaceId, mediaKind, selectedPaths, tree]);
+  }, [assets, effectiveReferenceWorkspaceId, mediaKind, selectedPaths, selectedWorkspaceAssets, tree]);
 
   const addUploadedPathsToSelection = useCallback((newPaths: string[]) => {
     setSelectedPaths((prev) => {
@@ -847,8 +821,8 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
 
             {/* Workspace tab */}
             <TabsContent value="workspace" className="flex flex-col flex-1 min-h-0 mt-0 data-[state=active]:flex overflow-hidden">
-              <div className="grid gap-2 py-3 shrink-0 sm:grid-cols-[minmax(180px,260px)_1fr_auto_auto]">
-                <label className="relative block min-w-0">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 py-3 shrink-0">
+                <label className="relative col-span-3 block min-w-0">
                   <span className="sr-only">{workspaceT('sourceWorkspace')}</span>
                   <select
                     value={effectiveReferenceWorkspaceId ?? ''}
@@ -881,16 +855,19 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     {t('loadingWorkspace')}
                   </div>
-                ) : displayTree.length === 0 ? (
+                ) : treeError ? null : displayTree.length === 0 ? (
                   <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">{search.trim() ? t('noSearchResults') : t('emptyWorkspace')}</div>
                 ) : (
                   <div className="space-y-0.5">
                     {displayTree.map((node) => (
-	                      <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} mediaKind={mediaKind} sourceWorkspaceId={effectiveReferenceWorkspaceId} />
+                        <TreeNode key={node.path} node={node} selectedPaths={selectedPaths} expandedDirs={expandedDirs} onToggleDir={toggleExpanded} onToggleSelect={toggleSelect} multiple={multiple} mediaKind={mediaKind} sourceWorkspaceId={effectiveReferenceWorkspaceId} loadingDirs={directoryTree.loadingDirs} showPath={hasWorkspaceSearch} />
                     ))}
                   </div>
                 )}
               </div>
+              {hasWorkspaceSearch && !treeError && !isTreeLoading ? <WorkspaceSearchPagination
+                loaded={workspaceSearch.results.length} total={workspaceSearch.total} hasMore={workspaceSearch.hasMore}
+                isLoading={workspaceSearch.isLoadingMore} onLoadMore={workspaceSearch.loadMore} /> : null}
             </TabsContent>
 
             {/* Upload tab */}

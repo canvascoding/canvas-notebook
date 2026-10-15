@@ -536,6 +536,11 @@
     "close": "Schließen",
     "manage": "Workspaces verwalten",
     "sourceWorkspace": "Quell-Workspace",
+    "discovery": {
+      "showing": "{loaded} von {total} Treffern",
+      "loadMore": "Weitere Treffer laden",
+      "loadingMore": "Weitere Treffer werden geladen..."
+    },
     "targetWorkspace": "Ziel-Workspace",
     "targetFolder": "Zielordner",
     "folderLoadFailed": "Workspace-Ordner konnten nicht geladen werden",

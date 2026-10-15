@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { CheckSquare2, Folder, Loader2, Paperclip, RefreshCw, Search, Square, Upload, X } from 'lucide-react';
 
 import type { FilePickerFile } from '@/app/components/canvas-agent-chat/ChatComposer';
@@ -15,7 +15,8 @@ import {
   type EmailAttachmentDeliveryFormat,
 } from '@/app/lib/email/attachment-types';
 import { getFileDisplayName } from '@/app/lib/files/display-name';
-import { listWorkspaceFileReferences } from '@/app/lib/files/client';
+import { useWorkspaceFileSearch } from '@/app/components/file-browser/useWorkspaceFileSearch';
+import { WorkspaceSearchPagination } from '@/app/components/file-browser/WorkspaceSearchPagination';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { toUploadPreviewUrl } from '@/app/lib/utils/media-url';
@@ -221,7 +222,6 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const previewItems = useMemo(() => composeEmailAttachmentPreviewItems(attachments, previewWorkspaceId), [attachments, previewWorkspaceId]);
   const preview = useEmailAttachmentPreview(previewItems, JSON.stringify([previewContextKey, previewWorkspaceId]));
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const requestIdRef = useRef(0);
   const attachmentsRef = useRef(attachments);
   const isUploadingRef = useRef(false);
   const selectedRef = useRef<EmailAttachmentDraft[]>([]);
@@ -230,12 +230,18 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
   const [search, setSearch] = useState('');
   const [workspaceSort, setWorkspaceSort] = useState<WorkspaceAttachmentSort>('modified');
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
-  const [workspaceFiles, setWorkspaceFiles] = useState<EmailAttachmentDraft[]>([]);
-  const [isWorkspaceLoading, setIsWorkspaceLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<EmailAttachmentDraft[]>([]);
+  const workspaceSearch = useWorkspaceFileSearch({ workspaceId: previewWorkspaceId ?? null, query: search,
+    enabled: open && tab === 'workspace', sort: workspaceSort });
+  const workspaceFiles = useMemo(() => workspaceSearch.results
+    .map((file) => makeWorkspaceAttachment(file as WorkspaceAttachmentFile)), [workspaceSearch.results]);
+  const isWorkspaceLoading = workspaceSearch.isLoading;
+  useEffect(() => {
+    startTransition(() => { setSelected([]); setSelectedFolder(null); setSearch(''); });
+  }, [previewWorkspaceId]);
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -269,33 +275,13 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
     ? workspaceFiles.filter((file) => file.path?.startsWith(`${selectedFolder}/`))
     : workspaceFiles, [selectedFolder, workspaceFiles]);
 
-  const loadWorkspaceFiles = useCallback(async (query = search, sort = workspaceSort) => {
-    const requestId = requestIdRef.current + 1;
-    requestIdRef.current = requestId;
-    setIsWorkspaceLoading(true);
-    setError(null);
-    try {
-      if (!previewWorkspaceId) throw new Error('Workspace context is not ready');
-      const files = await listWorkspaceFileReferences({ query, limit: 500, sort, workspaceId: previewWorkspaceId });
-      if (requestId !== requestIdRef.current) return;
-      setWorkspaceFiles(files.filter((file) => file.type === 'file').map((file) => makeWorkspaceAttachment(file as WorkspaceAttachmentFile)));
-    } catch (err) {
-      if (requestId !== requestIdRef.current) return;
-      setWorkspaceFiles([]);
-      setError(err instanceof Error ? err.message : 'Failed to load files');
-    } finally {
-      if (requestId === requestIdRef.current) setIsWorkspaceLoading(false);
-    }
-  }, [previewWorkspaceId, search, workspaceSort]);
-
   const openAttachmentDialog = useCallback(() => {
     setSelected([]);
     setSearch('');
     setSelectedFolder(null);
     setError(null);
     setOpen(true);
-    void loadWorkspaceFiles('');
-  }, [loadWorkspaceFiles]);
+  }, []);
 
   const toggleSelected = useCallback((attachment: EmailAttachmentDraft) => {
     setError(null);
@@ -453,13 +439,12 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                     value={search}
                     onChange={(event) => {
                       setSearch(event.target.value);
-                      void loadWorkspaceFiles(event.target.value);
                     }}
                     placeholder={labels.attachmentsSearchPlaceholder}
                     className="pl-8"
                   />
                 </div>
-                <Button type="button" variant="outline" size="sm" onClick={() => { void loadWorkspaceFiles(search); }} disabled={isWorkspaceLoading}>
+                <Button type="button" variant="outline" size="sm" onClick={workspaceSearch.refresh} disabled={isWorkspaceLoading}>
                   <RefreshCw className={cn('mr-2 h-4 w-4', isWorkspaceLoading && 'animate-spin')} />
                   {labels.attachmentsRefresh}
                 </Button>
@@ -470,7 +455,6 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                   onChange={(event) => {
                     const nextSort = event.target.value as WorkspaceAttachmentSort;
                     setWorkspaceSort(nextSort);
-                    void loadWorkspaceFiles(search, nextSort);
                   }}
                   disabled={isWorkspaceLoading}
                 >
@@ -513,7 +497,7 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       {labels.attachmentsLoading}
                     </div>
-                  ) : visibleWorkspaceFiles.length === 0 ? (
+                  ) : workspaceSearch.error ? null : visibleWorkspaceFiles.length === 0 ? (
                     <div className="flex h-32 items-center justify-center text-sm text-muted-foreground">{labels.attachmentsEmpty}</div>
                   ) : (
                     <div className="space-y-1">
@@ -534,6 +518,9 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
                   )}
                 </div>
               </div>
+              {!isWorkspaceLoading && !workspaceSearch.error ? <WorkspaceSearchPagination
+                loaded={workspaceFiles.length} total={workspaceSearch.total} hasMore={workspaceSearch.hasMore}
+                isLoading={workspaceSearch.isLoadingMore} onLoadMore={workspaceSearch.loadMore} /> : null}
             </TabsContent>
 
             <TabsContent value="upload" className="mt-0 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -594,7 +581,9 @@ export function EmailAttachmentPanel({ attachments, disabled = false, labels, on
             </div>
           ) : null}
 
-          {error ? <p className="shrink-0 text-sm text-destructive">{error}</p> : null}
+          {error || tab === 'workspace' && workspaceSearch.error ? <p className="shrink-0 text-sm text-destructive">
+            {error || workspaceSearch.error}
+          </p> : null}
 
           <DialogFooter className="shrink-0 items-center justify-between gap-2 sm:justify-between">
             <div className={cn('text-xs', isSelectionOverLimit ? 'text-destructive' : 'text-muted-foreground')}>

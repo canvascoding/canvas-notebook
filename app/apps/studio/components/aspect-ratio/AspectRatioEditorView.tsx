@@ -268,6 +268,7 @@ function clientPointToImagePoint(clientX: number, clientY: number, stage: HTMLDi
 }
 
 function buildImageUrl(path: string) {
+  if (path.startsWith('/api/media/')) return path;
   return studioApiUrl(path.startsWith('/api/') || /^https?:\/\//i.test(path) ? path : toMediaUrl(path));
 }
 

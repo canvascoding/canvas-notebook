@@ -1,0 +1,36 @@
+name: Workspace file discovery
+
+on:
+  pull_request:
+    paths:
+      - 'app/lib/files/**'
+      - 'app/lib/filesystem/**'
+      - 'app/lib/mobile/**'
+      - 'app/api/files/**'
+      - 'app/components/file-browser/**'
+      - 'app/apps/studio/**'
+      - 'app/apps/email/components/EmailAttachmentPanel.tsx'
+      - 'app/apps/automations/components/WorkspaceDirectoryPickerDialog.tsx'
+      - 'scripts/*discovery*'
+      - 'scripts/studio-reference-file-test.ts'
+      - 'scripts/workspace-reference-client-test.ts'
+      - 'package*.json'
+      - '.github/workflows/workspace-file-discovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 26
+      - run: npm ci
+      - run: npm run build:decision-models
+      - run: npm run test:files:discovery

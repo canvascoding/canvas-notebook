@@ -13,7 +13,7 @@ import { useStudioProducts } from '../../hooks/useStudioProducts';
 import { useStudioPersonas } from '../../hooks/useStudioPersonas';
 import { useStudioStyles } from '../../hooks/useStudioStyles';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
-import { toMediaUrl } from '@/app/lib/utils/media-url';
+import { downloadStudioReferenceFile } from '../../utils/studio-reference-file';
 import { generateRandomId } from '@/app/lib/utils/random-id';
 import type { StudioReferenceUrl } from '../../types/generation';
 
@@ -170,15 +170,11 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     const newImages: PendingImage[] = [];
     for (const path of toAdd) {
       try {
-        const res = await studioApiFetch(toMediaUrl(path));
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const fileName = path.split('/').pop() || 'image.jpg';
-        const file = new File([blob], fileName, { type: blob.type || 'image/jpeg' });
+        const file = await downloadStudioReferenceFile(path);
         newImages.push({
           id: generateRandomId(),
           file,
-          preview: URL.createObjectURL(blob),
+          preview: URL.createObjectURL(file),
         });
       } catch {
         // skip failed downloads
