@@ -159,7 +159,7 @@ function createNativeRuntime(): NativeRuntime {
     return Object.freeze({ url, method, headers: Object.freeze(headers) });
   }
   function freshRequest(original: OriginalRequest): NextRequest {
-    return new NextRequest(original.url, { method: original.method, headers: new Headers(original.headers.map(pair => [...pair])) });
+    return new NextRequest(original.url, { method: original.method, headers: new Headers(original.headers.map(pair => [...pair] as [string, string])) });
   }
   function capturePhaseInput(input: { permission: Permission; path: string; expectedIdentity?: ExistingNativeSessionIdentity }) {
     data(input, ['permission', 'path'], ['permission', 'path', 'expectedIdentity']);
