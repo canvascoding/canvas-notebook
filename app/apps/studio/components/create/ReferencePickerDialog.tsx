@@ -432,7 +432,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setIsTreeLoading(true);
     setTreeError(null);
     try {
-      const root = await loadWorkspaceTreeForWorkspace('.', 8, true, 'Failed loading files', effectiveReferenceWorkspaceId);
+      const root = await loadWorkspaceTreeForWorkspace('.', 6, true, 'Failed loading files', effectiveReferenceWorkspaceId);
       setTree(root);
       const initial = new Set<string>();
       const queue: FileNode[] = [...root];
