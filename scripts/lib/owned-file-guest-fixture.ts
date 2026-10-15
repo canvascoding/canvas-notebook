@@ -77,7 +77,7 @@ export async function seedOwnedFileGuestFixture(workspaceId: string, kind: 'phys
     return { filePath, workspaceId, kind, documentId: null, assetPath: null, unapprovedAssetPath: null };
   }
   const assetPath = `${stem}.png`, unapprovedAssetPath = `${stem}-unapproved.png`;
-  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jL1kAAAAASUVORK5CYII=', 'base64');
+  const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
   await fs.writeFile(path.join(workspace.rootPath, assetPath), image, { flag: 'wx', mode: 0o600 });
   await fs.writeFile(path.join(workspace.rootPath, unapprovedAssetPath), image, { flag: 'wx', mode: 0o600 });
   // The current FileTree lists physical entries only. This deliberately stale,

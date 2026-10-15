@@ -15,7 +15,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const access = await requireRequestWorkspace(request, { permissions: ['canRead', 'canCreatePublicLinks'] });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const access = await requireRequestWorkspace(original, { permissions: ['canRead', 'canCreatePublicLinks'] });
   if (access.response) return access.response;
   try {
     assertFileGuestOrigin(request);
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     if (typeof body.path !== 'string' || typeof body.email !== 'string') throw new FileGuestError('Dateipfad und E-Mail-Adresse sind erforderlich.', 400);
     let expiresAt: Date | null | undefined;
     try { expiresAt = parsePublicSharePolicy(body).expiresAt; } catch (error) { throw new FileGuestError(error instanceof Error ? error.message : 'Ungültiger Ablauf.', 400); }
-    const invitation = await fileGuestService.create(request,{ workspaceId:access.workspace.workspaceId, path: body.path, expectedTarget:body.expectedTarget, email: body.email,
+    const invitation = await fileGuestService.create(original,{ workspaceId:access.workspace.workspaceId, path: body.path, expectedTarget:body.expectedTarget, email: body.email,
       permission: parseFileGuestPermission(body.permission), expiresAt: expiresAt === undefined ? new Date(Date.now() + 30 * 86_400_000) : expiresAt });
     return fileGuestJson({ success: true, invitation });
   } catch (error) { return fileGuestErrorResponse(error); }

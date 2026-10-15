@@ -5,7 +5,8 @@ import { assertFileGuestOrigin, fileGuestErrorResponse, fileGuestJson, readFileG
 import { parsePublicSharePolicy } from '@/app/lib/public-sharing/share-policy-input';
 
 async function update(request: NextRequest, context: { params: Promise<{ id: string }> }, revoke: boolean) {
-  const access = await requireRequestWorkspace(request, { permissions: ['canRead', 'canCreatePublicLinks'] });
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const access = await requireRequestWorkspace(original, { permissions: ['canRead', 'canCreatePublicLinks'] });
   if (access.response) return access.response;
   try {
     assertFileGuestOrigin(request);
@@ -13,7 +14,7 @@ async function update(request: NextRequest, context: { params: Promise<{ id: str
     const body = await readFileGuestBody(request);
     let expiresAt: Date | null | undefined;
     try { expiresAt = parsePublicSharePolicy(body).expiresAt; } catch (error) { throw new FileGuestError(error instanceof Error ? error.message : 'Ungültiger Ablauf.', 400); }
-    return fileGuestJson({ success: true, invitation: await fileGuestService.manage(request,access.workspace.workspaceId,id, {
+    return fileGuestJson({ success: true, invitation: await fileGuestService.manage(original,access.workspace.workspaceId,id, {
       policyRevision: typeof body.policyRevision === 'number' ? body.policyRevision : 0,
       ...(body.permission !== undefined ? { permission: parseFileGuestPermission(body.permission) } : {}), expiresAt, revoke,
     }) });
