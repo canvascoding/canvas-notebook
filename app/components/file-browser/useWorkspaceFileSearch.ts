@@ -11,6 +11,8 @@ interface SearchOptions {
   entryType?: 'file' | 'directory' | 'all';
   extensions?: readonly string[];
   limit?: number;
+  sort?: 'name' | 'created' | 'modified' | 'size';
+  refreshKey?: number;
 }
 
 interface SearchState {
@@ -23,10 +25,11 @@ interface SearchState {
   error: string | null;
 }
 
-export function useWorkspaceFileSearch({ workspaceId, query, enabled, entryType = 'file', extensions = [], limit = 100 }: SearchOptions) {
+export function useWorkspaceFileSearch({ workspaceId, query, enabled, entryType = 'file', extensions = [], limit = 100,
+  sort, refreshKey }: SearchOptions) {
   const extensionKey = [...extensions].sort().join(',');
   const normalizedQuery = query.trim();
-  const identity = JSON.stringify([workspaceId, normalizedQuery, entryType, extensionKey, limit]);
+  const identity = JSON.stringify([workspaceId, normalizedQuery, entryType, extensionKey, limit, sort, refreshKey]);
   const [state, setState] = useState<SearchState | null>(null);
   const [revision, setRevision] = useState(0);
   const generationRef = useRef(0);
@@ -44,7 +47,7 @@ export function useWorkspaceFileSearch({ workspaceId, query, enabled, entryType 
       : { identity, files: [], total: 0, nextCursor: null, isLoading: true, isLoadingMore: false, error: null });
     try {
       const page = await searchWorkspaceFileReferences({ workspaceId, query: normalizedQuery, entryType,
-        extensions: extensionKey ? extensionKey.split(',') : [], limit, cursor, noCache: forceRefresh, signal: controller.signal });
+        extensions: extensionKey ? extensionKey.split(',') : [], limit, sort, cursor, noCache: forceRefresh, signal: controller.signal });
       if (!isCurrent()) return;
       setState((previous) => {
         const rows = cursor && previous?.identity === identity ? [...previous.files, ...page.files] : page.files;
@@ -64,7 +67,7 @@ export function useWorkspaceFileSearch({ workspaceId, query, enabled, entryType 
     } finally {
       controllersRef.current.delete(controller);
     }
-  }, [enabled, workspaceId, normalizedQuery, entryType, extensionKey, identity, limit]);
+  }, [enabled, workspaceId, normalizedQuery, entryType, extensionKey, identity, limit, sort]);
 
   useEffect(() => {
     generationRef.current += 1;

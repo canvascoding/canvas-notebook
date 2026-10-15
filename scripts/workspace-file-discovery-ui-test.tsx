@@ -131,6 +131,31 @@ async function main() {
     assert.equal(selectedPath, 'deep/empty');
     assert.equal(closed, true);
     console.log('automation directory picker: global directory search and empty-folder selection passed');
+    cleanup();
+    mocks['@/app/store/workspace-store'] = { useWorkspaceStore: (selector: (state: { activeWorkspaceId: string }) => unknown) => selector({ activeWorkspaceId: 'current' }) };
+    mocks['@/app/components/shared/ImageThumbnailIcon'] = { ImageThumbnailIcon: () => null };
+    mocks['@/components/ui/badge'] = { Badge: block };
+    mocks['@/components/ui/switch'] = { Switch: () => null };
+    mocks['@/components/ui/tabs'] = { Tabs: block, TabsList: block, TabsTrigger: block,
+      TabsContent: ({ children, value }: { children: React.ReactNode; value: string }) => value === 'workspace' ? <div>{children}</div> : null };
+    mocks['./useEmailAttachmentPreview'] = { useEmailAttachmentPreview: () => ({ dialog: null, canOpen: true, openLabel: (name: string) => name, openAttachment: () => {} }) };
+    mocks['@/app/components/file-browser/WorkspaceSearchPagination'] = { WorkspaceSearchPagination: ({ hasMore, onLoadMore }: { hasMore: boolean; onLoadMore: () => void }) =>
+      hasMore ? <button onClick={onLoadMore}>Next page</button> : null };
+    const { EmailAttachmentPanel } = await compile('app/apps/email/components/EmailAttachmentPanel.tsx') as
+      typeof import('../app/apps/email/components/EmailAttachmentPanel');
+    const labels = new Proxy({}, { get: (_target, key) => String(key) }) as React.ComponentProps<typeof EmailAttachmentPanel>['labels'];
+    let selectedAttachments: Array<{ path?: string }> = [];
+    const email = render(<EmailAttachmentPanel workspaceId="current" attachments={[]} labels={labels}
+      onChange={(attachments) => { selectedAttachments = attachments; }} />);
+    await act(async () => fireEvent.click(email.getByRole('button', { name: 'attachmentsAdd', exact: true })));
+    await act(async () => fireEvent.change(email.getByPlaceholderText('attachmentsSearchPlaceholder'), { target: { value: 'needle' } }));
+    await waitFor(() => assert.ok(email.queryByRole('button', { name: /needle/ })));
+    await act(async () => fireEvent.click(email.getByRole('button', { name: 'Next page', exact: true })));
+    await waitFor(() => assert.ok(email.queryByRole('button', { name: /later/ })));
+    await act(async () => fireEvent.click(email.getByRole('button', { name: /later/ })));
+    await act(async () => fireEvent.click(email.getByRole('button', { name: 'attachmentsConfirm', exact: true })));
+    assert.deepEqual(selectedAttachments.map((attachment) => attachment.path), ['deep/later.png']);
+    console.log('email attachment panel: search pagination and selecting a file from a later page passed');
   } finally {
     cleanup();
     dom.window.close();
