@@ -984,9 +984,8 @@ export async function listPublicFileShares(params: {
     .filter((row) => !query || `${row.workspacePath} ${row.fileName} ${row.shortCode ?? ''} ${row.tokenPreview}`.toLowerCase().includes(query))
     .slice(0, limit);
 
-  const withShortCodes = await Promise.all(visibleRows.map(ensureShortCode));
-  const workspaceNames = await workspaceNamesById(withShortCodes);
-  return withShortCodes.map((row) => toDto(row, params.baseUrl, workspaceNameForRow(row, workspaceNames)));
+  const workspaceNames = await workspaceNamesById(visibleRows);
+  return visibleRows.map((row) => toDto(row, params.baseUrl, workspaceNameForRow(row, workspaceNames)));
 }
 
 export async function getPublicShareAnnotations(
@@ -1019,16 +1018,15 @@ export async function getPublicShareAnnotations(
     if (!normalizedTargets.has(row.workspacePath)) continue;
     const reconciled = await reconcileRow(row);
     if (reconciled.status !== 'active') continue;
-    const withShortCode = await ensureShortCode(reconciled);
-    result.set(withShortCode.workspacePath, {
-      id: withShortCode.id,
+    result.set(reconciled.workspacePath, {
+      id: reconciled.id,
       status: 'active',
-      workspaceId: withShortCode.workspaceId,
-      shortUrl: buildShortPublicFileUrl(withShortCode, baseUrl),
-      publicUrl: buildPublicFileUrl(withShortCode, baseUrl),
-      securityMode: normalizePublicShareSecurityMode(withShortCode.securityMode),
-      expiresAt: toIso(withShortCode.expiresAt),
-      accessCount: withShortCode.accessCount,
+      workspaceId: reconciled.workspaceId,
+      shortUrl: buildShortPublicFileUrl(reconciled, baseUrl),
+      publicUrl: buildPublicFileUrl(reconciled, baseUrl),
+      securityMode: normalizePublicShareSecurityMode(reconciled.securityMode),
+      expiresAt: toIso(reconciled.expiresAt),
+      accessCount: reconciled.accessCount,
     });
   }
   return result;
@@ -1167,19 +1165,18 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
     };
   }
 
-  const withShortCode = await ensureShortCode(reconciled);
-  const workspace = workspaceForRow(withShortCode);
+  const workspace = workspaceForRow(reconciled);
   let details: WorkspaceFileDetails;
   try {
-    details = await getWorkspaceFileDetails(withShortCode.workspacePath, workspace);
+    details = await getWorkspaceFileDetails(reconciled.workspacePath, workspace);
   } catch {
     return { ok: false, status: 404, error: 'Public file unavailable.' };
   }
   const predicate = and(
     eq(publicFileShares.id, row.id), activeSharePredicate(),
-    eq(publicFileShares.fileIdentity, withShortCode.fileIdentity),
+    eq(publicFileShares.fileIdentity, reconciled.fileIdentity),
   );
-  if (!publicShareFileIdentityMatches(details.stats, withShortCode.fileIdentity)) {
+  if (!publicShareFileIdentityMatches(details.stats, reconciled.fileIdentity)) {
     return { ok: false, status: 404, error: 'Public file was replaced.' };
   }
   // Recheck authorization after filesystem awaits. SQL increments cannot lose
