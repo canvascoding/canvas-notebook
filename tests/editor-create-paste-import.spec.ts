@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { chmod, writeFile } from 'node:fs/promises';
 import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
 import { COLLABORATION_CLIENT_CAPABILITIES, COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
 import { assertCompletedWorkspaceMarkdownCreate, authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
+import { installPassiveNativeRichObservation } from './helpers/passive-native-rich-observation';
+import { installPassiveWebSocketObservation, type PassiveWebSocketObservation, type PassiveWebSocketSnapshot } from './helpers/passive-ws-observation';
 
 const editorSelector = '.tiptap-editor-shell .ProseMirror';
 const importTitle = 'Insert Markdown…';
@@ -200,6 +203,40 @@ test.describe('Manual document creation and first content', () => {
       const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL });
       const peer = await peerContext.newPage();
       const openingSession = observeInitialUiSession(page, workspace, path);
+      const nativeObservations: Awaited<ReturnType<typeof installPassiveNativeRichObservation>>[] = [];
+      const wsObservers: Array<{ role: 'owner' | 'peer'; observer?: PassiveWebSocketObservation;
+        issues: Array<'install_failed' | 'dispose_failed' | 'collect_failed'> }> = [];
+      const wsWarning = () => { try { console.warn('[I07 passive WebSocket observation] Optional diagnostic unavailable.'); } catch { /* Diagnostics never fail the test. */ } };
+      const observeWs = async (target: Page, role: 'owner' | 'peer') => {
+        const item: (typeof wsObservers)[number] = { role, issues: [] }; wsObservers.push(item);
+        try {
+          item.observer = await installPassiveWebSocketObservation(target);
+          if (!item.observer.snapshot().available) wsWarning();
+        } catch { item.issues.push('install_failed'); wsWarning(); }
+      };
+      let wsFinished: Promise<void> | undefined;
+      const finishWs = () => {
+        wsFinished ??= (async () => {
+          const observations: Array<{ role: 'owner' | 'peer'; issues: string[]; snapshot: PassiveWebSocketSnapshot | null }> = [];
+          for (const item of wsObservers) {
+            try { await item.observer?.dispose(); }
+            catch { item.issues.push('dispose_failed'); wsWarning(); }
+            let snapshot: PassiveWebSocketSnapshot | null = null;
+            try { snapshot = item.observer?.snapshot() ?? null; }
+            catch { item.issues.push('collect_failed'); wsWarning(); }
+            if (snapshot?.observerIssues.length) wsWarning();
+            observations.push({ role: item.role, issues: [...item.issues], snapshot });
+          }
+          try {
+            const artifact = info.outputPath('passive-websocket-observation.json');
+            await writeFile(artifact, `${JSON.stringify({ observations }, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+            await info.attach('passive-websocket-observation', { path: artifact, contentType: 'application/json' });
+            const attachment = info.attachments.find(item => item.name === 'passive-websocket-observation');
+            if (attachment?.path) await chmod(attachment.path, 0o600);
+          } catch { wsWarning(); }
+        })().catch(() => { wsWarning(); });
+        return wsFinished;
+      };
       try {
         await createInUi(page, workspace, path, entry);
         const identity = await openingSession.read();
@@ -221,11 +258,15 @@ test.describe('Manual document creation and first content', () => {
         await expect(page.locator(editorSelector)).toHaveText('');
         await page.keyboard.press('ControlOrMeta+Shift+z');
         await expect(page.locator(editorSelector)).toContainText('Last paragraph.');
+        nativeObservations.push(await installPassiveNativeRichObservation(page, editorSelector, 'owner'));
+        await observeWs(page, 'owner');
         expect(await login(peer, true)).toEqual(workspace);
         const users = await Promise.all([page, peer].map(async target =>
           (await (await target.request.get('/api/auth/get-session')).json()).user.id as string));
         expect(users[0]).not.toBe(users[1]);
         await open(peer, workspace, path);
+        nativeObservations.push(await installPassiveNativeRichObservation(peer, editorSelector, 'peer'));
+        await observeWs(peer, 'peer');
         await expect.poll(() => tree(peer)).toEqual(await tree(page));
         await info.attach('plain-peer-native-and-dom', { contentType: 'application/json', body: Buffer.from(JSON.stringify({
           native: await tree(peer),
@@ -255,6 +296,8 @@ test.describe('Manual document creation and first content', () => {
         expect(persisted.lifecycleGeneration).toBe(identity.lifecycleGeneration);
         expect(persisted.documentSequence).toBeGreaterThan(identity.documentSequence);
         await page.screenshot({ path: info.outputPath(`manual-${entry}-paste.png`), animations: 'disabled' });
+        await Promise.allSettled(nativeObservations.map(observation => observation.finish(info)));
+        await finishWs();
         await peerContext.close();
         await page.goto('about:blank');
         const freshContext = await browser.newContext({ baseURL: process.env.BASE_URL });
@@ -267,6 +310,8 @@ test.describe('Manual document creation and first content', () => {
           await expect.poll(() => tree(fresh)).toEqual(final);
         } finally { await freshContext.close(); }
       } finally {
+        await Promise.allSettled(nativeObservations.map(observation => observation.finish(info)));
+        await finishWs();
         openingSession.dispose();
         await peerContext.close();
         await page.goto('about:blank').catch(() => undefined);
