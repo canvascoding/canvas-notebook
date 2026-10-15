@@ -6,6 +6,8 @@ Quellenstand: Die Import-Grundlage und Receipt-Härtung sind im Integrationswork
 
 ## 1. Drei verschiedene Benutzeraktionen
 
+**Aktueller Vorrang vom 15. Oktober:** U-01 im [Hauptplan](./yjs-document-authority-consolidation-plan.md#0-zuerst-undo-verlassen-und-bestätigte-speicherung) klärt zuerst das letzte Undo und den tatsächlichen Abschluss beim Verlassen. V13 bestätigt eine echte Pending-Warnung, die Playwright automatisch mit „Verlassen“ akzeptiert hat; das ist kein gespeicherter Reopen-Nachweis. Danach gilt zusätzlich der [zentrale Datei-/API-/SDK-/PDF-/Sandbox-Anschlussplan](./central-notebook-file-api-import-plan.md): Alle Import-/Agentenwriter verwenden zentrale native Dokumentoperationen; PDF-Konvertierung endet in einer regulären Notizbuchdatei und untrusted Code kann deren Markdown-Projektion nicht direkt verändern. Das experimentelle Review Center bleibt ausgeschaltet und gehört nicht zur Abnahme.
+
 | Aktion | Gewünschter Ablauf | Zuständiger Vertrag |
 | --- | --- | --- |
 | Neue Notiz und normaler Text | Workspace/Ordner wählen, `.md` anlegen, öffnen, in den sichtbaren Inhalt klicken und aus der Zwischenablage einfügen; danach direkt weiterbearbeiten. | Bestehende Create-Aktion plus native Editoroperation. Kein Importdialog für gewöhnliches Paste. Tatsächliche Schreibrechte und beschädigter/degradierter Zustand bleiben maßgeblich. |

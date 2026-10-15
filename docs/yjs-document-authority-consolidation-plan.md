@@ -4,6 +4,8 @@
 
 **Stand:** 15. Oktober 2026.
 
+**Verbindliche Priorisierung vom 15. Oktober:** Zuerst den aktuellen Undo-/Verlassen-/Speicherbefund nachweisen und die beiden Abschlussverträge sauber abnehmen (§0). Danach stehen funktionierendes Verschieben, Kopieren und Löschen samt zentral korrekter Linkpflege im Mittelpunkt. Agent, UI und programmatische API/SDK-Zugriffe benutzen dieselbe zentrale Orchestrierung. Das bestehende `pdf_to_markdown` muss reguläre verwaltete Notizbuchdokumente erzeugen. Direkte Agentenschreibzugriffe auf deren `.md`-Projektion sind durch die OS-Sandbox zu verhindern. Das experimentelle Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags; berechtigte Änderungen benötigen keine zusätzliche menschliche Annahme. Details und Quellen: [zentraler Datei-/API-/SDK-/PDF-/Sandbox-Anschlussplan](./central-notebook-file-api-import-plan.md). Historische Nachweise weiter unten ändern diese aktuelle Vorgabe nicht.
+
 **Ursprüngliche Recherchebasis:** `84f12e4ea7b541fc53d535fb0e0f857597c02e23`; spätere Implementierungsstände und ihre Belege stehen in §16.2.
 
 **Ziel:** Verwaltete Dokumente bleiben unabhängig von ihrer Markdown-Dateiprojektion korrekt lesbar, bearbeitbar, verlinkbar und wiederherstellbar. Berechtigte Nutzer bearbeiten den sichtbaren Editorinhalt unmittelbar, ohne Read/Edit-Auswahl.
@@ -11,6 +13,25 @@
 Dieser Plan ergänzt den [Live-Dokument- und Agentenplan](live-document-agent-editing-plan.md), den [Dateilink- und Dateioperationsplan](architecture/canvas-notebook/workspace-file-links-and-operations-plan.md) und die [Collaboration-Policy](architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md). Deren bereits implementierte Grundlagen werden weiterverwendet. Neue Vertragsnamen, Statusfelder und Aufgaben in diesem Dokument sind Vorschläge, bis wir sie gemeinsam festgelegt haben.
 
 Die Konsolidierung betrifft vor allem die verbliebenen Übergänge zwischen Dokumentzustand, Linkplanung, Pfadoperationen, Sicherung und Dateiausgabe. Hinzu kommt die ausdrücklich gewünschte Vereinfachung der Editoroberfläche: Read/Edit-Auswahl entfernen, direktes Bearbeiten als Standard und verbleibende Ansichtssteuerung platzsparend anordnen. Die vorhandenen Editoren und der Collaboration-Server werden weiterverwendet. Öffentliche REST-API und Python-SDK folgen erst nach der internen Stabilisierung.
+
+## 0. Zuerst: Undo, Verlassen und bestätigte Speicherung
+
+Die erneute Ursachenprüfung grenzt V13 vom früher korrigierten Parent-/Historyfehler ab. Die eigene Eingabe hebt den Ownerclock von133 auf143; das lokale Undo entfernt den Text und erzeugt ein echtes löschendes Update. Der Peer und die letzte vor dem Verlassen gelesene persistierte Session bleiben dagegen bei133/Sequenz5. Diese Prüfung bestätigt einen älteren Stand. Der später gelesene native SQL-Snapshot Sequenz6 enthält die eigene Eingabe noch; ein bereits dauerhaft gesichertes Undo wurde damit nicht bewiesen.
+
+Der Trace zeigt beim direkten `page.goto('about:blank')` tatsächlich eine `beforeunload`-Warnung und anschließend erfolgreiche Navigation. Die installierte Playwright-Version akzeptiert unbehandelte `beforeunload`-Dialoge automatisch. Der Test bestätigt damit das Verlassen trotz ausstehender Änderungen. Ein frischer Browserkontext besitzt den lokalen IndexedDB-Wiederherstellungsspeicher des verlassenen Kontexts nicht. Das ist kein Nachweis für gewöhnliches Wiederöffnen nach bestätigtem Speichern.
+
+Ein dazu passender Serverpfad ist quellenbelegt: Hocuspocus entfernt beim Close sofort die Verbindung aus dem Dokument; sein späteres Warten auf die Nachrichtenqueue erhält deren Schreibberechtigung nicht. Unsere Prüfungen vor der Anwendung weisen eine inzwischen geschlossene Verbindung ab. Der vorhandene `collaboration-room-mutation-server-test.ts` bestätigt auf unveränderten Produktquellen erneut alle14 Fälle, einschließlich „closed queued socket cannot edit“, tatsächlicher Exit0. Der vorhandene echte Native-Disconnectfall prüft denselben Schutz; er wurde in dieser erneuten Prüfung nur gelesen. Die genaue Queue-/Applyposition des V13-Undo beim Close ist weiterhin nicht erfasst. Versand, ältere Sequenz und bloße PM-Gleichheit werden nicht als sein COMMIT ausgegeben; die Verbindungskontrolle wird nicht gelockert.
+
+Auch `collaboration-document-lifecycle-test.tsx` endet in dieser erneuten Prüfung tatsächlich mit Exit0: Der vorhandene echte FileEditor-Effekt schützt unbestätigte Löschungen weiterhin mit `beforeunload`; lokale Sicherung und bestätigter Serverstand bleiben getrennt. Beide aktuellen Läufe sind lokale Regressionen auf unveränderten Produktquellen, kein neuer App-/Browser-/PG-Gesamtpass. Private Trace-/Quellenberichte binden Warnungs-/Queuepfad; die erhaltene V13-Fehlerfixture bleibt unverändert.
+
+| Zuerst abzunehmender Fall | Verbindlicher Nachweis |
+| --- | --- |
+| Gewöhnliches Undo und gespeichertes Wiederöffnen | Eigenen Zwischenedit beim Peer kausal nachweisen; danach das Undo einschließlich DeleteSet an aktuellen nativen Zustand und passenden dauerhaften Proof binden. Erst dann schließen, keine Pending-Warnung erwarten und exakte Inhalte in frischem Kontext sowie nach Reload prüfen. |
+| Verlassen bei ausstehender Änderung abbrechen | Echte Warnung ausdrücklich beobachten und „Bleiben“ wählen; Navigation bleibt aus, derselbe Editor und das lokale Undo bleiben erhalten. Keine automatische Dialogbehandlung als stillen Erfolg verwenden. |
+| Verlassen trotz ausstehender Änderung erzwingen | Als eigener Recoveryfall kennzeichnen; keine aktuelle Serverkopie behaupten. Tatsächlich zugesicherte lokale Sicherung, Wiederöffnung im selben Speicher-Kontext, erneute Synchronisierung und anschließend exakten dauerhaften Zustand prüfen. Ein anderer Browser erhält keinen lokalen IndexedDB-Stand des verlassenen Kontexts; remote beobachteten Raumstand und bestätigte Persistenz getrennt behandeln. |
+| Nachricht noch in Queue oder finaler Rechteprüfung | Eingang, Queue, Anwendung und Speicherbeleg gezielt demselben Undo zuordnen; Keep-open-Kontrolle und Close-Gegenfall. Geschlossene oder inzwischen unberechtigte Verbindungen dürfen keine verspätete Schreibfreigabe erhalten. |
+
+Keine festen Sleeps, längeren Timeouts, ausgelassenen Fresh-Reopen-Assertions oder Review-Aktionen ersetzen diese Prüfungen. Die Ursache eines möglichen zusätzlichen Verlusts zwischen Versand und Anwendung bleibt offen, bis der konkrete operationsgebundene Nachweis vorliegt. Der aktuelle Auftrag ändert zunächst Plan und Diagnose; diese neuen Fälle sind noch nicht implementiert oder als bestanden markiert.
 
 ## 1. Ausgangspunkt und überprüfter Fehlerfall
 
@@ -69,6 +90,10 @@ Folgende Regeln sollen durch alle Phasen erhalten bleiben:
 8. Unabhängige Nutzeränderungen bleiben erhalten. Ein Undo stellt nicht pauschal ein altes Gesamtdokument wieder her.
 9. Fehlende Rechte, Ownership-Verlust, unbekannter Zustand, unvollständige Linkabdeckung und unbewiesene Teilergebnisse bleiben sichtbar und blockieren die betroffene Ausführung.
 10. Ein abgeschlossener Inhaltsschritt, eine abgeschlossene Pfadoperation und ein noch ausstehender Export werden getrennt dargestellt.
+11. Verschieben, Kopieren und Löschen durch UI, Agent, API oder SDK laufen durch dieselbe zentrale Datei-/Dokumentorchestrierung und dieselbe Linkpflege. Ein erfolgreiches `fs.rename`, `fs.cp` oder `unlink` allein ist kein erfolgreicher Notebookvorgang.
+12. Unvertrauenswürdiger Agentencode kann verwaltete Markdown-Projektionen weder in-place noch durch Ersetzen, Umbenennen oder Löschen verändern. Schreibbare Parser-/Codeausgaben bleiben im privaten Scratch; veröffentlichte Dokumentänderungen benutzen die autorisierte Schnittstelle.
+13. `pdf_to_markdown` erzeugt über den kontrollierten Import ein reguläres Notizbuchdokument mit Identität, initialisiertem Yjs und überprüfbarem dauerhaftem Inhalt. Reine Parserausgabe oder eine erzeugte `.md`-Datei schließt den Import nicht ab.
+14. API und SDK enthalten keine zweite Implementierung von Textänderung, Linkauflösung oder Pfadoperation. SDK-Erfolg ist an den passenden zentralen Operationsbeleg gebunden; Wiederholungen nach unklarem Ausgang werden nicht blind erneut ausgeführt.
 
 ## 3. Bestandsaufnahme: vorhandene Grundlagen und Lücken
 
@@ -109,6 +134,8 @@ Vor jeder späteren Symboländerung: Index für den tatsächlich bearbeiteten Ch
 - `.md` und `.markdown` in verwalteten Workspaces; initialisierte `plain_text`, `tiptap_blocks` und kompatible Legacy-Repräsentationen.
 - Initialer Import, Create/Upload/Overwrite und vorhandene Agenten-/MCP-Ingest-Wege.
 - Manuell erstelltes leeres Dokument, normales Text-Paste, ausdrücklich als Markdown eingefügter Inhalt und Import einer vorhandenen Markdown-Datei; vollständige Abnahme vom tatsächlichen UI-Einstieg bis zum erneuten Öffnen.
+- Parsed PDF über das bereits vorhandene Agententool als vollständiges verwaltetes Notizbuchdokument aufnehmen; Quelle, Parsergrenzen, Assets und native Erstpersistenz nachweisen.
+- Programmatische Text- und Dateioperationen über versionierte API und erstes Python-SDK an dieselbe zentrale Orchestrierung anbinden; OS-Sandbox schützt Markdown-Projektionen vor direkten Agentenwrites.
 - Linkindex, Backlinks, Graph, Diagnostics, Preview, Rename, Move, Delete, Copy und vorhandene Undo-/Restore-Wege.
 - Autoritative Reads, gezielte Writer, Revisionen, Cache-Invalidierung und Such-/Knowledge-Zulieferung.
 - Web, Mobile-Serververträge, Agenten, Automation, MCP, Public Shares und Exporte an den jeweiligen Anschlussstellen.
@@ -121,9 +148,9 @@ Binärdateien verwenden weiterhin den File Service. Office-Dokumente und Excalid
 
 `.mdx`, Plugins mit eigenen Dateien, spezielle Studio-Artefakte und externe Mounts werden im Inventar erfasst. Ihre Aufnahme in den neuen Linkvertrag wird ausdrücklich entschieden; eine bislang nicht unterstützte Syntax wird nicht still als vollständig geprüft behandelt.
 
-### 4.3 Nicht Bestandteil der ersten Umsetzung
+### 4.3 Nachgelagerte beziehungsweise ausgeschlossene Arbeiten
 
-- Öffentliche neue REST-API, Python-SDK oder frei eingebbare Yjs-Updates durch externe Clients.
+- Versionierte öffentliche API und ein erstes Python-SDK sind als verbindlicher Anschluss YD-13 eingeplant. Ihre Implementierung folgt dem stabilen gemeinsamen internen Vertrag; rohe, frei eingebbare Yjs-Updates durch externe Clients bleiben ausgeschlossen.
 - Neubau des Collaboration-Servers, Editors oder Version-/Review-Centers.
 - Automatische Reparatur historischer Dokumentzustände, fehlender Yjs-Daten oder unbekannter Mark-Konflikte.
 - Freigabe neuer Cross-Workspace-Move- oder Undo-Varianten, die heute bewusst nicht unterstützt werden.
@@ -131,7 +158,7 @@ Binärdateien verwenden weiterhin den File Service. Office-Dokumente und Excalid
 
 ## 5. Gemeinsame interne Document-Service-Fähigkeiten
 
-Der Service ist eine interne Fassade über vorhandene Mechanik, kein zweiter Raum und keine eigene CRDT-Persistenz. Kleine Fähigkeiten werden von den bestehenden Datei-, Agenten- und Review-Flows orchestriert.
+Der Service ist eine interne Fassade über vorhandene Mechanik, kein zweiter Raum und keine eigene CRDT-Persistenz. Kleine Fähigkeiten werden von Dateiaktionen, Editor, Agent, kontrollierten Importen und späteren API-/SDK-Adaptern verwendet.
 
 ```mermaid
 flowchart TD
@@ -155,14 +182,14 @@ flowchart TD
 | `resolveDocumentAuthority` | Identität, Repräsentation und Autoritätsklasse bestimmen | Rechte, Workspace/Organisation, Pfad/Generation, Initialisierungsstatus |
 | `readDocumentSnapshot` | Einen konsistenten Snapshot für den gewünschten Zweck lesen | Versionierter Snapshot mit Dokumentnachweis, kein unmarkierter Dateifallback |
 | `inspectDocumentLinks` | Struktur/Text vollständig auf vertraglich unterstützte Verweise prüfen | Linkinventar, stabile Referenzen und explizite Coverage |
-| `prepareDocumentMutation` | Zielstellen, Policy und Vorschlagsbindung vorbereiten | Geprüfte lokale Vorbedingungen, kein clientseitiger Binärpatch |
+| `prepareDocumentMutation` | Zielstellen, aktuelle Rechte und Operationsbindung vorbereiten | Geprüfte lokale Vorbedingungen, kein clientseitiger Binärpatch und keine zusätzliche Review-Annahme |
 | `applyDocumentMutation` | Synchron im autorisierten Raum mutieren | Operations-ID, eindeutiger Teilzustand, dauerhafte Bestätigung separat |
 | `confirmDocumentDurability` | Genau diesen Mutationsbeleg im gesicherten Zustand nachweisen | Inklusion samt DeleteSet, Identität und Generation |
 | `captureDocumentRecovery` | Autoritativen Inhalt und seine Wiederherstellung sichern | Verifizierbarer binärer Snapshot und Scope-Metadaten |
 | `requestDocumentProjection` | Passenden Export nachführen oder dessen Status lesen | Eigene Projektionsquittung; kein erneutes Anwenden der Mutation |
 | `importDocument` / `cloneDocument` | Einmalige Aufnahme oder neue Kopie erzeugen | Neue/zulässige Identität; erster Yjs-Stand atomar gesichert |
 
-Zugriff, Actor-Provenienz, Review-Policy und Workspace-Grenzen bleiben bei den bestehenden autorisierten Einstiegspunkten und werden vor Apply erneut geprüft. Der Service darf diese Regeln nicht über interne Default-Actors umgehen. Mechanik erhält explizite Eingaben und strukturierte Ergebnisse; ein universeller `doEverything`-Service ist nicht vorgesehen.
+Zugriff, Actor-Provenienz, autorisierter Operationsumfang und Workspace-Grenzen bleiben bei den bestehenden Einstiegspunkten und werden vor Apply erneut geprüft. Berechtigte Änderungen werden im beauftragten direkten Ablauf ausgeführt; ein abgeschaltetes experimentelles Review Center erzeugt keine Annahme-Warteschlange. Der Service darf Rechte nicht über interne Default-Actors umgehen. Mechanik erhält explizite Eingaben und strukturierte Ergebnisse; ein universeller `doEverything`-Service ist nicht vorgesehen.
 
 ### 5.2 Snapshot- und Frischevertrag
 
@@ -177,7 +204,7 @@ Der Read-Zweck ist ausdrücklich wählbar:
 
 Im offenen Raum muss eine geeignete Barrier den Reader mit laufenden Stores/Edits koordinieren. Außerhalb des Raums wird der persistierte Snapshot geladen. Eine bloße Datenbanktransaktion macht mehrere gleichzeitig bearbeitete Räume nicht automatisch zu einem gemeinsamen aktuellen Workspace-Snapshot.
 
-Kein neuer Weg darf laufende Reader-Handoffs, Owner-Leases oder Repeatable-Read-Loader umgehen. Mutationen aus separaten Workern werden zum zuständigen Raum geleitet. Ist dieser Zugang nicht verfügbar, lautet das Ergebnis unavailable/retry/review gemäß bestehender Policy; direkte Datenbank- oder Dateiänderung ist kein Ersatz.
+Kein neuer Weg darf laufende Reader-Handoffs, Owner-Leases oder Repeatable-Read-Loader umgehen. Mutationen aus separaten Workern werden zum zuständigen Raum geleitet. Ist dieser Zugang nicht verfügbar, bleibt der dokumentierte Fehler-/Retry-/Recoveryzustand sichtbar; direkte Datenbank- oder Dateiänderung ist kein Ersatz.
 
 Paginierte Struktur-, Such- und spätere API-Reads binden jede Folgeseite an denselben unveränderlichen Snapshot-Token. Truncation, noch fehlende Seiten und abgelaufene Tokens werden ausdrücklich ausgewiesen. Ein Wechsel auf einen neueren Stand darf nicht unbemerkt zwischen Seiten erfolgen.
 
@@ -246,7 +273,7 @@ Tatsächlich unlesbare oder übersprungene Quellen können unbekannte Links und 
 3. Autoritative Linkinventare und ihre Coverage lesen; Exportfähigkeit separat vermerken.
 4. Virtuellen Endzustand mit Pfadabbildung, Alias-/Zielauflösung, Kollisionen und gezielten Inhaltsoperationen berechnen.
 5. Wiederherstellungsbedarf, erforderliche Dokumentfähigkeiten und bekannte Einschränkungen prüfen.
-6. Unveränderlichen versionierten Plan, Vorbedingungen, Umfang und Review-/Direktmodus speichern.
+6. Unveränderlichen versionierten Plan, Vorbedingungen und autorisierten direkten Operationsumfang speichern; keine zusätzliche menschliche Annahme voraussetzen.
 
 Reine Planung initialisiert nicht heimlich neue Dokumente und erzeugt keine historischen Revisionen aus alten Dateiprojektionen. Ein notwendiger Import ist als eigener, nachvollziehbarer Ausführungsschritt im Plan enthalten.
 
@@ -355,6 +382,10 @@ Zusätzliche Anforderungen:
 6. **Ergebnis:** Nach Einfügen kann der Nutzer sofort weiterarbeiten, formatieren und Undo/Redo verwenden. Der Inhalt bleibt nach Tabwechsel, Schließen, Reload und erneutem Öffnen aus serverseitigem Yjs vollständig vorhanden. Verlustfreier Markdown-Export wird separat geprüft; ein fehlgeschlagener Export behauptet weder leeren Inhalt noch erfolgreichen Dateidownload.
 7. **Dateiverweise:** Importierte relative Links, Bilder und Wiki-Verweise werden gegen das gewählte Workspace-Ziel aufgelöst. Fehlende Assets bleiben erkennbar; Einfügen der Markdown-Datei lädt nicht heimlich beliebige externe Dateien nach. Importiert wird nur die ausgewählte Datei beziehungsweise ein ausdrücklich gewähltes Paket.
 
+### 8.6 PDF-Konvertierung ist ein kontrollierter Dokumentimport
+
+Das vorhandene `pdf_to_markdown` wird über den zentralen Import bis zum regulären bearbeitbaren Notizbuchdokument angeschlossen. Gebundene Quellbytes, create-only Zielreservierung beziehungsweise aktuelle Overwrite-Vorbedingungen, neue Dokumentidentität, initiales persistiertes Yjs und nachvollziehbare Original-/Derivatprovenienz sind Pflicht. Parserwarnungen zu OCR oder nicht extrahierten Bildern bleiben sichtbar; ein einzelner Markdown-Write beweist weder Vollimport noch Asset-/Indexabschluss. Die konkrete Inventur und die beiden Quell-/Zielraces stehen in [§5 des Anschlussplans](./central-notebook-file-api-import-plan.md#5-bestehendes-pdf-tool-bis-zum-echten-notizbuchdokument).
+
 ## 9. Writer, Reader und abgeleitete Verbraucher vereinheitlichen
 
 | Oberfläche/Workflow | Geforderter Vertrag | Besonderer Abnahmepunkt |
@@ -369,12 +400,14 @@ Zusätzliche Anforderungen:
 | Public Share/Studio/Attachments | Scope und konsistenten Snapshot beibehalten; Exportfehler separat | Keine neue Veröffentlichung älterer oder fremder Inhalte |
 | Dateimetadaten/Revisionen | Physische Größe und Dokumentinhalt unterscheiden; Reads schreiben keine alte Historie | Keine new→old-Revision durch verspätete Dateiprojektion |
 | Create/Paste/Markdown-Import/Upload/Ingest | Kontrollierte Initialisierung; nativer Paste und vollständiger Dateimport nach §8.5 | Echter UI-Create, erster Paste, Frontmatter, Retry und vorhandenes verwaltetes Ziel |
-| Shell/Skill/Scratch | Bestehende OS-Schreibbegrenzung erhalten; Dokumentzugriff über Tools | Child-Prozess, Symlink, direkter Pfad und fehlende Sandbox |
+| PDF→Notizbuch über `pdf_to_markdown` | Parserausgabe und Quellbezug kontrolliert in verwaltetes Yjs-Dokument übernehmen; Assets und Linkindex an denselben Import binden | Echte PDF-Konvertierung, verwaltetes Ziel, Weiterbearbeitung, Links, Retry, frischer Browser und Neustart |
+| Programmatische API/Python-SDK | Derselbe dokumentbezogene Read-/Edit-/Dateiaktionsvertrag und dieselben aktuellen Rechte | SDK-Textedit wird im offenen Editor sichtbar; Move/Copy/Delete führen dieselbe zentrale Linkpflege aus |
+| Shell/Skill/Scratch | OS-Schreibschutz außerhalb privaten Scratch zwingend; veröffentlichte Dokumentzugriffe über zentrale Tools/API | Child-Prozess, absoluter Pfad, Symlink/Hardlink, atomarer Austausch, Rename/Delete und fehlende Sandbox |
 | Restore/Recovery/Operator | Verifizierte autoritative Sicherung und ausdrücklicher Reparaturumfang | Keine Startup-/Routine-Reparatur historischer Zustände |
 
 File-Watcher dürfen externe Dateidrift melden und Projektionen invalidieren; sie dürfen ältere Workspace-Dateien nicht automatisch zurück in initialisierte Yjs-Dokumente importieren. Admin-/Host-Dateischreiber, Sidecars und lokale Prozesse außerhalb der Agent-Sandbox werden ebenfalls inventarisiert. Eine REST-Fassade allein verhindert deren direkte Writes nicht.
 
-Die bereits vorhandene Agent-Sandbox ist kein Netzwerk- oder externer MCP-Schutz. Zusätzliche Mount-/Berechtigungsänderungen erfolgen erst nach einer konkreten Lückenanalyse, damit Projector, binäre Workflows und kontrollierte Importe weiterhin funktionieren.
+Die bereits vorhandene Agent-Sandbox ist kein Netzwerk- oder externer MCP-Schutz. Ihr wirksamer OS-Schreibschutz für untrusted Agentencode ist ein verpflichtendes YD-08S-Gate, keine reine Promptregel. Der vertrauenswürdige Projector und der kontrollierte Import behalten ihre nötigen Serverrechte; globale schreibgeschützte Workspace-Dateien dürfen diese Dienste nicht versehentlich blockieren. Erforderliche zusätzliche Einschränkungen folgen dem konkreten Launcher-/Toolinventar; API- und MCP-Einstiegspunkte prüfen unabhängig aktuelle Rechte und dieselbe zentrale Orchestrierung.
 
 ## 10. UI, Fehlerverträge und Observability
 
@@ -431,7 +464,7 @@ Datei / Ordner / Dokument.md          [Breite] [Fokus] [Dateiaktionen …]
 Direkt bearbeitbarer Dokumentinhalt
 ```
 
-Die Skizze lässt bestehende Freigabe-, Versions- und Review-Aktionen zur Übersicht aus. Sie bleiben erreichbar; das Layout darf die schon vorhandene Aktionsgruppe nicht einfach unbeschränkt verbreitern.
+Die Skizze lässt vorhandene Datei-/Freigabeaktionen zur Übersicht aus; das Layout darf deren Aktionsgruppe nicht unbeschränkt verbreitern. Das experimentelle Review Center bleibt ausgeschaltet.
 
 | Oberfläche/Zustand | Vorgeschlagene Platzierung | Platz- und Bedienungsregel |
 | --- | --- | --- |
@@ -481,6 +514,7 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 | ID | Priorität | Arbeitspaket | Abgeschlossen, wenn … |
 | --- | --- | --- | --- |
 | YD-00 | P0 | Entscheidungen, Inventar und Regression festlegen | Autoritäts-/Erfolg-/Coverage-/Recovery-Verträge beschlossen; alle Eintrittspunkte und bestehende Einschränkungen dokumentiert; synthetischer Fehlerfall definiert. |
+| U-01 | P0, zuerst | Undo-Zustellung, Verlassen und Wiederöffnung | Die drei Benutzerfälle aus §0 und das konkrete Own→Undo-Paar sind kausal getrennt geprüft; letzte dauerhafte Version einschließlich Löschungen belegt, bestehende Rechte-/Closeguards erhalten, keine still akzeptierte Pending-Warnung im Saved-Reopen-Test. |
 | YD-01 | P0 | Konkreten Roundtrip-Fehler isolieren | Privater vollständiger Snapshot geprüft, minimaler anonymisierter Reproducer erstellt, Ursache belegt; notwendige Codec-Korrektur validiert oder sichere Einschränkung beschrieben. Keine automatische Produktionsreparatur. |
 | YD-02 | P0 | Gemeinsame Snapshot-/Autoritätsfähigkeiten | Initialisierte und pristine/legacy Zustände sicher getrennt; Live-/Persisted-Read mit vollständigen Identitäts-/Frischebelegen; Exportfehler verhindert zulässiges natives Strukturlesen nicht. |
 | YD-03 | P0 | Autoritative Recovery-/Clone-/Import-Verträge | Binäre Sicherung plus Pfadartefakte tatsächlich wiederherstellbar; Copy verliert keine Inhalte bei leerer Projektion; vollständiger Markdown-Dateimport einschließlich Metadaten, Import/Retry/Generation und Manifestversion getestet. |
@@ -489,15 +523,18 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 | YD-06 | P0 | Dateiaktions-Abschluss entkoppeln | Pfad-/Lifecycle-, Link- und Persistenzbelege ersetzen alle bisherigen diskabhängigen Abschlussannahmen; finale Graphprüfung autoritativ; Projector läuft außerhalb der Batch-Sperre sicher weiter. |
 | YD-07 | P0 | Undo/Restore und historische Journale | Sichere inverse Zieloperationen, kompatible alte Manifeste, wiederangelegte Pfade und späte Projektionen; kein Whole-document-Overwrite aktueller Nutzeränderungen. |
 | YD-08 | P0 | Alle verbleibenden Writer anschließen | File-/MCP-/Agent-/Upload-/Overwrite-/Restore-Wege können initialisierte Dokumente nicht roh ersetzen; Sandbox-/Host-Ausnahmen konkret erfasst; keine Policy-/Actor-Umgehung. |
+| YD-08S | P0 | Agenten-Sandbox als zwingender Schreibschutz | Alle untrusted Shell-/Python-/Node-/Skill-Child-Prozesse können verwaltete Dokumente und Pfade nicht direkt ändern; Scratch funktioniert, fehlende Sandbox blockiert; zentrale Schreibwege bleiben autorisiert nutzbar. |
+| YD-08P | P0 | Vorhandenes PDF-Tool an nativen Import anschließen | `pdf_to_markdown` erzeugt über denselben kontrollierten Dokumentimport ein bearbeitbares, dauerhaftes Notizbuchdokument mit Quellbezug, ehrlichen Parserwarnungen und zentral aufgelösten Links; Wiederholung/Overwrite/Fehler sind geprüft. |
 | YD-09 | P1 | Reader, Suche, Revisionen und Exporte vervollständigen | Web/Mobile/MCP/Knowledge/ZIP/Share-Verträge frisch und ehrlich; alte Dateiprojektionen erzeugen keine aktuelle Ausgabe oder falsche Revision. |
 | YD-10 | P1 | UI, direktes Editieren, öffentliche Verträge und Betrieb | Read/Edit-Auswahl entfernt; Rich/zulässiges Source unmittelbar editierbar; neues Dokument + Text-/Markdown-Einfügen und Import gut erreichbar; kompakte Breiten-/Fokusaktionen ohne zusätzliche Zeile; echte Rechte und Sitzungsschutz erhalten. Status-/Fehlerdarstellung sowie Recovery/Notification/Agent/Mobile kompatibel. |
 | YD-11 | P1 | Integrierte Konkurrenz-/Crash-/Browser-Abnahme | Verpflichtende Matrix und tatsächliches UI-Create/Paste/Import nach §13.3 bestanden, Build/Checks dokumentiert, Ebenen der Evidenz getrennt; keine offenen Datenverlust-/Scope-/Wiederanlaufbefunde. |
 | YD-12 | P1 | Gemessene Optimierung und kontrollierter Rollout | Baseline/Shadow-Vergleich, Lastgrenzen, historische Rückstände, Aktivierungs-/Stop-/Rollback-Regeln nachgewiesen; Rollout separat beauftragt. |
-| YD-13 | P2 | Öffentliche API/Python-SDK planen | Interner Vertrag stabil und versioniert; Auth/Scopes, Idempotenz, Lesepagination, strukturierte Edits und Exportstatus können darauf aufgebaut werden. |
+| YD-13 | P1 | Versionierte API und erstes Python-SDK | Auf stabilen internen Fähigkeiten dokumentbezogene Reads/gezielte Edits, Create/Import und Move/Copy/Delete anbieten; Auth/Scopes, Versionskonflikte, Idempotenz, Operationsstatus und Löschungs-/Dauerhaftigkeitsbelege mit tatsächlichem SDK-Client abnehmen. |
 
 ### 12.1 Checkliste für die gemeinsame Fortschreibung
 
 - [x] YD-00: Planentscheidungen und Inventar akzeptiert; Umsetzungsvorgaben und bestehende synthetische Regression festgelegt (§16.1).
+- [ ] U-01 zuerst: Bestätigte Speicherung, Pending-Abbruch und erzwungenes Verlassen mit Recovery getrennt nachweisen; konkrete Undo-Zustellung klären.
 - [ ] YD-01: Roundtrip-Ursache und Reproducer belegt.
 - [ ] YD-02: Snapshot-/Autoritätsvertrag umgesetzt und geprüft.
 - [ ] YD-03: Autoritative Sicherung, Clone und Import geprüft.
@@ -506,11 +543,13 @@ Gemäß ergänztem Nutzerauftrag wird ausschließlich in Git-Worktrees gearbeite
 - [ ] YD-06: Batch-Abschluss mit unabhängiger Projektion.
 - [ ] YD-07: Undo/Restore und Altjournal-Kompatibilität.
 - [ ] YD-08: Writer-Inventar abgeschlossen und zentrale Gates nachgewiesen.
+- [ ] YD-08S: Untrusted Agentencode kann verwaltete Markdown-Dateien/Pfade nicht direkt mutieren; OS-Gegenproben bestanden.
+- [ ] YD-08P: Bestehendes PDF-Tool erzeugt über den kontrollierten Import vollständige verwaltete Notizbuchdokumente.
 - [ ] YD-09: Reader-/Export-/Such-/Revisionsecken abgeschlossen.
 - [ ] YD-10: Direktes Editieren, kompakte Ansichtsaktionen, öffentliche Verträge und UI/Betrieb geprüft.
 - [ ] YD-11: Integrierte Abnahme abgeschlossen.
 - [ ] YD-12: Optimierung und separat freigegebener Rollout abgeschlossen.
-- [ ] YD-13: Separater API-/SDK-Plan akzeptiert.
+- [ ] YD-13: Versionierte API und Python-SDK auf gemeinsamem zentralem Vertrag implementiert und tatsächlich abgenommen.
 
 Zu jedem Haken gehören Commit, betroffene Verträge, konkrete Tests/Evidenz, verbleibende Grenzen und gegebenenfalls ein neuer Entscheidungseintrag. Ein bestandener Unit-Test allein schließt kein integriertes Arbeitspaket ab.
 
@@ -546,7 +585,9 @@ Für parallele Implementierungen werden geeignete vorhandene verwaltete Worktree
 | YD-10 | Je Teilfläche der abgeschlossene relevante Vertrag: native Bearbeitung YD-02, vollständiger Import YD-03/08, neue öffentliche Batch-Statusfelder YD-06/09 | Web-Editor/Header, Formular-/Gastadapter, Native Mobile und Betrieb/Übersetzungen nach gemeinsamer Modellentscheidung parallel; erst mit allen Teilabnahmen abgeschlossen. |
 | YD-11 | YD-01 bis YD-10 abgeschlossen; YD-00-Verträge weiterhin erfüllt | Reine Reviews und isolierte Tests können parallel erfolgen; integrierte UI-/Prozessprüfungen am selben verwalteten Stack werden seriell koordiniert. |
 | YD-12 | YD-11 | Messauswertung und Betriebsreview parallel; Aktivierung/Rollout geordnet und separat beauftragt. |
-| YD-13 | Stabiler intern abgenommener Vertrag nach YD-12 | API-/SDK-Plan als separates Folgepaket, ohne die offenen internen Grundlagen zu umgehen. |
+| U-01 | Aktueller V13-Befund; zuerst | Queue/Proof- und UX-/Traceanalyse parallel; ein koordinierter Testlauf. Danach die folgenden Implementierungen fortsetzen. |
+| YD-08S / YD-08P | U-01; vorhandene Sandbox, YD-02/03 und zentrale Writer aus YD-08 | Unabhängige Launcher-/Child- und PDF-Adapterflächen parallel inventarisieren; Produktänderungen nur mit fertigen Kernverträgen und klarer Dateiownership. |
+| YD-13 | U-01; Implementierung auf abgenommenem YD-02 bis YD-08 einschließlich zentraler Link-/Dateiaktionen | API-Schema und SDK-Oberfläche parallel planen, nach Kernabnahme anbinden; SDK führt dieselben Fähigkeiten aus und wartet nicht auf einen Produktionsrollout als Designvoraussetzung. |
 
 Die Tabelle nennt Startvoraussetzungen und Teilabhängigkeiten; ein Paket gilt erst mit seinem vollständigen Abschlusskriterium als fertig. Jeder Agent liefert einen fokussierten Commit, Nachweise, Grenzen und eine kurze Übergabe. Der Integrationsverantwortliche übernimmt fertige Commits gezielt, prüft Vertrag/Scope und führt erforderliche Regressionen auf dem tatsächlichen integrierten Stand aus. Unfertige Arbeit oder ein Worker-Status „idle“ ersetzt keinen Abschlussnachweis. Konflikte in gemeinsamem Code werden vor weiterer abhängiger Implementierung aufgelöst.
 
@@ -595,6 +636,11 @@ Die Produktionsdatei wird nicht als öffentliche Testfixture kopiert. Ein privat
 | Vollständige Markdown-Datei mit Frontmatter, BOM/CRLF und relativen Assets importieren | Metadaten und definierte Syntax erhalten; Source-Vertrag bei nicht sicherem Rich-Import; Ziel-/Assetauflösung korrekt | Tatsächlicher Upload-/Import-UI-Test plus native Struktur-/Textvergleiche |
 | Rich-Clipboard mit HTML/plain, Markdown-MIME, Codeblock, URL, Bild/Block oder mobiler Einfügeaktion | Festgelegte MIME-Priorität und kontextabhängiges Verhalten; keine stille Umdeutung oder verlorenen Inhalte | Reale Browser-Clipboard-Testmatrix; OS-/Gerätenachweis separat |
 | Bootstrap-/Sessionverzögerung, Peer füllt gerade leeres Dokument, Importretry oder Rechteentzug | Kein Empty-Overwrite, keine zweite Initialisierung oder doppelte Anwendung; Zielkonflikt und erhaltene Eingabe | Verzögerungs-/Konkurrenz-/Retrytests plus reale UI |
+| Undo, letzte Speicherung und gewöhnliches frisches Wiederöffnen | Exakter löschungsinklusiver Endstand dauerhaft bestätigt; keine Pending-Warnung; unveränderte strikte Reopen-/Reload-Assertions | Kausale Peer-/Proof-Prüfung, Browser und serverseitiger Snapshot |
+| Pending-Verlassen abbrechen beziehungsweise ausdrücklich erzwingen | „Bleiben“ hält Dokument und Undo; erzwungenes Verlassen behauptet keinen aktuellen Cloudstand und erhält nachgewiesene lokale Recovery | Explizite Dialogbeobachtung, getrennte Wiederherstellungs-/Reconnect-Prüfung |
+| Verschieben/Kopieren/Löschen über UI, Agent und SDK | Dieselbe zentrale Linksemantik, unabhängige Änderungen erhalten; Kopie besitzt eigene Identität und Lineage | Gemeinsame Syntax-/Koordinatorregressionen plus echte API-/SDK-/Browserfälle |
+| Tatsächliches `pdf_to_markdown`, Quellenänderung und konkurrierende Zielanlage während Konvertierung | Korrektes verwaltetes Derivat aus gebundenen Bytes; unverfälschter Quellbezug, create-only Konflikt statt fremdem Overwrite | Echte Tool-/Parser-/Importgegenproben, native SQL-Persistenz und frischer Browser |
+| Agentenshell/Kindprozess versucht `.md` direkt zu schreiben/ersetzen/verschieben/löschen | OS lehnt ab, Markdown und native Version unverändert; zentrale autorisierte API-Änderung gelingt | Wirkliche macOS-/Linux-Sandbox-Gegenproben nach Plattform sowie API-/Tooltests |
 
 ### 13.1 Bestehende Testgrundlagen
 
@@ -645,8 +691,8 @@ Für Create/Paste/Import: [native Markdown-Insertion](../scripts/markdown-insert
 
 - Unit-/Komponententests beweisen keine Prozess-, PostgreSQL-, Browser- oder Produktionssicherheit.
 - Die Pflichtfälle für Admission, Ownership, parallele Stores und Crash-Recovery verwenden echte getrennte Prozesse/Sessions und PostgreSQL.
-- UI/E2E prüfen Dateibrowser, Drag/Move/Delete, Review an/aus, Notifications, Wiederherstellung, direktes Rich-/Source-Editieren, echte Leserechte, kompakte Breiten-/Fokusaktionen, mobile Viewports und die betroffenen Cross-Workspace-Oberflächen.
-- Die vorhandenen `test:files:operation-batches:e2e`, `test:files:operation-direct:e2e`, `test:files:operation-notifications:e2e`, `test:files:operation-review-toggle:e2e` und HTML-Link-E2E sind Anschlussstellen; konkrete Auswahl hängt vom fertigen Änderungsumfang ab.
+- UI/E2E prüfen Dateibrowser, Drag/Move/Copy/Delete, zentrale Linkpflege, Notifications, Wiederherstellung, direktes Rich-/Source-Editieren, echte Leserechte, kompakte Breiten-/Fokusaktionen, mobile Viewports und die betroffenen Cross-Workspace-Oberflächen. Alle beauftragten Änderungen laufen direkt bei ausgeschaltetem experimentellem Review Center; dessen Vertiefung oder Aktivierung ist kein Arbeitspaket.
+- Die vorhandenen `test:files:operation-batches:e2e`, `test:files:operation-direct:e2e`, `test:files:operation-notifications:e2e` und HTML-Link-E2E sind Anschlussstellen; konkrete Auswahl hängt vom fertigen Änderungsumfang ab. Zusätzlich gelten die API-/SDK-/PDF-/Sandbox-Gegenproben aus dem [Anschlussplan](./central-notebook-file-api-import-plan.md).
 - Für das lokale Dev-Setup gilt der Skill `canvas-local-team-seat-dev`; keine parallelen Test-Stacks. Ein neuer Containerlauf verwendet den aktuellen Stand per Recreate/Rebuild.
 - Containerbau erfolgt nur nach ausdrücklichem Auftrag und vorher bestandenem `npm run build`. Die aktuelle Browserfreigabe betraf die lesende Produktionsdiagnose und ist kein Auftrag zu Produktionsmutationen.
 - Vor Integrationsabschluss: relevante Tests, Typecheck/Lint, `npm run build`, Diff-/GitNexus-Scopeprüfung und passende UI-Abnahme. Vor Produktionsdeployment zusätzlich die Repository-Vorgabe `npm run test:all`.
@@ -721,7 +767,7 @@ Die folgenden Empfehlungen sind mit dem Umsetzungsauftrag als Ausgangsentscheidu
 | D-07 | Undo bei unabhängigen späteren Änderungen? | Gezielte bedingte Inverse; keine alte Gesamtausgabe. | Welche Ziel-/Namespace-Konflikte blockieren, welche lokal neu geprüft werden können? |
 | D-08 | Umfang der Backups und Retention? | Yjs + physische Artefakte + Lineage/Receipts; tatsächliche Restore-Probe. | Speicherbudgets, Trash-/Operations-Retention und GC-Abhängigkeiten festlegen. |
 | D-09 | Search/Export bei fehlender Projektion? | Autoritative native Extraktion für Suche; Export nur verlustfrei, Frische ausdrücklich. | Altclient-/RAG-/ZIP-/Public-Share-Verträge und Produkttexte abstimmen. |
-| D-10 | Automatische Neuplanung bei unabhängigen Edits? | Nur innerhalb unveränderter autorisierter Zielwirkung; sonst neuer Plan. | Bindung an Review-Version/Plan-ID und sichtbares Ergebnis festlegen. |
+| D-10 | Automatische Neuplanung bei unabhängigen Edits? | Nur innerhalb unveränderter autorisierter Zielwirkung; sonst neuer Plan. | Bindung an Actor/Operationsumfang/Plan-ID und sichtbares Ergebnis festlegen; keine zusätzliche Review-Annahme. |
 | D-11 | Reader- und Mutations-Reihenfolge unter Locks? | Bestehende Admission-/Ownership-Mechanik; kein Warten auf Projector unter Batch-Sperre. | Konkrete Lock-Ordnung, Drain, Lease-Verlust und Timeout-Ausgänge beweisen. |
 | D-12 | Einführung/Abschaltung des neuen Vertrags? | Additive Versionen, geordneter Worker-Drain, keine unsichere Disk-Rückfalloption. | Kompatibler Rollback/Forward-Fix und Betriebs-Stop-Kriterien entscheiden. |
 | D-13 | Wo liegt der verbleibende zulässige Source-Zugang? | Im bestehenden Mehr-Menü; direktes Source bei source-only Dokumenten. Die Read/Edit-Auswahl entfällt gemäß Nutzerauftrag. | Rückkehr zum formatierten Dokument, Auffindbarkeit und Formular-/Gast-Kontext konkret abnehmen. |
@@ -740,7 +786,7 @@ Diese Entscheidungen werden vor Beginn der jeweils abhängigen Implementierung g
 - **Paste/Import:** Normales Paste verwendet den sicheren nativen Clipboard-Vertrag. Explizite Markdown-Einfügung bleibt der eindeutige Weg zur Strukturübernahme; keine neue heuristische Gesamtdokument-Konvertierung bei gewöhnlichem Paste. Vollständige Dateimporte über den bestehenden Upload-/Importweg erhalten Metadaten und wählen vor Erstinitialisierung Rich oder texttreues Source. Übernahme in eine bereits initialisierte leere Datei benötigt gebundene Zielprüfung statt Rohdatei-Overwrite.
 - **Syntax und Budgets:** Vorhandene Markdown-/Struktur-/Ressourcenlimits weiterverwenden und Coverage ehrlich ausweisen. `.mdx` und unbekannte Rich-/HTML-Strukturen werden nicht ohne geprüften Adapter freigegeben. Legacy-XML behält seine bestehenden Migrations-/Undo-Grenzen. Neue Budgets folgen YD-12-Messung.
 - **Synthetische Baseline:** Der vorhandene native-only Fall in `scripts/collaborative-file-read-test.ts` (Code-Mark mit `odd\\|pipe` in einer Tabellenzelle) belegt strukturell darstellbaren Inhalt bei `roundtrip_unstable`; er ist die Regression für unabhängige native Reads/Graphprüfung. Schema-/ID-/Vector-/Scope-Negativfälle bleiben zusätzlich verpflichtend. Das ist ausdrücklich kein Nachweis der unbekannten konkreten Transkript-Ursache.
-- **Abschluss/Rollout:** Versionierte neue Belege und gemeinsames Aktivierungsgate; keine Disk-Rückfalloption. Rollout/Produktionsreparatur bleibt ein eigener Auftrag. YD-13 liefert den gesonderten API-/SDK-Plan nach internem Abnahmevertrag.
+- **Abschluss/Rollout:** Versionierte neue Belege und gemeinsames Aktivierungsgate; keine Disk-Rückfalloption. Rollout/Produktionsreparatur bleibt ein eigener Auftrag. YD-13 liefert versionierte API und Python-SDK auf dem intern abgenommenen Vertrag; YD-08S/P gehören zum verbindlichen Writerabschluss. U-01 hat gemäß neuem Auftrag Vorrang.
 - **Arbeitsstand:** Implementierung startet von `59886de5b` im Worktree `824c`. Rein lesende Codec-/Test-/Linkinventare laufen parallel; Implementierung folgt den fertigen Voraussetzungen und eindeutigen File-Ownern aus §12.3. GitNexus-Index und Dependencies werden für diesen tatsächlichen Checkout hergestellt. Bereits laufende fremde Testserver/Container werden nicht unkoordiniert gestoppt oder als aktueller Goal-Stand gewertet.
 
 YD-00 ist damit als Vertrags-/Inventarentscheidung abgeschlossen, nicht als bestandene Anwendungscode-/Browserabnahme. Alle folgenden Implementierungs- und Abnahmepakete bleiben offen.
@@ -968,6 +1014,7 @@ Die parallel vorbereiteten Mobile-Tests sind ausschließlich private Entwürfe, 
 
 | Datum | Änderung | Nachweis/Status |
 | --- | --- | --- |
+| 2026-10-15 | Nutzerpriorität übernommen: U-01 zuerst, zentrale Move/Copy/Delete-/Linkoperationen, API/Python-SDK, PDF-Import aus vorhandenem Tool und zwingender Sandbox-Schreibschutz; experimentelles Review Center ausgeschlossen/aus. | Aktuellen V13-Trace mit echter automatisch akzeptierter Pending-Warnung und Queue-/Close-Vertrag abgeglichen. Bestehende Queue-/Close-Regression14 sowie Lifecycle-Regression erneut Exit0 auf unveränderten Produktquellen; neue Abnahmefälle und PDF-/SDK-/Sandbox-Anschlüsse bleiben offen. Neuer fokussierter Anschlussplan mit Quellen und Pflichtmatrix; keine Produktions-/Featureaktivierung. |
 | 2026-10-13 | Erstentwurf aus Architekturvorschlag, bestätigter Transkript-Diagnose und aktuellem Quelleninventar. Strukturierter Linkgraph, autoritative Backups/Copy/Undo und versionierte Batch-Belege als zusätzliche P0-Abhängigkeiten aufgenommen. | Plan erstellt; keine Anwendungscode- oder Produktionsänderung. |
 | 2026-10-13 | Nutzerergänzung: Read/Edit-Auswahl entfernen und sichtbaren Inhalt direkt editierbar machen. Platzierung von Dokumentbreite und Vollbild/Fokus, gemeinsame Formular-/Gastflächen, Source-/Rechtegrenzen und konkrete UI-Abnahme ergänzt. | Aktuelle UI-Quellen gelesen; konkrete Platzierung vorgeschlagen. UI-Implementierung und visuelle Browserabnahme stehen noch aus. |
 | 2026-10-13 | Nutzerergänzung: Manuelles Create, erster Text-Paste, Markdown-Einfügung und vollständiger Dateimport einschließlich echter Browser-/Persistenzabnahme ergänzt. Umsetzung im Worktree und parallele unabhängige Arbeit mit expliziten Abhängigkeiten statt pauschal serieller Reihenfolge festgelegt. | Bestehende Insertion-Fixtures geprüft; API-Create und Dialog-Paste als engeren bisherigen Nachweis ausgewiesen. Plan erweitert; Anwendung/Browser-Abnahme noch ausstehend. |
