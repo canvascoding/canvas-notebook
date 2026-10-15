@@ -1,6 +1,7 @@
 'use client';
 
 import { studioApiFetch } from '../../utils/studio-api';
+import { hasStudioOutputMedia } from '../../utils/studio-output-media';
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -473,7 +474,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     ? generations.find((g) => g.id === selectedGenerationId) ?? null
     : null;
   const resolvedSelectedOutput = resolvedSelectedGeneration && selectedOutputId
-    ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId) ?? null
+    ? resolvedSelectedGeneration.outputs.find((o) => o.id === selectedOutputId && hasStudioOutputMedia(o)) ?? null
     : null;
 
   useEffect(() => {
@@ -578,7 +579,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     };
 
     const flattened = generations.flatMap((gen) =>
-      gen.outputs.map((out) => ({ generation: gen, output: out })),
+      gen.outputs.filter(hasStudioOutputMedia).map((out) => ({ generation: gen, output: out })),
     );
 
     return flattened
@@ -819,7 +820,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     if (openedRoutePreviewRef.current === routePreviewKey) return;
 
     const matchingGeneration = generations.find((generation) => generation.id === initialGenerationId);
-    const matchingOutput = matchingGeneration?.outputs.find((output) => output.id === initialOutputId);
+    const matchingOutput = matchingGeneration?.outputs.find((output) => output.id === initialOutputId && hasStudioOutputMedia(output));
 
     if (matchingGeneration && matchingOutput) {
       openedRoutePreviewRef.current = routePreviewKey;

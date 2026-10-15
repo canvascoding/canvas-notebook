@@ -45,6 +45,7 @@ import {
   QUALITY_OPTIONS,
   getDefaultOpenAIImageSize,
   getImageSizesForModel,
+  getOpenAIImageModelCapabilities,
   getOpenAIImageSizeValidationError,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
@@ -391,12 +392,14 @@ function ProviderControls({
               {OPENAI_MODERATION_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <span className="text-xs text-muted-foreground">Reference fidelity</span>
-            <select className="h-9 rounded-md border border-input bg-background px-2" value={inputFidelity} onChange={(event) => onInputFidelityChange(event.target.value as OpenAIImageInputFidelity)}>
-              {OPENAI_INPUT_FIDELITY_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </label>
+          {getOpenAIImageModelCapabilities(model)?.supportsInputFidelity ? (
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="text-xs text-muted-foreground">Reference fidelity</span>
+              <select className="h-9 rounded-md border border-input bg-background px-2" value={inputFidelity} onChange={(event) => onInputFidelityChange(event.target.value as OpenAIImageInputFidelity)}>
+                {OPENAI_INPUT_FIDELITY_OPTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+            </label>
+          ) : null}
           <label className="flex flex-col gap-1 text-sm">
             <span className="text-xs text-muted-foreground">Resolution</span>
             <Input
@@ -796,7 +799,9 @@ export function AspectRatioEditorView() {
           outputCompression: mode === 'ai_extend' && provider === 'openai' && outputFormat !== 'png'
             ? outputCompression
             : undefined,
-          inputFidelity: mode === 'ai_extend' && provider === 'openai' ? inputFidelity : undefined,
+          inputFidelity: mode === 'ai_extend' && provider === 'openai' && getOpenAIImageModelCapabilities(model)?.supportsInputFidelity
+            ? inputFidelity
+            : undefined,
           imageSize: mode === 'ai_extend'
             ? provider === 'openai'
               ? openAIImageSize

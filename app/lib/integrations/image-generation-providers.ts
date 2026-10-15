@@ -6,19 +6,10 @@ import type { EnvStorageScope } from './env-config';
 import {
   GEMINI_FLASH_IMAGE_MODEL_ID,
   GEMINI_PRO_IMAGE_MODEL_ID,
-  BACKGROUND_OPTIONS,
-  OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_IMAGE_MODEL_ID,
   OPENAI_FLARE_IMAGE_MODEL_ID,
   OPENAI_ASPECT_RATIOS,
-  OPENAI_MODERATION_OPTIONS,
-  OUTPUT_FORMAT_OPTIONS,
-  QUALITY_OPTIONS,
-  getDefaultOpenAIImageSize,
-  getOpenAIImageSizeValidationError,
   normalizeGeminiImageModelId,
-  normalizeOpenAIImageOutputFormat,
-  normalizeOpenAIImageSizeInput,
   type OpenAIImageBackground,
   type OpenAIImageInputFidelity,
   type OpenAIImageModeration,
@@ -27,6 +18,8 @@ import {
 } from './image-generation-constants';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
 import { resolveStudioProviderCredential } from './studio-provider-credentials';
+import { normalizeOpenAIImageRequestOptions } from './openai-image-request';
+import { prepareOpenAIImageInputs } from './openai-image-inputs';
 
 export interface ImageModelOption {
   id: string;
@@ -137,6 +130,12 @@ async function extractOpenAIImage(
     for await (const event of response as AsyncIterable<unknown>) {
       if (!event || typeof event !== 'object') continue;
       const item = event as Record<string, unknown>;
+      if (item.type === 'error') {
+        throw Object.assign(new Error(typeof item.message === 'string' ? item.message : 'OpenAI image streaming failed'), {
+          code: item.code,
+          status: item.status,
+        });
+      }
       if (
         (item.type === 'image_generation.completed' || item.type === 'image_edit.completed')
         && typeof item.b64_json === 'string'
@@ -320,47 +319,11 @@ class OpenAIImageProvider implements ImageGenerationProvider {
   }
 
   async generate(params: ProviderGenerateParams): Promise<ProviderGenerateResult> {
-    if (params.quality !== undefined && !QUALITY_OPTIONS.includes(params.quality)) {
-      throw new Error('Unsupported OpenAI image quality.');
-    }
-    if (params.outputFormat !== undefined && !OUTPUT_FORMAT_OPTIONS.includes(params.outputFormat)) {
-      throw new Error('Unsupported OpenAI output format.');
-    }
-    if (params.background !== undefined && !BACKGROUND_OPTIONS.includes(params.background)) {
-      throw new Error('Unsupported OpenAI background.');
-    }
-    if (params.moderation !== undefined && !OPENAI_MODERATION_OPTIONS.includes(params.moderation)) {
-      throw new Error('Unsupported OpenAI moderation level.');
-    }
-    if (params.inputFidelity !== undefined && !OPENAI_INPUT_FIDELITY_OPTIONS.includes(params.inputFidelity)) {
-      throw new Error('Unsupported OpenAI input fidelity.');
-    }
-    const outputFormat = normalizeOpenAIImageOutputFormat(params.background, params.outputFormat) || 'png';
-    const size = normalizeOpenAIImageSizeInput(
-      params.imageSize || getDefaultOpenAIImageSize(params.aspectRatio),
-    );
-    const sizeError = getOpenAIImageSizeValidationError(size);
-    if (sizeError) {
-      throw new Error(`Invalid OpenAI image size "${size}": ${sizeError}`);
-    }
-    if (
-      params.outputCompression !== undefined
-      && (!Number.isInteger(params.outputCompression) || params.outputCompression < 0 || params.outputCompression > 100)
-    ) {
-      throw new Error('OpenAI output compression must be an integer between 0 and 100.');
-    }
-    if (
-      params.partialImages !== undefined
-      && (!Number.isInteger(params.partialImages) || params.partialImages < 0 || params.partialImages > 3)
-    ) {
-      throw new Error('OpenAI partial image count must be an integer between 0 and 3.');
-    }
-    if (params.partialImages !== undefined && !params.stream) {
-      throw new Error('OpenAI partial images require streaming mode.');
-    }
-    const outputCompression = outputFormat === 'jpeg' || outputFormat === 'webp'
-      ? params.outputCompression
-      : undefined;
+    const normalized = normalizeOpenAIImageRequestOptions(params);
+    const inputs = await prepareOpenAIImageInputs(params.referenceImages, params.editMask);
+    params = { ...params, ...normalized, ...inputs };
+    const { outputFormat, imageSize: size } = normalized;
+    const outputCompression = 'outputCompression' in normalized ? normalized.outputCompression : undefined;
 
     const apiKey = await resolveStudioProviderCredential('openai', params.storageScope);
     if (!apiKey) {
@@ -379,7 +342,6 @@ class OpenAIImageProvider implements ImageGenerationProvider {
             background: params.background,
             moderation: params.moderation,
             outputCompression,
-            inputFidelity: params.inputFidelity,
             stream: params.stream,
             partialImages: params.partialImages,
             endUserId: params.endUserId,
@@ -399,12 +361,12 @@ class OpenAIImageProvider implements ImageGenerationProvider {
           usage: output.metadata?.usage as ProviderGenerateResult['usage'],
         };
       }
-      throw new Error('OpenAI API key is missing. Configure OPENAI_API_KEY in /settings.');
+      throw new Error('OpenAI API key is missing. Configure OPENAI_API_KEY in /settings?tab=secrets.');
     }
 
     console.log(`[OpenAI Image] Generating: model=${params.model}, aspectRatio=${params.aspectRatio}, refs=${params.referenceImages.length}, quality=${params.quality || 'auto'}`);
 
-    const openai = new OpenAI({ apiKey });
+    const openai = new OpenAI({ apiKey, maxRetries: 0 });
 
     const hasReferences = params.referenceImages.length > 0;
     // Combine context prompt and user prompt for OpenAI
@@ -436,7 +398,6 @@ class OpenAIImageProvider implements ImageGenerationProvider {
         ...(outputCompression !== undefined
           ? { output_compression: outputCompression }
           : {}),
-        ...(params.inputFidelity ? { input_fidelity: params.inputFidelity } : {}),
         ...(params.endUserId ? { user: params.endUserId } : {}),
         ...(params.stream ? { stream: true, partial_images: params.partialImages ?? 0 } : { stream: false }),
         n: 1,

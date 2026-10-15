@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server';
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { StudioGenerationFailureError, studioGenerationFailureHttpStatus } from '@/app/lib/integrations/studio-generation-failures';
 
 import { MobileStudioError } from './studio';
 
@@ -15,6 +16,12 @@ export const mobileStudioResponseHeaders = {
 };
 
 export function mobileStudioErrorResponse(error: unknown, context: string) {
+  if (error instanceof StudioGenerationFailureError) {
+    return NextResponse.json(
+      { success: false, error: error.userMessage, code: error.code, retryable: error.failure.retryable },
+      { status: studioGenerationFailureHttpStatus(error.failure), headers: mobileStudioResponseHeaders },
+    );
+  }
   if (error instanceof MobileStudioError) {
     return NextResponse.json(
       { success: false, error: error.message, code: error.code },

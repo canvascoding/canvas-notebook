@@ -8,12 +8,14 @@ import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
+import { classifyStudioGenerationFailure, StudioGenerationFailureError } from '@/app/lib/integrations/studio-generation-failures';
 import {
   BACKGROUND_OPTIONS,
   OPENAI_INPUT_FIDELITY_OPTIONS,
   OPENAI_MODERATION_OPTIONS,
   OUTPUT_FORMAT_OPTIONS,
   QUALITY_OPTIONS,
+  getOpenAIImageModelCapabilities,
   getOpenAIImageSizeValidationError,
   normalizeOpenAIImageOutputFormat,
   type OpenAIImageBackground,
@@ -469,9 +471,9 @@ export async function createAspectRatioPreview(
   if (!provider) {
     throw new Error('Unsupported image provider');
   }
-  const model = provider.models.some((candidate) => candidate.id === request.model)
-    ? request.model!
-    : provider.models[0]?.id;
+  const model = provider.id === 'openai'
+    ? getOpenAIImageModelCapabilities(request.model || provider.models[0]?.id || '')?.modelId
+    : provider.models.some((candidate) => candidate.id === request.model) ? request.model! : provider.models[0]?.id;
   if (!model) {
     throw new Error('No model available for provider');
   }
@@ -519,6 +521,8 @@ export async function createAspectRatioPreview(
     contextPrompt: buildExtendContextPrompt(provider.id),
     endUserId: scope.actorUserId,
     storageScope,
+  }).catch((error: unknown) => {
+    throw new StudioGenerationFailureError(classifyStudioGenerationFailure(error));
   });
 
   const generatedBytes = Buffer.from(generated.imageBytes, 'base64');

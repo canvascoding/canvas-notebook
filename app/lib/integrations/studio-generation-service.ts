@@ -21,6 +21,7 @@ import {
 import { eq, and, desc, count, asc, inArray, or } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { classifyStudioGenerationFailure, StudioGenerationFailureError, type StudioGenerationFailure } from '@/app/lib/integrations/studio-generation-failures';
 import {
   readAssetFile,
   ensureStudioOutputsWorkspace,
@@ -50,7 +51,7 @@ import {
   VEO_MAX_REFERENCE_IMAGES,
   getMaxImageCountForProvider,
   getOpenAIImageAspectRatio,
-  getOpenAIImageRequestValidationError,
+  getOpenAIImageModelCapabilities,
   isValidOpenAIImageSize,
   normalizeGeminiImageModelId,
   normalizeOpenAIImageModelId,
@@ -62,6 +63,7 @@ import {
   type OpenAIImageOutputFormat,
   type OpenAIImageQuality,
 } from '@/app/lib/integrations/image-generation-constants';
+import { normalizeOpenAIImageRequestOptions } from '@/app/lib/integrations/openai-image-request';
 import { withStudioGenerationConcurrency } from '@/app/lib/integrations/studio-generation-concurrency';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
@@ -139,6 +141,8 @@ export interface StudioGenerateResult {
   mode: string;
   prompt: string;
   outputs: StudioGenerationOutput[];
+  failedOutputCount?: number;
+  warnings?: string[];
 }
 
 const MAX_PRODUCTS = 5;
@@ -793,27 +797,37 @@ export async function createStudioGeneration(
   const mode = request.mode || 'image';
   const providerId = request.provider || (mode === 'video' ? 'veo' : 'gemini');
   const requestedAspectRatio = request.aspect_ratio || '1:1';
-  const openAIImageSize = mode === 'image' && providerId === 'openai' && request.image_size
-    ? normalizeOpenAIImageSizeInput(request.image_size)
-    : request.image_size;
-  const aspectRatio = mode === 'image' && providerId === 'openai' && openAIImageSize
-    ? getOpenAIImageAspectRatio(openAIImageSize, requestedAspectRatio)
-    : requestedAspectRatio;
   if (mode === 'image' && providerId === 'openai') {
-    const validationError = getOpenAIImageRequestValidationError({
-      model: request.model,
-      count: request.count,
-      quality: request.quality,
-      outputFormat: request.output_format,
-      background: request.background,
-      moderation: request.moderation,
-      outputCompression: request.output_compression,
-      inputFidelity: request.input_fidelity,
-      imageSize: openAIImageSize,
-      stream: request.stream,
-      partialImages: request.partial_images,
-    });
-    if (validationError) {
+    try {
+      const normalized = normalizeOpenAIImageRequestOptions({
+        model: request.model ?? OPENAI_IMAGE_MODEL_ID,
+        aspectRatio: requestedAspectRatio,
+        count: request.count,
+        quality: request.quality,
+        outputFormat: request.output_format,
+        background: request.background,
+        moderation: request.moderation,
+        outputCompression: request.output_compression,
+        inputFidelity: request.input_fidelity,
+        imageSize: request.image_size,
+        stream: request.stream,
+        partialImages: request.partial_images,
+      });
+      request = {
+        ...request,
+        model: normalized.model,
+        quality: normalized.quality,
+        output_format: normalized.outputFormat,
+        background: normalized.background,
+        moderation: normalized.moderation,
+        output_compression: normalized.outputCompression,
+        input_fidelity: undefined,
+        image_size: normalized.imageSize,
+        stream: normalized.stream,
+        partial_images: normalized.partialImages,
+      };
+    } catch (error) {
+      const validationError = error instanceof Error ? error.message : 'Invalid image options.';
       throw new StudioServiceError(
         `Invalid OpenAI image request: ${validationError}`,
         validationError,
@@ -821,6 +835,12 @@ export async function createStudioGeneration(
       );
     }
   }
+  const openAIImageSize = mode === 'image' && providerId === 'openai' && request.image_size
+    ? normalizeOpenAIImageSizeInput(request.image_size)
+    : request.image_size;
+  const aspectRatio = mode === 'image' && providerId === 'openai' && openAIImageSize
+    ? getOpenAIImageAspectRatio(openAIImageSize, requestedAspectRatio)
+    : requestedAspectRatio;
   const rawPrompt = sanitizePrompt(
     request.prompt,
     mode === 'image' && providerId === 'openai'
@@ -1079,10 +1099,22 @@ export async function executeStudioGeneration(
 
   await executeStudioGenerationProcessing(scope, row, generationId);
 
-  const [completed] = await db.select({ status: studioGenerations.status, prompt: studioGenerations.prompt })
+  const [completed] = await db.select({ status: studioGenerations.status, prompt: studioGenerations.prompt, metadata: studioGenerations.metadata })
     .from(studioGenerations)
     .where(eq(studioGenerations.id, generationId))
     .limit(1);
+
+  const completionMetadata = completed?.metadata ? JSON.parse(completed.metadata) as Record<string, unknown> : {};
+  if (completed?.status === 'failed') {
+    throw new StudioGenerationFailureError({
+      code: typeof completionMetadata.errorCode === 'string' ? completionMetadata.errorCode : 'GENERATION_FAILED',
+      message: typeof completionMetadata.error === 'string' ? completionMetadata.error : 'Die Bildgenerierung ist fehlgeschlagen.',
+      details: typeof completionMetadata.errorDetails === 'string' ? completionMetadata.errorDetails : 'Image generation failed',
+      retryable: completionMetadata.retryable === true,
+      ...(typeof completionMetadata.errorStatus === 'number' ? { status: completionMetadata.errorStatus } : {}),
+      ...(typeof completionMetadata.errorRequestId === 'string' ? { requestId: completionMetadata.errorRequestId } : {}),
+    });
+  }
 
   const outputs = await db.select()
     .from(studioGenerationOutputs)
@@ -1093,7 +1125,9 @@ export async function executeStudioGeneration(
     status: completed?.status || 'completed',
     mode,
     prompt: completed?.prompt || prompt,
-    outputs: outputs.map((o) => ({
+    failedOutputCount: typeof completionMetadata.failedOutputCount === 'number' ? completionMetadata.failedOutputCount : 0,
+    warnings: Array.isArray(completionMetadata.warnings) ? completionMetadata.warnings.filter((item): item is string => typeof item === 'string') : [],
+    outputs: outputs.filter((o) => Boolean(o.filePath && o.mimeType)).map((o) => ({
       id: o.id,
       variationIndex: o.variationIndex,
       filePath: o.filePath,
@@ -1190,6 +1224,7 @@ async function executeStudioGenerationProcessing(
   console.log(`[Studio Generation] Starting background processing: id=${generationId}, mode=${mode}, provider=${providerId}`);
 
   try {
+    let imageFailures: StudioGenerationFailure[] = [];
     const allReferenceImages: LoadedReferenceImage[] = [];
 
     const sourceOutputId = parsedMeta.sourceOutputId;
@@ -1301,7 +1336,7 @@ async function executeStudioGenerationProcessing(
         Math.max(parsedMeta.count || 1, 1),
         getMaxImageCountForProvider('image', providerId),
       );
-      outputs = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
+      const imageResult = await generateStudioImages(generationId, composedPrompt, count, aspectRatio, providerImages, providerId, model, {
         quality: parsedMeta.quality,
         outputFormat: parsedMeta.outputFormat,
         background: parsedMeta.background,
@@ -1312,10 +1347,20 @@ async function executeStudioGenerationProcessing(
         partialImages: parsedMeta.partialImages,
         imageSize: parsedMeta.imageSize,
       }, contextText, storageScope, scope);
+      outputs = imageResult.outputs;
+      imageFailures = imageResult.failures;
     }
 
+    const completionMetadata: Record<string, unknown> = { ...parsedMeta };
+    const hadPreviousError = Boolean(completionMetadata.error || completionMetadata.failedOutputCount || completionMetadata.warning);
+    for (const key of ['error', 'errorDetails', 'errorCode', 'errorStatus', 'errorRequestId', 'retryable', 'failedOutputCount', 'warning', 'warnings']) delete completionMetadata[key];
+    if (imageFailures.length) {
+      completionMetadata.failedOutputCount = imageFailures.length;
+      completionMetadata.warning = `${imageFailures.length} von ${imageFailures.length + outputs.length} Bildvariationen sind fehlgeschlagen.`;
+      completionMetadata.warnings = imageFailures.map((failure) => failure.message);
+    }
     await db.update(studioGenerations)
-      .set({ status: 'completed', prompt: composedPrompt, updatedAt: new Date() })
+      .set({ status: 'completed', prompt: composedPrompt, ...(imageFailures.length || hadPreviousError ? { metadata: JSON.stringify(completionMetadata) } : {}), updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
 
     await sendStudioResultPush({
@@ -1327,8 +1372,8 @@ async function executeStudioGenerationProcessing(
 
     console.log(`[Studio Generation] Completed: id=${generationId}, mode=${mode}, outputs=${outputs.length}`);
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`[Studio Generation] Generation failed: id=${generationId}, error="${errorMessage}"`, error instanceof Error ? error.stack : error);
+    const failure = classifyStudioGenerationFailure(error);
+    console.error(`[Studio Generation] Generation failed: id=${generationId}`, failure);
     const existingGeneration = await db.select({ metadata: studioGenerations.metadata })
       .from(studioGenerations)
       .where(eq(studioGenerations.id, generationId))
@@ -1336,8 +1381,10 @@ async function executeStudioGenerationProcessing(
     const existingMetadata = existingGeneration[0]?.metadata
       ? JSON.parse(existingGeneration[0].metadata)
       : {};
+    for (const key of ['warning', 'warnings', 'failedOutputCount']) delete existingMetadata[key];
+    if (mode === 'image') existingMetadata.failedOutputCount = Math.min(Math.max(parsedMeta.count || 1, 1), getMaxImageCountForProvider('image', providerId));
     await db.update(studioGenerations)
-      .set({ status: 'failed', metadata: JSON.stringify({ ...existingMetadata, error: errorMessage }), updatedAt: new Date() })
+      .set({ status: 'failed', metadata: JSON.stringify({ ...existingMetadata, error: failure.message, errorDetails: failure.details, errorCode: failure.code, retryable: failure.retryable, errorStatus: failure.status, errorRequestId: failure.requestId }), updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
     await sendStudioResultPush({ scope, generationId, status: 'failed' });
   }
@@ -1365,7 +1412,7 @@ async function generateStudioImages(
   contextText: string | undefined,
   storageScope: EnvStorageScope | null | undefined,
   scope: StudioScope,
-): Promise<StudioGenerationOutput[]> {
+): Promise<{ outputs: StudioGenerationOutput[]; failures: StudioGenerationFailure[] }> {
   const provider = getImageGenerationProvider(providerId);
   if (!provider) {
     throw new StudioServiceError(
@@ -1375,9 +1422,10 @@ async function generateStudioImages(
   }
 
   const normalizedModel = providerId === 'gemini' ? normalizeGeminiImageModelId(model) : model;
-  const validatedModel = provider.models.some((m) => m.id === normalizedModel)
-    ? normalizedModel
-    : (provider.models[0]?.id || normalizedModel);
+  const validatedModel = providerId === 'openai'
+    ? getOpenAIImageModelCapabilities(normalizedModel)?.modelId
+    : provider.models.some((m) => m.id === normalizedModel) ? normalizedModel : (provider.models[0]?.id || normalizedModel);
+  if (!validatedModel) throw new StudioServiceError(`Unsupported OpenAI image model: ${model}`, 'Das gewählte Bildmodell wird nicht unterstützt.', 'INVALID_MODEL');
 
   const hasValidOpenAIImageSize = providerId === 'openai'
     && typeof options?.imageSize === 'string'
@@ -1392,6 +1440,9 @@ async function generateStudioImages(
   }
 
   const maxRefs = provider.getMaxReferenceImages(validatedModel);
+  if (providerId === 'openai' && referenceImages.length > maxRefs) {
+    throw new StudioServiceError('OpenAI supports at most 16 reference images.', 'Bitte wähle höchstens 16 Referenzbilder.', 'INVALID_REFERENCES');
+  }
   const limitedReferences = referenceImages.slice(0, maxRefs);
   const outputFormat = providerId === 'openai'
     ? normalizeOpenAIImageOutputFormat(options?.background, options?.outputFormat)
@@ -1477,8 +1528,8 @@ async function generateStudioImages(
         fileSize: outputBytes.length,
       };
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : 'Image generation failed';
-      console.error(`[Studio Generation] Image ${index + 1}/${count} failed: ${errorMsg}`, error instanceof Error ? error.stack : error);
+      const failure = classifyStudioGenerationFailure(error);
+      console.error(`[Studio Generation] Image ${index + 1}/${count} failed:`, failure);
       const errorOutputId = randomUUID();
       const now = new Date();
       await insertStudioGenerationOutput({
@@ -1494,30 +1545,30 @@ async function generateStudioImages(
         width: null,
         height: null,
         isFavorite: false,
-        metadata: JSON.stringify({ error: errorMsg }),
+        metadata: JSON.stringify({ error: failure.message, errorDetails: failure.details, errorCode: failure.code, retryable: failure.retryable, errorStatus: failure.status, errorRequestId: failure.requestId }),
         createdAt: now,
       });
-      throw error;
+      throw new StudioGenerationFailureError(failure);
     }
   });
 
   const results = await Promise.allSettled(generationJobs);
   const successfulOutputs: StudioGenerationOutput[] = [];
+  const failures: StudioGenerationFailure[] = [];
 
   for (const result of results) {
     if (result.status === 'fulfilled') {
       successfulOutputs.push(result.value);
+    } else {
+      failures.push(classifyStudioGenerationFailure(result.reason));
     }
   }
 
   if (successfulOutputs.length === 0) {
-    throw new StudioServiceError(
-      'All image generations failed',
-      'Alle Bildgenerierungen sind fehlgeschlagen. Bitte versuche es erneut mit einem anderen Prompt oder Provider.',
-    );
+    throw new StudioGenerationFailureError(failures[0]);
   }
 
-  return successfulOutputs;
+  return { outputs: successfulOutputs, failures };
 }
 
 async function generateStudioSound(
