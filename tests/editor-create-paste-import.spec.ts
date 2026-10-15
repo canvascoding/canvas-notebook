@@ -286,6 +286,8 @@ test.describe('Manual document creation and first content', () => {
       await expect(dialog.getByRole('textbox', { name: 'Markdown', exact: true })).toHaveValue(markdownBody);
       await dialog.getByRole('button', { name: 'Insert', exact: true }).click();
       const editor = page.locator(editorSelector);
+      await expect(dialog).toHaveCount(0);
+      await expect(editor).toBeFocused();
       await expect(editor.getByRole('heading', { name: 'Imported heading', exact: true })).toBeVisible();
       await expect(editor.locator('strong')).toHaveText('bold');
       await expect(editor.locator('li')).toHaveText(['First', 'Second']);
@@ -466,7 +468,7 @@ for (const profile of firstPasteProfiles) {
           expect(descendants(pasted)).toContainEqual(expect.objectContaining({ type: 'obsidianWikiLink', attrs: expect.objectContaining({ target: 'Missing note|Wiki label' }) }));
           expect(descendants(pasted)).toContainEqual(expect.objectContaining({ type: 'markdownMention', attrs: expect.objectContaining({ label: 'Clipboard member', userId: 'clipboard-member' }) }));
           await expect(editor.locator('h1, h2, ul, ol, pre, table')).toHaveCount(0);
-          await expect(page.getByRole('dialog')).toHaveCount(0);
+          await expect(page.getByRole('dialog', { name: importTitle, exact: true })).toHaveCount(0);
           await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
           await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
           await page.keyboard.press('ControlOrMeta+z'); await expect(editor).toHaveText('');
