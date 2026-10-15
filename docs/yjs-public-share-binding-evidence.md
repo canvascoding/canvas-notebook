@@ -1,0 +1,66 @@
+# Public-Freigaben: native Herkunft und historische Belege
+
+Stand: 16. Oktober 2026. Quellenbasis vor dieser Etappe: Root `71c628ed7` / QA `576797f5d`. Produkt-/Testcommit dieser Etappe: Root `db835a435688b8624c685bd337a6fe4219a3d11a`, identisch übernommen als QA `f34428452c801dd6223110be5692a48a54cdf125`. Diese Etappe ergänzt die gespeicherte native Herkunft und ihre privaten Lifecycle-/Recoverybelege. Die reguläre Public-Servicefamilie und ihre Router sind noch nicht auf den kooperativen Writervertrag umgestellt. Die allgemeine Aktivierung bleibt ausgeschaltet.
+
+## Umgesetzter Vertrag
+
+[Schema](../app/lib/db/schema.ts) und [additive Migration](../app/lib/db/public-file-share-target-migration.ts) ergänzen `document_id`, `lineage_id` und `lifecycle_generation` in `public_file_shares`. Zulässig sind ausschließlich drei NULL-Werte oder eine vollständige Bindung mit begrenzten IDs, vorhandenem Workspacewert und sicherer positiver Generation. Die Migration weist alten Zeilen keine Herkunft aus ihrem heutigen Pfad zu. Eine vollständige Datenbankzeile allein erteilt weder native Lese- noch Schreibrechte.
+
+Die [private Nebenwirkungsprojektion](../app/lib/db/native-file-operation-side-effects-migration.ts) entfernt die drei neuen Spalten vor dem bisherigen `preservedRowProof`. Bei vollständig ungebundenen Zeilen bleiben V1-JSON und Digest exakt erhalten. Gebundene Zeilen ergänzen `publicBinding:{version:1,documentId,lineageId,lifecycleGeneration}`. TS- und SQL-Stageguards prüfen dasselbe Dokument und dieselbe Lineage sowie `1 <= Herkunftsgeneration <= aktuelle Generation`. Ein alter Grant derselben Herkunft kann endgültig widerrufen werden. Fremde Dokumente, fremde Lineages und zukünftige Generationen werden abgewiesen. Der Widerruf verändert die ursprünglichen Pins nicht.
+
+Historische Supplemental-/Restorebelege bleiben unverändert. Restore stellt keine Publicfreigabe wieder her. Das vorhandene V2-Backup enthält native Zustände und Lineage; es benötigt dafür kein neues Format und erhält keinen zweiten Grant-Wiederherstellungspfad.
+
+Der private [Recovery-Completionhash](../app/lib/collaboration/recovery-operator.ts:276) berücksichtigt dieselben drei Pins als versionierte Zusatzinformation. Für vollständig ungebundene Zeilen durchläuft er weiterhin die bisherige Projektion und Kanonisierung. Die drei neuen Pins werden weder durch Recovery neu vergeben noch durch den Hash als Zugriffsberechtigung interpretiert.
+
+## Tatsächlicher Fehler und Gegenprobe
+
+Die ergänzte echte PostgreSQL-/Dateisystemfixture in [collaboration-recovery-operator-test.ts](../scripts/collaboration-recovery-operator-test.ts) lief zunächst mit der unveränderten Recoveryfunktion. Ein abgeschlossener Vorgang akzeptierte danach eine veränderte Public-Dokumentbindung. Die neue Assertion scheiterte tatsächlich mit `Missing expected rejection` an Zeile 173: Child-Exit **1**. Der private Harness endet dabei mit Exit 0, weil er diesen Fehler ausdrücklich erwartet; dies ist kein positiver Testerfolg.
+
+Nach der engen Hashkorrektur bestehen zwei frische vollständige Operatorläufe. Der historische Fall vergleicht den ursprünglichen Hash unabhängig einschließlich numerischer und als String gelieferter PG-Bigints; eine nachträgliche vollständige Bindung wird abgewiesen. Der gebundene Fall verwendet eine tatsächliche Fixturelineage und verändert Dokument-ID, Lineage und Generation einzeln. Jede Änderung verhindert das Replay. Nach Wiederherstellung des ursprünglichen Tupels liefert das Replay wieder `already_applied`. Die bisherigen Crash-, Inhalts-, Identitäts-, Archiv- und Wiederholungsassertions bleiben bestehen.
+
+Vor dieser Gegenprobe scheiterten zwei eigene Migrationsläufe mit tatsächlichem PG-Code `42601`: Im neuen SQL-Stageguard fehlte das schließende Quote hinter `effect#>'{source,organizationId}'`. Die Diagnose isolierte genau dieses Zeichen. Es ist korrigiert; der neue PGlite-Test kompiliert zusätzlich die tatsächliche Stageguard-DDL. Der ursprüngliche Source-Review hatte diesen Syntaxfehler übersehen. Beide fehlgeschlagenen Versuche sind getrennt erhalten und haben ihre eigenen Nonce-Datenbanken und DATA-Verzeichnisse entfernt.
+
+## Validierung und Ressourcenabschluss
+
+| Prüfung | Tatsächliches Ergebnis |
+| --- | --- |
+| Neuer Public-Migrationstest | PGlite Exit 0; echtes neues/altes DDL, wiederholte Migration, vollständige Tupelconstraints, exakte V1-Bytes, versionierte Bindung und Stageguard-Kompilierung |
+| Bestehender Guest-Migrationstest | PGlite Exit 0; eingefrorene historische Fixtures bleiben unverändert |
+| Native Datei-Nebenwirkungen | Vollständiger PG18-Lauf, Session `48534`, Exit 0; richtige/alte/ungebundene Herkunft, TS-Ablehnung und tatsächlich ausgelöster SQL-Stageguard gegen fremdes Dokument, Lineage und Zukunftsgeneration |
+| Nativer Restore | Vollständiger PG18-Lauf, Session `59551`, Exit 0; echte historische Receipts werden vor beiden additiven Migrationen erzeugt und danach unverändert gelesen/wiederhergestellt |
+| Recovery-RED | Session `73717`, Harness Exit 0, tatsächlicher Child-Exit 1 an der neuen Ablehnungsassertion; ursprüngliche Recovery-SHA `4d6aa14cc1e7e9a8e064a64d7fa1b97b193484cf281ea688d346799da03fbc04` |
+| Recovery-GREEN | Session `16794`, Harness und beide vollständigen Child-Läufe Exit 0; unveränderte Vor-/Nachquellenpins |
+| Bestehendes Public-Lifecycle-/Snapshotpaket | Session `85258`, Exit 0 |
+| Bestehendes Public-Workspacepaket | Session `89442`, Exit 0 |
+| Scoped ESLint | Session `60819`, Exit 0 für alle zehn TS-Dateien; nach dem reinen Testtypfix zusätzlich separater Lint Exit 0 |
+| TypeScript | Abschließender cachefreier Lauf, Session `3836`, Exit 0. Der erste Lauf `81103` hatte ausschließlich TS2698 im neuen Test gemeldet; korrigiert ist der Queryresulttyp, ohne Assertion- oder Produktänderung. |
+
+Die PG18-Sideeffect- und Restorefixtures erzeugen ausschließlich eigene Schemas auf dem vorhandenen verwalteten PostgreSQLserver. Ihre normalen `finally`-Blöcke schließen Clients/Pool, entfernen ihr Schema und eigene temporäre Daten. Die Recoveryläufe verwenden jeweils eine neue leere Nonce-Datenbank; Originalreceipts bestätigen vor dem Entfernen dieselbe Datenbank-OID und Eigentümerschaft sowie anschließend Datenbankabwesenheit und DATA-Entfernung. Kein Container oder Apphost wurde dafür gestartet.
+
+Alle Root-Terminalsitzungen sind mit den tatsächlichen oben genannten Exits geschlossen. Die frische Prozessprüfung nach dem letzten TypeScriptabschluss zeigt keine der eigenen Test-, Recovery-, TypeScript- oder Lintprozesse mehr. Dies ist eine Prüfung der bekannten eigenen Prozesse, kein vollständiger OS-Prozessbaumbeleg.
+
+Das private, nach Hashvergleich kopierte Belegpaket enthält 31 Originaldateien und das Manifest unter `/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-public-binding-evidence-6xitm3jp/manifest.json`, SHA `3247bce398bd5b873e69ce8a5902fbdd92d84cb13a5d6c1c2ff822638cc10d91`. Verzeichnis/Dateien sind 0700/0600; ENV-Werte, Tokens und echte Dokumentinhalte wurden nicht übernommen.
+
+Private Originalbelege liegen unter dem lokalen Tempstamm:
+
+- Recovery-RED: `canvas-public-binding-recovery-6OGKNX/receipt.json`, Childlog und unveränderte Quellpins.
+- Recovery-GREEN: `canvas-public-binding-recovery-RqWPy2/receipt.json`, getrennte Logs für unbound und bound sowie unveränderte Quellpins.
+- Migrationsfehler: `canvas-public-binding-recovery-LmdRPk` und `canvas-public-binding-recovery-6q0RZh`; der zweite enthält die tatsächliche DDL und PG-Fehlerposition.
+- PGlite-/Typfix: `canvas-owned-public-binding-guard-pglite-dj_jxbml`, `canvas-owned-public-binding-typefix-5vvfu3zh`; eigene Logs, tatsächliche Exits und Vor-/Nachhashs.
+- Root-Terminalprotokolle: `/tmp/canvas-public-binding-{side-effects-pg,restore-pg,recovery-red-v3,recovery-green,public-lifecycle,public-workspace,lint,types,types-final}.log`.
+
+Der Recoverytest besitzt in beiden Gegenproben exakt SHA `e619594c20bb887b3ccdb46076b91eecf177116a6be795e721e4caea95660a01`. Die korrigierte Produktfunktion besitzt SHA `9db8768929845ea578bcc438512ca61a1747e6f4ebc804a8ccb557dfcb4d03ab`; die Supplemental-SQLmigration SHA `263eec67bf1241988c7615e15914b783b57a98ca3d6030c541b59924e378b4c0`.
+
+GitNexus wurde vor Änderungen am exakten Rootindex verwendet. `runPostgresMigrations` meldet **CRITICAL**, 58 direkte Aufrufer und elf Abläufe; vor dem Edit wurde gewarnt. Dort ist ausschließlich die additive Migration registriert. Die Recoveryhashfunktion meldet LOW, einen direkten Aufrufer und einen Ablauf. Der Index ist 41 Commits veraltet; deshalb wurden die tatsächlichen Aufrufer direkt gelesen. Staged `detect_changes` meldet LOW, zehn Dateien und 21 berührte Indexsymbole. Ein zusätzlicher AST-Vergleich bestätigt nur drei tatsächlich geänderte vorhandene Produktfunktionen: `runPostgresMigrations`, `checkRows`, `publicShareProjectionHash`; 81 andere Top-Level-Funktionen/Pfeilfunktionen bleiben unverändert. Neue Schemafelder und SQL-Konstanten sind bewusst separat geändert.
+
+## Vollständige Public-Familie bleibt der nächste Anschluss
+
+Der frische Sourceaudit umfasst die ganze bestehende Familie. [Public-Service](../app/lib/public-sharing/public-file-shares.ts), [Managementrouter](../app/api/security/public-shares/route.ts), [Policy-/Revokerouter](../app/api/security/public-shares/[id]/route.ts) und [PI-Tool](../app/lib/pi/scoped-tools.ts) verwenden noch ihre bisherigen Schreibwege. Folgende Anschlüsse sind erforderlich, bevor Public abgeschlossen ist:
+
+1. Create/Policy/Revoke auf derselben tatsächlich gefenceten Connection und mit frischen Rechten des ursprünglichen Web-/Agentaufrufs. Bestehende Unterschiede erhalten: Policy braucht Freigaberecht plus Owner/Manager; Web-Revoke erlaubt aktuellen Admin beziehungsweise Owner/Manager mit Leserecht und muss auch bei fehlendem/stalem Ziel funktionieren. Unveränderte Create-Wiederverwendung ist ein eigener bisheriger Vertrag. Unklarer COMMIT darf keinen Token veröffentlichen oder blind erneut schreiben.
+2. Alle versteckten Writer schließen. `ensureShortCode` schreibt auch bei List-, Annotations- und Tokenreads; `recordAccess:false` verhindert nur den Zähler, nicht den Kurzcodewrite. `accessCount` und `lastAccessedAt` brauchen denselben aktuellen Share-/Zielvertrag. Temporärer Busy darf nicht als dauerhafter Widerruf erscheinen.
+3. Synchrone und verzögerte Write-/Move-/Deletehooks berücksichtigen. Rename, Batchdelete, PI-Dateioperationen, ZIP-Extract und Web-/Mobile-Markdown-Chunkabschluss rufen Public teilweise innerhalb einer äußeren Lifecycle-Exclusive-Sperre auf. Der normale Shared-Fence lehnt solche geerbten Leases absichtlich ab. Ein neuer Wrapper allein wäre daher fehlerhaft. Der bestehende Owned-Subwritevertrag unterstützt bisher ausschließlich `existing_file_lock`; Public benötigt einen eigenen belegten Anschluss. Timer erhalten frische Authority, keine geerbten abgelaufenen ALS-Grants. Native Sideeffects dürfen keinen zweiten Legacyrevoke nach ihrem Receipt starten.
+4. Native Lese-/Publikationswege an die gespeicherten Pins binden. Der heutige Resolver benötigt eine physische Datei und trimmt Pfade; native-only und exakte native Namen sind noch nicht angeschlossen. Neue Links sind bisher `latest`; das vorhandene `fixed`-Feld wird vom Reader noch nicht als festes Snapshot durchgesetzt. Ein Export muss verfügbare Repräsentation und Version ausdrücklich belegen.
+5. Agentautorität wiederverwenden, nicht nachbauen. `readStoredAgentWorkspaceOnConnection`, `resolveVerifiedAgentActorContextOnConnection`, Agentgrant-/Membersperren und die interne Principalgrundlage liefern vorhandene Rechteprüfungen. Es fehlt ein enger, serverseitig ausgestellter Invocationbeleg mit tatsächlicher Lebensdauer und Same-Connection-/Finalprüfung. Ein `AgentExecutionContext`, eine Turn-ID oder eine konstruierte BetterAuth-Session ist kein Ersatz. Reguläre Tools, Automation/Delegation und kontrollierte Skripte besitzen ausdrücklich anzuschließende tatsächliche Einstiege.
+
+Anschließend folgen Lockwriter und die vollständige Datei-/Linkkoordination. Die frühere lokale V9-Browserabnahme von 40/40 bleibt an ihren damaligen Build gebunden; diese reine Speicher-/Beleggrundlage wurde nicht als neue UI- oder Gesamt-E2E-Abnahme ausgegeben. API/SDK, Standard-Skill, PDF-Import und die übrige Sandboxabnahme bleiben im [zentralen Anschlussplan](./central-notebook-file-api-import-plan.md) offen. Review Center bleibt ausgeschaltet und außerhalb des Auftrags.
