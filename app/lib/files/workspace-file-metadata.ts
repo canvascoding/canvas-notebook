@@ -14,7 +14,7 @@ import { readWorkspaceDocumentCatalogue, WorkspaceDocumentCatalogueError } from 
 import { assertWorkspacePathHasNoAliases, resolveExistingWorkspacePath, WorkspacePathAliasError } from '../workspaces/path-guard';
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { withWorkspaceMutationLock, WorkspaceMutationLockError } from './workspace-mutation-lock';
-import { lockFileCollaborationPaths } from './collaboration-repository/transaction';
+import { lockFileCollaborationPaths, withFileCollaborationReadSnapshot } from './collaboration-repository/transaction';
 import { withWorkspaceSideEffectWriterFenceOnConnection, withWorkspaceSideEffectWriterMutationOnConnection,
   WorkspaceSideEffectWriterFenceError, type WorkspaceSideEffectWriterTarget } from './workspace-side-effect-writer-fence';
 import type { WorkspaceFileMetadataTarget } from './workspace-file-metadata-contract';
@@ -74,11 +74,13 @@ export async function enrichWorkspaceFileNodes(params: {
   collect(params.nodes);
   if (paths.length === 0) return params.nodes;
 
-  const normalizedPaths = [...new Set(paths.map(normalizeFilePath))];
+  const normalizedPaths = [...new Set(paths.map(value => isCanonicalAdmissionPath(value) ? value : normalizeFilePath(value)))];
   const metadata = new Map<string, MetadataRow>();
   const userStates = new Map<string, UserStateRow>();
 
-  await withDatabase(async (database) => {
+  // A combined metadata PATCH must not be observed as an old title together
+  // with new personal fields between these SELECTs or query chunks.
+  await withFileCollaborationReadSnapshot(async (database) => {
     for (const pathChunk of chunks(normalizedPaths, PATH_QUERY_CHUNK_SIZE)) {
       const placeholders = pathChunk.map((_, index) => `$${index + 2}`).join(', ');
       const rows = await database.all(
@@ -96,7 +98,7 @@ export async function enrichWorkspaceFileNodes(params: {
         stateRows.forEach((row) => userStates.set(row.path, row));
       }
     }
-  });
+  }, openDb);
 
   const enrich = (node: FileNode): FileNode => {
     const row = metadata.get(node.path);

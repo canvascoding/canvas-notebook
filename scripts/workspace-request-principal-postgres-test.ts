@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import * as Y from 'yjs';
 import type { SqlConnection } from '../app/lib/db';
+import type { FileNode } from '../app/lib/files/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../app/lib/workspaces/request-principal';
 
 const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
@@ -786,7 +787,7 @@ async function main(): Promise<void> {
     });
     // Integration stays on the original request factory and runtime pool. These
     // rows are fixture data in the same owned schema, never Principal grants.
-    const { updateWorkspaceFileMetadata,metadataFileWriteFailure } = await import('../app/lib/files/workspace-file-metadata');
+    const { updateWorkspaceFileMetadata,metadataFileWriteFailure,enrichWorkspaceFileNodes } = await import('../app/lib/files/workspace-file-metadata');
     const { PATCH: metadataPatch } = await import('../app/api/files/metadata/route');
     const { filesystemFileVersion } = await import('../app/lib/filesystem/file-version');
     const { createCollaborationAdmissionService } = await import('../app/lib/collaboration/room-admission');
@@ -1101,6 +1102,87 @@ async function main(): Promise<void> {
       },metadataOpenConnection);
       await metadataWrite(physical,{title:'Physical exclusive guard released'});
     });
+    await check('metadata actual enrichment retains one old snapshot while a genuine atomic title and personal patch commits',async()=>{
+      const target=await nativeTarget('metadata-coherent-snapshot.md');
+      await metadataWrite(target.expectedTarget,{title:'Snapshot before',isFavorite:false,pinned:false});
+      const nativeBefore=await nativeRows(target.scope.documentId),originalQuery=Client.prototype.query,release=principalRegressionSignal();
+      const node:FileNode={name:target.scope.path,path:target.scope.path,type:'file'};
+      let intercepted=false,paused=false,readerPid:number|undefined,writerPid:number|undefined;
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const sql=(typeof args[0]==='string'?args[0]:'').trim().replace(/\s+/gu,' '),values=Array.isArray(args[1])?args[1]:[];
+        if(!intercepted&&/^SELECT path, title FROM (?:"[^"]+"\.)?workspace_file_metadata\b/u.test(sql)&&values.includes(target.scope.path)){
+          intercepted=true;readerPid=Number(Reflect.get(this,'processID'));
+          // Run the unchanged actual query first, then retain its real result.
+          // The writer commits only while this result delivery is paused.
+          return Promise.resolve(Reflect.apply(originalQuery,this,args)).then(async result=>{
+            assert.equal(result.rows.find((row:{path:string})=>row.path===target.scope.path)?.title,'Snapshot before');
+            paused=true;await release.promise;return result;
+          });
+        }
+        if(/^INSERT INTO (?:"[^"]+"\.)?workspace_file_metadata\b/u.test(sql)&&values.includes(target.scope.path))writerPid=Number(Reflect.get(this,'processID'));
+        return Reflect.apply(originalQuery,this,args);
+      } as typeof Client.prototype.query;
+      const reading=observePrincipalRegression(enrichWorkspaceFileNodes({nodes:[node],workspace,userId:'owner'}));
+      let writing:ReturnType<typeof observePrincipalRegression<Awaited<ReturnType<typeof metadataWrite>>>>|undefined;
+      try{
+        await waitForPrincipalRegression(()=>paused||reading.isSettled(),'The real title SELECT did not reach its completed-query barrier.');
+        assert(paused);assert(readerPid);assert(Number.isSafeInteger(readerPid));assert.equal(reading.isSettled(),false);
+        writing=observePrincipalRegression(metadataWrite(target.expectedTarget,{title:'Snapshot after',isFavorite:true,pinned:true},'owner',true));
+        await waitForPrincipalRegression(()=>writing!.isSettled(),'The real atomic PATCH must commit while the old read remains paused.');
+        const written=await writing.done;if(!written.ok)throw written.error;
+        assert(writerPid);assert.notEqual(writerPid,readerPid,'Read and writer must use distinct genuine PostgreSQL backends.');
+        const committed=await metadataRows(target.scope.path);assert.equal(committed.title[0]?.title,'Snapshot after');
+        assert.equal(committed.users.length,1);assert.equal(Number(committed.users[0].is_favorite),1);assert(Number(committed.users[0].pinned_at)>0);
+        assert.equal(reading.isSettled(),false);release.release();
+        const read=await reading.done;if(!read.ok)throw read.error;
+        assert.equal(read.value.length,1);assert.equal(read.value[0].title,'Snapshot before');
+        assert.equal(read.value[0].isFavorite,false,'An old title must not combine with a newer committed favorite.');
+        assert.equal(read.value[0].pinnedAt,null,'An old title must not combine with a newer committed pin.');
+        const fresh=await enrichWorkspaceFileNodes({nodes:[node],workspace,userId:'owner'});
+        assert.equal(fresh[0].title,'Snapshot after');assert.equal(fresh[0].isFavorite,true);assert.equal(fresh[0].pinnedAt,committed.users[0].pinned_at);
+        assert.deepEqual(await nativeRows(target.scope.documentId),nativeBefore);
+      }finally{release.release();await reading.done;if(writing)await writing.done;Client.prototype.query=originalQuery;}
+    });
+    await check('metadata actual enrichment preserves exact native spaced paths at root and in nested children without neighbor leaks',async()=>{
+      const paths=[' metadata-space.md ','metadata-space.md','metadata-nested/ metadata-space.md ','metadata-nested/metadata-space.md'];
+      const targets:Awaited<ReturnType<typeof nativeTarget>>[]=[];
+      const annotations=new Map<string,{title:string|null;isFavorite:boolean;pinnedAt:unknown}>();
+      for(const [index,filePath] of paths.entries()){
+        const target=await nativeTarget(filePath);targets.push(target);
+        const spaced=index%2===0,title=`Exact native annotation ${index}`;
+        await metadataWrite(target.expectedTarget,{title,isFavorite:spaced,pinned:!spaced});
+        const rows=await metadataRows(filePath);assert.equal(rows.title[0]?.title,title);assert.equal(rows.users.length,1);
+        annotations.set(filePath,{title,isFavorite:spaced,pinnedAt:rows.users[0].pinned_at});
+      }
+      const missing=await nativeTarget('  metadata-space.md  ');
+      const file=(filePath:string):FileNode=>({name:filePath.split('/').at(-1)!,path:filePath,type:'file'});
+      const nodes:FileNode[]=[file(paths[0]),file(paths[1]),file(missing.scope.path),
+        {name:'metadata-nested',path:'metadata-nested',type:'directory',children:[file(paths[2]),file(paths[3]),file('metadata-nested/missing.md')]}];
+      const originalNodes=structuredClone(nodes);
+      const assertAnnotations=(actual:FileNode[],personal=true)=>{
+        assert.equal(actual.length,nodes.length);
+        const visit=(entries:FileNode[])=>{
+          for(const entry of entries){
+            const expected=annotations.get(entry.path);
+            assert.equal(entry.title,expected?.title??null,`Exact title lookup for ${JSON.stringify(entry.path)}`);
+            assert.equal(entry.isFavorite,personal?(expected?.isFavorite??false):false);
+            assert.equal(entry.pinnedAt,personal?(expected?.pinnedAt??null):null);
+            if(entry.children)visit(entry.children);
+          }
+        };
+        visit(actual);assert.deepEqual(nodes,originalNodes,'Real enrichment must not mutate the input nodes.');
+        assert.deepEqual(actual.map(entry=>entry.path),nodes.map(entry=>entry.path));
+        assert.deepEqual(actual[3].children?.map(entry=>entry.path),nodes[3].children?.map(entry=>entry.path));
+      };
+      assertAnnotations(await enrichWorkspaceFileNodes({nodes,workspace,userId:'owner'}));
+      assertAnnotations(await enrichWorkspaceFileNodes({nodes,workspace}),false);
+      // Removing the spaced note's actual persisted annotations must expose
+      // empty values, never the differently annotated trimmed neighbor.
+      await metadataWrite(targets[0].expectedTarget,{title:null,isFavorite:false,pinned:false});
+      annotations.delete(paths[0]);assert.deepEqual(await metadataRows(paths[0]),{title:[],users:[]});
+      assert.deepEqual(await metadataRows(missing.scope.path),{title:[],users:[]});
+      assertAnnotations(await enrichWorkspaceFileNodes({nodes,workspace,userId:'owner'}));
+    });
     await check('genuine trusted Solo owner and unauthorized member',async()=>{
       const soloBody=Buffer.from(JSON.stringify({...claims,edition:'solo',seatLimit:1,quotas:{users:1},entitlementsVersion:7})).toString('base64url');
       process.env.CANVAS_LICENSE_CERT=`${header}.${soloBody}.${crypto.sign('RSA-SHA256',Buffer.from(`${header}.${soloBody}`),keys.privateKey).toString('base64url')}`;
@@ -1109,7 +1191,7 @@ async function main(): Promise<void> {
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
       await assert.rejects(captured(async()=>assert.fail(),'member'),expected('PRINCIPAL_AUTH_REVOKED'));
     });
-    assert.equal(cases,58);
+    assert.equal(cases,60);
     assert.equal(fetches,0);
     console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team principal and actual metadata-service transaction, identity, admission, room-owner and partial-patch concurrency families passed.`);
   } finally {
