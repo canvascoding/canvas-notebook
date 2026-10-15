@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page, type Response } from '@playwright/test';
 import type { JSONContent } from '@tiptap/core';
-import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
+import { COLLABORATION_CLIENT_CAPABILITIES, COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
 import { assertCompletedWorkspaceMarkdownCreate, authenticateManagedTestPage } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
@@ -119,6 +119,65 @@ async function session(page: Page, workspace: Workspace, path: string) {
   return value as { documentId: string; lifecycleGeneration: number; representation: string; documentSequence: number };
 }
 
+function observeInitialUiSession(page: Page, workspace: Workspace, path: string) {
+  let firstResponse: Response | undefined;
+  let requestMatches = false;
+  let pageClosed = page.isClosed();
+  const dispose = () => {
+    page.off('response', onResponse);
+    page.off('close', onClose);
+  };
+  const onResponse = (response: Response) => {
+    const request = response.request();
+    if (firstResponse || new URL(response.url()).pathname !== '/api/files/collaboration/session'
+      || request.method() !== 'POST' || request.headers()['x-canvas-workspace-id'] !== workspace.id) return;
+    let body: unknown;
+    try { body = request.postDataJSON(); } catch { return; }
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Reflect.get(body, 'path') !== path) return;
+    // Select the first scoped response even if its status or capabilities are wrong.
+    firstResponse = response;
+    const expected = { path, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES };
+    requestMatches = Object.keys(body).length === Object.keys(expected).length
+      && Object.entries(expected).every(([key, value]) => Reflect.get(body, key) === value);
+    dispose();
+  };
+  const onClose = () => { pageClosed = true; dispose(); };
+  if (!pageClosed) {
+    page.on('response', onResponse);
+    page.on('close', onClose);
+  }
+  return {
+    dispose,
+    async read() {
+      if (pageClosed || page.isClosed()) throw new Error('The page closed before its opening session was inspected.');
+      if (!firstResponse) throw new Error('The ready editor did not expose its scoped opening session response.');
+      expect(requestMatches, 'The opening request must use the exact auto/Yjs capabilities.').toBe(true);
+      expect(firstResponse.status(), 'The first scoped UI opening session must succeed.').toBe(200);
+      const value: unknown = await firstResponse.json().catch(() => null);
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('The UI opening session is not a JSON object.');
+      expect(Reflect.get(value, 'success') === true, 'The UI opening session must report success.').toBe(true);
+      expect(Reflect.get(value, 'provider') === 'yjs', 'The UI opening session must use Yjs.').toBe(true);
+      expect(Reflect.get(value, 'representation') === 'tiptap_blocks', 'The UI opening session must use the final rich representation.').toBe(true);
+      expect(Reflect.get(value, 'schemaVersion') === COLLABORATION_SCHEMA_VERSION, 'The UI opening session schema must match.').toBe(true);
+      expect(Reflect.get(value, 'richTextSchemaVersion') === COLLABORATION_CLIENT_CAPABILITIES.richTextSchemaVersion,
+        'The UI opening rich text schema must match.').toBe(true);
+      expect(Reflect.get(value, 'blockTreeFormatVersion') === COLLABORATION_CLIENT_CAPABILITIES.blockTreeFormatVersion,
+        'The UI opening block tree format must match.').toBe(true);
+      const documentId: unknown = Reflect.get(value, 'documentId');
+      const lifecycleGeneration: unknown = Reflect.get(value, 'lifecycleGeneration');
+      const documentSequence: unknown = Reflect.get(value, 'documentSequence');
+      if (typeof documentId !== 'string' || !documentId.trim()) throw new Error('The UI opening session has no document identity.');
+      if (typeof lifecycleGeneration !== 'number' || !Number.isSafeInteger(lifecycleGeneration) || lifecycleGeneration <= 0) {
+        throw new Error('The UI opening session has no positive safe lifecycle generation.');
+      }
+      if (typeof documentSequence !== 'number' || !Number.isSafeInteger(documentSequence) || documentSequence < 0) {
+        throw new Error('The UI opening session has no safe document sequence.');
+      }
+      return { documentId, lifecycleGeneration, representation: 'tiptap_blocks' as const, documentSequence };
+    },
+  };
+}
+
 async function insertDialog(page: Page) {
   await page.getByTestId('markdown-toolbar-insert').click();
   await page.getByRole('menuitem', { name: importTitle, exact: true }).click();
@@ -140,9 +199,10 @@ test.describe('Manual document creation and first content', () => {
       const path = `manual-paste-${entry}-${randomUUID()}.md`;
       const peerContext = await browser.newContext({ baseURL: process.env.BASE_URL });
       const peer = await peerContext.newPage();
+      const openingSession = observeInitialUiSession(page, workspace, path);
       try {
         await createInUi(page, workspace, path, entry);
-        const identity = await session(page, workspace, path);
+        const identity = await openingSession.read();
         await clipboardPaste(page, page.locator(editorSelector), plainText);
         await expect(page.locator(editorSelector)).toContainText('First paste: äöü ß 😀');
         await expect(page.locator(editorSelector)).toContainText('Last paragraph.');
@@ -207,6 +267,7 @@ test.describe('Manual document creation and first content', () => {
           await expect.poll(() => tree(fresh)).toEqual(final);
         } finally { await freshContext.close(); }
       } finally {
+        openingSession.dispose();
         await peerContext.close();
         await page.goto('about:blank').catch(() => undefined);
         await page.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
