@@ -1351,12 +1351,73 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   );
 }
 
+/** Read completed setup under a compatible lock retained until the outer commit.
+ * This is a read optimization, not a native authority or an initialization receipt. */
+async function readReadyPostgresOrganizationBootstrapForUser(
+  database: RuntimeDb,
+  userId: string,
+): Promise<OrganizationBootstrapStatus | null> {
+  await database.run('SAVEPOINT canvas_ready_bootstrap');
+  let ready = false;
+  try {
+    // Keep participating workspace writers outside the complete ACL snapshot.
+    const organization = await database.get(`
+      SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      FROM canvas_organization_settings
+      ORDER BY created_at ASC
+      LIMIT 1
+      FOR SHARE
+    `) as OrganizationRow | undefined;
+    const targetUser = await findPostgresUserById(database, userId);
+    if (!targetUser || !organization) return null;
+    try {
+      assertOrganizationIdMatchesEnvironment(organization.organization_id);
+    } catch {
+      // Keep the existing bootstrap error and repair path authoritative.
+      return null;
+    }
+    const deploymentMode = getDeploymentMode();
+    if (organization.deployment_mode !== deploymentMode
+      || organization.team_features_enabled !== (areTeamFeaturesEnabled(deploymentMode) ? 1 : 0)) return null;
+    const ownerUser = await findPostgresUserById(database, organization.owner_user_id);
+    if (!ownerUser || ownerUser.role !== 'admin') return null;
+    const ownerPermissionRow = await getPermissionRow(database, organization.organization_id, ownerUser.id);
+    if (ownerPermissionRow?.role !== 'owner') return null;
+    const ownerPermission = rowToPermissionSnapshot(ownerPermissionRow);
+    if (!ownerPermission) return null;
+    const users = targetUser.id === ownerUser.id ? [ownerUser] : [ownerUser, targetUser];
+    const roots: string[] = [];
+    for (const user of users) {
+      const workspace = await getPersonalWorkspace(database, user.id);
+      const expectedRoot = personalWorkspaceRootRelativePath(user.id);
+      if (!workspace || workspace.rootRelativePath !== expectedRoot
+        || !workspace.displayName || !workspace.isDefault) return null;
+      roots.push(workspace.rootRelativePath);
+    }
+    // All setup checks finished before preserving the existing directory repair.
+    for (const root of roots) ensureWorkspaceDirectory(root);
+    const organizationWorkspace = await getActiveOrganizationWorkspace(database, organization.organization_id);
+    const status = buildStatus(organization, ownerUser, ownerPermission, organizationWorkspace?.rootRelativePath ?? null);
+    ready = true;
+    return status;
+  } finally {
+    try {
+      // A repair must not upgrade a retained SHARE lock to the bootstrap UPDATE.
+      if (!ready) await database.run('ROLLBACK TO SAVEPOINT canvas_ready_bootstrap');
+    } finally {
+      // Success retains SHARE through the caller's COMMIT; cleanup errors are fatal.
+      await database.run('RELEASE SAVEPOINT canvas_ready_bootstrap');
+    }
+  }
+}
+
 export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<PostgresWorkspaceState> {
   const database = await openDb();
   let state: PostgresWorkspaceState;
   try {
     await database.run('BEGIN');
-    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const status = await readReadyPostgresOrganizationBootstrapForUser(database, actor.userId)
+      ?? await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
     if (!status.organizationId) {
       await database.run('ROLLBACK');
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');
@@ -2327,7 +2388,8 @@ export async function resolvePostgresWorkspaceForActor(
   const database = await openDb();
   try {
     await database.run('BEGIN');
-    const status = await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const status = await readReadyPostgresOrganizationBootstrapForUser(database, actor.userId)
+      ?? await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
     if (!status.organizationId) {
       await database.run('ROLLBACK');
       throw new OrganizationBootstrapError('DATABASE_ERROR', 'Organization is not configured.');

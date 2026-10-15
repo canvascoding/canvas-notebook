@@ -224,7 +224,7 @@ async function main(): Promise<void> {
     // initialization writes, not the bounded native phase.
     const rawQuery = Client.prototype.query;
     let httpQueries: Array<{ command: string; code?: string; pid: number; started: number; fulfilled?: number;
-      rejected?: number; turn?: number; nativeBegin?: boolean; primaryOrdinal?: number }> = [];
+      rejected?: number; turn?: number; nativeBegin?: boolean; primaryOrdinal?: number; primaryShared?: boolean }> = [];
     let httpOrder = 0, httpTurnCount = 0;
     const httpTurns = new WeakMap<object, number>();
     Client.prototype.query = function (this: Client, ...args: unknown[]) {
@@ -234,7 +234,9 @@ async function main(): Promise<void> {
       if (currentPlan?.phase !== 'http' || clients.has(this) || this === control || !String(options).includes(schema)
         || args.some(argument => typeof argument === 'function')) return Reflect.apply(rawQuery, this, args);
       const normalized = sql.trim().replace(/\s+/gu, ' ');
-      const primaryRead = normalized === 'SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1';
+      const primaryReadSql = 'SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1';
+      const primaryShared = normalized === `${primaryReadSql} FOR SHARE`;
+      const primaryRead = !httpTurns.has(this) && (primaryShared || normalized === primaryReadSql);
       const primaryOrdinal = primaryRead ? (currentPlan.primaryReads = (currentPlan.primaryReads ?? 0) + 1) : undefined;
       const nativeBegin = normalized === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE';
       if (nativeBegin) httpTurns.set(this, ++httpTurnCount);
@@ -243,12 +245,12 @@ async function main(): Promise<void> {
         : sql.trim().split(/\s/u)[0];
       const observation = { command, code: undefined as string | undefined, pid: Number(Reflect.get(this, 'processID')),
         started: ++httpOrder, fulfilled: undefined as number | undefined, rejected: undefined as number | undefined,
-        turn: httpTurns.get(this), nativeBegin, primaryOrdinal }; httpQueries.push(observation);
-      // The first exact full primary-org read belongs to the unchanged outer
-      // bootstrap. The second is the native SELECT-only origin resolver (Seat
+        turn: httpTurns.get(this), nativeBegin, primaryOrdinal, primaryShared: primaryRead ? primaryShared : undefined }; httpQueries.push(observation);
+      // The first exact full primary-org read belongs to the ready generic
+      // resolver. The second is the native SELECT-only origin resolver (Seat
       // queries have a different field list). Its MVCC read must finish even
       // with this real row holder; only the later actual B FOR SHARE may fail.
-      const beforeOrigin = currentPlan.beforeOrigin && primaryOrdinal === 2 && !currentPlan.fired;
+      const beforeOrigin = currentPlan.beforeOrigin && primaryOrdinal === 2 && !primaryShared && !currentPlan.fired;
       const ready = beforeOrigin ? (() => { currentPlan.fired = true; return hold('row').then(holder => { Object.assign(currentPlan, holder); }); })()
         : organizationLock(sql) ? arm(sql, 'http') : Promise.resolve();
       return ready.then(() => {
@@ -379,15 +381,24 @@ async function main(): Promise<void> {
       errorCode?: string; backendPid: number | null }> = [];
     const actualRuntime: { hocuspocus?: Hocuspocus } = {};
     const handledMessages = new Map<string, number>();
+    const authenticatedSockets = new Map<string, Set<string>>();
+    const disconnectHooks = new Map<string, Promise<unknown>>();
     const originalHooks = Hocuspocus.prototype.hooks;
     Hocuspocus.prototype.hooks = (async function (this: Hocuspocus, name: string, payload: { [key: string]: unknown }, ...args: unknown[]) {
       actualRuntime.hocuspocus = this;
       const connection = payload.connection as import('@hocuspocus/server').Connection | undefined;
       const documentId = typeof payload.documentName === 'string' ? payload.documentName : connection?.document.name;
+      const socketId = typeof payload.socketId === 'string' ? payload.socketId : undefined;
       if (connection) documents.add(connection.document);
       if (documentId) hooks.set(documentId, name);
       try {
-        const result = await (originalHooks as (...args: unknown[]) => Promise<unknown>).call(this, name, payload, ...args);
+        const original = (originalHooks as (...args: unknown[]) => Promise<unknown>).call(this, name, payload, ...args);
+        if (documentId && socketId && name === 'onDisconnect') disconnectHooks.set(JSON.stringify([documentId, socketId]), original);
+        const result = await original;
+        if (documentId && socketId && name === 'onAuthenticate') {
+          const sockets = authenticatedSockets.get(documentId) ?? new Set<string>();
+          sockets.add(socketId); authenticatedSockets.set(documentId, sockets);
+        }
         if (documentId && name === 'afterHandleMessage') handledMessages.set(documentId, (handledMessages.get(documentId) ?? 0) + 1);
         return result;
       }
@@ -428,7 +439,29 @@ async function main(): Promise<void> {
         const outgoing = http.request({ hostname: '127.0.0.1', port: address.port, path: '/api/files/collaboration/session', method: 'POST',
           headers: { cookie: original.headers.get('cookie')!, 'x-canvas-workspace-id': workspaceId, 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } }, response => {
           const chunks: Buffer[] = []; response.on('data', chunk => chunks.push(Buffer.from(chunk)));
-          response.once('end', () => { try { resolve({ status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()) }); } catch (error) { reject(error); } });
+          response.once('end', () => { try {
+            const result = { status: response.statusCode!, body: JSON.parse(Buffer.concat(chunks).toString()) };
+            if (result.status !== 200) {
+              const parsed = result.body && typeof result.body === 'object' ? result.body : {};
+              const knownCodes = [
+                'PRINCIPAL_REQUIRED', 'PRINCIPAL_INVALID', 'PRINCIPAL_BUSY', 'PRINCIPAL_SCOPE_CHANGED',
+                'PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'PRINCIPAL_WORKSPACE_UNCONFIRMED',
+                'PRINCIPAL_TOO_LARGE', 'PRINCIPAL_DETACHED', 'PRINCIPAL_REENTRANT', 'PRINCIPAL_SCHEMA_INVALID', 'PRINCIPAL_EXPIRED',
+                'NATIVE_SESSION_INVALID', 'NATIVE_SESSION_REQUIRED', 'NATIVE_SESSION_BUSY', 'NATIVE_SESSION_SCOPE_CHANGED',
+                'NATIVE_SESSION_STATE_MISSING', 'NATIVE_SESSION_STATE_INVALID', 'NATIVE_SESSION_QUARANTINED',
+                'NATIVE_SESSION_QUARANTINE_REQUIRED', 'NATIVE_SESSION_TOO_LARGE', 'NATIVE_SESSION_REENTRANT', 'NATIVE_SESSION_DETACHED',
+                'NATIVE_SESSION_INVALID_REQUEST', 'NATIVE_SESSION_INITIALIZATION_REQUIRED', 'NATIVE_SESSION_COMMIT_UNCONFIRMED', 'NATIVE_SESSION_PUBLICATION_CLOSED',
+                'NATIVE_TRANSPORT_INVALID', 'NATIVE_TRANSPORT_REQUIRED', 'NATIVE_TRANSPORT_TOO_LARGE', 'NATIVE_TRANSPORT_SCOPE_CHANGED',
+                'NATIVE_TRANSPORT_ACCESS_DENIED', 'NATIVE_TRANSPORT_REENTRANT', 'NATIVE_TRANSPORT_DETACHED', 'NATIVE_TRANSPORT_DISPOSED', 'NATIVE_TRANSPORT_QUARANTINED',
+                'NATIVE_RUNTIME_INCOMPATIBLE', 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED', 'ENOENT',
+                'representation_mismatch', 'source_representation_required', 'migration_permission_denied',
+              ];
+              console.log('Native HTTP non-200 diagnostic:', { stage, status: result.status,
+                code: typeof parsed.code === 'string' && knownCodes.includes(parsed.code) ? parsed.code : 'UNRECOGNIZED_OR_ABSENT',
+                success: parsed.success === true, tokenPresent: Object.hasOwn(parsed, 'token') });
+            }
+            resolve(result);
+          } catch (error) { reject(error); } });
         }); outgoing.once('error', reject); outgoing.end(body);
       });
     };
@@ -494,8 +527,21 @@ async function main(): Promise<void> {
       if (!incomingOnly) {
       const baseline = await newCase('baseline'), initial = await httpSession(baseline); assert.equal(initial.status, 200);
       assert.equal(initial.body.documentId, baseline.documentId); assert.equal(initial.body.permission, 'write');
-      const healthy = await connect(baseline, String(initial.body.token)); await accepted(healthy); await closePeer(healthy);
-      await report('original HTTP 200 and uncontended actual Auth/snapshot', { status: initial.status, incoming: healthy.incoming });
+      const healthy = await connect(baseline, String(initial.body.token)); await accepted(healthy);
+      const baselineSockets = authenticatedSockets.get(baseline.documentId); assert(baselineSockets); assert.equal(baselineSockets.size, 1);
+      const [baselineSocketId] = baselineSockets; assert(baselineSocketId);
+      const baselineDisconnectKey = JSON.stringify([baseline.documentId, baselineSocketId]);
+      await closePeer(healthy);
+      await waitUntil(() => disconnectHooks.has(baselineDisconnectKey), 'The actual baseline disconnect hook was not observed.');
+      const baselineDisconnect = disconnectHooks.get(baselineDisconnectKey); assert(baselineDisconnect);
+      let baselineDisconnectSettled = false;
+      void baselineDisconnect.then(() => { baselineDisconnectSettled = true; }, () => { baselineDisconnectSettled = true; });
+      await waitUntil(() => baselineDisconnectSettled, 'The actual baseline disconnect hook did not settle.');
+      await baselineDisconnect;
+      await unloadOwnRoom(baseline.documentId);
+      await report('original HTTP 200 and uncontended actual Auth/snapshot', { status: initial.status, incoming: healthy.incoming,
+        baselineCleanup: { documentName: baseline.documentId, socketId: baselineSocketId, disconnectHook: 'fulfilled',
+          roomPresent: actualRuntime.hocuspocus!.documents.has(baseline.documentId) } });
 
       const httpObservations = [];
       for (const variant of [{ kind: 'row', beforeOrigin: false }, { kind: 'table', beforeOrigin: false }, { kind: 'row', beforeOrigin: true }] as const) {
@@ -518,8 +564,15 @@ async function main(): Promise<void> {
           assert.equal(httpBusy.status, 409); assert.equal(httpBusy.body.code, 'PRINCIPAL_BUSY');
           assert.equal(Object.hasOwn(httpBusy.body, 'token'), false);
           const updates = httpQueries.filter(query => query.command === 'factory-org-update');
-          assert.equal(updates.length, 1, 'Only the unchanged outer generic route bootstraps.');
-          assert.equal(updates[0].code, undefined); assert(updates[0].fulfilled !== undefined);
+          assert.equal(updates.length, 0, 'Initialized outer generic and native resolvers must not bootstrap.');
+          const primaryReads = httpQueries.filter(query => query.primaryOrdinal !== undefined);
+          console.log('Actual primary discovery counter:', primaryReads.map(query => ({ pid: query.pid, turn: query.turn ?? null,
+            ordinal: query.primaryOrdinal, shared: query.primaryShared, started: query.started, fulfilled: query.fulfilled })));
+          assert.equal(primaryReads.length, 5, 'One generic read, one origin read and three fresh principal factories are required.');
+          assert.equal(primaryReads[0].primaryOrdinal, 1); assert.equal(primaryReads[0].primaryShared, true);
+          assert.equal(primaryReads[0].code, undefined); assert(primaryReads[0].fulfilled !== undefined);
+          assert.equal(primaryReads[1].primaryOrdinal, 2); assert.equal(primaryReads[1].primaryShared, false);
+          assert(primaryReads[0].fulfilled < primaryReads[1].started, 'The actual shared generic read completes before the unshared native origin read.');
           const originRead = httpQueries.filter(query => query.primaryOrdinal === 2);
           assert.equal(originRead.length, 1); assert.equal(originRead[0].command, 'factory-primary-org-read');
           assert.equal(originRead[0].code, undefined); assert(originRead[0].fulfilled !== undefined);
@@ -533,6 +586,11 @@ async function main(): Promise<void> {
           }
           for (let index = 0; index < 3; index++) {
             const turn = index + 1, failed = failures.filter(query => query.turn === turn), retired = releases.filter(release => release.turn === turn);
+            const factoryRead = primaryReads[index + 2];
+            assert.equal(factoryRead.primaryOrdinal, index + 3); assert.equal(factoryRead.primaryShared, false);
+            assert.equal(factoryRead.turn, undefined); assert.equal(factoryRead.code, undefined); assert(factoryRead.fulfilled !== undefined);
+            assert(originRead[0].fulfilled < factoryRead.started); assert(factoryRead.fulfilled < begins[index].started);
+            if (index > 0) assert(releases[index - 1].order < factoryRead.started, 'The prior B is released before minting the next fresh principal.');
             const rolledBack = httpQueries.filter(query => query.turn === turn && query.command === 'ROLLBACK');
             assert.equal(begins[index].turn, turn); assert(begins[index].fulfilled !== undefined);
             assert.equal(failed.length, 1); assert.equal(failed[0].code, '55P03'); assert(failed[0].rejected !== undefined);
@@ -638,6 +696,19 @@ async function main(): Promise<void> {
         { kind: 'deletions', sync: 2 }, { kind: 'deletions', sync: 1 },
         { kind: 'malformed', sync: 2 },
       ] as const;
+      // Same zero-client awareness payload as encodeAwarenessUpdate(..., []).
+      // This is protocol activity, not a document edit or a SyncStatus ACK.
+      const emptyAwareness = encoding.createEncoder(); encoding.writeVarUint(emptyAwareness, 0);
+      const survivorHeartbeatFrame = frame(survivor.documentId, MessageType.Awareness, encoder => {
+        encoding.writeVarUint8Array(encoder, encoding.toUint8Array(emptyAwareness));
+      });
+      let survivorHeartbeatSendCount = 0, survivorHeartbeatSendFailed = false;
+      const survivorHeartbeat = setInterval(() => {
+        if (survivorPeer.socket.readyState !== WebSocket.OPEN) return;
+        try { survivorPeer.socket.send(survivorHeartbeatFrame); survivorHeartbeatSendCount++; }
+        catch { survivorHeartbeatSendFailed = true; }
+      }, 10_000);
+      try {
       for (const variant of variants) {
         const identity = await newCase(`incoming-${variant.kind}-${variant.sync}`), session = await httpSession(identity);
         assert.equal(session.status, 200);
@@ -675,7 +746,19 @@ async function main(): Promise<void> {
           assert.equal(Number(unchanged.document_sequence), 7);
           assert.deepEqual(Buffer.from(unchanged.yjs_state), Buffer.from(before));
           const readableProof: string | null = await readCurrentCollaborationDocument<string | null>({ documentId: survivor.documentId, workspaceId,
-            read: document => { assert.equal(document, survivorDocument); return collaborationStateProof(document, Y); } });
+            read: document => {
+              const closed = survivorPeer.closed();
+              const knownCloseReasons = ['', 'Connection Timeout', 'Collaboration peer busy; reconnect to synchronize',
+                'Collaboration room ownership lost', 'Collaboration access revoked'];
+              console.log('Native survivor live-reader witness:', { stage, documentId: survivor.documentId,
+                socketClosed: Boolean(closed), socketCloseCode: closed?.code ?? null,
+                socketCloseReason: closed ? knownCloseReasons.includes(closed.reason) ? closed.reason : 'UNRECOGNIZED' : null,
+                originalDocumentPresent: actualRuntime.hocuspocus!.documents.get(survivor.documentId) === survivorDocument,
+                readUsesOriginalDocument: document === survivorDocument, survivorHeartbeatSendCount, survivorHeartbeatSendFailed });
+              assert.equal(survivorHeartbeatSendFailed, false, 'Survivor keepalive send must not fail.');
+              assert.equal(document, survivorDocument, 'The live reader must retain the exact survivor room.');
+              return collaborationStateProof(document, Y);
+            } });
           assert.equal(readableProof, survivorProof, 'one rejected candidate must not dispose the shared owner/reader');
           assert.equal(survivorPeer.closed(), undefined);
 
@@ -711,6 +794,7 @@ async function main(): Promise<void> {
             { ...witness, unchangedSequence: 7, survivorReaderAvailable: true, freshPersistedProofMatches: true });
         } finally { source.destroy(); expected.destroy(); }
       }
+      } finally { clearInterval(survivorHeartbeat); }
       await closePeer(survivorPeer); await unloadOwnRoom(survivor.documentId);
       assert.equal(cases, incomingOnly ? 5 : 13); assert.equal(fetches, 0);
     } finally {

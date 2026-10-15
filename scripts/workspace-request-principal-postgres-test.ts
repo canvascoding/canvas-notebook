@@ -271,6 +271,267 @@ async function main(): Promise<void> {
       assert.equal(rejectedCallbacks,0);assert.equal(restoredCallbacks,2);
       assert.deepEqual((await admin.query(metadataSql)).rows[0].snapshot,before);
     });
+    const { requireRequestWorkspace } = await import('../app/lib/workspaces/request');
+    const { getPostgresWorkspaceState } = await import('../app/lib/workspaces/postgres-runtime');
+    const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+    const readGenericAuthorizationMetadata = async () => {
+      const snapshot=(await admin.query(`SELECT jsonb_build_object(
+        'organizations',(SELECT jsonb_agg(to_jsonb(t) ORDER BY organization_id) FROM canvas_organization_settings t),
+        'users',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM "user" t),
+        'sessions',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM "session" t),
+        'permissions',(SELECT jsonb_agg(to_jsonb(t) ORDER BY organization_id,user_id) FROM organization_user_permissions t),
+        'memberships',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM team_memberships t),
+        'membershipSync',(SELECT jsonb_agg(to_jsonb(t) ORDER BY organization_id) FROM team_membership_sync_state t),
+        'workspaces',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM canvas_workspaces t),
+        'projects',(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM canvas_projects t),
+        'workspaceMembers',(SELECT jsonb_agg(to_jsonb(t) ORDER BY workspace_id,user_id) FROM canvas_workspace_members t),
+        'projectMembers',(SELECT jsonb_agg(to_jsonb(t) ORDER BY organization_id,project_id,user_id) FROM canvas_project_members t)
+      ) AS snapshot`)).rows[0].snapshot;
+      // Compare every persisted field without printing session credentials on failure.
+      return crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+    };
+    const checkGenericWorkspaceReads = async (userId:'owner'|'member',cookie:boolean) => {
+      const backendPids=new Set<number>();
+      const originalQuery=Client.prototype.query;
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const pid=Reflect.get(this,'processID');
+        if(typeof pid==='number'&&Number.isSafeInteger(pid))backendPids.add(pid);
+        return Reflect.apply(originalQuery,this,args);
+      } as typeof Client.prototype.query;
+      try{
+        const selectedRequest=await request(userId,cookie);
+        const selected=await requireRequestWorkspace(selectedRequest,{permissions:'canRead'});
+        assert.equal(selected.response,null);assert(selected.session);assert(selected.workspace);
+        assert.equal(selected.session.user.id,userId);assert.equal(selected.session.session.id,`session-${userId}`);
+        assert.equal(selected.workspace.workspaceId,'org-space');assert.equal(selected.workspace.organizationId,'principal-org');
+        assert.equal(selected.workspace.permissions.canRead,true);assert.equal(selected.workspace.permissions.canWrite,userId==='owner');
+        const headers=new Headers(selectedRequest.headers);headers.delete('x-canvas-workspace-id');
+        const defaultRequest=new NextRequest(selectedRequest.url,{headers});
+        const defaultRead=await requireRequestWorkspace(defaultRequest,{permissions:'canRead'});
+        assert.equal(defaultRead.response,null);assert(defaultRead.session);assert(defaultRead.workspace);
+        assert.equal(defaultRead.session.user.id,userId);assert.equal(defaultRead.session.session.id,`session-${userId}`);
+        assert.equal(defaultRead.workspace.workspaceId,`personal-${userId}`);assert.equal(defaultRead.workspace.workspaceType,'personal');
+        assert.equal(defaultRead.workspace.ownerUserId,userId);assert.equal(defaultRead.workspace.rootRelativePath,`workspaces/personal/${userId}/files`);
+        assert.equal(defaultRead.workspace.isDefault,true);assert.equal(defaultRead.workspace.permissions.canWrite,true);
+        const session=await auth.api.getSession({headers:selectedRequest.headers});
+        assert(session);assert.equal(session.user.id,userId);assert.equal(session.session.id,`session-${userId}`);
+        const state=await getPostgresWorkspaceState(resolveWorkspaceActor({id:session.user.id,email:session.user.email,role:session.user.role}));
+        assert.equal(state.status.configured,true);assert.equal(state.status.organizationId,'principal-org');assert.equal(state.status.ownerUserId,'owner');
+        assert.equal(state.defaultWorkspace?.workspaceId,`personal-${userId}`);assert.equal(state.defaultWorkspace?.permissions.canWrite,true);
+        const organization=state.workspaces.find(workspace=>workspace.workspaceId==='org-space');
+        assert(organization);assert.equal(organization.permissions.canRead,true);assert.equal(organization.permissions.canWrite,userId==='owner');
+        const personal=state.workspaces.find(workspace=>workspace.workspaceId===`personal-${userId}`);
+        assert(personal);assert.equal(personal.ownerUserId,userId);assert.equal(personal.isDefault,true);
+        assert.equal(state.workspaces.some(workspace=>workspace.workspaceType==='personal'&&workspace.ownerUserId!==userId),false);
+        assert(backendPids.size>0,'Actual generic reads must issue SQL on a genuine backend.');
+        return {userId,mode:cookie?'cookie':'bearer',selectedWorkspace:selected.workspace.workspaceId,
+          defaultWorkspace:defaultRead.workspace.workspaceId,inventoryCount:state.workspaces.length,backendPids:[...backendPids]};
+      }finally{Client.prototype.query=originalQuery;}
+    };
+    await check('canonical generic Cookie/Bearer selected default and inventory reads issue no authorization DML',async()=>{
+      // Genuine generic warmup canonicalizes the seeded personal rows and allows
+      // legitimate BetterAuth refresh before any observed operation or held B.
+      for(const userId of ['owner','member'] as const)for(const cookie of [true,false])await checkGenericWorkspaceReads(userId,cookie);
+      const before=await readGenericAuthorizationMetadata();
+      const observations:Array<{userId:'owner'|'member';mode:string;dmlCount:number;commandTableCounts:Record<string,number>}>=[];
+      for(const userId of ['owner','member'] as const)for(const cookie of [true,false]){
+        let entered=false;
+        const dml=await observeAuthorizationDml(async()=>{await checkGenericWorkspaceReads(userId,cookie);entered=true;});
+        assert.equal(entered,true);
+        const commandTableCounts:Record<string,number>={};
+        for(const item of dml){const key=`${item.command} ${item.table}`;commandTableCounts[key]=(commandTableCounts[key]??0)+1;}
+        observations.push({userId,mode:cookie?'cookie':'bearer',dmlCount:dml.length,commandTableCounts});
+      }
+      const after=await readGenericAuthorizationMetadata();
+      console.log('Actual generic ready-read authorization-DML witness:',JSON.stringify({observations,metadataUnchanged:before===after}));
+      assert.equal(observations.length,4);
+      for(const observed of observations)assert.equal(observed.dmlCount,0,`${observed.userId}/${observed.mode} canonical generic reads must not bootstrap`);
+      assert.equal(after,before,'Canonical generic reads must leave every authorization metadata field unchanged.');
+    });
+    await check('held B1 permits genuine generic selected default inventory reads and a newly minted B2',async()=>{
+      for(const userId of ['owner','member'] as const)for(const cookie of [true,false])await checkGenericWorkspaceReads(userId,cookie);
+      let factoryCallbacks=0,phaseCallbacks=0;const observedBackends:Array<Awaited<ReturnType<typeof checkGenericWorkspaceReads>>>=[];
+      await captured(owner=>transaction((ownerDb,ownerClient)=>phase(ownerDb,owner,async ownerAccess=>{
+        const ownerPid=(await ownerClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        assert.equal(ownerAccess.userId,'owner');assert.equal(ownerAccess.workspace.permissions.canWrite,true);
+        for(const userId of ['owner','member'] as const)for(const cookie of [true,false]){
+          const observed=await checkGenericWorkspaceReads(userId,cookie);
+          assert(observed.backendPids.every(pid=>pid!==ownerPid),'Generic reads must coexist on actual separate backends while B1 stays open.');
+          observedBackends.push(observed);
+          await ownerAccess.assertCurrent();
+        }
+        // This is an actual original-header factory inside B1, never a preminted Principal.
+        await capture(await request('member',true),{permission:'canRead'},member=>{
+          factoryCallbacks++;
+          return transaction((memberDb,memberClient)=>phase(memberDb,member,async memberAccess=>{
+            phaseCallbacks++;
+            assert.notEqual((await memberClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid,ownerPid);
+            assert.equal(memberAccess.userId,'member');assert.equal(memberAccess.sessionId,'session-member');
+            assert.equal(memberAccess.workspace.workspaceId,'org-space');assert.equal(memberAccess.workspace.permissions.canRead,true);
+            assert.equal(memberAccess.workspace.permissions.canWrite,false);
+            await ownerAccess.assertCurrent();await memberAccess.assertCurrent();
+          }));
+        });
+        await ownerAccess.assertCurrent();
+      })));
+      assert.equal(factoryCallbacks,1);assert.equal(phaseCallbacks,1);assert.equal(observedBackends.length,4);
+      console.log('Actual generic reads under held B1 witness:',JSON.stringify({factoryCallbacks,phaseCallbacks,observedBackends}));
+    });
+    await check('generic reads retain genuine personal default repair and return to zero-DML ready reads',async()=>{
+      const original=(await admin.query("SELECT root_relative_path,is_default,display_name,updated_at FROM canvas_workspaces WHERE id='personal-member'")).rows[0];
+      assert.equal(original.root_relative_path,'workspaces/personal/member/files');assert.equal(original.is_default,1);
+      try{
+        await admin.query("UPDATE canvas_workspaces SET root_relative_path='users/member/fixture-needs-repair',is_default=0 WHERE id='personal-member'");
+        const repairDml=await observeAuthorizationDml(async()=>{await checkGenericWorkspaceReads('member',true);});
+        const repaired=(await admin.query("SELECT root_relative_path,is_default FROM canvas_workspaces WHERE id='personal-member'")).rows[0];
+        assert.deepEqual(repaired,{root_relative_path:'workspaces/personal/member/files',is_default:1});
+        assert(repairDml.some(item=>item.command==='UPDATE'&&item.table==='canvas_workspaces'),'A genuine noncanonical personal row still requires the original write repair.');
+        const before=await readGenericAuthorizationMetadata();
+        const readyDml=await observeAuthorizationDml(async()=>{await checkGenericWorkspaceReads('member',false);});
+        const after=await readGenericAuthorizationMetadata();
+        console.log('Actual generic personal repair witness:',JSON.stringify({repairDmlCount:repairDml.length,readyDmlCount:readyDml.length,metadataUnchanged:before===after}));
+        assert.deepEqual(readyDml,[]);assert.equal(after,before);
+      }finally{
+        await admin.query("UPDATE canvas_workspaces SET root_relative_path=$1,is_default=$2,display_name=$3,updated_at=$4 WHERE id='personal-member'",
+          [original.root_relative_path,original.is_default,original.display_name,original.updated_at]);
+      }
+    });
+    const principalRegressionSignal=()=>{
+      let release!:()=>void;
+      const promise=new Promise<void>(resolve=>{release=resolve;});
+      return {promise,release};
+    };
+    const waitForPrincipalRegression=async(condition:()=>boolean|Promise<boolean>,label:string)=>{
+      const deadline=Date.now()+5000;
+      while(!await condition()){
+        assert(Date.now()<deadline,label);
+        await new Promise<void>(resolve=>setTimeout(resolve,5));
+      }
+    };
+    const observePrincipalRegression=<T,>(pending:Promise<T>)=>{
+      let settled=false;
+      const done=pending.then(value=>{settled=true;return {ok:true as const,value};},
+        error=>{settled=true;return {ok:false as const,error};});
+      return {done,isSettled:()=>settled};
+    };
+    await check('both generic read bindings never combine revoked sharing with a newly granted team membership',async()=>{
+      const {createPostgresWorkspaceForActor,upsertPostgresWorkspaceMemberForActor}=await import('../app/lib/workspaces/postgres-runtime');
+      const {updateOrganizationPermissions}=await import('../app/lib/organization/permissions');
+      const ownerSession=await auth.api.getSession({headers:(await request('owner',true)).headers});assert(ownerSession);
+      const memberSession=await auth.api.getSession({headers:(await request('member',true)).headers});assert(memberSession);
+      assert.equal(ownerSession.user.id,'owner');assert.equal(memberSession.user.id,'member');
+      const ownerActor=resolveWorkspaceActor(ownerSession.user),memberActor=resolveWorkspaceActor(memberSession.user);
+      const originalPermission=(await admin.query("SELECT can_create_public_links FROM organization_user_permissions WHERE organization_id='principal-org' AND user_id='member'")).rows[0];
+      const team=await createPostgresWorkspaceForActor(ownerActor,{type:'team',name:'Principal mixed-permission witness'});
+      assert.equal(team.permissions.canManageWorkspace,true);
+      const observations:Array<{mode:'selected'|'inventory';share:boolean;status:number}>=[];
+      try{
+        for(const mode of ['selected','inventory'] as const){
+          await admin.query("DELETE FROM canvas_workspace_members WHERE workspace_id=$1 AND user_id='member'",[team.workspaceId]);
+          await updateOrganizationPermissions({actorUserId:'owner',targetUserId:'member',permissions:{canCreatePublicLinks:true}});
+          const memberRequest=await request('member',true),headers=new Headers(memberRequest.headers);headers.set('x-canvas-workspace-id',team.workspaceId);
+          const selected=new NextRequest('http://localhost/api/security/public-shares',{method:'POST',headers});
+          const baseline=await requireRequestWorkspace(selected,{permissions:'canCreatePublicLinks'});
+          assert.equal(baseline.response?.status,404);assert.equal(baseline.workspace,null);
+          const releaseRead=principalRegressionSignal();let readerPid:number|undefined,writerPid:number|undefined,permissionReads=0;
+          const originalQuery=Client.prototype.query;
+          Client.prototype.query=function(this:Client,...args:unknown[]){
+            const sql=(typeof args[0]==='string'?args[0]:'').trim().replace(/\s+/gu,' ');
+            const values=Array.isArray(args[1])?args[1]:[];
+            if(readerPid&&/^UPDATE canvas_organization_settings SET deployment_mode =/u.test(sql))writerPid=Number(Reflect.get(this,'processID'));
+            const original=Reflect.apply(originalQuery,this,args);
+            if(!sql.startsWith('SELECT role, status, can_write_team_workspace, can_create_public_links,')
+              || values[0]!=='principal-org'||values[1]!=='member'||++permissionReads!==(mode==='selected'?1:2))return original;
+            return Promise.resolve(original).then(async result=>{
+              assert.equal(result.rows[0]?.can_create_public_links,1);
+              readerPid=Number(Reflect.get(this,'processID'));assert(Number.isSafeInteger(readerPid));
+              await releaseRead.promise;return result;
+            });
+          } as typeof Client.prototype.query;
+          const reader=observePrincipalRegression(mode==='selected'
+            ?requireRequestWorkspace(selected,{permissions:'canCreatePublicLinks'}).then(result=>({share:result.workspace?.permissions.canCreatePublicLinks??false,status:result.response?.status??200}))
+            :getPostgresWorkspaceState(memberActor).then(result=>({share:result.workspaces.find(item=>item.workspaceId===team.workspaceId)?.permissions.canCreatePublicLinks??false,status:200})));
+          let writer:ReturnType<typeof observePrincipalRegression<Awaited<ReturnType<typeof upsertPostgresWorkspaceMemberForActor>>>>|undefined;
+          let writerBlocked=false;
+          try{
+            await waitForPrincipalRegression(()=>readerPid!==undefined||reader.isSettled(),'The actual permission SELECT did not reach its barrier.');
+            assert(readerPid);assert.equal(reader.isSettled(),false);
+            await updateOrganizationPermissions({actorUserId:'owner',targetUserId:'member',permissions:{canCreatePublicLinks:false}});
+            assert.equal((await admin.query("SELECT can_create_public_links FROM organization_user_permissions WHERE organization_id='principal-org' AND user_id='member'")).rows[0].can_create_public_links,0);
+            writer=observePrincipalRegression(upsertPostgresWorkspaceMemberForActor(ownerActor,team.workspaceId,{userId:'member',canRead:true,canWrite:false,canManage:false}));
+            await waitForPrincipalRegression(async()=>{
+              if(writer!.isSettled())return true;
+              if(!writerPid)return false;
+              writerBlocked=(await admin.query('SELECT $1::integer = ANY(pg_blocking_pids($2::integer)) AS blocked',[readerPid,writerPid])).rows[0].blocked===true;
+              return writerBlocked;
+            },'The actual member writer neither committed nor blocked on the actual reader.');
+            assert(writerPid);assert.notEqual(writerPid,readerPid);
+            if(writer.isSettled()){
+              const completed=await writer.done;if(!completed.ok)throw completed.error;
+              assert.equal((await admin.query("SELECT can_read FROM canvas_workspace_members WHERE workspace_id=$1 AND user_id='member'",[team.workspaceId])).rows[0]?.can_read,1);
+            }
+            releaseRead.release();
+            await waitForPrincipalRegression(()=>reader.isSettled(),'The genuine generic reader did not settle.');
+            const observed=await reader.done;if(!observed.ok)throw observed.error;
+            await waitForPrincipalRegression(()=>writer!.isSettled(),'The genuine member writer did not settle after reader release.');
+            const completed=await writer.done;if(!completed.ok)throw completed.error;
+            const fresh=await requireRequestWorkspace(selected,{permissions:'canRead'});assert.equal(fresh.response,null);assert(fresh.workspace);
+            assert.equal(fresh.workspace.permissions.canRead,true);assert.equal(fresh.workspace.permissions.canCreatePublicLinks,false);
+            console.log('Actual generic mixed-permission witness:',JSON.stringify({mode,readerPid,writerPid,writerBlocked,observed:observed.value,freshRead:true,freshShare:false}));
+            observations.push({mode,...observed.value});
+          }finally{
+            releaseRead.release();await Promise.all([reader.done,writer?.done]);Client.prototype.query=originalQuery;
+          }
+        }
+        assert.deepEqual(observations,[{mode:'selected',share:false,status:404},{mode:'inventory',share:false,status:200}],
+          'Neither generic read may authorize old sharing plus a newly granted membership.');
+      }finally{
+        await updateOrganizationPermissions({actorUserId:'owner',targetUserId:'member',permissions:{canCreatePublicLinks:originalPermission.can_create_public_links===1}});
+        await admin.query('DELETE FROM canvas_workspace_members WHERE workspace_id=$1',[team.workspaceId]);
+        await admin.query('DELETE FROM canvas_workspaces WHERE id=$1',[team.workspaceId]);
+        assert(team.rootPath.startsWith(`${dataRoot}${path.sep}`));await rm(team.rootPath,{recursive:true,force:true});
+      }
+    });
+    await check('two concurrent generic repair fallbacks complete without retaining incompatible read locks',async()=>{
+      const {resolvePostgresWorkspaceForActor}=await import('../app/lib/workspaces/postgres-runtime');
+      const memberSession=await auth.api.getSession({headers:(await request('member',true)).headers});assert(memberSession);
+      const memberActor=resolveWorkspaceActor(memberSession.user);
+      const originalRow=(await admin.query("SELECT root_relative_path,is_default,display_name,updated_at FROM canvas_workspaces WHERE id='personal-member'")).rows[0];
+      const brokenRoot='users/member/concurrent-repair-witness';
+      const releaseReads=principalRegressionSignal(),readerPids=new Set<number>(),originalQuery=Client.prototype.query;
+      await admin.query("UPDATE canvas_workspaces SET root_relative_path=$1,is_default=0 WHERE id='personal-member'",[brokenRoot]);
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const sql=(typeof args[0]==='string'?args[0]:'').trim().replace(/\s+/gu,' '),values=Array.isArray(args[1])?args[1]:[];
+        const original=Reflect.apply(originalQuery,this,args),pid=Number(Reflect.get(this,'processID'));
+        if(!sql.includes("WHERE type = 'personal' AND owner_user_id = $1")||values[0]!=='member'||readerPids.has(pid))return original;
+        return Promise.resolve(original).then(async result=>{
+          assert.equal(result.rows[0]?.root_relative_path,brokenRoot);assert(Number.isSafeInteger(pid));readerPids.add(pid);
+          await releaseReads.promise;return result;
+        });
+      } as typeof Client.prototype.query;
+      const inventory=observePrincipalRegression(getPostgresWorkspaceState(memberActor));
+      const selected=observePrincipalRegression(resolvePostgresWorkspaceForActor(memberActor,'org-space'));
+      try{
+        await waitForPrincipalRegression(()=>readerPids.size===2||inventory.isSettled()||selected.isSettled(),'Both actual repair reads did not reach the common barrier.');
+        assert.equal(readerPids.size,2);assert.equal(inventory.isSettled(),false);assert.equal(selected.isSettled(),false);
+        releaseReads.release();
+        await waitForPrincipalRegression(()=>inventory.isSettled()&&selected.isSettled(),'Both genuine repair fallbacks must complete without a deadlock or timeout.');
+        const inventoryResult=await inventory.done,selectedResult=await selected.done;
+        if(!inventoryResult.ok)throw inventoryResult.error;if(!selectedResult.ok)throw selectedResult.error;
+        assert.equal(inventoryResult.value.defaultWorkspace?.rootRelativePath,'workspaces/personal/member/files');
+        assert.equal(inventoryResult.value.defaultWorkspace?.isDefault,true);
+        assert.equal(selectedResult.value?.workspaceId,'org-space');assert.equal(selectedResult.value?.permissions.canRead,true);
+        assert.deepEqual((await admin.query("SELECT root_relative_path,is_default FROM canvas_workspaces WHERE id='personal-member'")).rows[0],{root_relative_path:'workspaces/personal/member/files',is_default:1});
+        Client.prototype.query=originalQuery;
+        const before=await readGenericAuthorizationMetadata();
+        const readyDml=await observeAuthorizationDml(async()=>{await checkGenericWorkspaceReads('member',true);});
+        assert.deepEqual(readyDml,[]);assert.equal(await readGenericAuthorizationMetadata(),before);
+        console.log('Actual concurrent generic repair witness:',JSON.stringify({readerPids:[...readerPids],successfulRepairs:2,readyDmlCount:readyDml.length,metadataUnchanged:true}));
+      }finally{
+        releaseReads.release();await Promise.all([inventory.done,selected.done]);Client.prototype.query=originalQuery;
+        await admin.query("UPDATE canvas_workspaces SET root_relative_path=$1,is_default=$2,display_name=$3,updated_at=$4 WHERE id='personal-member'",[originalRow.root_relative_path,originalRow.is_default,originalRow.display_name,originalRow.updated_at]);
+      }
+    });
     await check('read-only member and genuine forbidden write',async()=>{
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.workspace.permissions.canWrite,false))),'member');
       await assert.rejects(capture(await request('member'),{ permission:'canWrite' },async()=>assert.fail()),expected('PRINCIPAL_ACCESS_DENIED'));
@@ -537,6 +798,7 @@ async function main(): Promise<void> {
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.userId,'owner'))));
       await assert.rejects(captured(async()=>assert.fail(),'member'),expected('PRINCIPAL_AUTH_REVOKED'));
     });
+    assert.equal(cases,46);
     assert.equal(fetches,0);
     console.log(`Workspace Request Principal PostgreSQL18: ${cases} genuine Cookie/Bearer/Team, scope, lifetime, revocation, predicate-lock and bounds matrix families passed; no API activation.`);
   } finally {
