@@ -287,10 +287,7 @@ export async function searchWorkspaceFileReferences({
     signal,
   });
   if (!response.ok) {
-    throw new WorkspaceFileApiError(
-      await readApiError(response, 'Failed to search workspace files'),
-      response,
-    );
+    throw await readWorkspaceFileApiError(response, 'Failed to search workspace files');
   }
 
   const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; total?: number; nextCursor?: string | null; error?: string }>(

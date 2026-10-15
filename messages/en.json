@@ -536,6 +536,11 @@
     "close": "Close",
     "manage": "Manage workspaces",
     "sourceWorkspace": "Source workspace",
+    "discovery": {
+      "showing": "{loaded} of {total} results",
+      "loadMore": "Load more results",
+      "loadingMore": "Loading more results..."
+    },
     "targetWorkspace": "Target workspace",
     "targetFolder": "Target folder",
     "folderLoadFailed": "Could not load workspace folders",
