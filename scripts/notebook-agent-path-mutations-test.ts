@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import Module from 'node:module';
 import os from 'node:os';
@@ -14,7 +15,26 @@ import type { WorkspacePathOperationInput } from '../app/lib/files/workspace-pat
 import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 
+let stage = 'fixture setup';
+let failureStage: string | undefined;
+let fixtureSettled = false;
+let incompleteExitReported = false;
+function guardIncompleteExit(reason: 'beforeExit' | 'exit' | 'watchdog'): void {
+  if (fixtureSettled) return;
+  if (!incompleteExitReported) console.error(`notebook-agent-path-mutations-test: incomplete (${reason}) at ${stage}; cleanup completion is unconfirmed.`);
+  incompleteExitReported = true;
+  process.exitCode = 1;
+}
+process.once('beforeExit', () => guardIncompleteExit('beforeExit'));
+process.once('exit', () => guardIncompleteExit('exit'));
+const fixtureWatchdog = setTimeout(() => {
+  guardIncompleteExit('watchdog');
+  process.exit(1);
+}, 180_000);
+fixtureWatchdog.ref();
+
 async function main() {
+  console.log('notebook-agent-path-mutations-test: started');
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-agent-rename-'));
   // Keep unrelated audit/share tables isolated too. Collaboration uses PostgreSQL below.
   process.env.DATA = root;
@@ -27,8 +47,21 @@ async function main() {
       rows: typeof input !== 'string' && input.rowMode === 'array' ? result.rows.map((row) => result.fields.map((field) => row[field.name])) : result.rows };
   };
   const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
+  const createClient = () => Object.assign(new EventEmitter(), { query, release() {} });
+  type FixtureClient = ReturnType<typeof createClient>;
+  type ConnectCallback = (error: Error | undefined, client: FixtureClient | undefined, release: (error?: Error) => void) => void;
+  function connect(): Promise<FixtureClient>;
+  function connect(callback: ConnectCallback): void;
+  function connect(callback?: ConnectCallback): Promise<FixtureClient> | void {
+    const client = createClient();
+    if (callback) {
+      queueMicrotask(() => callback(undefined, client, client.release));
+      return;
+    }
+    return Promise.resolve(client);
+  }
   Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
-  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
+  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: connect });
   const connection: SqlConnection = {
     get: async (sql, params = []) => (await postgres.query(sql, params)).rows[0],
     all: async (sql, params = []) => (await postgres.query(sql, params)).rows,
@@ -70,6 +103,7 @@ async function main() {
   };
   const { getFileWatcher } = await import('../app/lib/filesystem/file-watcher');
   try {
+    stage = 'actual PGlite migrations';
     await runPostgresMigrations(postgres as unknown as Parameters<typeof runPostgresMigrations>[0]);
     await postgres.exec(`
       INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at)
@@ -79,6 +113,7 @@ async function main() {
       INSERT INTO canvas_workspaces (id,organization_id,type,owner_user_id,root_relative_path,display_name,created_at,updated_at)
         VALUES ('test','test-org','personal','test','workspace','Test',1,1);
     `);
+    stage = 'direct service setup';
     setFileCollaborationConnectionFactoryForTests(async () => connection);
     const service = await import('../app/lib/files/workspace-path-operation-service');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
@@ -115,6 +150,7 @@ async function main() {
     await fs.writeFile(path.join(workspaceRoot, 'index.md'), '[A](notes/a.md)');
     await fs.writeFile(path.join(workspaceRoot, 'stable.md'), '# Stable');
     await fs.mkdir(path.join(workspaceRoot, 'backup'));
+    stage = 'agent path mutation assertions';
     await runWithAgentExecutionContext({
       userId: 'test', sessionId: 'test', agentId: 'canvas-agent', workspaceId: 'test', workspaceType: 'personal',
       workspaceName: 'Test', organizationId: null, customerId: null, projectId: null,
@@ -298,14 +334,28 @@ async function main() {
         && input.actorSessionId === 'test' && input.actorUserId === 'test'));
       assert.equal(reviewCalls.length, 0, 'OFF copy/move/delete execute without optional review submissions');
     });
-    console.log('notebook-agent-path-mutations-test: ok');
+  } catch (error) {
+    failureStage = stage;
+    throw error;
   } finally {
+    stage = 'fixture cleanup';
     moduleInternals._load = originalLoad;
     getFileWatcher().stop();
     setFileCollaborationConnectionFactoryForTests(null);
     Object.assign(Pool.prototype, original);
     await postgres.close();
     await fs.rm(root, { recursive: true, force: true });
+    stage = 'cleanup complete';
   }
 }
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+void main().then(() => {
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.log('notebook-agent-path-mutations-test: ok');
+}, (error) => {
+  process.exitCode = 1;
+  fixtureSettled = true;
+  clearTimeout(fixtureWatchdog);
+  console.error(`notebook-agent-path-mutations-test: failed at ${failureStage ?? stage}; last stage ${stage}`);
+  console.error(error);
+});
