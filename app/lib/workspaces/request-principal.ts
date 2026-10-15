@@ -3,9 +3,12 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { NextRequest } from 'next/server';
-import { getPostgresRuntimeQueryable, type SqlConnection } from '../db';
+import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import { normalizeDatabaseTimestamp } from '../db/timestamps';
 import { getLicenseStatus } from '../license';
+import { requireTeamRuntimeLicense } from '../license/entitlements';
+import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import { isFileGuestId } from '../file-guests/types';
 import { assertUserSeatAccess } from '../license/seat-limit';
 import type { LicenseStatus } from '../license/types';
 import { resolveWorkspaceActor } from './context';
@@ -22,11 +25,27 @@ export type WorkspaceRequestPrincipalAccess = Readonly<{
 }>;
 type Row = Record<string, unknown>;
 type Identity = Readonly<{ schema: string; searchPath: string; database: number; backend: number; start: string; transaction: string }>;
-type RequestCapture = {
+type AuthorizationCapture = {
   active: boolean; accepting: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
-  userId: string; sessionId: string; tokenHash: string; impersonatedBy: unknown;
+  userId: string;
   workspace: WorkspaceContext; permission: 'canRead' | 'canWrite'; license: LicenseStatus; database: number; schema: string; enterBefore: number;
+};
+type RequestCapture = AuthorizationCapture & {
+  kind: 'member'; sessionId: string; tokenHash: string; impersonatedBy: unknown;
   originalOrigin?: { observe: WorkspaceRequestHistoricalOriginObserver; realm: Readonly<{ schemaOid: number; searchPath: string }> };
+};
+declare const guestInvitationAuthorityBrand: unique symbol;
+export type FileGuestInvitationAuthority = Readonly<{ [guestInvitationAuthorityBrand]: never }>;
+export type FileGuestInvitationAuthorityPurpose = 'challenge' | 'redeem' | 'failed_challenge_cleanup';
+export type FileGuestInvitationAuthorityTarget = Readonly<{
+  id: string; workspaceId: string; path: string; documentId: string; lineageId: string; lifecycleGeneration: number;
+  policyRevision: number; permission: 'read' | 'write'; createdByUserId: string;
+}>;
+export type FileGuestInvitationAuthorityAccess = Readonly<{
+  workspace: WorkspaceContext; invitation: FileGuestInvitationAuthorityTarget; userId: string; assertCurrent: () => Promise<void>;
+}>;
+type InvitationCapture = AuthorizationCapture & {
+  kind: 'file_guest'; invitation: FileGuestInvitationAuthorityTarget; purpose: FileGuestInvitationAuthorityPurpose; expiresAt: number | null;
 };
 /** Historical identity only. It conveys neither permissions nor a live principal. */
 export type WorkspaceRequestHistoricalOrigin = Readonly<{
@@ -36,9 +55,10 @@ export type WorkspaceRequestHistoricalOrigin = Readonly<{
   schema: string; schemaOid: number; searchPath: string; databaseOid: number;
 }>;
 export type WorkspaceRequestHistoricalOriginObserver = (origin: WorkspaceRequestHistoricalOrigin) => void;
-type Phase = { active: boolean; failure?: unknown; request: RequestCapture; database: SqlConnection;
+type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>> };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
+const invitationAuthorities = new WeakMap<FileGuestInvitationAuthority, InvitationCapture>();
 const phases = new WeakMap<SqlConnection, Phase>();
 const MAX_ORGANIZATIONS = 16, MAX_ROWS = 1024, MAX_PHASE_MS = 5000;
 const tables = ['canvas_organization_settings', 'team_memberships', 'team_membership_sync_state', 'user', 'session',
@@ -74,7 +94,7 @@ export class WorkspaceRequestPrincipalError extends Error {
 }
 function fail(code: WorkspaceRequestPrincipalError['code']): never { throw new WorkspaceRequestPrincipalError(code); }
 function reason(error: unknown): unknown { return error ?? new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'); }
-function poison(request: RequestCapture, error: unknown): never { request.failure ??= reason(error); throw request.failure; }
+function poison(request: AuthorizationCapture, error: unknown): never { request.failure ??= reason(error); throw request.failure; }
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') { Object.freeze(value); for (const child of Object.values(value)) freeze(child); }
   return value;
@@ -134,7 +154,7 @@ async function withRequestPrincipal<T>(request: NextRequest,
   if (!source || typeof source.schema !== 'string' || !source.schema || !number(source.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
   if (observe && (!number(source.schema_oid, 1) || typeof source.search_path !== 'string'
     || !source.search_path || source.search_path.length > 4096)) fail('PRINCIPAL_SCOPE_CHANGED');
-  const captured: RequestCapture = { active: true, accepting: true, pending: new Set(), userId: session.user.id,
+  const captured: RequestCapture = { kind: 'member', active: true, accepting: true, pending: new Set(), userId: session.user.id,
     sessionId: session.session.id, tokenHash: hash(session.session.token), impersonatedBy: Reflect.get(session.session,'impersonatedBy') ?? null,
     workspace: freeze(workspace), permission, license, database: Number(source.database), schema: source.schema,
     enterBefore: performance.now()+MAX_PHASE_MS,
@@ -163,6 +183,8 @@ function active(phase: Phase): void {
   if (phase.failure !== undefined) throw phase.failure;
   if (phase.request.failure !== undefined) throw phase.request.failure;
   if (performance.now() > phase.deadline) fail('PRINCIPAL_EXPIRED');
+  if (phase.request.kind === 'file_guest' && phase.request.expiresAt !== null
+    && phase.request.expiresAt <= Date.now()) guestFail('FILE_GUEST_INVITATION_UNAVAILABLE');
   const license = phase.request.license;
   if (license.licensed && ['active','grace'].includes(license.licenseState)) {
     const expires = Date.parse(license.licenseState === 'grace' ? license.graceExpiresAt ?? '' : license.expiresAt ?? '');
@@ -187,14 +209,17 @@ async function identity(phase: Phase): Promise<Identity> {
 async function checkIdentity(phase: Phase): Promise<void> {
   const current = await identity(phase), before = phase.identity;
   if (!before || Object.keys(before).some(k => Reflect.get(before,k) !== Reflect.get(current,k))) fail('PRINCIPAL_SCOPE_CHANGED');
+  const requiredTables = phase.request.kind === 'file_guest' ? [...tables, 'file_guest_invitations'] : tables;
   const rows = await phase.database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-    FROM unnest($2::text[]) names(name)`, [quote(before.schema),tables]) as Row[];
+    FROM unnest($2::text[]) names(name)`, [quote(before.schema),requiredTables]) as Row[];
   active(phase);
-  if (rows.length !== tables.length || rows.some(row => row.same !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
+  if (rows.length !== requiredTables.length || rows.some(row => row.same !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
 }
 const table = (phase: Phase, name: string) => `${quote(phase.identity!.schema)}.${quote(name)}`;
 async function observeOriginalOrigin(phase: Phase): Promise<void> {
-  const request = phase.request, optin = request.originalOrigin;
+  const request = phase.request;
+  if (request.kind !== 'member') fail('PRINCIPAL_REQUIRED');
+  const optin = request.originalOrigin;
   if (!optin) return;
   // Capture all private factory primitives before the actual B query await.
   const workspace = request.workspace;
@@ -245,6 +270,9 @@ async function schema(phase: Phase): Promise<void> {
   // SHARE is compatible with other principal readers; ROW EXCLUSIVE followed
   // by the organization SHARE lock made those readers exclude each other.
   await phase.database.run(`LOCK TABLE ${tables.map(name => table(phase,name)).join(',')} IN SHARE MODE NOWAIT`);
+  // Keep the invitation relation/FK stable while permitting cooperating Guest
+  // DML on other rows. Its actual row lock belongs after the Shared fence.
+  if (phase.request.kind === 'file_guest') await phase.database.run(`LOCK TABLE ${table(phase,'file_guest_invitations')} IN ROW SHARE MODE NOWAIT`);
   await checkIdentity(phase);
   const rows = await phase.database.all(`SELECT child.relname AS child,parent.relname AS parent,ca.attname AS column,
     pa.attname AS parent_column,c.convalidated,c.condeferrable,c.conenforced,
@@ -256,7 +284,9 @@ async function schema(phase: Phase): Promise<void> {
     WHERE c.contype='f' AND cardinality(c.conkey)=1 AND cardinality(c.confkey)=1
       AND child.relnamespace=$1::regnamespace AND parent.relnamespace=$1::regnamespace`, [phase.identity!.schema]) as Row[];
   active(phase);
-  for (const [child,column,parent,parentColumn] of expectedFks) {
+  const requiredFks = phase.request.kind === 'file_guest'
+    ? [...expectedFks, ['file_guest_invitations','created_by_user_id','user','id'] as const] : expectedFks;
+  for (const [child,column,parent,parentColumn] of requiredFks) {
     const matched = rows.filter(row => row.child === child && row.column === column && row.parent === parent && row.parent_column === parentColumn);
     if (matched.length !== 1 || matched[0].convalidated !== true || matched[0].condeferrable !== false
       || matched[0].conenforced !== true || matched[0].enforced_trigger !== true) fail('PRINCIPAL_SCHEMA_INVALID');
@@ -325,13 +355,30 @@ async function locks(phase: Phase): Promise<void> {
   }
   bounded(await db.all(`SELECT user_id FROM ${table(phase,'canvas_workspace_members')}
     WHERE workspace_id=$1 ORDER BY user_id COLLATE "C" LIMIT 1025 FOR SHARE NOWAIT`, [workspace.id]) as Row[]);
-  const session = await db.get(`SELECT id FROM ${table(phase,'session')} WHERE id=$1 FOR SHARE NOWAIT`, [phase.request.sessionId]);
-  if (!session) fail('PRINCIPAL_AUTH_REVOKED');
+  if (phase.request.kind === 'member') await lockMemberSession(phase, phase.request);
   await checkIdentity(phase);
+}
+async function lockMemberSession(phase: Phase, request: RequestCapture): Promise<void> {
+  const session = await phase.database.get(`SELECT id FROM ${table(phase,'session')} WHERE id=$1 FOR SHARE NOWAIT`, [request.sessionId]);
+  if (!session) fail('PRINCIPAL_AUTH_REVOKED');
+}
+/** Private reuse only: this reads actual account/seat/workspace policy and does
+ * not mint a Principal, a member session, admission or a general actor grant. */
+async function currentUserWorkspace(phase: Phase, row: Row): Promise<WorkspaceContext> {
+  const request = phase.request;
+  await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
+  active(phase);
+  const actor = resolveWorkspaceActor({ id: request.userId, email: row.email as string | null, role: row.role as string | null });
+  const workspace = await readPostgresWorkspaceForActorOnConnection(phase.database,actor,request.workspace.workspaceId);
+  active(phase);
+  if (!workspace || !scope(workspace,request.workspace) || !workspace.permissions.canRead || !workspace.permissions[request.permission]) fail('PRINCIPAL_ACCESS_DENIED');
+  await checkIdentity(phase);
+  return workspace;
 }
 async function current(phase: Phase): Promise<WorkspaceContext> {
   await checkIdentity(phase);
   const request = phase.request;
+  if (request.kind !== 'member') fail('PRINCIPAL_REQUIRED');
   const rawWorkspace = await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
     FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
   active(phase); assertWorkspaceRow(phase,rawWorkspace);
@@ -342,13 +389,7 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
   if (!row || row.user_id !== request.userId || row.id !== request.userId || row.token_hash !== request.tokenHash
     || row.impersonated_by !== request.impersonatedBy || !number(row.expires_at) || !flag(row.banned)
     || normalizeDatabaseTimestamp(Number(row.expires_at)) <= Date.now()) fail('PRINCIPAL_AUTH_REVOKED');
-  await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
-  active(phase);
-  const actor = resolveWorkspaceActor({ id: request.userId, email: row.email as string | null, role: row.role as string | null });
-  const workspace = await readPostgresWorkspaceForActorOnConnection(phase.database,actor,request.workspace.workspaceId);
-  active(phase);
-  if (!workspace || !scope(workspace,request.workspace) || !workspace.permissions.canRead || !workspace.permissions[request.permission]) fail('PRINCIPAL_ACCESS_DENIED');
-  await checkIdentity(phase);
+  const workspace = await currentUserWorkspace(phase, row);
   const expiry = await phase.database.get(`SELECT expires_at FROM ${table(phase,'session')} WHERE id=$1`, [request.sessionId]) as Row | undefined;
   active(phase);
   if (!expiry || !number(expiry.expires_at) || normalizeDatabaseTimestamp(Number(expiry.expires_at)) <= Date.now()) fail('PRINCIPAL_AUTH_REVOKED');
@@ -412,5 +453,160 @@ export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnec
   })();
   request.pending.add(pending);
   void pending.then(() => request.pending.delete(pending), () => request.pending.delete(pending));
+  return pending;
+}
+
+export class FileGuestInvitationAuthorityError extends Error {
+  constructor(readonly code: 'FILE_GUEST_INVITATION_INVALID' | 'FILE_GUEST_INVITATION_UNAVAILABLE'
+    | 'FILE_GUEST_INVITATION_SCOPE_CHANGED' | 'FILE_GUEST_INVITATION_AUTHORITY_REQUIRED') {
+    super(code); this.name = 'FileGuestInvitationAuthorityError';
+  }
+  get status(): number {
+    return this.code === 'FILE_GUEST_INVITATION_INVALID' ? 400 : this.code === 'FILE_GUEST_INVITATION_UNAVAILABLE' ? 410
+      : this.code === 'FILE_GUEST_INVITATION_SCOPE_CHANGED' ? 409 : 403;
+  }
+}
+function guestFail(code: FileGuestInvitationAuthorityError['code']): never { throw new FileGuestInvitationAuthorityError(code); }
+
+function invitationTarget(row: Row | undefined): { invitation: FileGuestInvitationAuthorityTarget; expiresAt: number | null } {
+  if (!row || !isFileGuestId(String(row.id)) || !id(row.workspace_id) || !isCanonicalAdmissionPath(row.path)
+    || !id(row.document_id) || !id(row.lineage_id) || !number(row.lifecycle_generation,1) || !number(row.policy_revision,1)
+    || !id(row.created_by_user_id) || row.permission !== 'read' && row.permission !== 'write'
+    || row.expires_at !== null && !number(row.expires_at)) guestFail('FILE_GUEST_INVITATION_SCOPE_CHANGED');
+  if (row.status !== 'active' || row.expires_at !== null && Number(row.expires_at) <= Date.now()) guestFail('FILE_GUEST_INVITATION_UNAVAILABLE');
+  return { invitation: Object.freeze({ id: String(row.id),workspaceId: row.workspace_id,path: row.path,
+    documentId: row.document_id,lineageId: row.lineage_id,lifecycleGeneration: Number(row.lifecycle_generation),
+    policyRevision: Number(row.policy_revision),permission: row.permission,createdByUserId: row.created_by_user_id }),
+  expiresAt: row.expires_at === null ? null : Number(row.expires_at) };
+}
+
+/** Fixed invitation lookup only. This creates no app identity, member session or
+ * WorkspaceRequestPrincipal. The verified license is captured before held SQL. */
+export async function withFileGuestInvitationAuthority<T>(invitationId: string, purpose: FileGuestInvitationAuthorityPurpose,
+  operation: (authority: FileGuestInvitationAuthority) => Promise<T>): Promise<T> {
+  if (!isFileGuestId(invitationId) || !['challenge','redeem','failed_challenge_cleanup'].includes(purpose)
+    || typeof operation !== 'function') guestFail('FILE_GUEST_INVITATION_INVALID');
+  const license = freeze(structuredClone(await requireTeamRuntimeLicense()));
+  if (!license.licensed || !['active','grace'].includes(license.licenseState)) fail('PRINCIPAL_EXPIRED');
+  const database = await openDb();
+  let captured: InvitationCapture;
+  try {
+    const realm = await database.get(`SELECT current_schema() AS schema,
+      (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database`) as Row | undefined;
+    if (!realm || typeof realm.schema !== 'string' || !realm.schema || !number(realm.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
+    const prefix = quote(realm.schema);
+    const row = await database.get(`SELECT id,workspace_id,path,document_id,lineage_id,lifecycle_generation,policy_revision,
+      permission,created_by_user_id,status,expires_at FROM ${prefix}.file_guest_invitations WHERE id=$1`, [invitationId]) as Row | undefined;
+    const target = invitationTarget(row);
+    const user = await database.get(`SELECT id,email,role,banned FROM ${prefix}."user" WHERE id=$1`, [target.invitation.createdByUserId]) as Row | undefined;
+    if (!user || user.id !== target.invitation.createdByUserId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
+    await assertUserSeatAccess({ userId: target.invitation.createdByUserId,database,licenseStatus: license });
+    const workspace = await readPostgresWorkspaceForActorOnConnection(database,resolveWorkspaceActor({
+      id: target.invitation.createdByUserId,email: user.email as string | null,role: user.role as string | null }),target.invitation.workspaceId);
+    if (!workspace || workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
+      || !workspace.permissions.canCreatePublicLinks || target.invitation.permission === 'write' && !workspace.permissions.canWrite
+      || workspace.actor?.userId !== target.invitation.createdByUserId || typeof workspace.rootRelativePath !== 'string'
+      || workspace.rootRelativePath.length > 4096) fail('PRINCIPAL_ACCESS_DENIED');
+    captured = { kind: 'file_guest',active: true,accepting: true,pending: new Set(),userId: target.invitation.createdByUserId,
+      workspace: freeze(structuredClone(workspace)),permission: target.invitation.permission === 'write' ? 'canWrite' : 'canRead',
+      license,database: Number(realm.database),schema: realm.schema,enterBefore: 0,purpose,
+      invitation: target.invitation,expiresAt: target.expiresAt };
+  } finally { await database.close(); }
+  captured.enterBefore = performance.now()+MAX_PHASE_MS;
+  const authority = Object.freeze({}) as FileGuestInvitationAuthority;
+  invitationAuthorities.set(authority,captured);
+  try {
+    let result: T | undefined;
+    try { result = await operation(authority); } catch (error) { captured.failure ??= reason(error); }
+    captured.accepting = false;
+    if (captured.pending.size) {
+      captured.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
+      await Promise.allSettled([...captured.pending]);
+    }
+    if (captured.failure !== undefined) throw captured.failure;
+    return result as T;
+  } finally { captured.active = false; captured.accepting = false; invitationAuthorities.delete(authority); }
+}
+
+async function currentInvitation(phase: Phase): Promise<WorkspaceContext> {
+  await checkIdentity(phase);
+  const request = phase.request;
+  if (request.kind !== 'file_guest') guestFail('FILE_GUEST_INVITATION_AUTHORITY_REQUIRED');
+  // Deliberately no FOR UPDATE: the service must take Shared admission first.
+  // Mutable OTP/session fields are absent from this fixed authority comparison.
+  const row = await phase.database.get(`SELECT id,workspace_id,path,document_id,lineage_id,lifecycle_generation,policy_revision,
+    permission,created_by_user_id,status,expires_at FROM ${table(phase,'file_guest_invitations')} WHERE id=$1`, [request.invitation.id]) as Row | undefined;
+  active(phase);
+  const target = invitationTarget(row);
+  if (Object.keys(request.invitation).some(key => Reflect.get(request.invitation,key) !== Reflect.get(target.invitation,key))
+    || target.expiresAt !== request.expiresAt) guestFail('FILE_GUEST_INVITATION_SCOPE_CHANGED');
+  const rawWorkspace = await phase.database.get(`SELECT id,organization_id,type,status,owner_user_id,project_id,root_relative_path
+    FROM ${table(phase,'canvas_workspaces')} WHERE id=$1`, [request.workspace.workspaceId]) as Row | undefined;
+  active(phase); assertWorkspaceRow(phase,rawWorkspace);
+  const user = await phase.database.get(`SELECT id,email,role,banned FROM ${table(phase,'user')} WHERE id=$1`, [request.userId]) as Row | undefined;
+  active(phase);
+  if (!user || user.id !== request.userId || !flag(user.banned) || Number(user.banned) === 1) fail('PRINCIPAL_AUTH_REVOKED');
+  const workspace = await currentUserWorkspace(phase,user);
+  if (!workspace.permissions.canCreatePublicLinks) fail('PRINCIPAL_ACCESS_DENIED');
+  await checkIdentity(phase);
+  return freeze(workspace);
+}
+
+/** Caller owns one RC/RW transaction, mandatory rollback, Shared admission,
+ * exact invitation row locks, narrow SQL and confirmed COMMIT. No pool here. */
+export function withFileGuestInvitationAuthorityOnConnection<T>(database: SqlConnection, authority: FileGuestInvitationAuthority,
+  operation: (access: FileGuestInvitationAuthorityAccess) => Promise<T>): Promise<T> {
+  const request = invitationAuthorities.get(authority);
+  if (!request || !request.active || !request.accepting || request.failure !== undefined) {
+    const error = new FileGuestInvitationAuthorityError('FILE_GUEST_INVITATION_AUTHORITY_REQUIRED'),held = phases.get(database);
+    if (held) { held.failure ??= error; held.request.failure ??= error; }
+    return Promise.reject(error);
+  }
+  if (!database || typeof database !== 'object' || !['get','all','run'].every(key => typeof Reflect.get(database,key) === 'function')
+    || typeof operation !== 'function') {
+    const error = new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'),held = phases.get(database);
+    if (held) { held.failure ??= error; held.request.failure ??= error; }
+    return Promise.reject((request.failure ??= error));
+  }
+  if (performance.now() > request.enterBefore) return Promise.reject((request.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_EXPIRED')));
+  if (request.pending.size || phases.has(database)) {
+    const error = new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'),held = phases.get(database);
+    if (held) { held.failure ??= error; held.request.failure ??= error; }
+    return Promise.reject((request.failure ??= error));
+  }
+  const phase: Phase = { active: true,request,database,deadline: performance.now()+MAX_PHASE_MS,checking: false,pending: new Set() };
+  phases.set(database,phase);
+  const pending = (async () => {
+    try {
+      phase.identity = await identity(phase); await checkIdentity(phase);
+      await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'; SET LOCAL transaction_timeout='5s'");
+      await schema(phase); await locks(phase);
+      const workspace = await currentInvitation(phase);
+      const assertCurrent = (): Promise<void> => {
+        if (phase.checking) {
+          phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_REENTRANT'); request.failure ??= phase.failure;
+          return Promise.reject(phase.failure);
+        }
+        phase.checking = true;
+        const checked = currentInvitation(phase).then(() => undefined).catch(error => {
+          phase.failure ??= reason(error); request.failure ??= phase.failure; throw phase.failure;
+        }).finally(() => { phase.checking = false; });
+        phase.pending.add(checked);
+        void checked.then(() => phase.pending.delete(checked),() => phase.pending.delete(checked));
+        return checked;
+      };
+      const result = await operation(Object.freeze({ workspace,invitation: request.invitation,userId: request.userId,assertCurrent }));
+      if (phase.pending.size) {
+        phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
+        await Promise.allSettled([...phase.pending]); throw phase.failure;
+      }
+      await currentInvitation(phase); return result;
+    } catch (error) {
+      if ((error as { code?: string })?.code === '55P03') error = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
+      return poison(request,error);
+    } finally { phase.active = false; if (phases.get(database) === phase) phases.delete(database); }
+  })();
+  request.pending.add(pending);
+  void pending.then(() => request.pending.delete(pending),() => request.pending.delete(pending));
   return pending;
 }

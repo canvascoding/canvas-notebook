@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { NextRequest } from 'next/server';
@@ -982,8 +983,54 @@ async function main(): Promise<void> {
       assert.deepEqual(after.users,[before.users.find(row=>row.user_id==='owner')]);
     });
     await check('metadata disjoint favorite and pin patches preserve both commits for missing and existing rows',async()=>{
+      const diagnosticOriginalQuery=Client.prototype.query;
+      let diagnosticSubcase='not-started',diagnosticPhase='fixture-setup';
+      const queryCategory=(sql:string):string=>{
+        const normalized=sql.trim().replace(/\s+/gu,' ');
+        if(normalized.includes('pg_advisory_xact_lock(hashtext($1), hashtext($2))'))return 'metadata-path-advisory-lock';
+        if(normalized.includes('pg_try_advisory_xact_lock_shared('))return 'native-shared-lifecycle-fence';
+        if(/^LOCK TABLE\b/iu.test(normalized))return 'principal-foundation-table-lock';
+        if(/\bFOR SHARE NOWAIT\b/iu.test(normalized))return 'principal-foundation-row-lock';
+        if(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]+"\.)?workspace_file_user_states\b/iu.test(normalized))return 'metadata-user-state-DML';
+        if(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:"[^"]+"\.)?workspace_file_metadata\b/iu.test(normalized))return 'metadata-title-DML';
+        if(/^BEGIN\b/iu.test(normalized))return 'transaction-begin';
+        if(/^COMMIT\b/iu.test(normalized))return 'transaction-commit';
+        if(/^ROLLBACK\b/iu.test(normalized))return 'transaction-rollback';
+        if(/^SET\b/iu.test(normalized))return 'transaction-configuration';
+        if(/^SELECT\b/iu.test(normalized)&&normalized.includes('pg_blocking_pids('))return 'fixture-path-waiter-observation';
+        if(/^SELECT\b/iu.test(normalized))return 'read-query';
+        return 'other-query';
+      };
+      Client.prototype.query=function(this:Client,...args:unknown[]){
+        const sql=typeof args[0]==='string'?args[0]:args[0]&&typeof args[0]==='object'?String(Reflect.get(args[0],'text')??''):'';
+        const category=queryCategory(sql),subcase=diagnosticSubcase,startedInPhase=diagnosticPhase,startedAt=performance.now();
+        const backendPid=Number(Reflect.get(this,'processID'));
+        const observeLockFailure=(error:unknown):void=>{
+          // Observe the original query rejection only. Never print SQL, values,
+          // credentials, or replace the original result/error with this witness.
+          try{
+            if(!error||typeof error!=='object'||Reflect.get(error,'code')!=='55P03')return;
+            console.error('Actual metadata concurrency 55P03 witness:',JSON.stringify({
+              subcase,category,startedInPhase,observedInPhase:diagnosticPhase,
+              elapsedMs:Math.round((performance.now()-startedAt)*100)/100,
+              backendPid:Number.isSafeInteger(backendPid)&&backendPid>0?backendPid:null,
+            }));
+          }catch{/* Diagnostic output must not change the original query outcome. */}
+        };
+        try{
+          const result=Reflect.apply(diagnosticOriginalQuery,this,args);
+          if(result&&(typeof result==='object'||typeof result==='function')&&typeof Reflect.get(result,'then')==='function')void Promise.resolve(result).then(()=>undefined,observeLockFailure);
+          return result;
+        }catch(error){observeLockFailure(error);throw error;}
+      } as typeof Client.prototype.query;
+      try{
       for(const existing of [false,true])for(const favoriteFirst of [false,true]){
+        diagnosticSubcase=existing?(favoriteFirst?'existing/favorite-first':'existing/pin-first')
+          :(favoriteFirst?'missing/favorite-first':'missing/pin-first');
+        diagnosticPhase='fixture-setup';
+        console.log('Actual metadata concurrency subcase:',diagnosticSubcase);
         const target=await nativeTarget(`metadata-concurrency-${existing}-${favoriteFirst}.md`);
+        diagnosticPhase='fixture-prepopulation';
         if(existing)await metadataWrite(target.expectedTarget,{isFavorite:true,pinned:true});
         // The original kernel lock genuinely permits awaited reentrant calls.
         // Hold it once so two actual service transactions reach the SQL path
@@ -1001,10 +1048,12 @@ async function main(): Promise<void> {
         } as typeof Client.prototype.query;
         // Existing-row case removes both fields; missing-row case adds both.
         const favorite={isFavorite:!existing},pin={pinned:!existing};
+        diagnosticPhase='first-service-request';
         const first=observePrincipalRegression(metadataWrite(target.expectedTarget,favoriteFirst?favorite:pin));
         let second:ReturnType<typeof observePrincipalRegression<Awaited<ReturnType<typeof metadataWrite>>>>|undefined;
         try{
           await waitForPrincipalRegression(()=>paused||first.isSettled(),'The first real user-state DML did not reach its barrier.');assert(paused);assert(firstPid);
+          diagnosticPhase='overlap-before-path-lock-witness';
           second=observePrincipalRegression(metadataWrite(target.expectedTarget,favoriteFirst?pin:favorite));
           let waiter:Record<string,unknown>|undefined;
           await waitForPrincipalRegression(async()=>{
@@ -1012,16 +1061,20 @@ async function main(): Promise<void> {
               FROM pg_stat_activity WHERE $1::integer=ANY(pg_blocking_pids(pid))`,[firstPid])).rows[0];
             return waiter!==undefined||second!.isSettled();
           },'The second real service transaction did not reach its path-lock waiter.');
+          diagnosticPhase=waiter?'path-lock-witness-observed':'second-request-settled-before-witness';
           assert(waiter,'The second partial patch must wait at the real PostgreSQL path lock.');
           assert.notEqual(waiter.pid,firstPid);assert.equal(waiter.in_transaction,true);assert.equal(waiter.xid_assigned,true);
           assert.equal((await admin.query('SELECT xact_start IS NOT NULL AS active FROM pg_stat_activity WHERE pid=$1',[firstPid])).rows[0]?.active,true);
+          diagnosticPhase='first-DML-released-awaiting-original-outcomes';
           release.release();const outcomes=await Promise.all([first.done,second.done]);for(const outcome of outcomes)if(!outcome.ok)throw outcome.error;
+          diagnosticPhase='original-outcomes-settled';
           const rows=await metadataRows(target.scope.path);
           if(existing)assert.deepEqual(rows.users,[],'Both independent removals must survive.');
           else{assert.equal(rows.users.length,1);assert.equal(Number(rows.users[0].is_favorite),1);assert(Number(rows.users[0].pinned_at)>0,'The omitted pin must survive the other patch.');}
-        }finally{release.release();await first.done;if(second)await second.done;Client.prototype.query=originalQuery;}
+        }finally{diagnosticPhase='draining-original-fixture-promises';release.release();await first.done;if(second)await second.done;Client.prototype.query=originalQuery;}
         });
       }
+      }finally{Client.prototype.query=diagnosticOriginalQuery;}
     });
     await check('metadata genuine SQL failure rolls back title and personal changes together',async()=>{
       const target=await nativeTarget('metadata-rollback.md');await metadataWrite(target.expectedTarget,{title:'Before rollback'});
