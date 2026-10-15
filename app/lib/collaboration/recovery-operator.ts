@@ -275,11 +275,21 @@ async function verifiedProjection(database: SqlConnection, state: PersistedColla
 }
 async function publicShareProjectionHash(database: SqlConnection, operation: Operation): Promise<string> {
   const rows = await database.all(`SELECT id,organization_id,customer_id,project_id,workspace_id,workspace_type,
-    workspace_root_relative_path,workspace_path,file_name,file_identity,last_known_revision,mime_type,size_bytes,status,target_revision_policy
+    workspace_root_relative_path,workspace_path,file_name,file_identity,last_known_revision,mime_type,size_bytes,status,target_revision_policy,
+    document_id,lineage_id,lifecycle_generation
     FROM public_file_shares WHERE workspace_id=$1 AND workspace_path=$2 ORDER BY id LIMIT 10001`,
   [operation.workspace.id, operation.expectedState.path]);
   requireValue(rows.length <= 10000, 'share scope too large');
-  return recoveryHash(canonical(rows.map(row => JSON.parse(recordCanonical(row)))));
+  return recoveryHash(canonical(rows.map(row => {
+    const { document_id, lineage_id, lifecycle_generation, ...historical } = row as RecoveryRow;
+    // Keep historical completion journals byte-compatible. A native origin is
+    // additional private evidence; changing any pin must invalidate a replay.
+    const binding = document_id === null && lineage_id === null && lifecycle_generation === null ? {} : {
+      publicBinding: { version: 1, documentId: document_id, lineageId: lineage_id,
+        lifecycleGeneration: recoveryPostgresInteger(lifecycle_generation, 1) },
+    };
+    return JSON.parse(recordCanonical({ ...historical, ...binding }));
+  })));
 }
 
 /** Explicit offline operator only. No route, scheduler or normal startup invokes this. */

@@ -29,6 +29,7 @@ import { applyNativeFileOperationMutationOnConnection,
 
 import { runNativeFileOperationSideEffectMigration } from '../app/lib/db/native-file-operation-side-effects-migration';
 import { runFileGuestTargetBindingMigration } from '../app/lib/db/file-guest-target-migration';
+import { runPublicFileShareTargetBindingMigration } from '../app/lib/db/public-file-share-target-migration';
 import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection,
   readCommittedNativeFileOperationSideEffectsOnConnection } from '../app/lib/markdown/native-file-operation-side-effects';
 
@@ -132,6 +133,7 @@ async function main() {
     for (const sql of COLLABORATION_ADMISSION_STATEMENTS) await pool.query(sql);
     await runNativeFileOperationHandoffMigration(connection);
     await runFileGuestTargetBindingMigration(connection); await runFileGuestTargetBindingMigration(connection);
+    await runPublicFileShareTargetBindingMigration(connection); await runPublicFileShareTargetBindingMigration(connection);
     await runNativeFileOperationSideEffectMigration(connection); await runNativeFileOperationSideEffectMigration(connection);
     const workspace: WorkspaceContext = { workspaceId: `native-file-${randomUUID()}`, workspaceType: 'personal', organizationId: null,
       rootPath: temporaryRoot, legacy: false, status: 'active', permissions: { canRead: true, canWrite: true, canDelete: true,
@@ -209,7 +211,8 @@ async function main() {
     const digest = (text: string) => createHash('sha256').update(text).digest('hex');
     const effectProof = (receiptDigest: string) => digest(`canvas.native-file-side-effects.v1\n${receiptDigest}`);
     const privateSentinel = `private-${randomUUID()}`;
-    const annotations = async (item: Fixture, options: { foreignLock?: boolean; expiredSource?: boolean; expiredDestination?: boolean } = {}) => {
+    const annotations = async (item: Fixture, options: { foreignLock?: boolean; expiredSource?: boolean; expiredDestination?: boolean;
+      publicBinding?: 'unbound' | 'foreign-document' | 'foreign-lineage' | 'future-generation' } = {}) => {
       const source = item.bundle.mutations[0]; const now = Date.now();
       await pool!.query('INSERT INTO workspace_file_metadata(workspace_id,path,title,created_at,updated_at) VALUES($1,$2,$3,100,101)',
         [workspace.workspaceId, source.source.path, `Owned title ${privateSentinel}`]);
@@ -221,9 +224,12 @@ async function main() {
       [`guest-${source.mutationId}`, workspace.workspaceId, source.source.path, source.source.documentId,
         `${privateSentinel}@fixture.invalid`, privateSentinel,source.source.lifecycleGeneration,source.lineageId]);
       await pool!.query(`INSERT INTO public_file_shares(id,token,token_hash,token_preview,workspace_id,workspace_type,workspace_path,
-        file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at)
-        VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101)`,
-      [`public-${source.mutationId}`, `${privateSentinel}-${source.mutationId}`, `${privateSentinel}-hash-${source.mutationId}`, workspace.workspaceId, source.source.path]);
+        file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at,document_id,lineage_id,lifecycle_generation)
+        VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101,$6,$7,$8)`,
+      [`public-${source.mutationId}`, `${privateSentinel}-${source.mutationId}`, `${privateSentinel}-hash-${source.mutationId}`, workspace.workspaceId, source.source.path,
+        options.publicBinding === 'unbound' ? null : options.publicBinding === 'foreign-document' ? 'foreign-document' : source.source.documentId,
+        options.publicBinding === 'unbound' ? null : options.publicBinding === 'foreign-lineage' ? 'foreign-lineage' : source.lineageId,
+        options.publicBinding === 'unbound' ? null : source.source.lifecycleGeneration + (options.publicBinding === 'future-generation' ? 1 : 0)]);
       await pool!.query(`INSERT INTO file_locks(id,workspace_id,workspace_type,path,lineage_id,revision_id,locked_by_user_id,
         locked_by_session_id,lock_type,status,expires_at,created_at,updated_at) VALUES($1,$2,'personal',$3,$4,'kept-revision',$5,$6,'edit','active',$7,100,101)`,
       [`lock-${source.mutationId}`, workspace.workspaceId, source.source.path, source.lineageId,
@@ -368,8 +374,10 @@ async function main() {
     assert.equal(JSON.parse((await pool.query('SELECT receipt_text FROM collaboration_native_file_operation_side_effect_receipts WHERE operation_id=$1', [move.bundle.operationId])).rows[0].receipt_text).effects.length, 1);
 
     enterStage('foreign exact lock, destination annotation, scoped descendants and nonterminal agent reject before native mutation');
-    for (const kind of ['foreignLock','foreignSession','destinationLock','foreignPublicScope','foreignGuestDoc','foreignGuestLineage','futureGuestGeneration','unscopedPublic','destinationTitle','destinationFavorite','descendant','agentReady','agentUnknown'] as const) {
-      const item = await seed(kind); await annotations(item, { foreignLock: kind === 'foreignLock' });
+    for (const kind of ['foreignLock','foreignSession','destinationLock','foreignPublicScope','foreignPublicDoc','foreignPublicLineage','futurePublicGeneration','foreignGuestDoc','foreignGuestLineage','futureGuestGeneration','unscopedPublic','destinationTitle','destinationFavorite','descendant','agentReady','agentUnknown'] as const) {
+      const item = await seed(kind); await annotations(item, { foreignLock: kind === 'foreignLock',
+        publicBinding: kind === 'foreignPublicDoc' ? 'foreign-document' : kind === 'foreignPublicLineage' ? 'foreign-lineage'
+          : kind === 'futurePublicGeneration' ? 'future-generation' : undefined });
       if (kind === 'foreignSession') await pool.query('UPDATE file_locks SET locked_by_session_id=\'foreign-session\' WHERE id=$1', [`lock-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'destinationLock') await pool.query(`INSERT INTO file_locks(id,workspace_id,workspace_type,path,locked_by_user_id,
         locked_by_session_id,lock_type,status,expires_at,created_at,updated_at) VALUES($1,$2,'personal',$3,'owner','session','edit','active',$4,100,101)`,
@@ -378,7 +386,7 @@ async function main() {
       if (kind === 'foreignGuestDoc') await pool.query('UPDATE file_guest_invitations SET document_id=\'foreign-document\' WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'foreignGuestLineage') await pool.query('UPDATE file_guest_invitations SET lineage_id=\'foreign-lineage\' WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'futureGuestGeneration') await pool.query('UPDATE file_guest_invitations SET lifecycle_generation=lifecycle_generation+1 WHERE id=$1', [`guest-${item.bundle.mutations[0].mutationId}`]);
-      if (kind === 'unscopedPublic') await pool.query('UPDATE public_file_shares SET workspace_id=NULL WHERE id=$1', [`public-${item.bundle.mutations[0].mutationId}`]);
+      if (kind === 'unscopedPublic') await pool.query('UPDATE public_file_shares SET workspace_id=NULL,document_id=NULL,lineage_id=NULL,lifecycle_generation=NULL WHERE id=$1', [`public-${item.bundle.mutations[0].mutationId}`]);
       if (kind === 'destinationTitle' || kind === 'descendant') await pool.query('INSERT INTO workspace_file_metadata(workspace_id,path,title,created_at,updated_at) VALUES($1,$2,\'peer\',100,101)',
         [workspace.workspaceId, kind === 'descendant' ? `${item.state.path}/unexpected.md` : item.bundle.mutations[0].destinationPath]);
       if (kind === 'destinationFavorite') await pool.query('INSERT INTO workspace_file_user_states(workspace_id,user_id,path,is_favorite,created_at,updated_at) VALUES($1,\'peer\',$2,1,100,101)',
@@ -390,9 +398,9 @@ async function main() {
       await assert.rejects(apply(item.bundle, request), { code: ['foreignLock','foreignSession','destinationLock'].includes(kind) || kind.startsWith('agent') ? 'NATIVE_FILE_SIDE_EFFECTS_BUSY' : 'NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED' });
       await unchanged(item, before);
     }
-    enterStage('old unbound and stale bound generations are terminally revoked without regranting authority');
+    enterStage('old unbound and stale Guest/Public origins are terminally revoked without regranting authority');
     for (const kind of ['unbound','stale'] as const) {
-      const item = await seed(`guest-${kind}`); await annotations(item);
+      const item = await seed(`guest-${kind}`); await annotations(item, { publicBinding: kind === 'unbound' ? 'unbound' : undefined });
       const mutation = item.bundle.mutations[0], guestId = `guest-${mutation.mutationId}`;
       if (kind === 'unbound') await pool.query('UPDATE file_guest_invitations SET lifecycle_generation=NULL,lineage_id=NULL WHERE id=$1', [guestId]);
       else {
@@ -410,6 +418,12 @@ async function main() {
       else assert.deepEqual(oldRow.guestBinding, { version: 1, lineageId: mutation.lineageId, lifecycleGeneration: 1 });
       assert.deepEqual(newRow.guestBinding, oldRow.guestBinding);
       assert.equal(newRow.preservedRowProof, oldRow.preservedRowProof);
+      const publicBefore = receipt.effects[0].beforeRows.publicShares[0], publicAfter = receipt.effects[0].afterRows.publicShares[0];
+      if (kind === 'unbound') assert.equal(Object.hasOwn(publicBefore, 'publicBinding'), false);
+      else assert.deepEqual(publicBefore.publicBinding, { version: 1, documentId: mutation.source.documentId,
+        lineageId: mutation.lineageId, lifecycleGeneration: 1 });
+      assert.deepEqual(publicAfter.publicBinding, publicBefore.publicBinding);
+      assert.equal(publicAfter.preservedRowProof, publicBefore.preservedRowProof);
       assert(await committed(item.bundle, request));
     }
     enterStage('actual SQL stage guard rejects a forged future generation or foreign lineage matching the current private row');
@@ -430,6 +444,38 @@ async function main() {
               } else {
                 guest.guestBinding.lineageId = 'foreign-lineage';
                 await originalRun('UPDATE file_guest_invitations SET lineage_id=$1 WHERE id=$2', ['foreign-lineage',guest.id]);
+              }
+              values[2] = JSON.stringify(stageRow); values[3] = digest(String(values[2])); submitted = true;
+              return originalRun(sql, values);
+            }
+            return originalRun(sql, parameters);
+          };
+          await captureNativeFileOperationSideEffectsOnConnection(database, { workspace, request, operationId: item.bundle.operationId });
+        }, mutate: async () => { assert.fail('The actual SQL before-stage guard must prevent mutation.'); },
+      }), (error: unknown) => (error as { code?: string }).code === '23514');
+      assert.equal(submitted, true); await unchanged(item, before);
+    }
+    enterStage('actual SQL stage guard rejects forged Public document, lineage and future generation');
+    for (const kind of ['document','lineage','future'] as const) {
+      const item = await seed(`public-sql-${kind}`); await annotations(item);
+      const before = await rows(item), request = await requestFor(item.bundle);
+      let submitted = false;
+      await assert.rejects(handoff.execute(request, { authorize: async () => undefined,
+        prepare: async database => {
+          const originalRun = database.run;
+          database.run = async (sql, parameters) => {
+            if (sql.startsWith('INSERT INTO') && sql.includes('collaboration_native_file_operation_side_effect_stages')) {
+              const values = [...parameters!], stageRow = JSON.parse(String(values[2]));
+              const share = stageRow.effects[0].beforeRows.publicShares[0];
+              if (kind === 'future') {
+                share.publicBinding.lifecycleGeneration += 1;
+                await originalRun('UPDATE public_file_shares SET lifecycle_generation=lifecycle_generation+1 WHERE id=$1', [share.id]);
+              } else if (kind === 'document') {
+                share.publicBinding.documentId = 'foreign-document';
+                await originalRun('UPDATE public_file_shares SET document_id=$1 WHERE id=$2', ['foreign-document',share.id]);
+              } else {
+                share.publicBinding.lineageId = 'foreign-lineage';
+                await originalRun('UPDATE public_file_shares SET lineage_id=$1 WHERE id=$2', ['foreign-lineage',share.id]);
               }
               values[2] = JSON.stringify(stageRow); values[3] = digest(String(values[2])); submitted = true;
               return originalRun(sql, values);

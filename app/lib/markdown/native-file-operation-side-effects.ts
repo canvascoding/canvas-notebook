@@ -166,6 +166,19 @@ function checkRows(effect: Effect, actor: Binding['actor'], now: number): void {
       || !Number.isSafeInteger(target.lifecycleGeneration) || Number(target.lifecycleGeneration) < 1
       || Number(target.lifecycleGeneration) > source.lifecycleGeneration) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
   }
+  for (const row of beforeRows.publicShares) {
+    // Revocation preserves the original grant target. An unbound historical
+    // row gains no native grant; an older generation of this origin may still
+    // be revoked without rebinding it to the current lifecycle generation.
+    if (!Object.hasOwn(row, 'publicBinding')) continue;
+    const binding = row.publicBinding;
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)
+      || Object.keys(binding).some(key => !['version','documentId','lineageId','lifecycleGeneration'].includes(key))) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
+    const target = binding as Row;
+    if (target.version !== 1 || target.documentId !== source.documentId || target.lineageId !== effect.lineageId
+      || !Number.isSafeInteger(target.lifecycleGeneration) || Number(target.lifecycleGeneration) < 1
+      || Number(target.lifecycleGeneration) > source.lifecycleGeneration) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
+  }
   for (const row of beforeRows.locks) {
     if (row.organizationId !== source.organizationId || row.workspaceId !== source.workspaceId
       || row.lineageId !== null && row.path === source.path && row.lineageId !== effect.lineageId) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');

@@ -1,5 +1,6 @@
 import type { SqlConnection } from '../db';
 import { FILE_GUEST_TARGET_BINDING_CHECK_SQL } from './file-guest-target-migration';
+import { PUBLIC_FILE_SHARE_TARGET_BINDING_CHECK_SQL } from './public-file-share-target-migration';
 
 const safeClock = (column: string) => `${column} BETWEEN 0 AND 9007199254740990`;
 const safeId = (column: string, nullable = false) => `${nullable ? `${column} IS NULL OR ` : ''}(length(${column}) BETWEEN 1 AND 256 AND ${column}!~'[[:cntrl:]]')`;
@@ -36,12 +37,16 @@ export const NATIVE_FILE_SIDE_EFFECT_ROW_SPECS = [
       AND policy_revision BETWEEN 1 AND 9007199254740989 AND ${safeClock('updated_at')}` },
   { key: 'publicShares', table: 'public_file_shares', path: 'workspace_path', active: "status='active'", id: 'id',
     order: 'id', columns: ['id','token','token_hash','token_preview','short_code','organization_id','customer_id','project_id','workspace_id','workspace_type',
-      'workspace_root_relative_path','workspace_path','file_name','file_identity','target_revision_policy','last_known_revision','mime_type','size_bytes','status',
+      'workspace_root_relative_path','workspace_path','document_id','lineage_id','lifecycle_generation','file_name','file_identity','target_revision_policy','last_known_revision','mime_type','size_bytes','status',
       'created_by_user_id','created_by_agent_id','source_session_id','source','security_mode','reason','created_at','updated_at','expires_at','revoked_at',
       'revoked_reason','password_enabled','password_hash','last_accessed_at','access_count','policy_revision'],
+    // Preserve the exact unbound V1 JSON/digest; only newly bound rows carry
+    // their explicit versioned native origin in the private receipt projection.
     json: `jsonb_build_object('id',id,'workspaceId',workspace_id,'organizationId',organization_id,'path',workspace_path,'status',status,'policyRevision',policy_revision,
-      'revokedAt',revoked_at,'revokedReason',revoked_reason,'updatedAt',updated_at,'preservedRowProof',${preserved('public_file_shares',['status','policy_revision','revoked_at','revoked_reason','updated_at'])})`,
-    bounds: `${safeId('id')} AND (${safeId('organization_id', true)}) AND ${safeId('created_by_user_id')}
+      'revokedAt',revoked_at,'revokedReason',revoked_reason,'updatedAt',updated_at,'preservedRowProof',${preserved('public_file_shares',['status','policy_revision','revoked_at','revoked_reason','updated_at','document_id','lineage_id','lifecycle_generation'])})
+      || CASE WHEN document_id IS NULL AND lineage_id IS NULL AND lifecycle_generation IS NULL THEN '{}'::jsonb
+        ELSE jsonb_build_object('publicBinding',jsonb_build_object('version',1,'documentId',document_id,'lineageId',lineage_id,'lifecycleGeneration',lifecycle_generation)) END`,
+    bounds: `${PUBLIC_FILE_SHARE_TARGET_BINDING_CHECK_SQL} AND ${safeId('id')} AND (${safeId('organization_id', true)}) AND ${safeId('created_by_user_id')}
       AND ${['token','token_hash','token_preview','short_code','customer_id','project_id','workspace_type','mime_type','created_by_agent_id','source_session_id','source','security_mode','password_hash','revoked_reason','target_revision_policy'].map(column => boundedField(column)).join(' AND ')}
       AND ${['workspace_root_relative_path','workspace_path','file_name','file_identity','last_known_revision','reason'].map(column => boundedField(column,4096)).join(' AND ')}
       AND ${safeClock('size_bytes')} AND ${safeClock('access_count')} AND password_enabled IN(0,1) AND ${safeClock('created_at')}
@@ -169,7 +174,15 @@ export const NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS = [
                     AND r#>>'{guestBinding,lifecycleGeneration}' ~ '^[1-9][0-9]*$'
                   THEN (r#>>'{guestBinding,lifecycleGeneration}')::numeric BETWEEN 1 AND (effect#>>'{source,lifecycleGeneration}')::numeric
                   ELSE false END IS NOT TRUE))
-            OR k='publicShares' AND r->'organizationId' IS DISTINCT FROM effect#>'{source,organizationId}'))
+            OR k='publicShares' AND (r->'organizationId' IS DISTINCT FROM effect#>'{source,organizationId}'
+              OR r ? 'publicBinding' AND (jsonb_typeof(r->'publicBinding') IS DISTINCT FROM 'object'
+                OR r#>'{publicBinding,version}' IS DISTINCT FROM '1'::jsonb
+                OR r#>>'{publicBinding,documentId}' IS DISTINCT FROM effect#>>'{source,documentId}'
+                OR r#>>'{publicBinding,lineageId}' IS DISTINCT FROM effect->>'lineageId'
+                OR CASE WHEN jsonb_typeof(r#>'{publicBinding,lifecycleGeneration}')='number'
+                    AND r#>>'{publicBinding,lifecycleGeneration}' ~ '^[1-9][0-9]*$'
+                  THEN (r#>>'{publicBinding,lifecycleGeneration}')::numeric BETWEEN 1 AND (effect#>>'{source,lifecycleGeneration}')::numeric
+                  ELSE false END IS NOT TRUE))))
           OR EXISTS(SELECT 1 FROM jsonb_array_elements(effect#>'{beforeRows,locks}') r WHERE
             r->>'workspaceId' IS DISTINCT FROM effect#>>'{source,workspaceId}' OR r->'organizationId' IS DISTINCT FROM effect#>'{source,organizationId}'
             OR r->>'path'=effect#>>'{source,path}' AND r->>'lineageId' IS NOT NULL AND r->>'lineageId' IS DISTINCT FROM effect->>'lineageId'

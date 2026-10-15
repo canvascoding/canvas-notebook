@@ -3,6 +3,7 @@ import { pgTable, text, bigint, bigserial, doublePrecision as real, index, uniqu
 import { MAIN_AGENT_ID } from '@/app/lib/agents/main-agent';
 import { normalizeDatabaseTimestamp } from './timestamps';
 import { FILE_GUEST_TARGET_BINDING_CHECK_SQL } from './file-guest-target-migration';
+import { PUBLIC_FILE_SHARE_TARGET_BINDING_CHECK_SQL } from './public-file-share-target-migration';
 
 // OAuth metadata is stored in text columns on both SQLite and PostgreSQL. A
 // plain `$type<T>()` only affects TypeScript; PostgreSQL otherwise persists
@@ -2416,6 +2417,9 @@ export const publicFileShares = pgTable("public_file_shares", {
   workspaceType: text("workspace_type"),
   workspaceRootRelativePath: text("workspace_root_relative_path"),
   workspacePath: text("workspace_path").notNull(),
+  documentId: text("document_id"),
+  lineageId: text("lineage_id"),
+  lifecycleGeneration: bigint("lifecycle_generation", { mode: "number" }),
   fileName: text("file_name").notNull(),
   fileIdentity: text("file_identity").notNull(),
   targetRevisionPolicy: text("target_revision_policy").notNull().default("latest"),
@@ -2440,6 +2444,7 @@ export const publicFileShares = pgTable("public_file_shares", {
   accessCount: bigint("access_count", { mode: "number" }).notNull().default(0),
   policyRevision: bigint("policy_revision", { mode: "number" }).notNull().default(1),
 }, (table) => ({
+  targetBindingCheck: check('public_file_share_target_binding_check', sql.raw(PUBLIC_FILE_SHARE_TARGET_BINDING_CHECK_SQL)),
   tokenHashIdx: uniqueIndex("idx_public_file_shares_token_hash").on(table.tokenHash),
   tokenIdx: uniqueIndex("idx_public_file_shares_token").on(table.token),
   shortCodeIdx: uniqueIndex("idx_public_file_shares_short_code").on(table.shortCode),

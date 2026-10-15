@@ -30,6 +30,7 @@ import { applyNativeFileOperationMutationOnConnection,
 
 import { runNativeFileOperationSideEffectMigration } from '../app/lib/db/native-file-operation-side-effects-migration';
 import { runFileGuestTargetBindingMigration } from '../app/lib/db/file-guest-target-migration';
+import { runPublicFileShareTargetBindingMigration } from '../app/lib/db/public-file-share-target-migration';
 import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection,
   readCommittedNativeFileOperationSideEffectsOnConnection } from '../app/lib/markdown/native-file-operation-side-effects';
 import { runNativeFileOperationSideEffectMigration as runLegacySideEffectMigration } from './fixtures/file-guest-target-v1/native-file-operation-side-effects-migration';
@@ -100,6 +101,11 @@ async function main() {
       DROP CONSTRAINT IF EXISTS file_guest_target_binding_check,
       DROP COLUMN IF EXISTS lifecycle_generation,
       DROP COLUMN IF EXISTS lineage_id`);
+    await pool.query(`ALTER TABLE public_file_shares
+      DROP CONSTRAINT IF EXISTS public_file_share_target_binding_check,
+      DROP COLUMN IF EXISTS document_id,
+      DROP COLUMN IF EXISTS lineage_id,
+      DROP COLUMN IF EXISTS lifecycle_generation`);
     const connection: SqlConnection = { get: async (sql, values) => (await pool!.query(sql, values)).rows[0],
       all: async (sql, values) => (await pool!.query(sql, values)).rows,
       run: async (sql, values) => {
@@ -196,9 +202,10 @@ async function main() {
       if (!options.legacy) await pool!.query('UPDATE file_guest_invitations SET lifecycle_generation=$1,lineage_id=$2 WHERE id=$3',
         [source.source.lifecycleGeneration,source.lineageId,`guest-${source.mutationId}`]);
       await pool!.query(`INSERT INTO public_file_shares(id,token,token_hash,token_preview,workspace_id,workspace_type,workspace_path,
-        file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at)
-        VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101)`,
-      [`public-${source.mutationId}`, `${privateSentinel}-${source.mutationId}`, `${privateSentinel}-hash-${source.mutationId}`, workspace.workspaceId, source.source.path]);
+        file_name,file_identity,mime_type,size_bytes,created_by_user_id,policy_revision,created_at,updated_at${options.legacy ? '' : ',document_id,lineage_id,lifecycle_generation'})
+        VALUES($1,$2,$3,'preview',$4,'personal',$5,'fixture.md','native','text/markdown',0,'owner',4,100,101${options.legacy ? '' : ',$6,$7,$8'})`,
+      [`public-${source.mutationId}`, `${privateSentinel}-${source.mutationId}`, `${privateSentinel}-hash-${source.mutationId}`, workspace.workspaceId, source.source.path,
+        ...(options.legacy ? [] : [source.source.documentId,source.lineageId,source.source.lifecycleGeneration])]);
       await pool!.query(`INSERT INTO file_locks(id,workspace_id,workspace_type,path,lineage_id,revision_id,locked_by_user_id,
         locked_by_session_id,lock_type,status,expires_at,created_at,updated_at) VALUES($1,$2,'personal',$3,$4,'kept-revision',$5,$6,'edit','active',$7,100,101)`,
       [`lock-${source.mutationId}`, workspace.workspaceId, source.source.path, source.lineageId,
@@ -293,12 +300,17 @@ async function main() {
       JOIN collaboration_native_file_operation_side_effect_receipts r USING(operation_id) WHERE s.operation_id=$1`, [historical.bundle.operationId])).rows[0];
     const beforeMigration = await historicalBytes();
     assert.equal(Object.hasOwn(JSON.parse(beforeMigration.receipt_text).effects[0].beforeRows.guests[0], 'guestBinding'), false);
+    assert.equal(Object.hasOwn(JSON.parse(beforeMigration.receipt_text).effects[0].beforeRows.publicShares[0], 'publicBinding'), false);
     const oldGuest = (await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [`guest-${historical.bundle.mutations[0].mutationId}`])).rows[0];
+    const oldPublic = (await pool.query('SELECT * FROM public_file_shares WHERE id=$1', [`public-${historical.bundle.mutations[0].mutationId}`])).rows[0];
     await runFileGuestTargetBindingMigration(connection); await runFileGuestTargetBindingMigration(connection);
+    await runPublicFileShareTargetBindingMigration(connection); await runPublicFileShareTargetBindingMigration(connection);
     await runNativeFileOperationSideEffectMigration(connection); await runNativeFileOperationSideEffectMigration(connection);
     assert.deepEqual(await historicalBytes(), beforeMigration);
     assert.deepEqual((await pool.query('SELECT * FROM file_guest_invitations WHERE id=$1', [oldGuest.id])).rows[0],
       { ...oldGuest, lifecycle_generation: null, lineage_id: null });
+    assert.deepEqual((await pool.query('SELECT * FROM public_file_shares WHERE id=$1', [oldPublic.id])).rows[0],
+      { ...oldPublic, document_id: null, lineage_id: null, lifecycle_generation: null });
     const historicalReader = await openConnection();
     try {
       await historicalReader.run('BEGIN');
