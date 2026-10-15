@@ -241,8 +241,10 @@ async function observeOriginalOrigin(phase: Phase): Promise<void> {
   active(phase);
 }
 async function schema(phase: Phase): Promise<void> {
-  // Pin relations against incompatible DDL; this does not freeze row DML.
-  await phase.database.run(`LOCK TABLE ${tables.map(name => table(phase,name)).join(',')} IN ROW EXCLUSIVE MODE NOWAIT`);
+  // Freeze auth/ACL DML and trigger DDL through caller transaction completion.
+  // SHARE is compatible with other principal readers; ROW EXCLUSIVE followed
+  // by the organization SHARE lock made those readers exclude each other.
+  await phase.database.run(`LOCK TABLE ${tables.map(name => table(phase,name)).join(',')} IN SHARE MODE NOWAIT`);
   await checkIdentity(phase);
   const rows = await phase.database.all(`SELECT child.relname AS child,parent.relname AS parent,ca.attname AS column,
     pa.attname AS parent_column,c.convalidated,c.condeferrable,c.conenforced,
@@ -275,7 +277,7 @@ async function locks(phase: Phase): Promise<void> {
   const db = phase.database;
   await db.run(`LOCK TABLE ${table(phase,'canvas_organization_settings')} IN SHARE MODE NOWAIT`);
   const organizations = bounded(await db.all(`SELECT organization_id,owner_user_id,created_at FROM ${table(phase,'canvas_organization_settings')}
-    ORDER BY organization_id COLLATE "C" LIMIT 17 FOR UPDATE NOWAIT`) as Row[],MAX_ORGANIZATIONS);
+    ORDER BY organization_id COLLATE "C" LIMIT 17 FOR SHARE NOWAIT`) as Row[],MAX_ORGANIZATIONS);
   if (!organizations.length || organizations.some(row => !id(row.organization_id) || !id(row.owner_user_id) || !number(row.created_at))) fail('PRINCIPAL_SCOPE_CHANGED');
   const firstTime = Math.min(...organizations.map(row => Number(row.created_at)));
   if (organizations.filter(row => Number(row.created_at) === firstTime).length !== 1) fail('PRINCIPAL_SCOPE_CHANGED');
@@ -305,7 +307,7 @@ async function locks(phase: Phase): Promise<void> {
     if (syncOrgs.filter(row => Number(row.created_at) === earliest).length !== 1) fail('PRINCIPAL_SCOPE_CHANGED');
   }
   // All current members, including ineligible/inactive ones, contribute user
-  // rows. Parent UPDATE already blocks new/retargeted member/permission/sync FKs.
+  // rows. The table SHARE locks also freeze new/retargeted predicate rows.
   if (users.size > MAX_ROWS * MAX_ORGANIZATIONS + 1) fail('PRINCIPAL_TOO_LARGE');
   for (const userId of [...users].sort((a,b) => Buffer.compare(Buffer.from(a,'utf8'),Buffer.from(b,'utf8')))) {
     const user = await db.get(`SELECT id,banned FROM ${table(phase,'user')} WHERE id=$1 FOR SHARE NOWAIT`, [userId]) as Row | undefined;

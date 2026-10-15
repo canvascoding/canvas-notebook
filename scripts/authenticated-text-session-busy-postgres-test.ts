@@ -202,7 +202,8 @@ async function main(): Promise<void> {
     const rawQuery = Client.prototype.query;
     const text = (args: unknown[]) => typeof args[0] === 'string' ? args[0] : String(Reflect.get(args[0] as object, 'text'));
     const ownRuntime = (client: Client) => client !== admin && client !== control && String(Reflect.get(Reflect.get(client, 'connectionParameters'), 'options')).includes(schema);
-    const rowExclusive = (sql: string) => sql.startsWith('LOCK TABLE ') && sql.includes('canvas_organization_settings') && sql.endsWith('IN ROW EXCLUSIVE MODE NOWAIT');
+    const schemaShare = (sql: string) => sql.startsWith('LOCK TABLE ') && sql.includes('canvas_organization_settings')
+      && sql.includes('organization_user_permissions') && sql.endsWith('IN SHARE MODE NOWAIT');
     const schemaConflict = () => new Set<number>();
     const finalReceiptQuery = (sql: string) => sql.includes('d.state_version>=y.checkpoint_sequence');
     const authCurrentQuery = (sql: string) => sql.includes("encode(sha256(convert_to(s.token,'UTF8'))");
@@ -236,29 +237,30 @@ async function main(): Promise<void> {
         for (const record of records) { assert.equal(Reflect.get(record, 'disposed'), true); assert.equal(Reflect.get(record, 'original'), undefined); }
       } };
     };
-    // This peer uses BOTH genuine factories and actual pg locks. Holding its
-    // schema ROW EXCLUSIVE lock conflicts with the other's required SHARE.
-    const startPeer = async () => {
-      const ready = deferred(), release = deferred(); let callback = 0;
+    // Principal readers now coexist. Genuine authorization writers must still
+    // conflict: authenticate first, then hold an actual leaf-table writer lock.
+    // This avoids blocking the next request's outside-B bootstrap writes to
+    // organization settings/user rows; no Principal grant is cached or reused.
+    const startAuthorizationWriter = async () => {
+      const ready = deferred(), release = deferred(); let factoryEntries = 0, acquired = false;
       let peerClient!: Client;
-      const done = capture(await request(), { permission: 'canWrite', workspaceId }, async principal => {
+      const done = capture(await request(), { permission: 'canWrite', workspaceId }, async () => {
+        factoryEntries++;
         peerClient = await ownClient(); await peerClient.query('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
-        const base = connection(peerClient);
         try {
-          await principalPhase({ ...base, run: async (sql, values) => {
-            const result = await base.run(sql, values);
-            if (rowExclusive(sql)) { ready.resolve(); await release.promise; }
-            return result;
-          } }, principal, async access => { callback++; await access.assertCurrent(); });
+          await peerClient.query('LOCK TABLE organization_user_permissions IN ROW EXCLUSIVE MODE');
+          acquired = true; ready.resolve(); await release.promise;
         } finally { await peerClient.query('ROLLBACK').catch(() => undefined); await endClient(peerClient); }
       });
       void done.catch(() => ready.resolve());
       await ready.promise;
-      return { client: peerClient, release: release.resolve, done, callback: () => callback };
+      if (!acquired) await done;
+      assert(acquired, 'The genuine authorization writer must acquire its actual table lock.');
+      return { client: peerClient, release: release.resolve, done, factoryEntry: () => factoryEntries };
     };
     stage = 'genuine original-auth initialization before owned lock holders';
     await capture(await request(), { permission: 'canWrite', workspaceId }, async () => undefined);
-    await check('two genuine Principal B phases prove actual ROW EXCLUSIVE versus SHARE NOWAIT conflict', async () => {
+    await check('two genuine Principal B phases coexist with actual schema and row SHARE locks', async () => {
       const minted = deferred(), locked = deferred();
       let captures = 0, locks = 0, callbacks = 0;
       const sqlCodes: string[] = [];
@@ -270,7 +272,7 @@ async function main(): Promise<void> {
           await principalPhase({ ...base, run: async (sql, values) => {
             try {
               const result = await base.run(sql, values);
-              if (rowExclusive(sql)) { if (++locks === 2) locked.resolve(); await locked.promise; }
+              if (schemaShare(sql)) { if (++locks === 2) locked.resolve(); await locked.promise; }
               return result;
             } catch (error) { if (Reflect.get(error as object, 'code') === '55P03') sqlCodes.push('55P03'); throw error; }
           } }, principal, async () => { callbacks++; });
@@ -278,13 +280,12 @@ async function main(): Promise<void> {
       });
       const outcomes = await Promise.allSettled([execute(), execute()]);
       const failed = outcomes.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
-      assert(failed.length >= 1); assert.equal(callbacks + failed.length, 2);
-      assert.equal(sqlCodes.length, failed.length); assert(sqlCodes.every(value => value === '55P03'));
-      for (const result of failed) assert(code('PRINCIPAL_BUSY')(result.reason));
+      assert.equal(captures, 2); assert.equal(locks, 2); assert.equal(callbacks, 2);
+      assert.deepEqual(sqlCodes, []); assert.equal(failed.length, 0);
     });
     await check('transient actual HTTP contention rolls back and closes before fresh retry, same native identity', async () => {
       for (const surface of ['web', 'mobile'] as const) {
-        const target = await seed(`transient-${surface}`), before = await stored(target.identity), peer = await startPeer();
+        const target = await seed(`transient-${surface}`), before = await stored(target.identity), peer = await startAuthorizationWriter();
         const failed = schemaConflict(), closed = new Set<number>(); let rollback = 0, begins = 0;
         const releaseListener = (_error: unknown, client: PoolClient) => { if (failed.has(Number(Reflect.get(client, 'processID')))) closed.add(Number(Reflect.get(client, 'processID'))); };
         (runtime as unknown as Pool).on('release', releaseListener);
@@ -302,12 +303,12 @@ async function main(): Promise<void> {
           assert.equal(response.status, 200, JSON.stringify({ status: response.status, code: response.wire.code }));
           assert.equal(response.wire.documentId, target.identity.documentId); assert.equal(response.wire.lifecycleGeneration, 1);
           assert.equal(response.wire.documentSequence, 7); assert.equal(rollback, 1); assert.equal(failed.size, 1);
-          assert.equal(peer.callback(), 1); assert.deepEqual(await stored(target.identity), before);
+          assert.equal(peer.factoryEntry(), 1); assert.deepEqual(await stored(target.identity), before);
         } finally { Client.prototype.query = rawQuery; (runtime as unknown as Pool).off('release', releaseListener); peer.release(); await peer.done; }
       }
     });
     await check('durable actual HTTP Busy is bounded to three fresh read attempts and publishes no ticket', async () => {
-      const target = await seed('durable'), before = await stored(target.identity), peer = await startPeer();
+      const target = await seed('durable'), before = await stored(target.identity), peer = await startAuthorizationWriter();
       let begins = 0, errors = 0, rollbacks = 0;
       Client.prototype.query = function (this: Client, ...args: unknown[]) {
         const sql = text(args), result = Reflect.apply(rawQuery, this, args);
@@ -358,7 +359,7 @@ async function main(): Promise<void> {
       }
     });
     await check('one shared request budget spans initial Auth contention and subsequent native read contention', async () => {
-      const target = await seed('shared-budget'), before = await stored(target.identity), peer = await startPeer(), holder = await ownClient();
+      const target = await seed('shared-budget'), before = await stored(target.identity), peer = await startAuthorizationWriter(), holder = await ownClient();
       await holder.query('BEGIN'); await holder.query('LOCK TABLE collaboration_yjs_states IN ACCESS EXCLUSIVE MODE');
       let errors = 0, rollbacks = 0; const transports = observeTransports();
       const observed = observeTransactions(async (client, sql, result) => {
@@ -438,7 +439,7 @@ async function main(): Promise<void> {
     });
     await check('failed rollback acknowledgement or close never certifies a retry', async () => {
       for (const fault of ['rollback-ack', 'close'] as const) {
-        const target = await seed(fault), before = await stored(target.identity), peer = await startPeer(); let injected = false;
+        const target = await seed(fault), before = await stored(target.identity), peer = await startAuthorizationWriter(); let injected = false;
         const observed = observeTransactions(async (client, sql, result) => {
           if (client === peer.client) return result;
           const value = await result;
@@ -486,7 +487,7 @@ async function main(): Promise<void> {
     await check('retry never resets the original Root, customer, auth session or raw search path', async () => {
       await admin.query("INSERT INTO canvas_customers(id,organization_id,name,slug,status,created_at,updated_at) VALUES('busy-customer','principal-org','Owned','busy-owned','active',100,100)");
       for (const drift of ['root', 'customer', 'session', 'searchpath'] as const) {
-        const target = await seed(`retry-${drift}`), before = await stored(target.identity), peer = await startPeer(); let changed = false;
+        const target = await seed(`retry-${drift}`), before = await stored(target.identity), peer = await startAuthorizationWriter(); let changed = false;
         const observed = observeTransactions(async (client, sql, result, ordinal) => {
           if (client === peer.client) return result;
           const value = await result;

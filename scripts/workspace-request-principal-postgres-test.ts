@@ -76,7 +76,15 @@ async function main(): Promise<void> {
       assert.equal(row.schema,schema); assert.deepEqual(row.path.split(',').map((s:string)=>s.trim()),[schema,'pg_catalog']);
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
-      await own(admin); const result = await admin.query(sql,values); await own(admin); return result;
+      await own(admin);
+      let scopedSql = sql;
+      if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
+        assert(sql.trim().endsWith('$main_agent_id_migration$;'));
+        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
+        scopedSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
+        assert.equal(scopedSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+      }
+      const result = await admin.query(scopedSql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();
@@ -146,6 +154,26 @@ async function main(): Promise<void> {
     await check('read-only member and genuine forbidden write',async()=>{
       await captured(p=>transaction(db=>phase(db,p,async access=>assert.equal(access.workspace.permissions.canWrite,false))),'member');
       await assert.rejects(capture(await request('member'),{ permission:'canWrite' },async()=>assert.fail()),expected('PRINCIPAL_ACCESS_DENIED'));
+    });
+    await check('two genuine principal read phases coexist through fresh checks',async()=>{
+      // Mint both actual requests before B1 takes any authorization locks.
+      // B2 must enter while B1 is still in its callback: no retry or release
+      // can hide mutually incompatible principal locks in this witness.
+      await captured(owner=>captured(member=>transaction((ownerDb,ownerClient)=>phase(ownerDb,owner,async ownerAccess=>{
+        const ownerPid=(await ownerClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+        assert.equal(ownerAccess.userId,'owner');
+        assert.equal(ownerAccess.workspace.permissions.canWrite,true);
+        await transaction((memberDb,memberClient)=>phase(memberDb,member,async memberAccess=>{
+          assert.notEqual((await memberClient.query('SELECT pg_backend_pid() AS pid')).rows[0].pid,ownerPid);
+          assert.equal(memberAccess.userId,'member');
+          assert.equal(memberAccess.sessionId,'session-member');
+          assert.equal(memberAccess.workspace.permissions.canRead,true);
+          assert.equal(memberAccess.workspace.permissions.canWrite,false);
+          await ownerAccess.assertCurrent();
+          await memberAccess.assertCurrent();
+        }));
+        await ownerAccess.assertCurrent();
+      })),'member'));
     });
     await check('unauthenticated/API-key/guest strings cannot mint principal',async()=>{
       const variants:Record<string,string>[]=[{},{ authorization:'Bearer guest:invitation' },{ authorization:'Bearer arbitrary-api-key' }];
