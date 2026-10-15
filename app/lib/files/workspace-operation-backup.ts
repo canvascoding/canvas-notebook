@@ -3,7 +3,9 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
 import path from 'node:path';
+import { NextRequest } from 'next/server';
 
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 import {
   assertWorkspacePathHasNoAliases,
@@ -14,11 +16,17 @@ import {
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { withFileCollaborationReadSnapshot } from './collaboration-repository';
-import { captureNativeWorkspaceRecoveryRecords } from '../collaboration/workspace-native-recovery';
+import { captureNativeWorkspaceRecoveryRecords, readNativeWorkspaceRecoveryRecords } from '../collaboration/workspace-native-recovery';
 import { deserializeNativeRecoveryPayload, serializeNativeRecoveryPayload, NATIVE_RECOVERY_PAYLOAD_LIMIT,
   type NativeRecoveryRecord } from '../collaboration/native-document-recovery';
 import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-document-catalogue';
 import { completeNativeCopyPublication, persistNativeWorkspaceCopies, type NativeCopyReceipt, type NativeCopyRequest } from '../collaboration/native-copy-persistence';
+import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
+import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { withWorkspaceSideEffectWriterFenceOnConnection, type WorkspaceSideEffectWriterTarget } from './workspace-side-effect-writer-fence';
+import type { WorkspaceFileMetadataTarget } from './workspace-file-metadata-contract';
+import { isInternalWorkspaceStagingPath } from './internal-staging-path';
 
 const BACKUP_DIRECTORY = '.workspace-operation-backups';
 const ID_PATTERN = /^opb-[a-f0-9]{64}$/u;
@@ -49,6 +57,13 @@ export type WorkspaceOperationBackup = {
   entries: WorkspaceOperationBackupEntry[];
   nativePayload?: { version: 2; sizeBytes: number; sha256: string; documentCount: number };
 };
+
+export type NativeWorkspaceOperationBackupSelection = Readonly<{
+  workspaceId: string;
+  path: string;
+  operationId: string;
+  expectedTarget: Extract<WorkspaceFileMetadataTarget, { kind: 'native_file' }>;
+}>;
 
 /** Internal dependency seam for isolated fixtures; runtime always inspects the durable catalogue. */
 export type WorkspaceOperationBackupDependencies = {
@@ -395,6 +410,7 @@ async function captureBackupInLifecycleGuard(input: { workspace: WorkspaceContex
   try {
     const existing = await loadBackup(input.workspace, backupId);
     await verifyPayload(existing.folder, existing.backup);
+    await syncDirectory(scope);
     return existing.backup;
   } catch (error) {
     if (!hasCode(error, 'ENOENT')) throw error;
@@ -428,39 +444,151 @@ async function captureBackupInLifecycleGuard(input: { workspace: WorkspaceContex
       }
       entries.push({ type: 'native_document', path: relative });
     }
-    entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
-    const itemType = entries[0]?.type === 'native_document' ? 'file' : entries[0]?.type;
-    if (!itemType) fail('SOURCE_CHANGED', 'Source disappeared during backup capture.');
-    const nativeBytes = serializeNativeRecoveryPayload(records);
-    const nativePayload = { version: 2 as const, sizeBytes: nativeBytes.byteLength,
-      sha256: createHash('sha256').update(nativeBytes).digest('hex'), documentCount: records.length };
-    await writePrivateFile(path.join(temporary, 'native.bin'), nativeBytes);
-    const backup: WorkspaceOperationBackup = {
-      version: 2, backupId, operationId: input.operationId,
-      workspaceId: input.workspace.workspaceId, workspaceType: input.workspace.workspaceType,
-      organizationId: input.workspace.organizationId ?? null, originalPath, itemType,
-      capturedAt: new Date().toISOString(),
-      retention: 'until_manual_cleanup',
-      sizeBytes: entries.reduce((sum, entry) => sum + (entry.type === 'file' ? entry.sizeBytes : 0), 0), entries,
-      fileCount: entries.filter((entry) => entry.type === 'file' || entry.type === 'native_document').length,
-      directoryCount: entries.filter((entry) => entry.type === 'directory').length,
-      contentSha256: contentHash(entries, nativePayload), nativePayload,
-    };
-    await verifyPayload(temporary, backup);
-    const manifest = `${JSON.stringify(backup)}\n`;
-    if (Buffer.byteLength(manifest) > MANIFEST_LIMIT) fail('INVALID_BACKUP', 'File operation backup contains too many entries.');
-    await writePrivateFile(path.join(temporary, 'manifest.json'), manifest);
-    await syncDirectory(temporary);
-    try { await fs.rename(temporary, path.join(scope, backupId)); }
-    catch (error) {
-      if (!hasCode(error, 'EEXIST') && !hasCode(error, 'ENOTEMPTY')) throw error;
-      const existing = await loadBackup(input.workspace, backupId);
-      await verifyPayload(existing.folder, existing.backup);
-      return existing.backup;
-    }
-    await syncDirectory(scope);
-    return backup;
+    return await publishCapturedBackup({ ...input, originalPath, backupId, scope, temporary, entries, records });
   } finally { await fs.rm(temporary, { recursive: true, force: true }); }
+}
+
+/** Shared V2 publication; the caller owns its kernel fence and temporary-directory cleanup. */
+async function publishCapturedBackup(input: {
+  workspace: WorkspaceContext; operationId: string; originalPath: string; backupId: string; scope: string; temporary: string;
+  entries: WorkspaceOperationBackupEntry[]; records: readonly NativeRecoveryRecord[];
+  validateExisting?: (backup: WorkspaceOperationBackup, records: readonly NativeRecoveryRecord[]) => void;
+}): Promise<WorkspaceOperationBackup> {
+  const { workspace, operationId, originalPath, backupId, scope, temporary, entries, records } = input;
+  entries.sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  const itemType = entries[0]?.type === 'native_document' ? 'file' : entries[0]?.type;
+  if (!itemType) fail('SOURCE_CHANGED', 'Source disappeared during backup capture.');
+  const nativeBytes = serializeNativeRecoveryPayload(records);
+  const nativePayload = { version: 2 as const, sizeBytes: nativeBytes.byteLength,
+    sha256: createHash('sha256').update(nativeBytes).digest('hex'), documentCount: records.length };
+  await writePrivateFile(path.join(temporary, 'native.bin'), nativeBytes);
+  const backup: WorkspaceOperationBackup = {
+    version: 2, backupId, operationId, workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType,
+    organizationId: workspace.organizationId ?? null, originalPath, itemType, capturedAt: new Date().toISOString(),
+    retention: 'until_manual_cleanup',
+    sizeBytes: entries.reduce((sum, entry) => sum + (entry.type === 'file' ? entry.sizeBytes : 0), 0), entries,
+    fileCount: entries.filter((entry) => entry.type === 'file' || entry.type === 'native_document').length,
+    directoryCount: entries.filter((entry) => entry.type === 'directory').length,
+    contentSha256: contentHash(entries, nativePayload), nativePayload,
+  };
+  await verifyPayload(temporary, backup);
+  const manifest = `${JSON.stringify(backup)}\n`;
+  if (Buffer.byteLength(manifest) > MANIFEST_LIMIT) fail('INVALID_BACKUP', 'File operation backup contains too many entries.');
+  await writePrivateFile(path.join(temporary, 'manifest.json'), manifest);
+  await syncDirectory(temporary);
+  try { await fs.rename(temporary, path.join(scope, backupId)); }
+  catch (error) {
+    if (!hasCode(error, 'EEXIST') && !hasCode(error, 'ENOTEMPTY')) throw error;
+    const existing = await loadBackup(workspace, backupId);
+    const existingRecords = await verifyPayload(existing.folder, existing.backup);
+    input.validateExisting?.(existing.backup, existingRecords);
+    await syncDirectory(scope);
+    return existing.backup;
+  }
+  await syncDirectory(scope);
+  return backup;
+}
+
+function captureNativeBackupSelection(input: NativeWorkspaceOperationBackupSelection): NativeWorkspaceOperationBackupSelection {
+  const ownKeys = (value: unknown, keys: readonly string[]): value is Record<string, unknown> => !!value
+    && Object.getPrototypeOf(value) === Object.prototype && Reflect.ownKeys(value).length === keys.length
+    && keys.every(key => { const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor?.enumerable && Object.prototype.hasOwnProperty.call(descriptor, 'value'); });
+  const id = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 256
+    && value === value.trim() && !/[\u0000-\u001f\u007f]/u.test(value);
+  if (!ownKeys(input, ['workspaceId', 'path', 'operationId', 'expectedTarget'])
+    || !id(input.workspaceId) || !isCanonicalAdmissionPath(input.path) || !validRelativePath(input.path)
+    || isInternalWorkspaceStagingPath(input.path) || typeof input.operationId !== 'string' || !OPERATION_ID_PATTERN.test(input.operationId)
+    || !ownKeys(input.expectedTarget, ['version', 'kind', 'workspaceId', 'path', 'documentId', 'lifecycleGeneration'])
+    || input.expectedTarget.version !== 1 || input.expectedTarget.kind !== 'native_file'
+    || input.expectedTarget.workspaceId !== input.workspaceId || input.expectedTarget.path !== input.path
+    || !id(input.expectedTarget.documentId) || !Number.isSafeInteger(input.expectedTarget.lifecycleGeneration)
+    || input.expectedTarget.lifecycleGeneration < 1 || input.expectedTarget.lifecycleGeneration >= Number.MAX_SAFE_INTEGER) {
+    fail('INVALID_BACKUP', 'An exact native file target from current file information is required.');
+  }
+  return Object.freeze({ workspaceId: input.workspaceId, path: input.path, operationId: input.operationId,
+    expectedTarget: Object.freeze({ ...input.expectedTarget }) });
+}
+
+function assertNativeOnlyBackupBinding(backup: WorkspaceOperationBackup, records: readonly NativeRecoveryRecord[],
+  target: WorkspaceSideEffectWriterTarget): void {
+  const record = records[0];
+  if (backup.version !== 2 || backup.originalPath !== target.path || backup.workspaceId !== target.workspaceId
+    || backup.organizationId !== target.organizationId || backup.itemType !== 'file'
+    || backup.entries.length !== 1 || backup.entries[0].type !== 'native_document' || backup.entries[0].path !== '.'
+    || records.length !== 1 || record.lineageId !== target.lineageId || record.state.documentId !== target.documentId
+    || record.state.workspaceId !== target.workspaceId || record.state.organizationId !== target.organizationId
+    || record.state.path !== target.path || record.state.lifecycleGeneration !== target.lifecycleGeneration
+    || record.state.representation !== target.representation || record.state.schemaVersion !== target.schemaVersion) {
+    fail('SOURCE_CHANGED', 'The original native backup does not match the selected document lifecycle.');
+  }
+}
+
+/** Private native-only baseline, including active rooms and nonexportable native content.
+ * Genuine member rights and Shared admission are checked on B. Its one persisted
+ * state row owns the binary/vector/sequence; live room content is never sampled.
+ * B is closed before private V2 publication. The kernel remains held throughout.
+ * No WorkspaceContext, serialized state, or Markdown bytes are caller authority. */
+export async function captureNativeWorkspaceOperationBackup(request: NextRequest, selection: NativeWorkspaceOperationBackupSelection,
+  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }): Promise<WorkspaceOperationBackup> {
+  const selected = captureNativeBackupSelection(selection);
+  if (!(request instanceof NextRequest) || typeof dependencies.openConnection !== 'function') fail('INVALID_BACKUP', 'A current request is required.');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  return withWorkspaceMutationLock(selected.workspaceId, async () => {
+    const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
+    return withWorkspaceRequestPrincipal(original, { permission: 'canRead', workspaceId: selected.workspaceId }, async principal => {
+      const captured = await executeLifecycleTransaction({ openConnection: dependencies.openConnection,
+        execute: async database => {
+          await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+          return withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+            const workspace = access.workspace;
+            const identity = await database.get(`SELECT d.lineage_id,s.representation,s.schema_version
+              FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+              WHERE d.id=$1 AND d.workspace_id=$2`, [selected.expectedTarget.documentId, workspace.workspaceId]) as {
+                lineage_id: string; representation: WorkspaceSideEffectWriterTarget['representation']; schema_version: number | string;
+              } | undefined;
+            if (!identity) fail('SOURCE_CHANGED', 'The selected native document is unavailable.');
+            const target: WorkspaceSideEffectWriterTarget = { kind: 'native_file', documentId: selected.expectedTarget.documentId,
+              lineageId: identity.lineage_id, workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
+              path: selected.path, lifecycleGeneration: selected.expectedTarget.lifecycleGeneration,
+              representation: identity.representation, schemaVersion: Number(identity.schema_version) };
+            return withWorkspaceSideEffectWriterFenceOnConnection(database, { workspace, targets: [target] }, async () => {
+              // The state loader obtains bytes, vector, clock and profile in one SELECT.
+              // Shared admission pins the catalogue lifecycle while content may advance.
+              const records = await readNativeWorkspaceRecoveryRecords(database, workspace, selected.path);
+              const record = records[0];
+              if (records.length !== 1 || record.state.documentId !== target.documentId || record.lineageId !== target.lineageId
+                || record.state.path !== target.path || record.state.lifecycleGeneration !== target.lifecycleGeneration
+                || record.state.representation !== target.representation || record.state.schemaVersion !== target.schemaVersion) {
+                fail('SOURCE_CHANGED', 'The persisted native snapshot no longer matches the selected document.');
+              }
+              await access.assertCurrent();
+              return { workspace, target, records };
+            });
+          });
+        },
+        recoverCommitted: async () => fail('SOURCE_CHANGED', 'Native backup snapshot completion could not be confirmed.'),
+      });
+      const backupId = backupIdFor(captured.workspace, selected.operationId, selected.path);
+      const scope = await storageRoot(captured.workspace);
+      const validateExisting = (backup: WorkspaceOperationBackup, records: readonly NativeRecoveryRecord[]) =>
+        assertNativeOnlyBackupBinding(backup, records, captured.target);
+      try {
+        const existing = await loadBackup(captured.workspace, backupId);
+        const records = await verifyPayload(existing.folder, existing.backup);
+        validateExisting(existing.backup, records);
+        await syncDirectory(scope);
+        return existing.backup;
+      } catch (error) { if (!hasCode(error, 'ENOENT')) throw error; }
+      const temporary = path.join(scope, `${backupId}.tmp-${randomUUID()}`);
+      await ensurePrivateDirectory(temporary);
+      try {
+        return await publishCapturedBackup({ workspace: captured.workspace, operationId: selected.operationId,
+          originalPath: selected.path, backupId, scope, temporary, entries: [{ type: 'native_document', path: '.' }],
+          records: captured.records, validateExisting });
+      } finally { await fs.rm(temporary, { recursive: true, force: true }); }
+    });
+  });
 }
 
 export async function getWorkspaceOperationBackup(input: {
@@ -522,10 +650,47 @@ export async function restoreWorkspaceOperationBackup(input: {
     throw Object.assign(new Error('The workspace backup restore is unavailable.'), { status: 403, code: 'BACKUP_PERMISSION_DENIED' });
   }
   const { backup } = await loadBackup(input.workspace, input.backupId);
-  const restoredPath = resolveWorkspacePath(input.workspace, input.targetPath ?? backup.originalPath).relativePath;
+  const restoredPath = backupRestorePath(input.workspace, backup, input.targetPath);
   if (restoredPath === '.') fail('UNSAFE_PATH', 'Workspace root cannot be a restore target.');
   return dependencies.withLifecycleGuard({ workspaceId: input.workspace.workspaceId, paths: [restoredPath] },
     () => restoreBackupInLifecycleGuard(input, dependencies));
+}
+
+function isSingleNativeOnlyBackup(backup: WorkspaceOperationBackup): boolean {
+  return backup.version === 2 && backup.entries.length === 1
+    && backup.entries[0].type === 'native_document' && backup.entries[0].path === '.';
+}
+
+function backupRestorePath(workspace: WorkspaceContext, backup: WorkspaceOperationBackup, targetPath?: string): string {
+  if (!isSingleNativeOnlyBackup(backup)) return resolveWorkspacePath(workspace, targetPath ?? backup.originalPath).relativePath;
+  const exact = targetPath ?? backup.originalPath;
+  if (!isCanonicalAdmissionPath(exact) || !validRelativePath(exact) || isInternalWorkspaceStagingPath(exact)) {
+    fail('UNSAFE_PATH', 'A native-only restore requires an exact canonical destination.');
+  }
+  return exact;
+}
+
+/** Native identities preserve spaces/case. Existing legacy path resolvers normalize them. */
+async function resolveExactNativeRestoreDestination(workspace: WorkspaceContext, relativePath: string): Promise<string> {
+  const root = await fs.realpath(workspace.rootPath);
+  if (!(await fs.stat(root)).isDirectory()) fail('UNSAFE_PATH', 'The native restore workspace root is unavailable.');
+  let parent = root;
+  const segments = relativePath.split('/');
+  for (let index = 0; index < segments.length; index++) {
+    const segment = segments[index], candidate = path.join(parent, segment);
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
+    try { stat = await fs.lstat(candidate); }
+    catch (error) {
+      if (hasCode(error, 'ENOENT') && index === segments.length - 1) return candidate;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !(await fs.readdir(parent)).includes(segment)
+      || index < segments.length - 1 && !stat.isDirectory()) {
+      fail('UNSAFE_PATH', 'The exact native restore path contains a symbolic link, case alias, or non-directory parent.');
+    }
+    parent = candidate;
+  }
+  return parent;
 }
 
 async function verifyRestoredTree(destination: string, backup: WorkspaceOperationBackup): Promise<void> {
@@ -558,11 +723,17 @@ async function restoreBackupInLifecycleGuard(input: {
   backup: WorkspaceOperationBackup; restoredPath: string; collaborationInitialized: boolean; recoveryMode: 'filesystem_only' | 'native_complete';
 }> {
   const { backup, folder } = await loadBackup(input.workspace, input.backupId);
-  const restoredPath = resolveWorkspacePath(input.workspace, input.targetPath ?? backup.originalPath).relativePath;
+  const restoredPath = backupRestorePath(input.workspace, backup, input.targetPath);
   if (restoredPath === '.') fail('UNSAFE_PATH', 'Workspace root cannot be a restore target.');
   const records = await verifyPayload(folder, backup);
-  await assertWorkspacePathHasNoAliases(input.workspace, restoredPath);
-  const destination = await resolveWritableWorkspacePath(input.workspace, restoredPath);
+  const nativeOnly = isSingleNativeOnlyBackup(backup);
+  if (nativeOnly && records.length !== 1) fail('CORRUPT_BACKUP', 'A native-only file restore requires exactly one original native record.');
+  let destination: string;
+  if (nativeOnly) destination = await resolveExactNativeRestoreDestination(input.workspace, restoredPath);
+  else {
+    await assertWorkspacePathHasNoAliases(input.workspace, restoredPath);
+    destination = await resolveWritableWorkspacePath(input.workspace, restoredPath);
+  }
   let destinationExists = false;
   try { await fs.lstat(destination); destinationExists = true; }
   catch (error) { if (!hasCode(error, 'ENOENT')) throw error; }
