@@ -139,6 +139,8 @@ Alle governed Agententools, internen Skill-Bridge-Aufrufe und API-/MCP-Adapter m
 
 Deklarierte Skillskripte besitzen bereits einen gesonderten strengeren Prozess-/Toolbridge-Vertrag mit eigenen Lese-, Netzwerk-/Fork-, Umgebungs- und RPC-Grenzen. Diese Regeln werden erhalten und separat getestet. Die allgemeinere Bash-Sandbox erhält dadurch nicht automatisch dieselben Netzwerk- oder Lesegarantien.
 
+Der [erste geschlossene Launcherbefund](./yjs-agent-search-process-evidence.md) betrifft die privilegierte Suche: Legacy-`grep` band Suchmuster nicht als Daten; alle drei direkten ripgrep-Suchadapter konnten zusätzliche Konfiguration laden. Drei enge Argumentkorrekturen verhindern diese Programmoption-/Konfigurationsumgehung. Der unveränderte finale echte Tool-/OS-Gegenfall verletzt vor der Korrektur sechs von 13 Gruppen, danach bestehen alle; bestehende Registry-/Toolausgabesuche sowie TypeScript/Lint bestehen ebenfalls. Das ist noch keine gemeinsame Genuine-Session-/PG-/Yjs-Sandboxabnahme; YD-08S bleibt bis zu dieser Matrix einschließlich zentralem positivem Edit offen.
+
 ## 7. Lieferreihenfolge und Abnahme
 
 | Paket | Voraussetzung und konkreter Abschluss |

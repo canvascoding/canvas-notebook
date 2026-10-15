@@ -1016,6 +1016,10 @@ Auf Root-Code `6d8fc7079` / sauberem QA `fbe5fb27b` unterscheiden sich die ausge
 
 Die unabhängige PG-Nachlese bestätigt beide eigenen Datenbanken entfernt, null Backends und geschlossene Adminverbindung. Root bestätigt frisch alle 182 in zwei überlappenden Fenstern beobachteten Prozessidentitäten abwesend, alle 21 Gruppen leer, Port 64893 und Runlock frei. Das erste unveränderte 900-s-Beobachtungsfenster endet an seiner festen Grenze unvollständig mit Exit 1; der bereits laufende Tail endet nach tatsächlichem Supervisorabschluss mit Exit 0. Beide Originalbelege bleiben erhalten; die frische Unionprüfung bestätigt den Abschluss. Originalreceipt: `cleaned`, `passed:true`, `uncertain:false`, DATA entfernt. Der [Browserplan](./yjs-create-paste-browser-acceptance-plan.md#v14-undo-verlassen-und-vollständige-enge-webmatrix-bestanden) bindet die genauen Artefakte und Restgrenzen. Allgemeines Gate bleibt `false`; Native-Portierung, Produktion und übrige Architekturpakete bleiben offen.
 
+### YD-08S: privilegierte Suchprozesse gegen Options-/Konfigurationseinfluss abgesichert
+
+Der [Suchprozessnachweis](./yjs-agent-search-process-evidence.md) schließt die konkrete Umgehung über Legacy-`grep` und geladene ripgrep-Konfiguration. Drei Argumentlisten binden Muster/Pfade explizit und deaktivieren Konfigurationsdateien. Der identische finale Test startet echte registrierte Tools und Original-ripgrep ausschließlich gegen eigene Dateien: vor der Korrektur sechs verletzte von 13 Gruppen, danach alle bestanden. Vollständige Registryprüfung, gespeicherte Toolausgabesuche, TypeScript und scoped ESLint bestehen ebenfalls. Das ist eigene ALS-/PGlite-Importisolierung mit realer OS-Ausführung, keine Genuine-Session-/PG-/Yjs-Sandboxabnahme. YD-08S bleibt offen, bis direkte Mutationsverweigerung und derselbe erfolgreiche zentrale Edit gemeinsam an einem echten verwalteten Dokument nachgewiesen sind.
+
 ## 17. Änderungs- und Nachweisprotokoll
 
 | Datum | Änderung | Nachweis/Status |

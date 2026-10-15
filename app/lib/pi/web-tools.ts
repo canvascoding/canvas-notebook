@@ -191,7 +191,7 @@ export function createRipgrepTool(): AgentTool {
         }
         const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
-        const args = ['-n', '--color', 'never', '--no-heading'];
+        const args = ['--no-config', '-n', '--color', 'never', '--no-heading'];
         if (ignoreCase) {
           args.push('-i');
         }

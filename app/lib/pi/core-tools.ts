@@ -904,9 +904,9 @@ export const piTools: AgentTool[] = [
         throwIfAborted(signal);
         const targetPath = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(targetPath);
-        // Use execFile to avoid shell injection via pattern or path
+        // Bind the pattern as data and prevent config from adding commands or paths.
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['-n', pattern, targetPath], { cwd: '/', signal }, (err, stdout, stderr) => {
+          execFile('rg', ['--no-config', '-n', '--', pattern, targetPath], { cwd: '/', signal }, (err, stdout, stderr) => {
             if (err && (err as NodeJS.ErrnoException & { code?: number }).code === 1) {
               resolve({ stdout: '', stderr: '' }); // no matches
             } else if (err) {
@@ -950,9 +950,9 @@ export const piTools: AgentTool[] = [
         throwIfAborted(signal);
         const searchRoot = resolveAgentPath(searchPath || '.');
         await assertAgentPathAllowed(searchRoot);
-        // Use execFile with argument array to avoid shell injection via pattern
+        // The glob is a value; inherited config must not extend the search scope.
         const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-          execFile('rg', ['--files', '-g', pattern, searchRoot], { cwd: '/', signal }, (err, stdout, stderr) => {
+          execFile('rg', ['--no-config', '--files', '-g', pattern, '--', searchRoot], { cwd: '/', signal }, (err, stdout, stderr) => {
             const errCode = (err as NodeJS.ErrnoException & { code?: number })?.code;
             if (errCode === 1) {
               resolve({ stdout: '', stderr: '' });
