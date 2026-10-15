@@ -110,15 +110,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    const status = nativeSession
-      ? (await import('@/app/lib/collaboration/authenticated-text-session-service')).authenticatedTextSessionErrorStatus(error)
+    const nativeErrors = nativeSession ? await import('@/app/lib/collaboration/authenticated-text-session-service') : null;
+    const status = nativeErrors
+      ? nativeErrors.authenticatedTextSessionErrorStatus(error)
       : error instanceof CollaborationSessionError
       ? error.status
       : code === 'ENOENT' ? 404 : 500;
+    if (nativeErrors) console.warn('[collaboration-session]', nativeErrors.authenticatedTextSessionStartupDiagnostic(error));
     return NextResponse.json({
       success: false,
       error: error instanceof Error ? error.message : 'Could not start collaboration.',
       ...((nativeSession && code || error instanceof CollaborationSessionError && error.code) ? { code } : {}),
-    }, { status });
+      ...(nativeErrors?.isAuthenticatedTextSessionStartupRetryable(error) ? { retryable: true } : {}),
+    }, { status, headers: { 'Cache-Control': 'no-store' } });
   }
 }

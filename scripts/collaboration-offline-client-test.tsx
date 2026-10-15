@@ -21,6 +21,12 @@ type Options = { token: () => Promise<string>; document: Y.Doc; name: string;
   onStatus: (value: { status: string }) => void };
 
 async function main() {
+  const filename = path.resolve('app/lib/collaboration/client.ts');
+  const load = createRequire(filename);
+  // This unit drives the real registry's auth observations explicitly. Load the
+  // actual auth module before JSDOM so its separate browser-atom lifecycle does
+  // not overwrite those observations while the offline token request settles.
+  load('../auth-client');
   const dom = new JSDOM('<main id="root"></main>', { url: 'https://canvas.test' });
   const prior = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true })) {
@@ -58,8 +64,6 @@ async function main() {
     constructor(_name: string, doc: Y.Doc) { if (stored) Y.applyUpdate(doc, stored); }
     destroy() {}
   }
-  const filename = path.resolve('app/lib/collaboration/client.ts');
-  const load = createRequire(filename);
   const exported = {} as typeof Client;
   const compiled = ts.transpileModule(await fs.readFile(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },

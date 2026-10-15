@@ -47,6 +47,44 @@ type ReadPhase = { retryable: boolean; entered: boolean };
 // Only this service's confirmed read rollback/close can certify contention.
 // A wire code, caller exception, final check or unconfirmed COMMIT cannot.
 const cleanReadContention = new WeakSet<WorkspaceRequestPrincipalError>();
+// Public startup hints require this service's terminal identity, after every
+// transport cleanup has completed. A matching wire code never creates one.
+const retryableStartupFailures = new WeakSet<object>();
+type StartupPhase = 'origin' | 'scope' | 'enroll' | 'read' | 'diagnosis' | 'bootstrap' | 'migration' | 'publication' | 'cleanup';
+const startupFailurePhases = new WeakMap<object, StartupPhase>();
+const startupDiagnosticCodes = new Set([
+  'PRINCIPAL_INVALID', 'PRINCIPAL_REQUIRED', 'PRINCIPAL_SCOPE_CHANGED', 'PRINCIPAL_AUTH_REVOKED',
+  'PRINCIPAL_ACCESS_DENIED', 'PRINCIPAL_SCHEMA_INVALID', 'PRINCIPAL_WORKSPACE_UNCONFIRMED',
+  'PRINCIPAL_BUSY', 'PRINCIPAL_EXPIRED', 'PRINCIPAL_REENTRANT', 'PRINCIPAL_DETACHED', 'PRINCIPAL_TOO_LARGE',
+  'NATIVE_SESSION_INVALID', 'NATIVE_SESSION_REQUIRED', 'NATIVE_SESSION_BUSY', 'NATIVE_SESSION_SCOPE_CHANGED',
+  'NATIVE_SESSION_STATE_MISSING', 'NATIVE_SESSION_STATE_INVALID', 'NATIVE_SESSION_QUARANTINED',
+  'NATIVE_SESSION_QUARANTINE_REQUIRED', 'NATIVE_SESSION_TOO_LARGE', 'NATIVE_SESSION_REENTRANT', 'NATIVE_SESSION_DETACHED',
+  'NATIVE_SESSION_INVALID_REQUEST', 'NATIVE_SESSION_INITIALIZATION_REQUIRED', 'NATIVE_SESSION_COMMIT_UNCONFIRMED',
+  'NATIVE_SESSION_PUBLICATION_CLOSED', 'NATIVE_TRANSPORT_INVALID', 'NATIVE_TRANSPORT_REQUIRED',
+  'NATIVE_TRANSPORT_TOO_LARGE', 'NATIVE_TRANSPORT_SCOPE_CHANGED', 'NATIVE_TRANSPORT_ACCESS_DENIED',
+  'NATIVE_TRANSPORT_REENTRANT', 'NATIVE_TRANSPORT_DETACHED', 'NATIVE_TRANSPORT_DISPOSED', 'NATIVE_TRANSPORT_QUARANTINED',
+  'MARKDOWN_IMPORT_INVALID_INPUT', 'MARKDOWN_IMPORT_ENCODING_UNSUPPORTED', 'MARKDOWN_IMPORT_RICH_UNAVAILABLE',
+  'MARKDOWN_IMPORT_TARGET_CHANGED', 'MARKDOWN_IMPORT_TARGET_NOT_EMPTY', 'MARKDOWN_IMPORT_LIFECYCLE_REQUIRED',
+  'MARKDOWN_IMPORT_REQUEST_CONFLICT', 'MARKDOWN_IMPORT_BUSY', 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED',
+  'representation_mismatch', 'source_representation_required', 'migration_permission_denied', '55P03', 'ENOENT',
+]);
+
+/** A retry hint grants no session, cached authority or permission to replay a mutation. */
+export function isAuthenticatedTextSessionStartupRetryable(error: unknown): boolean {
+  return !!error && typeof error === 'object' && retryableStartupFailures.has(error);
+}
+
+/** Finite metadata only: never include error messages, request identity or SQL. */
+export function authenticatedTextSessionStartupDiagnostic(error: unknown) {
+  const object = error && typeof error === 'object' ? error : undefined;
+  let code: unknown;
+  try { code = object ? Object.getOwnPropertyDescriptor(object, 'code')?.value : undefined; }
+  catch { /* A foreign descriptor trap cannot replace the startup failure. */ }
+  return Object.freeze({ event: 'collaboration_session_startup_failed' as const,
+    phase: object ? startupFailurePhases.get(object) ?? 'unknown' : 'unknown',
+    code: typeof code === 'string' && startupDiagnosticCodes.has(code) ? code : 'unknown',
+    retryable: isAuthenticatedTextSessionStartupRetryable(error) });
+}
 
 export class AuthenticatedTextSessionError extends Error {
   constructor(readonly code: 'NATIVE_SESSION_INVALID_REQUEST' | 'NATIVE_SESSION_INITIALIZATION_REQUIRED'
@@ -272,6 +310,7 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
   const requested = parseCollaborationSessionRequest(structuredClone(input.sessionRequest));
   if (!requested || requested.provider !== 'yjs') throw new AuthenticatedTextSessionError('NATIVE_SESSION_INVALID_REQUEST', 400);
   let transport: AuthenticatedNativeSessionTransport | undefined;
+  let phase: StartupPhase = 'origin', mutationOrPublicationAttempted = false, terminalFailure: unknown;
   // Two additional attempts TOTAL, shared by every read/enrollment site.
   // Bootstrap, migration, COMMIT recovery and publication never enter this loop.
   let retriesRemaining = 2;
@@ -324,16 +363,22 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
   let publicationActive = false, adopted = false, completed = false, rollbackAdoption: (() => void | Promise<void>) | undefined;
   try {
     const expectedScope = await observeRequestOrigin(original, workspaceId, permission);
+    phase = 'scope';
     await retryRead(() => observeRequestScope(original, workspaceId, permission, expectedScope));
+    phase = 'enroll';
     transport = await retryRead(() => enroll(expectedScope)); let observed: Observation;
+    phase = 'read';
     try { observed = await readExisting(expectedScope); }
     catch (error) {
       if ((isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_QUARANTINED') {
+        phase = 'diagnosis';
         observed = await retryRead(() => diagnosis(original, workspaceId, requested, expectedScope));
+        phase = 'enroll';
         transport = await retryRead(() => enroll(expectedScope, 'read'));
       } else {
         if (!(isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError) || error.code !== 'NATIVE_SESSION_STATE_MISSING') throw error;
         if (permission !== 'write') throw new AuthenticatedTextSessionError('NATIVE_SESSION_INITIALIZATION_REQUIRED', 409);
+        phase = 'bootstrap'; mutationOrPublicationAttempted = true;
         const target = await retryRead(() => bootstrapTarget(original, workspaceId, requested.path, expectedScope));
         if (target) {
           try { await persistPristineOriginalWorkspaceFileForWrite(original, {
@@ -350,19 +395,23 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
             if (!(bootstrapError instanceof MarkdownFileImportError) || bootstrapError.code !== 'MARKDOWN_IMPORT_TARGET_CHANGED') throw bootstrapError;
           }
         }
+        phase = 'read';
         observed = await readExisting(expectedScope);
       }
     }
     let migration: RichMigrationResult | undefined;
     if (requested.migration) {
+      phase = 'migration'; mutationOrPublicationAttempted = true;
       if (permission !== 'write') throw Object.assign(new Error('Write access is required to prepare formatted editing.'), { status: 403, code: 'migration_permission_denied' });
       const result = await advanceAuthenticatedRichRepresentationMigration({ request: original, workspaceId,
         path: requested.path, migration: requested.migration, ...(requested.migrationAction === 'cancel' ? { cancel: true } : {}) });
       migration = result.migration;
       if (migration.status === 'pending' && migration.reason === 'outcome_unconfirmed') {
+        phase = 'publication';
         return await publish(Object.freeze({ grant: Object.freeze({ ...observed.grant, migration }), identity: observed.identity,
           takeTransport: () => { throw new AuthenticatedTextSessionError('NATIVE_SESSION_PUBLICATION_CLOSED', 409); } }));
       }
+      phase = 'read';
       observed = await readExisting(expectedScope, { ...observed.native, documentId: result.state.documentId,
         workspaceId: result.state.workspaceId, organizationId: result.state.organizationId, path: result.state.path,
         lifecycleGeneration: result.state.lifecycleGeneration, representation: result.state.representation, schemaVersion: result.state.schemaVersion });
@@ -370,6 +419,7 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
       && requested.expectedLifecycleGeneration === observed.native.lifecycleGeneration
       && (observed.native.representation === 'plain_text' || observed.native.representation === 'tiptap_xml' && observed.target === 'tiptap_blocks')
       && observed.target !== 'plain_text' && !/\.txt$/iu.test(requested.path)) {
+      phase = 'migration'; mutationOrPublicationAttempted = true;
       let expectedIdentity = observed.native;
       try { const changed = await changeAuthenticatedCollaborationRepresentation({ request: original, workspaceId, path: requested.path,
         expectedLifecycleGeneration: observed.native.lifecycleGeneration, representation: observed.target,
@@ -381,9 +431,11 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
           representation: changed.representation, schemaVersion: changed.schemaVersion };
       }
       catch (error) { if (!(error instanceof CollaborationRepresentationMigrationError)) throw error; }
+      phase = 'read';
       observed = await readExisting(expectedScope, expectedIdentity);
     }
     if (!transport) throw new AuthenticatedTextSessionError('NATIVE_SESSION_COMMIT_UNCONFIRMED', 503);
+    phase = 'publication'; mutationOrPublicationAttempted = true;
     const currentTransport = transport;
     publicationActive = true;
     const publication = Object.freeze({ grant: Object.freeze({ ...observed.grant, ...(migration ? { migration } : {}) }), identity: observed.identity,
@@ -393,12 +445,30 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
       } });
     const result = await publish(publication); completed = true; return result;
   } catch (error) {
+    terminalFailure = error;
     if (rollbackAdoption) try { await rollbackAdoption(); }
-    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Native session publication cleanup failed.'); }
+    catch (cleanupError) {
+      phase = 'cleanup';
+      terminalFailure = new AggregateError([error, cleanupError], 'Native session publication cleanup failed.');
+      throw terminalFailure;
+    }
     throw error;
   } finally {
     publicationActive = false;
-    if (transport && (!adopted || !completed)) await disposeAuthenticatedNativeSessionTransport(transport);
+    try { if (transport && (!adopted || !completed)) await disposeAuthenticatedNativeSessionTransport(transport); }
+    catch (error) {
+      if (error && typeof error === 'object') {
+        retryableStartupFailures.delete(error); startupFailurePhases.set(error, 'cleanup');
+      }
+      throw error;
+    }
+    if (terminalFailure && typeof terminalFailure === 'object') {
+      retryableStartupFailures.delete(terminalFailure);
+      startupFailurePhases.set(terminalFailure, phase);
+      if (!mutationOrPublicationAttempted && cleanReadContention.has(terminalFailure as WorkspaceRequestPrincipalError)) {
+        retryableStartupFailures.add(terminalFailure);
+      }
+    }
   }
 }
 

@@ -78,17 +78,12 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      // Fixture scoping for the historical 737 migration only: it enumerates
-      // public metadata but updates unqualified names. Keep its two scans on
-      // this owned UUID namespace, never on unrelated/public catalogue rows.
-      let ownSql = sql;
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
         assert(sql.trim().endsWith('$main_agent_id_migration$;'));
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        ownSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(ownSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      try { const result = await admin.query(ownSql,values); await own(admin); return result; }
+      try { const result = await admin.query(sql,values); await own(admin); return result; }
       catch (error) {
         if (error && typeof error === 'object' && Reflect.get(error, 'code') === '42P01') {
           Reflect.set(error, 'ownedMigrationCommand', sql.trim().split('\n')[0].slice(0, 160));
@@ -165,7 +160,8 @@ async function main(): Promise<void> {
     const stored=async(identity:ExistingNativeSessionIdentity)=>(await admin.query('SELECT * FROM collaboration_yjs_states WHERE document_id=$1',[identity.documentId])).rows[0];
     const { POST: webPost } = await import('../app/api/files/collaboration/session/route');
     const { POST: mobilePost } = await import('../app/api/mobile/v1/notebook/collaboration/session/route');
-    const { withAuthenticatedTextCollaborationSessionGrant: publishGrant } = await import('../app/lib/collaboration/authenticated-text-session-service');
+    const { withAuthenticatedTextCollaborationSessionGrant: publishGrant, isAuthenticatedTextSessionStartupRetryable,
+      authenticatedTextSessionStartupDiagnostic } = await import('../app/lib/collaboration/authenticated-text-session-service');
     const { disposeAuthenticatedNativeSessionTransport: disposeTransport } = await import('../app/lib/collaboration/authenticated-native-session-transport');
     const { consumeMobileCollaborationTicket, disposeMobileCollaborationTickets } = await import('../app/lib/mobile/collaboration-ticket');
     const { parseCollaborationSessionRequest } = await import('../app/lib/collaboration/session-service');
@@ -177,6 +173,9 @@ async function main(): Promise<void> {
       const http = new NextRequest(`http://localhost/api/${surface === 'web' ? 'files' : 'mobile/v1/notebook'}/collaboration/session`, { method: 'POST', headers, body: JSON.stringify(body) });
       const response = await (surface === 'web' ? webPost : mobilePost)(http);
       const wire = await response.json() as Record<string, unknown>;
+      assert.equal(Object.hasOwn(wire, 'retryable'), surface === 'web' && wire.retryable === true,
+        'Only an actual web startup failure may publish the optional true marker.');
+      if (surface === 'web' && response.status !== 200) assert.equal(response.headers.get('cache-control'), 'no-store');
       if (surface === 'mobile' && response.status === 200 && typeof wire.token === 'string') {
         const adopted = consumeMobileCollaborationTicket(wire.token); assert(adopted); assert(adopted.authenticatedTransport, 'actual native POST must adopt original transport');
         assert.equal(adopted.claims.documentId, wire.documentId); assert.equal(adopted.claims.permission, wire.permission);
@@ -260,6 +259,23 @@ async function main(): Promise<void> {
     };
     stage = 'genuine original-auth initialization before owned lock holders';
     await capture(await request(), { permission: 'canWrite', workspaceId }, async () => undefined);
+    await check('startup hints reject forged identities and diagnostics contain finite metadata only', async () => {
+      const { WorkspaceRequestPrincipalError } = await import('../app/lib/workspaces/request-principal');
+      let getterRead = false;
+      for (const error of [undefined, null, false, 409, 'PRINCIPAL_BUSY', new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY'),
+        Object.assign(new Error('private/path/session-token/raw SQL'), { code: 'PRINCIPAL_BUSY', retryable: true }),
+        Object.freeze(Object.assign(new Error('private/path/session-token/raw SQL'), { code: 'PRINCIPAL_NEW_PRIVATE/path' })),
+        Object.defineProperty(new Error('private/path/session-token/raw SQL'), 'code', { get: () => { getterRead = true; return 'PRINCIPAL_BUSY'; } }),
+        new Proxy(new Error('private/path/session-token/raw SQL'), { getOwnPropertyDescriptor() { throw new Error('private descriptor trap'); } })]) {
+        assert.equal(isAuthenticatedTextSessionStartupRetryable(error), false);
+        const diagnostic = authenticatedTextSessionStartupDiagnostic(error);
+        assert.deepEqual(Object.keys(diagnostic), ['event', 'phase', 'code', 'retryable']);
+        assert.equal(diagnostic.event, 'collaboration_session_startup_failed'); assert.equal(diagnostic.phase, 'unknown');
+        assert(['unknown', 'PRINCIPAL_BUSY'].includes(diagnostic.code)); assert.equal(diagnostic.retryable, false);
+        assert.equal(/private|path|session-token|raw SQL/u.test(JSON.stringify(diagnostic)), false);
+      }
+      assert.equal(getterRead, false);
+    });
     await check('two genuine Principal B phases coexist with actual schema and row SHARE locks', async () => {
       const minted = deferred(), locked = deferred();
       let captures = 0, locks = 0, callbacks = 0;
@@ -320,6 +336,7 @@ async function main(): Promise<void> {
       try {
         const response = await post('web', target.identity.path);
         assert.equal(response.status, 409); assert.equal(response.wire.code, 'PRINCIPAL_BUSY');
+        assert.equal(response.wire.retryable, true);
         assert.equal(Object.hasOwn(response.wire, 'token'), false); assert.equal(begins, 3); assert.equal(errors, 3); assert.equal(rollbacks, 3);
         assert.deepEqual(await stored(target.identity), before);
       } finally { Client.prototype.query = rawQuery; peer.release(); await peer.done; }
@@ -328,12 +345,37 @@ async function main(): Promise<void> {
       const target = await seed('publisher'), { WorkspaceRequestPrincipalError } = await import('../app/lib/workspaces/request-principal'); let publications = 0;
       await assert.rejects(publishGrant(await sessionInput(target), async () => {
         publications++; throw new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
-      }), code('PRINCIPAL_BUSY'));
+      }), error => {
+        assert.equal(isAuthenticatedTextSessionStartupRetryable(error), false);
+        assert.deepEqual(authenticatedTextSessionStartupDiagnostic(error), { event: 'collaboration_session_startup_failed',
+          phase: 'publication', code: 'PRINCIPAL_BUSY', retryable: false });
+        return code('PRINCIPAL_BUSY')(error);
+      });
       assert.equal(publications, 1);
     });
-    await check('actual native table lock before the service consumer permits only fresh pure-read retries', async () => {
+    await check('an actual terminal hint does not authorize replay from a later publisher', async () => {
+      const target = await seed('terminal-hint-identity'), before = await stored(target.identity), peer = await startAuthorizationWriter();
+      let genuineBusy: unknown, publications = 0;
+      try {
+        await assert.rejects(publishGrant(await sessionInput(target), async () => { publications++; }), error => {
+          genuineBusy = error;
+          assert.equal(isAuthenticatedTextSessionStartupRetryable(error), true);
+          assert.deepEqual(authenticatedTextSessionStartupDiagnostic(error), { event: 'collaboration_session_startup_failed',
+            phase: 'scope', code: 'PRINCIPAL_BUSY', retryable: true });
+          return code('PRINCIPAL_BUSY')(error);
+        });
+        assert.equal(publications, 0);
+      } finally { peer.release(); await peer.done; }
+      await assert.rejects(publishGrant(await sessionInput(target), async () => { publications++; throw genuineBusy; }), error => {
+        assert.equal(error, genuineBusy); assert.equal(isAuthenticatedTextSessionStartupRetryable(error), false);
+        assert.equal(authenticatedTextSessionStartupDiagnostic(error).phase, 'publication');
+        return code('PRINCIPAL_BUSY')(error);
+      });
+      assert.equal(publications, 1); assert.deepEqual(await stored(target.identity), before);
+    });
+    for (const surface of ['mobile', 'web'] as const) await check(`actual native table lock before the service consumer permits only fresh pure-read retries (${surface})`, async () => {
       for (const durable of [false, true]) {
-        const target = await seed(`native-table-${durable}`), before = await stored(target.identity), holder = await ownClient();
+        const target = await seed(`${surface}-native-table-${durable}`), before = await stored(target.identity), holder = await ownClient();
         await holder.query('BEGIN'); await holder.query('LOCK TABLE collaboration_yjs_states IN ACCESS EXCLUSIVE MODE');
         let errors = 0, rollbacks = 0, released = false;
         const transports = observeTransports();
@@ -348,10 +390,13 @@ async function main(): Promise<void> {
           } catch (error) { if (Reflect.get(error as object, 'code') === '55P03') errors++; throw error; }
         });
         try {
-          const response = await post('mobile', target.identity.path);
+          const response = await post(surface, target.identity.path);
           assert.equal(response.status, durable ? 409 : 200, JSON.stringify({ status: response.status, code: response.wire.code }));
           assert.equal(errors, durable ? 3 : 1); assert.equal(rollbacks, errors);
-          if (durable) { assert.equal(response.wire.code, 'PRINCIPAL_BUSY'); assert.equal(Object.hasOwn(response.wire, 'token'), false); }
+          if (durable) {
+            assert.equal(response.wire.code, 'PRINCIPAL_BUSY'); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+            assert.equal(response.wire.retryable === true, surface === 'web');
+          }
           else { assert.equal(response.wire.documentId, target.identity.documentId); assert.equal(response.wire.documentSequence, 7); }
           assert.equal(transports.records.length, durable ? 3 : 2); transports.assertDisposed();
         } finally { observed.restore(); transports.restore(); if (!released) await holder.query('ROLLBACK'); await endClient(holder); }
@@ -378,8 +423,8 @@ async function main(): Promise<void> {
       } finally { observed.restore(); transports.restore(); peer.release(); await peer.done; await holder.query('ROLLBACK'); await endClient(holder); }
       assert.deepEqual(await stored(target.identity), before);
     });
-    await check('actual opaque capture Principal final Busy is never a certified retry', async () => {
-      const target = await seed('capture-final'), before = await stored(target.identity);
+    for (const surface of ['mobile', 'web'] as const) await check(`actual opaque capture Principal final Busy is never a certified retry (${surface})`, async () => {
+      const target = await seed(`${surface}-capture-final`), before = await stored(target.identity);
       let binding = false, authAfterBinding = 0, injected = false;
       const observed = observeTransactions(async (client, sql, result, ordinal) => {
         const value = await result;
@@ -390,15 +435,16 @@ async function main(): Promise<void> {
         return value;
       });
       try {
-        const response = await post('mobile', target.identity.path);
+        const response = await post(surface, target.identity.path);
         assert.equal(injected, true); assert.equal(response.status, 409); assert.equal(response.wire.code, 'PRINCIPAL_BUSY');
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
         assert.equal(observed.begins(), 2); assert.equal(Object.hasOwn(response.wire, 'token'), false);
       } finally { observed.restore(); }
       assert.deepEqual(await stored(target.identity), before);
     });
-    await check('service consumer and actual Principal finals reject Busy and write revocation without another attempt', async () => {
+    for (const surface of ['mobile', 'web'] as const) await check(`service consumer and actual Principal finals reject Busy and write revocation without another attempt (${surface})`, async () => {
       for (const fault of ['consumer-busy', 'principal-final-busy', 'write-revoked'] as const) {
-        const target = await seed(fault), before = await stored(target.identity); let injected = false, receipt = false;
+        const target = await seed(`${surface}-${fault}`), before = await stored(target.identity); let injected = false, receipt = false;
         let genuinePhase: object | undefined;
         if (fault === 'write-revoked') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=1 WHERE user_id='member'");
         const transports = observeTransports();
@@ -427,19 +473,20 @@ async function main(): Promise<void> {
           return value;
         });
         try {
-          const response = await post('mobile', target.identity.path, {}, fault === 'write-revoked' ? 'member' : 'owner');
+          const response = await post(surface, target.identity.path, {}, fault === 'write-revoked' ? 'member' : 'owner');
           assert.equal(injected, true, `${fault}: actual final hook must be reached`);
           assert.equal(response.status, fault === 'write-revoked' ? 403 : fault === 'consumer-busy' ? 500 : 409,
             JSON.stringify({ fault, status: response.status, code: response.wire.code }));
           assert.equal(response.wire.code, fault === 'write-revoked' ? 'PRINCIPAL_ACCESS_DENIED' : fault === 'consumer-busy' ? '55P03' : 'PRINCIPAL_BUSY');
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
           assert.equal(observed.begins(), 3); assert.equal(Object.hasOwn(response.wire, 'token'), false); transports.assertDisposed();
         } finally { observed.restore(); WeakMap.prototype.set = previousSet; transports.restore(); if (fault === 'write-revoked') await admin.query("UPDATE organization_user_permissions SET can_write_team_workspace=0 WHERE user_id='member'"); }
         assert.deepEqual(await stored(target.identity), before);
       }
     });
-    await check('failed rollback acknowledgement or close never certifies a retry', async () => {
+    for (const surface of ['mobile', 'web'] as const) await check(`failed rollback acknowledgement or close never certifies a retry (${surface})`, async () => {
       for (const fault of ['rollback-ack', 'close'] as const) {
-        const target = await seed(fault), before = await stored(target.identity), peer = await startAuthorizationWriter(); let injected = false;
+        const target = await seed(`${surface}-${fault}`), before = await stored(target.identity), peer = await startAuthorizationWriter(); let injected = false;
         const observed = observeTransactions(async (client, sql, result) => {
           if (client === peer.client) return result;
           const value = await result;
@@ -452,19 +499,20 @@ async function main(): Promise<void> {
           return value;
         });
         try {
-          const response = await post('mobile', target.identity.path);
-          // The genuine outer Principal preserves its sticky initial Busy even
-          // when cleanup fails. That code alone must not qualify for a retry.
-          assert.equal(injected, true); assert.equal(response.status, 409, JSON.stringify({ fault, code: response.wire.code }));
-          assert.equal(response.wire.code, 'PRINCIPAL_BUSY'); assert.equal(observed.begins(), 1);
+          const response = await post(surface, target.identity.path);
+          // The genuine outer Principal preserves actual later cleanup failures
+          // after draining its held work; an earlier Busy cannot hide them.
+          assert.equal(injected, true); assert.equal(response.status, 500, JSON.stringify({ fault, code: response.wire.code }));
+          assert.equal(Object.hasOwn(response.wire, 'code'), false); assert.equal(observed.begins(), 1);
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
           assert.equal(Object.hasOwn(response.wire, 'token'), false);
         } finally { observed.restore(); peer.release(); await peer.done; }
         assert.deepEqual(await stored(target.identity), before);
       }
     });
-    await check('actual read COMMIT response loss and healthy-close failure never replay or publish', async () => {
+    for (const surface of ['mobile', 'web'] as const) await check(`actual read COMMIT response loss and healthy-close failure never replay or publish (${surface})`, async () => {
       for (const fault of ['commit-ack', 'healthy-close'] as const) {
-        const target = await seed(fault), before = await stored(target.identity); let injected = false;
+        const target = await seed(`${surface}-${fault}`), before = await stored(target.identity); let injected = false;
         const observed = observeTransactions(async (client, sql, result, ordinal) => {
           const value = await result;
           if (ordinal > 0 && sql === 'COMMIT' && !injected) {
@@ -476,9 +524,10 @@ async function main(): Promise<void> {
           return value;
         });
         try {
-          const response = await post('mobile', target.identity.path);
+          const response = await post(surface, target.identity.path);
           assert.equal(injected, true); assert.equal(response.status, fault === 'commit-ack' ? 503 : 500);
           if (fault === 'commit-ack') assert.equal(response.wire.code, 'NATIVE_SESSION_COMMIT_UNCONFIRMED');
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
           assert.equal(observed.begins(), 1); assert.equal(Object.hasOwn(response.wire, 'token'), false);
         } finally { observed.restore(); }
         assert.deepEqual(await stored(target.identity), before);
@@ -516,8 +565,8 @@ async function main(): Promise<void> {
         assert.deepEqual(await stored(target.identity), before);
       }
     });
-    await check('private transport cleanup rejection cannot certify another attempt', async () => {
-      const target = await seed('cleanup-failure'), before = await stored(target.identity), holder = await ownClient();
+    for (const surface of ['mobile', 'web'] as const) await check(`private transport cleanup rejection cannot certify another attempt (${surface})`, async () => {
+      const target = await seed(`${surface}-cleanup-failure`), before = await stored(target.identity), holder = await ownClient();
       await holder.query('BEGIN'); await holder.query('LOCK TABLE collaboration_yjs_states IN ACCESS EXCLUSIVE MODE');
       const transports = observeTransports(); let injected = false;
       const observed = observeTransactions(async (_client, sql, result) => {
@@ -532,13 +581,14 @@ async function main(): Promise<void> {
         return value;
       });
       try {
-        const response = await post('mobile', target.identity.path);
+        const response = await post(surface, target.identity.path);
         assert.equal(injected, true); assert.equal(response.status, 500); assert.equal(observed.begins(), 3);
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
         assert.equal(Object.hasOwn(response.wire, 'token'), false); transports.assertDisposed();
       } finally { observed.restore(); transports.restore(); await holder.query('ROLLBACK'); await endClient(holder); }
       assert.deepEqual(await stored(target.identity), before);
     });
-    await check('actual pristine bootstrap Busy remains outside the read retry loop and rolls back its only mutation', async () => {
+    for (const surface of ['mobile', 'web'] as const) await check(`actual pristine bootstrap Busy remains outside the read retry loop and rolls back its only mutation (${surface})`, async () => {
       const file = `bootstrap-${crypto.randomUUID()}.txt`, root = path.join(dataRoot, 'organizations/principal-org/shared');
       await mkdir(root, { recursive: true }); await writeFile(path.join(root, file), 'Bound original\n', { flag: 'wx' });
       let inserts = 0, injected = false; const transports = observeTransports();
@@ -548,13 +598,44 @@ async function main(): Promise<void> {
         return value;
       });
       try {
-        const response = await post('mobile', file);
+        const response = await post(surface, file);
         assert.equal(injected, true, JSON.stringify({ status: response.status, code: response.wire.code, begins: observed.begins() }));
         assert.equal(inserts, 1); assert.equal(Object.hasOwn(response.wire, 'token'), false);
         assert.equal(response.status, 409, String(response.wire.code));
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
         assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_states WHERE workspace_id=$1 AND path=$2', [workspaceId, file])).rows[0].count, 0);
         transports.assertDisposed();
       } finally { observed.restore(); transports.restore(); await rm(path.join(root, file)); }
+    });
+    await check('a clean pure-read Busy after actual committed bootstrap cannot mark the whole request retryable', async () => {
+      const file = `bootstrap-then-read-${crypto.randomUUID()}.txt`, root = path.join(dataRoot, 'organizations/principal-org/shared');
+      await mkdir(root, { recursive: true }); await writeFile(path.join(root, file), 'Bound original\n', { flag: 'wx' });
+      const holder = await ownClient(), transports = observeTransports();
+      let inserted = false, held = false, insertions = 0, readErrors = 0;
+      const observed = observeTransactions(async (client, sql, result) => {
+        try {
+          const value = await result;
+          if (client !== holder && /INSERT INTO collaboration_yjs_states\b/iu.test(sql)) { inserted = true; insertions++; }
+          if (client !== holder && inserted && !held && sql === 'COMMIT') {
+            await holder.query('BEGIN');
+            await holder.query('LOCK TABLE collaboration_yjs_states IN ACCESS EXCLUSIVE MODE'); held = true;
+          }
+          return value;
+        } catch (error) { if (held && Reflect.get(error as object, 'code') === '55P03') readErrors++; throw error; }
+      });
+      try {
+        const response = await post('web', file);
+        assert.equal(held, true); assert.equal(insertions, 1); assert.equal(readErrors, 3);
+        assert.equal(response.status, 409); assert.equal(response.wire.code, 'PRINCIPAL_BUSY');
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+        await holder.query('ROLLBACK'); held = false;
+        assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_states WHERE workspace_id=$1 AND path=$2',
+          [workspaceId, file])).rows[0].count, 1);
+        transports.assertDisposed();
+      } finally {
+        observed.restore(); transports.restore();
+        try { if (held) await holder.query('ROLLBACK'); } finally { await endClient(holder); await rm(path.join(root, file)); }
+      }
     });
     await check('actual legacy rich migration Busy never replays a native mutation or publishes its ticket', async () => {
       const markdown = '# Native title\n\nFirst **bold** text.\n', doc = createPlainTextYDoc(markdown);
@@ -573,7 +654,9 @@ async function main(): Promise<void> {
       } as typeof Client.prototype.query;
       try {
         const response = await post('web', target.identity.path, { allowRichMigration: true, expectedLifecycleGeneration: 1 });
-        assert.equal(updates, 1); assert.equal(response.status, 409, String(response.wire.code));
+        assert.equal(updates, 1); assert.equal(response.status, 500, String(response.wire.code));
+        assert.equal(response.wire.code, '55P03');
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
         assert.equal(Object.hasOwn(response.wire, 'token'), false); assert.deepEqual(await stored(target.identity), before);
         assert.equal((await admin.query('SELECT count(*)::int AS count FROM collaboration_yjs_state_backups WHERE document_id=$1', [target.identity.documentId])).rows[0].count, 0);
         transports.assertDisposed();
@@ -594,7 +677,7 @@ async function main(): Promise<void> {
         assert.equal(response.status, 409); assert.equal(response.wire.code, 'NATIVE_SESSION_SCOPE_CHANGED'); assert.equal(Object.hasOwn(response.wire, 'token'), false);
       } finally { Reflect.set(runtime, 'query', runtimeQuery); await admin.query('UPDATE canvas_workspaces SET root_relative_path=$1 WHERE id=$2', ['organizations/principal-org/shared', workspaceId]); }
     });
-    assert.equal(fetches, 0); disposeMobileCollaborationTickets();
+    assert.equal(fetches, 0); if (!process.argv[2]) assert.equal(cases, 25); disposeMobileCollaborationTickets();
     console.log(`Authenticated native HTTP Busy: ${cases} genuine PostgreSQL18 families passed; existing product gate remains false.`);
   }finally{
     globalThis.fetch=originalFetch;

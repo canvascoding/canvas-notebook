@@ -360,40 +360,66 @@ async function requestSession(
   signal?: AbortSignal,
   guestInvitationId?: string,
   retryAuthorizationChange = true,
+  startupRetriesRemaining = 2,
 ): Promise<CollaborationSessionResponse> {
   signal?.throwIfAborted();
   const authScope = guestInvitationId ? null : openedDocumentAuthScope();
   const authorizationRevision = openedDocumentRequestRevision();
   const guestKey = guestInvitationId ? guestAuthorizationKey(workspaceId, guestInvitationId) : null;
   const guestRevision = guestKey ? guestAuthorizationRevisions.get(guestKey) ?? 0 : 0;
-  const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
-    signal,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
-    body: JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES }),
-  });
-  const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse> & { error?: string };
-  signal?.throwIfAborted();
-  if (authScope && !isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
-  if (!response.ok || payload.success !== true) {
-    if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId, { path }, authScope);
-    throw new Error(payload.error || 'Collaboration could not be started.');
+  const body = JSON.stringify({ path, representation, ...COLLABORATION_CLIENT_CAPABILITIES });
+  for (;;) {
+    const response = await fetchLiveDocument(guestInvitationId ? `${fileGuestApi(guestInvitationId)}/session` : '/api/files/collaboration/session', {
+      signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
+      body,
+    });
+    const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse>
+      & { error?: string; code?: string; retryable?: boolean };
+    signal?.throwIfAborted();
+    if (authScope && !isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
+    if (!response.ok || payload.success !== true) {
+      // Only the server's completed, pre-mutation read boundary may request a
+      // fresh startup attempt. A Busy code alone (including Guest) is insufficient.
+      if (!guestInvitationId && authScope && response.status === 409 && payload.code === 'PRINCIPAL_BUSY'
+        && payload.retryable === true && startupRetriesRemaining > 0
+        && openedDocumentRequestRevision() === authorizationRevision) {
+        startupRetriesRemaining--;
+        await new Promise<void>((resolve, reject) => {
+          const aborted = () => {
+            clearTimeout(timer); signal?.removeEventListener('abort', aborted); reject(signal?.reason);
+          };
+          const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', aborted); resolve();
+          }, (2 - startupRetriesRemaining) * 150);
+          signal?.addEventListener('abort', aborted, { once: true });
+          if (signal?.aborted) aborted();
+        });
+        signal?.throwIfAborted();
+        if (!isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
+        if (openedDocumentRequestRevision() !== authorizationRevision) throw new Error('The document access changed while loading.');
+        continue;
+      }
+      if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId, { path }, authScope);
+      throw new Error(payload.error || 'Collaboration could not be started.');
+    }
+    if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
+    if (authScope && !validateOpenedLiveDocumentSession(workspaceId, path,
+      payload as CollaborationSessionResponse, authScope, authorizationRevision)) {
+      // A concurrent location check can retire the old path while this request
+      // resolves the new one. Require a new authoritative response after that fence.
+      if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false, startupRetriesRemaining);
+      throw new Error('The document access changed while loading.');
+    }
+    if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
+      if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false, startupRetriesRemaining);
+      throw new Error('The guest document access changed while loading.');
+    }
+    if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
+      { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
+    return payload as CollaborationSessionResponse;
   }
-  if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
-  if (authScope && !validateOpenedLiveDocumentSession(workspaceId, path,
-    payload as CollaborationSessionResponse, authScope, authorizationRevision)) {
-    // A concurrent location check can retire the old path while this request
-    // resolves the new one. Require a new authoritative response after that fence.
-    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
-    throw new Error('The document access changed while loading.');
-  }
-  if (guestKey && guestRevision !== (guestAuthorizationRevisions.get(guestKey) ?? 0)) {
-    if (retryAuthorizationChange) return requestSession(path, representation, workspaceId, signal, guestInvitationId, false);
-    throw new Error('The guest document access changed while loading.');
-  }
-  if (guestInvitationId) guestSessionAuthorizations.set(payload as CollaborationSessionResponse,
-    { workspaceId, path, invitationId: guestInvitationId, revision: guestRevision });
-  return payload as CollaborationSessionResponse;
 }
 
 function requireTextSession(
