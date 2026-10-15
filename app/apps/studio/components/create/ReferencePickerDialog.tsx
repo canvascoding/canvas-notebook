@@ -346,6 +346,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceTreeRequestRef = useRef(0);
   const [tab, setTab] = useState<Source>('studio');
   const [search, setSearch] = useState('');
   const [urlInput, setUrlInput] = useState('');
@@ -422,10 +423,12 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
   }, [search, mediaKind, veoGeneratedOnly]);
 
   const loadWorkspaceTree = useCallback(async () => {
+    const requestId = ++workspaceTreeRequestRef.current;
     if (!effectiveReferenceWorkspaceId) {
       setTree([]);
       setExpandedDirs(new Set());
       setTreeError(workspaceT('noWorkspaceAvailable'));
+      setIsTreeLoading(false);
       return;
     }
 
@@ -433,6 +436,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     setTreeError(null);
     try {
       const root = await loadWorkspaceTreeForWorkspace('.', 6, true, 'Failed loading files', effectiveReferenceWorkspaceId);
+      if (requestId !== workspaceTreeRequestRef.current) return;
       setTree(root);
       const initial = new Set<string>();
       const queue: FileNode[] = [...root];
@@ -451,10 +455,11 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       }
       setExpandedDirs(initial);
     } catch (e) {
+      if (requestId !== workspaceTreeRequestRef.current) return;
       setTreeError(e instanceof Error ? e.message : 'Failed loading files');
       setTree([]);
     } finally {
-      setIsTreeLoading(false);
+      if (requestId === workspaceTreeRequestRef.current) setIsTreeLoading(false);
     }
   }, [effectiveReferenceWorkspaceId, workspaceT]);
 

@@ -11,6 +11,7 @@ import { Trash2, Pencil, Plus, Loader2, Expand, AlertCircle } from 'lucide-react
 import { toast } from 'sonner';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
 import { ModelImagePreviewDialog } from './ModelImagePreviewDialog';
+import { downloadStudioReferenceFile } from '../../utils/studio-reference-file';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
 import {
   getActiveStudioWorkspaceId,
@@ -138,13 +139,18 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
 
     setSaving(true);
     try {
-      // Workspace / studio assets -> filePath-Import (schnell, kein doppelter Transfer)
-      const filePathTasks = toAdd.map((path) =>
-        addImageFromFilePath(path).catch((err) => {
-          toast.error(`${t('modelDetail.addImageError')}: ${err.message}`);
+      const filePathTasks = toAdd.map(async (path) => {
+        try {
+          if (path.startsWith('/api/media/')) {
+            return await addImageFromFile(await downloadStudioReferenceFile(path));
+          }
+          return await addImageFromFilePath(path);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Upload failed';
+          toast.error(`${t('modelDetail.addImageError')}: ${message}`);
           return null;
-        })
-      );
+        }
+      });
       await Promise.all(filePathTasks);
       await fetchEntity();
       toast.success(t('modelDetail.imagesAdded'));
@@ -153,7 +159,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     } finally {
       setSaving(false);
     }
-  }, [images.length, addImageFromFilePath, fetchEntity, t]);
+  }, [images.length, addImageFromFile, addImageFromFilePath, fetchEntity, t]);
 
   const handleUploadFiles = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
