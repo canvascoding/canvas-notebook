@@ -25,7 +25,8 @@ test('rich writer plain-click menu and Ctrl/Cmd/Open navigate exact scoped docum
   const privatePath = `private-link-${randomUUID()}.md`;
   const href = '../Targets/A%7CB.md#Section%20A';
   const content = serializeRichMarkdownBody(`[Internal](${href})\n\n[External](https://example.test/link-check)\n\n[Local](#local-heading)\n\n[Private](/${privatePath})\n\n# Local heading\n\nLocal marker.\n`);
-  const destination = serializeRichMarkdownBody(`# Target title\n\n${Array.from({ length: 45 }, (_, n) => `Filler paragraph ${n}.`).join('\n\n')}\n\n## Section A\n\nScoped destination marker.\n`);
+  // Body insertion preserves the pristine target's empty saved EOF profile.
+  const destination = serializeRichMarkdownBody(`# Target title\n\n${Array.from({ length: 45 }, (_, n) => `Filler paragraph ${n}.`).join('\n\n')}\n\n## Section A\n\nScoped destination marker.`);
   await page.addInitScript(id => {
     localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false');
   }, shared.id);
