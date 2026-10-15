@@ -27,6 +27,9 @@ export const NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS = [
     BEGIN
       r:=NEW.receipt_text::jsonb;
       SELECT intent_text::jsonb INTO b FROM collaboration_native_file_operation_intents WHERE operation_id=NEW.operation_id;
+      IF r->'version' IS DISTINCT FROM '1'::jsonb OR b->'version' IS DISTINCT FROM '1'::jsonb THEN
+        RAISE EXCEPTION 'Native file operation version is unavailable' USING ERRCODE='23514';
+      END IF;
       SELECT value INTO m FROM jsonb_array_elements(b->'mutations') WHERE value->>'mutationId'=NEW.mutation_id;
       SELECT * INTO q FROM collaboration_admission_requests WHERE request_id=NEW.request_id;
       SELECT count(*),encode(sha256(convert_to('canvas.native-file-receipt-set.v1'||chr(10)||

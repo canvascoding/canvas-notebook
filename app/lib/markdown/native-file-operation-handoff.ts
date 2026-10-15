@@ -186,6 +186,17 @@ function decodeBundle(text: unknown) {
   } catch { return fail('NATIVE_FILE_INTENT_CONFLICT'); }
 }
 
+function decodeNativeFileOperationReceipt(text: string): NativeFileOperationReceipt {
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); }
+  catch { return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED'); }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+    || !Object.hasOwn(parsed, 'version') || (parsed as Record<string, unknown>).version !== 1) {
+    return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
+  }
+  return parsed as NativeFileOperationReceipt;
+}
+
 /** Caller owns authorization and transaction; this immutable private record is
  * prepared BEFORE reservation. No principal is inferred from supplied fields. */
 export async function stageNativeFileOperationBundleOnConnection(database: SqlConnection, input: NativeFileOperationBundle) {
@@ -386,7 +397,7 @@ export function readAppliedNativeFileOperationReceiptBindingsOnConnection(databa
     assertActive();
     const receipts = rows.map(row => {
       if (typeof row.receipt_text !== 'string' || row.receipt_digest !== hash(row.receipt_text)) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
-      const receipt = JSON.parse(row.receipt_text) as NativeFileOperationReceipt;
+      const receipt = decodeNativeFileOperationReceipt(row.receipt_text);
       return { mutationId: receipt.mutationId, documentId: receipt.source.documentId, lineageId: receipt.lineageId,
         source: receipt.source, after: receipt.after, projection: receipt.projection, receiptDigest: row.receipt_digest as string };
     });
@@ -417,7 +428,7 @@ export async function readCommittedNativeFileOperationReceiptOnConnection(databa
     WHERE operation_id=$1 ORDER BY mutation_id COLLATE "C"`, [input.operationId]) as Row[];
   if (!outcome || receiptSet.length !== bound.bundle.mutations.length || receiptSet.some((entry, index) => entry.mutation_id !== bound.bundle.mutations[index].mutationId)
     || outcome.result.nativeFileReceiptSetProof !== hash('canvas.native-file-receipt-set.v1\n' + receiptSet.map((entry) => `${entry.mutation_id}\t${entry.receipt_digest}`).join('\n'))) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
-  const receipt = JSON.parse(row.receipt_text) as NativeFileOperationReceipt;
+  const receipt = decodeNativeFileOperationReceipt(row.receipt_text);
   const mutation = bound.bundle.mutations.find((candidate) => candidate.mutationId === input.mutationId);
   if (!mutation) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
   const expectedIdentity = { ...mutation.source, path: mutation.destinationPath ?? mutation.source.path,

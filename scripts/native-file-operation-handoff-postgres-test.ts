@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -44,20 +44,54 @@ async function main() {
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'canvas-native-file-handoff-'));
   const previousData = process.env.CANVAS_DATA_ROOT; process.env.CANVAS_DATA_ROOT = temporaryRoot;
   let fault: 'before' | 'after' | 'after-peer' | null = null; let pendingPeer: (() => Promise<void>) | null = null;
+  // Inert outside the explicitly named format counterprobes. Alter the actual
+  // INSERT, never immutable rows, actor authority, admission outcomes or triggers.
+  let receiptFormatFault: { operationId: string; version: unknown; inserted: number;
+    commitAttempts: number; committed: boolean; commitErrorCode: string | null;
+    beforeCommit?: (database: SqlConnection) => Promise<void> } | null = null;
   let discarded = 0;
   const openConnection = async (): Promise<SqlConnection> => {
     const client = new Client({ connectionString, connectionTimeoutMillis: 5000,
       options: `-c search_path=${schema} -c statement_timeout=15000 -c lock_timeout=4000 -c application_name=canvas-native-file-handoff-test` });
-    clients.add(client); await client.connect(); let closed = false; let wrote = false;
-    return {
+    clients.add(client); await client.connect(); let closed = false; let wrote = false; let wroteOperationId: string | null = null;
+    const database: SqlConnection = {
       get: async (sql, values) => (await client.query(sql, values)).rows[0],
       all: async (sql, values) => (await client.query(sql, values)).rows,
       run: async (sql, values) => {
-        if (sql.startsWith('INSERT INTO collaboration_native_file_operation_receipts')) wrote = true;
+        if (sql.startsWith('INSERT INTO collaboration_native_file_operation_receipts')) {
+          wrote = true; assert(values && typeof values[0] === 'string'); wroteOperationId = values[0];
+          if (receiptFormatFault?.operationId === wroteOperationId) {
+            const injected = receiptFormatFault; assert.equal(injected.inserted, 0);
+            assert(typeof values[5] === 'string'); const receipt = JSON.parse(values[5]) as Record<string, unknown>;
+            assert.equal(receipt.version, 1);
+            if (injected.version === undefined) delete receipt.version; else receipt.version = injected.version;
+            const receiptText = JSON.stringify(receipt), parameters = [...values];
+            parameters[5] = receiptText; parameters[6] = createHash('sha256').update(receiptText).digest('hex');
+            const result = await client.query(sql, parameters); injected.inserted++;
+            return { changes: result.rowCount ?? 0 };
+          }
+        }
+        if (sql === 'COMMIT' && wrote && receiptFormatFault?.operationId === wroteOperationId && receiptFormatFault.beforeCommit) {
+          const probe = receiptFormatFault.beforeCommit; delete receiptFormatFault.beforeCommit;
+          // Observe the real completed admission outcome on this same backend,
+          // then roll back. This probes a reader, never COMMIT durability.
+          try { await probe(database); } finally { await client.query('ROLLBACK'); }
+          throw new Error('Owned pre-COMMIT format probe rolled back.');
+        }
         if (sql === 'COMMIT' && wrote && fault) {
           const injected = fault; fault = null;
           await client.query(injected === 'before' ? 'ROLLBACK' : 'COMMIT');
           throw new Error('Injected lost native file COMMIT reply.');
+        }
+        if (sql === 'COMMIT' && wrote && receiptFormatFault?.operationId === wroteOperationId) {
+          const injected = receiptFormatFault; injected.commitAttempts++;
+          try {
+            const result = await client.query(sql, values); injected.committed = true;
+            return { changes: result.rowCount ?? 0 };
+          } catch (error) {
+            injected.commitErrorCode = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
+            throw error;
+          }
         }
         return { changes: (await client.query(sql, values)).rowCount ?? 0 };
       },
@@ -67,6 +101,7 @@ async function main() {
         if (wrote && error && pendingPeer) { const peer = pendingPeer; pendingPeer = null; await peer(); }
       },
     };
+    return database;
   };
   try {
     await control.connect(); const server = (await control.query(`SELECT current_database() AS name,current_setting('server_version_num')::integer AS version,
@@ -402,7 +437,111 @@ async function main() {
     await pool.query('ALTER TABLE collaboration_native_file_operation_receipts ENABLE TRIGGER native_file_receipt_immutable');
     assert.equal(await readReceipt(guarded.bundle, guardedRequest), null);
     const captured = captureNativeFileOperationBundle(one.bundle); assert(Buffer.byteLength(captured.actionPayloadText) < 64 * 1024); assert(!captured.actionPayloadText.includes('inverseRecipes'));
-    assert(discarded >= 3); console.log('Native file Handoff PG18: combined claim, native identity, immutable private receipts, projection pending, rollback/lost COMMIT/peer and negative authorities passed.');
+    assert(discarded >= 3);
+
+    const versions = [{ label: 'v1', value: 1 }, { label: 'missing', value: undefined },
+      { label: 'string-1', value: '1' }, { label: 'future-2', value: 2 }, { label: 'null', value: null }];
+    const versionFailures: string[] = [];
+    const formatCase = async (name: string, check: () => Promise<void>) => {
+      stage = `receipt format: ${name}`;
+      try { await check(); console.log(`Native file format counterprobe passed: ${name}`); }
+      catch (error) {
+        versionFailures.push(name);
+        console.error(`Native file format counterprobe failed: ${name}; ${error instanceof Error ? error.name : 'UnknownError'}`);
+      } finally { receiptFormatFault = null; }
+    };
+    const errorCode = (error: unknown) => error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
+    const formatDomain = (bundle: NativeFileOperationBundle, request: CollaborationAdmissionRequest,
+      afterMutation?: (database: SqlConnection) => Promise<void>) => ({
+      authorize: async (actual: CollaborationAdmissionRequest) => { assert.equal(actual.actorId, bundle.actor.actorId); },
+      prepare: async (database: SqlConnection) => {
+        const binding = await readStagedNativeFileOperationBindingOnConnection(database, { request, operationId: bundle.operationId });
+        assert.equal(binding.executionReady, false); assert.equal(binding.actor.actorSessionId, bundle.actor.actorSessionId);
+      },
+      mutate: async (database: SqlConnection) => {
+        await applyNativeFileOperationMutationOnConnection(database, { workspace, action: bundle.action,
+          operationId: bundle.operationId, mutationId: bundle.mutations[0].mutationId });
+        await afterMutation?.(database);
+        // Deliberately omit readApplied only in isolated DB/committed-reader
+        // counterprobes. The genuine admission code still writes its own outcome
+        // from the proof of the actual inserted receipt rows.
+        return { nativeFileReceiptSetProof: await nativeFileOperationReceiptSetProofOnConnection(database, bundle.action, bundle.operationId) };
+      },
+    });
+    for (const variant of versions) {
+      await formatCase(`applied-reader/${variant.label}`, async () => {
+        const item = await seed(`format-applied-${variant.label}`), request = await requestFor(item.bundle);
+        const injected = { operationId: item.bundle.operationId, version: variant.value, inserted: 0,
+          commitAttempts: 0, committed: false, commitErrorCode: null };
+        receiptFormatFault = injected;
+        let accepted = false, rejection: unknown;
+        const stop = new Error('Owned applied-reader counterprobe always rolls back.');
+        await assert.rejects(handoff.execute(request, formatDomain(item.bundle, request, async database => {
+          try {
+            const result = await readAppliedNativeFileOperationReceiptBindingsOnConnection(database, item.bundle.action, item.bundle.operationId);
+            accepted = true; assert.equal(result.receipts.length, 1);
+          } catch (error) { rejection = error; }
+          throw stop;
+        })), error => error === stop);
+        assert.equal(injected.inserted, 1); assert.equal(injected.commitAttempts, 0);
+        assert.equal(await receiptCount(item.bundle), 0); assert.equal((await current(item.state.documentId)).path, item.state.path);
+        assert.equal(accepted, variant.value === 1);
+        if (variant.value !== 1) assert.equal(errorCode(rejection), 'NATIVE_FILE_RECEIPT_UNCONFIRMED');
+        else assert.equal(rejection, undefined);
+      });
+      await formatCase(`committed-reader-pre-COMMIT/${variant.label}`, async () => {
+        const item = await seed(`format-read-${variant.label}`), request = await requestFor(item.bundle);
+        let accepted = false, rejection: unknown, visited = 0;
+        const injected = { operationId: item.bundle.operationId, version: variant.value, inserted: 0,
+          commitAttempts: 0, committed: false, commitErrorCode: null,
+          beforeCommit: async (database: SqlConnection) => {
+            visited++;
+            const header = await database.get('SELECT status,outcome_text FROM collaboration_admission_requests WHERE request_id=$1', [request.requestId]) as { status: string; outcome_text: string };
+            assert.equal(header.status, 'committed');
+            const outcome = JSON.parse(header.outcome_text) as { result: { nativeFileReceiptSetProof: string } };
+            assert.match(outcome.result.nativeFileReceiptSetProof, /^[a-f0-9]{64}$/u);
+            try {
+              const result = await readCommittedNativeFileOperationReceiptOnConnection(database, { request,
+                operationId: item.bundle.operationId, mutationId: item.bundle.mutations[0].mutationId });
+              assert(result); accepted = true; assert.equal(result.executionReady, false);
+            } catch (error) { rejection = error; }
+          } };
+        receiptFormatFault = injected;
+        await assert.rejects(handoff.execute(request, formatDomain(item.bundle, request)), { code: 'ADMISSION_RECOVERY_REQUIRED' });
+        assert.equal(injected.inserted, 1); assert.equal(visited, 1); assert.equal(injected.commitAttempts, 0);
+        assert.equal(injected.committed, false); assert.equal(await receiptCount(item.bundle), 0);
+        assert.equal((await current(item.state.documentId)).path, item.state.path);
+        assert.equal(accepted, variant.value === 1);
+        if (variant.value !== 1) assert.equal(errorCode(rejection), 'NATIVE_FILE_RECEIPT_UNCONFIRMED');
+        else assert.equal(rejection, undefined);
+      });
+      await formatCase(`deferred-SQL-COMMIT/${variant.label}`, async () => {
+        const item = await seed(`format-sql-${variant.label}`), request = await requestFor(item.bundle);
+        const injected = { operationId: item.bundle.operationId, version: variant.value, inserted: 0,
+          commitAttempts: 0, committed: false, commitErrorCode: null };
+        receiptFormatFault = injected;
+        if (variant.value === 1) await handoff.execute(request, formatDomain(item.bundle, request));
+        else await assert.rejects(handoff.execute(request, formatDomain(item.bundle, request)), { code: 'ADMISSION_RECOVERY_REQUIRED' });
+        assert.equal(injected.inserted, 1); assert.equal(injected.commitAttempts, 1);
+        assert.equal(injected.committed, variant.value === 1);
+        assert.equal(injected.commitErrorCode, variant.value === 1 ? null : '23514');
+        assert.equal(await receiptCount(item.bundle), variant.value === 1 ? 1 : 0);
+        assert.equal((await current(item.state.documentId)).path, variant.value === 1 ? item.bundle.mutations[0].destinationPath : item.state.path);
+      });
+    }
+    for (const variant of versions.filter(entry => entry.value !== 1)) {
+      await formatCase(`bundle-input-and-stage/${variant.label}`, async () => {
+        const invalid = structuredClone(one.bundle) as unknown as Record<string, unknown>;
+        invalid.operationId = randomUUID(); invalid.requestId = randomUUID();
+        if (variant.value === undefined) delete invalid.version; else invalid.version = variant.value;
+        assert.throws(() => captureNativeFileOperationBundle(invalid as unknown as NativeFileOperationBundle), { code: 'NATIVE_FILE_INVALID_INTENT' });
+        await assert.rejects(stageNativeFileOperationBundleOnConnection(connection, invalid as unknown as NativeFileOperationBundle), { code: 'NATIVE_FILE_INVALID_INTENT' });
+        assert.equal(Number((await pool!.query('SELECT count(*) AS n FROM collaboration_native_file_operation_intents WHERE operation_id=$1', [invalid.operationId])).rows[0].n), 0);
+      });
+    }
+    stage = 'native receipt and bundle format counterprobe results';
+    assert.deepEqual(versionFailures, [], 'Every independent format counterprobe must reject unsupported versions and retain numeric v1.');
+    console.log('Native file Handoff PG18: combined claim, native identity, immutable private receipts, projection pending, rollback/lost COMMIT/peer and negative authorities passed.');
   } finally {
     for (const client of clients) await client.end().catch(() => undefined);
     await pool?.end(); if (created) await control.query(`DROP SCHEMA "${schema}" CASCADE`); await control.end();
