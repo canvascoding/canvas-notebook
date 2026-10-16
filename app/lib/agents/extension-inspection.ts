@@ -19,6 +19,8 @@ import { resolveAgentExtensionOptionsContext } from './extension-options-context
 import { readAgentExtensionStandalonePresentation } from './extension-standalone-presentation';
 import type { AgentExtensionStandaloneSummary } from './extension-presentation-contracts';
 import { selectAgentStandaloneExtension } from '@/app/lib/capabilities/extensions/standalone-runtime';
+import { withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import { CapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 
 export type AgentExtensionConfigurationDescriptor = {
   agentId: string; revision: number; workflowRevision: number;
@@ -69,7 +71,17 @@ export async function inspectManagedAgentExtensions(actorInput: AgentManagementA
     return { ...header, configurationState: 'blocked', configuration: null,
       readiness: readiness.map(entry => ({ ...entry, readiness: 'blocked', reason: 'A configured package or connection is no longer available for editing.' })) };
   }
-  const selections: ExtensionSelectionEntry[] = before.bindings.flatMap(binding => {
+  for (const binding of before.bindings) if (binding.coreConfiguration) {
+    try { await withAuthorizedCorePluginSource(actor!, binding.coreConfiguration.entry.selection.coreSource, async () => undefined); }
+    catch (error) {
+      if (!(error instanceof CapabilityPackageError)) throw error;
+      return { ...header, configurationState: 'blocked', configuration: null,
+        readiness: readiness.map(entry => entry.resourceId === binding.resourceId
+          ? { ...entry, readiness: 'blocked', reason: 'The selected built-in plugin source changed. Select its current source again.' } : entry) };
+    }
+  }
+  const selections: ExtensionSelectionEntry[] = before.bindings.flatMap<ExtensionSelectionEntry>(binding => {
+    if (binding.coreConfiguration) return [binding.coreConfiguration.entry];
     const pkg = binding.configuration;
     if (!pkg) return [];
     if (binding.extensionSelections) return binding.extensionSelections;

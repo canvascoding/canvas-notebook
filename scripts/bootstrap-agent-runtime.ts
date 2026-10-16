@@ -6,6 +6,7 @@ import { loadAppEnv } from '../server/load-app-env';
 import { isOnboardingComplete } from '../app/lib/onboarding/status';
 import { parseBootstrapSeedSkillNames } from '../app/lib/skills/default-seed-skills';
 import { parseBootstrapSeedPluginNames } from '../app/lib/plugins/default-seed-plugins';
+import { isCorePluginName } from '../app/lib/plugins/core-plugins';
 
 // Database imports are optional - they may not be available in Docker container
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -881,6 +882,8 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    // Core packages are read from the application bundle, even when explicitly requested as seeds.
+    if (isCorePluginName(entry.name)) continue;
     if (!bootstrapSeedPluginNames.has(entry.name)) {
       skippedNonDefaultCount += 1;
       continue;
@@ -892,6 +895,7 @@ async function ensureSeedPluginsBootstrap(): Promise<void> {
       console.warn(`[bootstrap-agent-runtime] Invalid seed plugin skipped: ${entry.name}.`);
       continue;
     }
+    if (isCorePluginName(manifest.name)) continue;
     const existingPlugin = isRecord(registry.plugins[manifest.name])
       ? registry.plugins[manifest.name] as Record<string, unknown>
       : undefined;

@@ -45,7 +45,7 @@ export async function compileAgentExtensionConfigurationContext(input: AgentExte
     effectiveEnabledTools: settings.enabledTools, extensionMode: presentation.mode === 'fixed' ? 'fixed' : 'legacy_inherit',
     workspacePermissions });
   const workflowProjection = presentation.workflowProjection;
-  if ((presentation.packages.some(pkg => pkg.skills.length > 0)
+  if ((presentation.packages.some(pkg => pkg.skills.length > 0) || presentation.corePackages?.some(pkg => pkg.skills.length > 0)
     || presentation.skills.some(skill => skill.required && !skill.core)) && !registered(registration.manifest, 'read')) {
     throw new AgentWorkflowError('AGENT_EXTENSION_READ_TOOL_REQUIRED',
       'Enable the skill reading tool before assigning these published skills.', 409);

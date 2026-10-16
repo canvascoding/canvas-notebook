@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { agentWorkflowConfigurationSchema, parseAgentWorkflowConfiguration } from '@/app/lib/agents/workflow-public-contracts';
+import { corePluginExtensionSelectionSchema } from './core-source-contracts';
 
 export const EXTENSION_SELECTION_LIMITS = Object.freeze({ turn: 5, agent: 256, sharedConnections: 128, children: 128, tools: 256, choices: 32, definitions: 32, bytes: 1_048_576 });
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
@@ -34,6 +35,7 @@ export const standaloneExtensionSelectionSchema = z.discriminatedUnion('kind', [
 
 /** Exact public identity only. Parsing never grants use or proves current source/actor authority. */
 export const extensionSelectionSchema = z.discriminatedUnion('kind', [
+  corePluginExtensionSelectionSchema,
   z.object({ kind: z.literal('plugin'), package: extensionPackagePinSchema,
     skillSelection: z.discriminatedUnion('kind', [z.object({ kind: z.literal('all') }).strict(),
       z.object({ kind: z.literal('subset'), relativeRoots: uniqueRoots }).strict()]) }).strict(),
@@ -48,7 +50,10 @@ export type ExtensionPackagePin = z.infer<typeof extensionPackagePinSchema>;
 export type StandaloneExtensionSelection = Extract<ExtensionSelection, { kind: 'mcp' | 'composio' }>;
 
 export const extensionSelectionEntrySchema = z.object({ selection: extensionSelectionSchema,
-  requirement: z.enum(['optional', 'required']), toolCap: extensionToolCapSchema }).strict();
+  requirement: z.enum(['optional', 'required']), toolCap: extensionToolCapSchema }).strict().superRefine((entry,context)=>{
+    if(entry.selection.kind==='core_plugin'&&entry.toolCap!==null) context.addIssue({code:'custom',path:['toolCap'],
+      message:'Core plugin instruction selections use a null tool capability field.'});
+  });
 export type ExtensionSelectionEntry = z.infer<typeof extensionSelectionEntrySchema>;
 
 const declarationPath = relativeRoot.refine(value => value.length > 0);
@@ -110,7 +115,7 @@ function checkAccountReceipt(value: { selection: ExtensionSelection; accountSele
   if (needsAccount !== (value.accountSelectionRef !== undefined)) context.addIssue({ code: 'custom', path: ['accountSelectionRef'],
     message: 'An exact personal Composio account requires its current sealed selection receipt; other selections cannot carry one.' });
 }
-export const extensionSelectionInputSchema = extensionSelectionEntrySchema.extend({ accountSelectionRef: accountSelectionRef.optional() }).strict()
+export const extensionSelectionInputSchema = extensionSelectionEntrySchema.safeExtend({ accountSelectionRef: accountSelectionRef.optional() }).strict()
   .superRefine(checkAccountReceipt);
 export type ExtensionSelectionInput = z.infer<typeof extensionSelectionInputSchema>;
 export const standaloneExtensionEntrySchema = z.object({ selection: standaloneExtensionSelectionSchema,
@@ -178,6 +183,7 @@ export type AgentStandaloneConfigurationInput = z.infer<typeof agentStandaloneCo
 /** Names, status, mutable head versions and gateway/provider references are never identity keys. */
 export function extensionSelectionIdentity(selection: ExtensionSelection): string {
   switch (selection.kind) {
+    case 'core_plugin': return JSON.stringify(['core_plugin', selection.coreSource.resourceRef, selection.coreSource.coreRevision, selection.coreSource.checksum]);
     case 'plugin': return JSON.stringify(['plugin', selection.package.resourceRef, selection.package.publishedRevisionRef]);
     case 'skill': return JSON.stringify(['skill', selection.package.resourceRef, selection.package.publishedRevisionRef, selection.relativeRoot]);
     case 'mcp': return JSON.stringify(['mcp', selection.target.kind, selection.target.connectionRef]);
@@ -281,6 +287,7 @@ export const agentExtensionConfigurationInputSchema = z.discriminatedUnion('mode
   }
   value.selections.forEach((entry, index) => {
     const selection = entry.selection;
+    if(selection.kind==='core_plugin') return;
     if (selection.kind !== 'plugin' && selection.kind !== 'skill') {
       context.addIssue({ code: 'custom', path: ['selections', index], message: 'Configure standalone connections in their explicit fixed/selectable slots.' }); return;
     }

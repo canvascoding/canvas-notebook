@@ -107,7 +107,8 @@ async function main() {
     const childUnbound = effective.readEffectiveExtensionContext(await compile(childOnly))!;
     assert.equal(childUnbound.workflowProjection?.unavailable, true, 'An individually selected optional child preserves required parent connections.');
     assert.deepEqual(childUnbound.workflowProjection.policy.providerToolRules, []);
-    assert.equal(childUnbound.skills.filter(skill => !skill.core).length, 1);
+    assert.equal(childUnbound.skills.filter(skill => skill.package?.resourceRef === pin.resourceRef).length, 1,
+      'Exactly the selected business-package child is attached; a separately verified Core dependency is not another child of that package.');
     const linkedChild = { ...childOnly, packageConnections: input(a).packageConnections };
     const childLinked = effective.readEffectiveExtensionContext(await compile(linkedChild))!;
     assert.equal(childLinked.workflowProjection?.unavailable, false);

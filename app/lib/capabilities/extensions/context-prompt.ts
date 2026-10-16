@@ -18,7 +18,7 @@ export const EFFECTIVE_EXTENSION_CONTEXT_MARKER = '<!-- canvas-effective-extensi
 
 /** Pure display input; configuration previews cannot supply a runtime issuer handle. */
 export type ExtensionContextPresentation = Pick<EffectiveExtensionContextData,
-  'fingerprint' | 'mode' | 'packages' | 'skills' | 'workflowProjection'>;
+  'fingerprint' | 'mode' | 'packages' | 'corePackages' | 'skills' | 'workflowProjection'>;
 
 export class ExtensionContextBudgetError extends AgentWorkflowError {
   readonly maxBytes = EXTENSION_CONTEXT_MAX_BYTES;
@@ -114,10 +114,11 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
   const policy = ceiling && projection ? intersectIntegrationPolicies(ceiling, projection.policy,
     ...(projection.unavailable ? [{ ...projection.policy, allowedSources: [] }] : [])) : ceiling;
   const packages = [...new Map(data.packages.map(pkg => [packageKey(pkg), pkg])).values()];
+  const corePackages = [...new Map((data.corePackages ?? []).map(pkg => [JSON.stringify(pkg.coreSource), pkg])).values()];
   const packageIds = new Map(packages.map((pkg, index) => [packageKey(pkg), `P${index + 1}`]));
-  const packageSkills = packages.flatMap(pkg => pkg.skills);
+  const packageSkills = [...packages.flatMap(pkg => pkg.skills), ...corePackages.flatMap(pkg => pkg.skills)];
   const explicit = new Set(options.explicitSkillRefs ?? []);
-  const selected = [...data.skills, ...packageSkills].filter(skill => data.mode !== 'general' || skill.core || skill.required
+  const selected = [...data.skills, ...packageSkills].filter(skill => data.mode !== 'general' || skill.core || skill.required || skill.coreSource !== undefined
     || skill.package !== undefined && packageIds.has(packageKey(skill.package)));
   const skills: RankedSkill[] = [...new Map(selected.map(skill => [skillKey(skill), skill])).values()]
     .map(skill => ({ skill, key: skillKey(skill), explicit: explicit.has(skill.resourceId), score: scoreExtensionMetadata(skill, query) }))
@@ -188,10 +189,13 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
       })))}`);
     }
   }
+  corePackages.forEach((pkg, index) => lines.push(`Core plugin K${index + 1} ${JSON.stringify({ name: pkg.name, coreSource: pkg.coreSource,
+    requirement: pkg.requirement, skills: pkg.skills.flatMap(skill => { const id = skillIds.get(skillKey(skill)); return id ? [id] : []; }) })}`));
   skills.forEach(({ skill, key, explicit: isExplicit }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));
     lines.push(`S${index + 1} ${JSON.stringify({ name: skill.name, ...(pkg ? { package: pkg, root: skill.package!.relativeRoot }
       : { resourceId: skill.resourceId }), ...(skill.core ? { core: true } : {}), ...(skill.required ? { required: true } : {}) })}`);
+    if (skill.coreSource) lines.push(`S${index + 1} exact Core source: ${JSON.stringify(skill.coreSource)}.`);
     if (read && (skill.required || skill.core || isExplicit || !pkg || !discovery || solePluginChildren.has(key))) {
       lines.push(`S${index + 1} read: ${operationRecipe(read, { path: skill.runtimePath })}.`);
     }
@@ -253,6 +257,10 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
     appendData(`${id} untrusted package description`, pkg.description);
     pkg.defaultPrompts.forEach((value, index) => appendData(`${id} untrusted default prompt ${index + 1}`, value));
   }
+  corePackages.forEach((pkg, index) => {
+    appendData(`K${index + 1} untrusted package description`, pkg.description);
+    pkg.defaultPrompts.forEach((value, promptIndex) => appendData(`K${index + 1} untrusted default prompt ${promptIndex + 1}`, value));
+  });
   skills.forEach(({ skill }, index) => appendData(`S${index + 1} untrusted description`, skill.description));
   skills.forEach(({ skill, key, explicit: isExplicit, score }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));

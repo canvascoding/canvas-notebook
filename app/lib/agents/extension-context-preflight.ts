@@ -61,7 +61,7 @@ export async function assertManagedAgentExtensionContextOnConnection(input: {
   const compiled = await compileAgentExtensionConfigurationContext({ actorUserId: actor.userId, runtimeFields: snapshot.agent,
     workspacePermissions: verified.workspacePermissions ? { canWrite: verified.workspacePermissions.canWrite,
       canDelete: verified.workspacePermissions.canDelete, canShare: verified.workspacePermissions.canCreatePublicLinks } : null,
-    presentation: { fingerprint: sourceFingerprint, mode: 'fixed', packages: packageContext.packages,
+    presentation: { fingerprint: sourceFingerprint, mode: 'fixed', packages: packageContext.packages, corePackages: packageContext.corePackages,
       skills: packageContext.skills, workflowProjection }, requiredProviders });
   return Object.freeze({ fingerprint: compiled.fingerprint, budget: compiled.rendered.budget,
     runtimeReadiness: 'not_checked', providerHealth: 'unknown' });

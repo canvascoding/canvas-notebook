@@ -24,6 +24,7 @@ import { authority, validateTarget, lockOwnership, lockCapabilityScopeWorkspaceA
 import { projectCapabilityPluginChildAccess } from './child-access';
 import { CapabilityPackageError, type AuthorizedCapabilityPackageResource, type CapabilityPackageExpectedResourceRevisions,
   type CapabilityPackageOperation } from '../packages/contracts';
+import { corePluginDisplayName, isProtectedCoreCapabilityName } from '@/app/lib/plugins/core-plugins';
 
 const NO_ACCESS: CapabilityResourceAccess = { canRead: false, canUse: false, canEdit: false, canManage: false };
 const OWN_ACCESS: CapabilityResourceAccess = { canRead: true, canUse: true, canEdit: true, canManage: true };
@@ -79,7 +80,8 @@ function storageKey(binding: CapabilityResourceStorageBinding): string {
     binding.sourceType, binding.organizationId, binding.ownerUserId, binding.sourcePluginId])).digest('hex');
 }
 function readOnly(binding: CapabilityResourceStorageBinding): boolean {
-  return binding.scopeType === 'system' || binding.sourceType === 'core' || binding.resourceType === 'skill' && binding.sourceType === 'plugin';
+  return binding.scopeType === 'system' || binding.sourceType === 'core' || binding.resourceType === 'skill' && binding.sourceType === 'plugin'
+    || isProtectedCoreCapabilityName(binding.resourceType, binding.name);
 }
 function ownershipSnapshot(value: unknown): CapabilityResourceOwnerScope {
   const type = (value as Row | null)?.type;
@@ -160,7 +162,9 @@ function baseline(storage: CapabilityResourceStorageBinding): CapabilityResource
   return { resourceRef: storage.resourceId, legacyResourceId: storage.resourceId, resourceType: storage.resourceType, sourceType: storage.sourceType,
     sourcePluginId: storage.sourcePluginId, ownership: storage.scopeType === 'user' ? { type: 'user', ownerUserId: storage.ownerUserId!, organizationId: null }
       : storage.scopeType === 'organization' ? { type: 'organization', organizationId: storage.organizationId! } : { type: 'system' },
-    displayName: null, description: null, responsibleUserId: null, createdByUserId: null, updatedByUserId: null,
+    displayName: storage.resourceType === 'plugin' && storage.sourceType === 'core' && storage.scopeType === 'system'
+      ? corePluginDisplayName(storage.name) : null,
+    description: null, responsibleUserId: null, createdByUserId: null, updatedByUserId: null,
     metadataRevision: 0, grantsRevision: 0, accessMode: 'inherit', status: 'active', createdAt: null, updatedAt: null };
 }
 async function connection<T>(operation: (database: SqlConnection) => Promise<T>, transaction = false): Promise<T> {
@@ -493,6 +497,9 @@ export async function withAuthorizedCapabilityPackageTarget<T>(
   options: {database?:SqlConnection} = {},
 ): Promise<T> {
   const actor = actorSnapshot(actorInput), storage = storageSnapshot(storageInput), ownership = ownershipSnapshot(ownershipInput);
+  if (isProtectedCoreCapabilityName(storage.resourceType, storage.name)) {
+    throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT', 'This package name belongs to a built-in Canvas capability.', 409);
+  }
   if (readOnly(storage) || storage.sourceType !== 'standalone' || ownership.type === 'system'
     || (storage.scopeType === 'user' ? ownership.type !== 'user' || ownership.ownerUserId !== storage.ownerUserId || ownership.ownerUserId !== actor.userId
       : !['organization', 'team'].includes(ownership.type) || orgOf(ownership) !== storage.organizationId)) {

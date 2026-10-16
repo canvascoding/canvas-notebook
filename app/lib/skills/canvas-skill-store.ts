@@ -31,6 +31,7 @@ import {
   type CanvasSkillInterface,
 } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { loadCoreSkillByName } from '@/app/lib/skills/core-skill-loader';
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
@@ -920,7 +921,7 @@ async function ensureStandaloneSkillInstallAllowed(
   replace: boolean,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<void> {
-  if (isCoreSkillName(skillName)) {
+  if (isProtectedCoreSkillName(skillName)) {
     throw new Error(coreSkillInstallError(skillName));
   }
 

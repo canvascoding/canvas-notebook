@@ -10,6 +10,7 @@ import {
 } from '@/app/lib/capabilities/packages/runtime-bindings';
 import { runtimeExtensionSearchInputSchema } from './discovery-contracts';
 import { scoreExtensionMetadata } from './relevance';
+import { corePluginResourceId } from '@/app/lib/plugins/core-plugins';
 
 /** Fresh local metadata only. No provider health/account probe or durable assignment occurs here. */
 export async function searchRuntimeExtensions(contextInput: AgentExecutionContext, value: unknown) {
@@ -31,7 +32,12 @@ export async function searchRuntimeExtensions(contextInput: AgentExecutionContex
   ].map(entry => ({ entry, score: scoreExtensionMetadata(entry, input.query) })).filter(item => item.score > 0)
     .sort((left, right) => right.score - left.score || left.entry.name.localeCompare(right.entry.name)
       || left.entry.id.localeCompare(right.entry.id));
+  const page = entries.slice(0, input.limit).map(item => item.entry);
+  const coreCreatorVisible = input.query.toLocaleLowerCase('en-US') !== 'create-plugin'
+    && page.some(entry => entry.kind === 'plugin' && entry.id === corePluginResourceId('plugin-creator'));
+  const items = page.filter(entry => !coreCreatorVisible || entry.kind !== 'skill'
+    || entry.id !== 'canvas-capability:v1:skill:system:core:create-plugin');
   return { version: 1, query: input.query, selectionFingerprint: selection.fingerprint,
-    items: entries.slice(0, input.limit).map(item => item.entry), hasMore: entries.length > input.limit,
+    items, hasMore: entries.length > input.limit,
     guidance: 'These are currently permitted installed metadata results, not new grants or executable tool recipes. If your effective tools include a permitted read route, read the exact skillPath before using a skill. Otherwise skill reading is unavailable. Use an explicit plugin selection to request its package context. Provider accounts and tool schemas were not inspected.' };
 }

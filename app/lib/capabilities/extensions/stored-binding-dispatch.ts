@@ -4,11 +4,13 @@ import { EXTENSION_SELECTION_LIMITS } from './contracts';
 import { parseStoredStandaloneExtensionBinding, type StoredStandaloneExtensionBinding } from './stored-contracts';
 import { parseStoredPackageExtensionBinding, type StoredPackageExtensionSelectionEntry } from './stored-package-contracts';
 import { createStandaloneExtensionSlotRef } from './standalone-reference';
+import { parseStoredCorePluginExtensionBinding, type StoredCorePluginExtensionBinding } from './stored-core-contracts';
 
 export type DecodedAgentExtensionBinding = {
   configuration: StoredAgentWorkflowPackage | null;
   extensionSelections?: StoredPackageExtensionSelectionEntry[];
   standaloneConfiguration?: StoredStandaloneExtensionBinding;
+  coreConfiguration?: StoredCorePluginExtensionBinding;
   /** Aggregate format, independent of the nested V1 package/connection codec. */
   extensionFormatVersion: 1 | 2 | null;
 };
@@ -25,6 +27,10 @@ export function decodeStoredAgentExtensionBinding(resourceType: unknown, encoded
   let value: unknown;
   try { value = JSON.parse(encoded); } catch { return corrupt(); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return corrupt();
+  if (Reflect.get(value, 'kind') === 'core_plugin') {
+    if (resourceType !== 'plugin') return corrupt();
+    return { configuration: null, coreConfiguration: parseStoredCorePluginExtensionBinding(value), extensionFormatVersion: 2 };
+  }
   if (resourceType === 'connection') {
     const standaloneConfiguration = parseStoredStandaloneExtensionBinding(value);
     return { configuration: null, standaloneConfiguration, extensionFormatVersion: 2 };
@@ -60,6 +66,10 @@ export function assertStoredAgentExtensionBindingsMatchHeader(version: AgentWork
         const slot = createStandaloneExtensionSlotRef({ configurationId: standalone.configurationId, source, ...(toolkit ? { toolkit } : {}) });
         if (binding.resourceId !== slot || slots.has(standalone.configurationId)) return corrupt();
         slots.add(standalone.configurationId);
+      } else if (binding.coreConfiguration) {
+        const source = binding.coreConfiguration.entry.selection.coreSource;
+        if (binding.resourceType !== 'plugin' || binding.resourceId !== source.resourceRef || packageRefs.has(source.resourceRef)) return corrupt();
+        packageRefs.add(source.resourceRef);
       } else if (!binding.configuration || !binding.extensionSelections) return corrupt();
     } else return corrupt();
     if (binding.configuration) {

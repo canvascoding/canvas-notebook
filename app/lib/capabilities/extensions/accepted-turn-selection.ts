@@ -26,6 +26,7 @@ import {
   withRevalidatedStandaloneTurnSelectionOnConnection,
   type PreparedStandaloneExtensionSelection,
 } from './standalone-preparation';
+import { withAuthorizedCorePluginSource } from './core-source';
 
 type FixedBinding = Extract<StoredStandaloneExtensionBinding, { mode: 'fixed' }>;
 const fixedBindingSchema = storedStandaloneExtensionBindingSchema.transform((binding, context): FixedBinding => {
@@ -133,6 +134,10 @@ export async function prepareAcceptedTurnExtensionSelection(contextInput: AgentE
   // Recheck the complete batch after preparation; an earlier source may have
   // changed while a later explicit account receipt was being consumed.
   for (const proof of prepared) await revalidatePreparedStandaloneExtensionSelection(proof, actor);
+  for(const entry of input.selections) if(entry.selection.kind==='core_plugin') {
+    if(entry.toolCap!==null) throw new AgentWorkflowError('AGENT_TURN_SELECTION_INVALID','Core instruction selections require a null tool capability field.',400);
+    await withAuthorizedCorePluginSource(actor,entry.selection.coreSource,async()=>undefined);
+  }
   if (actorKey(contextInput) !== namespace) {
     throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The agent turn changed during selection acceptance.', 403);
   }
@@ -202,7 +207,14 @@ export async function withRevalidatedAcceptedTurnExtensionSelectionOnConnection<
   const hold = async (index: number): Promise<T> => {
     readAcceptedTurnExtensionSelection(handle, context);
     if (index === sources.length) {
-      const result = await callback(data);
+      const core=data.publicSelection.selections.filter(entry=>entry.selection.kind==='core_plugin');
+      const holdCore=async(coreIndex:number):Promise<T>=>{
+        const entry=core[coreIndex];
+        if(!entry)return callback(data);
+        if(entry.selection.kind!=='core_plugin') throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED','The Core source changed.',403);
+        return withAuthorizedCorePluginSource(actor,entry.selection.coreSource,()=>holdCore(coreIndex+1),{database});
+      };
+      const result = await holdCore(0);
       await verifyActor();
       readAcceptedTurnExtensionSelection(handle, context);
       return result;

@@ -11,7 +11,9 @@ import { resolveCapabilityExecutionContextForUser } from '@/app/lib/capabilities
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { getEffectiveSkillReadRoots } from './effective-skill-read-roots';
-import { getAuthorizedAgentWorkflowPackageSelections, revalidateCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { getAuthorizedAgentWorkflowPackageSelections, getAuthorizedCorePluginSkillRuntimeBindings,
+  revalidateCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { corePluginDependencyParent } from '@/app/lib/capabilities/packages/core-runtime-selection';
 
 /** Revalidate server-issued roots without discovering providers or granting new paths. */
 export async function resolveFreshAgentSkillReadRoots(executionContext: AgentExecutionContext): Promise<string[]> {
@@ -48,9 +50,13 @@ export async function resolveFreshAgentSkillReadRoots(executionContext: AgentExe
   const current = new Set(getEffectiveSkillReadRoots({ snapshot: legacySnapshot, agentId, relevantSkills: profile?.relevantSkills })
     .map(root => path.resolve(root)));
   const bindings = await revalidateCapabilityPackageRuntimeBindings(captured, snapshot, profile?.relevantSkills);
+  const coreBindings = await getAuthorizedCorePluginSkillRuntimeBindings(captured, { selection: workflow });
+  const coreRoots = new Set(coreBindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
+  const coreDependencyRoots = new Set(snapshot.capabilities.filter(candidate => candidate.runtimePath
+    && corePluginDependencyParent(candidate, snapshot.capabilities)).map(candidate => path.dirname(path.resolve(candidate.runtimePath!))));
   const declaredManagedRoots = new Set((captured.skillPackageBindings ?? []).map(binding => path.dirname(path.resolve(binding.runtimePath))));
   const managedRoots = new Set(bindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
-  return approved.filter(root => managedRoots.has(root) || (!declaredManagedRoots.has(root)
+  return approved.filter(root => coreRoots.has(root) || managedRoots.has(root) || (!coreDependencyRoots.has(root) && !declaredManagedRoots.has(root)
     && !root.split(path.sep).join('/').includes('/capability-packages/published/') && current.has(root)));
 }
 

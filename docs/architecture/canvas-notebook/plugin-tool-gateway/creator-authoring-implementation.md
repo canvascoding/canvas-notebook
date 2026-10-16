@@ -8,7 +8,7 @@ Grundlage ist der [bestätigte Org-Creator-Plan](creator-authoring-marketplace-p
 | --- | --- | --- |
 | P1 Neuanlage und Wiederaufnahme | Backend-/API-Grundlage abgeschlossen | Sourcefreier Org-Create, aktorprivate Liste/Status, dauerhafte Operationsbelege; native PostgreSQL-, API-, Gateway- und Regressionsprüfungen bestanden. Erstellungsoberfläche und Chat-E2E folgen P5/P7. |
 | P2 Vollständige Skill-/Integrationskomposition | Backend-/API-Grundlage abgeschlossen | Vollständige gemeinsame Komposition, private Quellen, explizite Legacyimporte und Gateway; erweiterte native PostgreSQL-, Parallelitäts- und Paketregressionen bestanden. |
-| P3 Creator und SVG-Teilskill | Offen | Noch keine Abnahme. |
+| P3 Creator und SVG-Teilskill | Implementierung und Serverpfade abgeschlossen | Geschütztes Core-Plugin, eigenständiger Skill Creator, vollständiger SVG-Teilskill, genaue Chat-/Agentreferenzen und negative Rechte-/Mutationstests bestanden. Natürlicher Modellauftrag und sichtbare Grafik bleiben Teil von P7. |
 | P4 Schema-/Paket-/SVG-Validierung | Offen | Noch keine Abnahme. |
 | P5 Oberfläche | Offen | Noch keine Abnahme. |
 | P6 Org-Bereitstellung und Laufzeit | Offen | Noch keine Abnahme. |
@@ -75,3 +75,21 @@ Abgeschlossene Prüfungen:
 - Produkt-TypeScript, fokussierte geänderte TypeScript-Abhängigkeiten und ESLint bestehen. Die in P1 belegten unabhängigen alten Scriptdiagnosen werden dadurch nicht als behoben ausgegeben.
 
 P2 weist die Backend-/API-Komposition nach. Creatorinhalt, Oberfläche und vollständige UI-/Agentabnahme bleiben P3–P7.
+
+## P3: Geschützter Creator mit gezieltem Kontext
+
+Plugin Creator ist ein tatsächliches geschütztes Systemplugin. Seine Identität und zusammengesetzte Checksumme kommen aus den vollständigen gebündelten Dateien und den referenzierten Core-Skill-Dateien. Es gibt dafür keine erfundene SQL-Veröffentlichung. Die bestehende `create-plugin`-Skill-ID und der eigenständige Skill Creator bleiben erhalten. Die Suche vermeidet doppelte Creator-Treffer, erhält aber gezielte alte Skillreferenzen. Installation, Ersetzung, Editieren, Deaktivieren und Löschen sind auch auf den direkten Serverwegen gesperrt.
+
+Beide Creator-Anleitungen verwenden dieselben aktuellen Gateway-, Entwurfs-, Datei-, Kompositions-, Validierungs- und Publishdienste. Externe Claude-CLI-Evaluation liegt separat und wird im normalen Canvas-Ablauf nicht verlangt. Der vollständige kleine `plugin-visual`-Teilskill liegt im Pluginpaket; er beschreibt Zweckdarstellung, passive SVGs, Zugänglichkeit und ehrliche Sichtprüfung. Die Anleitung verweist auf seine präzisen autorisierten Lesepfade. Eine alte direkte Creator-Skillreferenz erhält dieselbe begrenzte Lesedependenz.
+
+Die neue Core-Auswahl wird separat von unveränderlichen SQL-Paketpins gespeichert. Chatannahme, fest konfigurierte Agenten, Kontextvorschau und tatsächliche Leserechte prüfen die aktuelle Core-Quelle und ihre vollständige Checksumme. Präsentationsmetadaten oder kopierte JSON-Objekte erteilen keine Dateileserechte. Ein Core-Creator allein öffnet keine Provider-Tools; ein fest konfigurierter Agent ohne diesen Creator darf ihn nicht durch eine zusätzliche Turnreferenz einschleusen.
+
+Abgeschlossene Prüfungen:
+
+- `core-creator-plugin-test.ts`: tatsächlicher Katalog, SQL, Options, Gateway, gespeicherte Agentenkonfiguration, Chatannahme, Kontext und geschützte Dateireads; Altidentitäten, Core-Mutationsschutz, veraltete Checksummen, kopierte Metadaten sowie zusätzliche Auswahl außerhalb eines festen Agenten werden geprüft. Tatsächliche Toolregistrierung und Policy-Evaluator schließen Providerrechte aus. Kein Netzwerk-/Provideraufruf.
+- Bestehende Core-Skill-, exakte Paket-Runtime-, Delegations-, gespeicherte Vertrags-, Agentenkonfigurations-, Kontextmetadaten- und Preflight-Prüfungen bestehen. Budgets, Rückrollen und Rechteentzug bleiben erhalten. Der neue Einstieg `npm run test:plugins:creator` registriert die Core-Creator-Regression.
+- Die tatsächlichen Canvas-Skillparser und passiven Bildleser akzeptieren alle drei Creator-Skills und SVGs. Das Manifestbeispiel aus der Creator-Referenz besteht die vollständige Paketvalidierung mit beiden Integrationsanforderungen. Der externe OpenAI-Quickvalidator wurde wegen fehlendem PyYAML nicht als bestanden gewertet.
+- Produkt-TypeScript, fokussierter TypeScript-Lauf und ESLint aller geänderten TypeScript-Dateien bestehen. Die belegten älteren Scriptdiagnosen bleiben außerhalb dieses Nachweises.
+- Unabhängige Quellprüfung findet keinen weiteren konkreten Blocker in Core-Identität, Quellen-/Lockreihenfolge, Mutationsschutz oder Auswahlgrenzen.
+
+Die natürliche Erzeugung eines neuen Plugins durch ein Modell, dessen Zweckgrafik und der sichtbare gesamte Erstellungsweg werden erst in P7 abgenommen. P3 behauptet dafür noch keinen UI-/E2E-Erfolg.

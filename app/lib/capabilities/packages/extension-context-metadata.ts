@@ -7,11 +7,13 @@ import type { CapabilityResourceAccess, CapabilityResourceMetadata } from '@/app
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { CapabilityPackagePublishedRevision } from './contracts';
 import type { PackageExtensionSourceMetadata } from './extension-metadata';
+import { includeCorePluginSkillDependencies } from './core-runtime-selection';
 
 /** Presentation only: these values never issue a read root, binding or execution grant. */
 export type ExtensionSkillMetadata = Readonly<{
   resourceId: string; name: string; title: string; description: string; runtimePath: string;
   core: boolean; required: boolean; origin: CapabilityCandidate['ref']['sourceType'];
+  coreSource?: Readonly<{ resourceId: string; checksum: string; parentResourceId: string; parentChecksum: string }>;
   package?: Readonly<{ resourceRef: string; publishedRevisionRef: string; checksum: string; kind: 'plugin' | 'skill'; relativeRoot: string }>;
 }>;
 export type ExtensionPackageMetadata = Readonly<{
@@ -136,5 +138,6 @@ export function selectExtensionRuntimeSkillCandidates(input: ExtensionRuntimeSki
       || requiredNames.has(candidate.ref.name) || relevant.has(candidate.ref.name));
   const selected = input.workflowVersion === null ? base : base.filter(candidate => candidate.ref.sourceType === 'core'
     || effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required');
-  return [...new Map([...selected, ...input.packageSkills].map(candidate => [candidate.ref.resourceId, candidate])).values()];
+  return includeCorePluginSkillDependencies(effective.capabilities,
+    [...new Map([...selected, ...input.packageSkills].map(candidate => [candidate.ref.resourceId, candidate])).values()]);
 }

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="creator-title creator-desc">
+  <title id="creator-title">Plugin Creator</title>
+  <desc id="creator-desc">Reusable skill cards and a connection join into one plugin package, with a pencil for authoring.</desc>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#E8F3EC"/>
+  <rect x="36" y="48" width="64" height="54" rx="12" fill="#17614B"/>
+  <path d="M52 65h31M52 78h23" fill="none" stroke="#F3FAF5" stroke-width="6" stroke-linecap="round"/>
+  <rect x="36" y="120" width="64" height="54" rx="12" fill="#A3CFB2"/>
+  <circle cx="54" cy="147" r="7" fill="#17614B"/>
+  <circle cx="82" cy="147" r="7" fill="#17614B"/>
+  <path d="M61 147h14M100 75h19l17 28M100 147h20l16-20" fill="none" stroke="#17614B" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m136 91 41-23 42 23v65l-42 24-41-24Z" fill="#F8FCF9" stroke="#17614B" stroke-width="6" stroke-linejoin="round"/>
+  <path d="m136 91 41 24 42-24M177 115v65" fill="none" stroke="#17614B" stroke-width="6" stroke-linejoin="round"/>
+  <path d="m105 207 9-27 56-56 18 18-56 56Z" fill="#F5BE64" stroke="#6B4318" stroke-width="5" stroke-linejoin="round"/>
+  <path d="m114 180 18 18M158 136l18 18" fill="none" stroke="#6B4318" stroke-width="5"/>
+</svg>

@@ -32,6 +32,8 @@ import {
 import { resolvePluginConnectionReadiness } from '@/app/lib/plugins/plugin-connection-readiness';
 import { readCanvasSkillRegistry } from '@/app/lib/skills/canvas-skill-store';
 import { loadCoreSkills } from '@/app/lib/skills/core-skill-loader';
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { corePluginResourceId, isCorePluginName } from '@/app/lib/plugins/core-plugins';
 import {
   DISABLED_ALL_SKILLS_SENTINEL,
   normalizeEnabledSkillsConfig,
@@ -171,6 +173,8 @@ async function pluginCandidate(
   database?: SqlConnection,
 ): Promise<CapabilityCandidate> {
   const refScope = capabilityScopeType(plugin.scopeType, scopeType);
+  const core = plugin.core === true && plugin.sourceType === 'core' && refScope === 'system'
+    && isCorePluginName(plugin.name) && plugin.resourceId === corePluginResourceId(plugin.name);
   const ref = createCapabilityReference({
     resourceType: 'plugin',
     scopeType: refScope,
@@ -179,7 +183,7 @@ async function pluginCandidate(
     version: plugin.version,
     revision: plugin.revision || 1,
     checksum: plugin.checksum,
-    sourceType: 'standalone',
+    sourceType: core ? 'core' : 'standalone',
     organizationId: refScope === 'organization' ? context.organizationId : null,
     ownerUserId: refScope === 'user' ? context.userId : null,
     sourcePluginId: null,
@@ -230,6 +234,8 @@ async function pluginSkillCandidates(
   const candidates: CapabilityCandidate[] = [];
   const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified, database);
   for (const record of plugin.skills) {
+    // Membership does not create a second identity for an existing public Core skill.
+    if (plugin.core && record.sourceType === 'seed' && isCoreSkillName(record.name)) continue;
     const skillPath = record.path || path.join(record.directory, 'SKILL.md');
     const skill = parent.runtimePath ? await parseSkillFile(skillPath, {
       validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath),
@@ -252,8 +258,8 @@ async function pluginSkillCandidates(
         sourcePluginName: plugin.name,
       }),
       description: skill?.description || record.description,
-      enabled: Boolean(skill) && plugin.enabled && enabledSkillNames.has(name),
-      userPreference: includeUserPreference
+      enabled: Boolean(skill) && plugin.enabled && (plugin.core === true || enabledSkillNames.has(name)),
+      userPreference: includeUserPreference && !plugin.core
         ? skillUserPreference(name, enabledSkillsConfig)
         : 'unset',
       runtimePath: skill?.path ?? null,

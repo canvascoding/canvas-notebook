@@ -22,6 +22,7 @@ import { readExactPackageInventory, resolveOwnerScopedPackageVersionPath, verify
 import { CapabilityPackageError, isCapabilityPackageError, type CapabilityPackageSourceStamp, type CapabilityPackageValidation,
   type CapabilityPackagePrivateLocation, type CapabilityPackagePreparedSnapshot, type AuthorizedCapabilityPackageResource } from './contracts';
 import { deriveCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
+import { isProtectedCoreCapabilityName, isCorePluginChildSkillName } from '@/app/lib/plugins/core-plugins';
 
 export type ResolvedCapabilityPackageArtifact = {
   descriptor: CapabilityResourceDescriptor;
@@ -120,7 +121,9 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
     for (const reference of [...sourceManifest.skillRefs].sort((left, right) => left.name.localeCompare(right.name))) {
       if (reference.source && reference.source !== 'seed') invalid('The plugin contains an unsupported external skill reference.');
       const dependency = resolved.candidates.find(value => value.ref.resourceType === 'skill' && value.ref.sourceType === 'plugin'
-        && value.ref.sourcePluginId === candidate.ref.resourceId && value.ref.name === reference.name);
+        && value.ref.sourcePluginId === candidate.ref.resourceId && value.ref.name === reference.name)
+        ?? (pluginResult?.plugin.core ? resolved.candidates.find(value => value.ref.resourceType === 'skill'
+          && value.ref.scopeType === 'system' && value.ref.sourceType === 'core' && value.ref.name === reference.name) : undefined);
       const seedRoot = requirePathInside(path.join(process.cwd(), 'seed_skills'), reference.name);
       if (!dependency?.runtimePath || path.resolve(dependency.runtimePath) !== path.join(seedRoot, 'SKILL.md')) invalid('The referenced skill source is unavailable.');
       await assertReadableCapabilityCandidate(actor, dependency, resolved.candidates);
@@ -277,7 +280,7 @@ export function capabilityPackageLegacyStorageBinding(kind: CapabilityResourceTy
       organizationId: storage.organizationId, ownerUserId: storage.userId }) };
 }
 
-type RegistryPackagePointer = { version: string; checksum: string; installDir: string; resourceId?: string;
+type RegistryPackagePointer = { version: string; checksum: string; installDir: string; resourceId?: string; skills?: readonly {name:string}[];
   packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string; enabled?: boolean; packageDefaultEnabled?: boolean; storeOrigin?: CapabilityStoreOrigin };
 
 export async function assertCapabilityPackageRegistryPointerCurrent(kind: CapabilityResourceType,
@@ -307,6 +310,7 @@ export async function assertCapabilityPackageRegistryPointerCurrent(kind: Capabi
 
 export async function assertLegacyCapabilityPackageMutationAllowed(kind: CapabilityResourceType, name: string,
   scope?: CapabilityDataStorageScope | null, current?: RegistryPackagePointer): Promise<void> {
+  if(isProtectedCoreCapabilityName(kind,name)) throw new CapabilityPackageError('PACKAGE_READ_ONLY','Built-in Canvas capabilities cannot be changed through package or legacy installers.',403);
   if (!current?.packageManaged && !current?.packageResourceRef && !current?.publishedRevisionRef) return;
   const binding = capabilityPackageLegacyStorageBinding(kind, name, scope);
   const store = await import('./store');
@@ -321,6 +325,10 @@ export async function assertCapabilityPackageRegistryWriteAllowed(kind: Capabili
   scope?: CapabilityDataStorageScope | null): Promise<void> {
   for (const name of new Set([...Object.keys(previous), ...Object.keys(next)])) {
     const before = previous[name], after = next[name];
+    if(JSON.stringify(before)!==JSON.stringify(after) && (isProtectedCoreCapabilityName(kind,name)
+      || kind==='plugin' && after?.skills?.some(skill=>isCorePluginChildSkillName(skill.name)))) {
+      throw new CapabilityPackageError('PACKAGE_READ_ONLY','Built-in Canvas capability names cannot be replaced or reconfigured.',403);
+    }
     if (!before?.packageManaged && !before?.packageResourceRef && !before?.publishedRevisionRef
       && !after?.packageManaged && !after?.packageResourceRef && !after?.publishedRevisionRef) {
       if (after?.storeOrigin !== undefined) {

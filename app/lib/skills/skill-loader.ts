@@ -10,7 +10,8 @@ import {
   createDefaultSkillMd,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
-import { CORE_SKILL_NAMES, coreSkillInstallError, isCoreSkillName } from './core-skills';
+import { CORE_SKILL_NAMES, coreSkillInstallError } from './core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { loadCoreSkillByName, loadCoreSkills } from './core-skill-loader';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
@@ -268,7 +269,7 @@ export async function createSkillDirectory(
     if (!isValidAgentSkillName(name)) {
       return { success: false, error: 'Invalid skill name' };
     }
-    if (isCoreSkillName(name)) {
+    if (isProtectedCoreSkillName(name)) {
       return { success: false, error: coreSkillInstallError(name) };
     }
 
@@ -414,7 +415,7 @@ export async function deleteSkillDirectory(
       if (!isValidAgentSkillName(name)) {
         return { success: false, error: 'Invalid skill name' };
       }
-      if (isCoreSkillName(name)) {
+      if (isProtectedCoreSkillName(name)) {
         return { success: false, error: coreSkillInstallError(name) };
       }
 

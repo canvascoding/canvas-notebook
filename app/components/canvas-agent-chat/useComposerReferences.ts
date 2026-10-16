@@ -98,8 +98,8 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
           for (const recent of result.recents) {
             const selection = recent.bodyBundle.primary.selection, key = chatInlineReferenceIconKey(selection);
             recentKeys.add(key);
-            items.push({ id: `recent:${key}`, kind: selection.kind === 'composio' ? 'integration' : selection.kind,
-              label: recent.bodyBundle.caption, secondaryLabel: t('referenceRecent') + ' · ' + (selection.kind === 'composio' ? 'Composio' : selection.kind),
+            items.push({ id: `recent:${key}`, kind: selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind,
+              label: recent.bodyBundle.caption, secondaryLabel: t('referenceRecent') + ' · ' + (selection.kind === 'composio' ? 'Composio' : selection.kind==='core_plugin'?'plugin':selection.kind),
               icon: createElement(PluginExtensionAvatar, { name: recent.bodyBundle.caption, identity: `${scope}:${key}`, icon: recent.publicIcon, size: 'sm' }),
               payload: { type: 'recent', recent } });
           }

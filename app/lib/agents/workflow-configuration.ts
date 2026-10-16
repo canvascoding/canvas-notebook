@@ -51,6 +51,7 @@ import { AgentWorkflowError, parseAgentWorkflowConfiguration, parseStoredAgentWo
   agentWorkflowTargetSchema, type AgentWorkflowPackageConfiguration, type AgentWorkflowDescriptor, type AgentWorkflowInternalSnapshot,
   type AgentWorkflowChoice, type AgentWorkflowTarget, type StoredAgentWorkflowTarget, type StoredAgentWorkflowPackage,
   type UpdateManagedAgentConfigurationInput, type AgentWorkflowConnectionOption } from './workflow-contracts';
+import { prepareAgentCorePluginConfigurations, withAgentCorePluginSources, type PreparedAgentCorePlugin } from './core-extension-configuration';
 
 type PreparedPersonal = Awaited<ReturnType<typeof import('@/app/lib/integration-tools/workflow-personal-bindings').preparePersonalWorkflowProviderTarget>>;
 type PreparedPackage = { stored: StoredAgentWorkflowPackage; storage: CapabilityResourceStorageBinding; published: CapabilityPackagePublishedRevision };
@@ -418,7 +419,7 @@ async function prepareExtensionPackages(actor: AgentManagementActor, extensions:
 }
 
 function extensionBindingInputs(packages: readonly PreparedPackage[], extensions: FixedExtensions,
-  standalone: ReturnType<typeof getPreparedAgentStandaloneConfigurations>): AgentCapabilityBindingInput[] {
+  standalone: ReturnType<typeof getPreparedAgentStandaloneConfigurations>, corePlugins: readonly PreparedAgentCorePlugin[] = []): AgentCapabilityBindingInput[] {
   return [...packages.map(entry => {
     const selections = extensions.selections.flatMap(({ selection, requirement, toolCap }) =>
       (selection.kind === 'plugin' || selection.kind === 'skill') && selection.package.resourceRef === entry.stored.resourceRef
@@ -427,7 +428,10 @@ function extensionBindingInputs(packages: readonly PreparedPackage[], extensions
       requirement: selections.some(selection => selection.requirement === 'required')
         || entry.stored.declarations.some(declaration => declaration.capabilities.some(capability => capability.required)) ? 'required' as const : 'optional' as const,
       extensionConfiguration: parseStoredPackageExtensionBinding({ version: 2, kind: 'package', workflow: entry.stored, selections }) };
-  }), ...standalone.map(configuration => {
+  }), ...corePlugins.map(({ stored }) => ({ resourceType: 'plugin' as const, scopeType: 'system' as const,
+    resourceId: stored.entry.selection.coreSource.resourceRef, name: 'plugin-creator',
+    version: stored.entry.selection.coreSource.coreRevision, requirement: stored.entry.requirement, extensionConfiguration: stored })),
+  ...standalone.map(configuration => {
     const source = configuration.mode === 'fixed' ? configuration.entry.selection.source : configuration.source;
     const toolkit = configuration.mode === 'fixed' ? configuration.entry.selection.kind === 'composio'
       ? configuration.entry.selection.toolkit : undefined : configuration.toolkit;
@@ -457,6 +461,7 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
   await assertBrowserToolCanBeEnabled({ nextEnabledTools: captured.enabledTools ?? null });
   const prepared: PreparedTargets = { personal: [], mcp: [] };
   const packages = extensions.mode === 'fixed' ? await prepareExtensionPackages(actor!, extensions, prepared, scopeType) : [];
+  const corePlugins = extensions.mode === 'fixed' ? await prepareAgentCorePluginConfigurations(actor!, extensions.selections) : [];
   const standalone = await prepareAgentStandaloneConfigurations(actor!, extensions.mode === 'fixed' ? extensions.standalone : []);
   const model = parseAgentDefaultFields({ providerInstallationId: captured.defaultProviderInstallationId,
     providerId: captured.defaultProvider, modelId: captured.defaultModel, thinkingLevel: captured.defaultThinking });
@@ -478,9 +483,10 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
       await validateAgentDefaultOnConnection(database, { organizationId: verified.organizationId, selection: model,
         expectedCatalogRevision: parseAgentDefaultCatalogRevision(captured.expectedCatalogRevision, true) });
     }
-    const agent = await withPackages(database, actor!, packages, async () => {
+    const agent = await withAgentCorePluginSources(database, actor!, corePlugins.map(entry => entry.stored), () => withPackages(database, actor!, packages, async () => {
       let profile = await createAgentProfile({ name: captured.name, agentId: captured.agentId, iconId: normalizeAgentIconId(captured.iconId),
-        enabledTools: captured.enabledTools ?? null, relevantSkills: extensions.mode === 'fixed' ? packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)) : null,
+        enabledTools: captured.enabledTools ?? null, relevantSkills: extensions.mode === 'fixed'
+          ? [...new Set([...packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)), ...corePlugins.flatMap(entry => entry.skillNames)])] : null,
         relevantConnections: extensions.mode === 'fixed' ? [] : null, accessPolicy: 'restricted', scopeType,
         organizationId: verified.organizationId, ownerUserId: scopeType === 'user' ? actor!.userId : null, createdByUserId: actor!.userId,
         ...(model ? { defaultProviderInstallationId: model.providerInstallationId, defaultProvider: model.providerId,
@@ -499,7 +505,7 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
         profile = await updateAgentProfile({ agentId: profile.agentId, expectedRevision: profile.revision,
           expectedWorkflowRevision: 0, workflowVersion: 2, workflowRevision: 1 }, database);
         await replaceAgentCapabilityBindings(profile.agentId, extensionBindingInputs(packages, extensions,
-          getPreparedAgentStandaloneConfigurations(standalone, actor!)), database, { workflowMutation: true });
+          getPreparedAgentStandaloneConfigurations(standalone, actor!), corePlugins), database, { workflowMutation: true });
         const { assertManagedAgentExtensionContextOnConnection } = await import('./extension-context-preflight');
         await assertManagedAgentExtensionContextOnConnection({ database, actor: actor!, agentId: profile.agentId, batch, purpose: 'configure' });
         await revalidateTargets(prepared, database);
@@ -507,7 +513,7 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
       }
       await initializeFiles(profile);
       return profile;
-    }, extensions.mode === 'fixed');
+    }, extensions.mode === 'fixed'));
     commitAttempted = true;
     await database.run('COMMIT');
     return agent;
@@ -574,6 +580,9 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
   const configuration = extensions ? extensions.mode === 'fixed' ? extensions.workflow : null
     : changesWorkflow && captured.workflow !== null ? parseAgentWorkflowConfiguration(captured.workflow) : null;
   const packages: PreparedPackage[] = extensions?.mode === 'fixed' ? await prepareExtensionPackages(actor!, extensions, prepared, before!.agent.scopeType, before!) : [];
+  const corePlugins = extensions?.mode === 'fixed' ? await prepareAgentCorePluginConfigurations(actor!, extensions.selections) : [];
+  const contextCorePlugins = changesExtensions ? corePlugins.map(entry => entry.stored)
+    : changesContext ? before!.bindings.flatMap(binding => binding.coreConfiguration ? [binding.coreConfiguration] : []) : [];
   for (const entry of extensions ? [] : configuration?.packages ?? []) {
     const selected = await preparePackage(actor!, entry, prepared, before!);
     if (before!.agent.scopeType === 'organization' && selected.storage.scopeType === 'user') fail('AGENT_ORGANIZATION_CAPABILITY_SCOPE_INVALID', 'Organization agents cannot embed personal packages.', 403);
@@ -603,7 +612,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
       [...references(packages), ...contextReferences, ...(standalone ? getPreparedAgentStandaloneSharedReferences(standalone, actor!) : [])]);
     await revalidateTargets(prepared, database);
     if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
-    agent = await withPackages(database, actor!, contextPackages, async () => {
+    agent = await withAgentCorePluginSources(database, actor!, contextCorePlugins, () => withPackages(database, actor!, contextPackages, async () => {
       if (changesDefault) {
         if (!verified.organizationId || !['owner', 'admin'].includes(verified.organizationRole ?? '') || before!.agent.organizationId && before!.agent.organizationId !== verified.organizationId) fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required for model defaults.', 403);
         await validateAgentDefaultOnConnection(database, { organizationId: verified.organizationId, selection: model,
@@ -633,12 +642,13 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
         ...(changesWorkflow ? { expectedWorkflowRevision: header.workflowRevision,
           workflowVersion: extensions ? extensions.mode === 'fixed' ? 2 : null : configuration ? 1 : null,
           workflowRevision: header.workflowRevision + 1,
-          relevantSkills: extensions ? extensions.mode === 'fixed' ? packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)) : null
+          relevantSkills: extensions ? extensions.mode === 'fixed'
+            ? [...new Set([...packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)), ...corePlugins.flatMap(entry => entry.skillNames)])] : null
             : configuration ? packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)) : current.relevantSkills,
           ...(extensions ? { relevantConnections: extensions.mode === 'fixed' ? [] : null } : {}) } : {}) }, database);
       if (changesWorkflow) {
         const inputs: AgentCapabilityBindingInput[] = extensions ? extensions.mode === 'fixed'
-          ? extensionBindingInputs(packages, extensions, getPreparedAgentStandaloneConfigurations(standalone!, actor!)) : []
+          ? extensionBindingInputs(packages, extensions, getPreparedAgentStandaloneConfigurations(standalone!, actor!), corePlugins) : []
           : configuration ? packages.map(entry => ({ ...entry.storage, version: entry.published.version,
           requirement: entry.stored.declarations.some(declaration => declaration.capabilities.some(capability => capability.required)) ? 'required' : 'optional', configuration: entry.stored }))
           : header.bindings.map(({ configuration: _configuration, id: _id, agentId: _agentId, revision: _revision, ...binding }) => ({ ...binding, configuration: null }));
@@ -651,7 +661,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
         if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
       }
       return next;
-    }, changesContext && (extensions ? extensions.mode === 'fixed' : !changesWorkflow && before!.workflowVersion === 2));
+    }, changesContext && (extensions ? extensions.mode === 'fixed' : !changesWorkflow && before!.workflowVersion === 2)));
     await database.run('COMMIT');
   } catch (error) { try { await database.run('ROLLBACK'); } catch { /* Preserve the authoritative failure. */ } throw error; }
   finally { await database.close(); }

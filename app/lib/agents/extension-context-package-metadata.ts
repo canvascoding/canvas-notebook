@@ -25,6 +25,11 @@ import { resolveVerifiedAgentActorContextOnConnection } from './actor-context';
 import type { AgentManagementActor } from './management-actions';
 import { AgentWorkflowError, type AgentWorkflowInternalSnapshot, type StoredAgentWorkflowPackage } from './workflow-contracts';
 import type { ExplicitAgentWorkflowVersion } from './workflow-version';
+import { loadCoreCanvasPlugin } from '@/app/lib/plugins/core-plugin-loader';
+import { corePluginSource, withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import type { StoredCorePluginExtensionBinding } from '@/app/lib/capabilities/extensions/stored-core-contracts';
+import { readCorePluginContextMetadata, type CorePluginContextMetadata } from '@/app/lib/capabilities/packages/core-context-metadata';
+import { corePluginDependencyParent } from '@/app/lib/capabilities/packages/core-runtime-selection';
 
 /** Server-resolved inputs, never source authority by themselves. */
 export type AgentExtensionPackageContextSelection = {
@@ -37,6 +42,7 @@ export type PreparedAgentExtensionContextPackageSource = AgentExtensionPackageCo
 };
 export type AgentExtensionPackageContext = {
   packages: ExtensionPackageMetadata[];
+  corePackages: CorePluginContextMetadata[];
   skills: ExtensionSkillMetadata[];
   configurations: readonly StoredAgentWorkflowPackage[];
   fingerprint: string;
@@ -120,7 +126,7 @@ export async function prepareAgentExtensionContextPackageSources(actor: AgentMan
   const result: PreparedAgentExtensionContextPackageSource[] = [];
   for (const binding of snapshot.bindings) {
     const { resourceType, resourceId, scopeType, name } = binding;
-    if (resourceType === 'connection') continue;
+    if (resourceType === 'connection' || binding.coreConfiguration) continue;
     if (!binding.configuration) fail('An explicit package binding has no exact configuration.');
     const candidate = sourceCandidate(state.effective, { resourceType, resourceId, scopeType, name });
     const storage = capabilityResourceStorageBinding(candidate.ref);
@@ -151,6 +157,12 @@ export async function withAgentExtensionContextPackageSources<T>(database: SqlCo
   };
   for (const source of sources) add({ storage: source.storage });
   for (const candidate of state.effective.capabilities) {
+    const coreParent = corePluginDependencyParent(candidate, state.effective.capabilities);
+    if (coreParent && candidate.effectiveEnabled && state.effective.capabilities.find(value => value.ref.resourceId === coreParent.ref.resourceId)?.effectiveEnabled
+      && candidate.resourceAccess?.canUse !== false && coreParent.resourceAccess?.canUse !== false) {
+      add({ storage: capabilityResourceStorageBinding(coreParent.ref) });
+      continue;
+    }
     if (candidate.ref.resourceType !== 'skill' || candidate.ref.sourceType === 'core' || candidate.effectivePolicy !== 'required'
       || !candidate.effectiveEnabled || candidate.readiness !== 'available' || candidate.resourceAccess?.canUse === false || !candidate.runtimePath) continue;
     const storage = capabilityResourceStorageBinding(candidate.ref);
@@ -196,6 +208,16 @@ function validateInventory(metadata: PackageExtensionSourceMetadata, published: 
 async function presentAdditionalSkill(database: SqlConnection, actor: AgentManagementActor, candidate: CapabilityCandidate,
   effective: EffectiveCapabilitySnapshot): Promise<ExtensionSkillMetadata> {
   const required = effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required';
+  const coreParent = corePluginDependencyParent(candidate, effective.capabilities);
+  if (coreParent) {
+    await requireHeldSources(database, actor, effective, capabilityResourceStorageBinding(coreParent.ref));
+    const plugin = await loadCoreCanvasPlugin(coreParent.ref.name);
+    if (!plugin || plugin.checksum !== coreParent.ref.checksum || plugin.version !== coreParent.ref.version) return fail('The built-in plugin source changed.');
+    return withAuthorizedCorePluginSource(resourceActor(actor), corePluginSource(plugin), async actual => {
+      const metadata = await readCorePluginContextMetadata(actual, effective.capabilities, { requirement: required ? 'required' : 'optional' });
+      return metadata.skills.find(skill => skill.resourceId === candidate.ref.resourceId) ?? fail('The built-in skill membership changed.');
+    }, { database });
+  }
   if (candidate.ref.sourceType === 'core') {
     const skill = await parseSkillFile(candidate.runtimePath!);
     if (!skill || skill.name !== candidate.ref.name) return fail('A bundled skill source changed.');
@@ -250,14 +272,16 @@ export async function buildAgentExtensionPackageContextOnConnection(input: { dat
   await requireHeldSources(database, actor, state.effective);
   const packageSelections = current.bindings.flatMap(binding => {
     const { resourceType, resourceId, scopeType, name } = binding;
-    if (resourceType === 'connection') return [];
+    if (resourceType === 'connection' || binding.coreConfiguration) return [];
     if (!binding.configuration) return fail('An explicit binding has no exact package configuration.');
     const candidate = sourceCandidate(state.effective, { resourceType, resourceId, scopeType, name });
     return [{ stored: binding.configuration, storage: capabilityResourceStorageBinding(candidate.ref),
       ...(binding.extensionSelections ? { extensionSelections: binding.extensionSelections } : {}) }];
   });
   const assembled = await assembleAgentExtensionPackageContextOnConnection({ database, actor,
-    workflowVersion: current.workflowVersion, packageSelections, relevantSkills: current.agent.relevantSkills,
+    workflowVersion: current.workflowVersion, packageSelections,
+    coreSelections: current.bindings.flatMap(binding => binding.coreConfiguration ? [binding.coreConfiguration] : []),
+    relevantSkills: current.agent.relevantSkills,
     agentKind: current.agent.type === 'main' ? 'main' : 'special' });
   const fingerprint = createHash('sha256').update(JSON.stringify([current.agent.id, current.agent.revision,
     current.workflowRevision, snapshot.preferenceRevision, snapshot.choices, assembled.fingerprint])).digest('hex');
@@ -274,6 +298,7 @@ export async function assembleAgentExtensionPackageContextOnConnection(input: {
   actor: AgentManagementActor;
   workflowVersion: ExplicitAgentWorkflowVersion;
   packageSelections: readonly AgentExtensionPackageContextSelection[];
+  coreSelections?: readonly StoredCorePluginExtensionBinding[];
   relevantSkills: readonly string[] | null;
   agentKind: 'special' | 'main';
 }): Promise<AgentExtensionPackageContext> {
@@ -287,6 +312,16 @@ export async function assembleAgentExtensionPackageContextOnConnection(input: {
   }
   const state = await readSourceState(database, actor), pinned: Pinned[] = [];
   await requireHeldSources(database, actor, state.effective);
+  const corePackages: CorePluginContextMetadata[] = [];
+  for (const binding of input.coreSelections ?? []) {
+    const source = binding.entry.selection.coreSource;
+    const candidate = state.effective.capabilities.find(value => value.ref.resourceId === source.resourceRef
+      && value.ref.resourceType === 'plugin' && value.ref.sourceType === 'core' && value.ref.scopeType === 'system');
+    if (!candidate?.effectiveEnabled || candidate.readiness !== 'available' || candidate.resourceAccess?.canUse === false) fail('The configured built-in plugin is no longer usable.');
+    await requireHeldSources(database, actor, state.effective, capabilityResourceStorageBinding(candidate.ref));
+    corePackages.push(await withAuthorizedCorePluginSource(resourceActor(actor), source,
+      actual => readCorePluginContextMetadata(actual, state.effective.capabilities, { requirement: binding.entry.requirement }), { database }));
+  }
   const seen = new Set<string>();
   for (const selection of packageSelections) {
     const candidate = sourceCandidate(state.effective, selection.storage);
@@ -337,9 +372,13 @@ export async function assembleAgentExtensionPackageContextOnConnection(input: {
     const source = pinned.find(source => source.skills.some(value => value.ref.resourceId === candidate.ref.resourceId));
     skills.push(source ? presentPinnedSkill(source, candidate) : await presentAdditionalSkill(database, actor, candidate, effective));
   }
+  for (const core of corePackages) for (const skill of core.skills) {
+    const index = skills.findIndex(value => value.resourceId === skill.resourceId);
+    if (index < 0) skills.push(skill); else skills[index] = skill;
+  }
   for (const source of pinned) await verifyCapabilityPackageSnapshot(source.location);
   await requireHeldSources(database, actor, effective);
   const fingerprint = createHash('sha256').update(JSON.stringify([actorScope(actor, effective), workflowVersion,
-    agentKind, relevantSkills, effective.snapshotId, pinned.map(source => source.stored), packages, skills])).digest('hex');
-  return { packages, skills, configurations: Object.freeze(pinned.map(source => source.stored)), fingerprint };
+    agentKind, relevantSkills, effective.snapshotId, pinned.map(source => source.stored), packages, corePackages, skills])).digest('hex');
+  return { packages, corePackages, skills, configurations: Object.freeze(pinned.map(source => source.stored)), fingerprint };
 }

@@ -8,6 +8,7 @@ import { assertStoredAgentExtensionBindingsMatchHeader, decodeStoredAgentExtensi
 import { parseStoredAgentWorkflowHeader } from './workflow-version';
 import { parseStoredPackageExtensionBinding, type StoredPackageExtensionBinding } from '@/app/lib/capabilities/extensions/stored-package-contracts';
 import { parseStoredStandaloneExtensionBinding, type StoredStandaloneExtensionBinding } from '@/app/lib/capabilities/extensions/stored-contracts';
+import { parseStoredCorePluginExtensionBinding, type StoredCorePluginExtensionBinding } from '@/app/lib/capabilities/extensions/stored-core-contracts';
 export type AgentCapabilityBindingInput = {
   resourceType: 'skill' | 'plugin' | 'connection';
   scopeType: 'system' | 'organization' | 'user';
@@ -18,7 +19,7 @@ export type AgentCapabilityBindingInput = {
   /** Private server-only configuration, intentionally absent from public binding DTOs. */
   configuration?: StoredAgentWorkflowPackage | null;
   /** Exact V2 aggregate row. Public requests cannot directly populate this private field. */
-  extensionConfiguration?: StoredPackageExtensionBinding | StoredStandaloneExtensionBinding;
+  extensionConfiguration?: StoredPackageExtensionBinding | StoredStandaloneExtensionBinding | StoredCorePluginExtensionBinding;
 };
 
 export type AgentCapabilityBinding = {
@@ -131,8 +132,16 @@ export async function replaceAgentCapabilityBindings(
       }
       const configuration = input.extensionConfiguration === undefined
         ? input.configuration == null ? null : parseStoredAgentWorkflowPackage(input.configuration)
+        : input.extensionConfiguration.kind === 'core_plugin' ? parseStoredCorePluginExtensionBinding(input.extensionConfiguration)
         : binding.resourceType === 'connection' ? parseStoredStandaloneExtensionBinding(input.extensionConfiguration)
           : parseStoredPackageExtensionBinding(input.extensionConfiguration);
+      if (configuration && 'kind' in configuration && configuration.kind === 'core_plugin') {
+        const source = configuration.entry.selection.coreSource;
+        if (binding.resourceType !== 'plugin' || binding.scopeType !== 'system' || binding.resourceId !== source.resourceRef
+          || binding.version !== source.coreRevision || binding.name !== 'plugin-creator') {
+          throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'The built-in plugin binding identity cannot be verified.', 409);
+        }
+      }
       await database.run(
         `INSERT INTO agent_capability_bindings (
           id, agent_id, resource_type, scope_type, resource_id, name,
@@ -183,6 +192,16 @@ export async function listRawAgentCapabilityBindings(agentId: string, connection
   const database = connection ?? await openDb();
   try {
     const rows = await database.all(`SELECT * FROM agent_capability_bindings WHERE agent_id=$1 ORDER BY resource_type,name,resource_id`, [agentId]) as BindingRow[];
-    return rows.map(row => ({ ...mapBinding(row), ...decodeStoredAgentExtensionBinding(row.resource_type, row.configuration_json) }));
+    return rows.map(row => {
+      const decoded = decodeStoredAgentExtensionBinding(row.resource_type, row.configuration_json);
+      if (decoded.coreConfiguration) {
+        const source = decoded.coreConfiguration.entry.selection.coreSource;
+        if (row.scope_type !== 'system' || row.resource_id !== source.resourceRef || row.version !== source.coreRevision || row.name !== 'plugin-creator'
+          || row.requirement !== decoded.coreConfiguration.entry.requirement) {
+          throw new AgentWorkflowError('AGENT_WORKFLOW_CORRUPT', 'The stored built-in plugin identity cannot be verified.', 409);
+        }
+      }
+      return { ...mapBinding(row), ...decoded };
+    });
   } finally { if (!connection) await database.close(); }
 }

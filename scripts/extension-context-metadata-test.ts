@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 import type { AgentExtensionConfigurationInput } from '../app/lib/capabilities/extensions/contracts';
 import type { AgentWorkflowInternalSnapshot } from '../app/lib/agents/workflow-contracts';
@@ -32,6 +33,7 @@ async function main() {
     const { piSessions } = await import('../app/lib/db/schema');
     const sessions = await import('../app/lib/pi/session-workspace-context');
     const { parseSkillFile } = await import('../app/lib/skills/canvas-skill-manifest');
+    const { readExactPackageInventory } = await import('../app/lib/capabilities/packages/io');
     const prefix = `metadata-${randomUUID().slice(0, 8)}`;
     const grants = [owner.userId, alice.userId].map(targetId => ({ targetType: 'user' as const, targetId,
       canUse: true, canEdit: true, canManage: true }));
@@ -134,10 +136,20 @@ async function main() {
         else {
           const skill = await parseSkillFile(candidate.runtimePath!); assert(skill);
           const binding = captured.skillPackageBindings.find(value => value.resourceId === candidate.ref.resourceId);
-          projectedSkills.push(projectExtensionSkillMetadata({ candidate, skill,
+          const coreBinding = captured.corePluginSkillBindings.find(value => value.resourceId === candidate.ref.resourceId);
+          const metadata = projectExtensionSkillMetadata({ candidate, skill,
             required: effective.capabilities.find(value => value.ref.resourceId === candidate.ref.resourceId)?.effectivePolicy === 'required',
             ...(binding ? { runtimePath: binding.runtimePath, package: { resourceRef: binding.resourceRef, publishedRevisionRef: binding.publishedRevisionRef,
-              checksum: binding.checksum, kind: 'skill', relativeRoot: binding.childRelativeRoot } } : {}) }));
+              checksum: binding.checksum, kind: 'skill', relativeRoot: binding.childRelativeRoot } } : {}) });
+          if (coreBinding) {
+            const parent = projectedEffective.capabilities.find(value => value.ref.resourceId === coreBinding.parentResourceId); assert(parent);
+            const source = await plugins.getCanvasPlugin(parent.ref.name, { userId: alice.userId }); assert(source?.core);
+            const inventory = await readExactPackageInventory(path.dirname(candidate.runtimePath!));
+            assert.equal(source.checksum, coreBinding.parentChecksum);
+            assert.equal(inventory.checksum, coreBinding.checksum);
+            projectedSkills.push(Object.freeze({ ...metadata, coreSource: Object.freeze({ resourceId: candidate.ref.resourceId,
+              checksum: inventory.checksum, parentResourceId: parent.ref.resourceId, parentChecksum: source.checksum }) }));
+          } else projectedSkills.push(metadata);
         }
       }
       assert.deepEqual(projectedSkills, await runtime.getAuthorizedAgentWorkflowSkillMetadata(actualSelection, context, { bindings: captured.skillPackageBindings }));

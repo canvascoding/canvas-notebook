@@ -8,6 +8,8 @@ import type { PluginExtensionItem, PluginExtensionQuery } from '@/app/lib/plugin
 import { AgentWorkflowError } from './workflow-contracts';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
 import { EXTENSION_SELECTION_LIMITS } from '@/app/lib/capabilities/extensions/contracts';
+import { corePluginSource, withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import { loadCoreCanvasPlugin } from '@/app/lib/plugins/core-plugin-loader';
 import type { AgentExtensionOptionsResponse, AgentExtensionSearchItem, AgentExtensionSearchRequest } from './extension-options-contracts';
 import { authorizeExtensionSharedOption as authorizeAgentExtensionSharedOption, revalidateExtensionOptionsSourceContext as revalidateAgentExtensionOptionsContext, type ExtensionOptionsSourceContext } from './extension-options-source-context';
 import type { AgentExtensionOptionsContext } from './extension-options-context';
@@ -87,6 +89,14 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
     if (!resource?.access.canUse || resource.metadata.status !== 'active' || resource.activation?.effectivePolicy === 'blocked'
       || resource.activation?.readiness === 'conflict' || !context.allowPersonal && resource.artifact.scopeType === 'user') {
       return { item, eligibility: { action: 'unavailable', reason: { code: 'AGENT_EXTENSION_USE_DENIED', message: 'Current package use is required for this agent.' } } };
+    }
+    if(resource.artifact.resourceType==='plugin' && resource.artifact.sourceType==='core' && resource.artifact.scopeType==='system') {
+      const plugin=await loadCoreCanvasPlugin(resource.artifact.name);
+      if(!plugin || plugin.resourceId!==resource.artifact.resourceId) return {item,eligibility:{action:'unavailable',reason:{
+        code:'AGENT_EXTENSION_PACKAGE_UNAVAILABLE',message:'The current built-in plugin source is unavailable.'}}};
+      const source=corePluginSource(plugin);
+      await withAuthorizedCorePluginSource(resourceActor,source,async()=>undefined);
+      return {item,selection:{kind:'core_plugin',coreSource:source},eligibility:{action:'select'}};
     }
     // Plugin children are selected from the actual held parent's child inventory.
     // A child display row is never treated as an independent package pin.

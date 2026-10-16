@@ -191,7 +191,7 @@ Das vollständige Manifest benötigt die dazu passenden `connectors`-Deklaration
 
 ## 5. Umsetzung in abgeschlossenen Schritten
 
-Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 und P2 sind als Backend-/API-Grundlage abgeschlossen; P3 bis P7 bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
+Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 und P2 sind als Backend-/API-Grundlage abgeschlossen; P3 ist implementiert und über die echten Serverpfade geprüft. P4 bis P7 sowie der natürliche Creator-/UI-Nachweis bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
 
 ### P1 — Gemeinsamen Entwurf um echte Neuanlage und Wiederaufnahme erweitern
 
@@ -221,12 +221,12 @@ Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahme
 
 ### P3 — Skill Creator und Plugin Creator auf denselben Dienst umstellen
 
-- [ ] Beide Core-Anleitungen auf `canvas_extensions → search → describe → call` und den gemeinsamen Entwurfs-/Datei-/Validierungs-/Publishweg ausrichten.
-- [ ] Canvas-fremde Claude-CLI-Evaluation aus dem normalen Canvas-Ablauf lösen. Kurze Canvas-Anleitungen mit bedarfsweise geladenen Referenzen, Beispielprompts und normalem Runtime-Test verwenden.
-- [ ] Skill Creator kann einen eigenständigen Entwurf oder einen klar gebundenen Child-Skill im Pluginentwurf bearbeiten. Plugin Creator orchestriert Komponenten und gemeinsame Anforderungen.
-- [ ] Ziel bleibt ein sichtbares, systemeigenes **Plugin Creator**-Core-Plugin mit passenden Erstellungs-/Bearbeitungs-Skills; Skill Creator bleibt einzeln nutzbar. Dafür geschützten Core-Pluginstatus und Loader-/Katalogidentität ausdrücklich modellieren: ein zusätzlicher normaler Seedpluginname genügt nicht.
-- [ ] Den vollständigen kleinen Teilskill `plugin-visual` gemäß Abschnitt 2 im Creator-Paket bündeln und beim Erstellen eines neuen Plugins gezielt laden: Zweck verstehen, SVG-Datei erzeugen, bestehenden Manifestpfad setzen, prüfen und reparieren. Nur die einschlägigen Regeln der Nutzervorlage übernehmen; die Base64-Ausnahme der allgemeinen Illustrationsempfehlung gilt nicht für SVG-Inhalte in Canvas.
-- [ ] Bisherige Core-Skill-IDs kompatibel erhalten; gespeicherte Referenzen und exakte alte Revisionpins nicht auf neue Eltern-/Kindidentitäten umschreiben. Doppelte Suchtreffer vermeiden.
+- [x] Beide Core-Anleitungen auf `canvas_extensions → search → describe → call` und den gemeinsamen Entwurfs-/Datei-/Validierungs-/Publishweg ausrichten.
+- [x] Canvas-fremde Claude-CLI-Evaluation aus dem normalen Canvas-Ablauf lösen. Kurze Canvas-Anleitungen mit bedarfsweise geladenen Referenzen, Beispielprompts und normalem Runtime-Test verwenden.
+- [x] Skill Creator kann einen eigenständigen Entwurf oder einen klar gebundenen Child-Skill im Pluginentwurf bearbeiten. Plugin Creator orchestriert Komponenten und gemeinsame Anforderungen.
+- [x] Ziel bleibt ein sichtbares, systemeigenes **Plugin Creator**-Core-Plugin mit passenden Erstellungs-/Bearbeitungs-Skills; Skill Creator bleibt einzeln nutzbar. Dafür geschützten Core-Pluginstatus und Loader-/Katalogidentität ausdrücklich modellieren: ein zusätzlicher normaler Seedpluginname genügt nicht.
+- [x] Den vollständigen kleinen Teilskill `plugin-visual` gemäß Abschnitt 2 im Creator-Paket bündeln und beim Erstellen eines neuen Plugins gezielt laden: Zweck verstehen, SVG-Datei erzeugen, bestehenden Manifestpfad setzen, prüfen und reparieren. Nur die einschlägigen Regeln der Nutzervorlage übernehmen; die Base64-Ausnahme der allgemeinen Illustrationsempfehlung gilt nicht für SVG-Inhalte in Canvas.
+- [x] Bisherige Core-Skill-IDs kompatibel erhalten; gespeicherte Referenzen und exakte alte Revisionpins nicht auf neue Eltern-/Kindidentitäten umschreiben. Doppelte Suchtreffer vermeiden.
 
 **Hauptdateien:** `seed_skills/{skill-creator,create-plugin}`, systemeigene Creator-Paketdefinition/Loader, `app/lib/skills/core-skills.ts`, `app/lib/plugins/default-seed-plugins.ts`, Katalog-/Kontextadapter und Gatewayoperationen.
 

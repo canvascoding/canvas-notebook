@@ -13,10 +13,19 @@ import { normalizeMcpConnectors } from '@/app/lib/plugins/plugin-connection-read
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { projectCapabilityPackageMcpTemplateConfig } from '@/app/lib/capabilities/packages/mcp-template-projection';
 import type { CapabilityPackageMcpTemplate } from '@/app/lib/capabilities/packages/presentation-contracts';
+import { withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import type { CorePluginExtensionSelection } from '@/app/lib/capabilities/extensions/core-source-contracts';
 
 const no = (message: string): AgentExtensionOptionEligibility => ({ action: 'unavailable', reason: { code: 'CHAT_EXTENSION_AGENT_SCOPE', message } });
 const key = (value: ExtensionConnectionAlternative): string | undefined => value.source === 'composio' ? `composio:${value.toolkit}` : value.connector ? `mcp:${value.connector}` : undefined;
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+export async function chatCorePluginSelectionEligibility(context:ChatExtensionOptionsContext,selection:CorePluginExtensionSelection):Promise<AgentExtensionOptionEligibility> {
+  await withAuthorizedCorePluginSource(context.actor,selection.coreSource,async()=>undefined);
+  if(context.snapshot.workflowVersion!==null && !context.snapshot.bindings.some(binding=>binding.coreConfiguration
+    && same(binding.coreConfiguration.entry.selection,selection))) return no('This exact Core plugin source is outside the agent configuration.');
+  return {action:'select'};
+}
 export function publicChatConnectionSelection(target: StoredAgentWorkflowTarget, alternative: ExtensionConnectionAlternative): StandaloneExtensionSelection {
   if (target.kind === 'shared') return standaloneExtensionSelectionSchema.parse({ kind: alternative.source, source: alternative.source,
     ...(alternative.source === 'composio' ? { toolkit: alternative.toolkit } : {}),
@@ -82,6 +91,7 @@ export function chatStandaloneEligibility(context: ChatExtensionOptionsContext, 
     : 'This exact connection is outside the agent’s permitted standalone sources.');
 }
 export async function projectChatExtensionSearchItem(context: ChatExtensionOptionsContext, item: AgentExtensionSearchItem): Promise<AgentExtensionSearchItem> {
+  if(item.selection?.kind==='core_plugin') return {...item,eligibility:await chatCorePluginSelectionEligibility(context,item.selection)};
   if (item.item.kind === 'integration' || item.item.kind === 'mcp') {
     if (context.snapshot.workflowVersion === null) return item;
     const source = item.item.kind === 'mcp' ? 'mcp' : 'composio';

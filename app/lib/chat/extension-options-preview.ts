@@ -1,6 +1,6 @@
 import 'server-only';
 import { assertChatBodySelection, deriveChatBodySelection } from './chat-body-contracts';
-import { chatPackageSelectionEligibility, intersectChatCaps } from './extension-options-eligibility';
+import { chatCorePluginSelectionEligibility, chatPackageSelectionEligibility, intersectChatCaps } from './extension-options-eligibility';
 import { readAgentExtensionPackageVersion } from '@/app/lib/agents/extension-package-options';
 import { revalidateChatExtensionOptionsContext, type ChatExtensionOptionsContext } from './extension-options-context';
 import type { ChatExtensionOptionsPreview, ChatExtensionOptionsRequest } from './extension-options-contracts';
@@ -23,7 +23,12 @@ export async function previewChatExtensionSelection(context: ChatExtensionOption
     signal.throwIfAborted();
     const current = entry.selection, path = extensionSelectionIdentity(current);
     try {
-      if (current.kind === 'plugin' || current.kind === 'skill') {
+      if(current.kind==='core_plugin') {
+        const eligibility=await chatCorePluginSelectionEligibility(context,current);
+        if(eligibility.action!=='select')throw new Error(eligibility.reason?.message);
+        if(entry.toolCap!==null)throw new Error('Core instruction selections require a null tool capability field.');
+        effectiveToolCaps.push({selection:current,toolCap:entry.toolCap});
+      } else if (current.kind === 'plugin' || current.kind === 'skill') {
         const source = await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, current.package, { allowPersonalPackages: true });
         const eligibility = await chatPackageSelectionEligibility(context, current, source);
         if (eligibility.action !== 'select') throw new Error(eligibility.reason?.message);

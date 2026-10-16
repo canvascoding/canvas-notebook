@@ -5,6 +5,7 @@ import { CapabilityResourceError, type CapabilityResourceActor, type CapabilityR
 import type { PluginWorkspaceCatalogResponse, PluginWorkspaceCatalogScopeContext } from './plugin-workspace-catalog-contracts';
 import type { PluginExtensionCoverage, PluginExtensionItem, PluginExtensionKind, PluginExtensionQuery, PluginExtensionSearchResponse } from './plugin-extension-contracts';
 import type { PluginExtensionSourceResult } from './plugin-extension-integrations';
+import { corePluginResourceId } from './core-plugins';
 
 const kinds: PluginExtensionKind[] = ['plugin', 'skill', 'integration', 'mcp'];
 const invalid = (code = 'PLUGIN_SEARCH_QUERY_INVALID', message = 'The extension search request is invalid.'): never => {
@@ -81,7 +82,10 @@ export function selectPluginExtensionItems(items: readonly PluginExtensionItem[]
     const name = item.displayName.toLocaleLowerCase('en-US'), id = item.name.toLocaleLowerCase('en-US');
     return name === search || id === search ? 0 : name.startsWith(search) || id.startsWith(search) ? 1 : name.includes(search) || id.includes(search) ? 2 : 3;
   };
-  return selected.sort((a, b) => score(a) - score(b) || (a.kind === 'plugin' ? 0 : 1) - (b.kind === 'plugin' ? 0 : 1)
+  const coreCreatorVisible=selected.some(item=>item.kind==='plugin'&&item.id===corePluginResourceId('plugin-creator'));
+  return selected.filter(item=>!coreCreatorVisible || item.id===query.selected || item.kind!=='skill'
+    || item.id!=='canvas-capability:v1:skill:system:core:create-plugin')
+    .sort((a, b) => score(a) - score(b) || (a.kind === 'plugin' ? 0 : 1) - (b.kind === 'plugin' ? 0 : 1)
     || a.displayName.localeCompare(b.displayName) || a.id.localeCompare(b.id));
 }
 
