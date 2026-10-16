@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -40,6 +41,7 @@ async function main() {
       "INSERT INTO organization_user_permissions (organization_id,user_id,role,status,can_share_plugins_and_skills,created_at,updated_at) VALUES ('org-artifacts',$1,$2,'active',$3,1000,1000)",
       [id, id === 'owner' ? 'owner' : 'member', Number(id === 'owner')]);
     await db.run("INSERT INTO canvas_workspaces (id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at) VALUES ('personal-editor','org-artifacts','personal','editor','personal-editor','Editor','active',1000,1000)");
+    await db.run("INSERT INTO canvas_workspaces (id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at) VALUES ('personal-owner','org-artifacts','personal','owner','personal-owner','Owner','active',1000,1000)");
     const packageRoot = path.join(root, 'package');
     await fs.mkdir(path.join(packageRoot, '.canvas-plugin'), { recursive: true });
     await fs.mkdir(path.join(packageRoot, 'skills', 'artifact-child', 'scripts'), { recursive: true });
@@ -85,8 +87,9 @@ async function main() {
     const tools = await import('../app/lib/pi/scoped-tools');
     const execution = await import('../app/lib/pi/agent-execution-context');
     const progressive = await import('../app/lib/pi/progressive-tool-gateway');
+    const { createExtensionDiscoveryTool } = await import('../app/lib/pi/extension-discovery-tool');
     const gateway = progressive.createProgressiveGatewayTool(progressive.PROGRESSIVE_GATEWAY_DEFINITIONS.find(value => value.name === 'canvas_extensions')!,
-      tools.createUserScopedTools('editor', 'package-agent', 'package-session'));
+      [...tools.createUserScopedTools('editor', 'package-agent', 'package-session'), createExtensionDiscoveryTool('editor', 'package-agent', 'package-session')]);
     const context = { userId: 'editor', agentId: 'package-agent', sessionId: 'package-session', workspaceId: 'personal-editor',
       organizationId: 'org-artifacts', workspaceType: 'personal' as const, workspaceName: 'Editor', customerId: null,
       projectId: null, workspaceRoot: root, workspaceRootRelativePath: null, canWrite: false, canDelete: false, canShare: false, legacy: false };
@@ -100,6 +103,58 @@ async function main() {
     };
     const describe = await gateway.execute('schema', { action: 'describe', operation: 'create_canvas_package_draft' });
     assert(JSON.stringify(describe).includes('expectedPackageRevision'));
+    assert(JSON.stringify(describe).includes('requestId'), 'Source-free creation exposes its correlation key through the real gateway schema.');
+    const recoveryNames = ['list_canvas_package_drafts', 'inspect_canvas_package_draft_status', 'inspect_canvas_package_operation'];
+    for (const operation of recoveryNames) {
+      const schema = await gateway.execute(`schema-${operation}`, { action: 'describe', operation });
+      assert.equal((schema.details as { operation?: string }).operation, operation);
+      const recoveryInput = operation === 'list_canvas_package_drafts' ? {} : operation === 'inspect_canvas_package_draft_status'
+        ? { draftRef: `canvas-package-draft:${randomUUID()}` } : { requestId: randomUUID() };
+      const deniedRecovery = await gateway.execute(`unauthenticated-${operation}`, { action: 'call', operation, arguments: recoveryInput });
+      assert.equal((deniedRecovery.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED', 'Metadata recovery still requires the actual agent actor.');
+    }
+    const ownerGateway = progressive.createProgressiveGatewayTool(progressive.PROGRESSIVE_GATEWAY_DEFINITIONS.find(value => value.name === 'canvas_extensions')!,
+      [...tools.createUserScopedTools('owner', 'package-agent', 'owner-session'), createExtensionDiscoveryTool('owner', 'package-agent', 'owner-session')]);
+    const ownerContext = { ...context, userId: 'owner', sessionId: 'owner-session', workspaceId: 'personal-owner', workspaceName: 'Owner' };
+    const ownerCall = (operation: string, args: Record<string, unknown>) => execution.runWithAgentExecutionContext(ownerContext,
+      () => ownerGateway.execute('owner-fixture', { action: 'call', operation, arguments: args }));
+    const creationKey = randomUUID();
+    const created = result<import('../app/lib/capabilities/packages/contracts').CapabilityPackageDraft>(await ownerCall('create_canvas_package_draft', {
+      operation: 'create', kind: 'skill', targetName: 'artifact-created-context', requestId: creationKey,
+    }));
+    assert.equal(created.operation, 'create'); assert.equal(created.sourceResourceRef, null);
+    const createdWritten = result<{ draft: typeof created }>(await ownerCall('write_canvas_package_draft_file', { draftRef: created.draftRef,
+      expectedDraftRevision: created.draftRevision, path: 'SKILL.md', encoding: 'base64',
+      content: Buffer.from('---\nname: artifact-created-context\ndescription: Metadata recovery fixture\nmetadata:\n  version: "1.0.0"\n---\nPRIVATE_DRAFT_BODY\n').toString('base64') }));
+    const ownDrafts = result<import('../app/lib/capabilities/packages/contracts').CapabilityPackageOwnedDraftList>(await ownerCall('list_canvas_package_drafts', { limit: 1 }));
+    assert(ownDrafts.drafts.some(value => value.draftRef === created.draftRef && value.sourceResourceRef === null));
+    const ownStatus = result<{ status: { draftRef: string; draftRevision: number } }>(await ownerCall('inspect_canvas_package_draft_status', { draftRef: created.draftRef }));
+    assert.equal(ownStatus.status.draftRevision, createdWritten.draft.draftRevision);
+    const recoveredCreation = result<{ operation: { status: string; draftRef: string; draftRevision: number } }>(await ownerCall('inspect_canvas_package_operation', { requestId: creationKey }));
+    assert.equal(recoveredCreation.operation.status, 'draft'); assert.equal(recoveredCreation.operation.draftRef, created.draftRef);
+    assert.equal(recoveredCreation.operation.draftRevision, createdWritten.draft.draftRevision);
+    for (const metadata of [ownDrafts, ownStatus, recoveredCreation]) {
+      assert(!JSON.stringify(metadata).includes(root));
+      assert.doesNotMatch(JSON.stringify(metadata), /PRIVATE_DRAFT_BODY|rootPath|baseSourceStamp|sourceStorage|sourceParentStorage|"files"|"content"/u);
+    }
+    const foreignStatus = await call('inspect_canvas_package_draft_status', { draftRef: created.draftRef });
+    assert.equal((foreignStatus.details as { code?: string }).code, 'PACKAGE_NOT_FOUND');
+    const foreignReceipt = await call('inspect_canvas_package_operation', { requestId: creationKey });
+    assert.equal((foreignReceipt.details as { code?: string }).code, 'PACKAGE_NOT_FOUND');
+    const mismatchedActor = await execution.runWithAgentExecutionContext(ownerContext,
+      () => gateway.execute('foreign-context', { action: 'call', operation: 'list_canvas_package_drafts', arguments: {} }));
+    assert.equal((mismatchedActor.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED');
+    const invalidList = await ownerCall('list_canvas_package_drafts', { actorUserId: 'editor' });
+    assert.match(String((invalidList.details as { error?: string }).error), /^Invalid arguments for list_canvas_package_drafts:/u);
+    assert.equal((invalidList.details as { capabilityPackage?: unknown }).capabilityPackage, undefined, 'Injected actor arguments fail before the package action executes.');
+    await db.run("UPDATE organization_user_permissions SET can_share_plugins_and_skills=0 WHERE user_id='owner'");
+    assert.equal(result<{ operation: { status: string } }>(await ownerCall('inspect_canvas_package_operation', { draftRef: created.draftRef })).operation.status, 'draft');
+    const deniedBytes = await ownerCall('read_canvas_package_draft_file', { draftRef: created.draftRef, path: 'SKILL.md' });
+    assert.equal((deniedBytes.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED', 'A recovery receipt cannot restore revoked target authority.');
+    assert.doesNotMatch(JSON.stringify(deniedBytes), /PRIVATE_DRAFT_BODY/u);
+    await db.run("UPDATE organization_user_permissions SET can_share_plugins_and_skills=1 WHERE user_id='owner'");
+    result(await ownerCall('discard_canvas_package_draft', { draftRef: created.draftRef, expectedDraftRevision: createdWritten.draft.draftRevision }));
+    assert.equal(result<{ operation: { status: string } }>(await ownerCall('inspect_canvas_package_operation', { requestId: creationKey })).operation.status, 'discarded');
     const inspected = result<import('../app/lib/capabilities/packages/contracts').CapabilityPackageDescriptor>(await call('inspect_canvas_package', { resourceRef: configured.metadata.resourceRef }));
     assert.equal(inspected.access.canEdit, true);
     assert.equal(inspected.access.canUse, false);
@@ -114,12 +169,16 @@ async function main() {
       content: Buffer.from('print("published")\n').toString('base64') }));
     const validated = result<{ validation: { valid: boolean } }>(await call('validate_canvas_package_draft', { draftRef: draft.draftRef }));
     assert.equal(validated.validation.valid, true);
+    const publishKey = randomUUID();
     const published = result<{ state: { packageRevision: number }; published: { revisionRef: string } }>(await call('publish_canvas_package_draft', {
       draftRef: draft.draftRef, expectedDraftRevision: written.draft.draftRevision,
       expectedMetadataRevision: configured.metadata.metadataRevision, expectedGrantsRevision: configured.metadata.grantsRevision,
-      expectedPackageRevision: 0, expectedPublishedRevisionRef: null,
+      expectedPackageRevision: 0, expectedPublishedRevisionRef: null, requestId: publishKey,
     }));
     assert.equal(published.state.packageRevision, 1);
+    const recoveredPublication = result<{ operation: { status: string; publishedRevisionRef: string } }>(await call('inspect_canvas_package_operation', { requestId: publishKey }));
+    assert.equal(recoveredPublication.operation.status, 'published');
+    assert.equal(recoveredPublication.operation.publishedRevisionRef, published.published.revisionRef);
     const scope = { scopeType: 'organization' as const, organizationId: 'org-artifacts' };
     const pointer = (await registry.readCanvasPluginRegistry(scope)).plugins[manifest.name];
     assert.equal(pointer.publishedRevisionRef, published.published.revisionRef);
@@ -222,6 +281,9 @@ async function main() {
     const bundled = await actions.readCapabilityPackageFileAction({ userId: 'owner' }, seedPublished.state.resourceRef,
       { path: `skills/skill-creator/${script.path}` });
     assert.deepEqual(Buffer.from(bundled.file.content, 'base64'), script.bytes, 'The immutable fork retains exact referenced skill code bytes.');
+    assert(seedDraft.operation === 'fork');
+    assert.equal(seedPublished.published.sourceResourceRef, seedDraft.sourceResourceRef, 'The fork retains its actual captured source identity.');
+    assert(seedPublished.published.sourceStamp, 'A published fork retains its captured source provenance.');
     assert.deepEqual(seedPublished.published.sourceStamp.dependencies, seedSource.sourceStamp.dependencies);
     const personalSource = await actions.inspectCapabilityPackage({ userId: 'owner' }, configured.metadata.resourceRef);
     const personalDraft = await actions.createCapabilityPackageDraftAction({ userId: 'owner' }, {

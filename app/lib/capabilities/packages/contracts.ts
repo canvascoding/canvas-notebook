@@ -49,10 +49,10 @@ export type CapabilityPackagePublishedRevision = CapabilityPackageRevisionIdenti
   publishedByUserId: string | null;
   publishedAt: number;
   baseRevisionRef: string | null;
-  sourceResourceRef: string;
+  sourceResourceRef: string | null;
   sourceRevisionRef: string | null;
-  sourceChecksum: string;
-  sourceStamp: CapabilityPackageSourceStamp;
+  sourceChecksum: string | null;
+  sourceStamp: CapabilityPackageSourceStamp | null;
 };
 export type CapabilityPackagePublishedSummary = CapabilityPackageRevisionIdentity & {
   publishedByUserId:string|null;publishedAt:number;baseRevisionRef:string|null;fileCount:number;totalBytes:number;
@@ -101,26 +101,29 @@ export type CapabilityPackageExpectedHead = {
 export type CapabilityPackageExpectedDraft = { expectedDraftRevision: number };
 
 /** Drafts belong to one actual actor and remain outside generic workspace read/write roots. */
-export type CapabilityPackageDraft = {
+type CapabilityPackageDraftBase = {
   contractVersion: typeof CAPABILITY_PACKAGE_CONTRACT_VERSION;
   draftRef: string;
   resourceRef: string;
   kind: CapabilityPackageKind;
   name: string;
-  operation: 'edit' | 'fork';
   actorUserId: string;
   draftRevision: number;
   basePackageRevision: number;
   basePublishedRevisionRef: string | null;
-  baseSourceStamp: CapabilityPackageSourceStamp;
-  sourceResourceRef: string;
-  sourceMetadataRevision: number;
-  sourceGrantsRevision: number;
-  sourcePackageRevision: number;
-  sourcePublishedRevisionRef: string | null;
   createdAt: number;
   updatedAt: number;
 };
+/** An original creation has no source. Null is absence, never a fabricated registry observation. */
+export type CapabilityPackageDraft = CapabilityPackageDraftBase & ({
+  operation: 'create';
+  baseSourceStamp: null; sourceResourceRef: null;
+  sourceMetadataRevision: null; sourceGrantsRevision: null; sourcePackageRevision: null; sourcePublishedRevisionRef: null;
+} | {
+  operation: 'edit' | 'fork';
+  baseSourceStamp: CapabilityPackageSourceStamp; sourceResourceRef: string;
+  sourceMetadataRevision: number; sourceGrantsRevision: number; sourcePackageRevision: number; sourcePublishedRevisionRef: string | null;
+});
 
 /** Creator-only recovery metadata. These references never authorize package reads. */
 export type CapabilityPackageOwnedDraftStatus = Pick<CapabilityPackageDraft,
@@ -172,7 +175,7 @@ export type CapabilityPackageFileWrite = CapabilityPackageExpectedDraft & {
 };
 export type CapabilityPackageFileDelete = CapabilityPackageExpectedDraft & { path: string };
 
-export type CapabilityPackageDraftCreation = CapabilityPackageExpectedResourceRevisions & CapabilityPackageExpectedHead & {
+export type CapabilityPackageSourceDraftCreation = CapabilityPackageExpectedResourceRevisions & CapabilityPackageExpectedHead & {
   operation: 'edit';
   resourceRef: string;
 } | {
@@ -185,8 +188,21 @@ export type CapabilityPackageDraftCreation = CapabilityPackageExpectedResourceRe
   expectedSourcePackageRevision: number;
   expectedSourcePublishedRevisionRef: string | null;
 };
+export type CapabilityPackageDraftCreation = CapabilityPackageSourceDraftCreation | {
+  operation: 'create'; kind: CapabilityPackageKind; targetName: string; requestId: string;
+};
 export type CapabilityPackagePublishRequest = CapabilityPackageExpectedResourceRevisions
-  & CapabilityPackageExpectedHead & CapabilityPackageExpectedDraft & { draftRef: string };
+  & CapabilityPackageExpectedHead & CapabilityPackageExpectedDraft & { draftRef: string; requestId?: string };
+
+/** Actor-private recovery metadata. It grants no access to the resulting package contents. */
+export type CapabilityPackageOperationStatus = {
+  requestId: string | null;
+  operation: 'create' | 'publish' | 'discard';
+  status: 'draft' | 'published' | 'discarded';
+  draftRef: string; draftRevision: number; resourceRef: string; publishedRevisionRef: string | null;
+  kind: CapabilityPackageKind; name: string; createdAt: number; updatedAt: number;
+};
+export type CapabilityPackageOperationQuery = { requestId: string } | { draftRef: string };
 export type CapabilityPackageDefaultActivationRequest = CapabilityPackageExpectedResourceRevisions & CapabilityPackageExpectedHead & {
   enabled:boolean;expectedDefaultEnabled:boolean;
 };
@@ -251,7 +267,7 @@ export type CapabilityPackageDraftSeed = {
 export type CapabilityPackageErrorCode =
   | 'PACKAGE_NOT_FOUND' | 'PACKAGE_ACCESS_DENIED' | 'PACKAGE_READ_ONLY'
   | 'PACKAGE_REQUEST_INVALID' | 'PACKAGE_PATH_INVALID' | 'PACKAGE_LIMIT_EXCEEDED'
-  | 'PACKAGE_REVISION_CONFLICT' | 'PACKAGE_DRAFT_CONFLICT' | 'PACKAGE_SOURCE_CHANGED'
+  | 'PACKAGE_REVISION_CONFLICT' | 'PACKAGE_DRAFT_CONFLICT' | 'PACKAGE_SOURCE_CHANGED' | 'PACKAGE_REQUEST_CONFLICT'
   | 'PACKAGE_INVALID' | 'PACKAGE_SNAPSHOT_UNAVAILABLE' | 'PACKAGE_NAMESPACE_CONFLICT';
 
 export class CapabilityPackageError extends Error {

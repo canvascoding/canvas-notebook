@@ -7,7 +7,8 @@ import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packag
 import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
   capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
   capabilityPackageFileReadSchema, capabilityPackageDiscardSchema, capabilityPackagePublishedTreeSchema,
-  capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema } from '@/app/lib/capabilities/packages/schemas';
+  capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema, capabilityPackageOwnedDraftListQuerySchema,
+  capabilityPackageOperationQuerySchema } from '@/app/lib/capabilities/packages/schemas';
 import { capabilityPackageStoreListSchema, capabilityPackageStoreInstallSchema,
   capabilityPackageStoreUpdateReviewSchema, capabilityPackageStoreUpdateSchema } from '@/app/lib/capabilities/packages/store-contracts';
 import { capabilityPackageStoreOfferingPresentationSchema } from '@/app/lib/capabilities/packages/presentation-contracts';
@@ -1335,7 +1336,8 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
 export const CAPABILITY_PACKAGE_TOOL_NAMES = [
   'list_canvas_package_store', 'inspect_canvas_package_store_update', 'install_canvas_package_from_store', 'update_canvas_package_from_store',
   'inspect_canvas_package_presentation', 'inspect_canvas_package_store_offering', 'inspect_canvas_package_store_install_options',
-  'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'inspect_canvas_package_draft',
+  'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'list_canvas_package_drafts',
+  'inspect_canvas_package_draft_status', 'inspect_canvas_package_operation', 'inspect_canvas_package_draft',
   'list_canvas_package_draft_files', 'read_canvas_package_draft_file', 'write_canvas_package_draft_file',
   'delete_canvas_package_draft_file', 'validate_canvas_package_draft', 'publish_canvas_package_draft',
   'discard_canvas_package_draft', 'list_canvas_package_files', 'read_canvas_package_file', 'set_canvas_package_activation',
@@ -1391,9 +1393,15 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       (actions, actor, params) => actions.inspectCapabilityPackage(actor, params.resourceRef as string)),
     tool('list_canvas_package_scopes', 'Lists personal, organization and actual team targets this actor may create a new package in. This cannot grant access or change ownership of an existing package.', z.object({}).strict(),
       (actions, actor) => actions.listCapabilityPackageCreationScopes(actor)),
-    tool('create_canvas_package_draft', 'Creates an actor-private complete package draft. Editing requires current canEdit and inspected metadata/grants/content revisions. Forking or promoting creates a distinct named resource in an authorized target scope; preserves source, copies no grants or credentials, and starts disabled. No workspace paths are accepted.', capabilityPackageDraftCreationSchema,
+    tool('create_canvas_package_draft', 'Creates an actor-private complete package draft. Use operation=create with kind, targetName and one UUID requestId for a new package without a source; its target is the actor’s current organization and requires current organization creation rights. Reuse that requestId after an uncertain result and inspect its operation status first. Editing requires current canEdit and inspected metadata/grants/content revisions. Legacy forks retain their authorized target and source checks. New resources are created only at publication, with no inherited grants and disabled activation. No workspace paths, organization IDs or credentials are accepted.', capabilityPackageDraftCreationSchema,
       (actions, actor, params) => actions.createCapabilityPackageDraftAction(actor, params)),
-    tool('inspect_canvas_package_draft', 'Inspects this actor’s private draft and its current revision and target metadata/grant revisions. The reference grants no authority without current source and target rights.', draft,
+    tool('list_canvas_package_drafts', 'Lists only this actor’s private draft recovery metadata with bounded pagination. Reopen an issued draftRef in another chat; no source lookup or package bytes are returned. The list grants no source, file, edit or publication authority, and an active actor/workspace is still required.', capabilityPackageOwnedDraftListQuerySchema,
+      (actions, actor, params) => actions.listCapabilityPackageOwnedDraftStatusesAction(actor, params)),
+    tool('inspect_canvas_package_draft_status', 'Reads only this actor’s existing private draft recovery metadata, including its latest revision. This remains separate from reading draft bytes and grants no source or target authority. After an uncertain create, publish or discard, use inspect_canvas_package_operation to distinguish a committed result from an active draft.', draft,
+      (actions, actor, params) => actions.readCapabilityPackageOwnedDraftStatusAction(actor, params.draftRef as string)),
+    tool('inspect_canvas_package_operation', 'Reads this actor’s durable package operation receipt by exactly one requestId or draftRef. Use after an uncertain create, publish or discard before retrying; distinguishes an active draft, a published exact revision and a discarded draft even after the draft was removed. Returns recovery metadata only; current access must be checked separately before reading or using package bytes. Never grants file, source, edit, publish or runtime authority.', capabilityPackageOperationQuerySchema,
+      (actions, actor, params) => actions.readCapabilityPackageOperationAction(actor, params)),
+    tool('inspect_canvas_package_draft', 'Inspects this actor’s private draft and its current revision and target metadata/grant revisions. The reference grants no authority without current target rights and source rights where a source exists.', draft,
       (actions, actor, params) => actions.readCapabilityPackageDraftAction(actor, params.draftRef as string)),
     tool('list_canvas_package_draft_files', 'Lists all bounded relative draft paths, including scripts and assets, under current rights. No absolute filesystem paths are returned.', draft,
       (actions, actor, params) => actions.listCapabilityPackageDraftFilesAction(actor, params.draftRef as string)),
@@ -1405,7 +1413,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       (actions, actor, params) => actions.deleteCapabilityPackageDraftFileAction(actor, params.draftRef as string, without(params, 'draftRef'))),
     tool('validate_canvas_package_draft', 'Validates the complete draft, including manifests, child skills, scripts, assets and checksum. Validation never publishes and does not waive fresh permission or revision checks.', draft,
       (actions, actor, params) => actions.validateCapabilityPackageDraftAction(actor, params.draftRef as string)),
-    tool('publish_canvas_package_draft', 'Publishes a validated immutable full package revision under fresh edit/target authority and all inspected draft/content/metadata/grant revisions. Previous published versions remain intact. Use only when the user requested publication; fork targets have separate identity and no inherited grants.', capabilityPackagePublishSchema,
+    tool('publish_canvas_package_draft', 'Publishes a validated immutable full package revision under fresh edit/target authority and all inspected draft/content/metadata/grant revisions. Previous published versions remain intact. Use only when the user requested publication; new organization packages and legacy fork targets have separate identity and no inherited grants. Supply one UUID requestId for correlated recovery, and inspect_canvas_package_operation after an uncertain result instead of creating another draft or publishing again.', capabilityPackagePublishSchema,
       (actions, actor, params) => actions.publishCapabilityPackageDraftAction(actor, params)),
     tool('discard_canvas_package_draft', 'Discards only the actual actor’s private draft with expectedDraftRevision, including after edit access was revoked. Published packages and source resources remain unchanged.', capabilityPackageDiscardSchema.extend(draft.shape).strict(),
       (actions, actor, params) => actions.discardCapabilityPackageDraftAction(actor, params.draftRef as string, without(params, 'draftRef'))),

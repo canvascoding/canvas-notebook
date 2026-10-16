@@ -129,10 +129,12 @@ async function main() {
     await agentActions.setManagedAgentGrant({ actor: owner, agentId: pinAgent.agentId, expectedRevision: pinAgent.revision,
       targetType: 'user', targetId: 'alice', canUse: true, canEdit: false, canManage: false });
     const writablePin = (await agentRegistry.getAgentProfile('store-pin-agent'))!;
+    const extensionPin = { resourceRef: originalPin.resourceRef, publishedRevisionRef: originalPin.revisionRef, checksum: originalPin.checksum };
     await workflow.updateManagedAgentConfiguration({ actor: owner, agentId: writablePin.agentId,
       expectedRevision: writablePin.revision, expectedWorkflowRevision: writablePin.workflowRevision ?? 0,
-      workflow: { version: 1, packages: [{ resourceRef: originalPin.resourceRef, publishedRevisionRef: originalPin.revisionRef,
-        checksum: originalPin.checksum, skillSelection: { kind: 'plugin' }, declarations: [] }] } });
+      extensions: { version: 1, origin: 'agent_configuration', mode: 'fixed',
+        selections: [{ selection: { kind: 'plugin', package: extensionPin, skillSelection: { kind: 'all' } }, requirement: 'optional', toolCap: null }],
+        workflow: { version: 1, packages: [{ ...extensionPin, skillSelection: { kind: 'plugin' }, declarations: [] }] }, standalone: [] } });
     await fixture.database.db.insert(sessionTable).values({ sessionId: 'store-pin-session', userId: 'alice', agentId: 'store-pin-agent',
       workspaceId: 'personal-alice', workspaceType: 'personal', organizationId: fixture.organizationId,
       provider: 'fixture', model: 'fixture', createdAt: new Date(), updatedAt: new Date() });
@@ -177,7 +179,8 @@ async function main() {
       assert.match(await readMarker(actor, updated, result.published.revisionRef), /1\.0\.0/u);
       assert.match(await readMarker(actor, updated), /2\.0\.0/u);
       const old = await stateStore.getCapabilityPackagePublishedRevision(updated.resource.resourceRef, result.published.revisionRef);
-      assert.equal(old?.sourceStamp.storeOrigin?.version, '1.0.0');
+      assert(old?.sourceStamp, 'Store publication retains exact upstream provenance.');
+      assert.equal(old.sourceStamp.storeOrigin?.version, '1.0.0');
       await assert.rejects(() => stores.updateCapabilityPackageFromStoreAction(actor, updated.resource.resourceRef, updateInput(review)), (error: unknown) =>
         Boolean(error && typeof error === 'object' && Reflect.get(error, 'status') === 409));
       entry.result = updated;
@@ -260,7 +263,7 @@ async function main() {
     assert.equal(seedUpdate.state.packageRevision, 2);
     assert.equal((await inventory.readExactPackageInventory(legacySeeds.plugin.installDir)).checksum, legacySeedBytes.checksum, 'History normalization never mutates the original legacy root.');
     const seedHistory = await stateStore.getCapabilityPackagePublishedRevision(seedUpdate.resource.resourceRef, seedUpdate.published.baseRevisionRef!);
-    assert.ok(seedHistory); assert.equal(seedHistory.version, '1.0.0');
+    assert.ok(seedHistory?.sourceStamp); assert.equal(seedHistory.version, '1.0.0');
     assert.equal(seedHistory.sourceStamp.storeOrigin?.upstreamChecksum, legacySeedV1.selection.checksum);
     const seedHistoryFiles = await packages.listCapabilityPackageFilesAction(owner, seedUpdate.resource.resourceRef, { revisionRef: seedHistory.revisionRef });
     assert(seedHistoryFiles.files.some(file => file.path === 'skills/skill-creator/SKILL.md'));

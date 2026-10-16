@@ -330,6 +330,13 @@ export async function copyCapabilityPackageSourceWithReferences(source: Capabili
   return readExactPackageInventory(targetRoot);
 }
 
+/** A new authoring draft starts empty; the normal revisioned writes supply its complete files. */
+export async function createEmptyCapabilityPackageDraft(draft: CapabilityPackageDraftLocation): Promise<void> {
+  assertDraftLocation(draft);
+  await writeCapturedInventory({ files: [], directories: [], totalBytes: 0 }, draft.rootPath);
+  await sealPackageDirectory(draft.rootPath, { files: [], directories: [], totalBytes: 0, checksum: '' });
+}
+
 export async function createCapabilityPackageDraft(source: CapabilityPackagePrivateLocation,
   draft: CapabilityPackageDraftLocation,
   options: { expectedSourceChecksum?: string; bundledReferences?: readonly {

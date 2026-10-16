@@ -16,17 +16,17 @@ import { CapabilityPackageError, type AuthorizedCapabilityPackageResource, type 
 import { resolveCapabilityPackageArtifact, assertCapabilityPackageArtifactCurrent, validateCapabilityPackage,
   capabilityPackageLegacyStorageBinding, stageCapabilityPackageRegistryPointer, withCapabilityPackageRegistryPublication,
   type ResolvedCapabilityPackageArtifact } from './artifacts';
-import { createCapabilityPackageDraft, deleteCapabilityPackageDraftFile, listCapabilityPackageFiles, preparePublishedSnapshot,
+import { createCapabilityPackageDraft, createEmptyCapabilityPackageDraft, deleteCapabilityPackageDraftFile, listCapabilityPackageFiles, preparePublishedSnapshot,
   readCapabilityPackageFile, removeCapabilityPackageDraft, resolveCapabilityPackageDraftLocation,
   resolveOwnerScopedPackageVersionPath, verifyCapabilityPackageSnapshot, writeCapabilityPackageDraftFile } from './io';
-import { beginCapabilityPackageDraft, discardCapabilityPackageDraft, getCapabilityPackageDraftRecord,
+import { beginCapabilityPackageDraft, beginNewCapabilityPackageDraft, discardCapabilityPackageDraft, getCapabilityPackageDraftRecord,
   getCapabilityPackagePublishedRevision, listCapabilityPackagePublishedRevisions, getCapabilityPackageState,
   getCapabilityPackageOwnedDraftStatus, listCapabilityPackageOwnedDraftStatuses, mutateCapabilityPackageDraft, publishCapabilityPackageDraft,
-  withCapabilityPackageDraftRead, withCapabilityPackagePublication, type CapabilityPackageDraftRecord } from './store';
+  withCapabilityPackageDraftRead, withCapabilityPackagePublication, findCapabilityPackagePublicationReplay, getCapabilityPackageOperationStatus, type CapabilityPackageDraftRecord } from './store';
 import { capabilityPackageDiscardSchema, capabilityPackageDraftCreationSchema, capabilityPackageDraftReferenceSchema,
   capabilityPackageFileDeleteSchema, capabilityPackageFileReadSchema, capabilityPackageFileWriteSchema,
   capabilityPackagePublishedFileSchema, capabilityPackagePublishedTreeSchema, capabilityPackagePublishSchema,
-  capabilityPackageReferenceSchema } from './schemas';
+  capabilityPackageReferenceSchema, capabilityPackageOperationQuerySchema } from './schemas';
 import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin } from './store-origin';
 
 function parentStorage(source: ResolvedCapabilityPackageArtifact): CapabilityResourceStorageBinding | undefined {
@@ -103,6 +103,16 @@ export async function inspectCapabilityPackage(actor: CapabilityResourceActor, r
 
 export async function createCapabilityPackageDraftAction(actor: CapabilityResourceActor, value: unknown): Promise<CapabilityPackageDraft> {
   let input = capabilityPackageDraftCreationSchema.parse(structuredClone(value));
+  if (input.operation === 'create') {
+    if (!(input.kind === 'skill' ? isValidAgentSkillName(input.targetName) : isValidCanvasPluginName(input.targetName))) {
+      throw new CapabilityPackageError('PACKAGE_REQUEST_INVALID', 'Choose a valid package name.');
+    }
+    const owner = await targetOwnership(actor,{type:'organization'});
+    if (owner.type !== 'organization') throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'An organization target is required.',403);
+    const storage = capabilityPackageLegacyStorageBinding(input.kind,input.targetName,{scopeType:'organization',organizationId:owner.organizationId});
+    const target = await authorizeCapabilityPackageTarget(actor,storage,owner);
+    return beginNewCapabilityPackageDraft(actor,input,target,draft => createEmptyCapabilityPackageDraft(draftLocation(draft,owner)));
+  }
   let source = await resolveCapabilityPackageArtifact(actor, input.resourceRef);
   if (input.operation === 'edit' && source.readOnly) throw new CapabilityPackageError('PACKAGE_READ_ONLY', 'Edit the owning plugin or create a distinct variant.', 403);
   if (input.operation === 'edit' && source.descriptor.metadata.metadataRevision === 0) {
@@ -151,6 +161,10 @@ export async function readCapabilityPackageDraftAction(actor: CapabilityResource
 
 export async function readCapabilityPackageOwnedDraftStatusAction(actor: CapabilityResourceActor, reference: string) {
   return { status: await getCapabilityPackageOwnedDraftStatus(actor, capabilityPackageDraftReferenceSchema.parse(reference)) };
+}
+
+export async function readCapabilityPackageOperationAction(actor: CapabilityResourceActor, value: unknown) {
+  return { operation: await getCapabilityPackageOperationStatus(actor,capabilityPackageOperationQuerySchema.parse(structuredClone(value))) };
 }
 
 /** Listing recovery metadata does not resolve or read the source package. */
@@ -213,8 +227,11 @@ function sameSource(left: CapabilityPackageSourceStamp, right: CapabilityPackage
 
 export async function publishCapabilityPackageDraftAction(actor: CapabilityResourceActor, value: unknown) {
   const input = capabilityPackagePublishSchema.parse(structuredClone(value));
+  const replay = await findCapabilityPackagePublicationReplay(actor,input);
+  if (replay) return replay;
+  try {
   const record = await getCapabilityPackageDraftRecord(actor, input.draftRef);
-  return withCapabilityPackageRegistryPublication(record.targetStorage, async () => {
+  return await withCapabilityPackageRegistryPublication(record.targetStorage, async () => {
     if (record.draft.operation === 'edit') {
       const current = await resolveCapabilityPackageArtifact(actor, record.draft.resourceRef);
       if (!sameSource(current.sourceStamp, record.draft.baseSourceStamp)) {
@@ -233,11 +250,12 @@ export async function publishCapabilityPackageDraftAction(actor: CapabilityResou
           kind: context.draft.kind, name: context.draft.name, owner: context.authorization.record.metadata.ownership,
           version: validation.version, checksum: validation.checksum }, validation);
         stagedRef = context.revisionRef;
-        const sourceOrigin = normalizeCapabilityStoreOrigin(context.draft.baseSourceStamp.storeOrigin, context.draft.baseSourceStamp.resourceId) ?? undefined;
+        const sourceOrigin = context.draft.baseSourceStamp
+          ? normalizeCapabilityStoreOrigin(context.draft.baseSourceStamp.storeOrigin, context.draft.baseSourceStamp.resourceId) ?? undefined : undefined;
         const storeOrigin = context.draft.operation === 'fork' ? deriveCapabilityStoreOrigin(sourceOrigin, context.authorization.record.storage.resourceId) : sourceOrigin;
         staged = await withCapabilityPackagePublication(context.authorization, { revisionRef: context.revisionRef,
           version: validation.version, checksum: validation.checksum, rootPath: snapshot.location.rootPath, storeOrigin }, database,
-        () => stageCapabilityPackageRegistryPointer(context.authorization, snapshot, context.draft.operation === 'fork' ? { enabled: false, newResource: true } : undefined));
+        () => stageCapabilityPackageRegistryPointer(context.authorization, snapshot, context.draft.operation !== 'edit' ? { enabled: false, newResource: true } : undefined));
         const pointer = staged.record;
         return { snapshot, sourceStamp: { resourceId: context.authorization.record.storage.resourceId, kind: context.draft.kind,
           name: context.draft.name, version: validation.version, artifactRevision: pointer.revision ?? null,
@@ -262,6 +280,13 @@ export async function publishCapabilityPackageDraftAction(actor: CapabilityResou
       ? { scopeType: 'organization', organizationId: storage.organizationId! } : { scopeType: 'user', userId: storage.ownerUserId! } });
     return result;
   });
+  } catch (error) {
+    if (error instanceof CapabilityPackageError && ['PACKAGE_NOT_FOUND','PACKAGE_NAMESPACE_CONFLICT','PACKAGE_REVISION_CONFLICT','PACKAGE_DRAFT_CONFLICT'].includes(error.code)) {
+      const completed = await findCapabilityPackagePublicationReplay(actor,input);
+      if (completed) return completed;
+    }
+    throw error;
+  }
 }
 
 export async function withPublishedPackage<T>(actor: CapabilityResourceActor, reference: string, selectedRevision: string | undefined,

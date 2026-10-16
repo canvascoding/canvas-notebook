@@ -191,16 +191,16 @@ Das vollständige Manifest benötigt die dazu passenden `connectors`-Deklaration
 
 ## 5. Umsetzung in abgeschlossenen Schritten
 
-Alle Punkte sind **offen**. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt.
+Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 ist als Backend-/API-Grundlage abgeschlossen; die weiteren Integrationsschritte bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
 
 ### P1 — Gemeinsamen Entwurf um echte Neuanlage und Wiederaufnahme erweitern
 
-- [ ] `operation: 'create'` für Skill/Plugin, stabilen Namen und serverseitig festes Organisationsziel ergänzen. Aktuelle Organisation und bestehende Verwaltungsberechtigung prüfen; persönliche-/Teamziele für neue Creator-Vorgänge auch über direkte API-/Agentaufrufe abweisen, ohne vorhandene Altvorgänge zu beschädigen.
-- [ ] Diskriminierten Herkunftsvertrag für neue gegenüber aus einer Quelle abgeleiteten Entwürfen einführen. Keine erfundenen Quellrevisionen und keine aufgeweichten Source-Prüfungen für `edit`/`fork`.
-- [ ] Store, additive Datenmigration, Actions, Dateidienste und REST auf sourcefreie Neuanlage erweitern. Neue Ressourcen wie bei Fork erst beim erfolgreichen Publish atomar anlegen.
-- [ ] Bestehende aktorprivate Listen-/Statusdienste als Agentoperationen bereitstellen; Wiederaufnahme über `draftRef` statt über einen versteckten Workspacepfad.
-- [ ] Aktorprivate Korrelations-/Idempotenzschlüssel für Neuanlage und Veröffentlichung ergänzen. Den Veröffentlichungsbeleg `draftRef + draftRevision → resourceRef + publishedRevisionRef` atomar mit dem Publish dauerhaft speichern; verworfene Entwürfe als eigenes Ergebnis unterscheiden. Der aktuell beim Publish gelöschte Entwurf und ein späteres `404` genügen dafür nicht.
-- [ ] Namenskonflikte, zwei schreibende Chats, Rechte-/Workspacewechsel und verlorene Antworten mit aktuellen Entwurfsrevisionen behandeln. Nach ungewissem Ergebnis zuerst den korrelierten Status/Beleg lesen, nicht blind neu anlegen/veröffentlichen. Ein Beleg ersetzt keine aktuelle Zugriffsprüfung auf den erzeugten Inhalt.
+- [x] `operation: 'create'` für Skill/Plugin, stabilen Namen und serverseitig festes Organisationsziel ergänzen. Aktuelle Organisation und bestehende Verwaltungsberechtigung prüfen; persönliche-/Teamziele für neue Creator-Vorgänge auch über direkte API-/Agentaufrufe abweisen, ohne vorhandene Altvorgänge zu beschädigen.
+- [x] Diskriminierten Herkunftsvertrag für neue gegenüber aus einer Quelle abgeleiteten Entwürfen einführen. Keine erfundenen Quellrevisionen und keine aufgeweichten Source-Prüfungen für `edit`/`fork`.
+- [x] Store, additive Datenmigration, Actions, Dateidienste und REST auf sourcefreie Neuanlage erweitern. Neue Ressourcen wie bei Fork erst beim erfolgreichen Publish atomar anlegen.
+- [x] Bestehende aktorprivate Listen-/Statusdienste als Agentoperationen bereitstellen; Wiederaufnahme über `draftRef` statt über einen versteckten Workspacepfad.
+- [x] Aktorprivate Korrelations-/Idempotenzschlüssel für Neuanlage und Veröffentlichung ergänzen. Den Veröffentlichungsbeleg `draftRef + draftRevision → resourceRef + publishedRevisionRef` atomar mit dem Publish dauerhaft speichern; verworfene Entwürfe als eigenes Ergebnis unterscheiden. Der aktuell beim Publish gelöschte Entwurf und ein späteres `404` genügen dafür nicht.
+- [x] Namenskonflikte, zwei schreibende Chats, Rechte-/Workspacewechsel und verlorene Antworten mit aktuellen Entwurfsrevisionen behandeln. Nach ungewissem Ergebnis zuerst den korrelierten Status/Beleg lesen, nicht blind neu anlegen/veröffentlichen. Ein Beleg ersetzt keine aktuelle Zugriffsprüfung auf den erzeugten Inhalt.
 
 **Hauptdateien:** `app/lib/capabilities/packages/{contracts,schemas,actions,store,io}.ts`, zugehöriges DB-Schema/Migration, `app/api/capabilities/packages/drafts/`, `app/lib/pi/{scoped-tools,progressive-tool-gateway}.ts`.
 

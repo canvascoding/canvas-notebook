@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -62,8 +63,21 @@ async function main(): Promise<void> {
     const resources = await import('../app/lib/capabilities/resources/actions');
     const resource = await resources.configureCapabilityResource({ userId: 'owner' }, legacyRef, { expectedMetadataRevision: 0, expectedGrantsRevision: 0, accessMode: 'restricted',
       grants: [{ targetType: 'user', targetId: 'reader', canUse: true, canEdit: false, canManage: false }] });
+    const packages = await import('../app/lib/capabilities/packages/actions');
+    // Set up actual private recovery state before entering Planning, then remove creation authority.
+    await raw.run("UPDATE organization_user_permissions SET role='admin',can_share_plugins_and_skills=1 WHERE user_id='reader'");
+    const creationKey = randomUUID();
+    const privateDraft = await packages.createCapabilityPackageDraftAction({ userId: 'reader', workspaceId: 'planning-personal' }, {
+      operation: 'create', kind: 'skill', targetName: 'planning-private-context', requestId: creationKey,
+    });
+    const privateWritten = await packages.writeCapabilityPackageDraftFileAction({ userId: 'reader', workspaceId: 'planning-personal' }, privateDraft.draftRef, {
+      expectedDraftRevision: privateDraft.draftRevision, path: 'SKILL.md', encoding: 'base64',
+      content: Buffer.from('---\nname: planning-private-context\ndescription: Private recovery fixture\nmetadata:\n  version: "1.0.0"\n---\nPLANNING_PRIVATE_DRAFT_BODY\n').toString('base64'),
+    });
+    await raw.run("UPDATE organization_user_permissions SET role='member',can_share_plugins_and_skills=0 WHERE user_id='reader'");
+    const recoveryNames = ['list_canvas_package_drafts', 'inspect_canvas_package_draft_status', 'inspect_canvas_package_operation'];
     const agents = await import('../app/lib/agents/registry');
-    const configuredNames = ['inspect_canvas_package', 'list_canvas_package_store', 'create_canvas_package_draft', 'read', 'email_list_mailboxes', 'mcp', 'composio_execute'];
+    const configuredNames = ['inspect_canvas_package', 'list_canvas_package_store', ...recoveryNames, 'create_canvas_package_draft', 'read', 'email_list_mailboxes', 'mcp', 'composio_execute'];
     const profile = await agents.createAgentProfile({ agentId: 'planning-worker', name: 'Planning worker', scopeType: 'user', ownerUserId: 'reader', organizationId: 'planning-progressive-org',
       createdByUserId: 'reader', enabledTools: configuredNames, relevantSkills: [], relevantConnections: [], accessPolicy: 'restricted' });
     await raw.run(`INSERT INTO pi_sessions (session_id,user_id,agent_id,provider,model,session_kind,organization_id,workspace_id,workspace_type,workspace_name,workspace_root_relative_path,created_at,updated_at)
@@ -78,10 +92,11 @@ async function main(): Promise<void> {
     const registered = await getPiTools('reader', profile.agentId, 'planning-session', { executionContext: context, planningMode: true });
     const gateway = registered.find(tool => tool.name === 'canvas_extensions');
     assert(gateway && isProgressiveGatewayTool(gateway), 'Actual registry must collapse the configured package read/write operations.');
-    assert.deepEqual(gateway.progressiveGateway.operations.map(tool => tool.name).sort(), ['create_canvas_package_draft', 'inspect_canvas_package', 'list_canvas_package_store']);
+    assert.deepEqual(gateway.progressiveGateway.operations.map(tool => tool.name).sort(), ['create_canvas_package_draft', 'inspect_canvas_package', 'list_canvas_package_store', ...recoveryNames].sort());
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('inspect_canvas_package'), true);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('list_canvas_package_store'), true);
     assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('create_canvas_package_draft'), false);
+    for (const operation of recoveryNames) assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has(operation), true);
     assert(registered.some(tool => tool.name === 'email_list_mailboxes'), 'Native email remains a native top-level tool before the effective planning filter.');
     assert(!registered.some(tool => ['mcp', 'composio', 'integrations'].includes(tool.name)), 'Planning construction has no external gateway.');
     const { Agent } = await import('@earendil-works/pi-agent-core');
@@ -103,7 +118,7 @@ async function main(): Promise<void> {
     assert(effective.registeredToolNames.includes('canvas_extensions'), 'Actual LivePiRuntime Planning must retain the configured read-only package gateway operations.');
     const effectiveGateway = agent.state.tools.find(tool => tool.name === 'canvas_extensions');
     assert(effectiveGateway && isProgressiveGatewayTool(effectiveGateway));
-    const expectedOperations = ['inspect_canvas_package', 'list_canvas_package_store'];
+    const expectedOperations = ['inspect_canvas_package', 'list_canvas_package_store', ...recoveryNames].sort();
     assert.deepEqual(effectiveGateway.progressiveGateway.operations.map(tool => tool.name).sort(), expectedOperations);
     assert.deepEqual(buildEffectiveToolManifest(filterToolsForPlanningMode(agent.state.tools)), effective, 'Applying Planning twice preserves the exact ceiling.');
     const inspectOnly = withAllowedProgressiveGatewayOperations(gateway, ['inspect_canvas_package']); assert(inspectOnly);
@@ -147,12 +162,31 @@ async function main(): Promise<void> {
     assert.equal(storeResult.stores[0].offerings[0].entryKey, 'planning-offering');
     assert.equal(storeResult.stores[0].offerings[0].versions[0].checksum, offeringChecksum);
     await assert.rejects(fs.stat(path.join(root, 'never-download.zip')), { code: 'ENOENT' });
+    const listedDrafts = details(await invoke('list_canvas_package_drafts', { limit: 1 }));
+    assert.equal(listedDrafts.error, undefined, JSON.stringify(listedDrafts));
+    const draftMetadata = (listedDrafts.capabilityPackage as { result: { drafts: Array<{ draftRef: string; draftRevision: number }> } }).result;
+    assert.equal(draftMetadata.drafts.length, 1); assert.equal(draftMetadata.drafts[0].draftRef, privateDraft.draftRef);
+    const status = details(await invoke('inspect_canvas_package_draft_status', { draftRef: privateDraft.draftRef }));
+    assert.equal(status.error, undefined, JSON.stringify(status));
+    assert.equal((status.capabilityPackage as { result: { status: { draftRevision: number } } }).result.status.draftRevision, privateWritten.draft.draftRevision);
+    const recovered = details(await invoke('inspect_canvas_package_operation', { requestId: creationKey }));
+    assert.equal(recovered.error, undefined, JSON.stringify(recovered));
+    const receipt = (recovered.capabilityPackage as { result: { operation: { status: string; draftRef: string; draftRevision: number } } }).result.operation;
+    assert.equal(receipt.status, 'draft'); assert.equal(receipt.draftRef, privateDraft.draftRef);
+    assert.equal(receipt.draftRevision, privateWritten.draft.draftRevision);
+    for (const metadata of [draftMetadata, status, recovered]) {
+      assert(!JSON.stringify(metadata).includes(root));
+      assert.doesNotMatch(JSON.stringify(metadata), /PLANNING_PRIVATE_DRAFT_BODY|baseSourceStamp|rootPath|sourceStorage|sourceParentStorage|"files"|"content"/u);
+    }
+    assert.equal(getAgentExecutionContext(), null, 'Recovery calls also restore the actual runtime caller context.');
     for (const operation of ['create_canvas_package_draft', 'publish_canvas_package_draft', 'install_canvas_package_from_store', 'run_canvas_skill_script',
       'mcp', 'composio_execute', 'COMPOSIO_MANAGE_CONNECTIONS', 'email_list_mailboxes']) {
       assert.match(String(details(await invoke(operation, {})).error), /not available/u, `${operation} must be denied before its body executes.`);
     }
     const draftCount = await raw.get('SELECT COUNT(*)::int AS count FROM capability_package_drafts') as { count: number };
-    assert.equal(draftCount.count, 0);
+    assert.equal(draftCount.count, 1, 'Blocked Planning mutations must not add to the prepared recovery fixture.');
+    const unchangedDraft = await raw.get('SELECT draft_revision FROM capability_package_drafts WHERE draft_ref=$1', [privateDraft.draftRef]) as { draft_revision: number };
+    assert.equal(unchangedDraft.draft_revision, privateWritten.draft.draftRevision);
     const revoked = await resources.updateCapabilityResource({ userId: 'owner' }, resource.metadata.resourceRef, {
       expectedMetadataRevision: resource.metadata.metadataRevision, expectedGrantsRevision: resource.metadata.grantsRevision, grants: [] });
     assert.equal(revoked.metadata.metadataRevision, resource.metadata.metadataRevision);
@@ -161,6 +195,8 @@ async function main(): Promise<void> {
     assert.equal(typeof denied.error, 'string', 'A held read operation must recheck the current resource grant.');
     assert.equal(denied.code, 'CAPABILITY_RESOURCE_NOT_FOUND', 'Current authorization must deny the read, without disguising an unrelated snapshot failure as a passing permission check.');
     assert(!JSON.stringify(denied).includes('Planning may inspect these actual package bytes'));
+    assert.equal(details(await invoke('inspect_canvas_package_operation', { draftRef: privateDraft.draftRef })).error, undefined,
+      'Actor-private recovery remains metadata only after unrelated package Read is revoked.');
     const currentProfile = await agents.getAgentProfile(profile.agentId); assert(currentProfile);
     await agents.updateAgentProfile({ agentId: profile.agentId, expectedRevision: currentProfile.revision,
       enabledTools: ['create_canvas_package_draft', 'read', 'email_list_mailboxes'] });
@@ -169,10 +205,17 @@ async function main(): Promise<void> {
     assert.deepEqual(withdrawn.registeredToolNames, ['read'], 'Fresh configuration withdrawal does not restore default reads or leave an empty gateway.');
     assert.equal(networkCalls, 0); assert.equal(modelCalls, 0);
     assert(resource.access.canRead);
-    console.log('planning-progressive-runtime-test: PASS actual registry/LivePiRuntime/Agent SDK, allowed search/describe/package inspect + file-registry Store read, current grant revocation, monotone ceilings, prompt/management metadata and fresh configuration withdrawal; 0 network/model/business calls. No native-client or model prompt claim.');
+    console.log('planning-progressive-runtime-test: PASS actual registry/LivePiRuntime/Agent SDK, allowed search/describe/package inspect, actor-private draft/status/operation recovery and file-registry Store read, blocked creation, current grant revocation, monotone ceilings, prompt/management metadata and fresh configuration withdrawal; 0 network/model/business calls. No native-client or model prompt claim.');
   } finally {
     dispose?.(); loader._load = originalLoader; globalThis.fetch = originalFetch;
     await database.close(); for (const [key, value] of Object.entries(previousEnv)) { if (value === undefined) delete process.env[key]; else process.env[key] = value; }
+    const unlock = async (directory: string): Promise<void> => {
+      const stat = await fs.lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return;
+      await fs.chmod(directory, 0o700);
+      for (const entry of await fs.readdir(directory)) await unlock(path.join(directory, entry));
+    };
+    await unlock(root);
     await fs.rm(root, { recursive: true, force: true });
   }
 }

@@ -5,7 +5,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft } from '../app/lib/capabilities/packages/contracts';
-import { createPiTestDatabase } from './helpers/pi-test-database';
+import { createSharedConnectionTestDatabase } from './helpers/shared-connection-test-database';
+import { verifyCapabilityPackageCreation } from './helpers/capability-package-creation-cases';
 
 async function main() {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'canvas-package-actions-'));
@@ -13,7 +14,7 @@ async function main() {
   const previous=Object.fromEntries(envKeys.map(key=>[key,process.env[key]]));
   Object.assign(process.env,{DATA:root,CANVAS_DATA_ROOT:root,INTEGRATIONS_ENV_MASTER_KEY:randomBytes(32).toString('base64url'),QMD_ENABLED:'false',CANVAS_MCP_DIRECT_ENABLED:'false'});
   process.env.BASE_URL ??='http://localhost:3001';
-  const database=await createPiTestDatabase(),raw=await database.openDb();
+  const database=await createSharedConnectionTestDatabase(),raw=await database.openDb();
   const loader=Module as typeof Module & {_load:(name:string,parent:NodeModule|null,main:boolean)=>unknown};
   const original=loader._load;
   let revokeAfterPreparedDraft:(()=>Promise<void>)|undefined;
@@ -75,6 +76,7 @@ async function main() {
       headers:{...(userId?{'x-fixture-user':userId}:{}),'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const context=(params:Record<string,string>={})=>({params:Promise.resolve(params)});
     const responseData=async<T>(response:Response,status=200):Promise<T>=>{assert.equal(response.status,status,await response.clone().text());return (await response.json() as {data:T}).data;};
+    await verifyCapabilityPackageCreation({packages,raw,owner,other:editor,request,native:database.native});
     assert.equal((await inspectRoute.GET(request(null),context({resourceRef:ref}))).status,401);
     const inspected=await responseData<{package:CapabilityPackageDescriptor}>(await inspectRoute.GET(request('editor'),context({resourceRef:ref})));
     assert.equal(inspected.package.access.canEdit,true);assert.equal(inspected.package.access.canUse,false);assert.equal(inspected.package.access.canManage,false);

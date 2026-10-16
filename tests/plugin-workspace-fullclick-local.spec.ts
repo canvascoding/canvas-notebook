@@ -233,7 +233,8 @@ test('real UI installs organization access, edits and publishes immutable bytes,
   await expect.poll(() => page.evaluate(() => Number(Reflect.get(window, '__ownedPackageHistoryEvents')))).toBeGreaterThanOrEqual(historyBefore + 2);
   await expect(page).toHaveURL(savedHref); await expect(page.getByTestId('package-file-content')).toHaveValue(localText);
 
-  const held = latch(), entered = latch(); releases.add(held.release); let serverDraft: CapabilityPackageDraft | null = null, barrierFailure: unknown;
+  const held = latch(), entered = latch(); releases.add(held.release);
+  const serverResult: { draft?: CapabilityPackageDraft } = {}; let barrierFailure: unknown;
   const draftPath = `${pkg}/drafts/${encodeURIComponent(draft.draftRef)}/file`;
   const matcher = (url: URL) => url.pathname === draftPath;
   const handler = async (route: Route) => {
@@ -241,7 +242,7 @@ test('real UI installs organization access, edits and publishes immutable bytes,
     try {
       const input = request.postDataJSON(); if (input.path !== 'README.md' || input.expectedDraftRevision !== draft.draftRevision) throw new Error('The transport barrier received an unowned draft mutation.');
       const actual = await route.fetch(); const value = await data<{ draft: CapabilityPackageDraft }>(actual, 'Actual server-completed README PUT');
-      await recordDraft(value); serverDraft = value.draft; outstanding = null; await saveRecovery(); entered.release(); await held.promise;
+      await recordDraft(value); serverResult.draft = value.draft; outstanding = null; await saveRecovery(); entered.release(); await held.promise;
       await route.fulfill({ response: actual });
     } catch (error) { barrierFailure = error; entered.release(); await route.abort().catch(() => undefined); }
   };
@@ -256,7 +257,7 @@ test('real UI installs organization access, edits and publishes immutable bytes,
     await page.getByTestId('plugin-workspace-scope-user').click(); await expect(page).toHaveURL(savedHref); expect(confirmations).toBe(1);
     await expect(page.getByTestId('package-file-content')).toHaveValue(localText);
     held.release(); await data<unknown>(await delivered, 'Unchanged actual README response delivered'); await expect(page.getByTestId('package-validate')).toBeEnabled();
-    if (!serverDraft) throw new Error('The actual README response was not captured.'); draft = serverDraft;
+    if (!serverResult.draft) throw new Error('The actual README response was not captured.'); draft = serverResult.draft;
   } finally { held.release(); releases.delete(held.release); await page.unroute(matcher, handler); page.off('dialog', onDialog); }
 
   await chooseFile(page, '.canvas-plugin/plugin.json', draft.draftRef); const manifest = JSON.parse(await page.getByTestId('package-file-content').inputValue()) as Record<string, unknown>;

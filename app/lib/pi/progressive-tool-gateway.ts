@@ -314,7 +314,7 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
   {
     name: 'canvas_extensions',
     label: 'Managing Canvas extensions',
-    description: 'On-demand gateway for Canvas plugins and complete skill packages. Use search, describe, then call. Existing personal workspace drafts remain available. Managed packages use private full-package drafts and immutable publication with current resource edit rights, independent grants and revisions; distinct forks require target-scope authority.',
+    description: 'On-demand gateway for Canvas plugins and complete skill packages. Use search, describe, then call. New source-free managed packages target the current organization under current creation rights. Actor-private draft lists and durable operation receipts support recovery without granting package access. Existing personal workspace drafts and authorized legacy edit/fork operations remain available. Managed publication uses current resource/target rights, independent grants and revisions.',
     operations: [
       'search_canvas_extensions',
       'list_canvas_package_store',
@@ -327,6 +327,9 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
       'inspect_canvas_package',
       'list_canvas_package_scopes',
       'create_canvas_package_draft',
+      'list_canvas_package_drafts',
+      'inspect_canvas_package_draft_status',
+      'inspect_canvas_package_operation',
       'inspect_canvas_package_draft',
       'list_canvas_package_draft_files',
       'read_canvas_package_draft_file',

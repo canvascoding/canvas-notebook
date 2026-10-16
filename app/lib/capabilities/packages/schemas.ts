@@ -15,12 +15,18 @@ export const capabilityPackageOwnershipSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('team'), workspaceId: z.string().min(1).max(200) }).strict(),
 ]);
 export const capabilityPackageDraftCreationSchema = z.discriminatedUnion('operation', [
+  z.object({ operation: z.literal('create'), kind: z.enum(['skill', 'plugin']), targetName: z.string().min(1).max(64), requestId: z.uuid() }).strict(),
   z.object({ operation: z.literal('edit'), resourceRef, ...resourceRevisions, ...head }).strict(),
   z.object({ operation: z.literal('fork'), resourceRef, targetName: z.string().min(1).max(64),
     ownership: capabilityPackageOwnershipSchema, expectedSourceMetadataRevision: revision, expectedSourceGrantsRevision: revision,
     expectedSourcePackageRevision: revision, expectedSourcePublishedRevisionRef: revisionRef.nullable() }).strict(),
 ]);
-export const capabilityPackagePublishSchema = z.object({ draftRef, ...resourceRevisions, ...head, ...draftRevision }).strict();
+export const capabilityPackagePublishSchema = z.object({ draftRef, requestId: z.uuid().optional(), ...resourceRevisions, ...head, ...draftRevision }).strict();
+export const capabilityPackageOwnedDraftListQuerySchema = z.object({ limit: z.number().int().min(1).max(50).optional(),
+  cursor: z.string().min(1).max(1_024).optional() }).strict();
+export const capabilityPackageOperationQuerySchema = z.union([
+  z.object({ requestId: z.uuid() }).strict(), z.object({ draftRef }).strict(),
+]);
 export const capabilityPackageActivationSchema = z.object({ enabled: z.boolean(), expectedDefaultEnabled: z.boolean(),
   ...resourceRevisions, expectedPackageRevision: revision, expectedPublishedRevisionRef: revisionRef }).strict();
 export const capabilityPackageFileWriteSchema = z.object({ path: relativePath, encoding: z.literal('base64'),

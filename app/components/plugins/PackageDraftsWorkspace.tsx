@@ -17,7 +17,7 @@ export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { 
   const workspaceId = requestedWorkspaceId ?? activeWorkspaceId;
   const open = (status: CapabilityPackageOwnedDraftStatus) => {
     navigate({ area: status.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
-      resourceRef: status.sourceResourceRef, draftRef: status.draftRef, task: 'content' });
+      resourceRef: status.sourceResourceRef ?? undefined, draftRef: status.draftRef, task: 'content' });
   };
   const close = () => navigate({ draftRef: undefined, resourceRef: undefined, task: undefined, file: undefined });
   return (
