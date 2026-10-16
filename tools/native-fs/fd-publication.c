@@ -1,4 +1,7 @@
-/* Darwin descriptor primitives only. No authority, paths, JSON or child IO. */
+/* Descriptor primitives only. No authority, absolute paths, JSON or child IO. */
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE 1
+#endif
 #define NAPI_VERSION 8
 #include <node_api.h>
 #include <sys/stat.h>
@@ -12,15 +15,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef __APPLE__
-#error The native descriptor addon is Darwin-only; Linux uses proc FD primitives.
+#if defined(__APPLE__)
+#define CANVAS_PLATFORM "darwin"
+#elif defined(__linux__)
+#define CANVAS_PLATFORM "linux"
+#else
+#error Unsupported descriptor platform.
 #endif
 #if defined(__arm64__) || defined(__aarch64__)
 #define CANVAS_ARCH "arm64"
 #elif defined(__x86_64__)
 #define CANVAS_ARCH "x64"
 #else
-#error Unsupported Darwin architecture.
+#error Unsupported descriptor architecture.
 #endif
 #define SCAN_LIMIT 100000
 
@@ -39,6 +46,10 @@ static napi_value syscall_error(napi_env env, int error) {
     case EMFILE: code = "EMFILE"; break; case ENFILE: code = "ENFILE"; break;
     case EROFS: code = "EROFS"; break; case ENAMETOOLONG: code = "ENAMETOOLONG"; break;
     case EIO: code = "EIO"; break; case EOVERFLOW: code = "EOVERFLOW"; break;
+    case EBUSY: code = "EBUSY"; break; case EDQUOT: code = "EDQUOT"; break;
+    case EISDIR: code = "EISDIR"; break; case EMLINK: code = "EMLINK"; break;
+    case ENOMEM: code = "ENOMEM"; break; case ENOSYS: code = "ENOSYS"; break;
+    case ENOTEMPTY: code = "ENOTEMPTY"; break; case EOPNOTSUPP: code = "EOPNOTSUPP"; break;
     default: code = "FD_PUBLICATION_UNCONFIRMED";
   }
   return refused(env, code);
@@ -147,10 +158,14 @@ static napi_value link_at(napi_env env, napi_callback_info info) {
 static int decimal(napi_env env, napi_value input, uint64_t *value) {
   char text[NAME_MAX + 1]; if (!component(env, input, text)) return 0;
   if (strlen(text) > 20 || (text[0] == '0' && text[1])) { refused(env, "FD_PUBLICATION_INVALID_INPUT"); return 0; }
-  for (char *at = text; *at; at++) if (*at < '0' || *at > '9') { refused(env, "FD_PUBLICATION_INVALID_INPUT"); return 0; }
-  errno = 0; char *end; unsigned long long result = strtoull(text, &end, 10);
-  if (errno || *end) { refused(env, "FD_PUBLICATION_INVALID_INPUT"); return 0; }
-  *value = (uint64_t)result; return 1;
+  uint64_t result = 0;
+  for (const char *at = text; *at; at++) {
+    if (*at < '0' || *at > '9') { refused(env, "FD_PUBLICATION_INVALID_INPUT"); return 0; }
+    uint64_t digit = (uint64_t)(*at - '0');
+    if (result > (UINT64_MAX - digit) / 10) { refused(env, "FD_PUBLICATION_INVALID_INPUT"); return 0; }
+    result = result * 10 + digit;
+  }
+  *value = result; return 1;
 }
 static napi_value unlink_file(napi_env env, napi_callback_info info) {
   napi_value args[7]; int parent; char name[NAME_MAX + 1]; uint64_t dev, ino; double uid, mode;
@@ -187,14 +202,38 @@ static napi_value exact_name(napi_env env, napi_callback_info info) {
   if (error) return syscall_error(env, error);
   napi_get_boolean(env, found, &result); return result;
 }
+static napi_value rename_no_replace_at(napi_env env, napi_callback_info info) {
+  napi_value args[5]; int source, target; char source_name[NAME_MAX + 1], target_name[NAME_MAX + 1];
+  if (!arguments(env, info, 4, args) || !directory(env, args[0], &source) || !component(env, args[1], source_name)
+      || !directory(env, args[2], &target) || !component(env, args[3], target_name)) return NULL;
+  if (!strcmp(source_name, target_name)) {
+    struct stat source_directory, target_directory;
+    if (fstat(source, &source_directory) || fstat(target, &target_directory)) return syscall_error(env, errno);
+    if (source_directory.st_dev == target_directory.st_dev && source_directory.st_ino == target_directory.st_ino)
+      return refused(env, "FD_PUBLICATION_INVALID_INPUT");
+  }
+  struct stat observed;
+  if (fstatat(source, source_name, &observed, AT_SYMLINK_NOFOLLOW)) return syscall_error(env, errno);
+  if (!regular(&observed) && !(S_ISDIR(observed.st_mode) && observed.st_uid == geteuid()
+      && observed.st_nlink >= 1 && !(observed.st_mode & 022))) return refused(env, "FD_PUBLICATION_NON_REGULAR");
+  /* The source profile is an observation, not an atomic source-inode CAS.
+   * The fixed kernel operation protects destination vacancy only; callers
+   * retain authorization, namespace, lifetime, journal and durability duties. */
+#if defined(__APPLE__)
+  if (renameatx_np(source, source_name, target, target_name, RENAME_EXCL)) return syscall_error(env, errno);
+#elif defined(__linux__)
+  if (renameat2(source, source_name, target, target_name, RENAME_NOREPLACE)) return syscall_error(env, errno);
+#endif
+  return nothing(env);
+}
 static napi_value initialize(napi_env env, napi_value exports) {
-  const char *names[] = {"openDirectoryAt", "openFileAt", "mkdirAt", "linkAt", "unlinkFileAt", "hasExactNameAt"};
-  napi_callback functions[] = {open_directory, open_file, mkdir_at, link_at, unlink_file, exact_name};
-  for (int i = 0; i < 6; i++) { napi_value fn; napi_create_function(env, names[i], NAPI_AUTO_LENGTH, functions[i], NULL, &fn); napi_set_named_property(env, exports, names[i], fn); }
+  const char *names[] = {"openDirectoryAt", "openFileAt", "mkdirAt", "linkAt", "unlinkFileAt", "hasExactNameAt", "renameNoReplaceAt"};
+  napi_callback functions[] = {open_directory, open_file, mkdir_at, link_at, unlink_file, exact_name, rename_no_replace_at};
+  for (int i = 0; i < 7; i++) { napi_value fn; napi_create_function(env, names[i], NAPI_AUTO_LENGTH, functions[i], NULL, &fn); napi_set_named_property(env, exports, names[i], fn); }
   napi_value version, napi, platform, arch;
-  napi_create_int32(env, 1, &version); napi_set_named_property(env, exports, "apiVersion", version);
+  napi_create_int32(env, 2, &version); napi_set_named_property(env, exports, "apiVersion", version);
   napi_create_int32(env, 8, &napi); napi_set_named_property(env, exports, "napiVersion", napi);
-  napi_create_string_utf8(env, "darwin", NAPI_AUTO_LENGTH, &platform); napi_set_named_property(env, exports, "platform", platform);
+  napi_create_string_utf8(env, CANVAS_PLATFORM, NAPI_AUTO_LENGTH, &platform); napi_set_named_property(env, exports, "platform", platform);
   napi_create_string_utf8(env, CANVAS_ARCH, NAPI_AUTO_LENGTH, &arch); napi_set_named_property(env, exports, "arch", arch);
   if (napi_object_freeze(env, exports) != napi_ok) return refused(env, "FD_PUBLICATION_UNCONFIRMED");
   return exports;

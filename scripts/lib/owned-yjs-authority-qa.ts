@@ -204,6 +204,7 @@ export async function sourceFingerprint(repo: string): Promise<{ head: string; f
   assert.match(head, /^[a-f0-9]{40}$/u);
   const names = execFileSync('git', ['ls-files', '-z', '-c', '-o', '--exclude-standard'], { cwd: repo }).toString().split('\0')
     .filter(name => /^(?:app|components|server|scripts|tests|packages|i18n|messages|public)\//u.test(name)
+      || name === 'tools/native-fs/fd-publication.c'
       || /^(?:package(?:-lock)?\.json|tsconfig\.json|next\.config\.[cm]?[jt]s|server\.[cm]?[jt]s|postcss\.config\.[cm]?[jt]s)$/u.test(name));
   const digest = createHash('sha256').update(head);
   async function* entries(): AsyncGenerator<FingerprintEntry> {
@@ -214,6 +215,84 @@ export async function sourceFingerprint(repo: string): Promise<{ head: string; f
   }
   await hashFingerprintEntries(digest, entries());
   return { head, fingerprint: digest.digest('hex') };
+}
+
+const nativeDescriptorSource = 'tools/native-fs/fd-publication.c';
+const nativeDescriptorMaxBytes = 2 * 1024 * 1024;
+
+async function nativeFingerprintFile(repo: string, relative: string): Promise<Buffer> {
+  const parts = relative.split('/');
+  const parents: Array<{ directory: string; info: Awaited<ReturnType<typeof fs.lstat>> }> = [];
+  assert.equal(await fs.realpath(repo), repo);
+  for (let count = 1; count < parts.length; count++) {
+    const directory = path.join(repo, ...parts.slice(0, count)), info = await fs.lstat(directory);
+    assert(info.isDirectory() && !info.isSymbolicLink() && !(info.mode & 0o022), 'Unsafe native artifact parent.');
+    assert.equal(await fs.realpath(directory), directory);
+    parents.push({ directory, info });
+  }
+  const filename = path.join(repo, relative);
+  const handle = await fs.open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const before = await handle.stat();
+    assert(before.isFile() && before.nlink === 1 && before.size > 0 && before.size <= nativeDescriptorMaxBytes
+      && !(before.mode & 0o022), 'Unsafe native artifact file.');
+    const bytes = Buffer.alloc(before.size);
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, offset, bytes.length - offset, offset);
+      assert(bytesRead > 0, 'Native artifact changed during read.'); offset += bytesRead;
+    }
+    const after = await handle.stat(), named = await fs.lstat(filename);
+    for (const observed of [after, named]) {
+      assert(observed.isFile() && !observed.isSymbolicLink());
+      for (const key of ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeMs', 'ctimeMs'] as const) assert.equal(observed[key], before[key]);
+    }
+    assert.equal(await fs.realpath(filename), filename);
+    for (const { directory, info } of parents) {
+      const current = await fs.lstat(directory);
+      assert(current.isDirectory() && !current.isSymbolicLink());
+      for (const key of ['dev', 'ino', 'uid', 'mode', 'nlink', 'mtimeMs', 'ctimeMs'] as const) assert.equal(current[key], info[key]);
+      assert.equal(await fs.realpath(directory), directory);
+    }
+    return bytes;
+  } finally { await handle.close(); }
+}
+
+async function appendNativeDescriptorFingerprint(repo: string, digest: Hash): Promise<void> {
+  try { await fs.lstat(path.join(repo, nativeDescriptorSource)); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    // Existing synthetic build fixtures without this backend retain their original digest.
+    // A deleted tracked production source must never turn the native binding off.
+    let tracked = '';
+    try { tracked = execFileSync('git', ['ls-files', '--cached', '-z', '--', nativeDescriptorSource],
+      { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (gitError) { if ((gitError as { status?: number }).status !== 128) throw gitError; }
+    assert(!tracked, 'The tracked native descriptor source is missing.');
+    return;
+  }
+  const source = await nativeFingerprintFile(repo, nativeDescriptorSource);
+  if (!['darwin', 'linux'].includes(process.platform) || !['arm64', 'x64'].includes(process.arch)) {
+    digest.update(`native-descriptor-unsupported\0${process.platform}\0${process.arch}\0`); return;
+  }
+  const directory = `native/fd-publication/${process.platform}-${process.arch}`;
+  const names = ['manifest.json', 'source.c', 'fd-publication.node'] as const;
+  const artifacts: Buffer[] = [];
+  for (const name of names) artifacts.push(await nativeFingerprintFile(repo, `${directory}/${name}`));
+  const [manifestBytes, packagedSource, binary] = artifacts;
+  const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
+  const keys = ['version', 'apiVersion', 'napiVersion', 'platform', 'arch', 'sourceSha256', 'binarySha256', 'nodeVersion', 'compiler'];
+  assert(manifest && Object.getPrototypeOf(manifest) === Object.prototype);
+  assert.deepEqual(Object.keys(manifest), keys);
+  assert.equal(JSON.stringify(manifest, null, 2) + '\n', manifestBytes.toString('utf8'));
+  assert.equal(manifest.version, 1); assert.equal(manifest.apiVersion, 2); assert.equal(manifest.napiVersion, 8);
+  assert.equal(manifest.platform, process.platform); assert.equal(manifest.arch, process.arch);
+  assert.equal(typeof manifest.nodeVersion, 'string'); assert.equal(typeof manifest.compiler, 'string');
+  assert.equal(manifest.sourceSha256, hash(source)); assert.equal(manifest.sourceSha256, hash(packagedSource));
+  assert.equal(manifest.binarySha256, hash(binary));
+  for (let index = 0; index < names.length; index++) {
+    digest.update(`native-artifact\0${directory}/${names[index]}\0${artifacts[index].length}\0`).update(artifacts[index]).update('\0');
+  }
 }
 
 export async function buildFingerprint(repo: string): Promise<{ buildId: string; fingerprint: string }> {
@@ -254,6 +333,7 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
     }
   }
   await hashFingerprintEntries(digest, visit(root));
+  await appendNativeDescriptorFingerprint(repo, digest);
   return { buildId, fingerprint: digest.digest('hex') };
 }
 

@@ -64,6 +64,7 @@
     "build:fd-publication": "node scripts/build-fd-publication.mjs",
     "verify:fd-publication": "node scripts/build-fd-publication.mjs verify",
     "test:fd-publication": "node --conditions=react-server scripts/fd-publication-test.mjs",
+    "test:fd-path-move": "node --conditions=react-server scripts/fd-path-move-test.mjs",
     "prebuild": "npm run build:fd-publication && npm run build:decision-models && npm run build:tool-apps && npm run test:licenses",
     "build": "node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build && bash scripts/inject-cli-version.sh",
     "backup:create": "tsx --conditions react-server scripts/create-full-backup.ts",

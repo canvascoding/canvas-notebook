@@ -175,7 +175,7 @@ if (process.argv[2] === '--linux-container') {
         else if (variant === 'source' || variant === 'binary') fs.appendFileSync(path.join(output, variant === 'source' ? 'source.c' : 'fd-publication.node'), 'drift');
         else if (variant === 'symlink') { fs.renameSync(file, file + '.actual'); fs.symlinkSync('manifest.json.actual', file); }
         else if (variant === 'duplicate') fs.writeFileSync(file, `{"version":1,"version":1,${JSON.stringify(manifest).slice(1)}`);
-        else { if (variant === 'platform') manifest.platform = 'linux'; if (variant === 'arch') manifest.arch = 'foreign'; if (variant === 'api') manifest.apiVersion = 2; if (variant === 'extra') manifest.extra = 'private'; fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n'); }
+        else { if (variant === 'platform') manifest.platform = 'linux'; if (variant === 'arch') manifest.arch = 'foreign'; if (variant === 'api') manifest.apiVersion = 99; if (variant === 'extra') manifest.extra = 'private'; fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n'); }
         const result = spawnSync(process.execPath, ['--conditions=react-server', '-e', childProgram], { env: { ...process.env, CANVAS_APP_ROOT: sandbox }, encoding: 'utf8', timeout: 10_000 });
         assert.equal(result.status, 0, result.stderr); const value = JSON.parse(result.stdout); assert.equal(value.name, 'FdPublicationError'); assert.equal(value.cause, undefined);
         const verify = spawnSync(process.execPath, [buildScript, 'verify'], { cwd: sandbox, encoding: 'utf8', timeout: 10_000 });

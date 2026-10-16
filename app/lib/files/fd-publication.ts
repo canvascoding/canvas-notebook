@@ -18,13 +18,20 @@ export type FdPublicationBackend = Readonly<{
   unlinkFileAt(parentFd: number, name: string, expected: PrivateFdFileProfile): void;
   hasExactNameAt(parentFd: number, name: string): boolean;
 }>;
+/** Atomically refuses an occupied destination. This does not compare the
+ * source inode atomically, authorize a move, or sync either parent directory. */
+export type FdPathMoveBackend = Readonly<{
+  apiVersion: 1; backend: 'linux-node-api8' | 'darwin-node-api8';
+  renameNoReplaceAt(sourceFd: number, sourceName: string, targetFd: number, targetName: string): void;
+}>;
 export class FdPublicationError extends Error {
   constructor(readonly code: string) { super('The descriptor operation could not be confirmed.'); this.name = 'FdPublicationError'; }
 }
 const fail = (code: string): never => { throw new FdPublicationError(code); };
 const limit = 100_000;
 const maxArtifactBytes = 2 * 1024 * 1024;
-const syscallCodes = new Set(['EBADF', 'EEXIST', 'ENOENT', 'ENOTDIR', 'ELOOP', 'EINVAL', 'EACCES', 'EPERM', 'EXDEV', 'ENOSPC', 'EMFILE', 'ENFILE', 'EROFS', 'ENAMETOOLONG', 'EIO', 'EOVERFLOW']);
+const syscallCodes = new Set(['EBADF', 'EEXIST', 'ENOENT', 'ENOTDIR', 'ELOOP', 'EINVAL', 'EACCES', 'EPERM', 'EXDEV', 'ENOSPC', 'EMFILE', 'ENFILE', 'EROFS', 'ENAMETOOLONG', 'EIO', 'EOVERFLOW',
+  'EBUSY', 'EDQUOT', 'EISDIR', 'EMLINK', 'ENOMEM', 'ENOSYS', 'ENOTEMPTY', 'EOPNOTSUPP']);
 const privateCodes = new Set(['FD_PUBLICATION_INVALID_INPUT', 'FD_PUBLICATION_NAMESPACE_CHANGED', 'FD_PUBLICATION_NON_REGULAR',
   'FD_PUBLICATION_PROFILE_CHANGED', 'FD_PUBLICATION_SCAN_LIMIT', 'FD_PUBLICATION_UNAVAILABLE', 'FD_PUBLICATION_MANIFEST_INVALID']);
 function guarded<T>(operation: () => T): T {
@@ -112,12 +119,12 @@ function linuxBackend(): FdPublicationBackend {
   });
 }
 
-type DarwinAddon = Readonly<{ apiVersion: 1; napiVersion: 8; platform: 'darwin'; arch: string;
+type DescriptorAddon = Readonly<{ apiVersion: 2; napiVersion: 8; platform: 'darwin' | 'linux'; arch: string;
   openDirectoryAt: (fd: number, name: string) => number; openFileAt: (fd: number, name: string, mode: string) => number;
   mkdirAt: (fd: number, name: string, mode: number) => void; linkAt: FdPublicationBackend['linkAt'];
   unlinkFileAt: (fd: number, name: string, dev: string, ino: string, uid: number, mode: number) => void;
-  hasExactNameAt: FdPublicationBackend['hasExactNameAt'] }>;
-const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt'] as const;
+  hasExactNameAt: FdPublicationBackend['hasExactNameAt']; renameNoReplaceAt: FdPathMoveBackend['renameNoReplaceAt'] }>;
+const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt', 'renameNoReplaceAt'] as const;
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 function artifact(filename: string): Buffer {
   const fd = fs.openSync(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -132,29 +139,33 @@ function artifact(filename: string): Buffer {
     return bytes;
   } finally { fs.closeSync(fd); }
 }
-function darwinBackend(): FdPublicationBackend {
+function nativeAddon(): DescriptorAddon {
+  if (!['darwin', 'linux'].includes(process.platform) || !['arm64', 'x64'].includes(process.arch)) return fail('FD_PUBLICATION_UNAVAILABLE');
   const root = path.resolve(process.env.CANVAS_APP_ROOT?.trim() || process.cwd());
-  const directoryPath = path.join(root, 'native/fd-publication', `darwin-${process.arch}`);
+  const directoryPath = path.join(root, 'native/fd-publication', `${process.platform}-${process.arch}`);
   const manifestBytes = artifact(path.join(directoryPath, 'manifest.json'));
   const manifest = JSON.parse(manifestBytes.toString('utf8')) as Record<string, unknown>;
   const keys = ['version', 'apiVersion', 'napiVersion', 'platform', 'arch', 'sourceSha256', 'binarySha256', 'nodeVersion', 'compiler'];
   if (!manifest || Object.getPrototypeOf(manifest) !== Object.prototype || Reflect.ownKeys(manifest).length !== keys.length
     || keys.some(key => !Object.hasOwn(manifest, key)) || JSON.stringify(manifest, null, 2) + '\n' !== manifestBytes.toString('utf8')
-    || manifest.version !== 1 || manifest.apiVersion !== 1 || manifest.napiVersion !== 8 || manifest.platform !== 'darwin' || manifest.arch !== process.arch
+    || manifest.version !== 1 || manifest.apiVersion !== 2 || manifest.napiVersion !== 8 || manifest.platform !== process.platform || manifest.arch !== process.arch
     || typeof manifest.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(manifest.sourceSha256)
     || typeof manifest.binarySha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(manifest.binarySha256)
     || typeof manifest.nodeVersion !== 'string' || typeof manifest.compiler !== 'string' || Number(process.versions.napi) < 8) fail('FD_PUBLICATION_MANIFEST_INVALID');
   const binaryPath = path.join(directoryPath, 'fd-publication.node'), binary = artifact(binaryPath);
   if (sha(binary) !== manifest.binarySha256 || sha(artifact(path.join(directoryPath, 'source.c'))) !== manifest.sourceSha256) fail('FD_PUBLICATION_MANIFEST_INVALID');
-  const addon = createRequire(path.join(root, 'package.json'))(binaryPath) as DarwinAddon;
-  if (!addon || Object.getPrototypeOf(addon) !== Object.prototype || Reflect.ownKeys(addon).length !== methods.length + 4
+  const addon = createRequire(path.join(root, 'package.json'))(binaryPath) as DescriptorAddon;
+  if (!addon || !Object.isFrozen(addon) || Object.getPrototypeOf(addon) !== Object.prototype || Reflect.ownKeys(addon).length !== methods.length + 4
     || [...methods, 'apiVersion', 'napiVersion', 'platform', 'arch'].some(key => {
       const descriptor = Object.getOwnPropertyDescriptor(addon, key);
       return !descriptor?.enumerable || !('value' in descriptor);
-    }) || addon.apiVersion !== 1 || addon.napiVersion !== 8
-    || addon.platform !== 'darwin' || addon.arch !== process.arch || methods.some(key => typeof addon[key] !== 'function')
+    }) || addon.apiVersion !== 2 || addon.napiVersion !== 8
+    || addon.platform !== process.platform || addon.arch !== process.arch || methods.some(key => typeof addon[key] !== 'function')
     || sha(artifact(binaryPath)) !== manifest.binarySha256) fail('FD_PUBLICATION_MANIFEST_INVALID');
-  Object.freeze(addon);
+  return addon;
+}
+function darwinBackend(): FdPublicationBackend {
+  const addon = nativeAddon();
   return Object.freeze({ apiVersion: 1, backend: 'darwin-node-api8',
     openDirectoryAt(fd: number, name: string) { arity(arguments.length, 2); return guarded(() => { directory(fd); component(name); return addon.openDirectoryAt(fd, name); }); },
     openFileAt(fd: number, name: string, mode: 'readonly' | 'private-wx') { arity(arguments.length, 3); return guarded(() => { directory(fd); component(name); return addon.openFileAt(fd, name, mode); }); },
@@ -162,6 +173,25 @@ function darwinBackend(): FdPublicationBackend {
     linkAt(sourceFd: number, sourceName: string, targetFd: number, targetName: string) { arity(arguments.length, 4); guarded(() => { directory(sourceFd); directory(targetFd); component(sourceName); component(targetName); addon.linkAt(sourceFd, sourceName, targetFd, targetName); }); },
     unlinkFileAt(fd: number, name: string, expected: PrivateFdFileProfile) { arity(arguments.length, 3); guarded(() => { directory(fd); component(name); profile(expected); addon.unlinkFileAt(fd, name, expected.dev, expected.ino, expected.uid, expected.mode); }); },
     hasExactNameAt(fd: number, name: string) { arity(arguments.length, 2); return guarded(() => { directory(fd); component(name); return addon.hasExactNameAt(fd, name); }); },
+  });
+}
+
+/** Resolve before any move DML/IO. No compiler, child, ordinary-rename or
+ * copy/delete fallback. The owner must fence writers and verify source pins,
+ * commit the intent, sync parents and retain uncertain results for recovery. */
+export function getFdPathMoveBackend(): FdPathMoveBackend {
+  arity(arguments.length, 0);
+  return guarded(() => {
+    const addon = nativeAddon();
+    return Object.freeze({ apiVersion: 1, backend: addon.platform === 'linux' ? 'linux-node-api8' : 'darwin-node-api8',
+      renameNoReplaceAt(sourceFd: number, sourceName: string, targetFd: number, targetName: string): void {
+        arity(arguments.length, 4);
+        guarded(() => {
+          directory(sourceFd); directory(targetFd); component(sourceName); component(targetName);
+          addon.renameNoReplaceAt(sourceFd, sourceName, targetFd, targetName);
+        });
+      },
+    });
   });
 }
 
