@@ -125,11 +125,12 @@ export async function projectChatExtensionSearchItem(context: ChatExtensionOptio
   return { ...item, selection, eligibility: await chatPackageSelectionEligibility(context, selection, source),
     publishedVersions: item.publishedVersions?.filter(version => same(version.pin, pin)) };
 }
-export async function readChatPackageMcpTemplate(source: AgentExtensionPackageVersionSource, pin: ExtensionPackagePin, connectorName: string): Promise<CapabilityPackageMcpTemplate> {
+export async function readChatPackageMcpTemplate(source: AgentExtensionPackageVersionSource, pin: ExtensionPackagePin, connectorName: string): Promise<CapabilityPackageMcpTemplate | null> {
   const connectors = source.metadata.kind === 'plugin' ? normalizeMcpConnectors(source.source.manifest?.connectors)
     : source.source.skills[0]?.skill.workflow?.mcpConnectors ?? [];
   const matches = connectors.filter(connector => connector.name === connectorName);
-  if (matches.length !== 1 || !matches[0]!.configPath) throw new AgentWorkflowError('CHAT_EXTENSION_TEMPLATE_REQUIRED', 'An exact published MCP template is required.', 409);
+  if (matches.length !== 1) throw new AgentWorkflowError('CHAT_EXTENSION_TEMPLATE_REQUIRED', 'One exact published MCP connector is required.', 409);
+  if (!matches[0]!.configPath) return null;
   const connector = matches[0]!, file = await readPluginMcpTemplateFile({ rootDir: source.source.rootPath, configPath: connector.configPath! });
   if (!file.config) throw new AgentWorkflowError('CHAT_EXTENSION_TEMPLATE_REQUIRED', 'The exact MCP template is unavailable.', 409);
   return { resourceRef: pin.resourceRef, source: { resourceRef: pin.resourceRef, version: source.metadata.version, checksum: pin.checksum, artifactRevision: null },
@@ -175,13 +176,15 @@ export async function resolveChatConnectionScope(context: ChatExtensionOptionsCo
   const refreshProfiles = context.snapshot.agent.scopeType === 'user' ? (choices ?? []).flatMap(choice => choice.alternativeKey === selector.alternativeKey
     && choice.target.kind === 'personal' && choice.target.ownerUserId === context.actor.userId && choice.target.personalBinding?.source === 'composio'
       ? [choice.target.personalBinding.profileId] : []) : [];
+  const template = alternative.source === 'mcp' && context.snapshot.workflowVersion === null
+    ? await readChatPackageMcpTemplate(source, selector.package, alternative.connector) : null;
   return { alternatives: [alternative], ...(choices ? { allowed: choices.filter(choice => choice.alternativeKey === selector.alternativeKey)
     .map(choice => ({ ...choice, selection: publicChatConnectionSelection(choice.target, alternative) })) } : {}),
     personal: personalPolicy || refreshProfiles.length ? [alternative] : [],
     ...(!personalPolicy ? { profileIds: [...new Set(refreshProfiles)], refreshOnly: true } : {}),
     definitionMappings: policy?.mcpDefinitionMappings, toolCap: policy?.toolCap ?? null,
     required: capability!.required || configured?.required === true, package: true,
-    ...(alternative.source === 'mcp' && context.snapshot.workflowVersion === null ? { template: await readChatPackageMcpTemplate(source, selector.package, alternative.connector) } : {}) };
+    ...(template ? { template } : {}) };
 }
 export function intersectChatCaps(...caps: (readonly string[] | null)[]): string[] | null { return intersectPackageExtensionToolCaps(...caps); }
 

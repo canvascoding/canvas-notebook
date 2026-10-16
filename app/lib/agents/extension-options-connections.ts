@@ -252,9 +252,10 @@ async function sharedChoice(context: ExtensionOptionsSourceContext, scope: Scope
     if (!backend || backend.connection.enabled === false || backend.authorization.authorizationRevision !== source.authorizationRevision) return null;
     if (scope.package) {
       const definitions = await listMcpServerDefinitions(source.resource.ownership.organizationId);
-      if (isChatExtensionOptionsContext(context) && scope.template) {
-        if (!capabilityPackageMcpConfigCompatibility(scope.template, backend.connection as unknown as Record<string, unknown>)) return null;
-        if (backend.connection.serverDefinitionId && !definitions.some(definition => definition.enabled && definition.id === backend.connection.serverDefinitionId)) return null;
+      if (isChatExtensionOptionsContext(context) && (scope.template || context.snapshot.workflowVersion === null)) {
+        if (scope.template && !capabilityPackageMcpConfigCompatibility(scope.template, backend.connection as unknown as Record<string, unknown>)) return null;
+        if (backend.connection.serverDefinitionId && !definitions.some(definition => definition.enabled && definition.id === backend.connection.serverDefinitionId
+          && (scope.template || matchesMcpServerDefinition(backend.connection, definition)))) return null;
       } else if (!isChatExtensionOptionsContext(context) && context.target.kind !== 'user_choice') {
         if (!backend.authorization.canManage) return null;
         mappingRequired = !definitions.some(definition => definition.enabled && definition.id === backend.connection.serverDefinitionId);
@@ -332,7 +333,9 @@ async function listExtensionConnectionChoices(context: ExtensionOptionsSourceCon
           ?? (scope.package && context.target.kind === 'user_choice' ? [] : undefined));
         const definition = definitions.find(definition => definition.enabled && definition.id === current.connection.serverDefinitionId
           && (!ids || ids.includes(definition.id)) && matchesMcpServerDefinition(current.connection, definition));
-        if (scope.template ? !capabilityPackageMcpConfigCompatibility(scope.template, current.connection as unknown as Record<string, unknown>) : (scope.package || ids) && !definition) continue;
+        const dynamicChatPackage = isChatExtensionOptionsContext(context) && context.snapshot.workflowVersion === null && scope.package;
+        if (scope.template ? !capabilityPackageMcpConfigCompatibility(scope.template, current.connection as unknown as Record<string, unknown>)
+          : (scope.package && !dynamicChatPackage || ids) && !definition) continue;
         const selection: StandaloneExtensionSelection = { kind: 'mcp', source: 'mcp', target: { kind: 'personal', connectionRef: item.id } };
         connections.push({ id: `personal:${alternativeKey(alternative) ?? 'mcp'}:${item.id}`, selection, label: item.displayName,
           ...(definition ? { definitionId: definition.id } : {}), ...(alternativeKey(alternative) ? { alternativeKey: alternativeKey(alternative) } : {}),

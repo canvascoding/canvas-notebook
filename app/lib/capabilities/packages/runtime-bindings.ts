@@ -136,7 +136,7 @@ function frozenSkillMetadata(candidate: CapabilityCandidate, skill: CanvasSkill,
 
 /** Exact held source only: a newer mutable package head never supplies this connector template. */
 export async function getAuthorizedAgentWorkflowMcpTemplate(selection: AuthorizedAgentWorkflowPackageSelections,
-  context: AgentExecutionContext, pin: ExtensionPackagePin, connectorName: string): Promise<import('./presentation-contracts').CapabilityPackageMcpTemplate> {
+  context: AgentExecutionContext, pin: ExtensionPackagePin, connectorName: string): Promise<import('./presentation-contracts').CapabilityPackageMcpTemplate | null> {
   const proof = requireWorkflowProof(selection, context);
   const entry = proof.pinned.find(pkg => pkg.published.resourceRef === pin.resourceRef
     && pkg.published.revisionRef === pin.publishedRevisionRef && pkg.published.checksum === pin.checksum);
@@ -156,10 +156,15 @@ export async function getAuthorizedAgentWorkflowMcpTemplate(selection: Authorize
       ?.mcpConnectors?.map(connector => ({ ...connector, env: connector.env ? [...connector.env] : undefined })) ?? [];
   }
   const matches = connectors.filter(connector => connector.name === connectorName);
-  if (matches.length !== 1 || !matches[0].configPath) {
-    throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'An exact MCP template is required to link this connection.', 409);
+  if (matches.length !== 1) {
+    throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'One exact declared MCP connector is required to link this connection.', 409);
   }
   const connector = matches[0];
+  if (!connector.configPath) {
+    await verifyCapabilityPackageSnapshot(entry.location);
+    requireWorkflowProof(selection, context);
+    return null;
+  }
   const template = await readPluginMcpTemplateFile({ rootDir: entry.location.rootPath, configPath: connector.configPath! });
   if (!template.config) throw new CapabilityPackageError('PACKAGE_INVALID', 'The held MCP template is invalid.', 409);
   const projected = projectCapabilityPackageMcpTemplateConfig(template.config, connector.name);

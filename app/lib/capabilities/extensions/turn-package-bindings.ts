@@ -90,9 +90,10 @@ async function mappedMcpTarget(context: AgentExecutionContext, packages: Authori
     const { resolveSharedMcpBackend } = await import('@/app/lib/mcp/shared-connections');
     const { revalidateAuthorizedIntegrationConnection } = await import('@/app/lib/integration-tools/connections/store');
     const backend = await resolveSharedMcpBackend({ userId: context.userId, organizationId: context.organizationId,
-      workspaceId: context.workspaceId }, target.connectionRef, 'use');
+      workspaceId: context.workspaceId, agentId: context.agentId, sessionId: context.sessionId,
+      policyRevision: 'accepted-turn-source' }, target.connectionRef, 'use');
     if (backend.authorization.resource.bindingRevision !== target.bindingRevision || backend.connection.enabled === false
-      || !capabilityPackageMcpConfigCompatibility(template, backend.connection as Record<string, unknown>)) {
+      || template && !capabilityPackageMcpConfigCompatibility(template, backend.connection as Record<string, unknown>)) {
       return denied('The selected MCP connection does not match this held plugin connector.');
     }
     const definitions = backend.connection.serverDefinitionId
@@ -106,7 +107,7 @@ async function mappedMcpTarget(context: AgentExecutionContext, packages: Authori
   if (target.personalBinding?.source !== 'mcp' || target.ownerUserId !== context.userId) return denied('The MCP owner changed.');
   const { assertMcpConnectionAccess } = await import('@/app/lib/mcp/access');
   const current = await assertMcpConnectionAccess(target.personalBinding.connectionId, { userId: context.userId });
-  if (!capabilityPackageMcpConfigCompatibility(template, current.connection as Record<string, unknown>)) {
+  if (template && !capabilityPackageMcpConfigCompatibility(template, current.connection as Record<string, unknown>)) {
     return denied('The selected MCP connection does not match this held plugin connector.');
   }
   return target;
