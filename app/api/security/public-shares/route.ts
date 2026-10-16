@@ -41,7 +41,7 @@ function parsePathFilters(searchParams: URLSearchParams): string[] {
   return Array.from(new Set([
     ...searchParams.getAll('path'),
     ...searchParams.getAll('paths').flatMap((value) => value.split('\n')),
-  ].map((value) => value.trim()).filter(Boolean)));
+  ].filter((value) => value.length > 0)));
 }
 
 function requestWorkspaceId(request: NextRequest): string | null {

@@ -260,10 +260,30 @@ async function main(): Promise<void> {
     });
     await check('native outer-space names keep exact identity apart from trimmed neighbor', async () => {
       const name = `native-${crypto.randomUUID()}.docx`, exact = ` ${name} `;
-      const neighbor = await nativeAt('plain_text', { filePath: name, canonical: 'Unshared neighbor.\n' });
+      const neighbor = await nativeAt('plain_text', { filePath: name, canonical: 'Distinct trimmed neighbor.\n' });
+      const neighborShare = await publish(name);
       const target = await nativeAt('tiptap_xml', { filePath: exact }), publication = await publish(exact);
       const resolved = await resolveNative(publication, target); assert.notEqual(resolved.snapshot.documentId, neighbor.documentId);
       const response = await fileRequest(publication); assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), target.expectedBytes);
+      assert.notEqual(publication.share.id, neighborShare.share.id);
+      const before = await row(publication.share.id), neighborBefore = await row(neighborShare.share.id), writes = await writeProof();
+      const listed = await sharing.listPublicFileShares({ userId: 'member', workspace, paths: [exact], status: 'active' });
+      assert.deepEqual(listed.map(share => [share.id, share.workspacePath]), [[publication.share.id, exact]]);
+      const annotations = await sharing.getPublicShareAnnotations([exact], null, workspace);
+      assert.deepEqual([...annotations].map(([filePath, annotation]) => [filePath, annotation.id]), [[exact, publication.share.id]]);
+      const { serializeSignedCookie } = await import('better-call');
+      const cookie = (await serializeSignedCookie('better-auth.session_token', creatorToken, process.env.BETTER_AUTH_SECRET!)).split(';')[0];
+      const search = new URLSearchParams({ path: exact, status: 'active', limit: '1000' });
+      const request = new NextRequest(`http://localhost/api/security/public-shares?${search}`, {
+        headers: { cookie, 'x-canvas-workspace-id': workspace.workspaceId },
+      });
+      assert.equal((await auth.api.getSession({ headers: request.headers }))?.session.id, 'native-read-session');
+      const { GET } = await import('../app/api/security/public-shares/route');
+      const management = await GET(request); assert.equal(management.status, 200); assert.equal(management.headers.has('set-cookie'), false);
+      const body = await management.json(); assert.equal(body.success, true);
+      assert.deepEqual(body.shares.map((share: { id: string; workspacePath: string }) => [share.id, share.workspacePath]), [[publication.share.id, exact]]);
+      assert.deepEqual(await row(publication.share.id), before); assert.deepEqual(await row(neighborShare.share.id), neighborBefore);
+      assert.equal(await writeProof(), writes);
       await noFile(target.fullPath); await noFile(neighbor.fullPath);
     });
     const assetStem = `native-assets-${crypto.randomUUID()}`, assetPath = `${assetStem}.png`, unreferencedPath = `${assetStem}-unreferenced.png`;
@@ -511,6 +531,44 @@ async function main(): Promise<void> {
         try { await blocker.query('ROLLBACK'); } finally { await endClient(blocker); }
       }
     });
+    await check('absolute public read selectors preserve exact native names and never widen an outside filter', async () => {
+      const name = `absolute-native-${crypto.randomUUID()}.md`, exact = ` ${name} `;
+      const target = await nativeAt('plain_text', { filePath: exact }), publication = await publish(exact);
+      const neighbor = await nativeAt('tiptap_xml', { filePath: name }), neighborShare = await publish(name);
+      const outside = path.join(dataRoot, `outside-selector-${crypto.randomUUID()}.md`);
+      assert.equal(outside.startsWith(`${workspace.rootPath}${path.sep}`), false);
+      await writeFile(outside, 'Owned file outside the selected workspace.\n', { flag: 'wx', mode: 0o600 });
+      assert((await stat(outside)).isFile());
+      const before = await row(publication.share.id), neighborBefore = await row(neighborShare.share.id), writes = await writeProof();
+      const listed = await sharing.listPublicFileShares({ userId: 'member', workspace, paths: [target.fullPath], status: 'active' });
+      assert.deepEqual(listed.map(share => [share.id, share.workspacePath]), [[publication.share.id, exact]]);
+      const annotations = await sharing.getPublicShareAnnotations([target.fullPath], null, workspace);
+      assert.deepEqual([...annotations].map(([filePath, annotation]) => [filePath, annotation.id]), [[exact, publication.share.id]]);
+      const { serializeSignedCookie } = await import('better-call');
+      const cookie = (await serializeSignedCookie('better-auth.session_token', creatorToken, process.env.BETTER_AUTH_SECRET!)).split(';')[0];
+      const { GET } = await import('../app/api/security/public-shares/route');
+      const managementSelection = async (candidate: string) => {
+        const search = new URLSearchParams({ path: candidate, status: 'active', limit: '1000' });
+        const request = new NextRequest(`http://localhost/api/security/public-shares?${search}`, {
+          headers: { cookie, 'x-canvas-workspace-id': workspace.workspaceId },
+        });
+        assert.equal((await auth.api.getSession({ headers: request.headers }))?.session.id, 'native-read-session');
+        const response = await GET(request); assert.equal(response.status, 200); assert.equal(response.headers.has('set-cookie'), false);
+        const body = await response.json(); assert.equal(body.success, true);
+        return body.shares.map((share: { id: string; workspacePath: string }) => [share.id, share.workspacePath]);
+      };
+      assert.deepEqual(await managementSelection(target.fullPath), [[publication.share.id, exact]]);
+      assert.deepEqual(await sharing.listPublicFileShares({ userId: 'member', workspace, paths: [outside], status: 'active' }), []);
+      assert.deepEqual(await managementSelection(outside), []);
+      assert.equal((await sharing.getPublicShareAnnotations([outside], null, workspace)).size, 0);
+      for (const [candidate, id, filePath] of [[exact, publication.share.id, exact], [name, neighborShare.share.id, name],
+        [`./${name}`, neighborShare.share.id, name]]) {
+        const selected = await sharing.listPublicFileShares({ userId: 'member', workspace, paths: [candidate], status: 'active' });
+        assert.deepEqual(selected.map(share => [share.id, share.workspacePath]), [[id, filePath]]);
+      }
+      assert.deepEqual(await row(publication.share.id), before); assert.deepEqual(await row(neighborShare.share.id), neighborBefore);
+      assert.equal(await writeProof(), writes); await noFile(target.fullPath); await noFile(neighbor.fullPath);
+    });
     await check('native anonymous public authority survives creator session removal without reauthentication', async () => {
       const target = await nativeAt('tiptap_blocks'), publication = await publish(target.filePath);
       await admin.query('DELETE FROM "session" WHERE id=$1', ['native-read-session']);
@@ -521,7 +579,7 @@ async function main(): Promise<void> {
       assert.equal(resolved.workspace.permissions.canDelete, false); assert.equal(resolved.workspace.permissions.canCreatePublicLinks, false);
       const response = await fileRequest(publication); assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), target.expectedBytes);
     });
-    assert.equal(passed, 26);
+    assert.equal(passed, 27);
     for (const target of nativeTargets) await noFile(target.fullPath);
     assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), originalSourceHash);
     console.log('Public native read SQL assertions complete:', JSON.stringify({ passed, fetches, sourceSha256: originalSourceHash }));

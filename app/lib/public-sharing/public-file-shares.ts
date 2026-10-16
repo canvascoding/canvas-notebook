@@ -28,6 +28,7 @@ import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { NextRequest } from 'next/server';
 import type { NativeCollaborationSnapshot } from '../collaboration/document-snapshot';
+import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { revokePublicShareForRequest, revokePublicShareForAgent, updatePublicSharePolicyForRequest,
   createPublicSharesForRequest, createPublicSharesForAgent,
   PublicShareWriterError } from './writer';
@@ -419,6 +420,24 @@ function normalizeWorkspacePath(input: string, workspace?: WorkspaceContext | nu
   return relative;
 }
 
+/** Public read selectors preserve the actual name, including outer spaces.
+ * Legacy lexical aliases keep their existing normalization contract. */
+function publicShareReadPath(input: string, workspace?: WorkspaceContext | null): string {
+  if (typeof input !== 'string' || input.length > 4096 || /[\u0000-\u001f\u007f]/u.test(input)) {
+    throw new Error('Invalid public share path.');
+  }
+  if (isCanonicalAdmissionPath(input as unknown)) return input;
+  if (path.isAbsolute(input) && (workspace || !input.startsWith('/data/workspace/'))) {
+    const base = path.resolve(workspace?.rootPath ?? workspaceBaseDir());
+    const resolved = path.resolve(input);
+    if (!isPathWithin(resolved, base)) throw new Error('Public shares are restricted to workspace files.');
+    const relative = path.relative(base, resolved).split(path.sep).join('/');
+    if (!isCanonicalAdmissionPath(relative)) throw new Error('A concrete file path is required.');
+    return relative;
+  }
+  return normalizeWorkspacePath(input, workspace);
+}
+
 function fileIdentity(stats: Stats): string {
   return `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`;
 }
@@ -785,12 +804,14 @@ export async function listPublicFileShares(params: {
   const pathFilter = new Set(
     (params.paths ?? []).map((candidate) => {
       try {
-        return normalizeWorkspacePath(candidate, workspace);
+        return publicShareReadPath(candidate, workspace);
       } catch {
         return null;
       }
     }).filter((candidate): candidate is string => Boolean(candidate))
   );
+  // A supplied but invalid filter must not broaden into an unfiltered list.
+  if ((params.paths?.length ?? 0) > 0 && pathFilter.size === 0) return [];
   const whereParts: SQL[] = [workspaceScopePredicate(workspace)];
   if (pathFilter.size > 0) {
     whereParts.push(inArray(publicFileShares.workspacePath, Array.from(pathFilter)));
@@ -829,7 +850,7 @@ export async function getPublicShareAnnotations(
   const normalizedTargets = new Set<string>();
   for (const candidate of paths) {
     try {
-      normalizedTargets.add(normalizeWorkspacePath(candidate, resolvedWorkspace));
+      normalizedTargets.add(publicShareReadPath(candidate, resolvedWorkspace));
     } catch {
       // Ignore invalid browser entries; the file APIs will report their own errors.
     }

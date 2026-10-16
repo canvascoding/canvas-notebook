@@ -29,7 +29,8 @@ async function openNativePublicDialog(page: Page, workspaceId: string, filePath:
   return dialog;
 }
 
-test('owned imported native Markdown shares actual rich content and images anonymously and revokes through the UI', async ({ page, browser }, info) => {
+for (const filenamePrefix of ['', ' '] as const)
+test(`owned imported native Markdown shares actual rich content and images anonymously and revokes through the UI${filenamePrefix ? ' with a leading-space filename' : ''}`, async ({ page, browser }, info) => {
   test.skip(process.env.CANVAS_YJS_AUTHORITY_E2E !== '1', 'Requires the supervisor-owned production build and isolated Team fixture.');
   test.setTimeout(180_000);
   const owned = await requireOwnedYjsQaTarget(); expect(owned.activeSpec).toBe('tests/public-share-native-owned.spec.ts');
@@ -53,8 +54,9 @@ test('owned imported native Markdown shares actual rich content and images anony
     localStorage.setItem('canvas.notebookLayout.v2', JSON.stringify({ version: 2, explorerOpen: true,
       explorerWidth: 240, chatDocked: true, chatWidth: 360, terminalOpen: false }));
   }, workspaceId);
-  const nonce = randomUUID(), filePath = `qa-public-native-${nonce}.md`, imagePath = `qa-public-native-image-${nonce}.png`;
-  expect(filePath).toMatch(/^qa-public-native-[a-f0-9-]+\.md$/u); expect(imagePath).toMatch(/^qa-public-native-image-[a-f0-9-]+\.png$/u);
+  const nonce = randomUUID(), filePath = `${filenamePrefix}qa-public-native-${nonce}.md`, imagePath = `qa-public-native-image-${nonce}.png`;
+  const ownedNotePattern = filenamePrefix ? /^ qa-public-native-[a-f0-9-]+\.md$/u : /^qa-public-native-[a-f0-9-]+\.md$/u;
+  expect(filePath).toMatch(ownedNotePattern); expect(imagePath).toMatch(/^qa-public-native-image-[a-f0-9-]+\.png$/u);
   const heading = 'Owned native publication', paragraph = 'A real native paragraph with Ä and ß.';
   const markdown = `# ${heading}\n\n${paragraph}\n\n![Owned native image](${imagePath})\n`;
   const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=', 'base64');
@@ -82,7 +84,7 @@ test('owned imported native Markdown shares actual rich content and images anony
     expect(session.lifecycleGeneration).toBeGreaterThan(0);
     await expect(page.getByRole('button', { name: /^(Read|Lesen|Edit|Bearbeiten)$/u })).toHaveCount(0);
 
-    const dialog = await openNativePublicDialog(page, workspaceId, filePath, session.documentId);
+    let dialog = await openNativePublicDialog(page, workspaceId, filePath, session.documentId);
     const posting = page.waitForResponse(response => shareResponse(response, 'POST', '/api/security/public-shares'));
     await dialog.getByRole('button', { name: /^(Create read link|Leselink erstellen)$/u }).click();
     const createdResponse = await posting; expect(createdResponse.status()).toBe(200);
@@ -93,6 +95,25 @@ test('owned imported native Markdown shares actual rich content and images anony
     expect(created).toMatchObject({ workspaceId, workspacePath: filePath, status: 'active', policyRevision: 1,
       securityMode: 'strict', sizeKind: 'native-state' });
     expect(typeof created.shortCode).toBe('string'); expect(created.shortCode!.length).toBe(6);
+    await page.keyboard.press('Escape'); await expect(dialog).not.toBeVisible();
+    const reloading = page.waitForRequest(request => request.method() === 'GET'
+      && new URL(request.url()).origin === new URL(BASE_URL).origin
+      && new URL(request.url()).pathname === '/api/security/public-shares'
+      && new URL(request.url()).searchParams.getAll('path').length === 1
+      && new URL(request.url()).searchParams.get('path') === filePath
+      && request.headers()['x-canvas-workspace-id'] === workspaceId);
+    dialog = await openNativePublicDialog(page, workspaceId, filePath, session.documentId);
+    const reloadedRequest = await reloading, reloadedResponse = await reloadedRequest.response();
+    expect(reloadedResponse).not.toBeNull(); if (!reloadedResponse) throw new Error('The reopened read-link request had no response.');
+    expect(reloadedResponse.status()).toBe(200);
+    expect(new URL(reloadedResponse.url()).searchParams.getAll('path')).toEqual([filePath]);
+    const reloaded = await reloadedResponse.json() as { success: boolean; shares: Share[] };
+    expect(reloaded.success).toBe(true);
+    expect(reloaded.shares.map(share => ({ id: share.id, workspaceId: share.workspaceId, workspacePath: share.workspacePath })))
+      .toEqual([{ id: created.id, workspaceId, workspacePath: filePath }]);
+    await expect(dialog.locator('article')).toHaveCount(1);
+    await expect(dialog.locator('article')).toBeVisible();
+    await expect(dialog.locator('article')).toContainText(created.shortCode!);
     const publicUrl = new URL(created.publicPath, BASE_URL);
     expect(publicUrl.origin).toBe(new URL(BASE_URL).origin); expect(publicUrl.pathname.startsWith('/public/files/')).toBe(true);
     expect(decodeURIComponent(publicUrl.pathname.split('/').at(-1)!)).toBe(filePath);
@@ -162,6 +183,7 @@ test('owned imported native Markdown shares actual rich content and images anony
         }
       });
       for (const ownedPath of [filePath, imagePath]) await cleanup(async () => {
+        expect(ownedPath).toMatch(ownedPath === filePath ? ownedNotePattern : /^qa-public-native-image-[a-f0-9-]+\.png$/u);
         const before = await page.request.get(`/api/files/info?${new URLSearchParams({ path: ownedPath })}`, { headers });
         expect([200, 404]).toContain(before.status()); if (before.status() === 404) return;
         const response = await page.request.delete('/api/files/delete', { headers, data: { path: ownedPath, idempotencyKey: randomUUID() } });
