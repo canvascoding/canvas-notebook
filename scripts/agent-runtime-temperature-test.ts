@@ -42,4 +42,10 @@ assert.deepEqual(
 
 assert.equal(omitUnsupportedTemperature(model(), undefined), undefined);
 
+assert.deepEqual(
+  omitUnsupportedTemperature(model({ id: 'gpt-6-luna', api: 'openai-codex-responses', provider: 'openai-codex', reasoning: true }), requested),
+  { maxTokens: 128, sessionId: 'email-harness' },
+  'Codex rejects an explicit temperature even when model compatibility metadata is absent',
+);
+
 console.log('agent runtime temperature compatibility tests passed');

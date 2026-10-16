@@ -174,7 +174,7 @@
     "test:agent:bash-office": "tsx --conditions react-server scripts/agent-bash-office-integration-test.ts",
     "test:agent:document-runtime": "tsx scripts/document-suite-runtime-test.ts",
     "test:agent:seed-plugin-upgrade": "tsx scripts/seed-plugin-upgrade-test.ts",
-    "test:agent:temperature": "tsx --conditions react-server scripts/agent-runtime-temperature-test.ts",
+    "test:agent:temperature": "tsx --conditions react-server scripts/agent-runtime-temperature-test.ts && tsx scripts/pi-codex-temperature-contract-test.mts",
     "test:agent:model-probe": "tsx --conditions react-server scripts/agent-model-probe-test.ts",
     "test:agent:provider-verification": "tsx --conditions react-server scripts/agent-runtime-provider-verification-test.ts",
     "test:agent:personal-provider": "tsx --conditions react-server scripts/personal-provider-recovery-test.ts && tsx --conditions react-server scripts/personal-provider-recovery-test.ts --openai",

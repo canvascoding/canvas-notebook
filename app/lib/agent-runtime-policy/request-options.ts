@@ -20,7 +20,7 @@ export function omitUnsupportedTemperature(
   const isOpenAiReasoningModel = model.api === 'openai-responses'
     && (/^gpt-5(?:[.-]|$)/u.test(modelId) || /^(?:o1|o3|o4)(?:[.-]|$)/u.test(modelId));
 
-  if (compat?.supportsTemperature !== false && !isOpenAiReasoningModel) {
+  if (compat?.supportsTemperature !== false && !isOpenAiReasoningModel && model.api !== 'openai-codex-responses') {
     return options;
   }
 
