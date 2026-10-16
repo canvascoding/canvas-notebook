@@ -33,17 +33,17 @@ const account = (id: string) => ({ kind: 'composio' as const, source: 'composio'
   kind: 'personal' as const, profileId: 'own-profile', accountBinding: 'account' as const, accountId: id, connectionRef: `composio-personal:own-profile:${id}` } });
 const commonItem = { description: 'Source metadata', stock: 'installed' as const, access: { canRead: true, canUse: true, canManage: false } };
 const mcpOption = (index: number): AgentExtensionSearchItem => ({ item: { ...commonItem, id: `mcp-row-${index}`, kind: 'mcp', name: 'twin', displayName: 'Twin',
-  source: 'mcp', mcp: { transport: 'http', template: false, connectionRef: mcp(index).target.connectionRef }, connections: [] }, eligibility: { action: 'select' }, selection: mcp(index) });
-const metadataMcp: AgentExtensionSearchItem = { item: { ...mcpOption(9).item, id: 'mcp-metadata-row' }, eligibility: { action: 'select' } };
+  source: 'mcp', mcp: { transport: 'http', template: false, connectionRef: mcp(index).target.connectionRef }, connections: [] }, eligibility: { action: 'select' }, selection: mcp(index), chatAvailability: 'ready' });
+const metadataMcp: AgentExtensionSearchItem = { item: { ...mcpOption(9).item, id: 'mcp-metadata-row' }, eligibility: { action: 'select' }, chatAvailability: 'setup' };
 const integration: AgentExtensionSearchItem = { item: { ...commonItem, id: 'composio:canva', kind: 'integration', name: 'canva', displayName: 'Canva',
   source: 'composio', toolkit: { slug: 'canva', noAuth: false }, connections: [] }, eligibility: { action: 'choose_connection' } };
 const plugin: AgentExtensionSearchItem = { item: { ...commonItem, id: pin.resourceRef, kind: 'plugin', name: 'design', displayName: 'Design plugin', source: 'local' },
   eligibility: { action: 'select' }, selection: { kind: 'plugin', package: pin, skillSelection: { kind: 'all' } } };
 const coreRows: AgentExtensionSearchItem[] = [
   { item: { ...commonItem, id: 'core-skill', kind: 'skill', name: 'skill-creator', displayName: 'Skill Creator', source: 'local' },
-    eligibility: { action: 'select' }, selection: { kind: 'core_skill', coreSource: { resourceRef: 'canvas-capability:v1:skill:system:core:skill-creator', coreRevision: '1.0.0', checksum: 'b'.repeat(64) } } },
+    eligibility: { action: 'select' }, chatAvailability: 'ready', selection: { kind: 'core_skill', coreSource: { resourceRef: 'canvas-capability:v1:skill:system:core:skill-creator', coreRevision: '1.0.0', checksum: 'b'.repeat(64) } } },
   { item: { ...commonItem, id: 'core-plugin', kind: 'plugin', name: 'plugin-creator', displayName: 'Plugin Creator', source: 'local' },
-    eligibility: { action: 'select' }, selection: { kind: 'core_plugin', coreSource: { resourceRef: 'canvas-capability:v1:plugin:system:core:plugin-creator', coreRevision: '1.0.0', checksum: 'c'.repeat(64) } } },
+    eligibility: { action: 'select' }, chatAvailability: 'ready', selection: { kind: 'core_plugin', coreSource: { resourceRef: 'canvas-capability:v1:plugin:system:core:plugin-creator', coreRevision: '1.0.0', checksum: 'c'.repeat(64) } } },
 ];
 const standaloneSkill: AgentExtensionSearchItem = { item: { ...commonItem, id: 'standalone-skill', kind: 'skill', name: 'root', displayName: 'Root skill', source: 'local' },
   eligibility: { action: 'select' }, selection: { kind: 'skill', origin: 'standalone', relativeRoot: '', package: pin } };
@@ -78,7 +78,11 @@ async function main() {
       code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' } } };
   const rows = [mcpOption(1), mcpOption(2), metadataMcp, integration, plugin, ...coreRows, standaloneSkill, blocked, missingSelection, unpublishedSkill];
   let current: Frame | undefined, requests: ChatExtensionOptionsRequest[] = [], pending: Pending[] = [], holdPreview = false;
-  let servedMetadata = packageMetadata, holdRemote = false, failRemote = false;
+  let servedMetadata = packageMetadata, holdRemote = false, failRemote = false, failLocal = false, failConnected = false;
+  let holdPhase: 'local' | 'connected' | null = null;
+  let phasePending: Array<{ request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>; resolve: (response: Response) => void }> = [];
+  let connectedRows: AgentExtensionSearchItem[] = [];
+  let searchOverride: ((request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>) => Response | undefined | Promise<Response | undefined>) | null = null;
   let remotePending: Array<{ request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>; resolve: (response: Response) => void }> = [];
   let recentBundles: import('../app/lib/chat/extension-options-contracts').ChatExtensionRecentItem[] = [];
   let expiry: string | undefined, receiptCounter = 0;
@@ -103,10 +107,15 @@ async function main() {
     const request = chatExtensionOptionsRequestSchema.parse(JSON.parse(String(init?.body))); requests.push(request);
     const pagination = { nextCursor: null, hasNextPage: false, loadedItems: 1 };
     if (request.operation === 'search') {
+      const overridden = await searchOverride?.(request);
+      if (overridden) return overridden;
+      if (request.phase === 'local' && failLocal) throw new Error('Local unavailable');
+      if (request.phase === 'connected' && failConnected) throw new Error('Connected unavailable');
+      if (request.phase === holdPhase) return new Promise<Response>(resolve => phasePending.push({ request, resolve }));
       if (request.phase === 'remote' && failRemote) throw new Error('Remote unavailable');
       if (request.phase === 'remote' && holdRemote) return new Promise<Response>(resolve => remotePending.push({ request, resolve }));
       return Response.json({ success: true, data: { ...header(request), query: request,
-        items: rows.filter(row => request.types.includes(row.item.kind)), selectedItem: null, scopes: { choices: ['all'], teams: [] }, pagination,
+        items: (request.phase === 'connected' ? connectedRows : rows).filter(row => request.types.includes(row.item.kind)), selectedItem: null, scopes: { choices: ['all'], teams: [] }, pagination,
         recents: request.phase === 'remote' ? [] : recentBundles } });
     }
     if (request.operation === 'package_version') {
@@ -152,6 +161,8 @@ async function main() {
   const mount = async (initial = plain(), strict = false) => {
     cleanup(); requests = []; pending = []; holdPreview = false; receiptCounter = 0; expiry = new Date(now + 60_000).toISOString();
     servedMetadata = packageMetadata; holdRemote = false; failRemote = false; remotePending = []; recentBundles = [];
+    holdPhase = null; failLocal = false; failConnected = false; phasePending = []; connectedRows = rows.filter(row => row.item.kind === 'mcp' || row.item.kind === 'integration');
+    searchOverride = null;
     observeOpenedDocumentAuth({ data: { user: { id: `composer-user-${++scopeNumber}` }, session: { id: `auth-session-${scopeNumber}` } } });
     const view = render(wrap(strict ? <React.StrictMode><Harness initial={initial} /></React.StrictMode> : <Harness initial={initial} />));
     await waitFor(() => assert(screen.getByRole('textbox')));
@@ -185,6 +196,9 @@ async function main() {
     await waitFor(() => assert.equal((button as HTMLButtonElement).disabled, false)); await act(async () => { fireEvent.click(button); }); };
   const resolvePreview = async (index = 0) => { await act(async () => pending[index].resolve(validPreview(pending[index].request))); };
   const check = (name: string) => { cases++; console.log(`PASS ${name}`); };
+  const searchReply = (request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>, items: AgentExtensionSearchItem[], nextCursor: string | null = null) =>
+    Response.json({ success: true, data: { ...header(request), query: request, items, recents: [], selectedItem: null, scopes: {},
+      pagination: { hasNextPage: nextCursor !== null, nextCursor, loadedItems: items.length } } });
   try {
     await mount(plain(), true); await open('core-skill', false);
     await waitFor(() => assert.equal(frame().body.bundles.length, 1));
@@ -248,7 +262,7 @@ async function main() {
 
     const completed = structuredClone(frame().body.bundles[0]);
     const completeWithCaps = { ...completed, supporting: completed.supporting.map((entry, index) => index === 0 ? { ...entry, toolCap: ['bounded_tool'] } : entry) };
-    recentBundles = [{ bodyBundle: completeWithCaps, lastAcceptedAt: now, eligibility: { action: 'select' } }];
+    recentBundles = [{ bodyBundle: completeWithCaps, lastAcceptedAt: now, eligibility: { action: 'select' }, chatAvailability: 'ready' }];
     const beforeRecent = requests.length;
     await act(async () => frame().replace(plain()));
     await open(`recent:${chatInlineReferenceIconKey(completed.primary.selection)}`, false);
@@ -276,6 +290,184 @@ async function main() {
     const changedBody = structuredClone(frame().body);
     await resolvePreview(); assert.deepEqual(frame().body, changedBody); assert.equal(frame().body.bundles.length, 0);
     check('actual typing cancels an in-flight direct reference while preserving the newer draft');
+
+    await mount(); holdPhase = 'connected';
+    recentBundles = [{ bodyBundle: { id: 'stale-support', caption: 'Old account binding', primary: { selection: coreRows[0].selection!, requirement: 'optional', toolCap: null },
+      supporting: [{ selection: mcp(8), requirement: 'optional', toolCap: null }], packageConnections: [] }, lastAcceptedAt: now,
+      eligibility: { action: 'choose_connection' }, chatAvailability: 'setup' }];
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(phasePending.length, 1));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill' && item.section === 'ready'));
+    assert(!frame().controller.referencePickerItems.some(item => item.id.startsWith('recent:')));
+    check('an old MRU with unavailable supporting account cannot suppress the current usable row with the same primary selection');
+
+    await mount(); holdPhase = 'connected';
+    searchOverride = request => request.phase !== 'local' ? undefined : request.cursor === null
+      ? searchReply(request, [coreRows[0], ...Array.from({ length: 49 }, (_, index) => ({ ...blocked, item: { ...blocked.item, id: `setup-page-one-${index}` } }))], 'local-page-two')
+      : new Promise<Response>(resolve => phasePending.push({ request, resolve }));
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(phasePending.length, 1));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill' && item.section === 'ready'));
+    assert.equal(requests.filter(row => row.operation === 'search' && row.phase === 'connected').length, 0);
+    await act(async () => phasePending[0].resolve(searchReply(phasePending[0].request, [coreRows[1]])));
+    await waitFor(() => assert.equal(phasePending.length, 2));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-plugin' && item.section === 'ready'));
+    assert.deepEqual(requests.filter(row => row.operation === 'search' && row.phase === 'local').map(row => row.cursor), [null, 'local-page-two']);
+    assert(requests.filter(row => row.operation === 'search').every(row => row.limit === 50));
+    assert.equal(requests.filter(row => row.operation === 'search' && row.phase === 'remote').length, 0);
+    check('first-page ready rows display immediately while priority cursor pages drain; a usable result beyond the first 50 appears before connected or remote catalog');
+
+    await mount(); holdRemote = true;
+    let failPage = true;
+    searchOverride = request => {
+      if (request.phase !== 'local') return undefined;
+      if (request.cursor === null) return searchReply(request, [coreRows[0]], 'retry-page-two');
+      if (failPage) throw new Error('Page two unavailable');
+      return searchReply(request, [coreRows[1]]);
+    };
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill' && item.section === 'ready'));
+    failPage = false;
+    await act(async () => frame().controller.retryReferenceSource('local'));
+    await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === 'core-plugin' && item.section === 'ready')));
+    assert.deepEqual(requests.filter(row => row.operation === 'search' && row.phase === 'local').map(row => row.cursor), [null, 'retry-page-two', 'retry-page-two']);
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill' && item.section === 'ready'));
+    check('a failed priority page retains previous valid rows, advances independent sources and retries only the failing cursor');
+
+    await mount(); holdRemote = true;
+    searchOverride = request => request.phase !== 'connected' ? undefined : request.cursor === null
+      ? searchReply(request, [mcpOption(1)], 'connected-page-two')
+      : new Promise<Response>(resolve => phasePending.push({ request, resolve }));
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(phasePending.length, 1));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-2' && item.section === 'ready'), 'A partial page cannot prove omission.');
+    await act(async () => phasePending[0].resolve(searchReply(phasePending[0].request, [])));
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert(!frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-2'));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-1' && item.section === 'ready'));
+    check('connected snapshot omission withdraws cached rows only after every connected cursor page is complete');
+
+    await mount();
+    searchOverride = request => {
+      if (request.phase !== 'local') return undefined;
+      const page = request.cursor === null ? 0 : Number(request.cursor.slice('pause-'.length));
+      return searchReply(request, page === 0 ? [coreRows[0]] : page === 20 ? [coreRows[1]] : [], page < 20 ? `pause-${page + 1}` : null);
+    };
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'local' && row.status === 'paused')));
+    assert.equal(requests.filter(row => row.operation === 'search').length, 20);
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill' && item.section === 'ready'));
+    assert.equal(requests.filter(row => row.operation === 'search' && row.phase === 'connected').length, 0);
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Continue loading' })));
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.every(row => row.status === 'complete')));
+    assert.equal(requests.filter(row => row.operation === 'search' && row.phase === 'local').length, 21);
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-plugin' && item.section === 'ready'));
+    check('twenty priority pages pause explicitly without dropping rows; Continue resumes the next cursor before later stages');
+
+    await mount(); holdRemote = true;
+    let repeatCursor = true;
+    searchOverride = request => request.phase !== 'local' ? undefined : repeatCursor
+      ? searchReply(request, [coreRows[0]], 'repeated-cursor') : searchReply(request, [coreRows[1]]);
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert.equal(requests.filter(row => row.operation === 'search' && row.phase === 'local').length, 2);
+    assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'local' && row.status === 'unavailable' && row.message?.includes('cursor repeated')));
+    repeatCursor = false;
+    await act(async () => frame().controller.retryReferenceSource('local'));
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'local' && row.status === 'complete')));
+    assert.deepEqual(requests.filter(row => row.operation === 'search' && row.phase === 'local').map(row => row.cursor), [null, 'repeated-cursor', null]);
+    check('a repeated cursor stops after bounded requests with an explicit error; Retry starts a fresh source snapshot');
+
+    await mount(); holdRemote = true;
+    let invalidateCursor = true;
+    searchOverride = request => {
+      if (request.phase !== 'local') return undefined;
+      if (!invalidateCursor) return searchReply(request, [coreRows[1]]);
+      if (request.cursor === null) return searchReply(request, [coreRows[0]], 'obsolete-page');
+      return Response.json({ success: false, code: 'CHAT_EXTENSION_CURSOR_CHANGED', error: 'Current search cursor changed.' }, { status: 409 });
+    };
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert(!frame().controller.referencePickerItems.some(item => item.id === 'core-skill'), 'Obsolete source pages must be withdrawn.');
+    assert(frame().controller.referencePickerItems.some(item => item.kind === 'file'), 'Other sources stay available.');
+    invalidateCursor = false;
+    await act(async () => frame().controller.retryReferenceSource('local'));
+    await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === 'core-plugin' && item.section === 'ready')));
+    assert.deepEqual(requests.filter(row => row.operation === 'search' && row.phase === 'local').map(row => row.cursor), [null, 'obsolete-page', null]);
+    check('a 409 cursor change withdraws obsolete source pages, preserves independent rows and retries from a fresh cursor');
+
+    await mount(); holdPhase = 'local'; holdRemote = true;
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(phasePending.length, 1));
+    assert.deepEqual(requests.filter(row => row.operation === 'search').map(row => row.phase), ['local']);
+    const localRequest = phasePending[0].request;
+    const recentCore = { bodyBundle: { id: 'recent-core', caption: 'Most recent Core', primary: { selection: coreRows[0].selection!, requirement: 'optional' as const, toolCap: null },
+      supporting: [], packageConnections: [] }, lastAcceptedAt: now, eligibility: { action: 'select' as const }, chatAvailability: 'ready' as const };
+    holdPhase = 'connected';
+    await act(async () => phasePending[0].resolve(Response.json({ success: true, data: { ...header(localRequest), query: localRequest,
+      items: [coreRows[1], coreRows[0], blocked, integration], recents: [recentCore], selectedItem: null, scopes: {},
+      pagination: { hasNextPage: false, nextCursor: null, loadedItems: 4 } } })));
+    await waitFor(() => assert.equal(phasePending.length, 2));
+    assert.deepEqual(requests.filter(row => row.operation === 'search').map(row => row.phase), ['local', 'connected']);
+    assert.deepEqual(frame().controller.referencePickerItems.filter(item => item.section === 'ready').map(item => item.id),
+      [`recent:${chatInlineReferenceIconKey(coreRows[0].selection!)}`, 'core-plugin']);
+    assert(!frame().controller.referencePickerItems.some(item => item.id === 'blocked-plugin' || item.id === 'composio:canva'), 'Setup catalog is held behind connected results.');
+    assert(screen.getByTestId('chat-reference-section-ready'));
+    assert.equal(screen.queryByTestId('chat-reference-section-catalog'), null);
+    while (frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex]?.id !== 'core-plugin')
+      await act(async () => {
+        const { referencePickerItems, selectedReferenceIndex } = frame().controller;
+        if (selectedReferenceIndex > referencePickerItems.findIndex(item => item.id === 'core-plugin')) frame().controller.selectPreviousReference();
+        else frame().controller.selectNextReference();
+      });
+    const priorityIds = frame().controller.referencePickerItems.filter(item => item.section === 'ready').map(item => item.id);
+    const connectedRequest = phasePending[1].request;
+    await act(async () => phasePending[1].resolve(Response.json({ success: true, data: { ...header(connectedRequest), query: connectedRequest,
+      items: [mcpOption(8), integration], recents: [recentCore], selectedItem: null, scopes: {}, pagination: { hasNextPage: false, nextCursor: null, loadedItems: 2 } } })));
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert.deepEqual(frame().controller.referencePickerItems.filter(item => item.section === 'ready').map(item => item.id), [...priorityIds, 'mcp-row-8']);
+    assert.equal(frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex].id, 'core-plugin');
+    const firstCatalog = frame().controller.referencePickerItems.findIndex(item => item.section === 'catalog');
+    assert(firstCatalog > frame().controller.referencePickerItems.map(item => item.section).lastIndexOf('ready'));
+    assert.equal(frame().controller.referencePickerItems.find(item => item.id === 'composio:canva')?.catalogAction, 'connect');
+    assert(screen.getByTestId('chat-reference-section-catalog'));
+    check('local usable and MRU results publish before connected refresh; setup catalog and remote search wait, then stay below without reordering priority or changing keyboard focus');
+
+    await mount(); holdPhase = 'connected'; holdRemote = true;
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(phasePending.length, 1));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-1' && item.section === 'ready'));
+    const beforeRefresh = frame().controller.referencePickerItems.filter(item => item.section === 'ready' && item.kind !== 'mcp').map(item => item.id);
+    const initialFocused = frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex];
+    const refreshed = phasePending[0].request;
+    const newlyRecent = { ...recentCore, bodyBundle: { ...recentCore.bodyBundle, id: 'connected-recent', caption: 'Recently used connected MCP',
+      primary: { selection: mcp(7), requirement: 'optional' as const, toolCap: null } } };
+    const olderRecent = { ...newlyRecent, lastAcceptedAt: now - 100, bodyBundle: { ...newlyRecent.bodyBundle, id: 'older-connected-recent',
+      primary: { selection: mcp(6), requirement: 'optional' as const, toolCap: null } } };
+    await act(async () => phasePending[0].resolve(Response.json({ success: true, data: { ...header(refreshed), query: refreshed,
+      items: [], recents: [olderRecent, newlyRecent], selectedItem: null, scopes: {}, pagination: { hasNextPage: false, nextCursor: null, loadedItems: 0 } } })));
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert(!frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-1'), 'An omitted old connection cannot remain in Available now.');
+    assert.deepEqual(frame().controller.referencePickerItems.filter(item => item.section === 'ready').map(item => item.id),
+      [`recent:${chatInlineReferenceIconKey(mcp(7))}`, `recent:${chatInlineReferenceIconKey(mcp(6))}`, ...beforeRefresh]);
+    if (initialFocused.kind !== 'mcp') assert.equal(frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex].id, initialFocused.id);
+    check('fresh connected omission removes stale usable connections and a newly confirmed Recent stays ahead of non-recent ready rows');
+
+    await mount(); failLocal = true; failConnected = true; holdRemote = true;
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert.deepEqual(requests.filter(row => row.operation === 'search').map(row => row.phase), ['local', 'connected', 'remote']);
+    assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'local' && row.status === 'unavailable'));
+    assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'connected' && row.status === 'unavailable'));
+    assert(frame().controller.referencePickerItems.some(item => item.kind === 'file'));
+    check('failed priority and connected sources do not indefinitely block the final catalog or independently loaded files');
+    failConnected = false;
+    await act(async () => { fireEvent.click(within(screen.getByText(/Connected integrations: Connected unavailable/u).parentElement!).getByRole('button', { name: 'Try again' })); });
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'connected' && row.status === 'complete')));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'mcp-row-1' && item.section === 'ready'));
+    assert.deepEqual(requests.filter(row => row.operation === 'search').map(row => row.phase), ['local', 'connected', 'remote', 'connected']);
+    check('retrying connected observations refreshes only that source and retains the already running catalog request');
 
     await mount(); holdRemote = true;
     await act(async () => frame().controller.openReferencePicker());

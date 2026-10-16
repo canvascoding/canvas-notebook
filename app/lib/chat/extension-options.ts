@@ -4,7 +4,8 @@ import { listCapabilityResources } from '@/app/lib/capabilities/resources/action
 import { findCapabilityResourceRecord } from '@/app/lib/capabilities/resources/store';
 import { readAgentExtensionPackageVersion } from '@/app/lib/agents/extension-package-options';
 import { agentExtensionPackageIcon } from '@/app/lib/agents/extension-options-icons';
-import { searchChatExtensionOptions } from '@/app/lib/agents/extension-options-search';
+import { searchChatExtensionOptions, getChatExtensionSearchConnections } from '@/app/lib/agents/extension-options-search';
+import { isChatStandaloneSelectionReady } from './extension-options-connection-inventory';
 import { listChatExtensionConnectionChoices } from '@/app/lib/agents/extension-options-connections';
 import type { AgentManagementActor } from '@/app/lib/agents/management-actions';
 import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
@@ -54,6 +55,14 @@ async function readChatExtensionOptions(actorInput: AgentManagementActor, reques
     signal.throwIfAborted();
     const recents = request.q === '' && request.phase !== 'remote'
       ? (await observeExtensionStage('recents', () => readChatExtensionRecents(context, { limit: request.limit, cursor: null }, signal, request))).items : [];
+    const connections = getChatExtensionSearchConnections(result);
+    for (const recent of recents) {
+      const standalone = [recent.bodyBundle.primary, ...recent.bodyBundle.supporting].map(entry => entry.selection)
+        .filter(selection => selection.kind === 'mcp' || selection.kind === 'composio');
+      const row = result.items.find(item => item.selection && JSON.stringify(item.selection) === JSON.stringify(recent.bodyBundle.primary.selection));
+      recent.chatAvailability = recent.eligibility.action !== 'unavailable' && recent.eligibility.action !== 'setup'
+        && (row?.chatAvailability !== 'setup') && standalone.every(selection => isChatStandaloneSelectionReady(selection, connections)) ? 'ready' : 'setup';
+    }
     signal.throwIfAborted();
     return { ...result, ...header(), coverage: result.coverage, operation: 'search', recents };
   }
