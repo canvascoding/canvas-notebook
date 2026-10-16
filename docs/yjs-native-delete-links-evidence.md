@@ -52,6 +52,23 @@ Der allein ausgeführte v4-Lauf scheiterte tatsächlich: B2 benötigte 5.007 ms 
 
 ## Noch offene Abnahme
 
-Die unveränderte ursprüngliche 20er Delete-Regression gegen die v6-Produktquellen besteht mit tatsächlichem Exit 0 und vollständiger eigener Bereinigung (`original-delete-v6.log`, SHA-256 `e97158ae715639e6f5d29dfbe3ee7993485b6afd1f6ea38c1d377ac17787e0b1`). Die cachefreie vollständige Typprüfung und Scoped ESLint für alle 21 betroffenen TypeScript-Dateien bestehen. Die gezielten Planer-, Storage-, Effekt- und Executorfolgen bestehen mit 28/142/12/10 Prüfungen. Frischer Produktionsbuild und Browserabnahme dieses neuen eingehenden Linkanschlusses stehen noch aus. Frühere Browsererfolge werden dafür nicht umgedeutet.
+Die unveränderte ursprüngliche 20er Delete-Regression gegen die v6-Produktquellen besteht mit tatsächlichem Exit 0 und vollständiger eigener Bereinigung (`original-delete-v6.log`, SHA-256 `e97158ae715639e6f5d29dfbe3ee7993485b6afd1f6ea38c1d377ac17787e0b1`). Die cachefreie vollständige Typprüfung und Scoped ESLint für alle 21 betroffenen TypeScript-Dateien bestehen. Die gezielten Planer-, Storage-, Effekt- und Executorfolgen bestehen mit 28/142/12/10 Prüfungen. Der frische Originalproduktionsbuild besteht auf Root `14a122938d3817f3572780c2a47ca91c226b7266` / QA `f8d8ab58303e9c75c5f4dbb128de26134fa9a184`. Die folgende Browserabnahme ist fehlgeschlagen und unten gesondert beschrieben. Frühere Browsererfolge werden dafür nicht umgedeutet.
 
 Move/Copy, mehrere Delete-Ziele sowie ein allgemeiner Fallback auf gewöhnliche physische Markdown-Quellen sind hier nicht abgenommen. Die vollständige Datei-/Linkanforderung bleibt im [zentralen Plan](./central-notebook-file-api-import-plan.md) offen. **Dateiaktions-Undo bleibt für alle Dateitypen ausgeschaltet**; gespeicherte Inversrezepte aktivieren weder Undo noch Restore. Review Center bleibt ausgeschaltet. Diese Etappe behauptet keine Veröffentlichung oder Produktionsabnahme.
+
+## Tatsächlicher Build und anschließender Browserfehler
+
+Der Originalbuild endet tatsächlich mit Exit 0. Source-Fingerprint `d68ea54f3130e7951ce3b55173e627b49c7bad1f93846ad3d40d369a53a632d9`, Build-Fingerprint `132bcbfed384c799313277bcc144f33b8632751116abacb6b4244595f6744095`, Proof-SHA256 `55c822087d9aefd668a1f8d6fceab3da4910dcd55b101d016d31e4d844a5e4c1`. Unabhängige Prüfungen nach Build und Runtime verwenden den unveränderten Originalguard sowie separate Fingerprints und bestätigen alle 24 Commitdateien, die ursprünglichen Helfer/Adapter/Specs, beide neuen engen Adapter und die drei bekannten Root-/QA-Abweichungen. Die separate Source-Lesung der Integrationsprüfung lief bereits parallel zum Build; sie wird nicht als sicher vor Buildbeginn ausgewiesen.
+
+| Ausgewählte Browserfolge | Tatsächliches Ergebnis |
+| --- | --- |
+| Datei-Undo ausgeschaltet, Desktop/Mobile | 2/2 bestanden, Markdown und TXT tatsächlich gelöscht und alte Restore-/Undozugänge abgewiesen |
+| Neue sofort editierbare Starterdokumente, Desktop/Mobile | 2/2 bestanden |
+| Editorfokus/Breite/Tabelle | 0/1; abschließender API-Delete im `finally` überschreitet das unveränderte 15-Sekunden-Requestlimit |
+| Neuer nativer Delete mit eingehenden Links | Nicht gestartet; kein Report vorhanden |
+
+Gesamt: fünf gestartete Fälle, vier bestanden, einer fehlgeschlagen, keine als Test-Timeout gezählten Fälle, Skips oder Unterbrechungen. Der Browserfehler ist keine vollständige Browser- oder native Linkabnahme. Die Undo-Familie selbst besteht.
+
+Die fehlgeschlagene eigene Fixture `canvas-yjs-authority-PTHBRx` bleibt mit unveränderten Originalreceipts und privaten Daten für die Diagnose erhalten. Parentlog-SHA256 `75fb4e097deb153c4236ea575ffe0cf53896900edc632459b942b03d02db8c4a`, unabhängiger Postruntime-Audit `e35fc166f4b9b764f515883f5c0153894802398037272009a5e38e13b3ff7a6b`. Das Originalreceipt ist `preserved`, `passed:false`, `uncertain:true`; Datenbanken und DATA sind noch nicht entfernt.
+
+Frische rein lesende Prüfungen bestätigen die tatsächliche Datenbankidentität und deren Besitzmarker: Der Focus-Delete hat einen committed Originalintent, keine Linkrezepte und keine SQL-Completion/Trashreceipt. Die physische Quelldatei liegt bereits im zugehörigen Papierkorb, während das native Ziel aktiv bleibt; der Batch meldet nach 17.121 ms `needs_recovery/BATCH_EXECUTION_FAILED`. Im selben Zeitfenster enthält das PostgreSQL-Protokoll einen `transaction_timeout` um 16:23:43.469 UTC; der Batchabschluss folgt 157 ms später. Die genaue Zuordnung dieser Datenbankverbindung zu einer Ownerphase und die Abgrenzung zum anschließenden Supervisor-Shutdown sind noch nicht gesichert. Der oberste Fehlermapper bewahrt verschachtelte SQL-/Aggregate-Codes nicht. Eine engere Diagnose ist erforderlich; weder das 5-Sekunden-Produktlimit noch Tests oder Originalhelfer wurden gelockert.
