@@ -1004,10 +1004,14 @@ async function resolveNativePublicShareRow(row: PublicShareRow, options: Resolve
     const status = error instanceof PublicShareNativeReadError ? error.status
       : error && typeof error === 'object' && [409, 413].includes(Number(Reflect.get(error, 'status'))) ? Number(Reflect.get(error, 'status'))
       : error && typeof error === 'object' && ['55P03', '40P01'].includes(String(Reflect.get(error, 'code'))) ? 409 : 503;
-    if (status >= 500) console.warn('[public-sharing] Native resolution failed.', { status,
+    if (status === 409 || status >= 500) console.warn('[public-sharing] Native resolution failed.', { status,
       kind: error instanceof PublicShareNativeReadError ? 'native-read'
+        : error && typeof error === 'object' && ['PublicShareNativeTargetError', 'WorkspaceSideEffectWriterFenceError', 'CollaborationAdmissionError'].includes(String(Reflect.get(error, 'name')))
+          ? String(Reflect.get(error, 'name'))
         : error instanceof TypeError ? 'type' : error instanceof RangeError ? 'range' : 'unavailable',
-      code: error && typeof error === 'object' && ['55P03', '40P01', '57014', 'ECONNRESET', 'ECONNREFUSED'].includes(String(Reflect.get(error, 'code')))
+      code: error && typeof error === 'object' && ['55P03', '40P01', '57014', 'ECONNRESET', 'ECONNREFUSED',
+        'PUBLIC_SHARE_NATIVE_TARGET_CHANGED', 'SIDE_EFFECT_WRITER_INVALID', 'SIDE_EFFECT_WRITER_BUSY', 'SIDE_EFFECT_WRITER_SCOPE_CHANGED',
+        'SIDE_EFFECT_WRITER_REQUIRED', 'SIDE_EFFECT_WRITER_REENTRANT', 'SIDE_EFFECT_WRITER_DETACHED', 'ADMISSION_CONFLICT'].includes(String(Reflect.get(error, 'code')))
         ? String(Reflect.get(error, 'code')) : null });
     return {ok: false, status, error: 'Public document is unavailable.'};
   }
