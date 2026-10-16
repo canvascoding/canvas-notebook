@@ -47,11 +47,11 @@ Derselbe unabhängige Auditor prüft vor Integration, nach Build und nach Runtim
 
 Eine zusätzliche frische Read-only-Abnahme bindet die während dieses Laufs beobachteten ursprünglichen Identitäten: Beide eigenen Datenbanken fehlen nach Namen und OIDs, es bestehen keine zugehörigen Sessions und der Prüfpool ist geschlossen. Fünf erfasste eigene PIDs und Gruppen, drei eigene Ports, Runlock sowie DATA/tmp fehlen; drei verwaltete HTTP-Dienste antworten 200. Originalreceipts und Browserberichte bleiben bytegleich. Bericht `canvas-prepared-move-closure-audit-ctxvwy0w/successful-closure-verification.json`: `db267180d9e8d9dd9b6c8ae314f8362f326ca3aa8d1a2ac75bcb1cc604017a9f`. Keine fremden Dienste beendet, keine zusätzlichen Datenbanken entfernt und keine Images gebaut.
 
-## Nächster notwendiger Anschluss
+## Anschlussstand nach dem Journal-/Admission-Baustein
 
-V3 bleibt `executionReady: false`. Für einen regulären Move-/Rename-Job fehlen weiterhin:
+Das [dauerhafte Journal und die internen Admission-Varianten auf derselben Verbindung](./yjs-move-journal-admission-evidence.md) sind inzwischen implementiert und gesondert geprüft. Der hier beschriebene physische Vorbereitungsstand und seine historischen Buildbelege bleiben unverändert gebunden. V3 bleibt `executionReady: false`. Für einen regulären Move-/Rename-Job fehlen weiterhin:
 
-1. Ein eigenes dauerhaftes Move-Intent/Schrittjournal und dessen Repository; JSON-Fakten und Parent-Callbacks allein sind kein Journal.
+1. Der vollständige originalgebundene Domain-Codec und kumulative Budgetprüfung. Der append-only Speicher samt Repository ist implementiert; seine mechanischen Datensätze und Parent-Callbacks allein erteilen keine Ausführungsautorität.
 2. Der echte DA04-Owner über Vorbereitung, bestätigtes Intent, physische Schritte und SQL-Abschluss; eine Delete-Facade oder ein Freigabeboolean ersetzen die echte Verbindungsbindung nicht.
 3. Die originalgebundene Quellenprüfung nach dem physischen Schritt, bevor eigene verschobene Projektionen als vermeintlich fremde Importe klassifiziert werden. Neue unabhängige Quellen/Ziele bleiben Konflikte.
 4. Gemeinsamer atomarer Abschluss von nativen Pfaden, eingehenden/ausgehenden Links, Asset-/Ordner-/Registry-Nebenwirkungen und tatsächlichem finalem Graph. Pro Dokument ist genau eine passende gebundene Mutation zu verwenden.
