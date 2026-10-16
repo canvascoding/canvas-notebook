@@ -2,6 +2,7 @@ import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { openDb, type SqlConnection } from '../db';
+import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
 import type { WorkspaceContext } from '../workspaces/types';
 import { assertWorkspaceFileLifecycleSqlAvailable } from '../files/workspace-file-lifecycle-guard';
 import { ensureActiveFileLineage, initializeCopiedFileCollaborationPathScopes,
@@ -306,55 +307,8 @@ async function completeCapturedNativeCopyPublicationOnConnection(connection: Sql
   [input.workspace.workspaceId, input.operationId, input.requestFingerprint, input.publicationFingerprint]);
 }
 
-type NativeCopyBorrowedIdentity = Readonly<{
-  backend: number; start: string; database: string; schema: string; searchPath: string; transaction: string;
-}>;
-async function nativeCopyBorrowedIdentity(database: SqlConnection, assign: boolean): Promise<NativeCopyBorrowedIdentity> {
-  const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,
-    extract(epoch FROM a.backend_start)::text AS start,
-    (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database,
-    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::text AS schema,
-    pg_catalog.current_setting('search_path') AS search_path,
-    pg_catalog.current_setting('transaction_isolation') AS isolation,
-    pg_catalog.current_setting('transaction_read_only') AS read_only,
-    pg_catalog.current_setting('session_replication_role') AS replication,
-    CASE WHEN pg_catalog.current_setting('transaction_isolation')='read committed'
-      AND pg_catalog.current_setting('transaction_read_only')='off'
-      THEN ${assign ? 'pg_catalog.pg_current_xact_id()' : 'pg_catalog.pg_current_xact_id_if_assigned()'}::text
-      ELSE NULL END AS transaction
-    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`) as Record<string, unknown> | undefined;
-  if (!row || !Number.isSafeInteger(row.backend) || Number(row.backend) < 1
-    || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
-    || typeof row.database !== 'string' || !/^[1-9][0-9]{0,9}$/u.test(row.database)
-    || typeof row.schema !== 'string' || !/^[1-9][0-9]{0,9}$/u.test(row.schema)
-    || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
-    || typeof row.transaction !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.transaction)
-    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') unavailable();
-  return Object.freeze({ backend: Number(row.backend), start: row.start, database: row.database,
-    schema: row.schema, searchPath: row.search_path, transaction: row.transaction });
-}
-
-// Local overlap detection only; this is not a capability, current principal,
-// owner lease or permission to retain/commit the caller's transaction.
-const borrowedNativeCopyConnections = new WeakMap<SqlConnection, { failure?: unknown }>();
-async function withBorrowedNativeCopyTransaction<T>(database: SqlConnection, operation: () => Promise<T>): Promise<T> {
-  if (!database || typeof database !== 'object' || !['get', 'all', 'run'].every(key => typeof Reflect.get(database, key) === 'function')) unavailable();
-  const sibling = borrowedNativeCopyConnections.get(database);
-  if (sibling) { sibling.failure ??= new NativeDocumentRecoveryError(); throw sibling.failure; }
-  const frame: { failure?: unknown } = {};
-  borrowedNativeCopyConnections.set(database, frame);
-  const assertFrame = () => { if (frame.failure !== undefined) throw frame.failure; };
-  try {
-    const pinned = await nativeCopyBorrowedIdentity(database, true); assertFrame();
-    const check = async () => {
-      const current = await nativeCopyBorrowedIdentity(database, false); assertFrame();
-      if (JSON.stringify(current) !== JSON.stringify(pinned)) unavailable();
-    };
-    await check(); assertFrame(); // Reject autocommit before any domain SQL.
-    const result = await operation(); assertFrame();
-    await check(); assertFrame();
-    return result;
-  } finally { if (borrowedNativeCopyConnections.get(database) === frame) borrowedNativeCopyConnections.delete(database); }
+function withBorrowedNativeCopyTransaction<T>(database: SqlConnection, operation: () => Promise<T>): Promise<T> {
+  return withBorrowedWriteTransaction(database, operation, () => new NativeDocumentRecoveryError());
 }
 
 /** Borrowed mechanical clone phase on the caller's actual RC/RW connection/TX.
