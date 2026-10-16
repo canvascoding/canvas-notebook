@@ -140,15 +140,18 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
                 if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
               };
               await gate();
-              const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId);
-              const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo');
+              const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId, scope);
+              const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo', scope);
               if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
                 || evidence === 'absent' && (currentBatch.actionMode === 'undo'
                   || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
                 await finish({ status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
                 return;
               }
-              if (currentBatch.actionMode === 'apply' && !started) {
+              // Native V2 retains its original identity-bound plan. Its genuine
+              // Owner rechecks complete source semantics and the original target
+              // projection pin on B before any intent, without a Markdown export.
+              if (currentBatch.actionMode === 'apply' && !started && currentBatch.plan.version === 1) {
                 const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
                 if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
                   await finish({ status: 'needs_review', errorCode: 'PREVIEW_STALE' });
@@ -175,7 +178,7 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
                   actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
                   jobClaim, onProgress: gate }));
               const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
-                && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
+                && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true, scope) === 'pristine';
               const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
                 : refusedUndo ? 'applied' : result.status;
               projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
@@ -191,7 +194,11 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
         return true;
       } catch (error) {
         if (batch && !leaseLost) {
-          const evidence = await mutationEvidence(batch.batchId, batch.workspaceId, batch.actionMode === 'undo').catch(() => null);
+          const currentBatch = batch;
+          const evidence = await (currentBatch.plan.version === 2
+            ? resolveScope(currentBatch).then(scope => mutationEvidence(currentBatch.batchId, currentBatch.workspaceId,
+              currentBatch.actionMode === 'undo', scope))
+            : mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo')).catch(() => null);
           const current = await store.get(batch.batchId).catch(() => null);
           const prior = current ?? batch;
           const unknown = evidence === null || prior.completedActions > 0 && evidence !== 'complete'

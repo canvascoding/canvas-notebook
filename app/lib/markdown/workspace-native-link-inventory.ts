@@ -8,7 +8,7 @@ import { inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSn
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { Y } from '../collaboration/server-runtime';
 import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
-import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
+import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { getObsidianWikiDisplayLabel, parseObsidianBlockIds, parseObsidianWikiTarget } from './obsidian-flavored-markdown';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
 import { extractWorkspaceMarkdownHeadings } from './workspace-link-index-core';
@@ -46,17 +46,19 @@ function refIdentity(ref: NativeLinkReference): unknown {
 /** URL attributes have already passed Markdown delimiter decoding. Decode percent
  * escapes once; never perform Markdown backslash-unescaping on a native href/src. */
 function attributeTarget(value: string): { classification: NativeDocumentLink['classification']; path: string; fragment: string | null } | null {
-  const notebook = getCanvasNotebookMarkdownLinkTarget(value);
-  const input = notebook ?? value;
-  if (!notebook && /^(?:https?:|mailto:|data:|\/\/)/iu.test(input)) return { classification: 'external', path: '', fragment: null };
+  const notebook = getCanvasNotebookExactLinkTarget(value);
+  if (notebook) return notebook.path.includes('\0') ? null
+    : { classification: 'local', path: `/${notebook.path.replace(/^\/+/, '')}`, fragment: notebook.fragment };
+  const input = value;
+  if (/^(?:https?:|mailto:|data:|\/\/)/iu.test(input)) return { classification: 'external', path: '', fragment: null };
   if (/^[a-z][a-z0-9+.-]*:/iu.test(input) || input.includes('?') || input.includes('\0')) return null;
   const hash = input.indexOf('#');
   const path = hash < 0 ? input : input.slice(0, hash);
   const fragment = hash < 0 ? null : input.slice(hash + 1);
   let decoded: string;
-  try { decoded = notebook ? path : decodeURIComponent(path); } catch { return null; }
+  try { decoded = decodeURIComponent(path); } catch { return null; }
   return { classification: decoded ? 'local' : 'anchor-only',
-    path: notebook ? `/${decoded.replace(/^\/+/, '')}` : decoded, fragment };
+    path: decoded, fragment };
 }
 
 function headingText(node: JSONContent): string {
@@ -103,7 +105,7 @@ export function inspectNativeDocumentLinks(
       || path.split('/').at(-1)!.replace(/\.(?:md|markdown)$/iu, ''),
     hasExplicitTitle: Boolean(parsedMetadata.frontmatter?.title), headings,
     blockIds: content.kind === 'plain_text' ? parseObsidianBlockIds(content.text).map((entry) => entry.id) : [] };
-  const result = () => ({ contractVersion: 2 as const, parserVersion: 1 as const, document,
+  const result = () => ({ contractVersion: 2 as const, parserVersion: 2 as const, document,
     version: { ...snapshot.version }, metadata, links, coverage: { complete: gaps.length === 0, gaps } });
   if (Buffer.byteLength(content.kind === 'plain_text' ? content.text : JSON.stringify(content), 'utf8') > MAX_INDEXED_MARKDOWN_BYTES) {
     gap('limit-exceeded'); return result();
@@ -120,7 +122,7 @@ export function inspectNativeDocumentLinks(
   };
   if (content.kind === 'plain_text') {
     const text = doc.getText('content');
-    const parsed = parseWorkspaceLocalLinks(content.text, path);
+    const parsed = parseWorkspaceLocalLinks(content.text, path, { notebookPaths: 'exact' });
     for (const link of parsed.links) add({ kind: link.kind, syntax: link.syntax, literal: link.targetLiteral,
       targetPathText: link.targetPathText, fragment: link.fragment, alias: link.alias, embed: link.embed,
       classification: 'local', ref: { kind: 'plain-target', text: textReference(text, link.targetStart, link.targetEnd, null),

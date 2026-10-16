@@ -14,12 +14,14 @@ import { originalPhysicalByteHash, previewStagedWorkspaceLinkEffects } from '../
 import { stageWorkspaceLinkSourceAuthority } from '../app/lib/markdown/workspace-source-authority-stage';
 
 const workspaceId = 'source-authority-workspace';
+// SQL-trace/FS fixture only, not a PG concurrency or authority proof.
+const persistedStates = new Map<string, PersistedCollaborationState>();
 function context(rootPath: string): WorkspaceContext {
   return { workspaceId, rootPath, workspaceType: 'personal', organizationId: null, legacy: false, status: 'active',
     permissions: { canRead: true, canWrite: true, canDelete: true, canManageWorkspace: true, canCreatePublicLinks: true, canRunAgent: true } };
 }
 function record(filePath: string, authority: WorkspaceDocumentCatalogueEntry['authority']): WorkspaceDocumentCatalogueEntry {
-  return { id: `document:${filePath}`, path: filePath, workspace_id: workspaceId, organization_id: null, lineage_id: null,
+  return { id: `document:${filePath}`, path: filePath, workspace_id: workspaceId, organization_id: null, lineage_id: authority === 'initialized' ? `lineage:${filePath}` : null,
     status: 'active', state_version: authority === 'pristine' ? 0 : 7, yjs_state_lifecycle: authority === 'pristine' ? 'never_initialized' : 'initialized',
     has_persisted_state: authority === 'initialized', has_state_history: authority !== 'pristine', lifecycle_generation: authority === 'initialized' ? 1 : null,
     state_status: authority === 'initialized' ? 'active' : null, state_path: authority === 'initialized' ? filePath : null,
@@ -28,14 +30,35 @@ function record(filePath: string, authority: WorkspaceDocumentCatalogueEntry['au
 function native(markdown: string, filePath: string): PersistedCollaborationState {
   const doc = createRichMarkdownYDoc(markdown, 'tiptap_blocks');
   try {
-    return { documentId: `document:${filePath}`, workspaceId, organizationId: null, path: filePath, representation: 'tiptap_blocks',
+    const state: PersistedCollaborationState = { documentId: `document:${filePath}`, workspaceId, organizationId: null, path: filePath, representation: 'tiptap_blocks',
       lifecycleGeneration: 1, schemaVersion: 1, yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc), documentSequence: 7,
       persistedAt: 100, checkpointSequence: 0, checkpointedAt: null, canonicalHash: null, serializedHash: null,
       hasBom: false, newlineStyle: 'lf', degraded: false, status: 'active' };
+    persistedStates.set(state.documentId, state); return state;
   } finally { doc.destroy(); }
 }
-function database(rows: WorkspaceDocumentCatalogueEntry[], options: { fail?: 'lock' | 'catalogue' | 'close'; after?: WorkspaceDocumentCatalogueEntry[] } = {}) {
+function database(rows: WorkspaceDocumentCatalogueEntry[], options: { fail?: 'lock' | 'catalogue' | 'close'; after?: WorkspaceDocumentCatalogueEntry[]; states?: PersistedCollaborationState[] } = {}) {
   let transaction = false; let fence = false; let reads = 0; const trace: string[] = [];
+  const sourceRows = (documentId: unknown) => {
+    const document = rows.find(row => row.id === documentId); assert(document);
+    const registry = { ...document, workspace_type: 'personal',
+      provider: 'yjs', customer_id: null, project_id: null, lineage_id_actual: document.lineage_id,
+      lineage_workspace_id: workspaceId, lineage_workspace_type: 'personal', lineage_organization_id: null,
+      lineage_customer_id: null, lineage_project_id: null, lineage_path: document.path, lineage_status: 'active',
+      lineage_archived_at: null, lineage_trash_entry_id: null };
+    const state = (options.states ?? [...persistedStates.values()]).find(candidate => candidate.documentId === documentId); assert(state);
+    const raw = { document_id: state.documentId, workspace_id: state.workspaceId, organization_id: state.organizationId, path: state.path,
+      representation: state.representation, lifecycle_generation: String(state.lifecycleGeneration), schema_version: String(state.schemaVersion),
+      status: state.status, document_sequence: String(state.documentSequence), persisted_at: String(state.persistedAt),
+      checkpoint_sequence: String(state.checkpointSequence), checkpointed_at: state.checkpointedAt === null ? null : String(state.checkpointedAt),
+      newline_style: state.newlineStyle, has_bom: state.hasBom ? '1' : '0', degraded: state.degraded ? '1' : '0',
+      canonical_hash: state.canonicalHash, serialized_hash: state.serializedHash, projection_error_code: state.projectionError?.code ?? null,
+      projection_error_sequence: state.projectionError ? String(state.projectionError.sequence) : null,
+      projection_error_generation: state.projectionError ? String(state.lifecycleGeneration) : null,
+      projection_error_phase: state.projectionError?.phase ?? null, projection_error_permanent: state.projectionError?.permanent ? '1' : '0',
+      yjs_state: state.yjsState, state_vector: state.stateVector };
+    return { registry, raw, state };
+  };
   const connection = {
     run: async (sql: string) => {
       trace.push(sql);
@@ -47,10 +70,19 @@ function database(rows: WorkspaceDocumentCatalogueEntry[], options: { fail?: 'lo
       if (sql.includes('pg_advisory_xact_lock_shared')) {
         assert(transaction); if (options.fail === 'lock') throw new Error('fixture lock failure'); fence = true; return {};
       }
-      assert(fence); assert(sql.includes('LEFT JOIN collaboration_documents')); return undefined;
+      assert(fence);
+      assert(sql.includes('LEFT JOIN collaboration_documents')); return undefined;
     },
     all: async (sql: string, params: unknown[]) => {
-      trace.push(sql); assert(fence); assert(sql.includes('has_state_history'));
+      trace.push(sql); assert(fence);
+      if (sql.startsWith('SELECT requested.document_id')) return (params[0] as string[]).map(documentId => {
+        const { registry, raw, state } = sourceRows(documentId);
+        return { ...registry, requested_document_id: documentId, requested_lineage_id: registry.lineage_id,
+          ...Object.fromEntries(Object.entries(raw).filter(([key]) => !['yjs_state', 'state_vector', 'canonical_hash', 'serialized_hash'].includes(key))
+            .map(([key, value]) => [`state_${key}`, value])), state_bytes: state.yjsState.byteLength, vector_bytes: state.stateVector.byteLength };
+      });
+      if (sql.startsWith('WITH expected AS MATERIALIZED')) return (params[0] as string[]).map(documentId => sourceRows(documentId).raw);
+      assert(sql.includes('has_state_history'));
       if (options.fail === 'catalogue') throw new Error('fixture catalogue failure');
       const selected = reads++ && options.after ? options.after : rows;
       const scopes = params[1] as string[];
@@ -219,7 +251,7 @@ test('original-byte or span tampering changes the private proof and never yields
 test('a native peer edit during staged physical reads invalidates the native proof without disk fallback', async () => fixture(async (root, workspace) => {
   await fs.writeFile(path.join(root, 'native.bin'), 'Stale projection'); await fs.writeFile(path.join(root, 'incoming.md'), '[Native](native.bin)');
   const initial = native('[Before](incoming.md)', 'native.bin'); const later = { ...native('[After](incoming.md)', 'native.bin'), documentSequence: 8 };
-  const db = database([record('native.bin', 'initialized')]); let loads = 0; const physicalReads: string[] = [];
+  const db = database([record('native.bin', 'initialized')], { states: [initial] }); let loads = 0; const physicalReads: string[] = [];
   const stage = await stageWorkspaceLinkSourceAuthority(workspace, { openConnection: async () => db.connection,
     loadState: async () => loads++ ? later : initial, afterSourceFingerprint: async (filePath) => { physicalReads.push(filePath); } });
   assert.equal(stage.readiness, 'blocked'); assert(stage.coverage.gaps.some((gap) => gap.code === 'native-source-changed'));

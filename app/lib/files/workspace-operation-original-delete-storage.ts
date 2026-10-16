@@ -86,37 +86,48 @@ function captureSource(source: Source): Source {
   return Object.freeze({ schemaName, schemaOid: oid(source.schemaOid), databaseOid: oid(source.databaseOid) });
 }
 
-async function assertRealm(database: SqlConnection, source: Source): Promise<void> {
-  const row = await database.get(`SELECT pg_catalog.current_schema() AS schema_name,
-    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
-    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid`) as Row | undefined;
+function assertRealmRow(row: Row | undefined, source: Source): void {
   if (!row || row.schema_name !== source.schemaName || oid(row.schema_oid) !== source.schemaOid
     || oid(row.database_oid) !== source.databaseOid) fail();
+}
+async function assertRealm(database: SqlConnection, source: Source): Promise<void> {
+  assertRealmRow(await database.get(`SELECT pg_catalog.current_schema() AS schema_name,
+    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid`) as Row | undefined, source);
+}
+function assertRelations(rows: Row[], source: Source): Row[] {
+  if (rows.length !== names.length || new Set(rows.map(row => row.name)).size !== names.length
+    || rows.some(row => typeof row.name !== 'string' || !names.includes(row.name) || oid(row.oid) !== oid(row.resolved)
+      || oid(row.schema_oid) !== source.schemaOid || row.relkind !== 'r' || row.relpersistence !== 'p'
+      || row.relrowsecurity !== false || row.relforcerowsecurity !== false)) fail();
+  // PostgreSQL bigint scalars and JSON numbers use different wire types. Use
+  // one exact primitive form without dropping any selected relation fact.
+  return rows.map(row => ({ name: row.name, resolved: oid(row.resolved), oid: oid(row.oid), schema_oid: oid(row.schema_oid),
+    relkind: row.relkind, relpersistence: row.relpersistence, relrowsecurity: row.relrowsecurity, relforcerowsecurity: row.relforcerowsecurity }));
 }
 async function relations(database: SqlConnection, source: Source, prefix: string): Promise<Row[]> {
   const rows = await database.all(`SELECT n.name,pg_catalog.to_regclass(pg_catalog.quote_ident(n.name))::oid::bigint AS resolved,
     c.oid::bigint AS oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity
     FROM pg_catalog.unnest($2::text[]) n(name) LEFT JOIN pg_catalog.pg_class c
       ON c.oid=pg_catalog.to_regclass($1||'.'||pg_catalog.quote_ident(n.name)) ORDER BY n.name COLLATE "C"`, [prefix, names]) as Row[];
-  if (rows.length !== names.length || new Set(rows.map(row => row.name)).size !== names.length
-    || rows.some(row => typeof row.name !== 'string' || !names.includes(row.name) || oid(row.oid) !== oid(row.resolved)
-      || oid(row.schema_oid) !== source.schemaOid || row.relkind !== 'r' || row.relpersistence !== 'p'
-      || row.relrowsecurity !== false || row.relforcerowsecurity !== false)) fail();
-  return rows;
+  return assertRelations(rows, source);
 }
-async function assertLocks(database: SqlConnection, source: Source, relationOids: number[]): Promise<void> {
-  const rows = await database.all(`SELECT DISTINCT relation::bigint AS oid FROM pg_catalog.pg_locks
-    WHERE locktype='relation' AND pid=pg_catalog.pg_backend_pid() AND database=$1::oid AND relation=ANY($2::oid[])
-      AND granted AND mode IN('RowExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')`,
-  [source.databaseOid, relationOids]) as Row[];
+function assertLocks(rows: Row[], relationOids: number[]): void {
   if (rows.length !== relationOids.length || new Set(rows.map(row => oid(row.oid))).size !== relationOids.length
     || rows.some(row => !relationOids.includes(oid(row.oid)))) fail();
 }
-async function assertColumns(database: SqlConnection, relationRows: Row[]): Promise<void> {
+function assertColumns(groups: Row[], relationRows: Row[]): void {
+  if (groups.length !== relationRows.length || new Set(groups.map(group => oid(group.relation_oid))).size !== groups.length) fail();
   for (const row of relationRows) {
-    const columns = await database.all(`SELECT a.attname AS name,pg_catalog.format_type(a.atttypid,a.atttypmod) AS type,
-      a.attnotnull AS "notNull" FROM pg_catalog.pg_attribute a
-      WHERE a.attrelid=$1::oid AND a.attnum>0 AND NOT a.attisdropped ORDER BY a.attname COLLATE "C" LIMIT 129`, [row.oid]) as Column[];
+    const group = groups.find(group => oid(group.relation_oid) === oid(row.oid));
+    if (!group || Object.keys(group).length !== 2 || !Object.hasOwn(group, 'columns')
+      || !Array.isArray(group.columns) || group.columns.length > 128) fail();
+    const columns: Column[] = boundedRows(group.columns, 129).map(column => {
+      if (Object.keys(column).length !== 3 || typeof column.name !== 'string' || typeof column.type !== 'string'
+        || typeof column.notNull !== 'boolean') fail();
+      // jsonb object key order is not the SELECT/Drizzle property order.
+      return { name: column.name, type: column.type, notNull: column.notNull };
+    });
     const expected = expectedColumns[row.name as string];
     if (!expected || key(normalizedColumns(columns)) !== key(normalizedColumns(expected))) fail();
   }
@@ -125,8 +136,7 @@ async function assertColumns(database: SqlConnection, relationRows: Row[]): Prom
   }
 }
 
-async function constraints(database: SqlConnection, source: Source, relationOids: number[]): Promise<Row[]> {
-  return database.all(`SELECT c.oid::bigint AS oid,child.relname AS table_name,c.contype,c.convalidated,c.condeferrable,c.condeferred,c.conenforced,
+const constraintsSql = `SELECT c.oid::bigint AS oid,child.relname AS table_name,c.contype,c.convalidated,c.condeferrable,c.condeferred,c.conenforced,
     c.confrelid::bigint AS target_oid,parent.relname AS target_table,parent.relnamespace::bigint AS target_schema,
     ARRAY(SELECT a.attname::text FROM pg_catalog.unnest(c.conkey) WITH ORDINALITY k(num,ord)
       JOIN pg_catalog.pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.ord) AS columns,
@@ -137,9 +147,7 @@ async function constraints(database: SqlConnection, source: Source, relationOids
       WHERE t.tgconstraint=c.oid AND t.tgrelid=c.conrelid) AS fk_triggers
     FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class child ON child.oid=c.conrelid
       LEFT JOIN pg_catalog.pg_class parent ON parent.oid=c.confrelid LEFT JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
-    WHERE c.conrelid=ANY($1::oid[]) AND child.relnamespace=$2::oid ORDER BY c.oid LIMIT 257`,
-  [relationOids, source.schemaOid]) as Promise<Row[]>;
-}
+    WHERE c.conrelid=ANY($1::oid[]) AND child.relnamespace=$2::oid ORDER BY c.oid LIMIT 257`;
 function assertConstraints(rows: Row[], source: Source): void {
   if (rows.length > 256) fail();
   const usable = (row: Row) => row.convalidated === true && row.conenforced === true
@@ -165,8 +173,7 @@ function assertConstraints(rows: Row[], source: Source): void {
   }
 }
 
-async function triggers(database: SqlConnection, source: Source, relationOids: number[]): Promise<Row[]> {
-  const rows = await database.all(`SELECT t.oid::bigint AS oid,c.relname AS table_name,t.tgname,t.tgtype,t.tgenabled,t.tgisinternal,t.tgnargs,
+const triggersSql = `SELECT t.oid::bigint AS oid,c.relname AS table_name,t.tgname,t.tgtype,t.tgenabled,t.tgisinternal,t.tgnargs,
     t.tgqual::text AS qualification,t.tgattr::text AS attributes,t.tgdeferrable,t.tginitdeferred,t.tgconstraint::bigint AS constraint_oid,
     p.oid::bigint AS function_oid,p.proname,p.pronamespace::bigint AS function_schema,n.nspname AS function_schema_name,
     p.prosrc,p.prosecdef,p.proconfig,p.prokind,p.pronargs,p.prorettype='pg_catalog.trigger'::regtype AS returns_trigger,l.lanname,
@@ -176,7 +183,8 @@ async function triggers(database: SqlConnection, source: Source, relationOids: n
       JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
       JOIN pg_catalog.pg_language l ON l.oid=p.prolang LEFT JOIN pg_catalog.pg_constraint f ON f.oid=t.tgconstraint
       LEFT JOIN pg_catalog.pg_class child ON child.oid=f.conrelid LEFT JOIN pg_catalog.pg_class parent ON parent.oid=f.confrelid
-    WHERE t.tgrelid=ANY($1::oid[]) ORDER BY t.oid LIMIT 257`, [relationOids]) as Row[];
+    WHERE t.tgrelid=ANY($1::oid[]) ORDER BY t.oid LIMIT 257`;
+function assertTriggers(rows: Row[], source: Source): Row[] {
   if (rows.length > 256 || !immutableSource) fail();
   const found = new Set<string>();
   for (const row of rows) {
@@ -206,6 +214,45 @@ async function triggers(database: SqlConnection, source: Source, relationOids: n
   return rows;
 }
 
+function boundedRows(value: unknown, limit: number): Row[] {
+  if (!Array.isArray(value) || value.length > limit || value.some(row => !row || typeof row !== 'object'
+    || Object.getPrototypeOf(row) !== Object.prototype)) fail();
+  return value;
+}
+
+/** One statement and one catalogue snapshot on the original B. Every section
+ * is bound to the originally locked OIDs, never a caller-supplied relation list.
+ * LIMIT sentinels stay local to each relation/constraint/trigger subquery. */
+async function inspectStorage(database: SqlConnection, source: Source, prefix: string, relationOids: number[]): Promise<Row> {
+  const snapshot = await database.get(`WITH current_relations AS MATERIALIZED (
+    SELECT n.name,pg_catalog.to_regclass(pg_catalog.quote_ident(n.name))::oid::bigint AS resolved,
+      c.oid::bigint AS oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity
+      FROM pg_catalog.unnest($5::text[]) n(name) LEFT JOIN pg_catalog.pg_class c
+        ON c.oid=pg_catalog.to_regclass($4||'.'||pg_catalog.quote_ident(n.name))
+  ), current_columns AS MATERIALIZED (
+    SELECT r.oid::bigint AS relation_oid,cols.columns FROM pg_catalog.unnest($1::oid[]) r(oid)
+      CROSS JOIN LATERAL (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(a) ORDER BY a.name COLLATE "C"),'[]'::jsonb) AS columns
+        FROM (SELECT a.attname AS name,pg_catalog.format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull AS "notNull"
+          FROM pg_catalog.pg_attribute a WHERE a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
+          ORDER BY a.attname COLLATE "C" LIMIT 129) a) cols
+  ), current_constraints AS MATERIALIZED (${constraintsSql}), current_triggers AS MATERIALIZED (${triggersSql}),
+  current_locks AS MATERIALIZED (
+    SELECT DISTINCT relation::bigint AS oid FROM pg_catalog.pg_locks
+      WHERE locktype='relation' AND pid=pg_catalog.pg_backend_pid() AND database=$3::oid AND relation=ANY($1::oid[])
+        AND granted AND mode IN('RowExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')
+  ) SELECT pg_catalog.current_schema() AS schema_name,
+    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM current_relations r) AS relations,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.relation_oid),'[]'::jsonb) FROM current_columns c) AS columns,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.oid),'[]'::jsonb) FROM current_constraints c) AS constraints,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY t.oid),'[]'::jsonb) FROM current_triggers t) AS triggers,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(l) ORDER BY l.oid),'[]'::jsonb) FROM current_locks l) AS locks`,
+  [relationOids, source.schemaOid, source.databaseOid, prefix, names]) as Row | undefined;
+  if (!snapshot) fail();
+  return snapshot;
+}
+
 /** Fixed SQL storage checks only. The genuine Owner supplies its actual B and
  * retains all Claim/Actor/Exclusive/transaction authority. No caller-selected
  * relation list, pool checkout, transaction command or raw B escapes here. */
@@ -216,14 +263,14 @@ export async function bindWorkspaceOperationOriginalDeleteStorageOnConnection(da
   const initial = await relations(database, original, prefix), relationOids = initial.map(row => oid(row.oid));
   await database.run(`LOCK TABLE ${names.map(name => `${prefix}.${quote(name)}`).join(',')} IN ROW EXCLUSIVE MODE NOWAIT`);
   const inspect = async () => {
-    await assertRealm(database, original);
-    const current = await relations(database, original, prefix);
+    const snapshot = await inspectStorage(database, original, prefix, relationOids);
+    assertRealmRow(snapshot, original);
+    const current = assertRelations(boundedRows(snapshot.relations, names.length), original);
     if (key(current) !== key(initial)) fail();
-    await assertLocks(database, original, relationOids);
-    await assertColumns(database, current);
-    const currentConstraints = await constraints(database, original, relationOids); assertConstraints(currentConstraints, original);
-    const currentTriggers = await triggers(database, original, relationOids);
-    await assertRealm(database, original);
+    assertLocks(boundedRows(snapshot.locks, names.length), relationOids);
+    assertColumns(boundedRows(snapshot.columns, names.length), current);
+    const currentConstraints = boundedRows(snapshot.constraints, 257); assertConstraints(currentConstraints, original);
+    const currentTriggers = assertTriggers(boundedRows(snapshot.triggers, 257), original);
     return key({ constraints: currentConstraints, triggers: currentTriggers });
   };
   const expected = await inspect();

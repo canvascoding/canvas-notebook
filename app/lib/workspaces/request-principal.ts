@@ -255,14 +255,12 @@ function active(phase: Phase): void {
     if (!Number.isFinite(expires) || expires <= Date.now()) fail('PRINCIPAL_EXPIRED');
   }
 }
-async function identity(phase: Phase): Promise<Identity> {
-  active(phase);
-  const row = await phase.database.get(`SELECT current_schema() AS schema,current_setting('search_path') AS search_path,
+const principalIdentitySql = `SELECT current_schema() AS schema,current_setting('search_path') AS search_path,
     pg_backend_pid() AS backend,extract(epoch FROM a.backend_start)::text AS start,
     pg_current_xact_id()::text AS transaction,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
     current_setting('transaction_isolation') AS isolation,current_setting('transaction_read_only') AS read_only,
-    current_setting('session_replication_role') AS replication FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`) as Row | undefined;
-  active(phase);
+    current_setting('session_replication_role') AS replication FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`;
+function parseIdentity(phase: Phase, row: Row | undefined): Identity {
   if (!row || row.schema !== phase.request.schema || !number(row.database,1) || Number(row.database) !== phase.request.database
     || typeof row.search_path !== 'string' || !number(row.backend,1) || typeof row.start !== 'string'
     || typeof row.transaction !== 'string' || !/^[0-9]{1,32}$/u.test(row.transaction)
@@ -270,14 +268,29 @@ async function identity(phase: Phase): Promise<Identity> {
   return { schema: String(row.schema), searchPath: row.search_path, backend: Number(row.backend), start: row.start,
     transaction: row.transaction, database: Number(row.database) };
 }
-async function checkIdentity(phase: Phase): Promise<void> {
-  const current = await identity(phase), before = phase.identity;
-  if (!before || Object.keys(before).some(k => Reflect.get(before,k) !== Reflect.get(current,k))) fail('PRINCIPAL_SCOPE_CHANGED');
-  const requiredTables = principalRelations(phase);
-  const rows = await phase.database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-    FROM unnest($2::text[]) names(name)`, [quote(before.schema),requiredTables]) as Row[];
+async function identity(phase: Phase): Promise<Identity> {
   active(phase);
+  const row = await phase.database.get(principalIdentitySql) as Row | undefined;
+  active(phase);
+  return parseIdentity(phase,row);
+}
+async function checkIdentity(phase: Phase): Promise<Row> {
+  active(phase);
+  const requiredTables = principalRelations(phase);
+  // One fresh context snapshot, including every required relation. The extra
+  // realm field is consumed only by the private durable-job check below.
+  const row = await phase.database.get(`SELECT header.*,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM (
+      SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
+      FROM unnest($2::text[]) names(name)) r) AS relations
+    FROM (${principalIdentitySql}) header`, [quote(phase.request.schema),requiredTables]) as Row | undefined;
+  active(phase);
+  const current = parseIdentity(phase,row), before = phase.identity;
+  if (!before || Object.keys(before).some(k => Reflect.get(before,k) !== Reflect.get(current,k))) fail('PRINCIPAL_SCOPE_CHANGED');
+  const rows = row!.relations as Row[];
+  if (!Array.isArray(rows) || rows.some(relation => !relation || typeof relation !== 'object')) fail('PRINCIPAL_SCHEMA_INVALID');
   if (rows.length !== requiredTables.length || rows.some(row => row.same !== true)) fail('PRINCIPAL_SCHEMA_INVALID');
+  return row!;
 }
 function principalRelations(phase: Phase): readonly string[] {
   if (phase.request.kind === 'agent_tool' || phase.request.kind === 'job_agent') return [...tables.filter(name => name !== 'session'), ...agentTables];
@@ -854,12 +867,10 @@ async function assertJobClaim(phase: Phase): Promise<void> {
   if (binding !== request.binding || binding.source.databaseOid !== request.policy.database
     || binding.source.schemaName !== request.policy.schema || binding.source.schemaOid !== request.policy.schemaOid
     || binding.source.searchPath !== request.policy.searchPath) fail('PRINCIPAL_SCOPE_CHANGED');
-  const row = await phase.database.get(`SELECT current_schema() AS schema,
-    to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path`) as Row | undefined;
+  const row = await checkIdentity(phase);
   active(phase);
   if (!row || row.schema !== request.policy.schema || !number(row.schema_oid,1)
     || Number(row.schema_oid) !== request.policy.schemaOid || row.search_path !== request.policy.searchPath) fail('PRINCIPAL_SCOPE_CHANGED');
-  await checkIdentity(phase);
 }
 
 function assertJobWorkspace(request: JobUserCapture | JobAgentCapture, workspace: WorkspaceContext | null): asserts workspace is WorkspaceContext {

@@ -2,7 +2,7 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
 
 import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
-import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
+import { getCanvasNotebookMarkdownLinkTarget, getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
 import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
@@ -154,7 +154,8 @@ function unescapedPipe(value: string): number {
   return -1;
 }
 
-export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): {
+export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): {
   links: ParsedWorkspaceLocalLink[];
   unevaluated: WorkspaceLinkUnevaluated[];
 } {
@@ -174,16 +175,21 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) return;
     const targetLiteral = markdown.slice(range[0], range[1]);
-    const notebookTarget = getCanvasNotebookMarkdownLinkTarget(targetLiteral);
-    const { fragment, path } = targetParts(notebookTarget ?? targetLiteral);
+    const exactNotebook = options?.notebookPaths === 'exact' ? getCanvasNotebookExactLinkTarget(targetLiteral) : null;
+    const notebookTarget = options?.notebookPaths === 'exact' ? null : getCanvasNotebookMarkdownLinkTarget(targetLiteral);
+    const { fragment, path } = exactNotebook ?? targetParts(notebookTarget ?? targetLiteral);
+    const notebook = Boolean(exactNotebook || notebookTarget);
     const raw = markdown.slice(start, end);
     if (!path) return;
-    if (!notebookTarget && /^(?:https?:|mailto:|data:|\/\/)/iu.test(path)) return;
-    if (/^[a-z][a-z0-9+.-]*:/iu.test(path)) {
+    if (exactNotebook && path.includes('\0')) {
+      unevaluated.push({ sourcePath, raw, reason: 'unparsed-target', start }); return;
+    }
+    if (!notebook && /^(?:https?:|mailto:|data:|\/\/)/iu.test(path)) return;
+    if (!exactNotebook && /^[a-z][a-z0-9+.-]*:/iu.test(path)) {
       unevaluated.push({ sourcePath, raw, reason: 'unsupported-scheme', start });
       return;
     }
-    if (path.includes('?')) {
+    if (!exactNotebook && path.includes('?')) {
       unevaluated.push({ sourcePath, raw, reason: 'query', start });
       return;
     }
@@ -199,9 +205,9 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string): 
       syntax,
       targetEnd: range[1],
       targetLiteral,
-      targetPathText: notebookTarget ? `/${path.replace(/^\/+/, '')}` : path,
+      targetPathText: notebook ? `/${path.replace(/^\/+/, '')}` : path,
       targetStart: range[0],
-      workspaceRootRelative: Boolean(notebookTarget) || path.startsWith('/'),
+      workspaceRootRelative: notebook || path.startsWith('/'),
     });
   };
 

@@ -146,7 +146,12 @@ export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: Workspac
       const data = await captureDirectory(resolveWorkspaceDataRoot()); captured.directories.push(data);
       const root = await captureDirectory(jobScope.rootPath); captured.directories.push(root);
       if (root.real !== path.join(data.real, rootRelativePath) || !root.real.startsWith(`${data.real}${path.sep}`)) fail('JOB_LIFECYCLE_CHANGED');
-      value = await withWorkspaceFileLifecycleGuard({ workspaceId: binding.workspaceId, paths: [step.sourcePath] }, async () => {
+      // The first native plan binds the entire live link graph. Existing room
+      // owners persist without reacquiring workspace admission on every update,
+      // so all rooms/reservations must be idle before the exclusive lease is
+      // retained through B1, FS and B2. New owners cannot enter beneath it.
+      value = await withWorkspaceFileLifecycleGuard({ workspaceId: binding.workspaceId,
+        paths: plan.version === 2 ? [''] : [step.sourcePath] }, async () => {
         captured.lease = getWorkspaceFileLifecycleLeases()?.get(binding.workspaceId);
         captured.active = true;
         return context.run(captured, async () => {

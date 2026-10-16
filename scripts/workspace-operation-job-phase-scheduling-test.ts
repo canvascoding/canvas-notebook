@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
@@ -86,7 +87,8 @@ async function main(): Promise<void> {
       pathSteps: [{ reviewId: 'scheduling-action', kind: 'delete', sourcePath: ' original.md' }], pathMappings: [],
       deletedPaths: [], linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
       coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-      linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+      linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+      linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId: 'scheduling-action', kind: 'delete', selections: [{ sourcePath: ' original.md' }] }]) };
     const row = await store.createDirect({ batchId: randomUUID(), plan, authorization: { mode: 'direct', actorUserId: 'scheduling-user',
       actorId: 'scheduling-user', actorType: 'user', actorDisplayName: 'Scheduling user', requestHash: 'b'.repeat(64),
       jobScope: captureWorkspaceOperationJobScope(scope.workspace) } });

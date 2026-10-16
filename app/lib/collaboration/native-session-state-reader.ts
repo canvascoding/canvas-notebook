@@ -213,6 +213,20 @@ export function validateRawState(row: Row): void {
   } else if (permanent !== 0 || row.projection_error_sequence !== null || row.projection_error_generation !== null
     || row.projection_error_phase !== null) fail('NATIVE_SESSION_STATE_INVALID');
 }
+
+/** Pure already-read-row mapping, not SQL/fence/session authority. Callers bound
+ * the binary allocation before reading this row. Keep the existing mapper and
+ * preserve proven pg int8 flags, including BOM and quarantine metadata. */
+export async function mapValidatedNativeStateRow(row: Row, documentId: string): Promise<PersistedCollaborationState | null> {
+  validateRawState(row);
+  const mappedRow = { ...row, has_bom: row.has_bom === true ? 1 : Number(row.has_bom),
+    degraded: row.degraded === true ? 1 : Number(row.degraded), projection_error_permanent: Number(row.projection_error_permanent) };
+  return loadCollaborationStateOnConnection({ get: (sql, values) => {
+    if (sql.replace(/\s+/gu, ' ').trim() !== 'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1'
+      || values?.length !== 1 || values[0] !== documentId) fail('NATIVE_SESSION_STATE_INVALID');
+    return mappedRow;
+  } }, documentId, true);
+}
 /** Private diagnostic decoder only. Preserve the quarantine flags; the general
  * editing snapshot API must keep refusing this state. Raw SQL validation and
  * bounds have already run on this SAME B before allocating the temporary Doc. */
@@ -274,17 +288,7 @@ async function readCurrent(captured: Capture): Promise<ExistingNativeSessionSnap
   [metadata.id, MAX_STATE_BYTES, MAX_VECTOR_BYTES]) as Row | undefined;
   assertActive(captured);
   if (!raw) fail('NATIVE_SESSION_STATE_MISSING');
-  validateRawState(raw);
-  // pg may return bigint flags as strings. The existing mapper expects 0/1 or booleans;
-  // retain their proven values without changing the native bytes or byte profile.
-  const mappedRow = { ...raw, has_bom: raw.has_bom === true ? 1 : Number(raw.has_bom),
-    degraded: raw.degraded === true ? 1 : Number(raw.degraded), projection_error_permanent: Number(raw.projection_error_permanent) };
-  // Reuse the existing mapper with this already bounded SAME-Connection row; no pool or second authority probe.
-  const state = await loadCollaborationStateOnConnection({ get: (sql, values) => {
-    if (sql.replace(/\s+/gu, ' ').trim() !== 'SELECT * FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1'
-      || values?.length !== 1 || values[0] !== metadata.id) fail('NATIVE_SESSION_STATE_INVALID');
-    return mappedRow;
-  } }, metadata.id, true);
+  const state = await mapValidatedNativeStateRow(raw, metadata.id as string);
   assertActive(captured);
   if (!state || state.documentId !== metadata.id || state.workspaceId !== captured.workspaceId || state.organizationId !== captured.organizationId
     || state.path !== captured.path || state.status !== 'active') fail('NATIVE_SESSION_SCOPE_CHANGED');

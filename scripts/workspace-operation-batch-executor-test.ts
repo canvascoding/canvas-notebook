@@ -15,8 +15,11 @@ import type { WorkspaceTrashEntry } from '../app/lib/filesystem/workspace-trash'
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 const sha = (text: string | Buffer) => createHash('sha256').update(text).digest('hex');
-const buildWorkspaceOperationBatchPlan = (input: Parameters<typeof buildBatchPlan>[0]) =>
-  buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
+const buildWorkspaceOperationBatchPlan = async (input: Parameters<typeof buildBatchPlan>[0]) => {
+  const plan = await buildBatchPlan(input, { buildSnapshot: buildWorkspacePlannerSnapshot });
+  if (plan.version !== 1) throw new Error('Legacy fixture unexpectedly produced a native plan.');
+  return plan;
+};
 
 async function main() {
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-batch-executor-'));
@@ -42,6 +45,7 @@ async function main() {
       await fs.mkdir(path.dirname(absolute(relative)), { recursive: true }); await fs.writeFile(absolute(relative), content);
     };
     const makeExecutor = (overrides: Parameters<typeof createWorkspaceOperationBatchExecutor>[0] = {}) => createWorkspaceOperationBatchExecutor({
+      readBatch: async () => null,
       rebuild: buildWorkspaceOperationBatchPlan,
       snapshot: buildWorkspacePlannerSnapshot,
       htmlEvidenceCurrent: async () => {},

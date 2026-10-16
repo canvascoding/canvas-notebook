@@ -113,24 +113,35 @@ function assertBounds(row: Row): void {
   if (!safe(row.state_bytes, 1) || Number(row.state_bytes) > MAX_STATE_BYTES
     || !safe(row.vector_bytes, 1) || Number(row.vector_bytes) > MAX_VECTOR_BYTES) fail('ORIGINAL_NATIVE_DELETE_TOO_LARGE');
 }
-async function assertNoAgentOperation(database: SqlConnection, selected: Selection): Promise<void> {
+async function assertNoAgentOperation(database: SqlConnection, selected: Selection, locking = true): Promise<void> {
   if (await database.get(`SELECT operation_id FROM ${selected.schema}.collaboration_agent_operations WHERE document_id=$1
-    AND (status IS NULL OR status NOT IN (${terminalAgentStatuses})) LIMIT 1 FOR SHARE NOWAIT`, [selected.documentId])) {
+    AND (status IS NULL OR status NOT IN (${terminalAgentStatuses})) LIMIT 1${locking ? ' FOR SHARE NOWAIT' : ''}`, [selected.documentId])) {
     fail('ORIGINAL_NATIVE_DELETE_BUSY');
   }
 }
-async function lockOriginalRows(database: SqlConnection, selected: Selection, maxStateBytes = MAX_STATE_BYTES): Promise<LockedRows> {
-  // Lock only the original D1/L1/D1. A later active document at this path is never selected.
-  const registry = await database.get(`SELECT * FROM ${selected.schema}.collaboration_documents WHERE id=$1 FOR UPDATE NOWAIT`,
-    [selected.documentId]) as Row | undefined;
-  const lineage = await database.get(`SELECT * FROM ${selected.schema}.file_collaboration_lineages WHERE id=$1 FOR UPDATE NOWAIT`,
-    [selected.lineageId]) as Row | undefined;
-  const metadata = await database.get(`SELECT document_id,workspace_id,organization_id,path,representation,lifecycle_generation,
-    schema_version,status,document_sequence,persisted_at,checkpoint_sequence,checkpointed_at,newline_style,has_bom,degraded,
-    projection_error_code,projection_error_sequence,projection_error_generation,projection_error_phase,projection_error_permanent,
-    octet_length(yjs_state) AS state_bytes,octet_length(state_vector) AS vector_bytes
-    FROM ${selected.schema}.collaboration_yjs_states WHERE document_id=$1 FOR UPDATE NOWAIT`, [selected.documentId]) as Row | undefined;
-  if (!registry || !lineage || !metadata) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+async function lockOriginalRows(database: SqlConnection, selected: Selection, maxStateBytes = MAX_STATE_BYTES,
+  locking = true): Promise<LockedRows> {
+  const lock = locking ? ' FOR UPDATE NOWAIT' : '';
+  // Only the original D1/L1/D1, never a later same-path document. INNER JOIN
+  // rejects missing/orphaned bindings before BLOB allocation. NOWAIT applies to
+  // all three base rows; no planner-dependent row-lock order is assumed.
+  // Do NOT serialize s: to_jsonb(s) would read the binary before its size gate.
+  const header = await database.get(`SELECT pg_catalog.to_jsonb(d) AS registry,pg_catalog.to_jsonb(l) AS lineage,
+    s.document_id,s.workspace_id,s.organization_id,s.path,s.representation,s.lifecycle_generation,
+    s.schema_version,s.status,s.document_sequence,s.persisted_at,s.checkpoint_sequence,s.checkpointed_at,s.newline_style,s.has_bom,s.degraded,
+    s.projection_error_code,s.projection_error_sequence,s.projection_error_generation,s.projection_error_phase,s.projection_error_permanent,
+    octet_length(s.yjs_state) AS state_bytes,octet_length(s.state_vector) AS vector_bytes
+    FROM ${selected.schema}.collaboration_documents d
+      INNER JOIN ${selected.schema}.file_collaboration_lineages l ON l.id=d.lineage_id
+      INNER JOIN ${selected.schema}.collaboration_yjs_states s ON s.document_id=d.id
+    WHERE d.id=$1 AND l.id=$2${locking ? ' FOR UPDATE OF d,l,s NOWAIT' : ''}`,
+  [selected.documentId, selected.lineageId]) as Row | undefined;
+  if (!header || !header.registry || !header.lineage || typeof header.registry !== 'object' || typeof header.lineage !== 'object'
+    || Object.getPrototypeOf(header.registry) !== Object.prototype || Object.getPrototypeOf(header.lineage) !== Object.prototype) {
+    fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  }
+  const { registry: registryValue, lineage: lineageValue, ...metadata } = header;
+  const registry = registryValue as Row, lineage = lineageValue as Row;
   assertBounds(metadata);
   if (Number(metadata.state_bytes) > maxStateBytes) fail('ORIGINAL_NATIVE_DELETE_TOO_LARGE');
   const raw = await database.get(`SELECT * FROM ${selected.schema}.collaboration_yjs_states WHERE document_id=$1
@@ -141,7 +152,7 @@ async function lockOriginalRows(database: SqlConnection, selected: Selection, ma
     fail('ORIGINAL_NATIVE_DELETE_CHANGED');
   }
   const projection = await database.get(`SELECT * FROM ${selected.schema}.collaboration_file_projections
-    WHERE document_id=$1 FOR UPDATE NOWAIT`, [selected.documentId]) as Row | undefined;
+    WHERE document_id=$1${lock}`, [selected.documentId]) as Row | undefined;
   return { registry, lineage, raw, projection };
 }
 async function mapBoundedRow(raw: Row, documentId: string): Promise<PersistedCollaborationState> {
@@ -217,8 +228,8 @@ function preserved(before: Row, after: Row, changed: readonly string[]): void {
     || !changed.includes(key) && !sameValue(before[key], after[key]))) fail('ORIGINAL_NATIVE_DELETE_POSTCONDITION');
 }
 async function verifyArchived(database: SqlConnection, selected: Selection, original: LockedRows,
-  transition: NativeFileArchiveTransition): Promise<void> {
-  const after = await lockOriginalRows(database, selected), { registry, lineage, raw, projection } = after;
+  transition: NativeFileArchiveTransition, locking = true): Promise<void> {
+  const after = await lockOriginalRows(database, selected, ARCHIVED_NATIVE_BINARY_LIMIT, locking), { registry, lineage, raw, projection } = after;
   assertScope(registry, selected); assertScope(lineage, selected);
   preserved(original.registry, registry, ['status', 'state_version', 'snapshot_revision_id', 'updated_at']);
   preserved(original.lineage, lineage, ['status', 'archived_at', 'trash_entry_id']);
@@ -241,7 +252,7 @@ async function verifyArchived(database: SqlConnection, selected: Selection, orig
   const state = await mapBoundedRow(raw, selected.documentId), archived = inspectArchivedNativeSnapshot(state);
   if (archived.version.stateProof !== transition.after.clock.stateProof || hash(state.yjsState) !== transition.after.clock.binaryHash
     || hash(state.stateVector) !== transition.after.clock.vectorHash) fail('ORIGINAL_NATIVE_DELETE_POSTCONDITION');
-  await assertNoAgentOperation(database, selected);
+  await assertNoAgentOperation(database, selected, locking);
 }
 
 /** Mechanical D1/L1 archive only. Caller supplies genuine Owner/current auth,
@@ -333,7 +344,8 @@ function assertArchivedRawState(raw: Row, selected: Selection): void {
   }
 }
 
-async function assertRestorePathVacant(database: SqlConnection, selected: Selection, restored = false): Promise<void> {
+async function assertRestorePathVacant(database: SqlConnection, selected: Selection, restored = false,
+  locking = true): Promise<void> {
   // A collision check, NOT a predicate/admission fence. The genuine outer owner
   // must prevent concurrent births/moves for the entire caller-owned transaction.
   // No later D2/S2 is selected, archived, rebound or adopted by this check.
@@ -344,17 +356,17 @@ async function assertRestorePathVacant(database: SqlConnection, selected: Select
   ] as const) {
     if (await database.get(`SELECT ${key} FROM ${selected.schema}.${table} WHERE workspace_id=$1 AND status='active'
       AND (path=$2 OR left(path,length($2)+1)=$2||'/' OR left($2,length(path)+1)=path||'/')
-      ${restored ? `AND NOT (${key}=$3 AND path=$2)` : ''} LIMIT 1 FOR SHARE NOWAIT`,
+      ${restored ? `AND NOT (${key}=$3 AND path=$2)` : ''} LIMIT 1${locking ? ' FOR SHARE NOWAIT' : ''}`,
     restored ? [selected.workspaceId, selected.path, originalId] : [selected.workspaceId, selected.path])) {
       fail('ORIGINAL_NATIVE_DELETE_CHANGED');
     }
   }
 }
 
-async function readRestoreTarget(database: SqlConnection, captured: CapturedRestore): Promise<LockedRows & {
+async function readRestoreTarget(database: SqlConnection, captured: CapturedRestore, locking = true): Promise<LockedRows & {
   state: PersistedCollaborationState; transition: NativeFileRestoreTransition }> {
   const { selected, expected, archived, trashEntryId, restoredAt } = captured;
-  const rows = await lockOriginalRows(database, selected, ARCHIVED_NATIVE_BINARY_LIMIT);
+  const rows = await lockOriginalRows(database, selected, ARCHIVED_NATIVE_BINARY_LIMIT, locking);
   assertScope(rows.registry, selected); assertScope(rows.lineage, selected);
   if (rows.registry.id !== expected.documentId || rows.registry.lineage_id !== expected.lineageId
     || rows.registry.provider !== 'yjs' || rows.registry.yjs_state_lifecycle !== 'initialized'
@@ -364,8 +376,8 @@ async function readRestoreTarget(database: SqlConnection, captured: CapturedRest
   const transition = prepareNativeFileRestoreTransition(state, expected, archived, { trashEntryId, restoredAt });
   // Reuse the same archive postcondition used by Delete, including real archived
   // native inspection, projection receipt, original trash binding and agent gate.
-  await verifyArchived(database, selected, rows, archived);
-  await assertRestorePathVacant(database, selected);
+  await verifyArchived(database, selected, rows, archived, locking);
+  await assertRestorePathVacant(database, selected, false, locking);
   return { ...rows, state, transition };
 }
 
@@ -375,6 +387,16 @@ export async function readOriginalNativeRestoreTargetOnConnection(database: SqlC
 Promise<Readonly<{ state: PersistedCollaborationState; transition: NativeFileRestoreTransition }>> {
   const captured = captureRestore(input);
   const observed = await readRestoreTarget(database, captured);
+  return Object.freeze({ state: observed.state, transition: observed.transition });
+}
+
+/** Current factual availability observation on the caller's consistent read
+ * connection. This deliberately takes no row locks, starts no transaction and
+ * grants no lifecycle or mutation authority. Actual Undo repeats the locked
+ * original-D1 checks under its genuine Owner before and after the FS step. */
+export async function observeOriginalNativeRestoreTargetOnConnection(database: SqlConnection, input: RestoreInput):
+Promise<Readonly<{ state: PersistedCollaborationState; transition: NativeFileRestoreTransition }>> {
+  const observed = await readRestoreTarget(database, captureRestore(input), false);
   return Object.freeze({ state: observed.state, transition: observed.transition });
 }
 

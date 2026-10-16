@@ -2,9 +2,11 @@ import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 
@@ -260,12 +262,50 @@ export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperation
   return batch.authorization?.mode === 'direct' ? batch.authorization.actorUserId : batch.reviewerUserId;
 }
 
+function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
+  const version = directInputData(input, 'version');
+  if (version === 2) return decodeWorkspaceOperationNativeDeleteBatchPlan(input);
+  // Never reinterpret a downgraded/unknown native envelope as historical V1.
+  if (version !== 1 || ['kind', 'sourceEvidence', 'nativeTarget', 'nativeGraphPlan'].some(key => Object.hasOwn(input as object, key))) {
+    throw claimError('BATCH_INVALID_PLAN');
+  }
+  try {
+    const linkPlan = directInputData(input, 'linkPlan');
+    const kind = directInputData(linkPlan, 'kind'), planId = directInputData(linkPlan, 'planId'), readiness = directInputData(linkPlan, 'readiness');
+    if (directInputData(linkPlan, 'contractVersion') !== 1 || directInputData(linkPlan, 'status') !== 'planned'
+      || typeof kind !== 'string' || !['rename', 'move', 'copy', 'overwrite', 'delete'].includes(kind)
+      || typeof planId !== 'string' || !/^[a-f0-9]{64}$/u.test(planId)
+      || typeof readiness !== 'string' || !['ready', 'blocked'].includes(readiness)
+      || typeof directInputData(linkPlan, 'recoveryReady') !== 'boolean') throw claimError('BATCH_INVALID_PLAN');
+    for (const key of ['pathMappings', 'linkEdits', 'expectedPathState', 'collisions', 'issues', 'previewContents']) {
+      const array = directInputData(linkPlan, key);
+      if (!Array.isArray(array) || Object.getPrototypeOf(array) !== Array.prototype) throw claimError('BATCH_INVALID_PLAN');
+    }
+    const coverage = directInputData(linkPlan, 'coverage');
+    if (typeof directInputData(coverage, 'complete') !== 'boolean'
+      || !Array.isArray(directInputData(coverage, 'omittedSources')) || !Array.isArray(directInputData(coverage, 'unresolvedLinks'))) {
+      throw claimError('BATCH_INVALID_PLAN');
+    }
+  } catch { throw claimError('BATCH_INVALID_PLAN'); }
+  return input as WorkspaceOperationBatchPlan;
+}
+
 function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
+  const planText = String(row.plan_json);
+  // Existing V1 content budgets can legitimately exceed the native DTO budget.
+  // Bound the initial JSON allocation, then strictly decode V2 before minting
+  // any genuine claim or returning stored native plan data.
+  if (Buffer.byteLength(planText) > 256 * 1024 * 1024) throw claimError('BATCH_INVALID_PLAN');
+  const plan = decodeStoredPlan(JSON.parse(planText));
+  const parsedAuthorization = authorization(row.authorization_json);
+  if (plan?.version === 2 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
+  if (plan?.version === 2 && parsedAuthorization.mode === 'direct'
+    && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
   return {
     batchId: String(row.batch_id), planId: String(row.plan_id), workspaceId: String(row.workspace_id),
     reviewIds: JSON.parse(String(row.review_ids_json)), reviewRefs: JSON.parse(String(row.review_refs_json)),
-    authorization: authorization(row.authorization_json),
-    plan: JSON.parse(String(row.plan_json)), status: row.status as WorkspaceOperationBatchStatus,
+    authorization: parsedAuthorization,
+    plan, status: row.status as WorkspaceOperationBatchStatus,
     actionMode: row.action_mode as 'apply' | 'undo', reviewerUserId: row.reviewer_user_id == null ? null : String(row.reviewer_user_id),
     reviewerDisplayName: row.reviewer_display_name == null ? null : String(row.reviewer_display_name),
     completedActions: Number(row.completed_actions), totalActions: Number(row.total_actions),
@@ -308,10 +348,13 @@ export class WorkspaceOperationBatchStore {
     authorization: WorkspaceOperationDirectAuthorization }): Promise<WorkspaceOperationBatchRecord> {
     const selected = captureDirectAuthorization(directInputData(input, 'authorization'));
     const batchId = directInputData(input, 'batchId');
-    const plan = directInputData(input, 'plan') as WorkspaceOperationBatchPlan;
+    const plan = decodeStoredPlan(directInputData(input, 'plan'));
     const workspaceId = directInputData(plan, 'workspaceId');
     if (typeof workspaceId !== 'string' || selected.jobScope && selected.jobScope.workspaceId !== workspaceId) {
       throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action job scope does not match the plan.');
+    }
+    if (plan.version === 2 && selected.jobScope && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, selected.jobScope)) {
+      throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Native file action evidence does not match its original job scope.');
     }
     if (typeof batchId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(batchId)) {
       throw new WorkspaceOperationBatchError('BATCH_INVALID_ID', 422, 'Invalid file action identity.');

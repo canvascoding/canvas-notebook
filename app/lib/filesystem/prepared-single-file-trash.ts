@@ -706,6 +706,18 @@ export function readPreparedWorkspaceSingleFileRestore(prepared: PreparedWorkspa
   return requireStage(prepared, 'restore').restoreFacts!;
 }
 
+/** Factual disposition of this live, already verified private FS stage. This
+ * does not authorize SQL/Undo, adopt a path or perform a rename. A recovered
+ * exact original file can already be restored while SQL still needs B2. */
+export function readPreparedWorkspaceSingleFileRestoreDisposition(prepared: PreparedWorkspaceSingleFileRestore):
+  'pending' | 'already-restored' | 'projection-absent' {
+  const stage = requireStage(prepared, 'restore');
+  if (stage.recovery === 'already_restored') return 'already-restored';
+  if (stage.recovery === 'projection_absent' || stage.restoreFacts?.destination.kind === 'projection_absent') return 'projection-absent';
+  if (stage.recovery === 'restore_pending') return 'pending';
+  throw failure('invalid-input');
+}
+
 /** Exactly one reverse rename under the caller's genuine exclusive lifecycle
  * fence. Portable Node rename has no NOREPLACE: freshness plus that cooperative
  * writer fence is required; this is not a fence against uncooperative host I/O. */

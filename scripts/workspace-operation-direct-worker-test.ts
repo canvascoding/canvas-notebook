@@ -6,6 +6,7 @@ import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { createWorkspaceOperationJobScopeFixture } from './helpers/workspace-operation-job-scope-fixture';
 import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 
 const planId = 'a'.repeat(64);
 type WorkerExecuteInput = Parameters<NonNullable<NonNullable<Parameters<typeof createWorkspaceOperationBatchWorker>[0]>['execute']>>[0];
@@ -31,7 +32,8 @@ function plan(workspaceId: string, kind: 'move' | 'delete' = 'move'): WorkspaceO
     pathMappings: [], deletedPaths: [], pathSteps: [{ reviewId: actionId, kind, ...selections[0] }],
     linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
     coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+    linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId: actionId, kind, selections }]) };
 }
 
 const complete = { status: 'applied' as const, trashEntryIds: [], completedActions: 1, totalActions: 1, errorCode: null };

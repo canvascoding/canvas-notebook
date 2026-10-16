@@ -5,7 +5,7 @@ import { authoritativeNativeCollaborationSnapshot } from '../collaboration/docum
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { Y } from '../collaboration/server-runtime';
 import { parseObsidianWikiTarget } from './obsidian-flavored-markdown';
-import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
+import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
 import { resolveExactWorkspaceLink } from './workspace-local-link-parser';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
@@ -140,6 +140,7 @@ function publicEdge(edge: Edge): NativeMixedBatchVirtualEdge {
 function graph(entities: Entity[]): Edge[] {
   const edges: Edge[] = [];
   const workspaces = new Map<string, { byPath: Map<string, Entity>; paths: Set<string>;
+    nativeTargetPaths: Set<string>;
     candidates: Array<{ path: string; aliases: string[]; extension: string | undefined; type: 'file' }> }>();
   for (const entity of entities) {
     if (!entity.links.length) continue;
@@ -147,18 +148,19 @@ function graph(entities: Entity[]): Edge[] {
     if (!workspace) {
       const files = entities.filter((candidate) => candidate.workspaceId === entity.workspaceId && candidate.kind === 'file');
       const byPath = new Map(files.map((candidate) => [candidate.path, candidate]));
-      workspace = { byPath, paths: new Set(byPath.keys()),
+      workspace = { byPath, paths: new Set(byPath.keys()), nativeTargetPaths: new Set(files.filter(candidate => candidate.inventory).map(candidate => candidate.path)),
         candidates: files.filter((candidate) => candidate.inventory).map((candidate) => ({ path: candidate.path,
           aliases: candidate.inventory!.metadata.aliases, extension: candidate.path.split('.').at(-1), type: 'file' as const })) };
       workspaces.set(entity.workspaceId, workspace);
     }
-    const { byPath, paths, candidates } = workspace;
+    const { byPath, paths, candidates, nativeTargetPaths } = workspace;
     for (const link of entity.links) {
       const value = link.current;
       const resolution = value.classification !== 'local'
         ? { status: value.classification, path: null, candidates: [] as string[] }
         : value.kind === 'wiki'
-          ? resolveWorkspaceWikiFileLink({ targetLiteral: value.literal, targetPathText: value.targetPathText }, entity.path, paths, candidates)
+          ? resolveWorkspaceWikiFileLink({ targetLiteral: value.literal, targetPathText: value.targetPathText }, entity.path, paths, candidates,
+            { nativeTargetPaths })
           : resolveExactWorkspaceLink(value.targetPathText, entity.path, paths);
       edges.push({ virtualLinkKey: link.key, sourceEntityKey: entity.entityKey, originEvidenceLinkId: link.originEvidenceLinkId,
         literal: value.literal, targetPathText: value.targetPathText, entity, link,
@@ -181,7 +183,7 @@ function nextTarget(edge: Edge, targetPath: string, sourcePath: string): string 
     const file = /\.(?:md|markdown)$/iu.test(old.path) ? targetPath : targetPath.replace(/\.(?:md|markdown)$/iu, '');
     return `/${file}${link.fragment === null ? '' : `#${link.fragment}`}${link.ref.kind === 'node-attribute' && old.alias ? `|${old.alias}` : ''}`;
   }
-  if (getCanvasNotebookMarkdownLinkTarget(link.literal)) return null;
+  if (getCanvasNotebookExactLinkTarget(link.literal)) return null;
   let value = link.targetPathText.startsWith('/') ? `/${targetPath}`
     : path.posix.relative(path.posix.dirname(sourcePath), targetPath) || path.posix.basename(targetPath);
   if (!value.startsWith('/') && /^[a-z][a-z0-9+.-]*:/iu.test(value)) value = `./${value}`;

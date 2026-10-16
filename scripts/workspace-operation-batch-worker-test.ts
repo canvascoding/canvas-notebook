@@ -6,6 +6,7 @@ import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-o
 import { WorkspaceOperationBatchStore, WorkspaceOperationBatchError } from '../app/lib/files/workspace-operation-batch-store';
 import { createWorkspaceOperationBatchWorker, projectWorkspaceOperationBatchFileViews } from '../app/lib/files/workspace-operation-batch-worker';
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 
 const planId = 'a'.repeat(64);
 const scope = (id = 'workspace'): WorkspaceOperationBatchScope => ({ workspace: {
@@ -21,7 +22,8 @@ function plan(reviewId: string, workspaceId = 'workspace'): WorkspaceOperationBa
     pathMappings: [], deletedPaths: [], pathSteps: [{ reviewId, kind: 'move', sourcePath: 'old', destinationPath: 'new' }],
     linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
     coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+    linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId, kind: 'move', selections: [{ sourcePath: 'old', destinationPath: 'new' }] }]) };
 }
 
 async function main(): Promise<void> {

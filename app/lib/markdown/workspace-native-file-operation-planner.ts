@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { parseObsidianWikiTarget } from './obsidian-flavored-markdown';
-import { getCanvasNotebookMarkdownLinkTarget } from './obsidian-link-resolver';
+import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { buildWorkspaceNativeLinkGraph } from './workspace-native-link-graph';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeLinkMutationRecipe,
@@ -29,7 +29,7 @@ function formatNativeTarget(edge: NativeResolvedLink, targetPath: string, source
     const alias = edge.ref.kind === 'node-attribute' && old.alias ? `|${old.alias}` : '';
     return `/${file}${fragment}${alias}`;
   }
-  if (getCanvasNotebookMarkdownLinkTarget(edge.literal)) return null;
+  if (getCanvasNotebookExactLinkTarget(edge.literal)) return null;
   let value = edge.targetPathText.startsWith('/') ? `/${targetPath}`
     : path.posix.relative(path.posix.dirname(sourcePath), targetPath) || path.posix.basename(targetPath);
   if (!value.startsWith('/') && /^[a-z][a-z0-9+.-]*:/iu.test(value)) value = `./${value}`;
@@ -65,6 +65,7 @@ export function createWorkspaceNativeFileOperationPlan(request: NativeWorkspaceF
         && !snapshot.documents.some((inventory) => inventory.document.path === entry.path)) issue('uninspected-source', snapshot.workspaceId, entry.path);
     }
     for (const inventory of snapshot.documents) {
+      if (inventory.parserVersion !== 2) issue('stale-source-parser', snapshot.workspaceId, inventory.document.path);
       const registered = snapshot.namespace.find((entry) => entry.path === inventory.document.path);
       if (!registered || registered.documentId !== inventory.document.documentId
         || registered.lifecycleGeneration !== inventory.document.lifecycleGeneration

@@ -138,6 +138,11 @@ export async function enqueueWorkspaceOperationBatch(input: {
       try { await assertWorkspaceOperationBatchUndoAvailable({ batchId: batch.batchId, scope }); }
       catch (error) {
         const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : 'BATCH_UNDO_CONFLICT';
+        if (batch.plan.version === 2 && error && typeof error === 'object'
+          && Object.getOwnPropertyDescriptor(error, 'status')?.value === 503) {
+          throw new WorkspaceOperationBatchError(/^[A-Z][A-Z0-9_]{1,127}$/u.test(code) ? code : 'BATCH_JOURNAL_UNAVAILABLE',
+            503, 'The saved file action could not be checked. Retry after the connection recovers.');
+        }
         throw new WorkspaceOperationBatchError(code, 409, 'Files or links changed after the batch; automatic undo would overwrite newer work.');
       }
     }

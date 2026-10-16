@@ -3,6 +3,9 @@ import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspa
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLinkCoverageV1,
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
+import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
+import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
 /** Literal namespace snapshot only; this grants no authority or filesystem identity. */
@@ -40,7 +43,7 @@ export type WorkspaceOperationBatchAction = {
   selections: Array<{ sourcePath: string; destinationPath?: string }>;
 };
 export type WorkspaceOperationBatchIssue = { code: string; path: string; detail: string; reviewId?: string };
-export type WorkspaceOperationBatchPlan = {
+export type WorkspaceOperationLegacyBatchPlan = {
   version: 1;
   workspaceId: string;
   planId: string;
@@ -61,6 +64,15 @@ export type WorkspaceOperationBatchPlan = {
   /** Internal exact span plan consumed by the fenced plain-file/Yjs writer. */
   linkPlan: WorkspaceFileOperationPreview;
 };
+export type WorkspaceOperationNativeDeleteBatchPlan = Omit<WorkspaceOperationLegacyBatchPlan, 'version' | 'linkPlan'> & {
+  version: 2;
+  kind: 'native-original-delete';
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
+  nativeTarget: NativeFileArchiveExpected;
+  nativeGraphPlan: NativeMixedBatchPlan;
+  linkPlan?: never;
+};
+export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
 export type WorkspaceOperationBatchProgress = {
   completedActions: number;
   totalActions: number;

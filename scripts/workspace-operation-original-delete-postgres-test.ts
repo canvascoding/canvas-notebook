@@ -22,9 +22,9 @@ import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness
 const sourcePath = path.resolve('scripts/workspace-operation-original-delete-postgres-test.ts');
 const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 const sourceHash = async () => crypto.createHash('sha256').update(await readFile(sourcePath)).digest('hex');
-type FixtureGroup = 'delete' | 'restore' | 'restore-recovery' | 'scheduling';
+type FixtureGroup = 'delete' | 'restore' | 'restore-recovery' | 'scheduling' | 'native' | 'native-worker' | 'native-safety';
 const selectedGroup = (process.argv[2] ?? '--delete').replace(/^--/u, '') as FixtureGroup;
-assert(['delete', 'restore', 'restore-recovery', 'scheduling'].includes(selectedGroup), 'Choose --delete, --restore, --restore-recovery, or --scheduling.');
+assert(['delete', 'restore', 'restore-recovery', 'scheduling', 'native', 'native-worker', 'native-safety'].includes(selectedGroup), 'Choose one explicit original or native fixture group.');
 type Row = Record<string, unknown>;
 const rejected = (...codes: string[]) => (error: unknown): boolean => {
   if (!(error instanceof Error) || error instanceof assert.AssertionError) return false;
@@ -35,6 +35,20 @@ const absent = async (filePath: string) => {
   try { await stat(filePath); return false; }
   catch (error) { if (error && typeof error === 'object' && Reflect.get(error, 'code') === 'ENOENT') return true; throw error; }
 };
+// Codes and repository locations only; never queries, arguments or tokens.
+function describeFailure(error: unknown, depth = 0): unknown {
+  if (depth > 4 || !(error instanceof Error)) return { name: 'unknown' };
+  const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+  const source = error.stack?.split('\n').flatMap(line => {
+    const match = /\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);
+    return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
+  }).slice(0, 4);
+  const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
+  return { name: /^[A-Za-z][A-Za-z0-9]*$/u.test(error.name) ? error.name : 'unknown',
+    code: typeof code === 'string' && /^[A-Za-z0-9_]{1,128}$/u.test(code) ? code : 'unclassified', source,
+    ...(error instanceof AggregateError ? { errors: error.errors.slice(0, 4).map(child => describeFailure(child, depth + 1)) } : {}),
+    ...(cause instanceof Error ? { cause: describeFailure(cause, depth + 1) } : {}) };
+}
 
 async function main(): Promise<void> {
   const pinned = await sourceHash();
@@ -153,7 +167,7 @@ async function main(): Promise<void> {
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
     const { executeWorkspaceOperationOriginalDelete: execute, undoWorkspaceOperationOriginalDelete: undo } = await import('../app/lib/files/workspace-operation-original-delete');
     const { withWorkspaceOperationJobClaimScheduling } = await import('../app/lib/files/workspace-operation-job-phase-scheduling');
-    const { createWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } = await import('../app/lib/files/workspace-operation-batch-plan');
+    const { createWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId, buildWorkspaceOperationBatchPlan } = await import('../app/lib/files/workspace-operation-batch-plan');
     const { filesystemFileVersion } = await import('../app/lib/filesystem/file-version');
     const { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions } = await import('../app/lib/collaboration/markdown-state');
     const { inspectPersistedNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
@@ -204,9 +218,9 @@ async function main(): Promise<void> {
     };
     const seedTarget = async (options: { representation?: PersistedCollaborationState['representation']; physical?: boolean;
       historicalNull?: boolean; filePath?: string; nonexportable?: boolean; byteProfile?: boolean;
-      keepPhysical?: boolean; reuseShareId?: string } = {}): Promise<Target> => {
+      keepPhysical?: boolean; reuseShareId?: string; content?: string } = {}): Promise<Target> => {
       const filePath = options.filePath ?? ` original-${crypto.randomUUID()}.md`, fullPath = path.join(workspace.rootPath, filePath);
-      const canonical = options.nonexportable ? '| A | B |\n| --- | --- |\n| one | two |\n' : '# Original target\n\nA genuine paragraph.\n';
+      const canonical = options.content ?? (options.nonexportable ? '| A | B |\n| --- | --- |\n| one | two |\n' : '# Original target\n\nA genuine paragraph.\n');
       let state: PersistedCollaborationState | null = null, documentId: string | null = null, lineageId: string | null = null;
       let proof: string | null = null, content: unknown = null;
       let serialized = canonical;
@@ -251,13 +265,16 @@ async function main(): Promise<void> {
       const target = { filePath, fullPath, bytes, documentId, lineageId, state, proof, content };
       return { ...target, shareId: options.reuseShareId ?? await seedShare(target, options.historicalNull) };
     };
-    const freshJob = async (target: Target, actorType: 'user' | 'agent' = 'user'): Promise<Job> => {
+    const freshJob = async (target: Target, actorType: 'user' | 'agent' = 'user', nativeProducer = false): Promise<Job> => {
       const current = await currentWorkspace();
       const identity = await absent(target.fullPath) ? `native:${target.proof}` : filesystemFileVersion(await stat(target.fullPath));
       // This is the actual pure planner, given a clearly fixture-owned exact
       // selected-target snapshot, including native-only virtual membership.
-      const plan = createWorkspaceOperationBatchPlan({ snapshot: { workspaceId, entries: [{ path: target.filePath, kind: 'file', identity,
-        markdownContent: target.bytes.toString('utf8') }] }, actions: [{ reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath: target.filePath }] }] });
+      const actions = [{ reviewId: crypto.randomUUID(), kind: 'delete' as const, selections: [{ sourcePath: target.filePath }] }];
+      const plan = nativeProducer ? await buildWorkspaceOperationBatchPlan({ scope: { workspace: current, fileOptions: { workspace: current } }, actions })
+        : createWorkspaceOperationBatchPlan({ snapshot: { workspaceId, entries: [{ path: target.filePath, kind: 'file', identity,
+          markdownContent: target.bytes.toString('utf8') }] }, actions });
+      assert.equal(plan.version, nativeProducer ? 2 : 1);
       assert.equal(plan.readiness, 'ready'); assert.deepEqual(plan.issues, []); assert.equal(computeWorkspaceOperationBatchPlanId(plan), plan.planId);
       assert.equal(plan.pathSteps.length, 1); assert.equal(plan.linkEdits.length, 0); assert.equal(plan.originalDocuments.length, 0);
       const created = await store.createDirect({ batchId: crypto.randomUUID(), plan, authorization: { mode: 'direct', actorUserId: 'member',
@@ -281,6 +298,12 @@ async function main(): Promise<void> {
       const inject = (code: string): never => { observation.injected = true; throw Object.assign(new Error(code), { code }); };
       return { observation, open: async (): Promise<SqlConnection> => {
         observation.opens++; const raw = await database.openDb(); checkouts.add(raw);
+        let queries = 0, phaseStart = 0, phaseQueries = 0;
+        const phases: Array<{ milliseconds: number; queries: number; completed: boolean }> = [];
+        const finishPhase = (completed: boolean) => {
+          if (phaseStart) phases.push({ milliseconds: Math.round(performance.now() - phaseStart), queries: queries - phaseQueries, completed });
+          phaseStart = 0;
+        };
         observation.pid = Number((await raw.get('SELECT pg_backend_pid() AS pid') as Row).pid);
         const before = async (sql: string) => {
           if (observation.injected) return;
@@ -300,10 +323,13 @@ async function main(): Promise<void> {
             observation.movedObserved = true; observation.payloadAltered = true; observation.injected = true;
           }
         };
-        return { get: async (sql, values) => { await before(sql); return raw.get(sql, values); },
-          all: async (sql, values) => { await before(sql); return raw.all(sql, values); },
+        return { get: async (sql, values) => { queries++; await before(sql); return raw.get(sql, values); },
+          all: async (sql, values) => { queries++; await before(sql); return raw.all(sql, values); },
           run: async (sql, values) => {
+            queries++;
+            if (/^BEGIN\b/iu.test(sql)) { finishPhase(false); phaseStart = performance.now(); phaseQueries = queries; }
             await before(sql); const value = await raw.run(sql, values);
+            if (/^(?:COMMIT|ROLLBACK)\s*$/iu.test(sql)) finishPhase(true);
             if (/^COMMIT\s*$/iu.test(sql)) {
               observation.commits++;
               if (!observation.injected && fault === 'after_intent_commit' && await ledger(job) && !await completion(job)) {
@@ -316,7 +342,11 @@ async function main(): Promise<void> {
             }
             return value;
           }, close: async error => { observation.closes++; assert.equal(observation.closes, 1); assert(error);
-            checkouts.delete(raw); await raw.close(error); } };
+            checkouts.delete(raw);
+            try { await raw.close(error); } finally {
+              finishPhase(false);
+              console.log('Original Delete private phase metrics:', JSON.stringify({ queries, phases }));
+            } } };
       } };
     };
     const invoke = async (job: Job, adapter = tracked(job)) => {
@@ -813,7 +843,150 @@ async function main(): Promise<void> {
       const archived = await proof(target), undoJob = await queueUndo(job);
       await assertUndone(undoJob, await runScheduled<Awaited<ReturnType<typeof undo>>>(undoJob, undo), archived);
     });
-    assert.equal(passed, { delete: 20, restore: 10, 'restore-recovery': 5, scheduling: 1 }[selectedGroup]); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
+    activeGroup = 'native-worker';
+    await check('actual registered never-initialized Markdown remains an honest V1 physical plan', async () => {
+      const target = await seedTarget(), documentId = `pristine-doc-${crypto.randomUUID()}`, lineageId = `pristine-lineage-${crypto.randomUUID()}`;
+      await admin.query(`INSERT INTO file_collaboration_lineages(id,workspace_id,workspace_type,organization_id,path,status,created_at)
+        VALUES($1,$2,'organization',$3,$4,'active',100)`, [lineageId, workspaceId, organizationId, target.filePath]);
+      await admin.query(`INSERT INTO collaboration_documents(id,lineage_id,workspace_id,workspace_type,organization_id,path,provider,
+        state_version,yjs_state_lifecycle,status,created_at,updated_at)
+        VALUES($1,$2,$3,'organization',$4,$5,'yjs',0,'never_initialized','active',100,100)`, [documentId, lineageId, workspaceId, organizationId, target.filePath]);
+      const current = await currentWorkspace(), scope = { workspace: current, fileOptions: { workspace: current } };
+      const plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath: target.filePath }] }] });
+      assert.equal(plan.version, 1); assert.equal(plan.readiness, 'ready'); assert.deepEqual(plan.issues, []);
+      assert.equal(plan.deletedPaths[0].path, target.filePath); assert.equal('sourceEvidence' in plan, false);
+      assert.equal((await admin.query("DELETE FROM collaboration_documents WHERE id=$1 AND yjs_state_lifecycle='never_initialized' RETURNING id", [documentId])).rowCount, 1);
+      assert.equal((await admin.query('DELETE FROM file_collaboration_lineages WHERE id=$1 RETURNING id', [lineageId])).rowCount, 1);
+      assert.deepEqual(await readFile(target.fullPath), target.bytes); await rm(target.fullPath); assert.equal(await absent(target.fullPath), true);
+    });
+    activeGroup = 'native';
+    for (const options of [
+      { representation: 'plain_text' as const, physical: false },
+      { representation: 'tiptap_xml' as const, physical: false },
+      { representation: 'tiptap_blocks' as const, physical: false },
+      { representation: 'tiptap_blocks' as const, physical: false, nonexportable: true },
+      { representation: 'tiptap_blocks' as const, physical: true, nonexportable: true },
+    ]) await check(`native V2 actual full producer/claim/original Delete/readonly availability/Undo: ${JSON.stringify(options)}`, async () => {
+      const target = await seedTarget({ ...options, byteProfile: true }), job = await freshJob(target, 'user', true);
+      assert.equal(job.plan.version, 2); assert.equal('linkPlan' in job.plan, false);
+      const before = await proof(target), result = await invoke(job); await assertApplied(job, result, before);
+      assert(result.native);
+      const { observeOriginalNativeRestoreTargetOnConnection } = await import('../app/lib/files/workspace-operation-original-delete-native');
+      const connection = await database.openDb(); let transaction = false;
+      try {
+        await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'); transaction = true;
+        let reads = 0;
+        const select = async (sql: string, values?: unknown[]) => {
+          assert.match(sql.trim(), /^SELECT\b/iu); assert.doesNotMatch(sql, /FOR\s+(?:SHARE|UPDATE)|pg_advisory|\b(?:INSERT|DELETE|ALTER|CREATE)\b/iu);
+          reads++; return connection.get(sql, values);
+        };
+        const observed = await observeOriginalNativeRestoreTargetOnConnection({ ...connection, get: select },
+          { schema, workspace: await currentWorkspace(), expected: job.plan.version === 2 ? job.plan.nativeTarget : assert.fail('native plan required'),
+            archived: result.native, trashEntryId: result.trashEntryId, restoredAt: Date.now() });
+        assert.equal(observed.state.status, 'archived'); assert.equal(observed.transition.after.identity.lifecycleGeneration, 3); assert(reads > 8);
+        await connection.run('COMMIT'); transaction = false;
+      } finally { if (transaction) await connection.run('ROLLBACK'); await connection.close(); }
+      const archived = await proof(target), undoJob = await queueUndo(job); await assertUndone(undoJob, await invokeUndo(undoJob), archived);
+    });
+    activeGroup = 'native-worker';
+    await check('native V2 actual default Worker completes original SQL Delete and Undo without a filesystem manifest', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks', physical: false, nonexportable: true });
+      const current = await currentWorkspace(), scope = { workspace: current, fileOptions: { workspace: current } };
+      const plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath: target.filePath }] }] });
+      assert.equal(plan.version, 2);
+      const batch = await store.createDirect({ batchId: crypto.randomUUID(), plan, authorization: { mode: 'direct', actorUserId: 'member',
+        actorId: 'member', actorType: 'user', actorDisplayName: 'Native Worker', requestHash: sha(crypto.randomUUID()), jobScope: captureWorkspaceOperationJobScope(current) } });
+      const { createWorkspaceOperationBatchWorker } = await import('../app/lib/files/workspace-operation-batch-worker');
+      const { hasWorkspaceOperationBatchExecution, getWorkspaceOperationBatchMutationEvidence, assertWorkspaceOperationBatchUndoAvailable } = await import('../app/lib/files/workspace-operation-batch-executor');
+      const { workspacePathOperationResponse } = await import('../app/lib/files/workspace-path-operation-response');
+      const execution = await import('../app/lib/files/workspace-operation-batch-executor');
+      // Optional diagnostic wrappers call the actual default executors with the
+      // identical inputs and rethrow unchanged. No SQL/claim/authority is replaced.
+      const trace = <I, O>(operation: (input: I) => Promise<O>) => async (input: I): Promise<O> => {
+        try { return await operation(input); } catch (error) {
+          console.log('Native Worker original failure:', JSON.stringify(describeFailure(error))); throw error;
+        }
+      };
+      const worker = createWorkspaceOperationBatchWorker(process.env.CANVAS_NATIVE_WORKER_DIAGNOSTIC === '1'
+        ? { execute: trace(execution.executeWorkspaceOperationBatch), undo: trace(execution.undoWorkspaceOperationBatch) } : {});
+      assert.equal(await worker.tick(), true);
+      const applied = await store.get(batch.batchId); assert(applied);
+      console.log('Native Worker factual outcome:', JSON.stringify({ status: applied.status, phase: applied.phase,
+        errorCode: applied.errorCode, completedActions: applied.completedActions, totalActions: applied.totalActions }));
+      assert.equal(applied.status, 'applied'); assert.equal(applied.completedActions, 1);
+      assert.equal(await hasWorkspaceOperationBatchExecution(batch.batchId, workspaceId, scope), true);
+      assert.equal(await getWorkspaceOperationBatchMutationEvidence(batch.batchId, workspaceId, false, scope), 'complete');
+      assert.equal(await getWorkspaceOperationBatchMutationEvidence(batch.batchId, workspaceId, true, scope), 'pristine');
+      const response = await workspacePathOperationResponse(applied, scope);
+      assert.deepEqual(response.deleted, [target.filePath]); assert.equal(response.linkStatus, 'complete'); assert.equal(response.trashEntries?.length, 1);
+      assert.equal(response.trashEntries?.[0].id, applied.trashEntryIds[0]);
+      await assertWorkspaceOperationBatchUndoAvailable({ batchId: batch.batchId, scope });
+      assert.equal(await absent(target.fullPath), true);
+      await store.enqueue({ batchId: batch.batchId, planId: batch.planId, userId: 'member', displayName: 'Actual native Undo', action: 'undo' });
+      assert.equal(await worker.tick(), true);
+      const undone = await store.get(batch.batchId); assert(undone);
+      console.log('Native Undo Worker factual outcome:', JSON.stringify({ status: undone.status, phase: undone.phase,
+        errorCode: undone.errorCode, completedActions: undone.completedActions, totalActions: undone.totalActions }));
+      assert.equal(undone.status, 'undone'); assert.equal(undone.completedActions, 1);
+      assert.equal((await workspacePathOperationResponse(undone, scope)).operation.status, 'undone');
+      assert.equal(await getWorkspaceOperationBatchMutationEvidence(batch.batchId, workspaceId, true, scope), 'complete');
+      assert.equal((await stateRow(target))?.status, 'active'); assert.equal(Number((await stateRow(target))?.lifecycle_generation), 3);
+      assert.equal(await absent(target.fullPath), true); assert.equal((await row('public_file_shares', 'id', target.shareId))?.status, 'revoked');
+    });
+    await check('native V2 exact lost completion ACK resumes original evidence after projection disappeared', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target, 'user', true), before = await proof(target);
+      const adapter = tracked(job, 'completion_ack_loss'); await assert.rejects(invoke(job, adapter), rejected('JOB_LIFECYCLE_COMMIT_UNCONFIRMED'));
+      assert.equal(adapter.observation.committedObserved, true); assert(await completion(job));
+      const resumed = await resume(job); await assertApplied(resumed, await invoke(resumed), before);
+      const archived = await proof(target), undoJob = await queueUndo(resumed); await assertUndone(undoJob, await invokeUndo(undoJob), archived);
+    });
+    activeGroup = 'native-safety';
+    await check('native V2 global source addition after planning rejects before any original intent or FS transition', async () => {
+      const target = await seedTarget({ representation: 'plain_text' }), job = await freshJob(target, 'user', true);
+      await seedTarget({ representation: 'plain_text', physical: false });
+      const before = await proof(target);
+      await assert.rejects(invoke(job), rejected('NATIVE_SOURCE_EVIDENCE_CHANGED', 'NATIVE_DELETE_PLAN_CHANGED'));
+      assert.equal(await ledger(job), undefined); assert.deepEqual(await proof(target), before); assert.deepEqual(await readFile(target.fullPath), target.bytes); await failJob(job);
+    });
+    await check('native V2 initial selected projection replacement remains a stale preview without a new intent', async () => {
+      const target = await seedTarget({ representation: 'plain_text' }), job = await freshJob(target, 'user', true);
+      await writeFile(target.fullPath, 'Changed selected projection after planning.\n'); const before = await proof(target);
+      await assert.rejects(invoke(job), rejected('ORIGINAL_DELETE_CHANGED'));
+      assert.equal(await ledger(job), undefined); assert.deepEqual(await proof(target), before);
+      assert.equal(await readFile(target.fullPath, 'utf8'), 'Changed selected projection after planning.\n'); await failJob(job);
+    });
+    await check('native V2 real unrelated room owner blocks before intent and physical work, then succeeds after release', async () => {
+      const target = await seedTarget({ representation: 'plain_text' }), peer = await seedTarget({ representation: 'plain_text', physical: false });
+      const job = await freshJob(target, 'user', true), before = await proof(target); assert(peer.state);
+      const { createCollaborationRoomOwnerSession } = await import('../app/lib/collaboration/room-owner');
+      const ownerClient = await ownClient(), owner = await createCollaborationRoomOwnerSession(ownerClient);
+      try {
+        const fence = await owner.acquire({ documentId: peer.state.documentId, workspaceId, organizationId, path: peer.filePath,
+          representation: peer.state.representation, lifecycleGeneration: peer.state.lifecycleGeneration, schemaVersion: peer.state.schemaVersion });
+        await assert.rejects(invoke(job), rejected('COLLABORATION_FILE_LIFECYCLE_BUSY'));
+        assert.equal(await ledger(job), undefined); assert.deepEqual(await proof(target), before); assert.deepEqual(await readFile(target.fullPath), target.bytes);
+        await owner.release(fence);
+      } finally { await owner.close(); clients.delete(ownerClient); }
+      const resumed = await resume(job); await assertApplied(resumed, await invoke(resumed), before);
+    });
+    await check('native V2 exact physical Restore after FS/SQL interruption resumes without importing its own projection', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target, 'user', true); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job), adapter = trackedRestore(undoJob, 'after_fs');
+      await assert.rejects(invokeUndo(undoJob, adapter), rejected('FIXTURE_RESTORE_AFTER_FS'));
+      assert.equal(adapter.observation.restoredObserved, true); assert(await restoreIntent(undoJob)); assert.equal(await restoreReceipt(undoJob), undefined);
+      assert.equal((await stateRow(target))?.status, 'archived'); assert.deepEqual(await readFile(target.fullPath), target.bytes);
+      const resumed = await resume(undoJob); await assertUndone(resumed, await invokeUndo(resumed), archived);
+    });
+    await check('native V2 fresh incoming link after Delete refuses original Undo before reverse intent', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks', physical: false, filePath: `native-undo-target-${crypto.randomUUID()}.md` });
+      const job = await freshJob(target, 'user', true); await invoke(job);
+      await seedTarget({ representation: 'tiptap_blocks', physical: false, content: `[Fresh link](${target.filePath})` });
+      const undoJob = await queueUndo(job), before = await proof(target);
+      await assert.rejects(invokeUndo(undoJob), rejected('NATIVE_DELETE_UNDO_LINK_CONFLICT'));
+      assert.equal(await restoreIntent(undoJob), undefined); assert.equal(await restoreReceipt(undoJob), undefined);
+      assert.deepEqual(await proof(target), before); assert.equal(await absent(target.fullPath), true); await failJob(undoJob);
+    });
+    assert.equal(passed, { delete: 20, restore: 10, 'restore-recovery': 5, scheduling: 1, native: 5, 'native-worker': 3, 'native-safety': 5 }[selectedGroup]); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
     console.log('Original Delete SQL assertions finished:', JSON.stringify({ group: selectedGroup, passed, fetches, sourceSha256: pinned }));
   } catch (error) { failures.push(error); }
   finally {
@@ -838,21 +1011,6 @@ async function main(): Promise<void> {
     console.log('Original Delete fixture cleanup:', JSON.stringify({ schemaRemoved, dataRemoved, openClients: clients.size, openCheckouts: checkouts.size, passed }));
   }
   if (failures.length) {
-    // Codes and repository locations only: actual nested SQL/disposal failures
-    // must remain diagnosable without logging queries, arguments or tokens.
-    const describeFailure = (error: unknown, depth = 0): unknown => {
-      if (depth > 4 || !(error instanceof Error)) return { name: 'unknown' };
-      const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
-      const source = error.stack?.split('\n').flatMap(line => {
-        const match = /\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);
-        return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
-      }).slice(0, 4);
-      const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
-      return { name: /^[A-Za-z][A-Za-z0-9]*$/u.test(error.name) ? error.name : 'unknown',
-        code: typeof code === 'string' && /^[A-Za-z0-9_]{1,128}$/u.test(code) ? code : 'unclassified', source,
-        ...(error instanceof AggregateError ? { errors: error.errors.slice(0, 4).map(child => describeFailure(child, depth + 1)) } : {}),
-        ...(cause instanceof Error ? { cause: describeFailure(cause, depth + 1) } : {}) };
-    };
     throw new Error(`Original Delete fixture failed: ${stage}; details=${JSON.stringify(failures.slice(0, 4).map(error => describeFailure(error)))}`);
   }
   assert(schemaRemoved); assert(dataRemoved);

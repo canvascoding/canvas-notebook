@@ -10,6 +10,7 @@ import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness';
 import { createWorkspaceOperationJobScopeFixture } from './helpers/workspace-operation-job-scope-fixture';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 
 // Actual SQL proves claim provenance here. Injected scope/execute/kernel in the
 // worker cases do not prove current principal rights, FS effects or Owner-B.
@@ -32,7 +33,8 @@ function fixturePlan(workspaceId: string): WorkspaceOperationBatchPlan {
     pathSteps: [{ reviewId: 'claim-action', kind: 'delete', sourcePath: ' original.md' }], pathMappings: [],
     deletedPaths: [], linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
     coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+    linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+    linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId: 'claim-action', kind: 'delete', selections: [{ sourcePath: ' original.md' }] }]) };
 }
 
 async function main(): Promise<void> {

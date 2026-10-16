@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
 import crypto from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -191,7 +192,8 @@ async function main(): Promise<void> {
         pathSteps: [{ reviewId: actionId, kind: 'delete', sourcePath: filePath }], pathMappings: [], deletedPaths: [],
         linkEdits: [], originalDocuments: [], previewContents: [], expectedPathState: [],
         coverage: { complete: true, omittedSources: [], unresolvedLinks: [] },
-        linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [], linkPlan: {} as never };
+        linkAssessment: { version: 1, complete: true, blockers: [], warnings: [] }, issues: [],
+        linkPlan: createFixtureWorkspaceOperationLegacyLinkPlan(workspaceId, [{ reviewId: actionId, kind: 'delete', selections: [{ sourcePath: filePath }] }]) };
       const record = await store.createDirect({ batchId: crypto.randomUUID(), plan, authorization: { mode: 'direct',
         actorUserId: userId, actorId: actorType === 'agent' ? agentId : userId, actorType, actorDisplayName: 'Stored job actor',
         ...(actorType === 'agent' ? { actorSessionId: piSessionId } : {}), requestHash: 'b'.repeat(64),

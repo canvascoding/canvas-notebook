@@ -23,6 +23,8 @@ export type OriginalPhysicalLink = ParsedWorkspaceLocalLink & {
 };
 export type OriginalPhysicalLinkInventory = {
   physicalSourceVersion: 1;
+  /** Omitted on historical evidence; fresh exact Canvas parsing emits 2. */
+  parserVersion?: 2;
   source: 'original-physical-bytes';
   workspaceId: string;
   organizationId: string | null;
@@ -118,7 +120,7 @@ export function inspectOriginalPhysicalLinks(input: {
     gaps.push({ code: 'uninspected-html', path: input.path, ...(html.explicitLocalTargets ? { htmlTargets: html.explicitLocalTargets } : {}) });
   } else if (!/\.(?:md|markdown)$/iu.test(input.path)) gaps.push({ code: 'unsupported-physical-source', path: input.path });
   else if (!parsedDocument.error) {
-    const parsed = parseWorkspaceLocalLinks(text, input.path);
+    const parsed = parseWorkspaceLocalLinks(text, input.path, { notebookPaths: 'exact' });
     for (const unevaluated of parsed.unevaluated) gaps.push({ code: unevaluated.reason === 'html' ? 'uninspected-html' : `unevaluated-${unevaluated.reason}`,
       path: input.path, startUtf16: unevaluated.start, ...(unevaluated.htmlTargets ? { htmlTargets: unevaluated.htmlTargets } : {}) });
     const maxLinks = input.maxLinks ?? 20_000;
@@ -134,7 +136,7 @@ export function inspectOriginalPhysicalLinks(input: {
         physical, syntaxRange, targetRange, raw: link.raw })}`, syntaxRange, targetRange });
     }
   }
-  const body: Omit<OriginalPhysicalLinkInventory, 'physicalSourceProof'> = { physicalSourceVersion: 1, source: 'original-physical-bytes',
+  const body: Omit<OriginalPhysicalLinkInventory, 'physicalSourceProof'> = { physicalSourceVersion: 1, parserVersion: 2, source: 'original-physical-bytes',
     workspaceId: input.workspaceId, organizationId: input.organizationId, path: input.path, authority: structuredClone(input.authority),
     physical, originalBytes, encoding: 'utf8', hasBom: text.charCodeAt(0) === 0xfeff,
     lineEndings: { style, lf, crlf, bareCr }, frontmatterPrefix: parsedDocument.frontmatterPrefix, metadata, links,
@@ -162,6 +164,8 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
   kind: 'rename' | 'move' | 'delete'; sourcePath: string; destinationPath?: string;
 }): StagedWorkspaceLinkEffectPreview {
   const gaps = structuredClone(stage.coverage.gaps); const effects: StagedWorkspaceLinkEffectPreview['effects'] = [];
+  for (const source of stage.sources) if (source.inventory.parserVersion !== 2) gaps.push({ code: 'stale-source-parser',
+    path: source.kind === 'physical' ? source.inventory.path : source.inventory.document.path });
   if (workspaceSourceAuthorityStageProof(stage) !== stage.stageProof) gaps.push({ code: 'stage-proof-mismatch', path: '' });
   if (!isCanonicalAdmissionPath(request.sourcePath) || request.kind !== 'delete' && !isCanonicalAdmissionPath(request.destinationPath)) gaps.push({ code: 'invalid-path', path: request.sourcePath });
   for (const source of stage.sources) if (source.kind === 'physical' && (originalPhysicalSourceProof(source.inventory) !== source.inventory.physicalSourceProof
@@ -187,12 +191,15 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
   const aliases = stage.sources.map((source) => ({ path: source.kind === 'physical' ? source.inventory.path : source.inventory.document.path,
     aliases: source.inventory.metadata.aliases, type: 'file' as const,
     extension: (source.kind === 'physical' ? source.inventory.path : source.inventory.document.path).split('.').at(-1) }));
+  const nativeTargetPaths = new Set(stage.sources.flatMap(source => source.kind === 'native' ? [source.inventory.document.path] : []));
   // These are semantic proposed paths only, never new native snapshots or IDs.
   const virtualFiles = stage.namespace.filter((entry) => entry.kind === 'file' && !(request.kind === 'delete' && selectedPaths.has(entry.path)))
     .map((entry) => ({ originPath: entry.path, path: request.kind === 'delete' ? entry.path : mappedPath(entry.path) }));
   const virtualPaths = new Set(virtualFiles.map((entry) => entry.path)); const originByVirtualPath = new Map(virtualFiles.map((entry) => [entry.path, entry.originPath]));
   const virtualAliases = aliases.filter((entry) => !(request.kind === 'delete' && selectedPaths.has(entry.path)))
     .map((entry) => ({ ...entry, path: request.kind === 'delete' ? entry.path : mappedPath(entry.path) }));
+  const virtualNativeTargetPaths = new Set([...nativeTargetPaths].filter(filePath => !(request.kind === 'delete' && selectedPaths.has(filePath)))
+    .map(filePath => request.kind === 'delete' ? filePath : mappedPath(filePath)));
   for (const source of stage.sources) {
     const sourcePath = source.kind === 'physical' ? source.inventory.path : source.inventory.document.path;
     const selectedSource = sourcePath === request.sourcePath || sourcePath.startsWith(`${request.sourcePath}/`);
@@ -206,12 +213,12 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
       const literal = 'targetLiteral' in link ? link.targetLiteral : link.literal;
       if ('classification' in link && link.classification !== 'local') continue;
       const resolution = link.kind === 'wiki'
-        ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePath, paths, aliases)
+        ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePath, paths, aliases, { nativeTargetPaths })
         : resolveExactWorkspaceLink(link.targetPathText, sourcePath, paths);
       if (resolution.status !== 'resolved' || !resolution.path) {
         if (selectedSource || resolution.candidates.some((candidate) => selected.some((entry) => entry.path === candidate))) gaps.push({ code: 'affected-unresolved-link', path: sourcePath });
         const after = link.kind === 'wiki'
-          ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePathAfter, virtualPaths, virtualAliases)
+          ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePathAfter, virtualPaths, virtualAliases, { nativeTargetPaths: virtualNativeTargetPaths })
           : resolveExactWorkspaceLink(link.targetPathText, sourcePathAfter, virtualPaths);
         if (resolution.status !== after.status || nativeLinkJsonProof(resolution.candidates.slice().sort()) !== nativeLinkJsonProof(after.candidates.map((candidate) => originByVirtualPath.get(candidate)).sort())) gaps.push({ code: 'resolution-changed', path: sourcePath });
         continue;
@@ -219,7 +226,7 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
       const selectedTarget = selected.some((entry) => entry.path === resolution.path);
       if (!selectedSource && !selectedTarget) {
         const after = link.kind === 'wiki'
-          ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePathAfter, virtualPaths, virtualAliases)
+          ? resolveWorkspaceWikiFileLink({ targetLiteral: literal, targetPathText: link.targetPathText }, sourcePathAfter, virtualPaths, virtualAliases, { nativeTargetPaths: virtualNativeTargetPaths })
           : resolveExactWorkspaceLink(link.targetPathText, sourcePathAfter, virtualPaths);
         if (after.status !== resolution.status || nativeLinkJsonProof(resolution.candidates.slice().sort()) !== nativeLinkJsonProof(after.candidates.map((candidate) => originByVirtualPath.get(candidate)).sort())) gaps.push({ code: 'resolution-changed', path: sourcePath });
         continue;

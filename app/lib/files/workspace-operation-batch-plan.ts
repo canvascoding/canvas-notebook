@@ -11,7 +11,12 @@ import { parseCanvasMarkdownDocument } from '@/app/lib/markdown/obsidian-metadat
 import { getWorkspaceLinkLogicalTarget } from '@/app/lib/markdown/workspace-file-operation-link-semantics';
 import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
-import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope,
+  WorkspaceOperationLegacyBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchPreviewPublic } from './workspace-operation-batch-public';
+import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
+import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
+  WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 
 const sha = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const within = (child: string, parent: string) => child === parent || child.startsWith(`${parent}/`);
@@ -85,6 +90,7 @@ function originalOffset(cleanedOffset: number, replacements: Replacement[]): num
 
 /** Mutation identity excludes unrelated diagnostic noise; full safety is still re-evaluated on every first apply. */
 export function computeWorkspaceOperationBatchPlanId(plan: Omit<WorkspaceOperationBatchPlan, 'planId' | 'linkPlan'>): string {
+  if (plan.version === 2) return computeWorkspaceOperationNativeDeleteBatchPlanId(plan as Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'>);
   return sha(JSON.stringify({ version: plan.version, workspaceId: plan.workspaceId, actions: plan.actions,
     pathMappings: plan.pathMappings, deletedPaths: plan.deletedPaths, pathSteps: plan.pathSteps,
     linkEdits: plan.linkEdits, originalDocuments: plan.originalDocuments, previewContents: plan.previewContents,
@@ -94,7 +100,7 @@ export function computeWorkspaceOperationBatchPlanId(plan: Omit<WorkspaceOperati
 /** Pure combined final-state plan. Actions always refer to the same initial workspace snapshot. */
 export function createWorkspaceOperationBatchPlan(input: {
   snapshot: WorkspacePlannerSnapshot; actions: WorkspaceOperationBatchAction[];
-}): WorkspaceOperationBatchPlan {
+}): WorkspaceOperationLegacyBatchPlan {
   const { snapshot } = input;
   const actions = input.actions.map((action) => ({ ...action, selections: action.selections.map((selection) => ({ ...selection })) }));
   const issues: WorkspaceOperationBatchPlan['issues'] = [];
@@ -291,12 +297,27 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   scope: WorkspaceOperationBatchScope; actions: WorkspaceOperationBatchAction[];
 }, dependencies: { buildSnapshot?: typeof buildWorkspacePlannerSnapshot } = {}): Promise<WorkspaceOperationBatchPlan> {
   if (!input.scope.workspace.permissions.canRead) throw Object.assign(new Error('Workspace read permission is required.'), { status: 403 });
+  // An injected legacy snapshot retains its existing V1 contract. Production
+  // classifies actual registry authority before any Markdown/disk planner.
+  if (!dependencies.buildSnapshot) {
+    const observation = await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace);
+    if (!observation.stage.coverage.complete) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
+    const hasNativeSelection = input.actions.some(action => action.selections.some(selection => observation.nativeBindings.some(entry =>
+      within(entry.expected.path, selection.sourcePath))));
+    if (hasNativeSelection) return createWorkspaceOperationNativeDeleteBatchPlan({ ...input, observation });
+  }
   const snapshot = await (dependencies.buildSnapshot ?? buildWorkspaceAuthoritativePlannerSnapshot)(
     input.scope.workspace.workspaceId, input.scope.fileOptions);
   return createWorkspaceOperationBatchPlan({ snapshot, actions: input.actions });
 }
 
-export function workspaceOperationBatchPublicPreview(plan: WorkspaceOperationBatchPlan) {
+export function workspaceOperationBatchPublicPreview(plan: WorkspaceOperationBatchPlan): WorkspaceOperationBatchPreviewPublic {
+  if (plan.version === 2) return { version: plan.version, kind: plan.kind, workspaceId: plan.workspaceId, planId: plan.planId,
+    readiness: plan.readiness, actions: plan.actions, pathMappings: plan.pathMappings,
+    // UI deduplication only: never expose the private native state proof as an identity.
+    deletedPaths: plan.deletedPaths.map(entry => ({ ...entry, identity: `native-preview:${sha(JSON.stringify([plan.planId, entry.path]))}` })),
+    pathSteps: plan.pathSteps, linkEdits: plan.linkEdits, expectedPathState: [], coverage: plan.coverage,
+    linkAssessment: plan.linkAssessment, issues: plan.issues };
   const { originalDocuments: _originals, deletedDocuments: _deleted, previewContents: _contents, linkPlan: _links, ...publicPlan } = plan;
   return publicPlan;
 }

@@ -53,7 +53,8 @@ export type NativeDocumentLinkInventory = {
   contractVersion: 2;
   document: NativeLinkDocumentIdentity;
   version: NativeCollaborationSnapshot['version'];
-  parserVersion: 1;
+  /** Version 1 remains historical evidence; fresh exact-path parsing emits 2. */
+  parserVersion: 1 | 2;
   metadata: WorkspaceLinkDocument;
   links: NativeDocumentLink[];
   coverage: { complete: boolean; gaps: NativeLinkCoverageGap[] };
