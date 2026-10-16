@@ -84,10 +84,13 @@ async function main(): Promise<void> {
       '@/app/lib/workspaces/path-identity': identity,
     });
     const lifecycle = await sourceModule<typeof import('../app/lib/collaboration/lifecycle-transaction')>('app/lib/collaboration/lifecycle-transaction.ts');
+    const effects = await sourceModule<typeof import('../app/lib/files/workspace-operation-native-delete-effects')>(
+      'app/lib/files/workspace-operation-native-delete-effects.ts');
     const stores = await sourceModule<typeof import('../app/lib/files/workspace-operation-batch-store')>('app/lib/files/workspace-operation-batch-store.ts', {
       ...policyDependency,
       '@/app/lib/db': { openDb: forbidden('shared PostgreSQL checkout') },
       '@/app/lib/collaboration/lifecycle-transaction': lifecycle, './workspace-operation-job-scope': jobScope,
+      './workspace-operation-native-delete-effects': effects,
     });
     const migration = await sourceModule<typeof import('../app/lib/db/workspace-operation-review-migration')>('app/lib/db/workspace-operation-review-migration.ts');
     for (const statement of migration.WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pg.exec(statement);
