@@ -36,4 +36,6 @@ Private Sammlung mit 32 Quellen-/Protokoll-/Belegeinträgen: `/private/var/folde
 
 Die automatischen Hooks verwenden weiterhin globale DB-Zugriffe und die Queues erfassen Pfade. Diese Korrektur bindet ihre Wirkung noch nicht an die originale dauerhafte Dateioperation, die tatsächliche Owner-Verbindung, aktuelle Actorrechte und vor der Mutation erfasste Freigabe-IDs. Verspätete Queueeffekte nach Pfadwiederverwendung bleiben ein eigener offener Vertrag. Die native DA04-Sideeffectgrundlage bleibt `executionReady:false`; ein zweiter konkurrierender Receiptablauf wird nicht eingeführt.
 
+Die nachfolgende [Kontextbindung direkter Jobs](./yjs-direct-job-scope-evidence.md) persistiert deren ursprüngliche deklarierte Workspacewerte und prüft sie vor sowie während Apply/Undo. Dies ist eine Voraussetzung des echten Claimed-Job-Anschlusses; die beschriebenen Owner-/Originalziel-/Public-Receiptgrenzen bleiben offen.
+
 Physischer Accesswriter, die echte Owned-Lifecyclebindung, Lockwriter und vollständige zentrale Datei-/Linkkoordination bleiben erforderlich. Die drei Legacy-REDs, das SDK, der Standard-Skill, der tatsächliche PDF-Import und die integrierte Gesamt-E2E sind nicht abgeschlossen. Es wurde nichts gepusht, veröffentlicht, bereitgestellt oder allgemein aktiviert.
