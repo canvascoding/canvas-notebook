@@ -1,6 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
+import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
 
 import {
   ProtocolError,
@@ -265,14 +266,6 @@ function toIsoDate(value: number | undefined): string | null {
     : null;
 }
 
-function toTreeEntry(node: FileNode): WorkspaceTreeEntry {
-  return {
-    path: node.path,
-    type: node.type,
-    size: typeof node.size === 'number' ? node.size : null,
-    modified_at: toIsoDate(node.modified),
-  };
-}
 
 function securitySchemes(scope: DirectMcpResourceScope) {
   return [{ type: 'oauth2' as const, scopes: [scope] }];
@@ -351,14 +344,15 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Browse workspace files',
-      description: 'Lists visible files and folders in an accessible workspace. Hidden paths are never returned.',
+      description: 'Returns a bounded workspace tree preview as text and structured entries. Use path to expand a child folder at any depth; max_depth is relative to path (0 lists direct children). Use next_cursor with the same workspace_id, path and max_depth to fetch later entries. Directory children_state distinguishes complete, pending, depth_limited and unavailable; unloaded folders are never empty. Hidden paths are never returned.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           path: { type: 'string', description: 'Optional workspace-relative starting path. Defaults to the workspace root.' },
-          max_depth: { type: 'integer', minimum: 0, maximum: MAX_TREE_DEPTH, description: 'Maximum folder depth. Defaults to 2.' },
+          max_depth: { type: 'integer', minimum: 0, maximum: MAX_TREE_DEPTH, description: 'Relative folder expansion depth: 0 lists direct children. Defaults to 2.' },
           max_entries: { type: 'integer', minimum: 1, maximum: MAX_TREE_ENTRIES, description: 'Maximum returned files and folders. Defaults to 200.' },
+          cursor: { type: 'string', maxLength: 20000, description: 'Opaque next_cursor from the previous page. Keep workspace_id, path and max_depth unchanged.' },
         },
         required: ['workspace_id'],
         additionalProperties: false,
@@ -368,6 +362,13 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         properties: {
           entries: { type: 'array', items: { type: 'object' } },
           truncated: { type: 'boolean' },
+          workspace_id: { type: 'string' },
+          path: { type: 'string' },
+          max_depth: { type: 'integer' },
+          directories: { type: 'array', items: { type: 'object' } },
+          truncated_by_depth: { type: 'boolean' },
+          has_more: { type: 'boolean' },
+          next_cursor: { type: ['string', 'null'] },
         },
         required: ['entries', 'truncated'],
         additionalProperties: false,
@@ -729,41 +730,10 @@ async function listBoundedWorkspaceTree(input: {
   maxDepth: number;
   maxEntries: number;
 }): Promise<{ entries: WorkspaceTreeEntry[]; truncated: boolean }> {
-  const entries: WorkspaceTreeEntry[] = [];
-  const pending = [{ path: input.path, depth: 0 }];
-  let truncated = false;
-
-  while (pending.length > 0) {
-    const current = pending.shift();
-    if (!current) break;
-    const children = await listDirectory(current.path, {
-      workspace: input.workspace,
-      includeMetadata: true,
-      includeSymlinks: false,
-    });
-    const visibleChildren = children
-      .filter(isVisibleWorkspaceNode)
-      .sort((left, right) => (
-        left.type === right.type
-          ? left.name.localeCompare(right.name)
-          : left.type === 'directory' ? -1 : 1
-      ));
-
-    for (const child of visibleChildren) {
-      if (entries.length >= input.maxEntries) {
-        truncated = true;
-        break;
-      }
-      entries.push(toTreeEntry(child));
-      if (child.type === 'directory' && current.depth < input.maxDepth) {
-        pending.push({ path: child.path, depth: current.depth + 1 });
-      }
-    }
-    if (truncated) break;
-  }
-
-  if (pending.length > 0) truncated = true;
-  return { entries, truncated };
+  return readWorkspaceTreePage({
+    workspaceId: input.workspace.workspaceId, rootPath: input.workspace.rootPath,
+    path: input.path, maxDepth: input.maxDepth, maxEntries: input.maxEntries,
+  });
 }
 
 function isLikelyBinary(pathValue: string, content?: Buffer): boolean {
@@ -939,22 +909,22 @@ async function executeListKnowledgeTree(
   assertVisibleWorkspacePath(startPath);
   const maxDepth = optionalInteger(parsed, 'max_depth', DEFAULT_TREE_DEPTH, 0, MAX_TREE_DEPTH);
   const maxEntries = optionalInteger(parsed, 'max_entries', DEFAULT_TREE_ENTRIES, 1, MAX_TREE_ENTRIES);
+  const cursor = optionalString(parsed, 'cursor', '', 20000) || null;
   const authorization = await authenticateForTool(authInfo, 'knowledge:tree');
   if ('result' in authorization) return authorization.result;
 
   try {
     const workspace = await readableWorkspace(authorization.principal, workspaceId);
-    const tree = await listBoundedWorkspaceTree({
-      workspace,
+    const tree = await readWorkspaceTreePage({
+      workspaceId: workspace.workspaceId, rootPath: workspace.rootPath,
       path: startPath,
       maxDepth,
       maxEntries,
+      cursor,
     });
     const structuredContent = {
       workspace_id: workspace.workspaceId,
-      path: startPath,
-      entries: tree.entries,
-      truncated: tree.truncated,
+      ...tree,
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
@@ -962,8 +932,11 @@ async function executeListKnowledgeTree(
       workspace,
       resultCount: tree.entries.length,
     });
-    return result(structuredContent, `${tree.entries.length} workspace file(s) and folder(s) found.`);
-  } catch {
+    return result(structuredContent, formatWorkspaceTreePage(tree));
+  } catch (error) {
+    if (error instanceof WorkspaceTreeError) return { isError: true,
+      content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
+      structuredContent: { code: error.code, message: error.message } };
     return errorResult('Could not browse the Canvas workspace.');
   }
 }

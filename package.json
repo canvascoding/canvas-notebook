@@ -144,7 +144,7 @@
     "test:pi:browser-tool-refresh": "tsx scripts/pi-browser-tool-refresh-test.ts",
     "test:pi:progressive-gateway": "tsx scripts/progressive-tool-gateway-test.ts",
     "test:pi:runtime-context": "tsx scripts/runtime-prompt-context-test.ts",
-    "test:pi:workspace-tree": "tsx --conditions react-server scripts/workspace-file-tree-context-test.ts",
+    "test:pi:workspace-tree": "tsx --conditions react-server scripts/workspace-file-tree-context-test.ts && node --conditions=react-server --import tsx --test scripts/workspace-tree-test.ts scripts/workspace-tree-native-test.ts",
     "test:search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:chat:history-search": "tsx scripts/chat-history-search-test.ts && tsx scripts/chat-history-search-route-test.ts && tsx scripts/chat-history-search-ui-test.tsx && npm run test:pi:session-search",
