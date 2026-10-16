@@ -16,10 +16,15 @@ import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness
 // Actual PG18/Team license/Store claim/Owner, real filesystem and full DDL.
 // Public rows are explicit fixtures, not a Public-create authorization claim.
 // The pure planner consumes our exact selected-target snapshot; this does not
-// prove general producer/backlink/Restore/UI or host-crash behavior.
+// prove the general producer/backlink/UI or host-crash behavior. The selected
+// Delete, Restore and A/B scheduling groups run separately beneath the SAME
+// unchanged 180s watchdog; each owns and closes a full actual PG18 fixture.
 const sourcePath = path.resolve('scripts/workspace-operation-original-delete-postgres-test.ts');
 const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 const sourceHash = async () => crypto.createHash('sha256').update(await readFile(sourcePath)).digest('hex');
+type FixtureGroup = 'delete' | 'restore' | 'restore-recovery' | 'scheduling';
+const selectedGroup = (process.argv[2] ?? '--delete').replace(/^--/u, '') as FixtureGroup;
+assert(['delete', 'restore', 'restore-recovery', 'scheduling'].includes(selectedGroup), 'Choose --delete, --restore, --restore-recovery, or --scheduling.');
 type Row = Record<string, unknown>;
 const rejected = (...codes: string[]) => (error: unknown): boolean => {
   if (!(error instanceof Error) || error instanceof assert.AssertionError) return false;
@@ -33,7 +38,7 @@ const absent = async (filePath: string) => {
 
 async function main(): Promise<void> {
   const pinned = await sourceHash();
-  console.log('Owned job fixture frozen source:', pinned);
+  console.log('Owned job fixture frozen source:', pinned, 'selected group:', selectedGroup);
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
@@ -146,7 +151,8 @@ async function main(): Promise<void> {
     const { readPostgresWorkspaceForActorOnConnection } = await import('../app/lib/workspaces/postgres-runtime');
     const { captureWorkspaceOperationJobScope } = await import('../app/lib/files/workspace-operation-job-scope');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
-    const { executeWorkspaceOperationOriginalDelete: execute } = await import('../app/lib/files/workspace-operation-original-delete');
+    const { executeWorkspaceOperationOriginalDelete: execute, undoWorkspaceOperationOriginalDelete: undo } = await import('../app/lib/files/workspace-operation-original-delete');
+    const { withWorkspaceOperationJobClaimScheduling } = await import('../app/lib/files/workspace-operation-job-phase-scheduling');
     const { createWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } = await import('../app/lib/files/workspace-operation-batch-plan');
     const { filesystemFileVersion } = await import('../app/lib/filesystem/file-version');
     const { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions } = await import('../app/lib/collaboration/markdown-state');
@@ -170,7 +176,8 @@ async function main(): Promise<void> {
     const row = async (table: string, key: string, value: string): Promise<Row | undefined> => {
       assert(['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states', 'collaboration_file_projections',
         'public_file_shares', 'workspace_trash_entries', 'workspace_file_operation_delete_intents',
-        'workspace_file_operation_delete_trash_receipts', 'workspace_file_operation_delete_receipts'].includes(table));
+        'workspace_file_operation_delete_trash_receipts', 'workspace_file_operation_delete_receipts',
+        'workspace_file_operation_restore_intents', 'workspace_file_operation_restore_receipts'].includes(table));
       assert(['id', 'document_id', 'batch_id'].includes(key));
       return (await admin.query(`SELECT to_jsonb(r) AS row FROM "${schema}".${table} r WHERE ${key}=$1`, [value])).rows[0]?.row as Row | undefined;
     };
@@ -331,6 +338,60 @@ async function main(): Promise<void> {
       assert.equal(claimed.batchId, job.claimed.batchId); assert.deepEqual(claimed.plan, job.claimed.plan); assert.deepEqual(claimed.authorization, job.claimed.authorization);
       return { ...job, claimed };
     };
+    const queueUndo = async (job: Job): Promise<Job> => {
+      const queued = await store.enqueue({ batchId: job.claimed.batchId, planId: job.claimed.planId,
+        userId: 'member', displayName: 'Current human Undo', action: 'undo' });
+      assert.equal(queued.actionMode, 'undo'); assert.equal(queued.status, 'queued');
+      const claimed = await store.claim(crypto.randomUUID()); assert(claimed); assert.equal(claimed.batchId, job.claimed.batchId);
+      return { ...job, claimed };
+    };
+    const restoreIntent = (job: Job) => row('workspace_file_operation_restore_intents', 'batch_id', job.claimed.batchId);
+    const restoreReceipt = (job: Job) => row('workspace_file_operation_restore_receipts', 'batch_id', job.claimed.batchId);
+    type RestoreFault = 'none' | 'intent_ack_loss' | 'after_fs' | 'after_native' | 'completion_ack_loss' | 'alter_restored';
+    const trackedRestore = (job: Job, fault: RestoreFault = 'none') => {
+      const base = tracked(job), observation = { injected: false, committedObserved: false, restoredObserved: false };
+      const inject = (code: string): never => { observation.injected = true; throw Object.assign(new Error(code), { code }); };
+      return { observation, base, open: async (): Promise<SqlConnection> => {
+        const raw = await base.open();
+        const before = async (sql: string) => {
+          if (observation.injected) return;
+          if (fault === 'after_fs' && /^BEGIN\b/iu.test(sql) && await restoreIntent(job) && !await restoreReceipt(job)
+            && !await absent(job.target.fullPath)) {
+            assert.deepEqual(await readFile(job.target.fullPath), job.target.bytes);
+            observation.restoredObserved = true; inject('FIXTURE_RESTORE_AFTER_FS');
+          }
+          if ((fault === 'after_native' || fault === 'alter_restored')
+            && /^UPDATE\s+"[^"\u0000]+"\.workspace_trash_entries\s/iu.test(sql)) {
+            const state = await raw.get(`SELECT status FROM "${schema}".collaboration_yjs_states WHERE document_id=$1`, [job.target.documentId]) as Row;
+            assert.equal(state.status, 'active'); assert.deepEqual(await readFile(job.target.fullPath), job.target.bytes);
+            observation.restoredObserved = true;
+            if (fault === 'after_native') inject('FIXTURE_RESTORE_AFTER_NATIVE');
+            else { observation.injected = true; await writeFile(job.target.fullPath, 'Altered restored owned source.\n'); }
+          }
+        };
+        return { get: async (sql, values) => { await before(sql); return raw.get(sql, values); },
+          all: async (sql, values) => { await before(sql); return raw.all(sql, values); },
+          run: async (sql, values) => {
+            await before(sql); const result = await raw.run(sql, values);
+            if (/^COMMIT\s*$/iu.test(sql) && !observation.injected) {
+              if (fault === 'intent_ack_loss' && await restoreIntent(job) && !await restoreReceipt(job)) inject('FIXTURE_RESTORE_INTENT_ACK_LOST');
+              if (fault === 'completion_ack_loss' && await restoreReceipt(job)) {
+                observation.committedObserved = true; inject('FIXTURE_RESTORE_COMPLETION_ACK_LOST');
+              }
+            }
+            return result;
+          }, close: raw.close.bind(raw) };
+      } };
+    };
+    const invokeUndo = async (job: Job, adapter = trackedRestore(job)) => {
+      const result = await store.withClaim(job.claimed, async claim => {
+        const result = await undo(claim, adapter.open);
+        const finished = await store.finishClaim(job.claimed, { status: 'undone', trashEntryIds: [result.trashEntryId],
+          completedActions: 1, phase: 'complete' });
+        assert(finished); assert.equal(finished.status, 'undone'); return result;
+      });
+      assert.equal(adapter.base.observation.opens, 1); assert.equal(adapter.base.observation.closes, 1); return result;
+    };
     const stateRow = (target: Target) => target.documentId ? row('collaboration_yjs_states', 'document_id', target.documentId) : undefined;
     const proof = async (target: Target) => ({ registry: target.documentId ? await row('collaboration_documents', 'id', target.documentId) : null,
       lineage: target.lineageId ? await row('file_collaboration_lineages', 'id', target.lineageId) : null,
@@ -398,7 +459,9 @@ async function main(): Promise<void> {
       } else assert.equal(result.native, null);
       assert.equal(checkouts.size, 0);
     };
+    let activeGroup: FixtureGroup = 'delete';
     const check = async (name: string, operation: () => Promise<void>) => {
+      if (activeGroup !== selectedGroup) return;
       stage = name; await operation(); passed++; assert.equal(checkouts.size, 0);
       console.log('Original Delete fixture group passed:', JSON.stringify({ passed, name }));
     };
@@ -582,8 +645,176 @@ async function main(): Promise<void> {
       const stored = await store.get(job.claimed.batchId); assert(stored); assert.equal(stored.status, 'needs_recovery');
       assert.equal(await completion(job), undefined); assert.equal(checkouts.size, 0);
     });
-    assert.equal(passed, 20); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
-    console.log('Original Delete SQL assertions finished:', JSON.stringify({ passed, fetches, sourceSha256: pinned }));
+    activeGroup = 'restore';
+    const assertUndone = async (job: Job, result: Awaited<ReturnType<typeof undo>>, archived: Awaited<ReturnType<typeof proof>>) => {
+      assert.equal(result.actorUserId, 'member'); assert.equal(result.batchId, job.claimed.batchId);
+      const original = await completion(job); assert(original); assert.equal(result.originalReceiptDigest, original.receipt_digest);
+      const intent = await restoreIntent(job), receipt = await restoreReceipt(job); assert(intent); assert(receipt);
+      assert.equal(sha(String(intent.intent_text)), result.intentDigest); assert.equal(receipt.intent_digest, result.intentDigest);
+      assert.equal(sha(String(receipt.receipt_text)), result.receiptDigest); assert.equal(receipt.receipt_digest, result.receiptDigest);
+      const after = await proof(job.target); assert.deepEqual(after.share, archived.share, 'Undo never revives or changes S1');
+      const trash = await row('workspace_trash_entries', 'id', result.trashEntryId); assert(trash);
+      assert.equal(trash.status, 'restored'); assert.equal(trash.restored_by_user_id, 'member');
+      assert.equal(Number(trash.restored_at), result.restoredAtMs); assert.equal(trash.purged_at, null);
+      const facts = await physicalFacts(job); assert.equal(await absent(facts.full), true);
+      if (result.physical.observation.kind === 'restored') {
+        assert.deepEqual(await readFile(job.target.fullPath), job.target.bytes);
+        assert.equal(result.physical.observation.sha256, sha(job.target.bytes));
+      } else assert.equal(await absent(job.target.fullPath), true);
+      if (job.target.state) {
+        assert(result.native); assert(after.state); assert(after.registry); assert(after.lineage);
+        assert.equal(after.state.status, 'active'); assert.equal(Number(after.state.lifecycle_generation), 3);
+        const raw = (await admin.query('SELECT yjs_state,state_vector FROM collaboration_yjs_states WHERE document_id=$1', [job.target.documentId])).rows[0];
+        assert.deepEqual(raw.yjs_state, Buffer.from(job.target.state.yjsState));
+        assert.deepEqual(raw.state_vector, Buffer.from(job.target.state.stateVector));
+        assert.equal(Number(after.state.document_sequence), 7); assert.equal(Number(after.state.persisted_at), 100);
+        assert.equal(Number(after.state.checkpoint_sequence), 0); assert.equal(after.state.canonical_hash, null);
+        assert.equal(after.state.serialized_hash, null); assert.equal(Number(after.state.degraded), 0);
+        assert.equal(after.registry.status, 'active'); assert.equal(after.registry.lineage_id, job.target.lineageId);
+        assert.equal(Number(after.registry.state_version), 0); assert.equal(after.registry.snapshot_revision_id, null);
+        assert.equal(after.lineage.status, 'active'); assert.equal(after.lineage.trash_entry_id, null); assert.equal(after.lineage.archived_at, null);
+        assert.equal(result.native.after.clock.stateProof, job.target.proof);
+        const projection = await row('collaboration_file_projections', 'document_id', job.target.documentId!); assert(projection);
+        assert.equal(Number(projection.lifecycle_generation), 3); assert.equal(Number(projection.projected_sequence), 7);
+        assert.equal(Number(projection.finalized), 0); assert.equal(projection.revision_id, null);
+      } else { assert.equal(result.native, null); assert.equal(after.state, undefined); }
+      assert.equal(checkouts.size, 0);
+    };
+    await check('actual physical Delete then genuine human Undo restores exact bytes and keeps S1 revoked', async () => {
+      const target = await seedTarget(), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job); await assertUndone(undoJob, await invokeUndo(undoJob), archived);
+    });
+    for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) await check(`genuine ${representation} Undo restores D1/L1 G+2 with native bytes and pending projection`, async () => {
+      const target = await seedTarget({ representation, byteProfile: true }), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job); await assertUndone(undoJob, await invokeUndo(undoJob), archived);
+    });
+    for (const nonexportable of [false, true]) await check(nonexportable
+      ? 'Undo of legal unexportable rich widths preserves native content and original physical bytes'
+      : 'native-only Undo preserves the original absent projection', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks', physical: nonexportable, nonexportable }), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job); await assertUndone(undoJob, await invokeUndo(undoJob), archived);
+    });
+    await check('known V1 planner gap: unexportable native-only Markdown hash stops before any Delete intent or mutation', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks', physical: false, nonexportable: true }), job = await freshJob(target);
+      const before = await proof(target);
+      await assert.rejects(invoke(job), rejected('COLLABORATION_ROUNDTRIP_UNSTABLE', 'COLLABORATION_SERIALIZATION_FAILED'));
+      assert.deepEqual(await proof(target), before); assert.equal(await absent(target.fullPath), true);
+      assert.equal(await ledger(job), undefined); assert.equal(await completion(job), undefined); await failJob(job);
+    });
+    await check('human Undo of original Agent Delete does not require its ended PI session', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target, 'agent'); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job);
+      const saved = (await admin.query('SELECT * FROM pi_sessions WHERE session_id=$1', [piSessionId])).rows; assert.equal(saved.length, 1);
+      await admin.query('DELETE FROM pi_sessions WHERE session_id=$1', [piSessionId]);
+      try { await assertUndone(undoJob, await invokeUndo(undoJob), archived); }
+      finally {
+        const columns = Object.keys(saved[0]);
+        await admin.query(`INSERT INTO pi_sessions(${columns.map(column => `"${column}"`).join(',')}) VALUES(${columns.map((_, i) => `$${i + 1}`).join(',')})`, Object.values(saved[0]));
+      }
+    });
+    await check('current human delete-right revocation blocks Undo before intent or restored filesystem/native state', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job);
+      await admin.query('UPDATE organization_user_permissions SET can_delete_team_files=0 WHERE organization_id=$1 AND user_id=$2', [organizationId, 'member']);
+      try { await assert.rejects(invokeUndo(undoJob), rejected('PRINCIPAL_ACCESS_DENIED')); }
+      finally { await admin.query('UPDATE organization_user_permissions SET can_delete_team_files=1 WHERE organization_id=$1 AND user_id=$2', [organizationId, 'member']); }
+      assert.deepEqual(await proof(target), archived); assert.equal(await absent(target.fullPath), true);
+      assert.equal(await restoreIntent(undoJob), undefined); await failJob(undoJob);
+    });
+    await check('native D2 without projection at old path blocks Undo and preserves complete D1/D2/S1/S2 rows', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target); await invoke(job);
+      const replacement = await seedTarget({ representation: 'tiptap_blocks', physical: false, filePath: target.filePath });
+      const beforeD1 = await proof(target), beforeD2 = await proof(replacement), undoJob = await queueUndo(job);
+      await assert.rejects(invokeUndo(undoJob)); assert.deepEqual(await proof(target), beforeD1); assert.deepEqual(await proof(replacement), beforeD2);
+      assert.equal(await absent(target.fullPath), true); assert.equal(await restoreReceipt(undoJob), undefined); await failJob(undoJob);
+    });
+    activeGroup = 'restore-recovery';
+    for (const fault of ['intent_ack_loss', 'after_fs', 'after_native'] as const) await check(`Undo ${fault} resumes exact committed intent with original payload and atomic native/trash rollback`, async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job), adapter = trackedRestore(undoJob, fault);
+      await assert.rejects(invokeUndo(undoJob, adapter)); assert.equal(adapter.observation.injected, true);
+      assert.deepEqual(await proof(target), archived); assert.equal(await restoreReceipt(undoJob), undefined);
+      const originalIntent = await restoreIntent(undoJob); assert(originalIntent);
+      const resumed = await resume(undoJob); await assertUndone(resumed, await invokeUndo(resumed), archived);
+      assert.deepEqual(await restoreIntent(resumed), originalIntent);
+    });
+    await check('actual Undo completion COMMIT ACK loss returns immutable history after D1 is archived again and D2/S2 replace its path', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target); await invoke(job);
+      const undoJob = await queueUndo(job), adapter = trackedRestore(undoJob, 'completion_ack_loss');
+      await assert.rejects(invokeUndo(undoJob, adapter), rejected('JOB_LIFECYCLE_COMMIT_UNCONFIRMED'));
+      assert.equal(adapter.observation.committedObserved, true); const durable = await restoreReceipt(undoJob); assert(durable);
+      await failJob(undoJob);
+      // A real second authorized Delete archives D1/G3 as G4 and moves its
+      // restored projection into a DIFFERENT real Trash entry. Do not handcraft
+      // an invalid archived lineage or treat current status as a lost ACK proof.
+      const secondDelete = await freshJob(target); await invoke(secondDelete);
+      const replacement = await seedTarget({ representation: 'tiptap_blocks', physical: false, filePath: target.filePath });
+      const beforeD1 = await proof(target), beforeD2 = await proof(replacement);
+      const queued = await store.enqueue({ batchId: undoJob.claimed.batchId, planId: undoJob.claimed.planId,
+        userId: 'member', displayName: 'Original actor', action: 'resume' });
+      assert.equal(queued.status, 'queued'); const claimed = await store.claim(crypto.randomUUID()); assert(claimed);
+      assert.equal(claimed.batchId, undoJob.claimed.batchId); assert.equal(claimed.actionMode, 'undo');
+      assert.deepEqual(claimed.plan, undoJob.claimed.plan); assert.deepEqual(claimed.authorization, undoJob.claimed.authorization);
+      const resumed = { ...undoJob, claimed };
+      const result = await invokeUndo(resumed); assert.equal(result.receiptDigest, durable.receipt_digest);
+      assert.deepEqual(await proof(target), beforeD1); assert.deepEqual(await proof(replacement), beforeD2); assert.equal(await absent(target.fullPath), true);
+    });
+    await check('post-restore physical alteration rolls back native activation, trash status and immutable completion', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target); await invoke(job);
+      const archived = await proof(target), undoJob = await queueUndo(job), adapter = trackedRestore(undoJob, 'alter_restored');
+      await assert.rejects(invokeUndo(undoJob, adapter)); assert.equal(adapter.observation.injected, true);
+      assert.deepEqual(await proof(target), archived); assert.equal(await restoreReceipt(undoJob), undefined);
+      assert.equal(await readFile(target.fullPath, 'utf8'), 'Altered restored owned source.\n'); await failJob(undoJob);
+    });
+    activeGroup = 'scheduling';
+    await check('actual A heartbeat drains before each owner-B BEGIN and renews only after COMMIT for Delete and Undo', async () => {
+      const target = await seedTarget({ representation: 'tiptap_blocks' }), job = await freshJob(target);
+      const runScheduled = async <T>(currentJob: Job, operation: typeof execute | typeof undo): Promise<T> => {
+        const base = tracked(currentJob);
+        let inTransaction = false, paused = false, pauses = 0, resumes = 0, heartbeatWrites = 0;
+        let guardTransactions = 0, claimTransactions = 0;
+        let inflight: Promise<void> | undefined;
+        const heartbeat = async () => { assert.equal(inTransaction, false, 'A heartbeat must not run while B holds claim SHARE');
+          assert.equal(await store.heartbeatClaim(currentJob.claimed), true); heartbeatWrites++; };
+        const open = async (): Promise<SqlConnection> => {
+          const raw = await base.open();
+          return { get: raw.get.bind(raw), all: raw.all.bind(raw), close: raw.close.bind(raw),
+            run: async (sql, values) => {
+              const claimBegin = sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE';
+              if (claimBegin) { assert.equal(paused, true); assert.equal(inflight, undefined); claimTransactions++; }
+              else if (/^BEGIN\b/iu.test(sql)) {
+                // The initial lifecycle availability probe has no job-row
+                // SHARE lock. Only actual policy phases need A to drain.
+                assert.equal(sql, 'BEGIN'); assert.equal(guardTransactions++, 0); assert.equal(claimTransactions, 0);
+              }
+              const result = await raw.run(sql, values);
+              if (claimBegin) inTransaction = true;
+              if (/^(?:COMMIT|ROLLBACK)\s*$/iu.test(sql)) inTransaction = false;
+              return result;
+            } };
+        };
+        const result = await store.withClaim(currentJob.claimed, async claim => {
+          inflight = heartbeat();
+          const value = await withWorkspaceOperationJobClaimScheduling(claim, {
+            pauseAndDrain: async () => { paused = true; pauses++; await inflight; inflight = undefined; },
+            resume: async () => { assert.equal(inTransaction, false); await heartbeat(); resumes++; paused = false;
+              inflight = heartbeat(); },
+          }, async () => operation(claim, open));
+          assert.equal(inflight, undefined); assert.equal(paused, true); assert.equal(inTransaction, false);
+          const finished = await store.finishClaim(currentJob.claimed, { status: currentJob.claimed.actionMode === 'undo' ? 'undone' : 'applied',
+            trashEntryIds: [value.trashEntryId], completedActions: 1, phase: 'complete' }); assert(finished);
+          return value;
+        });
+        assert.equal(guardTransactions, 1); assert.equal(claimTransactions, 5);
+        assert.equal(resumes, 5); assert.equal(pauses, resumes + 1); assert.equal(heartbeatWrites, 1 + resumes * 2);
+        assert.equal(base.observation.opens, 1); assert.equal(base.observation.closes, 1); return result as T;
+      };
+      await runScheduled<Awaited<ReturnType<typeof execute>>>(job, execute);
+      const archived = await proof(target), undoJob = await queueUndo(job);
+      await assertUndone(undoJob, await runScheduled<Awaited<ReturnType<typeof undo>>>(undoJob, undo), archived);
+    });
+    assert.equal(passed, { delete: 20, restore: 10, 'restore-recovery': 5, scheduling: 1 }[selectedGroup]); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
+    console.log('Original Delete SQL assertions finished:', JSON.stringify({ group: selectedGroup, passed, fetches, sourceSha256: pinned }));
   } catch (error) { failures.push(error); }
   finally {
     const cleanup = async (operation: () => Promise<unknown>) => { try { await operation(); } catch (error) { failures.push(error); } };
@@ -607,15 +838,25 @@ async function main(): Promise<void> {
     console.log('Original Delete fixture cleanup:', JSON.stringify({ schemaRemoved, dataRemoved, openClients: clients.size, openCheckouts: checkouts.size, passed }));
   }
   if (failures.length) {
-    const error = failures[0], code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
-    const locations = error instanceof Error ? error.stack?.split('\n').flatMap(line => {
-      const match = /\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);
-      return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
-    }).slice(0, 4) : undefined;
-    throw new Error(`Original Delete fixture failed: ${stage}; name=${error instanceof Error ? error.name : 'unknown'}; code=${typeof code === 'string' && /^[A-Z0-9_]{1,128}$/u.test(code) ? code : 'unclassified'}; source=${locations?.join(',') || 'unavailable'}; failures=${failures.length}`);
+    // Codes and repository locations only: actual nested SQL/disposal failures
+    // must remain diagnosable without logging queries, arguments or tokens.
+    const describeFailure = (error: unknown, depth = 0): unknown => {
+      if (depth > 4 || !(error instanceof Error)) return { name: 'unknown' };
+      const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
+      const source = error.stack?.split('\n').flatMap(line => {
+        const match = /\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);
+        return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
+      }).slice(0, 4);
+      const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
+      return { name: /^[A-Za-z][A-Za-z0-9]*$/u.test(error.name) ? error.name : 'unknown',
+        code: typeof code === 'string' && /^[A-Za-z0-9_]{1,128}$/u.test(code) ? code : 'unclassified', source,
+        ...(error instanceof AggregateError ? { errors: error.errors.slice(0, 4).map(child => describeFailure(child, depth + 1)) } : {}),
+        ...(cause instanceof Error ? { cause: describeFailure(cause, depth + 1) } : {}) };
+    };
+    throw new Error(`Original Delete fixture failed: ${stage}; details=${JSON.stringify(failures.slice(0, 4).map(error => describeFailure(error)))}`);
   }
   assert(schemaRemoved); assert(dataRemoved);
 }
 
-void runSqlFixture({ label: 'workspace-operation-original-delete-postgres-test', operation: main,
-  successMessage: 'Original Delete genuine PG18 integration assertions and owned resource cleanup passed; no UI/general-producer/Restore claim.' });
+void runSqlFixture({ label: `workspace-operation-original-delete-postgres-test:${selectedGroup}`, operation: main,
+  successMessage: `Original Delete ${selectedGroup} genuine PG18 integration and owned resource cleanup passed; no UI/general-producer acceptance.` });

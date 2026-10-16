@@ -9,7 +9,11 @@ import test, { type TestContext } from 'node:test';
 import { movePreparedWorkspaceSingleFileTrash as move, readPreparedWorkspaceSingleFileTrash as read,
   withPreparedWorkspaceSingleFileTrash as prepare, withRecoveredWorkspaceSingleFileTrash as recover, PreparedSingleFileTrashError,
   assertPreparedWorkspaceSingleFileTrashCurrent as assertCurrent,
-  type PreparedWorkspaceSingleFileTrash, type PreparedWorkspaceSingleFileTrashInput, type PreparedSingleFileTrashOriginalFacts } from '../app/lib/filesystem/prepared-single-file-trash';
+  withPreparedWorkspaceSingleFileRestore as prepareRestore, withRecoveredWorkspaceSingleFileRestore as recoverRestore,
+  readPreparedWorkspaceSingleFileRestore as readRestore, restorePreparedWorkspaceSingleFileTrash as restore,
+  assertPreparedWorkspaceSingleFileRestoreCurrent as assertRestoreCurrent,
+  type PreparedWorkspaceSingleFileTrash, type PreparedWorkspaceSingleFileTrashInput, type PreparedSingleFileTrashOriginalFacts,
+  type PreparedWorkspaceSingleFileRestore, type PreparedSingleFileRestoreOriginalFacts, type PreparedSingleFileTrashReceipt } from '../app/lib/filesystem/prepared-single-file-trash';
 import { absoluteDataPath, trashRelativePathFor } from '../app/lib/filesystem/workspace-trash-layout';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
@@ -538,3 +542,242 @@ test('all genuine descriptor close failures survive alongside the primary failur
     t.mock.restoreAll();
   });
 });
+
+test('restore freezes NEW destination parents before one reverse rename and preserves literal names and bytes', async t => fixture(async input => {
+  input = { ...input, canonicalPath: ' Folder / note.md ' };
+  const parent = path.join(input.workspace.rootPath, ' Folder '), source = path.join(parent, ' note.md ');
+  await fs.mkdir(parent); const bytes = Buffer.alloc(6 * 1024 * 1024 + 3, 0xa7); bytes.set([0, 0xef, 0xbb, 0xbf, 0xff]);
+  await fs.writeFile(source, bytes); const before = await fs.stat(source);
+  const deleted = await prepare(input, move);
+  // The Undo intent deliberately captures the CURRENT vacant parents, not the
+  // old delete-parent identity. No directory is created by the restore seam.
+  await fs.rename(parent, `${parent}-old`); await fs.mkdir(parent);
+  const currentParent = await fs.stat(parent), neighbor = path.join(input.workspace.rootPath, 'note.md');
+  await fs.writeFile(neighbor, 'neighbor'); const tracked = track(t); let original!: PreparedSingleFileRestoreOriginalFacts;
+  const result = await prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+    original = readRestore(cap);
+    assert(Object.isFrozen(original) && Object.isFrozen(original.destination) && Object.isFrozen(original.trashReceipt));
+    assert.equal(original.trashReceipt.original.canonicalPath, input.canonicalPath);
+    assert.equal(original.destination.kind, 'vacant');
+    if (original.destination.kind !== 'vacant') assert.fail('vacant destination expected');
+    assert.equal(original.destination.directories[0].identity.inode, currentParent.ino);
+    assert.notEqual(original.destination.directories[0].identity.inode, deleted.original.filesystem.sourceDirectories[0].identity.inode);
+    assert.deepEqual(JSON.parse(JSON.stringify(original)), original); assert.equal(Object.keys(cap).length, 0);
+    await absent(source); const receipt = await restore(cap); await assertRestoreCurrent(cap); return receipt;
+  });
+  assert.equal(result.original, original); assert.equal(result.observation.kind, 'restored');
+  if (result.observation.kind !== 'restored') assert.fail('restored payload expected');
+  assert(Object.isFrozen(result) && Object.isFrozen(result.observation)); assert.equal(result.observation.method, 'rename');
+  assert.equal(result.observation.identity.inode, before.ino); assert.equal(result.observation.sha256, createHash('sha256').update(bytes).digest('hex'));
+  assert.deepEqual(await fs.readFile(source), bytes); await absent(destination(input));
+  assert.equal(await fs.readFile(neighbor, 'utf8'), 'neighbor'); tracked.assertClosed();
+}));
+
+test('restore logical projection absence never opens, creates or changes D2, including a newly present tree', async t => {
+  for (const canonicalPath of ['note.md', 'missing/tree/note.docx']) await fixture(async input => {
+    input = { ...input, canonicalPath };
+    const deleted = await prepare(input, move), source = path.join(input.workspace.rootPath, canonicalPath);
+    await fs.mkdir(path.dirname(source), { recursive: true }); await fs.writeFile(source, 'new D2'); const before = await fs.stat(source);
+    const realOpen = fs.open.bind(fs), realRename = fs.rename.bind(fs); let sourceOpens = 0, renames = 0;
+    t.mock.method(fs, 'open', async (file: string, flags: number) => { if (file === source) sourceOpens++; return realOpen(file, flags); });
+    t.mock.method(fs, 'rename', async (from: string, to: string) => { renames++; return realRename(from, to); });
+    let original!: PreparedSingleFileRestoreOriginalFacts;
+    const first = await prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      original = readRestore(cap); assert.deepEqual(original.destination, { kind: 'projection_absent' });
+      const receipt = await restore(cap); await assertRestoreCurrent(cap); return receipt;
+    });
+    const resumed = await recoverRestore({ workspace: input.workspace, dataRoot: input.dataRoot, original }, async cap => {
+      const receipt = await restore(cap); await assertRestoreCurrent(cap); return receipt;
+    });
+    assert.deepEqual(first, resumed); assert.deepEqual(first.observation, { kind: 'projection_absent' });
+    assert.equal(renames, 0); assert.equal(sourceOpens, 0); assert.equal((await fs.stat(source)).ino, before.ino);
+    assert.equal(await fs.readFile(source, 'utf8'), 'new D2'); await absent(destination(input)); t.mock.restoreAll();
+  });
+});
+
+test('restore refuses D2 or unsafe/missing destination parents without touching the original trash payload', async () => {
+  for (const scenario of ['D2', 'symlink', 'missing', 'directory', 'alias']) await fixture(async input => {
+    input = { ...input, canonicalPath: 'folder/note.md' };
+    const parent = path.join(input.workspace.rootPath, 'folder'), source = path.join(parent, 'note.md');
+    await fs.mkdir(parent); await fs.writeFile(source, 'original'); const deleted = await prepare(input, move), payload = destination(input);
+    const before = await fs.stat(payload);
+    if (scenario === 'D2') await fs.writeFile(source, 'new D2');
+    if (scenario === 'directory') await fs.mkdir(source);
+    if (scenario === 'alias') await fs.writeFile(path.join(parent, 'NOTE.md'), 'alias D2');
+    if (scenario === 'missing') await fs.rmdir(parent);
+    if (scenario === 'symlink') { await fs.rename(parent, `${parent}-original`); await fs.symlink(`${parent}-original`, parent); }
+    // A case-distinct alias is a legal different path on case-sensitive FS;
+    // isolate the refusal check only when the requested path resolves to it.
+    if (scenario === 'alias') {
+      try { await fs.lstat(source); } catch (error) { if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return; throw error; }
+    }
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, restore),
+      error => error instanceof PreparedSingleFileTrashError);
+    assert.equal((await fs.stat(payload)).ino, before.ino); assert.equal(await fs.readFile(payload, 'utf8'), 'original');
+    if (scenario === 'D2') assert.equal(await fs.readFile(source, 'utf8'), 'new D2');
+  });
+});
+
+test('restore checks destination vacancy and trash bytes again immediately before the reverse rename', async () => {
+  for (const scenario of ['D2', 'payload', 'parent', 'entry']) await fixture(async input => {
+    input = { ...input, canonicalPath: 'folder/note.md' };
+    const parent = path.join(input.workspace.rootPath, 'folder'), source = path.join(parent, 'note.md');
+    await fs.mkdir(parent); await fs.writeFile(source, 'original'); const deleted = await prepare(input, move), payload = destination(input);
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      readRestore(cap);
+      if (scenario === 'D2') await fs.writeFile(source, 'new D2');
+      if (scenario === 'payload') await fs.writeFile(payload, 'changed');
+      if (scenario === 'parent') { await fs.rename(parent, `${parent}-old`); await fs.mkdir(parent); }
+      if (scenario === 'entry') { await fs.rename(path.dirname(payload), `${path.dirname(payload)}-old`); await fs.mkdir(path.dirname(payload), { mode: 0o700 }); }
+      await restore(cap);
+    }), error => error instanceof PreparedSingleFileTrashError);
+    if (scenario === 'D2') assert.equal(await fs.readFile(source, 'utf8'), 'new D2');
+    else await absent(source);
+  });
+});
+
+test('restore recovery uses the persisted NEW intent to finish pending or prove already restored without another rename', async t => {
+  for (const alreadyRestored of [false, true]) await fixture(async input => {
+    await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move);
+    let original!: PreparedSingleFileRestoreOriginalFacts; const interruption = new Error('lost SQL response');
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      original = readRestore(cap); if (alreadyRestored) await restore(cap); throw interruption;
+    }), error => error === interruption);
+    const realRename = fs.rename.bind(fs); let renames = 0;
+    t.mock.method(fs, 'rename', async (from: string, to: string) => { renames++; return realRename(from, to); });
+    const result = await recoverRestore({ workspace: input.workspace, dataRoot: input.dataRoot, original: JSON.parse(JSON.stringify(original)) }, async cap => {
+      assert.deepEqual(readRestore(cap), original); const receipt = await restore(cap); await assertRestoreCurrent(cap); return receipt;
+    });
+    assert.equal(result.observation.kind, 'restored'); assert.equal(renames, alreadyRestored ? 0 : 1);
+    assert.equal(await fs.readFile(path.join(input.workspace.rootPath, 'note.md'), 'utf8'), 'original'); await absent(destination(input)); t.mock.restoreAll();
+  });
+});
+
+test('restore recovery rejects D2, altered payload, both/neither locations and changed Undo parent/root/entry pins', async () => {
+  for (const scenario of ['D2', 'payload', 'replacement', 'both', 'neither', 'parent', 'root', 'entry', 'restored-D2']) await fixture(async input => {
+    input = { ...input, canonicalPath: 'folder/note.md' };
+    const parent = path.join(input.workspace.rootPath, 'folder'), source = path.join(parent, 'note.md');
+    await fs.mkdir(parent); await fs.writeFile(source, 'original'); const deleted = await prepare(input, move), payload = destination(input);
+    let original!: PreparedSingleFileRestoreOriginalFacts;
+    await prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => { original = readRestore(cap); });
+    if (scenario === 'D2') await fs.writeFile(source, 'new D2');
+    if (scenario === 'payload') await fs.writeFile(payload, 'changed');
+    if (scenario === 'replacement') { await fs.rename(payload, `${payload}-old`); await fs.writeFile(payload, 'original'); }
+    if (scenario === 'both') await fs.link(payload, source);
+    if (scenario === 'neither') await fs.unlink(payload);
+    if (scenario === 'parent') { await fs.rename(parent, `${parent}-old`); await fs.mkdir(parent); }
+    if (scenario === 'root') { await fs.rename(input.workspace.rootPath, `${input.workspace.rootPath}-old`); await fs.mkdir(input.workspace.rootPath); }
+    if (scenario === 'entry') { await fs.rename(path.dirname(payload), `${path.dirname(payload)}-old`); await fs.mkdir(path.dirname(payload), { mode: 0o700 }); }
+    if (scenario === 'restored-D2') { await fs.rename(payload, source); await fs.unlink(source); await fs.writeFile(source, 'new D2'); }
+    await assert.rejects(() => recoverRestore({ workspace: input.workspace, dataRoot: input.dataRoot, original }, restore),
+      error => error instanceof PreparedSingleFileTrashError);
+    if (scenario === 'D2' || scenario === 'restored-D2') assert.equal(await fs.readFile(source, 'utf8'), 'new D2');
+  });
+});
+
+test('restore copies strict receipt/intent inputs before awaits and never reads forged getters', async t => fixture(async input => {
+  await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move);
+  let reads = 0; const malformed = JSON.parse(JSON.stringify(deleted));
+  Object.defineProperty(malformed.observation, 'identity', { enumerable: true, get() { reads++; return deleted.observation.kind === 'moved' ? deleted.observation.identity : null; } });
+  await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: malformed }, restore), code('invalid-input'));
+  assert.equal(reads, 0);
+  for (const changed of [
+    { ...deleted, version: 2 }, { ...deleted, extra: true },
+    { ...deleted, observation: { kind: 'projection_absent' } },
+  ]) await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: changed as PreparedSingleFileTrashReceipt }, restore), code('invalid-input'));
+  const realOpen = fs.open.bind(fs), entered = gate(), release = gate(); let armed = true;
+  t.mock.method(fs, 'open', async (file: string, flags: number) => {
+    const handle = await realOpen(file, flags); if (armed) { armed = false; entered.resolve(); await bounded(release.promise); } return handle;
+  });
+  const mutable = JSON.parse(JSON.stringify(deleted)); const run = prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: mutable }, async cap => {
+    assert.equal(readRestore(cap).trashReceipt.original.canonicalPath, 'note.md'); await restore(cap);
+  });
+  try {
+    await bounded(entered.promise); mutable.original.canonicalPath = 'other.md'; mutable.observation.sha256 = '0'.repeat(64); release.resolve(); await run;
+  } finally { release.resolve(); await Promise.allSettled([run]); }
+  assert.equal(await fs.readFile(path.join(input.workspace.rootPath, 'note.md'), 'utf8'), 'original'); t.mock.restoreAll();
+}));
+
+test('restore brands, caught misuse, nested/retained and repeated capabilities poison the active callback', async () => {
+  for (const scenario of ['forged', 'cross-brand', 'nested', 'repeated', 'early-assert']) await fixture(async input => {
+    await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move);
+    let retained!: PreparedWorkspaceSingleFileRestore;
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      retained = cap;
+      if (scenario === 'forged') await assert.rejects(() => restore({} as PreparedWorkspaceSingleFileRestore), code('invalid-lifetime'));
+      if (scenario === 'cross-brand') assert.throws(() => read(cap as unknown as PreparedWorkspaceSingleFileTrash), code('invalid-lifetime'));
+      if (scenario === 'nested') await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, restore), code('reentrant-operation'));
+      if (scenario === 'repeated') { await restore(cap); await assert.rejects(() => restore(cap), code('already-moved')); }
+      if (scenario === 'early-assert') await assert.rejects(() => assertRestoreCurrent(cap), code('invalid-lifetime'));
+    }), error => error instanceof PreparedSingleFileTrashError);
+    assert.throws(() => readRestore(retained), code('invalid-lifetime')); await assert.rejects(() => restore(retained), code('invalid-lifetime'));
+  });
+});
+
+test('restore EXDEV and uncertain rename acknowledgement preserve evidence without copy or rollback', async t => {
+  for (const uncertain of [false, true]) await fixture(async input => {
+    await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move);
+    const realRename = fs.rename.bind(fs), tracked = track(t); let renames = 0;
+    t.mock.method(fs, 'rename', async (from: string, to: string) => {
+      renames++; if (uncertain) await realRename(from, to);
+      throw Object.assign(new Error('rename response lost'), { code: uncertain ? 'EIO' : 'EXDEV' });
+    });
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, restore),
+      error => error instanceof PreparedSingleFileTrashError && error.code === (uncertain ? 'move-unconfirmed' : 'cross-device-move') && error.moveAttempted);
+    assert.equal(renames, 1); assert.equal(await fs.readFile(uncertain ? path.join(input.workspace.rootPath, 'note.md') : destination(input), 'utf8'), 'original');
+    await absent(uncertain ? destination(input) : path.join(input.workspace.rootPath, 'note.md')); tracked.assertClosed(); t.mock.restoreAll();
+  });
+});
+
+test('restore post-rename assertion rejects changed bytes or replacement and never returns a second success', async () => {
+  for (const replace of [false, true]) await fixture(async input => {
+    const source = path.join(input.workspace.rootPath, 'note.md'); await fs.writeFile(source, 'original'); const deleted = await prepare(input, move);
+    await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      await restore(cap);
+      if (replace) await fs.rename(source, `${source}-old`); await fs.writeFile(source, 'changed');
+      await assertRestoreCurrent(cap);
+    }), code('source-changed'));
+    assert.equal(await fs.readFile(source, 'utf8'), 'changed'); await absent(destination(input));
+  });
+});
+
+test('restore drains unawaited rename and assertion before closing held descriptors and revokes detached callbacks', async t => {
+  for (const assertion of [false, true]) await fixture(async input => {
+    await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move), tracked = track(t);
+    const entered = gate(), release = gate(), returned = gate(), realRename = fs.rename.bind(fs), realOpenDirectory = fs.opendir.bind(fs);
+    let armed = false, pending!: Promise<unknown>, detached!: () => Promise<unknown>;
+    if (assertion) t.mock.method(fs, 'opendir', async (file: string) => {
+      const directory = await realOpenDirectory(file); if (armed) { armed = false; entered.resolve(); await bounded(release.promise); } return directory;
+    });
+    else t.mock.method(fs, 'rename', async (from: string, to: string) => { entered.resolve(); await bounded(release.promise); return realRename(from, to); });
+    const run = prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => {
+      if (assertion) { await restore(cap); armed = true; }
+      detached = () => restore(cap); pending = assertion ? assertRestoreCurrent(cap) : restore(cap);
+      await bounded(entered.promise); returned.resolve();
+    });
+    try {
+      await bounded(returned.promise); await new Promise<void>(resolve => setImmediate(resolve));
+      assert(tracked.handles.every(handle => handle.fd >= 0)); release.resolve();
+      await assert.rejects(() => run, code('unawaited-operation')); await assert.rejects(() => pending);
+      await assert.rejects(detached, code('invalid-lifetime')); tracked.assertClosed();
+    } finally { release.resolve(); await Promise.allSettled([run, pending]); }
+    t.mock.restoreAll();
+  });
+});
+
+test('restore retains primary SQL-like failure plus every disposal rejection with own status503 and no compensating rename', async t => fixture(async input => {
+  await fs.writeFile(path.join(input.workspace.rootPath, 'note.md'), 'original'); const deleted = await prepare(input, move);
+  const realOpen = fs.open.bind(fs), primary = new Error('restore receipt COMMIT unknown'), closeFailures: Error[] = [], handles: FileHandle[] = [];
+  t.mock.method(fs, 'open', async (file: string, flags: number) => {
+    const handle = await realOpen(file, flags), realClose = handle.close.bind(handle), closeError = new Error('close acknowledgment lost');
+    handles.push(handle); closeFailures.push(closeError);
+    t.mock.method(handle, 'close', async () => { await realClose(); throw closeError; }); return handle;
+  });
+  await assert.rejects(() => prepareRestore({ workspace: input.workspace, dataRoot: input.dataRoot, receipt: deleted }, async cap => { await restore(cap); throw primary; }), error => {
+    assert(error instanceof PreparedSingleFileTrashError); assert.equal(error.code, 'disposal-unconfirmed');
+    assert.equal(Object.getOwnPropertyDescriptor(error, 'status')?.value, 503); assert.equal(error.moveAttempted, true);
+    assert(error.cause instanceof AggregateError); assert.deepEqual(error.cause.errors, [primary, ...[...closeFailures].reverse()]); return true;
+  });
+  assert(handles.length > 1); assert(handles.every(handle => handle.fd === -1));
+  assert.equal(await fs.readFile(path.join(input.workspace.rootPath, 'note.md'), 'utf8'), 'original'); await absent(destination(input)); t.mock.restoreAll();
+}));

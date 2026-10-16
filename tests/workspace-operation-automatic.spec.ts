@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
+import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
 import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 
@@ -18,9 +19,16 @@ const renamedBacklinks = backlinkContent
   .replace('[target-ref]: target.md "Reference title"', '[target-ref]: renamed.md "Reference title"');
 
 async function setup(browser: Browser, mobile: boolean) {
-  const runId = process.env.CANVAS_BATCH_E2E_RUN_ID;
+  let runId = process.env.CANVAS_BATCH_E2E_RUN_ID;
+  if (!runId && process.env.CANVAS_YJS_AUTHORITY_E2E === '1') {
+    const owned = await requireOwnedYjsQaTarget();
+    expect(owned.activeSpec).toBe('tests/workspace-operation-automatic.spec.ts');
+    expect(owned.nonce).toMatch(/^[a-f0-9]{32}$/u);
+    runId = owned.nonce;
+  } else {
+    expect(runId, 'Use the managed automatic-file or owned Yjs acceptance runner.').toMatch(/^[a-f0-9-]{36}$/u);
+  }
   expect(process.env.E2E_EXTERNAL_SERVER, 'Only the managed runner starts the single owned Notebook process.').toBe('1');
-  expect(runId, 'Use scripts/run-workspace-operation-batch-e2e.mjs --automatic.').toMatch(/^[a-f0-9-]{36}$/u);
   const context = await createAuthenticatedContext(browser, {
     viewport: mobile ? { width: 390, height: 844 } : { width: 1440, height: 960 },
     hasTouch: mobile, isMobile: mobile,

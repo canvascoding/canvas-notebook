@@ -19,7 +19,9 @@ type IntentInput = Readonly<{ schema: string; batchId: string; planId: string; w
   requestHash: string; intentText: string }>;
 type ReceiptInput = Readonly<{ schema: string; batchId: string; intentDigest: string; receiptText: string }>;
 type Row = Record<string, unknown>;
-type ReceiptTable = 'workspace_file_operation_delete_trash_receipts' | 'workspace_file_operation_delete_receipts';
+type IntentTable = 'workspace_file_operation_delete_intents' | 'workspace_file_operation_restore_intents';
+type ReceiptTable = 'workspace_file_operation_delete_trash_receipts' | 'workspace_file_operation_delete_receipts'
+  | 'workspace_file_operation_restore_receipts';
 const intentColumns = `batch_id AS "batchId",plan_id AS "planId",workspace_id AS "workspaceId",request_hash AS "requestHash",
   intent_text AS "intentText",intent_digest AS "intentDigest",created_at AS "createdAt"`;
 const receiptColumns = `batch_id AS "batchId",intent_digest AS "intentDigest",receipt_text AS "receiptText",
@@ -100,8 +102,11 @@ function selection(input: ReadInput): { schema: string; batchId: string; lock: s
 /** Borrowed B only: no checkout, transaction, cleanup or authority grant. */
 export async function readWorkspaceOperationOriginalDeleteIntentOnConnection(database: SqlConnection,
   input: ReadInput): Promise<WorkspaceOperationOriginalDeleteIntent | null> {
+  return readIntent(database, input, 'workspace_file_operation_delete_intents');
+}
+async function readIntent(database: SqlConnection, input: ReadInput, table: IntentTable): Promise<WorkspaceOperationOriginalDeleteIntent | null> {
   const selected = selection(input);
-  const row = await database.get(`SELECT ${intentColumns} FROM ${selected.schema}.workspace_file_operation_delete_intents
+  const row = await database.get(`SELECT ${intentColumns} FROM ${selected.schema}.${table}
     WHERE batch_id=$1${selected.lock}`, [selected.batchId]) as Row | undefined;
   return row ? intentRow(row) : null;
 }
@@ -119,21 +124,33 @@ export async function readWorkspaceOperationOriginalDeleteReceiptOnConnection(da
   input: ReadInput): Promise<WorkspaceOperationOriginalDeleteReceipt | null> {
   return readReceipt(database, input, 'workspace_file_operation_delete_receipts');
 }
+export async function readWorkspaceOperationOriginalRestoreIntentOnConnection(database: SqlConnection,
+  input: ReadInput): Promise<WorkspaceOperationOriginalDeleteIntent | null> {
+  return readIntent(database, input, 'workspace_file_operation_restore_intents');
+}
+export async function readWorkspaceOperationOriginalRestoreReceiptOnConnection(database: SqlConnection,
+  input: ReadInput): Promise<WorkspaceOperationOriginalDeleteReceipt | null> {
+  return readReceipt(database, input, 'workspace_file_operation_restore_receipts');
+}
 
 /** Preserve exact original text on retry; equal JSON with different bytes is a
  * conflict. Even a successful INSERT is checked against an actual B reread. */
 export async function insertWorkspaceOperationOriginalDeleteIntentOnConnection(database: SqlConnection,
   input: IntentInput): Promise<WorkspaceOperationOriginalDeleteInsertResult<WorkspaceOperationOriginalDeleteIntent>> {
+  return insertIntent(database, input, 'workspace_file_operation_delete_intents');
+}
+async function insertIntent(database: SqlConnection, input: IntentInput, table: IntentTable):
+Promise<WorkspaceOperationOriginalDeleteInsertResult<WorkspaceOperationOriginalDeleteIntent>> {
   const captured = data(input, ['schema', 'batchId', 'planId', 'workspaceId', 'requestHash', 'intentText']);
   const schema = schemaName(captured.schema), batchId = id(captured.batchId, 16, 128), planId = digest(captured.planId),
     workspaceId = id(captured.workspaceId), requestHash = digest(captured.requestHash), intentText = text(captured.intentText, 1048576),
     intentDigest = hash(intentText);
-  const inserted = await database.get(`INSERT INTO ${schema}.workspace_file_operation_delete_intents
+  const inserted = await database.get(`INSERT INTO ${schema}.${table}
     (batch_id,plan_id,workspace_id,request_hash,intent_text,intent_digest)
     VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(batch_id) DO NOTHING RETURNING ${intentColumns}`,
   [batchId, planId, workspaceId, requestHash, intentText, intentDigest]) as Row | undefined;
-  const current = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
-    { schema: captured.schema as string, batchId, forShare: true });
+  const current = await readIntent(database,
+    { schema: captured.schema as string, batchId, forShare: true }, table);
   if (!current || current.planId !== planId || current.workspaceId !== workspaceId || current.requestHash !== requestHash
     || current.intentText !== intentText || current.intentDigest !== intentDigest
     || inserted && JSON.stringify(intentRow(inserted)) !== JSON.stringify(current)) return Object.freeze({ kind: 'conflict' });
@@ -160,4 +177,12 @@ export async function insertWorkspaceOperationOriginalDeleteTrashReceiptOnConnec
 export async function insertWorkspaceOperationOriginalDeleteReceiptOnConnection(database: SqlConnection,
   input: ReceiptInput): Promise<WorkspaceOperationOriginalDeleteInsertResult<WorkspaceOperationOriginalDeleteReceipt>> {
   return insertReceipt(database, input, 'workspace_file_operation_delete_receipts');
+}
+export async function insertWorkspaceOperationOriginalRestoreIntentOnConnection(database: SqlConnection,
+  input: IntentInput): Promise<WorkspaceOperationOriginalDeleteInsertResult<WorkspaceOperationOriginalDeleteIntent>> {
+  return insertIntent(database, input, 'workspace_file_operation_restore_intents');
+}
+export async function insertWorkspaceOperationOriginalRestoreReceiptOnConnection(database: SqlConnection,
+  input: ReceiptInput): Promise<WorkspaceOperationOriginalDeleteInsertResult<WorkspaceOperationOriginalDeleteReceipt>> {
+  return insertReceipt(database, input, 'workspace_file_operation_restore_receipts');
 }

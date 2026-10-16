@@ -17,6 +17,7 @@ import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchCl
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
+import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
 
 declare const ownerBrand: unique symbol;
 export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true }>;
@@ -120,7 +121,7 @@ function checkPhase(captured: Capture, phase: Phase): void {
   if (captured.phase !== phase || !phase.active || !phase.accepting || phaseContext.getStore() !== phase) fail('JOB_LIFECYCLE_REQUIRED');
 }
 
-/** A single original direct/apply Delete. This exposes no raw owner connection. */
+/** Original direct Delete Apply/Undo. This exposes no raw owner connection. */
 export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
   operation: (owner: WorkspaceOperationJobLifecycleOwner) => Promise<T>,
   openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
@@ -128,7 +129,7 @@ export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: Workspac
   if (inherited) poison(inherited, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), authorization = binding.authorization;
   const plan = binding.plan, step = plan.pathSteps[0], jobScope = authorization.mode === 'direct' ? authorization.jobScope : undefined;
-  if (authorization.mode !== 'direct' || binding.actionMode !== 'apply' || !jobScope || jobScope.legacy
+  if (authorization.mode !== 'direct' || !['apply','undo'].includes(binding.actionMode) || !jobScope || jobScope.legacy
     || binding.workspaceId !== jobScope.workspaceId || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId
     || plan.readiness !== 'ready' || plan.pathSteps.length !== 1 || step?.kind !== 'delete' || step.destinationPath != null
     || !isCanonicalAdmissionPath(step.sourcePath) || typeof operation !== 'function' || typeof jobScope.rootRelativePath !== 'string'
@@ -224,7 +225,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
   } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
   const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set() };
   captured.phase = phase;
-  const pending = (async () => {
+  const pending = withWorkspaceOperationJobClaimPhase(captured.claim, async () => {
     const database = captured.database!; let begun = false, commitAttempted = false;
     try {
       await checkIdle(captured);
@@ -289,6 +290,6 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
       }
       return poison(captured, failure);
     } finally { phase.accepting = false; phase.active = false; if (captured.phase === phase) captured.phase = undefined; }
-  })();
+  });
   captured.pending.add(pending); void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending)); return pending;
 }

@@ -3,12 +3,13 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { getSchema } from '@tiptap/core';
 import type { SqlConnection } from '../db';
-import { inspectArchivedNativeSnapshot } from '../collaboration/archived-native-snapshot';
+import { ARCHIVED_NATIVE_BINARY_LIMIT, inspectArchivedNativeSnapshot } from '../collaboration/archived-native-snapshot';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
-import { prepareNativeFileArchiveTransition, type NativeFileArchiveExpected,
-  type NativeFileArchiveTransition } from '../collaboration/native-file-archive-transition';
+import { captureNativeFileArchiveRestoreData, prepareNativeFileArchiveTransition, prepareNativeFileRestoreTransition,
+  type NativeFileArchiveExpected, type NativeFileArchiveTransition,
+  type NativeFileRestoreTransition } from '../collaboration/native-file-archive-transition';
 import { validateRawState } from '../collaboration/native-session-state-reader';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
@@ -24,6 +25,8 @@ type LockedRows = { registry: Row; lineage: Row; raw: Row; projection: Row | und
 type ReadInput = Readonly<{ schema: string; workspace: WorkspaceContext; documentId: string; lineageId: string; path: string }>;
 type ArchiveInput = Readonly<{ schema: string; workspace: WorkspaceContext; expected: NativeFileArchiveExpected;
   trashEntryId: string; archivedAt: number }>;
+type RestoreInput = Readonly<{ schema: string; workspace: WorkspaceContext; expected: NativeFileArchiveExpected;
+  archived: NativeFileArchiveTransition; trashEntryId: string; restoredAt: number }>;
 type ErrorCode = 'ORIGINAL_NATIVE_DELETE_INVALID' | 'ORIGINAL_NATIVE_DELETE_CHANGED' | 'ORIGINAL_NATIVE_DELETE_BUSY'
   | 'ORIGINAL_NATIVE_DELETE_TOO_LARGE' | 'ORIGINAL_NATIVE_DELETE_POSTCONDITION';
 const MAX_STATE_BYTES = 64 * 1024 * 1024;
@@ -116,7 +119,7 @@ async function assertNoAgentOperation(database: SqlConnection, selected: Selecti
     fail('ORIGINAL_NATIVE_DELETE_BUSY');
   }
 }
-async function lockOriginalRows(database: SqlConnection, selected: Selection): Promise<LockedRows> {
+async function lockOriginalRows(database: SqlConnection, selected: Selection, maxStateBytes = MAX_STATE_BYTES): Promise<LockedRows> {
   // Lock only the original D1/L1/D1. A later active document at this path is never selected.
   const registry = await database.get(`SELECT * FROM ${selected.schema}.collaboration_documents WHERE id=$1 FOR UPDATE NOWAIT`,
     [selected.documentId]) as Row | undefined;
@@ -129,9 +132,10 @@ async function lockOriginalRows(database: SqlConnection, selected: Selection): P
     FROM ${selected.schema}.collaboration_yjs_states WHERE document_id=$1 FOR UPDATE NOWAIT`, [selected.documentId]) as Row | undefined;
   if (!registry || !lineage || !metadata) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
   assertBounds(metadata);
+  if (Number(metadata.state_bytes) > maxStateBytes) fail('ORIGINAL_NATIVE_DELETE_TOO_LARGE');
   const raw = await database.get(`SELECT * FROM ${selected.schema}.collaboration_yjs_states WHERE document_id=$1
     AND octet_length(yjs_state) BETWEEN 1 AND $2 AND octet_length(state_vector) BETWEEN 1 AND $3`,
-  [selected.documentId, MAX_STATE_BYTES, MAX_VECTOR_BYTES]) as Row | undefined;
+  [selected.documentId, maxStateBytes, MAX_VECTOR_BYTES]) as Row | undefined;
   if (!raw || !(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
     || raw.yjs_state.byteLength !== Number(metadata.state_bytes) || raw.state_vector.byteLength !== Number(metadata.vector_bytes)) {
     fail('ORIGINAL_NATIVE_DELETE_CHANGED');
@@ -294,5 +298,153 @@ Promise<NativeFileArchiveTransition> {
     [expected.documentId, transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt]);
   if ((projectionChanged as Row | undefined)?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
   await verifyArchived(database, selected, original, transition);
+  return transition;
+}
+
+type CapturedRestore = Readonly<{ selected: Selection; expected: NativeFileArchiveExpected;
+  archived: NativeFileArchiveTransition; trashEntryId: string; restoredAt: number }>;
+function captureRestore(input: RestoreInput): CapturedRestore {
+  const captured = data(input, ['schema', 'workspace', 'expected', 'archived', 'trashEntryId', 'restoredAt']);
+  const expected = captureExpected(captured.expected as NativeFileArchiveExpected);
+  const selected = selection(captured.schema, captured.workspace, expected.documentId, expected.lineageId, expected.path);
+  const archived = captureNativeFileArchiveRestoreData(captured.archived as NativeFileArchiveTransition);
+  const trashEntryId = captured.trashEntryId, restoredAt = captured.restoredAt;
+  if (expected.workspaceId !== selected.workspaceId || expected.organizationId !== selected.organizationId
+    || !id(trashEntryId) || typeof restoredAt !== 'number' || !safe(restoredAt)) {
+    fail('ORIGINAL_NATIVE_DELETE_INVALID');
+  }
+  return Object.freeze({ selected, expected, archived, trashEntryId, restoredAt });
+}
+
+function assertArchivedRawState(raw: Row, selected: Selection): void {
+  // Validate the ACTUAL archived row before mapState can normalize flags or omit
+  // stale errors. Never relabel it as active to borrow an active-only validator.
+  if (raw.document_id !== selected.documentId || raw.workspace_id !== selected.workspaceId
+    || raw.organization_id !== selected.organizationId || raw.path !== selected.path || raw.status !== 'archived'
+    || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(String(raw.representation))
+    || Number(raw.schema_version) !== COLLABORATION_SCHEMA_VERSION || !safe(raw.schema_version, 1)
+    || !safe(raw.lifecycle_generation, 1) || !safe(raw.document_sequence) || !safe(raw.persisted_at)
+    || !safe(raw.checkpoint_sequence) || Number(raw.checkpoint_sequence) !== 0 || raw.checkpointed_at !== null
+    || !['lf', 'crlf'].includes(String(raw.newline_style)) || !flag(raw.has_bom)
+    || !flag(raw.degraded) || trueFlag(raw.degraded) || !flag(raw.projection_error_permanent) || trueFlag(raw.projection_error_permanent)
+    || raw.canonical_hash !== null || raw.serialized_hash !== null
+    || ['code', 'sequence', 'generation', 'phase', 'cause'].some(key => raw[`projection_error_${key}`] !== null)) {
+    fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  }
+}
+
+async function assertRestorePathVacant(database: SqlConnection, selected: Selection, restored = false): Promise<void> {
+  // A collision check, NOT a predicate/admission fence. The genuine outer owner
+  // must prevent concurrent births/moves for the entire caller-owned transaction.
+  // No later D2/S2 is selected, archived, rebound or adopted by this check.
+  for (const [table, key, originalId] of [
+    ['collaboration_documents', 'id', selected.documentId],
+    ['collaboration_yjs_states', 'document_id', selected.documentId],
+    ['file_collaboration_lineages', 'id', selected.lineageId],
+  ] as const) {
+    if (await database.get(`SELECT ${key} FROM ${selected.schema}.${table} WHERE workspace_id=$1 AND status='active'
+      AND (path=$2 OR left(path,length($2)+1)=$2||'/' OR left($2,length(path)+1)=path||'/')
+      ${restored ? `AND NOT (${key}=$3 AND path=$2)` : ''} LIMIT 1 FOR SHARE NOWAIT`,
+    restored ? [selected.workspaceId, selected.path, originalId] : [selected.workspaceId, selected.path])) {
+      fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    }
+  }
+}
+
+async function readRestoreTarget(database: SqlConnection, captured: CapturedRestore): Promise<LockedRows & {
+  state: PersistedCollaborationState; transition: NativeFileRestoreTransition }> {
+  const { selected, expected, archived, trashEntryId, restoredAt } = captured;
+  const rows = await lockOriginalRows(database, selected, ARCHIVED_NATIVE_BINARY_LIMIT);
+  assertScope(rows.registry, selected); assertScope(rows.lineage, selected);
+  if (rows.registry.id !== expected.documentId || rows.registry.lineage_id !== expected.lineageId
+    || rows.registry.provider !== 'yjs' || rows.registry.yjs_state_lifecycle !== 'initialized'
+    || rows.lineage.id !== expected.lineageId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  assertArchivedRawState(rows.raw, selected);
+  const state = await mapBoundedRow(rows.raw, selected.documentId);
+  const transition = prepareNativeFileRestoreTransition(state, expected, archived, { trashEntryId, restoredAt });
+  // Reuse the same archive postcondition used by Delete, including real archived
+  // native inspection, projection receipt, original trash binding and agent gate.
+  await verifyArchived(database, selected, rows, archived);
+  await assertRestorePathVacant(database, selected);
+  return { ...rows, state, transition };
+}
+
+/** Pre-FS observation on the genuine caller-owned B. No writes or retained
+ * authority: the mutation must perform the SAME checks again in atomic B2. */
+export async function readOriginalNativeRestoreTargetOnConnection(database: SqlConnection, input: RestoreInput):
+Promise<Readonly<{ state: PersistedCollaborationState; transition: NativeFileRestoreTransition }>> {
+  const captured = captureRestore(input);
+  const observed = await readRestoreTarget(database, captured);
+  return Object.freeze({ state: observed.state, transition: observed.transition });
+}
+
+async function verifyRestored(database: SqlConnection, captured: CapturedRestore, original: LockedRows,
+  transition: NativeFileRestoreTransition): Promise<void> {
+  const { selected, expected } = captured, after = await readActiveTarget(database, selected);
+  preserved(original.registry, after.registry, ['status', 'state_version', 'snapshot_revision_id', 'updated_at']);
+  preserved(original.lineage, after.lineage, ['status', 'archived_at', 'trash_entry_id']);
+  preserved(original.raw, after.raw, stateWriteKeys);
+  const expectedAfter = { ...expected, lifecycleGeneration: transition.after.identity.lifecycleGeneration, registryStateVersion: 0 };
+  if (expectedKeys.some(key => after.expected[key] !== expectedAfter[key]) || after.registry.snapshot_revision_id !== null
+    || !safe(after.registry.updated_at) || Number(after.registry.updated_at) !== transition.writes.registry.updatedAt
+    || after.lineage.trash_entry_id !== null || after.raw.checkpointed_at !== null
+    || Number(after.raw.checkpoint_sequence) !== 0 || after.raw.canonical_hash !== null || after.raw.serialized_hash !== null
+    || trueFlag(after.raw.degraded) || trueFlag(after.raw.projection_error_permanent)
+    || ['code', 'sequence', 'generation', 'phase', 'cause'].some(key => after.raw[`projection_error_${key}`] !== null)) {
+    fail('ORIGINAL_NATIVE_DELETE_POSTCONDITION');
+  }
+  const projection = after.projection;
+  if (!projection || projection.document_id !== expected.documentId
+    || !safe(projection.lifecycle_generation, 1) || Number(projection.lifecycle_generation) !== transition.writes.projection.lifecycleGeneration
+    || !safe(projection.projected_sequence) || Number(projection.projected_sequence) !== expected.documentSequence
+    || !flag(projection.finalized) || trueFlag(projection.finalized) || projection.revision_id !== null
+    || projection.canonical_hash !== null || projection.serialized_hash !== null
+    || !safe(projection.updated_at) || Number(projection.updated_at) !== transition.writes.projection.updatedAt) {
+    fail('ORIGINAL_NATIVE_DELETE_POSTCONDITION');
+  }
+  if (original.projection) preserved(original.projection, projection,
+    ['lifecycle_generation', 'projected_sequence', 'finalized', 'revision_id', 'canonical_hash', 'serialized_hash', 'updated_at']);
+  await assertRestorePathVacant(database, selected, true);
+}
+
+/** Mechanical original D1/L1 restore only, with no SQL checkout, TX, actor or
+ * DA04 grant. Caller binds authentic original receipts/trash, current Undo rights,
+ * lifecycle quiescence and the SAME-TX completion. Every error requires rollback.
+ * No public share is read or revived here; no already-restored adoption by path. */
+export async function restoreOriginalNativeDeleteTargetOnConnection(database: SqlConnection, input: RestoreInput):
+Promise<NativeFileRestoreTransition> {
+  const captured = captureRestore(input), { selected, expected, trashEntryId, restoredAt } = captured;
+  const original = await readRestoreTarget(database, captured), transition = original.transition;
+  const stateChanged = await database.get(`UPDATE ${selected.schema}.collaboration_yjs_states SET status='active',lifecycle_generation=$1,
+    checkpoint_sequence=0,checkpointed_at=NULL,canonical_hash=NULL,serialized_hash=NULL,degraded=0,
+    projection_error_code=NULL,projection_error_sequence=NULL,projection_error_generation=NULL,projection_error_phase=NULL,
+    projection_error_cause=NULL,projection_error_permanent=0 WHERE document_id=$2 AND workspace_id=$3
+    AND organization_id IS NOT DISTINCT FROM $4 AND path=$5 AND representation=$6 AND schema_version=$7
+    AND lifecycle_generation=$8 AND status='archived' AND document_sequence=$9 AND persisted_at=$10
+    AND yjs_state=$11 AND state_vector=$12 RETURNING document_id`,
+  [transition.after.identity.lifecycleGeneration, expected.documentId, expected.workspaceId, expected.organizationId, expected.path,
+    expected.representation, expected.schemaVersion, transition.before.identity.lifecycleGeneration, expected.documentSequence,
+    expected.persistedAt, original.raw.yjs_state, original.raw.state_vector]) as Row | undefined;
+  if (stateChanged?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  const registryChanged = await database.get(`UPDATE ${selected.schema}.collaboration_documents SET status='active',state_version=0,
+    snapshot_revision_id=NULL,updated_at=$1 WHERE id=$2 AND lineage_id=$3 AND provider='yjs' AND yjs_state_lifecycle='initialized'
+    AND workspace_id=$4 AND workspace_type=$5 AND organization_id IS NOT DISTINCT FROM $6 AND path=$7
+    AND status='archived' AND state_version=0 RETURNING id`,
+  [restoredAt, expected.documentId, expected.lineageId, expected.workspaceId, selected.workspaceType, expected.organizationId, expected.path]) as Row | undefined;
+  if (registryChanged?.id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  const lineageChanged = await database.get(`UPDATE ${selected.schema}.file_collaboration_lineages SET status='active',archived_at=NULL,
+    trash_entry_id=NULL WHERE id=$1 AND workspace_id=$2 AND workspace_type=$3 AND organization_id IS NOT DISTINCT FROM $4
+    AND path=$5 AND status='archived' AND archived_at=$6 AND trash_entry_id=$7 RETURNING id`,
+  [expected.lineageId, expected.workspaceId, selected.workspaceType, expected.organizationId, expected.path,
+    transition.archive.archivedAt, trashEntryId]) as Row | undefined;
+  if (lineageChanged?.id !== expected.lineageId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  const projectionChanged = await database.get(`UPDATE ${selected.schema}.collaboration_file_projections SET lifecycle_generation=$1,
+    projected_sequence=$2,revision_id=NULL,canonical_hash=NULL,serialized_hash=NULL,finalized=0,updated_at=$3
+    WHERE document_id=$4 AND lifecycle_generation=$5 AND projected_sequence=$6 AND finalized=0
+    AND revision_id IS NULL AND canonical_hash IS NULL AND serialized_hash IS NULL AND updated_at=$7 RETURNING document_id`,
+  [transition.writes.projection.lifecycleGeneration, expected.documentSequence, restoredAt, expected.documentId,
+    transition.before.identity.lifecycleGeneration, expected.documentSequence, transition.archive.archivedAt]);
+  if ((projectionChanged as Row | undefined)?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  await verifyRestored(database, captured, original, transition);
   return transition;
 }

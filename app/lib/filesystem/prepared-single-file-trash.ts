@@ -40,6 +40,28 @@ export type PreparedWorkspaceSingleFileTrashInput = Readonly<{
 
 export type RecoveredWorkspaceSingleFileTrashInput = Readonly<{ workspace: WorkspaceContext; dataRoot: string; original: PreparedSingleFileTrashOriginalFacts }>;
 
+/** New, durable pre-restore observations. Historical trash/root pins remain in
+ * trashReceipt; destination parents are captured for this Undo attempt only. */
+export type PreparedSingleFileRestoreOriginalFacts = Readonly<{
+  version: 1; trashReceipt: PreparedSingleFileTrashReceipt;
+  destination: Readonly<{ kind: 'vacant'; directories: readonly DirectoryFact[] }>
+    | Readonly<{ kind: 'projection_absent' }>;
+}>;
+export type PreparedSingleFileRestoreReceipt = Readonly<{
+  version: 1; original: PreparedSingleFileRestoreOriginalFacts;
+  observation: Readonly<{ kind: 'restored'; method: 'rename'; identity: PreparedSingleFileTrashIdentity; sha256: string }>
+    | Readonly<{ kind: 'projection_absent' }>;
+}>;
+declare const restoreBrand: unique symbol;
+export type PreparedWorkspaceSingleFileRestore = Readonly<{ [restoreBrand]: true }>;
+export type PreparedWorkspaceSingleFileRestoreInput = Readonly<{
+  workspace: WorkspaceContext; dataRoot: string; receipt: PreparedSingleFileTrashReceipt;
+}>;
+export type RecoveredWorkspaceSingleFileRestoreInput = Readonly<{
+  workspace: WorkspaceContext; dataRoot: string; original: PreparedSingleFileRestoreOriginalFacts;
+}>;
+type PreparedFilesystemCapability = PreparedWorkspaceSingleFileTrash | PreparedWorkspaceSingleFileRestore;
+
 type ErrorCode = 'invalid-input' | 'invalid-lifetime' | 'reentrant-operation' | 'already-moved'
   | 'scope-changed' | 'unsafe-path' | 'source-changed' | 'destination-occupied'
   | 'unawaited-operation' | 'cross-device-move' | 'move-unconfirmed' | 'recovery-conflict' | 'disposal-unconfirmed';
@@ -54,13 +76,14 @@ type Stage = {
   input: { workspace: Scope; canonicalPath: string; trashEntryId: string; trashRelativePath: string;
     deletedAtMs: number; expiresAtMs: number; retentionDays: number };
   phase: 'preparing' | 'callback' | 'closing' | 'closed'; failure: Error | null;
+  kind: 'trash' | 'restore'; restoreFacts?: PreparedSingleFileRestoreOriginalFacts;
   handles: FileHandle[]; pins: Map<string, Pin>; configuredRoots: { configured: string; resolved: string }[];
   sourcePath: string; destinationPath: string; entryDirectory: string; entryPin?: Pin; ownsNewReservation: boolean;
   missingPath?: string; sourceHandle?: FileHandle; facts?: PreparedSingleFileTrashOriginalFacts;
-  recovery: 'none' | 'original_source' | 'already_moved' | 'projection_absent';
+  recovery: 'none' | 'original_source' | 'already_moved' | 'projection_absent' | 'restore_pending' | 'already_restored';
   moveStarted: boolean; moveCompleted: boolean; renameAttempted: boolean; pending: Promise<unknown> | null;
 };
-const stages = new WeakMap<PreparedWorkspaceSingleFileTrash, Stage>();
+const stages = new WeakMap<PreparedFilesystemCapability, Stage>();
 const currentStage = new AsyncLocalStorage<Stage>();
 const HASH_CHUNK_BYTES = 256 * 1024;
 const MAX_DEPTH = 128;
@@ -142,9 +165,9 @@ function assertInternal(stage: Stage): void {
   if (stage.failure) throw stage.failure;
   if (stage.phase !== 'callback') throw poison(stage, failure('invalid-lifetime', stage.renameAttempted));
 }
-function requireStage(prepared: PreparedWorkspaceSingleFileTrash): Stage {
+function requireStage(prepared: PreparedFilesystemCapability, kind: Stage['kind'] = 'trash'): Stage {
   const stage = stages.get(prepared);
-  if (!stage || currentStage.getStore() !== stage || stage.phase !== 'callback') {
+  if (!stage || currentStage.getStore() !== stage || stage.phase !== 'callback' || stage.kind !== kind) {
     throw poison(stage, failure('invalid-lifetime', stage?.renameAttempted));
   }
   if (stage.failure) throw stage.failure;
@@ -382,17 +405,18 @@ export function assertPreparedWorkspaceSingleFileTrashCurrent(prepared: Prepared
  * intent/recovery layer knows whether that reservation can be discarded safely.
  * Recovery uses a separate explicit entry. Neither entry opens/commits SQL or
  * claims authority. */
-async function runCaptured<T>(captured: Stage['input'], initialize: (stage: Stage) => Promise<void>,
-  operation: (prepared: PreparedWorkspaceSingleFileTrash) => Promise<T>): Promise<T> {
+async function runCaptured<T, Capability extends PreparedFilesystemCapability = PreparedWorkspaceSingleFileTrash>(
+  captured: Stage['input'], initialize: (stage: Stage) => Promise<void>,
+  operation: (prepared: Capability) => Promise<T>, kind: Stage['kind'] = 'trash'): Promise<T> {
   const active = currentStage.getStore();
   if (active) throw poison(active, failure('reentrant-operation', active.renameAttempted));
   if (typeof operation !== 'function') throw failure('invalid-input');
-  const stage: Stage = { input: captured, phase: 'preparing', failure: null, handles: [], pins: new Map(), configuredRoots: [],
+  const stage: Stage = { input: captured, phase: 'preparing', failure: null, kind, handles: [], pins: new Map(), configuredRoots: [],
     sourcePath: '', destinationPath: '', entryDirectory: '', ownsNewReservation: false, recovery: 'none', moveStarted: false, moveCompleted: false, renameAttempted: false, pending: null };
   let value: T | undefined; let exposed = false;
   try {
     await initialize(stage);
-    const cap = Object.freeze({}) as PreparedWorkspaceSingleFileTrash;
+    const cap = Object.freeze({}) as Capability;
     stages.set(cap, stage); stage.phase = 'callback'; exposed = true;
     await currentStage.run(stage, async () => {
       try { value = await operation(cap); } catch (error) { poison(stage, error); }
@@ -502,29 +526,18 @@ function captureRecovery(input: RecoveredWorkspaceSingleFileTrashInput): { captu
   return { captured, original: Object.freeze({ version: 1, ...captured, source, filesystem }) };
 }
 async function recover(stage: Stage, original: PreparedSingleFileTrashOriginalFacts): Promise<void> {
-  const root = await pinRoot(stage, stage.input.workspace.rootPath), dataRoot = await pinRoot(stage, stage.input.workspace.dataRoot);
+  const root = await pinRestoreRootsAndTrash(stage, original);
   const facts = original.filesystem;
-  if (root !== facts.workspaceRoot.resolvedPath || dataRoot !== facts.dataRoot.resolvedPath
-    || !sameNode(stage.pins.get(root)!.identity, facts.workspaceRoot.identity)
-    || !sameNode(stage.pins.get(dataRoot)!.identity, facts.dataRoot.identity)) throw failure('recovery-conflict');
   // Reopen only the historical chains. A newly present D2 is never adopted as
   // the original source or read for content, including a previously absent tree.
-  for (const [base, chain] of [[root, facts.sourceDirectories], [dataRoot, facts.trashDirectories]] as const) {
-    let parent = base;
-    for (const expected of chain) {
-      const child = path.join(parent, expected.segment), stat = await exactStat(child);
-      if (!stat?.isDirectory() || stat.isSymbolicLink()) throw failure('recovery-conflict');
-      const actual = await pinDirectory(stage, child);
-      if (!sameNode(actual.identity, expected.identity)) throw failure('recovery-conflict');
-      parent = child;
-    }
+  let parent = root;
+  for (const expected of facts.sourceDirectories) {
+    const child = path.join(parent, expected.segment), stat = await exactStat(child);
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) throw failure('recovery-conflict');
+    const actual = await pinDirectory(stage, child);
+    if (!sameNode(actual.identity, expected.identity)) throw failure('recovery-conflict');
+    parent = child;
   }
-  stage.sourcePath = path.join(root, stage.input.canonicalPath);
-  stage.destinationPath = absoluteDataPath(stage.input.trashRelativePath, dataRoot);
-  stage.entryDirectory = path.dirname(stage.destinationPath); stage.entryPin = stage.pins.get(stage.entryDirectory);
-  if (!stage.entryPin || (stage.entryPin.identity.mode & 0o077) !== 0
-    || typeof process.getuid === 'function' && stage.entryPin.identity.uid !== process.getuid()) throw failure('recovery-conflict');
-  stage.facts = original;
   if (original.source.kind === 'projection_absent') {
     stage.recovery = 'projection_absent'; await verifyDirectories(stage); await verifyEntryContents(stage, false); return;
   }
@@ -550,5 +563,217 @@ export async function withRecoveredWorkspaceSingleFileTrash<T>(input: RecoveredW
   try {
     const { captured, original } = captureRecovery(input);
     return await runCaptured(captured, stage => recover(stage, original), operation);
+  } catch (error) { throw poison(currentStage.getStore(), error); }
+}
+
+function captureRestoreInput(input: PreparedWorkspaceSingleFileRestoreInput): {
+  captured: Stage['input']; receipt: PreparedSingleFileTrashReceipt;
+} {
+  const raw = record(dataProperty(input, 'receipt'), ['version', 'original', 'observation']);
+  const { captured, original } = captureRecovery({ workspace: dataProperty(input, 'workspace') as WorkspaceContext,
+    dataRoot: dataProperty(input, 'dataRoot') as string, original: raw.original as PreparedSingleFileTrashOriginalFacts });
+  if (raw.version !== 1) throw failure('invalid-input');
+  let observation: PreparedSingleFileTrashReceipt['observation'];
+  if (original.source.kind === 'projection_absent') {
+    const observed = record(raw.observation, ['kind']);
+    if (observed.kind !== 'projection_absent') throw failure('invalid-input');
+    observation = Object.freeze({ kind: 'projection_absent' });
+  } else {
+    const observed = record(raw.observation, ['kind', 'method', 'identity', 'sha256']);
+    const observedIdentity = captureIdentity(observed.identity);
+    if (observed.kind !== 'moved' || observed.method !== 'rename' || observed.sha256 !== original.source.sha256
+      || !sameFile(observedIdentity, original.source.identity, true)) throw failure('invalid-input');
+    observation = Object.freeze({ kind: 'moved', method: 'rename', identity: observedIdentity, sha256: original.source.sha256 });
+  }
+  return { captured, receipt: Object.freeze({ version: 1, original, observation }) };
+}
+
+function captureRestoreRecovery(input: RecoveredWorkspaceSingleFileRestoreInput): {
+  captured: Stage['input']; original: PreparedSingleFileRestoreOriginalFacts;
+} {
+  const raw = record(dataProperty(input, 'original'), ['version', 'trashReceipt', 'destination']);
+  const { captured, receipt } = captureRestoreInput({ workspace: dataProperty(input, 'workspace') as WorkspaceContext,
+    dataRoot: dataProperty(input, 'dataRoot') as string, receipt: raw.trashReceipt as PreparedSingleFileTrashReceipt });
+  if (raw.version !== 1) throw failure('invalid-input');
+  let destination: PreparedSingleFileRestoreOriginalFacts['destination'];
+  if (receipt.observation.kind === 'projection_absent') {
+    if (record(raw.destination, ['kind']).kind !== 'projection_absent') throw failure('invalid-input');
+    destination = Object.freeze({ kind: 'projection_absent' });
+  } else {
+    const target = record(raw.destination, ['kind', 'directories']), directories = captureDirectories(target.directories);
+    const expected = captured.canonicalPath.split('/').slice(0, -1);
+    if (target.kind !== 'vacant' || directories.length !== expected.length
+      || directories.some((directory, index) => directory.segment !== expected[index])) throw failure('invalid-input');
+    destination = Object.freeze({ kind: 'vacant', directories });
+  }
+  return { captured, original: Object.freeze({ version: 1, trashReceipt: receipt, destination }) };
+}
+
+async function pinRestoreRootsAndTrash(stage: Stage, original: PreparedSingleFileTrashOriginalFacts): Promise<string> {
+  const root = await pinRoot(stage, stage.input.workspace.rootPath), dataRoot = await pinRoot(stage, stage.input.workspace.dataRoot);
+  const facts = original.filesystem;
+  if (root !== facts.workspaceRoot.resolvedPath || dataRoot !== facts.dataRoot.resolvedPath
+    || !sameNode(stage.pins.get(root)!.identity, facts.workspaceRoot.identity)
+    || !sameNode(stage.pins.get(dataRoot)!.identity, facts.dataRoot.identity)) throw failure('recovery-conflict');
+  let parent = dataRoot;
+  for (const expected of facts.trashDirectories) {
+    const child = path.join(parent, expected.segment), stat = await exactStat(child);
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) throw failure('recovery-conflict');
+    const actual = await pinDirectory(stage, child);
+    if (!sameNode(actual.identity, expected.identity)) throw failure('recovery-conflict');
+    parent = child;
+  }
+  stage.sourcePath = path.join(root, stage.input.canonicalPath);
+  stage.destinationPath = absoluteDataPath(stage.input.trashRelativePath, dataRoot);
+  stage.entryDirectory = path.dirname(stage.destinationPath); stage.entryPin = stage.pins.get(stage.entryDirectory);
+  if (!stage.entryPin || (stage.entryPin.identity.mode & 0o077) !== 0
+    || typeof process.getuid === 'function' && stage.entryPin.identity.uid !== process.getuid()) throw failure('recovery-conflict');
+  stage.facts = original;
+  return root;
+}
+
+async function pinRestoreDestination(stage: Stage, root: string, expected?: readonly DirectoryFact[]): Promise<readonly DirectoryFact[]> {
+  let parent = root; const directories: DirectoryFact[] = [];
+  for (const [index, segment] of stage.input.canonicalPath.split('/').slice(0, -1).entries()) {
+    const child = path.join(parent, segment), stat = await exactStat(child);
+    if (!stat?.isDirectory() || stat.isSymbolicLink()) throw failure('recovery-conflict');
+    const actual = await pinDirectory(stage, child);
+    if (expected && !sameNode(actual.identity, expected[index].identity)) throw failure('recovery-conflict');
+    directories.push(Object.freeze({ segment, identity: actual.identity })); parent = child;
+  }
+  return Object.freeze(directories);
+}
+
+async function openRestorePayload(stage: Stage, restored: boolean): Promise<void> {
+  const observed = stage.restoreFacts!.trashReceipt.observation;
+  if (observed.kind !== 'moved') throw failure('recovery-conflict');
+  const target = restored ? stage.sourcePath : stage.destinationPath, named = await exactStat(target);
+  if (!named?.isFile() || named.isSymbolicLink() || named.nlink !== 1
+    || !sameFile(identity(named), observed.identity, restored)) throw failure('recovery-conflict');
+  const handle = await fs.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  stage.handles.push(handle); stage.sourceHandle = handle;
+  if (await hashFile(handle, observed.identity, restored) !== observed.sha256) throw failure('recovery-conflict');
+}
+
+async function verifyRestore(stage: Stage, restored: boolean): Promise<void> {
+  await verifyDirectories(stage);
+  const observed = stage.restoreFacts!.trashReceipt.observation;
+  if (observed.kind === 'projection_absent') {
+    // Historical absence is not permission to inspect or overwrite a new D2.
+    await verifyEntryContents(stage, false); return;
+  }
+  await verifyEntryContents(stage, !restored);
+  const target = restored ? stage.sourcePath : stage.destinationPath;
+  const named = await exactStat(target);
+  if (!named?.isFile() || named.isSymbolicLink() || named.nlink !== 1
+    || !sameFile(identity(named), observed.identity, restored)
+    || await hashFile(stage.sourceHandle!, observed.identity, restored) !== observed.sha256) throw failure('source-changed', stage.renameAttempted);
+  await verifyDirectories(stage);
+  const final = await exactStat(target);
+  if (!final?.isFile() || !sameFile(identity(final), observed.identity, restored)) throw failure('source-changed', stage.renameAttempted);
+  // Last asynchronous check before rename is the exact destination vacancy.
+  if (await exactStat(restored ? stage.destinationPath : stage.sourcePath)) throw failure('destination-occupied', stage.renameAttempted);
+}
+
+async function prepareRestore(stage: Stage, receipt: PreparedSingleFileTrashReceipt): Promise<void> {
+  const root = await pinRestoreRootsAndTrash(stage, receipt.original);
+  const destination = receipt.observation.kind === 'projection_absent' ? Object.freeze({ kind: 'projection_absent' as const })
+    : Object.freeze({ kind: 'vacant' as const, directories: await pinRestoreDestination(stage, root) });
+  stage.restoreFacts = Object.freeze({ version: 1, trashReceipt: receipt, destination });
+  if (receipt.observation.kind === 'moved') await openRestorePayload(stage, false);
+  stage.recovery = 'restore_pending'; await verifyRestore(stage, false);
+}
+
+async function recoverRestore(stage: Stage, original: PreparedSingleFileRestoreOriginalFacts): Promise<void> {
+  const root = await pinRestoreRootsAndTrash(stage, original.trashReceipt.original);
+  stage.restoreFacts = original;
+  if (original.destination.kind === 'projection_absent') {
+    stage.recovery = 'projection_absent'; await verifyRestore(stage, false); return;
+  }
+  await pinRestoreDestination(stage, root, original.destination.directories);
+  const observed = original.trashReceipt.observation;
+  if (observed.kind !== 'moved') throw failure('recovery-conflict');
+  const source = await exactStat(stage.sourcePath), trash = await exactStat(stage.destinationPath);
+  const restored = !!source && source.dev === observed.identity.device && source.ino === observed.identity.inode;
+  if (source ? !restored || !!trash : !trash) throw failure('recovery-conflict');
+  await openRestorePayload(stage, restored);
+  stage.recovery = restored ? 'already_restored' : 'restore_pending'; await verifyRestore(stage, restored);
+}
+
+/** Caller must persist these NEW destination-parent facts in its immutable Undo
+ * intent before restore. This capability carries no authorization or SQL proof. */
+export function readPreparedWorkspaceSingleFileRestore(prepared: PreparedWorkspaceSingleFileRestore): PreparedSingleFileRestoreOriginalFacts {
+  return requireStage(prepared, 'restore').restoreFacts!;
+}
+
+/** Exactly one reverse rename under the caller's genuine exclusive lifecycle
+ * fence. Portable Node rename has no NOREPLACE: freshness plus that cooperative
+ * writer fence is required; this is not a fence against uncooperative host I/O. */
+export function restorePreparedWorkspaceSingleFileTrash(prepared: PreparedWorkspaceSingleFileRestore): Promise<PreparedSingleFileRestoreReceipt> {
+  let stage: Stage;
+  try {
+    stage = requireStage(prepared, 'restore');
+    if (stage.moveStarted) throw poison(stage, failure(stage.pending ? 'reentrant-operation' : 'already-moved', stage.renameAttempted));
+    stage.moveStarted = true;
+  } catch (error) { return Promise.reject(error); }
+  const operation = (async (): Promise<PreparedSingleFileRestoreReceipt> => {
+    try {
+      const original = stage.restoreFacts!, observed = original.trashReceipt.observation;
+      const restored = stage.recovery === 'already_restored';
+      await verifyRestore(stage, restored); assertInternal(stage);
+      if (observed.kind === 'projection_absent') {
+        stage.moveCompleted = true;
+        return Object.freeze({ version: 1, original, observation: Object.freeze({ kind: 'projection_absent' }) });
+      }
+      if (!restored) {
+        try { stage.renameAttempted = true; await fs.rename(stage.destinationPath, stage.sourcePath); }
+        catch (error) {
+          const crossDevice = !!error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV';
+          throw failure(crossDevice ? 'cross-device-move' : 'move-unconfirmed', true, error);
+        }
+      }
+      await verifyRestore(stage, true); assertInternal(stage);
+      const after = await observedMovedIdentity(stage, observed.identity); stage.moveCompleted = true;
+      return Object.freeze({ version: 1, original, observation: Object.freeze({ kind: 'restored', method: 'rename', identity: after, sha256: observed.sha256 }) });
+    } catch (error) {
+      const observed = stage.renameAttempted && (!(error instanceof PreparedSingleFileTrashError) || !error.moveAttempted)
+        ? failure(error instanceof PreparedSingleFileTrashError ? error.code : 'move-unconfirmed', true, error) : error;
+      throw poison(stage, observed);
+    }
+  })();
+  return trackPending(stage, operation);
+}
+
+/** Rejection-only post-restore check; never writes or adopts a current D2. */
+export function assertPreparedWorkspaceSingleFileRestoreCurrent(prepared: PreparedWorkspaceSingleFileRestore): Promise<void> {
+  let stage: Stage;
+  try {
+    stage = requireStage(prepared, 'restore');
+    if (stage.pending) throw poison(stage, failure('reentrant-operation', stage.renameAttempted));
+    if (!stage.moveCompleted) throw poison(stage, failure('invalid-lifetime', stage.renameAttempted));
+  } catch (error) { return Promise.reject(error); }
+  const operation = (async () => {
+    try { await verifyRestore(stage, true); assertInternal(stage); }
+    catch (error) { throw poison(stage, error); }
+  })();
+  return trackPending(stage, operation);
+}
+
+export async function withPreparedWorkspaceSingleFileRestore<T>(input: PreparedWorkspaceSingleFileRestoreInput,
+  operation: (prepared: PreparedWorkspaceSingleFileRestore) => Promise<T>): Promise<T> {
+  try {
+    const { captured, receipt } = captureRestoreInput(input);
+    return await runCaptured<T, PreparedWorkspaceSingleFileRestore>(captured, stage => prepareRestore(stage, receipt), operation, 'restore');
+  } catch (error) { throw poison(currentStage.getStore(), error); }
+}
+
+/** Resume only the exact pre-rename Undo facts from the caller's durable intent.
+ * Original payload at the restored target with empty trash is a verified no-op;
+ * replacement D2, missing/both payload locations or changed parent pins reject. */
+export async function withRecoveredWorkspaceSingleFileRestore<T>(input: RecoveredWorkspaceSingleFileRestoreInput,
+  operation: (prepared: PreparedWorkspaceSingleFileRestore) => Promise<T>): Promise<T> {
+  try {
+    const { captured, original } = captureRestoreRecovery(input);
+    return await runCaptured<T, PreparedWorkspaceSingleFileRestore>(captured, stage => recoverRestore(stage, original), operation, 'restore');
   } catch (error) { throw poison(currentStage.getStore(), error); }
 }

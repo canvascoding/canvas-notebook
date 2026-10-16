@@ -915,12 +915,12 @@ async function currentJob(phase: Phase): Promise<WorkspaceContext> {
 function captureJobRequest(claim: WorkspaceOperationBatchClaim, binding: WorkspaceOperationBatchClaimBinding,
   policy: JobPolicyCapture): JobUserCapture | JobAgentCapture {
   const authorization = binding.authorization;
-  if (binding.actionMode !== 'apply' || authorization.mode !== 'direct' || !authorization.jobScope
+  if (!['apply','undo'].includes(binding.actionMode) || authorization.mode !== 'direct' || !authorization.jobScope
     || authorization.jobScope.legacy || authorization.jobScope.workspaceId !== binding.workspaceId
     || typeof authorization.jobScope.rootRelativePath !== 'string'
     || !id(authorization.actorUserId) || !id(authorization.actorId)
     || authorization.actorType !== 'user' && authorization.actorType !== 'agent'
-    || authorization.actorType === 'agent' && !id(authorization.actorSessionId)) fail('PRINCIPAL_INVALID');
+    || binding.actionMode === 'apply' && authorization.actorType === 'agent' && !id(authorization.actorSessionId)) fail('PRINCIPAL_INVALID');
   if (binding.source.databaseOid !== policy.database || binding.source.schemaName !== policy.schema
     || binding.source.schemaOid !== policy.schemaOid || binding.source.searchPath !== policy.searchPath) fail('PRINCIPAL_SCOPE_CHANGED');
   let resolved: WorkspaceContext | undefined;
@@ -931,7 +931,10 @@ function captureJobRequest(claim: WorkspaceOperationBatchClaim, binding: Workspa
     get workspace() { if (!resolved) fail('PRINCIPAL_REQUIRED'); return resolved; },
     initializeWorkspace(workspace) { if (resolved) fail('PRINCIPAL_REENTRANT'); resolved = workspace; },
   };
-  if (authorization.actorType === 'user') return Object.assign(base,{ kind: 'job_user' as const });
+  // A durable Undo is a fresh human request by the original initiating user.
+  // Keep the original Agent actor in the immutable Delete intent, but never
+  // borrow that Agent's old PI session or ACL as authority for human Undo.
+  if (binding.actionMode === 'undo' || authorization.actorType === 'user') return Object.assign(base,{ kind: 'job_user' as const });
   const jobScope = authorization.jobScope;
   const origin: AgentWorkspaceOrigin = Object.freeze({ userId: authorization.actorUserId,sessionId: authorization.actorSessionId!,
     workspaceId: jobScope.workspaceId,workspaceType: jobScope.workspaceType,organizationId: jobScope.organizationId,
@@ -950,7 +953,7 @@ function captureJobRequest(claim: WorkspaceOperationBatchClaim, binding: Workspa
   }) as JobAgentCapture;
 }
 
-/** Fixed durable direct-apply authority only. The caller owns the genuine
+/** Fixed durable direct Apply/Undo authority. The caller owns the genuine
  * lifecycle owner-B, BEGIN RC/RW, rollback, narrow SQL, COMMIT and recovery.
  * Drain heartbeats before B: its borrowed claim holds the exact job row SHARE.
  * A policy is consumed once; acquire fresh policy outside each subsequent TX. */
@@ -982,7 +985,9 @@ export function withWorkspaceOperationJobPolicyOnConnection<T>(database: SqlConn
     (workspace, assertCurrent) => {
       const authorization = captured.binding.authorization;
       if (authorization.mode !== 'direct') fail('PRINCIPAL_REQUIRED');
-      return Object.freeze({ workspace,userId: captured.userId,actorType: authorization.actorType,actorId: authorization.actorId,
+      return Object.freeze({ workspace,userId: captured.userId,
+        actorType: captured.kind === 'job_agent' ? 'agent' as const : 'user' as const,
+        actorId: captured.kind === 'job_agent' ? captured.agentId : captured.userId,
         ...(captured.kind === 'job_agent' ? { piSessionId: captured.origin.sessionId } : {}),
         batchId: captured.binding.batchId,planId: captured.binding.planId,assertCurrent });
     },operation).catch(error => {

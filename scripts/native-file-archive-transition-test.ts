@@ -9,7 +9,9 @@ import { isCollaborationStateQuarantined, COLLABORATION_FAILURE_CODES } from '..
 import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions,
   validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { NativeFileArchiveTransitionError, prepareNativeFileArchiveTransition,
-  type NativeFileArchiveExpected, type NativeFileArchiveTransition } from '../app/lib/collaboration/native-file-archive-transition';
+  NativeFileRestoreTransitionError, prepareNativeFileRestoreTransition, captureNativeFileArchiveRestoreData,
+  type NativeFileArchiveExpected, type NativeFileArchiveTransition,
+  type NativeFileRestoreTransition } from '../app/lib/collaboration/native-file-archive-transition';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { Y } from '../app/lib/collaboration/server-runtime';
 import { COLLABORATION_SCHEMA_VERSION } from '../app/lib/collaboration/types';
@@ -264,3 +266,183 @@ for (const variant of ['plain-root','xml-node','xml-mark','block-attribute','blo
     } finally { doc.destroy(); }
   });
 }
+
+function restoredState(state: PersistedCollaborationState, transition: NativeFileRestoreTransition): PersistedCollaborationState {
+  return { ...state,status: transition.writes.state.status,lifecycleGeneration: transition.writes.state.lifecycleGeneration,
+    checkpointSequence: transition.writes.state.checkpointSequence,checkpointedAt: transition.writes.state.checkpointedAt,
+    canonicalHash: transition.writes.state.canonicalHash,serializedHash: transition.writes.state.serializedHash,
+    degraded: transition.writes.state.degraded,projectionFinalized: transition.writes.projection.finalized };
+}
+
+for (const representation of ['plain_text','tiptap_xml','tiptap_blocks'] as const) {
+  for (const empty of [false,true]) test(`${representation}: ${empty ? 'empty sequence-zero' : 'nonempty'} original restore preserves native history at G+2`, () => {
+    const text = empty ? '' : 'Original **marked** text.\n\n- Keep\n\n> [!note] Note\n> Keep';
+    const doc = representation === 'plain_text' ? createPlainTextYDoc(text) : createRichMarkdownYDoc(text,representation);
+    try {
+      const active = { ...stateFor(doc,representation),...(empty ? { documentSequence: 0,checkpointSequence: 0,checkpointedAt: null } : {}) };
+      const expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection),
+        state = archivedState(active,archive), before = structuredClone(state), receiptBefore = structuredClone(archive);
+      const result = prepareNativeFileRestoreTransition(state,expected,archive,{ trashEntryId: selection.trashEntryId,restoredAt: 400 });
+      assert.deepEqual(state,before); assert.deepEqual(archive,receiptBefore);
+      assert.equal(result.before.status,'archived'); assert.equal(result.before.identity.lifecycleGeneration,5);
+      assert.equal(result.after.status,'active'); assert.equal(result.after.identity.lifecycleGeneration,6);
+      assert.equal(result.archive.originalIdentity.lifecycleGeneration,4); assert.equal(result.archive.trashEntryId,selection.trashEntryId);
+      assert.deepEqual(result.before.clock,result.after.clock); assert.deepEqual(result.after.clock,archive.before.clock);
+      assert.equal(result.cas.state.documentId,expected.documentId); assert.equal(result.cas.registry.lineageId,expected.lineageId);
+      assert.equal(result.cas.state.status,'archived'); assert.equal(result.cas.state.lifecycleGeneration,5);
+      assert.equal(result.cas.lineage.trashEntryId,selection.trashEntryId);
+      assert.deepEqual(result.writes.lineage,{ status: 'active',archivedAt: null,trashEntryId: null });
+      assert.equal(result.writes.registry.stateVersion,0); assert.equal(result.writes.registry.snapshotRevisionId,null);
+      assert.deepEqual(result.byteProfile,{ newlineStyle: 'crlf',hasBom: true });
+      assert.deepEqual(result.writes.projection,{ documentId: expected.documentId,lifecycleGeneration: 6,
+        projectedSequence: active.documentSequence,revisionId: null,canonicalHash: null,serializedHash: null,finalized: false,updatedAt: 400 });
+      const restored = restoredState(state,result), snapshot = authoritativeNativeCollaborationSnapshot(restored);
+      assert.equal(restored.yjsState,state.yjsState); assert.equal(restored.stateVector,state.stateVector);
+      assert.equal(snapshot.version.stateProof,expected.stateProof); assert.equal(snapshot.version.documentSequence,active.documentSequence);
+      assert.equal(snapshot.version.persistedAt,active.persistedAt);
+      assert.deepEqual(snapshot.content,authoritativeNativeCollaborationSnapshot(active).content);
+      assert.equal(isCollaborationStateQuarantined(restored),false); assert.equal(restored.projectionFinalized,false);
+      assertFrozen(result); assert.deepEqual(JSON.parse(JSON.stringify(result)),result);
+      assert.deepEqual(prepareNativeFileRestoreTransition(state,expected,archive,{ trashEntryId: selection.trashEntryId,restoredAt: 400 }),result);
+    } finally { doc.destroy(); }
+  });
+}
+
+test('native-only table widths restore without Markdown serialization or new native identity', () => {
+  const doc = createRichMarkdownYDoc('| Keep |\n| --- |\n| Value |','tiptap_blocks');
+  try {
+    const tree = new CollaborationBlockTree(doc,getSchema(richMarkdownSchemaExtensions()));
+    for (const record of tree.records.values()) if (['tableCell','tableHeader'].includes((record.get('shape') as { type: string }).type)) {
+      (record.get('attributes') as InstanceType<typeof Y.Map>).set('colwidth',[120]);
+    }
+    assert.equal(validateRichMarkdownYDoc(doc).code,'roundtrip_unstable');
+    const active = stateFor(doc,'tiptap_blocks'), expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection);
+    const state = archivedState(active,archive), result = prepareNativeFileRestoreTransition(state,expected,archive,
+      { trashEntryId: selection.trashEntryId,restoredAt: 400 });
+    const restored = restoredState(state,result);
+    assert.match(JSON.stringify(authoritativeNativeCollaborationSnapshot(restored).content),/"colwidth":\[120\]/u);
+    assert.equal(digest(restored.yjsState),expected.binaryHash); assert.equal(digest(restored.stateVector),expected.vectorHash);
+  } finally { doc.destroy(); }
+});
+
+test('metadata-only empty XML and old classified diagnostics remain exact without resurrecting failure', () => {
+  const doc = createRichMarkdownYDoc('---\ntitle: Only metadata\n---\n','tiptap_xml');
+  try {
+    const active = stateFor(doc,'tiptap_xml'), expected = expectedFor(active);
+    active.degraded = true; active.projectionError = { code: COLLABORATION_FAILURE_CODES.persistenceFailed,
+      sequence: active.documentSequence,permanent: false,phase: 'persist' };
+    const archive = prepareNativeFileArchiveTransition(active,expected,selection), state = archivedState(active,archive);
+    const result = prepareNativeFileRestoreTransition(state,expected,archive,{ trashEntryId: selection.trashEntryId,restoredAt: 400 });
+    assert.equal(result.writes.state.degraded,false); assert.equal(result.writes.state.projectionError,null);
+    assert.equal(result.projectionDisposition,'reset_derived_status_for_new_restore_generation');
+    const snapshot = authoritativeNativeCollaborationSnapshot(restoredState(state,result));
+    assert.deepEqual(snapshot.content,authoritativeNativeCollaborationSnapshot(active).content);
+    assert.equal(snapshot.version.stateProof,expected.stateProof); assert.equal(result.byteProfile.hasBom,true);
+    assert.equal(archive.before.diagnostics.degraded,true); assert.deepEqual(archive.before.diagnostics.projectionError,active.projectionError);
+  } finally { doc.destroy(); }
+});
+
+test('restore rejects replacement identity, wrong archive generation, changed bytes/clocks and derived/quarantine metadata', () => {
+  const doc = createPlainTextYDoc('Original');
+  try {
+    const active = stateFor(doc,'plain_text'), expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection),
+      state = archivedState(active,archive), restore = { trashEntryId: selection.trashEntryId,restoredAt: 400 };
+    for (const change of [{ documentId: 'D2' },{ workspaceId: 'foreign' },{ organizationId: 'foreign' },{ path: 'other.md' },
+      { representation: 'tiptap_xml' },{ schemaVersion: 2 },{ lifecycleGeneration: 4 },{ lifecycleGeneration: 6 },{ status: 'active' },
+      { documentSequence: 8 },{ persistedAt: 101 },{ yjsState: new Uint8Array([0,0]) },{ stateVector: new Uint8Array([0]) },
+      { newlineStyle: 'lf' },{ hasBom: false },{ checkpointSequence: 1 },{ checkpointedAt: 300 },{ canonicalHash: 'a'.repeat(64) },
+      { serializedHash: 'b'.repeat(64) },{ projectionFinalized: true },{ degraded: true },
+      { projectionError: { code: 'failure',sequence: 7,permanent: false } },
+      { projectionError: { code: 'failure',sequence: 7,permanent: true } }]) {
+      const candidate = { ...state,...change } as PersistedCollaborationState, before = structuredClone(candidate);
+      assert.throws(() => prepareNativeFileRestoreTransition(candidate,expected,archive,restore));
+      assert.deepEqual(candidate,before);
+    }
+    for (const change of [{ lineageId: 'L2' },{ registryStateVersion: 5 },{ binaryHash: '0'.repeat(64) },
+      { vectorHash: '0'.repeat(64) },{ stateProof: `yjs-snapshot-sha256-v1:${'0'.repeat(64)}` }]) {
+      assert.throws(() => prepareNativeFileRestoreTransition(state,{ ...expected,...change },archive,restore),/SOURCE_CHANGED/u);
+    }
+    for (const change of [{ hasBom: '0' },{ degraded: '0' },{ projectionFinalized: '0' }]) {
+      assert.throws(() => prepareNativeFileRestoreTransition({ ...state,...change } as unknown as PersistedCollaborationState,expected,archive,restore),/INVALID/u);
+    }
+    assert.throws(() => prepareNativeFileRestoreTransition(state,expected,archive,{ ...restore,trashEntryId: 'another-trash' }),/SOURCE_CHANGED/u);
+    assert.throws(() => prepareNativeFileRestoreTransition(state,expected,archive,{ ...restore,restoredAt: 299 }),/INVALID/u);
+    assert.throws(() => prepareNativeFileRestoreTransition(state,{ ...expected,lifecycleGeneration: Number.MAX_SAFE_INTEGER-2 },archive,restore),/INVALID/u);
+    assert.throws(() => prepareNativeFileRestoreTransition({ ...state,yjsState: new Uint8Array(16*1024*1024+1) },expected,archive,restore),/TOO_LARGE/u);
+    assert.throws(() => prepareNativeFileRestoreTransition({ ...state,stateVector: new Uint8Array(1024*1024+1) },expected,archive,restore),/TOO_LARGE/u);
+  } finally { doc.destroy(); }
+});
+
+test('restore validates the entire archive recipe and captures bounded DATA without accessors or mutable aliases', () => {
+  const doc = createPlainTextYDoc('Original');
+  try {
+    const active = stateFor(doc,'plain_text'), expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection),
+      state = archivedState(active,archive), restore = { trashEntryId: selection.trashEntryId,restoredAt: 400 };
+    for (const mutate of [
+      (copy: NativeFileArchiveTransition) => { (copy.after.identity as { documentId: string }).documentId = 'D2'; },
+      (copy: NativeFileArchiveTransition) => { (copy.before.clock as { persistedAt: number }).persistedAt++; },
+      (copy: NativeFileArchiveTransition) => { (copy.cas.lineage as { lineageId: string }).lineageId = 'L2'; },
+      (copy: NativeFileArchiveTransition) => { (copy.writes.state as { lifecycleGeneration: number }).lifecycleGeneration++; },
+      (copy: NativeFileArchiveTransition) => { (copy.writes.projection as { finalized: boolean }).finalized = true; },
+      (copy: NativeFileArchiveTransition) => { (copy.before.diagnostics as { degraded: boolean }).degraded = true; },
+      (copy: NativeFileArchiveTransition) => { Object.assign(copy,{ unrecognized: 'future' }); },
+    ]) {
+      const copy = structuredClone(archive); mutate(copy);
+      assert.throws(() => prepareNativeFileRestoreTransition(state,expected,copy,restore),/INVALID|SOURCE_CHANGED/u);
+    }
+    let getters = 0; const accessor = { ...archive };
+    Object.defineProperty(accessor,'before',{ enumerable: true,get() { getters++; return archive.before; } });
+    assert.throws(() => prepareNativeFileRestoreTransition(state,expected,accessor,restore),/INVALID/u); assert.equal(getters,0);
+    const copied = captureNativeFileArchiveRestoreData(structuredClone(archive)); assertFrozen(copied);
+    assert.notEqual(copied,archive); assert.notEqual(copied.before,archive.before);
+    assert.deepEqual(copied,archive);
+    const cyclic: Record<string,unknown> = {}; cyclic.self = cyclic;
+    assert.throws(() => captureNativeFileArchiveRestoreData(cyclic),/INVALID/u);
+    assert.throws(() => captureNativeFileArchiveRestoreData({ huge: 'x'.repeat(8193) }),/INVALID/u);
+    assert.throws(() => prepareNativeFileRestoreTransition(state,expected,archive,{ ...restore,extra: true } as typeof restore),
+      error => error instanceof NativeFileRestoreTransitionError && error.code === 'NATIVE_FILE_RESTORE_INVALID');
+  } finally { doc.destroy(); }
+});
+
+// Deliberately synthetic, structurally matching receipts isolate native decoder
+// checks; these test values do not claim a real immutable SQL receipt/authority.
+function recipeWithClock(archive: NativeFileArchiveTransition, expected: NativeFileArchiveExpected): NativeFileArchiveTransition {
+  const clock = { documentSequence: expected.documentSequence,persistedAt: expected.persistedAt,stateProof: expected.stateProof,
+    binaryHash: expected.binaryHash,vectorHash: expected.vectorHash };
+  return { ...archive,before: { ...archive.before,clock },after: { ...archive.after,clock },
+    cas: { ...archive.cas,state: { ...archive.cas.state,...clock } } };
+}
+
+test('restore deletion-sensitive proof rejects deletion with unchanged vector and freshly matching binary hash', () => {
+  const doc = createPlainTextYDoc('Original body');
+  try {
+    const active = stateFor(doc,'plain_text'), expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection);
+    doc.getText('content').delete(0,1);
+    const yjsState = Y.encodeStateAsUpdate(doc), stateVector = Y.encodeStateVector(doc);
+    assert.equal(digest(stateVector),expected.vectorHash);
+    const changed = { ...expected,binaryHash: digest(yjsState) }, state = { ...archivedState(active,archive),yjsState,stateVector };
+    assert.throws(() => prepareNativeFileRestoreTransition(state,changed,recipeWithClock(archive,changed),
+      { trashEntryId: selection.trashEntryId,restoredAt: 400 }),/SOURCE_CHANGED/u);
+  } finally { doc.destroy(); }
+});
+
+test('restore inspects actual archived schema and binary completeness after matching recipe hashes', () => {
+  const doc = createRichMarkdownYDoc('Original','tiptap_xml');
+  try {
+    const active = stateFor(doc,'tiptap_xml'), expected = expectedFor(active), archive = prepareNativeFileArchiveTransition(active,expected,selection);
+    (doc.getXmlFragment('body').toArray()[0] as InstanceType<typeof Y.XmlElement>).setAttribute('futureAttr','future-value');
+    const unknownState = stateFor(doc,'tiptap_xml'), unknownExpected = expectedFor(unknownState);
+    const unknown = { ...archivedState(active,archive),yjsState: unknownState.yjsState,stateVector: unknownState.stateVector };
+    assert.throws(() => prepareNativeFileRestoreTransition(unknown,unknownExpected,recipeWithClock(archive,unknownExpected),
+      { trashEntryId: selection.trashEntryId,restoredAt: 400 }),/unsupported schema|schema_invalid/u);
+    const state = archivedState(active,archive);
+    const suffix = Uint8Array.from([...state.yjsState,0]), badVector = new Uint8Array([0]);
+    for (const [candidate,changed,pattern] of [
+      [{ ...state,yjsState: suffix },{ ...expected,binaryHash: digest(suffix) },/trailing/u],
+      [{ ...state,stateVector: badVector },{ ...expected,vectorHash: digest(badVector) },/vector/u],
+    ] as const) {
+      assert.throws(() => prepareNativeFileRestoreTransition(candidate,changed,recipeWithClock(archive,changed),
+        { trashEntryId: selection.trashEntryId,restoredAt: 400 }),pattern);
+    }
+  } finally { doc.destroy(); }
+});

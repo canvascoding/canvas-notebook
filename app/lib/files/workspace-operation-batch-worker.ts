@@ -8,6 +8,7 @@ import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
+import { withWorkspaceOperationJobClaimScheduling } from './workspace-operation-job-phase-scheduling';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
   hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
@@ -105,14 +106,17 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
         if (!batch) return false;
         const currentBatch = batch;
         await store.withClaim(currentBatch, async (jobClaim) => {
-          renewalsOpen = true;
-          timer = setInterval(() => {
-            if (!renewalsOpen || renewal) return;
-            const pending = store.heartbeatClaim(currentBatch).then((owned) => { if (!owned) leaseLost = true; })
-              .catch(() => { leaseLost = true; }).finally(() => { if (renewal === pending) renewal = undefined; });
-            renewal = pending;
-          }, 20_000);
-          timer.unref?.();
+          const startRenewals = () => {
+            renewalsOpen = true;
+            timer = setInterval(() => {
+              if (!renewalsOpen || renewal) return;
+              const pending = store.heartbeatClaim(currentBatch).then((owned) => { if (!owned) leaseLost = true; })
+                .catch(() => { leaseLost = true; }).finally(() => { if (renewal === pending) renewal = undefined; });
+              renewal = pending;
+            }, 20_000);
+            timer.unref?.();
+          };
+          startRenewals();
           const finish = async (input: Parameters<WorkspaceOperationBatchStore['finishClaim']>[1]) => {
             await stopRenewals();
             if (leaseLost) throw new Error('BATCH_LEASE_LOST');
@@ -154,13 +158,22 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
               const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
                 : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
-              const result = currentBatch.actionMode === 'undo'
-                ? await undo({ batchId: currentBatch.batchId, scope, actorUserId,
+              const result = await withWorkspaceOperationJobClaimScheduling(jobClaim, {
+                pauseAndDrain: async () => {
+                  await stopRenewals();
+                  if (leaseLost) throw new Error('BATCH_LEASE_LOST');
+                },
+                resume: async () => {
+                  if (leaseLost || !await store.heartbeatClaim(currentBatch)) throw new Error('BATCH_LEASE_LOST');
+                  startRenewals();
+                },
+              }, () => currentBatch.actionMode === 'undo'
+                ? undo({ batchId: currentBatch.batchId, scope, actorUserId,
                   actorDisplayName, actorId: actorUserId, actorType: 'user', jobClaim, onProgress: gate })
-                : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
+                : execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
                   actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
                   actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
-                  jobClaim, onProgress: gate });
+                  jobClaim, onProgress: gate }));
               const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
                 && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
               const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
