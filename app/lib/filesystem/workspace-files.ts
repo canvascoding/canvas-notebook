@@ -356,7 +356,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
 
   const parentDir = path.posix.dirname(filePath);
   if (parentDir !== '.' && parentDir !== '/') {
-    await createDirectory(parentDir, options);
+    await createWorkspaceFileParentDirectory(filePath, options);
   }
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const stagingPath = `${fullPath}.canvas-upload-${randomUUID()}.tmp`;
@@ -485,7 +485,7 @@ export async function writeWorkspaceFileFromPathIfAbsent(
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
   const parentDir = path.posix.dirname(filePath);
-  if (parentDir !== '.' && parentDir !== '/') await createDirectory(parentDir, options);
+  if (parentDir !== '.' && parentDir !== '/') await createWorkspaceFileParentDirectory(filePath, options);
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   let created = false;
   try {
@@ -515,6 +515,20 @@ export async function writeDataFile(filePath: string, content: Buffer | string):
 
 export async function createDirectory(dirPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
   const fullPath = await resolveDirectoryCreationPath(dirPath, options);
+  await createResolvedWorkspaceDirectory(fullPath, options);
+}
+
+/** Resolve the complete file identity before deriving its parent. Normalizing
+ * the dirname separately would lose whitespace from literal Markdown paths. */
+export async function createWorkspaceFileParentDirectory(filePath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
+  if (normalizeWorkspaceRelativePath(filePath) === '.') {
+    throw new Error('A workspace file path is required to create its parent directory.');
+  }
+  const fullPath = await resolveDirectoryCreationPath(filePath, options);
+  await createResolvedWorkspaceDirectory(path.dirname(fullPath), options);
+}
+
+async function createResolvedWorkspaceDirectory(fullPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
   await fs.mkdir(fullPath, {recursive: true});
 
   const realBase = await getWorkspaceRealBase(options);
@@ -691,7 +705,7 @@ async function renameFileUnlocked(
   // Ensure parent directory exists
   const parentDir = path.dirname(newPath);
   if (parentDir && parentDir !== '.') {
-    await createDirectory(parentDir, options);
+    await createWorkspaceFileParentDirectory(newPath, options);
   }
   await resolveWritableWorkspacePath(newPath, options);
 

@@ -16,6 +16,7 @@ async function main() {
     workspaceFilesModule,
     fileReferenceCacheModule,
     fileTreeCacheModule,
+    pathUtilsModule,
   ] = await Promise.all([
     import('../app/lib/workspaces/context'),
     import('../app/lib/workspaces/path-guard'),
@@ -23,6 +24,7 @@ async function main() {
     import('../app/lib/filesystem/workspace-files'),
     import('../app/lib/filesystem/file-reference-cache'),
     import('../app/lib/utils/file-tree-cache'),
+    import('../app/lib/files/path-utils'),
   ]);
 
   const previousData = process.env.DATA;
@@ -62,6 +64,41 @@ async function main() {
     '# Notes'
   );
 
+  for (const filePath of ['name.md', ' name.md', 'name.markdown', ' name.markdown', ' Dir / Note .md']) {
+    assert.equal(pathGuardModule.normalizeWorkspaceRelativePath(filePath), filePath);
+    assert.equal(pathUtilsModule.normalizeWorkspacePathParam(filePath), filePath);
+    const resolved = pathGuardModule.resolveWorkspacePath(workspace, filePath);
+    assert.equal(resolved.relativePath, filePath);
+    assert.equal(resolved.absolutePath, path.join(workspace.rootPath, filePath));
+    assert.equal(workspaceFilesModule.validatePath(filePath), resolved.absolutePath);
+    const content = Buffer.from(`Exact Markdown identity: ${filePath}\n`);
+    await workspaceFilesModule.createWorkspaceFileParentDirectory(filePath);
+    await workspaceFilesModule.writeFile(filePath, content);
+    assert.deepEqual(await workspaceFilesModule.readFile(filePath), content);
+    assert.deepEqual(await fs.readFile(resolved.absolutePath), content);
+  }
+  assert.notEqual((await fs.stat(path.join(workspace.rootPath, 'name.md'))).ino,
+    (await fs.stat(path.join(workspace.rootPath, ' name.md'))).ino);
+  assert.notEqual((await fs.stat(path.join(workspace.rootPath, 'name.markdown'))).ino,
+    (await fs.stat(path.join(workspace.rootPath, ' name.markdown'))).ino);
+  await assert.rejects(fs.stat(path.join(workspace.rootPath, 'Dir')), { code: 'ENOENT' });
+  await assert.rejects(fs.stat(path.join(workspace.rootPath, ' Dir /Note .md')), { code: 'ENOENT' });
+  for (const value of [' alias.docx ', ' alias.txt ']) {
+    assert.equal(pathGuardModule.normalizeWorkspaceRelativePath(value), value.trim());
+    assert.equal(pathUtilsModule.normalizeWorkspacePathParam(value), value.trim());
+  }
+  const parentBefore = (await fs.readdir(dataRoot)).sort();
+  const rootBefore = (await fs.readdir(workspace.rootPath)).sort();
+  for (const value of ['.', '  ', '../forbidden-parent/file.md', 'nested/../../forbidden-parent/file.md']) {
+    await assert.rejects(workspaceFilesModule.createWorkspaceFileParentDirectory(value));
+  }
+  assert.deepEqual((await fs.readdir(dataRoot)).sort(), parentBefore);
+  assert.deepEqual((await fs.readdir(workspace.rootPath)).sort(), rootBefore);
+  await assert.rejects(fs.stat(path.join(dataRoot, 'forbidden-parent')), { code: 'ENOENT' });
+  for (const value of ['../outside.md', 'nested/../outside.md', 'bad\0path.md']) {
+    assert.equal(pathUtilsModule.normalizeWorkspacePathParam(value), null);
+  }
+
   assert.throws(
     () => workspaceFilesModule.validatePath('../outside/secret.txt'),
     /directory traversal/i
@@ -97,6 +134,11 @@ async function main() {
     () => workspaceFilesModule.writeFile('outside-link/new.txt', 'blocked'),
     /directory traversal/i
   );
+  await assert.rejects(
+    () => workspaceFilesModule.createWorkspaceFileParentDirectory('outside-link/new-parent/file.md'),
+    /directory traversal/i
+  );
+  await assert.rejects(fs.stat(path.join(outsideRoot, 'new-parent')), { code: 'ENOENT' });
 
   await workspaceFilesModule.createDirectory('nested/folder');
   await workspaceFilesModule.writeFile('nested/folder/file.txt', 'ok');

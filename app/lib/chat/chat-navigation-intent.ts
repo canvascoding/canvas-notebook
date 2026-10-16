@@ -1,4 +1,5 @@
 import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
+import { isCanonicalMarkdownWorkspacePath } from '@/app/lib/workspaces/path-identity';
 
 type SearchParamsReader = Pick<URLSearchParams, 'get'>;
 type RouteSearchParams = Record<string, string | string[] | undefined>;
@@ -81,7 +82,10 @@ export function buildNotebookChatRedirectHref(searchParams: RouteSearchParams): 
 
 export function getNotebookNavigationIntent(searchParams: SearchParamsReader): NotebookNavigationIntent {
   const chatIntent = getChatNavigationIntent(searchParams);
-  const path = normalizeChatFilePath(searchParams.get('path') || '') || null;
+  const rawPath = searchParams.get('path') || '';
+  const literalPath = rawPath.startsWith('/data/workspace/') ? rawPath.slice('/data/workspace/'.length) : rawPath;
+  const path = isCanonicalMarkdownWorkspacePath(literalPath as unknown)
+    ? literalPath : normalizeChatFilePath(rawPath) || null;
 
   return {
     ...chatIntent,

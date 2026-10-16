@@ -1,7 +1,10 @@
+import { isCanonicalMarkdownWorkspacePath } from '@/app/lib/workspaces/path-identity';
+
 const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
 
 export function normalizeNotebookFilePath(path: string | null) {
-  const normalized = path?.replace(/^\.\/|\/+$/g, '').trim();
+  const normalized = isCanonicalMarkdownWorkspacePath(path as unknown)
+    ? path : path?.replace(/^\.\/|\/+$/g, '').trim();
   return normalized || null;
 }
 

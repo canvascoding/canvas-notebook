@@ -11,7 +11,7 @@ export function normalizeChatFilePath(filePath: string): string {
   const stripped = filePath
     .replace(/^["'`]+|["'`]+$/g, '')
     .replace(/^\/data\/workspace\//, '');
-  return normalizeWorkspacePathParam(stripped) ?? '';
+  return normalizeWorkspacePathParam(stripped.trim()) ?? '';
 }
 
 export function isFilePath(href: string): boolean {

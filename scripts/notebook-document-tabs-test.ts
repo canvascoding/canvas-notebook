@@ -6,11 +6,13 @@ import {
   notebookDocumentLabel,
   closeNotebookDocumentTabsAtPaths,
   activateNotebookDocumentTab,
+  adoptNotebookDocumentLocation,
   closeNotebookDocumentTab,
   emptyNotebookDocumentTabsState,
   notebookDocumentTabsStorageKey,
   openNotebookDocumentTab,
   readNotebookDocumentTabs,
+  rememberNotebookDocumentId,
   renameNotebookDocumentTabs,
   writeNotebookDocumentTabs,
 } from '../app/lib/notebook/document-tabs';
@@ -87,6 +89,23 @@ const { storage, values } = memoryStorage();
 writeNotebookDocumentTabs(storage, 'workspace-a', renamed);
 assert.deepEqual(readNotebookDocumentTabs(storage, 'workspace-a'), renamed);
 assert.equal(values.has(notebookDocumentTabsStorageKey('workspace-a')), true);
+
+let exactState = emptyNotebookDocumentTabsState();
+exactState = openNotebookDocumentTab(exactState, ' note.md').state;
+exactState = rememberNotebookDocumentId(exactState, ' note.md', 'document-exact');
+exactState = openNotebookDocumentTab(exactState, 'note.md').state;
+exactState = rememberNotebookDocumentId(exactState, 'note.md', 'document-neighbor');
+assert.deepEqual(exactState.openPaths, [' note.md', 'note.md']);
+exactState = activateNotebookDocumentTab(exactState, ' note.md');
+assert.equal(exactState.activePath, ' note.md');
+writeNotebookDocumentTabs(storage, 'workspace-exact', exactState);
+assert.deepEqual(readNotebookDocumentTabs(storage, 'workspace-exact'), exactState);
+const exactMoved = adoptNotebookDocumentLocation(exactState, ' note.md', 'document-exact', ' moved.markdown');
+assert.deepEqual(exactMoved.openPaths, [' moved.markdown', 'note.md']);
+assert.equal(exactMoved.documentIds?.[' moved.markdown'], 'document-exact');
+assert.equal(exactMoved.documentIds?.['note.md'], 'document-neighbor');
+assert.equal(adoptNotebookDocumentLocation(exactState, ' note.md', 'other-document', ' moved.markdown'), exactState);
+assert.equal(adoptNotebookDocumentLocation(exactState, ' note.md', 'document-exact', '../invalid.md'), exactState);
 
 values.set('canvas.notebookOpenFilePath:workspace-legacy', 'legacy/readme.md');
 assert.deepEqual(readNotebookDocumentTabs(storage, 'workspace-legacy'), {

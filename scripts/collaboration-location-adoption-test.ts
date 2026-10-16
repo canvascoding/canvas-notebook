@@ -71,6 +71,26 @@ async function main() {
     await useFileStore.getState().loadFile(adopted.path);
     assert.equal(state.adoptCurrentCollaborationLocation(currentScope, 'stale.txt'), false, 'reopening the same path revokes pending adoption');
 
+    useEditorStore.getState().clear();
+    assert.equal((await useFileStore.getState().loadFile(' literal.md')).status, 'loaded');
+    useEditorStore.getState().setActiveFile(' literal.md', 'Original');
+    useEditorStore.getState().updateDraft('Exact-path local draft');
+    const exactState = useFileStore.getState(), exactFile = exactState.currentFile!;
+    const exactScope: CurrentCollaborationLocationScope = { workspaceId: 'workspace', documentId: 'stable-document',
+      editorIdentity: exactFile.editorIdentity!, treeGeneration: exactState.treeGeneration, path: exactFile.path };
+    const exactCalls = calls.length;
+    assert.equal(exactState.adoptCurrentCollaborationLocation(exactScope, ' moved.markdown'), true);
+    assert.equal(useFileStore.getState().currentFile?.path, ' moved.markdown');
+    assert.equal(useFileStore.getState().currentFile?.editorIdentity, exactFile.editorIdentity);
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document, exactFile.collaboration?.document);
+    assert.equal(useEditorStore.getState().draft, 'Exact-path local draft');
+    assert.equal(useEditorStore.getState().activePath, ' moved.markdown');
+    assert.equal(calls.length, exactCalls, 'literal-path adoption must not reload or write');
+    const movedScope = { ...exactScope, path: ' moved.markdown' };
+    assert.equal(exactState.adoptCurrentCollaborationLocation({ ...movedScope, documentId: 'replacement' }, ' wrong.md'), false);
+    assert.equal(exactState.adoptCurrentCollaborationLocation({ ...movedScope, workspaceId: 'foreign' }, ' wrong.md'), false);
+    assert.equal(exactState.adoptCurrentCollaborationLocation(movedScope, '../invalid.md'), false);
+
     watcher.acquire();
     const oldSource = FakeEventSource.instances.at(-1)!;
     let connections = 0; let changes = 0;

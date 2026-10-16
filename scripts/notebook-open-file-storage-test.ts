@@ -7,6 +7,7 @@ import {
   readStoredNotebookOpenFilePath,
   writeStoredNotebookOpenFilePath,
 } from '../app/lib/files/notebook-open-file-storage';
+import { normalizeWorkspacePathParam } from '../app/lib/files/path-utils';
 
 const values = new Map<string, string>();
 const storage = {
@@ -20,6 +21,20 @@ const storage = {
 
 assert.equal(normalizeNotebookFilePath('./campaign/brief.md/'), 'campaign/brief.md');
 assert.equal(normalizeNotebookFilePath('  '), null);
+for (const exact of [' leading.md', 'folder/ leading.MARKDOWN']) {
+  assert.equal(normalizeWorkspacePathParam(exact), exact);
+  assert.equal(normalizeNotebookFilePath(exact), exact);
+  writeStoredNotebookOpenFilePath(storage, 'workspace-exact', exact);
+  assert.equal(readStoredNotebookOpenFilePath(storage, 'workspace-exact'), exact);
+}
+for (const [input, expected] of [[' office.docx ', 'office.docx'], [' notes.md ', 'notes.md'],
+  ['folder\\office.docx', 'folder/office.docx']]) {
+  assert.equal(normalizeWorkspacePathParam(input), expected, 'legacy noncanonical and Office aliases retain their normalization');
+}
+assert.equal(normalizeNotebookFilePath(' office.docx '), 'office.docx');
+for (const invalid of ['../outside.md', 'folder/../outside.md', 'bad\0name.md']) {
+  assert.equal(normalizeWorkspacePathParam(invalid), null);
+}
 
 writeStoredNotebookOpenFilePath(storage, 'workspace-marketing', './campaign/brief.md');
 writeStoredNotebookOpenFilePath(storage, 'workspace-personal', 'notes/private.md');

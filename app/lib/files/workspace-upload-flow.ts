@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 
-import { createDirectory, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
+import { createWorkspaceFileParentDirectory, readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import {
   assertWorkspaceFileRevisionUnchanged,
   getWorkspaceFileRevision,
@@ -89,7 +89,7 @@ export async function runWorkspaceUploadWrite(params: {
     if (!office || !params.officeAttempt) await params.beforeWrite?.();
     const parentDir = path.posix.dirname(params.targetPath);
     if (parentDir !== '.' && parentDir !== '/') {
-      await createDirectory(parentDir, params.fileOptions);
+      await createWorkspaceFileParentDirectory(params.targetPath, params.fileOptions);
     }
 
     const beforeRevision = await getWorkspaceFileRevision(params.targetPath, params.fileOptions);

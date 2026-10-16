@@ -284,6 +284,57 @@ async function main(): Promise<void> {
         assert.equal((await fs.stat(path.join(root,entry.selection.targetPath))).ino,firstInode);
       }
     });
+    await check('normal and leading-space Markdown imports keep distinct native births lineages and first revisions',async()=>{
+      const records:Array<{entry:Entry;result:Awaited<ReturnType<typeof persist>>;state:Awaited<ReturnType<typeof native>>;
+        inode:number;metadata:Record<string,unknown>}> = [];
+      const readIdentity = async(entry:Entry,documentId:string) => (await admin.query(`SELECT
+        d.id AS document_id,d.path AS registry_path,d.lineage_id,l.path AS lineage_path,s.path AS state_path,
+        r.private_result->'target'->>'path' AS receipt_path,r.private_result->'target'->>'documentId' AS receipt_document_id,
+        r.private_result->'target'->>'lineageId' AS receipt_lineage_id,b.document_id AS birth_document_id,
+        b.finalized AS birth_finalized,b.revision_id AS birth_revision_id,b.claim_id,
+        p.finalized AS projection_finalized,p.revision_id AS projection_revision_id,
+        v.id AS revision_id,v.path AS revision_path,v.lineage_id AS revision_lineage_id
+        FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+        JOIN collaboration_yjs_states s ON s.document_id=d.id
+        JOIN collaboration_markdown_file_import_receipts r ON r.workspace_id=d.workspace_id AND r.operation_id=$2
+        JOIN collaboration_markdown_create_births b ON b.workspace_id=r.workspace_id AND b.operation_id=r.operation_id
+        JOIN collaboration_file_projections p ON p.document_id=d.id JOIN file_revisions v ON v.id=b.revision_id
+        WHERE d.workspace_id=$3 AND d.id=$1`,[documentId,entry.selection.operationId,workspaceId])).rows[0] as Record<string,unknown>|undefined;
+      for(const [name,content] of [['name.md',Buffer.from('# Normal birth\n\nOriginal exact name.\n')],
+        [' name.md',Buffer.from('# Spaced birth\n\nDistinct leading filename.\n')]] as const){
+        const entry=await source(name,'owner',content),manifest=await upload.getWorkspaceUploadSession(entry.scope);
+        assert.equal(manifest.files.length,1);assert.equal(manifest.files[0].relativePath,name);
+        assert.equal(manifest.files[0].targetPath,name);assert.equal(entry.selection.targetPath,manifest.files[0].targetPath);
+        const result=await persist(entry.original,entry.selection,factory());
+        assert.equal(result.disposition,'applied');assert.equal(result.projection.status,'projected');
+        const state=await native(result);assert.equal(state.path,name);assert.equal(result.receipt.target.path,name);
+        assert.deepEqual(await fs.readFile(path.join(root,name)),content);
+        const physical=await fs.stat(path.join(root,name));assert.equal(physical.nlink,1);
+        const metadata=await readIdentity(entry,state.documentId);assert(metadata);
+        for(const field of ['registry_path','lineage_path','state_path','receipt_path','revision_path'])assert.equal(metadata[field],name);
+        for(const field of ['document_id','receipt_document_id','birth_document_id'])assert.equal(metadata[field],state.documentId);
+        for(const field of ['lineage_id','receipt_lineage_id','revision_lineage_id'])assert.equal(metadata[field],result.receipt.target.lineageId);
+        for(const field of ['birth_revision_id','projection_revision_id','revision_id'])assert.equal(metadata[field],result.projection.revisionId);
+        assert.equal(metadata.birth_finalized,1);assert.equal(metadata.projection_finalized,1);assert.equal(metadata.claim_id,result.projection.claimId);
+        records.push({entry,result,state,inode:physical.ino,metadata});
+      }
+      assert.equal(new Set(records.map(record=>record.state.documentId)).size,2);
+      assert.equal(new Set(records.map(record=>record.result.receipt.target.lineageId)).size,2);
+      assert.equal(new Set(records.map(record=>record.result.projection.revisionId)).size,2);
+      assert.equal(new Set(records.map(record=>record.inode)).size,2);
+      for(const record of records){
+        const retry=await persist(record.entry.original,record.entry.selection,factory());
+        assert.equal(retry.disposition,'already-applied');assert.equal(retry.projection.status,'projected');
+        assert.deepEqual(retry.receipt,record.result.receipt);assert.deepEqual(retry.projection,record.result.projection);
+        assert.deepEqual(await native(retry),record.state);assert.deepEqual(await readIdentity(record.entry,record.state.documentId),record.metadata);
+        assert.equal((await fs.stat(path.join(root,record.entry.selection.targetPath))).ino,record.inode);
+        assert.deepEqual(await fs.readFile(path.join(root,record.entry.selection.targetPath)),record.entry.content);
+      }
+      const paths=['name.md',' name.md'];
+      for(const table of ['collaboration_documents','collaboration_yjs_states','file_collaboration_lineages','file_revisions']){
+        assert.equal(Number((await admin.query(`SELECT count(*)::int AS n FROM ${table} WHERE workspace_id=$1 AND path=ANY($2::text[])`,[workspaceId,paths])).rows[0].n),2);
+      }
+    });
     await check('nested new parents and empty canonical native source have durable own birth',async()=>{
       for(const [name,content]of [['new/nested/file.md',Buffer.from('Nested native')],['empty-canonical.md',Buffer.from('\uFEFF')]] as const){
         const entry=await source(name,'owner',content),result=await persist(entry.original,entry.selection,factory());
@@ -466,7 +517,7 @@ async function main(): Promise<void> {
       await fs.writeFile(path.join(evidenceRoot,'result.json'),JSON.stringify(evidence,null,2),{mode:0o600});console.log('Actual D timeout counter evidence',path.join(evidenceRoot,'result.json'));
       assert.equal(target,null,'a child resumed after actual D end and genuine revocation must not publish a target');await seedSession();
     });
-    if(!process.env.CANVAS_FIRST_PROJECTION_CASE)assert.equal(cases,14);
+    if(!process.env.CANVAS_FIRST_PROJECTION_CASE)assert.equal(cases,15);
     assert.equal(fetches,0);console.log(`Authenticated First Projection PG18: ${cases} genuine Auth/SQL/FS matrix families; no route, upload completion or host activation.`);
   } finally {
     globalThis.fetch=originalFetch;
