@@ -26,6 +26,7 @@ import { applyOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
   type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 import { readWorkspaceLinkSourceAuthorityOnConnection,
   type WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
+import { reportWorkspaceOperationFailureDiagnostics } from './workspace-operation-failure-diagnostics';
 
 declare const ownerBrand: unique symbol;
 export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true }>;
@@ -37,12 +38,18 @@ export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJo
 }>;
 type Identity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
 type Directory = { named: string; real: string; handle: FileHandle; stat: Stats };
-type Phase = { active: boolean; accepting: boolean; transaction: string; pending: Set<Promise<unknown>> };
+type Phase = { active: boolean; accepting: boolean; transaction: string; pending: Set<Promise<unknown>>;
+  index: number; startedAt: number | null; startedMonotonic: number; queriesBefore: number;
+  stage: 'preparation' | 'begin' | 'identity' | 'policy' | 'storage' | 'path-locks' | 'operation'
+    | 'before-operation-check' | 'sql' | 'after-operation-check' | 'link-authority' | 'final-check' | 'commit' | 'after-commit';
+  operation: 'authority' | 'native-source-read' | 'native-link-write' | 'read' | 'write';
+  relation: string | null };
 type Capture = {
   owner: WorkspaceOperationJobLifecycleOwner; claim: WorkspaceOperationBatchClaim; binding: WorkspaceOperationBatchClaimBinding;
   sourcePath: string; active: boolean; accepting: boolean; disposed: boolean; failure?: Error; disposalFailure?: Error;
   database?: SqlConnection; identity?: Identity; lease?: WorkspaceFileLifecycleLease;
   directories: Directory[]; phase?: Phase; pending: Set<Promise<unknown>>;
+  phaseCount: number; forwardedQueries: number;
 };
 const owners = new WeakMap<WorkspaceOperationJobLifecycleOwner, Capture>();
 const context = new AsyncLocalStorage<Capture>();
@@ -152,7 +159,7 @@ export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: Workspac
   return withWorkspaceMutationLock(binding.workspaceId, async () => {
     const owner = Object.freeze(Object.create(null)) as WorkspaceOperationJobLifecycleOwner;
     const captured: Capture = { owner, claim, binding, sourcePath: step.sourcePath, active: false, accepting: true,
-      disposed: false, directories: [], pending: new Set() };
+      disposed: false, directories: [], pending: new Set(), phaseCount: 0, forwardedQueries: 0 };
     owners.set(owner, captured);
     let value: T | undefined, failure: Error | undefined;
     try {
@@ -203,7 +210,11 @@ export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: Workspac
         });
       }, async () => {
         const original = await openConnection();
-        const database: SqlConnection = Object.freeze({ get: original.get.bind(original), all: original.all.bind(original), run: original.run.bind(original),
+        const originalGet = original.get.bind(original), originalAll = original.all.bind(original), originalRun = original.run.bind(original);
+        const database: SqlConnection = Object.freeze({
+          get: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalGet(sql, values); },
+          all: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalAll(sql, values); },
+          run: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalRun(sql, values); },
           close: async (reason?: Error) => {
             if (captured.disposed) return; captured.disposed = true;
             try { await original.close(reason); } catch (error) { captured.disposalFailure = asError(error); throw captured.disposalFailure; }
@@ -241,38 +252,53 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
     current(captured);
     if (!captured.accepting || captured.phase || captured.pending.size || typeof operation !== 'function') fail('JOB_LIFECYCLE_REENTRANT');
   } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
-  const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set() };
+  const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set(), index: ++captured.phaseCount,
+    startedAt: null, startedMonotonic: 0, queriesBefore: 0, stage: 'preparation', operation: 'authority', relation: null };
   captured.phase = phase;
   const pending = withWorkspaceOperationJobClaimPhase(captured.claim, async () => {
     const database = captured.database!; let begun = false, commitAttempted = false;
     try {
       await checkIdle(captured);
       const policy = await captureWorkspaceOperationJobPolicy(); current(captured);
+      phase.startedAt = Date.now(); phase.startedMonotonic = performance.now(); phase.queriesBefore = captured.forwardedQueries;
+      phase.stage = 'begin';
       await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
+      phase.stage = 'identity';
       const started = await identity(database, true);
       if (!started.transaction) fail('JOB_LIFECYCLE_CHANGED'); phase.transaction = started.transaction;
+      phase.stage = 'policy';
       const result = await withWorkspaceOperationJobPolicyOnConnection(database, { claim: captured.claim, policy }, async access => {
         // Every owner is an original direct Delete. Bind its fixed storage on
         // the actual B before exposing the deliberately restricted SQL facade.
         const { schemaName, schemaOid, databaseOid } = captured.binding.source;
+        phase.stage = 'storage';
         const storage = await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database, { schemaName, schemaOid, databaseOid });
         // A fixed internal path set from the genuinely claimed native plan. Keep
         // advisory SQL on the actual owner B, outside the restricted facade.
         if (captured.binding.plan.version === 2) {
+          phase.stage = 'path-locks';
           const sources = getWorkspaceOperationNativeDeleteLinkRecipes(captured.binding.plan).map(recipe => recipe.source.path);
           if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
         }
         const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
           await access.assertCurrent(); await storage.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
-        const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>): Promise<R> => {
+        const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>,
+          diagnosticOperation: Phase['operation'] = 'authority'): Promise<R> => {
           try {
             checkPhase(captured, phase);
             if (phase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
             if (sql !== undefined && (typeof sql !== 'string' || sql.length > 32768 || /[;\u0000]/u.test(sql)
               || /\bpg_(?:try_)?advisory_/iu.test(sql) || !/^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/iu.test(sql))) fail('JOB_LIFECYCLE_INVALID');
           } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
-          const checked = (async () => { try { await check(); checkPhase(captured, phase);
-            const value = await query(); await check(); checkPhase(captured, phase); return value; }
+          phase.operation = sql === undefined ? diagnosticOperation : /^\s*SELECT\b/iu.test(sql) ? 'read' : 'write';
+          // Log only a fixed relation name, never SQL text, values or paths.
+          phase.relation = sql === undefined ? null : ['collaboration_documents', 'collaboration_yjs_states',
+            'file_collaboration_lineages', 'collaboration_file_projections', 'workspace_trash_entries',
+            'workspace_file_operation_delete_intents', 'workspace_file_operation_delete_receipts',
+            'workspace_file_operation_delete_trash_receipts'].find(name => new RegExp(`\\b${name}\\b`, 'u').test(sql)) ?? null;
+          const checked = (async () => { try { phase.stage = 'before-operation-check'; await check(); checkPhase(captured, phase);
+            phase.stage = 'sql'; const value = await query(); phase.stage = 'after-operation-check';
+            await check(); checkPhase(captured, phase); return value; }
             catch (error) { return poison(captured, error); } })();
           phase.pending.add(checked); void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked)); return checked;
         };
@@ -281,6 +307,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
           run: (sql: string, values?: unknown[]) => dispatch(sql, () => database.run(sql, values)),
           close: () => dispatch('CLOSE', async () => undefined) });
         return phaseContext.run(phase, async () => {
+          phase.stage = 'operation';
           await check();
           let result: T | undefined;
           try { result = await operation(Object.freeze({ ...access, database: facade,
@@ -289,7 +316,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
               // Fixed read of this claimed workspace only. The ordinary SQL
               // facade remains restricted and every method boundary is checked.
               return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
-            }),
+            }, 'native-source-read'),
             applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;
               if (binding.actionMode !== 'apply' || binding.plan.version !== 2
@@ -307,9 +334,10 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
               // Keep current authority before every source (including receipt
               // retries) and immediately before each CAS. This private check
               // does not recursively enter the public dispatch queue.
-              const validate = async () => { checkPhase(captured, phase); await check(); checkPhase(captured, phase); };
+              const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
+                checkPhase(captured, phase); phase.stage = 'sql'; };
               return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate);
-            }),
+            }, 'native-link-write'),
             assertCurrent: () => dispatch(undefined, async () => undefined) })); }
           catch (error) { captured.failure ??= asError(error); }
           phase.accepting = false;
@@ -318,15 +346,27 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
             await Promise.allSettled([...phase.pending]);
           }
           if (captured.failure) throw captured.failure;
-          await check(); if (captured.failure) throw captured.failure; return result as T;
+          phase.stage = 'final-check'; await check(); if (captured.failure) throw captured.failure; return result as T;
         });
       });
       if (captured.failure) throw captured.failure;
-      await checkOwner(captured, phase.transaction);
+      phase.stage = 'final-check'; await checkOwner(captured, phase.transaction);
+      phase.stage = 'commit';
       phase.accepting = false; commitAttempted = true; await database.run('COMMIT'); begun = false;
+      phase.stage = 'after-commit';
       captured.phase = undefined; phase.active = false; await checkIdle(captured);
       if (captured.failure) throw captured.failure; return result;
     } catch (error) {
+      // Observe the original failure before rollback, disposal or worker status
+      // projection can wrap it. This has no SQL or transaction side effect.
+      reportWorkspaceOperationFailureDiagnostics(error, diagnostics => {
+        console.error('[File action owner] Transaction failed.', JSON.stringify({ version: 1, at: new Date().toISOString(),
+          batchId: captured.binding.batchId, backendPid: captured.identity?.backend ?? null, phaseIndex: phase.index,
+          phaseStartedAt: phase.startedAt === null ? null : new Date(phase.startedAt).toISOString(),
+          elapsedMs: phase.startedAt === null ? null : Math.round(performance.now() - phase.startedMonotonic),
+          forwardedQueries: phase.startedAt === null ? null : captured.forwardedQueries - phase.queriesBefore,
+          stage: phase.stage, operation: phase.operation, relation: phase.relation, commitAttempted, diagnostics }));
+      });
       let failure = asError(error);
       captured.failure ??= failure; phase.accepting = false;
       if (phase.pending.size) await Promise.allSettled([...phase.pending]);
