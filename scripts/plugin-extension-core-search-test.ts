@@ -58,15 +58,17 @@ async function main(): Promise<void> {
     'source=store&stock=installed&scope=system&types=plugin',
     'source=all&stock=all&scope=system&types=plugin',
     'source=all&stock=available&scope=system&types=plugin',
-    'source=all&stock=installed&scope=all&types=plugin',
-    'source=all&stock=installed&scope=user&types=plugin',
-    'source=all&stock=installed&scope=organization&types=plugin',
     `${baseQuery}&selected=${encodeURIComponent(offering.id)}`,
   ]) {
     storeCalls = 0;
     const result = await searchPluginExtensions(actor, query(parameters), { dependencies });
     assert.equal(storeCalls, 1, `Existing Store discovery must remain active for ${parameters}.`);
     if (parameters.includes('selected=')) assert.equal(result.selectedItem?.id, offering.id, 'An exact Store selection survives unrelated browse filters.');
+  }
+  for (const scope of ['all', 'user', 'organization']) {
+    storeCalls = 0;
+    await searchPluginExtensions(actor, query(`source=all&stock=installed&scope=${scope}&types=plugin`), { dependencies });
+    assert.equal(storeCalls, 0, `Installed metadata for ${scope} must not wait for an unrelated Store.`);
   }
   const selection = query(baseQuery);
   const cursor = projectPluginExtensionPage(actor, selection, [], { choices: [...scopes.choices], teams: [] },

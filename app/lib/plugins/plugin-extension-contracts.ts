@@ -7,6 +7,8 @@ export type PluginExtensionKind = 'plugin' | 'skill' | 'integration' | 'mcp';
 export type PluginExtensionStock = 'all' | 'installed' | 'available';
 export type PluginExtensionSource = 'all' | 'store' | 'composio' | 'mcp';
 export type PluginExtensionQuery = {
+  /** Presentation phases share identities and current authority; omitted retains the complete search. */
+  phase?: 'all' | 'local' | 'remote';
   q: string;
   types: PluginExtensionKind[];
   stock: PluginExtensionStock;

@@ -1,4 +1,5 @@
 import 'server-only';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
 import { listCapabilityResources } from '@/app/lib/capabilities/resources/actions';
 import { findCapabilityResourceRecord } from '@/app/lib/capabilities/resources/store';
 import { readAgentExtensionPackageVersion } from '@/app/lib/agents/extension-package-options';
@@ -18,19 +19,45 @@ import { captureChatTransportJson } from './message-submission';
 /** One catalogue for actual Agent Use and a real workspace, before or after Session creation. */
 export async function listChatExtensionOptions(actorInput: AgentManagementActor, requestInput: unknown,
   options: { signal?: AbortSignal } = {}): Promise<ChatExtensionOptionsResponse> {
+  const deadline = AbortSignal.timeout(15_000);
+  const signal = AbortSignal.any([...(options.signal ? [options.signal] : []), deadline]);
+  const reason = () => deadline.aborted
+    ? new AgentWorkflowError('CHAT_EXTENSION_OPTIONS_TIMEOUT', 'The extension selection took too long. Retry this step.', 504)
+    : signal.reason;
+  if (signal.aborted) throw reason();
+  let abort: (() => void) | undefined;
+  try {
+    return await Promise.race([
+      readChatExtensionOptions(actorInput, requestInput, signal),
+      new Promise<never>((_resolve, reject) => {
+        abort = () => reject(reason());
+        signal.addEventListener('abort', abort, { once: true });
+        if (signal.aborted) abort();
+      }),
+    ]);
+  } finally { if (abort) signal.removeEventListener('abort', abort); }
+}
+
+async function readChatExtensionOptions(actorInput: AgentManagementActor, requestInput: unknown,
+  signal: AbortSignal): Promise<ChatExtensionOptionsResponse> {
   let request;
   try { request = chatExtensionOptionsRequestSchema.parse(captureChatTransportJson(requestInput)); }
   catch { throw new AgentWorkflowError('CHAT_EXTENSION_OPTIONS_INVALID', 'Choose one exact Chat selection operation and current target.', 400); }
-  const context = await resolveChatExtensionOptionsContext(actorInput, request.target);
-  const signal = options.signal ?? AbortSignal.timeout(15_000);
+  // A live HTTP Request always has a signal. Its presence must not disable our
+  // own deadline; obsolete searches and slow sources both need bounded work.
+  signal.throwIfAborted();
+  const context = await observeExtensionStage('context', () => resolveChatExtensionOptionsContext(actorInput, request.target));
   signal.throwIfAborted();
   const header = () => chatExtensionOptionsHeader(context);
   if (request.operation === 'search') {
     const result = await searchChatExtensionOptions(context, request, signal);
-    const recents = request.q === '' ? (await readChatExtensionRecents(context, { limit: request.limit, cursor: null }, signal, request)).items : [];
+    signal.throwIfAborted();
+    const recents = request.q === '' && request.phase !== 'remote'
+      ? (await observeExtensionStage('recents', () => readChatExtensionRecents(context, { limit: request.limit, cursor: null }, signal, request))).items : [];
+    signal.throwIfAborted();
     return { ...result, ...header(), coverage: result.coverage, operation: 'search', recents };
   }
-  if (request.operation === 'recents') return { ...header(), operation: 'recents', ...await readChatExtensionRecents(context, request, signal) };
+  if (request.operation === 'recents') return { ...header(), operation: 'recents', ...await observeExtensionStage('recents', () => readChatExtensionRecents(context, request, signal)) };
   if (request.operation === 'presentation') {
     const entries = [];
     for (const selection of request.selections) {
@@ -38,10 +65,11 @@ export async function listChatExtensionOptions(actorInput: AgentManagementActor,
       const publicIcon = await presentChatExtensionIcon(context, selection, signal).catch(() => undefined);
       entries.push({ selection, ...(publicIcon ? { publicIcon } : {}) });
     }
+    signal.throwIfAborted();
     await revalidateChatExtensionOptionsContext(context);
     return { ...header(), operation: 'presentation', entries };
   }
-  if (request.operation === 'preview') return { ...header(), operation: 'preview', preview: await previewChatExtensionSelection(context, request, signal) };
+  if (request.operation === 'preview') return { ...header(), operation: 'preview', preview: await observeExtensionStage('preview', () => previewChatExtensionSelection(context, request, signal)) };
   if (request.operation === 'connection_choices') {
     const choices = await listChatExtensionConnectionChoices(context, request, signal);
     const { connections, profiles, accounts, noAuthSelection, personalSelectionPolicy, pagination, coverage, setupAlternatives } = choices;
@@ -53,11 +81,13 @@ export async function listChatExtensionOptions(actorInput: AgentManagementActor,
   const resourceActor = { userId: context.actor.userId, workspaceId: context.actor.workspaceId };
   const { metadata, source } = await readAgentExtensionPackageVersion(resourceActor, { resourceRef: request.resourceRef,
     publishedRevisionRef: request.publishedRevisionRef, ...(request.checksum ? { checksum: request.checksum } : {}) }, { allowPersonalPackages: true });
+  signal.throwIfAborted();
   const pin = { resourceRef: metadata.resourceRef, publishedRevisionRef: metadata.publishedRevisionRef, checksum: metadata.checksum };
   const binding = chatPackageBinding(context, pin);
   if (context.snapshot.workflowVersion !== null && !binding?.configuration) throw new AgentWorkflowError('CHAT_EXTENSION_AGENT_SCOPE', 'This exact package pin is outside the current agent configuration.', 403);
   const permitted = new Set(chatPermittedPackageRoots(context, pin, { metadata, source }));
   const resources = await listCapabilityResources(resourceActor), record = await findCapabilityResourceRecord(pin.resourceRef);
+  signal.throwIfAborted();
   const icon = agentExtensionPackageIcon(pin, metadata.kind === 'plugin' ? [source.manifest?.interface?.logo, source.manifest?.interface?.icon]
     : [source.skills[0]?.skill.interface?.iconSmall, source.skills[0]?.skill.interface?.iconLarge], context.actor.workspaceId);
   const children = metadata.skillRoots.filter(child => permitted.has(child.relativeRoot)).map(child => {

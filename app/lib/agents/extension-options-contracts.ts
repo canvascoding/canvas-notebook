@@ -51,6 +51,7 @@ export type AgentExtensionUserChoiceSelector = z.infer<typeof slotSelector>;
 export type AgentExtensionConnectionSelector = AgentExtensionConfigurationConnectionSelector | AgentExtensionUserChoiceSelector;
 
 export const createExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('search'), target,
+  phase: z.enum(['all', 'local', 'remote']).optional(),
   q: query.default(''), types: z.array(z.enum(['plugin', 'skill', 'integration', 'mcp'])).min(1).max(4)
     .refine(values => new Set(values).size === values.length).default(['plugin', 'skill', 'integration', 'mcp']),
   stock: z.enum(['all', 'installed', 'available']).default('all'), source: z.enum(['all', 'store', 'composio', 'mcp']).default('all'),

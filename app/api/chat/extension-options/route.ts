@@ -6,6 +6,7 @@ import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { listChatExtensionOptions } from '@/app/lib/chat/extension-options';
 import { CHAT_EXTENSION_OPTIONS_MAX_BYTES } from '@/app/lib/chat/extension-options-contracts';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { withExtensionObservation } from '@/app/lib/plugins/extension-search-observation';
 
 export const dynamic = 'force-dynamic';
 const noStore = { 'Cache-Control': 'private, no-store' };
@@ -20,10 +21,10 @@ export async function POST(request: NextRequest) {
       || request.nextUrl.searchParams.getAll(key).length !== 1) throw new AgentWorkflowError('CHAT_EXTENSION_OPTIONS_INVALID', 'Choose one exact current context.', 400);
     const body = await readBoundedJson(request, CHAT_EXTENSION_OPTIONS_MAX_BYTES);
     if (body.response) { body.response.headers.set('Cache-Control', noStore['Cache-Control']); return body.response; }
-    const data = await listChatExtensionOptions({ userId: session.user.id, sessionId: session.session.id, source: 'api',
+    const { result: data, serverTiming } = await withExtensionObservation(() => listChatExtensionOptions({ userId: session.user.id, sessionId: session.session.id, source: 'api',
       organizationId: request.nextUrl.searchParams.get('organizationId'), workspaceId: request.nextUrl.searchParams.get('workspaceId'),
-      projectId: request.nextUrl.searchParams.get('projectId') }, body.body, { signal: request.signal });
-    return NextResponse.json({ success: true, data }, { headers: noStore });
+      projectId: request.nextUrl.searchParams.get('projectId') }, body.body, { signal: request.signal }));
+    return NextResponse.json({ success: true, data }, { headers: { ...noStore, 'Server-Timing': serverTiming } });
   } catch (error) {
     const details = managementErrorDetails(error);
     return NextResponse.json({ success: false, code: details.code, error: details.message }, { status: details.status, headers: noStore });

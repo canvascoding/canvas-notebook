@@ -8,6 +8,7 @@ import { projectPackageExtensionSelection, intersectPackageExtensionToolCaps } f
 import type { ChatExtensionOptionsContext } from './extension-options-context';
 import type { ExtensionConnectionScope, ExtensionConnectionAlternative } from '@/app/lib/agents/extension-options-connections';
 import { inspectCapabilityResource } from '@/app/lib/capabilities/resources/actions';
+import type { CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
 import { isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
 import { normalizeMcpConnectors } from '@/app/lib/plugins/plugin-connection-readiness';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
@@ -52,8 +53,11 @@ export function chatPermittedPackageRoots(context: ChatExtensionOptionsContext, 
     selections: binding.extensionSelections }).selectedRoots];
 }
 export async function chatPackageSelectionEligibility(context: ChatExtensionOptionsContext, selection: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }>,
-  heldSource?: AgentExtensionPackageVersionSource): Promise<AgentExtensionOptionEligibility> {
-  const resource = await inspectCapabilityResource({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package.resourceRef);
+  heldSource?: AgentExtensionPackageVersionSource, searchResource?: CapabilityResourceDescriptor): Promise<AgentExtensionOptionEligibility> {
+  // Only the search response supplies its just-revalidated descriptor. All
+  // admission/Preview consumers retain their independent fresh resource read.
+  const resource = searchResource?.metadata.resourceRef === selection.package.resourceRef ? searchResource
+    : await inspectCapabilityResource({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package.resourceRef);
   if (!resource.access.canUse || resource.activation && !resource.activation.enabled) return no('This package is currently disabled or unavailable.');
   const source = heldSource ?? await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId },
     selection.package, { allowPersonalPackages: true });
@@ -90,7 +94,9 @@ export function chatStandaloneEligibility(context: ChatExtensionOptionsContext, 
   return matches.length === 1 ? { action: 'select' } : no(matches.length ? 'This connection matches more than one agent slot. Choose an unambiguous configured source.'
     : 'This exact connection is outside the agent’s permitted standalone sources.');
 }
-export async function projectChatExtensionSearchItem(context: ChatExtensionOptionsContext, item: AgentExtensionSearchItem): Promise<AgentExtensionSearchItem> {
+export async function projectChatExtensionSearchItem(context: ChatExtensionOptionsContext, item: AgentExtensionSearchItem,
+  options: { resources?: ReadonlyMap<string, CapabilityResourceDescriptor>;
+    packageVersion?: (pin: ExtensionPackagePin) => Promise<AgentExtensionPackageVersionSource> } = {}): Promise<AgentExtensionSearchItem> {
   if(item.selection && isCoreExtensionSelection(item.selection)) return {...item,eligibility:await chatCorePluginSelectionEligibility(context,item.selection)};
   if (item.item.kind === 'integration' || item.item.kind === 'mcp') {
     if (context.snapshot.workflowVersion === null) return item;
@@ -113,7 +119,22 @@ export async function projectChatExtensionSearchItem(context: ChatExtensionOptio
     pin = { resourceRef: configured.resourceRef, publishedRevisionRef: configured.publishedRevisionRef, checksum: configured.checksum };
   }
   if (!pin) return item;
-  const source = await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, pin, { allowPersonalPackages: true });
+  const freshResource = options.resources?.get(pin.resourceRef);
+  if (context.snapshot.workflowVersion === null && freshResource && freshResource.metadata.status === 'active'
+    && freshResource.access.canUse && (!freshResource.activation || freshResource.activation.enabled)
+    && item.eligibility.action === 'select') {
+    // A search result is public intent, not a retained execution/source receipt.
+    // Exact installed child paths were projected from the fresh catalog above;
+    // full source, child and capability verification runs at selection/Send.
+    const metadataSelection: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }> | undefined = item.item.kind === 'plugin'
+      ? { kind: 'plugin', package: pin, skillSelection: { kind: 'all' } }
+      : item.selection?.kind === 'skill' && same(item.selection.package, pin) ? item.selection
+        : freshResource.artifact.resourceType === 'skill' && freshResource.artifact.sourceType !== 'plugin'
+          ? { kind: 'skill', origin: 'standalone', relativeRoot: '', package: pin } : undefined;
+    if (metadataSelection) return { ...item, selection: metadataSelection, eligibility: { action: 'select' } };
+  }
+  const source = options.packageVersion ? await options.packageVersion(pin)
+    : await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, pin, { allowPersonalPackages: true });
   let selection: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }>;
   if (item.item.kind === 'plugin') selection = { kind: 'plugin', package: pin, skillSelection: context.snapshot.workflowVersion === null
     ? { kind: 'all' } : { kind: 'subset', relativeRoots: chatPermittedPackageRoots(context, pin, source) } };
@@ -122,7 +143,7 @@ export async function projectChatExtensionSearchItem(context: ChatExtensionOptio
     if (!child) return { ...item, eligibility: no('This child is absent from the configured published version.') };
     selection = { kind: 'skill', origin: source.metadata.kind === 'plugin' ? 'plugin_child' : 'standalone', relativeRoot: child.relativeRoot, package: pin };
   }
-  return { ...item, selection, eligibility: await chatPackageSelectionEligibility(context, selection, source),
+  return { ...item, selection, eligibility: await chatPackageSelectionEligibility(context, selection, source, options.resources?.get(pin.resourceRef)),
     publishedVersions: item.publishedVersions?.filter(version => same(version.pin, pin)) };
 }
 export async function readChatPackageMcpTemplate(source: AgentExtensionPackageVersionSource, pin: ExtensionPackagePin, connectorName: string): Promise<CapabilityPackageMcpTemplate | null> {

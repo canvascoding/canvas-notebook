@@ -100,6 +100,13 @@ function main() {
   legacyDescription.metadata.description = 'Current metadata description';
   assert.equal(projectPluginWorkspaceCatalog([legacyDescription], context, query()).items[0].description, 'Current metadata description');
   const longAlias = structuredClone(records[0]);
+  const noImage = structuredClone(records[0]);
+  noImage.artifact.hasDeclaredIcon = false;
+  assert.equal(projectPluginWorkspaceCatalog([noImage], context, query()).items[0].icon, undefined,
+    'Known image-free packages must not create speculative image requests.');
+  noImage.artifact.hasDeclaredIcon = true;
+  assert(projectPluginWorkspaceCatalog([noImage], context, query()).items[0].icon,
+    'Declared local images retain the authorized image endpoint.');
   longAlias.metadata.resourceRef = 'canvas-capability:v1:' + 'x'.repeat(1500);
   longAlias.artifact.resourceId = longAlias.metadata.resourceRef;
   assert.equal(projectPluginWorkspaceCatalog([longAlias], context, query()).items[0].resourceRef, longAlias.metadata.resourceRef);

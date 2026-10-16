@@ -3,6 +3,7 @@ import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contra
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { parsePluginExtensionQuery, searchPluginExtensions } from '@/app/lib/plugins/plugin-extension-search';
 import { resourceRequestActor, resourceResponse, resourceResponseError } from '@/app/api/capabilities/resources/http';
+import { withExtensionObservation } from '@/app/lib/plugins/extension-search-observation';
 
 export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
@@ -15,6 +16,9 @@ export async function GET(request: Request) {
     if (headerWorkspace && requestedWorkspace && headerWorkspace !== requestedWorkspace) {
       throw new CapabilityResourceError('PLUGIN_SEARCH_QUERY_INVALID', 'Conflicting workspace selections are not supported.', 400);
     }
-    return resourceResponse(await searchPluginExtensions(actor, query, { signal: request.signal }));
+    const { result, serverTiming } = await withExtensionObservation(() => searchPluginExtensions(actor, query, { signal: request.signal }));
+    const response = resourceResponse(result);
+    response.headers.set('Server-Timing', serverTiming);
+    return response;
   } catch (error) { return resourceResponseError(error); }
 }

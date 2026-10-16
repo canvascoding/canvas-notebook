@@ -1,7 +1,8 @@
 import 'server-only';
+import { observeExtensionStage } from './extension-search-observation';
 
 import { createHash } from 'node:crypto';
-import { CapabilityResourceError, type CapabilityResourceActor, type CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
+import { CapabilityResourceError, type CapabilityResourceActor, type CapabilityResourceOwnerScope, type CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
 import type { PluginWorkspaceCatalogResponse, PluginWorkspaceCatalogScopeContext } from './plugin-workspace-catalog-contracts';
 import type { PluginExtensionCoverage, PluginExtensionItem, PluginExtensionKind, PluginExtensionQuery, PluginExtensionSearchResponse } from './plugin-extension-contracts';
 import type { PluginExtensionSourceResult } from './plugin-extension-integrations';
@@ -13,20 +14,22 @@ const invalid = (code = 'PLUGIN_SEARCH_QUERY_INVALID', message = 'The extension 
 };
 
 export function parsePluginExtensionQuery(parameters: URLSearchParams): PluginExtensionQuery {
-  const permitted = new Set(['q', 'types', 'stock', 'source', 'scope', 'audience', 'teamId', 'workspaceId', 'cursor', 'limit', 'selected']);
+  const permitted = new Set(['q', 'types', 'stock', 'source', 'scope', 'audience', 'teamId', 'workspaceId', 'cursor', 'limit', 'selected', 'phase']);
   for (const key of parameters.keys()) if (!permitted.has(key) || parameters.getAll(key).length !== 1) invalid();
   const q = parameters.get('q') ?? '', scope = parameters.get('scope') ?? 'all', source = parameters.get('source') ?? 'all', stock = parameters.get('stock') ?? 'all';
   const types = parameters.has('types') ? parameters.get('types')!.split(',') : kinds;
   const audience = parameters.get('audience'), teamId = parameters.get('teamId'), workspaceId = parameters.get('workspaceId'), selected = parameters.get('selected');
+  const phase = parameters.get('phase');
   const identity = (value: string | null, max = 200) => value === null || value.length > 0 && value.length <= max && value.trim() === value && !/[\p{Cc}]/u.test(value);
   if (q.length > 512 || /[\p{Cc}]/u.test(q) || !['all', 'user', 'team', 'organization', 'system'].includes(scope)
     || !['all', 'store', 'composio', 'mcp'].includes(source) || !['all', 'installed', 'available'].includes(stock)
     || !types.length || types.some(type => !kinds.includes(type as PluginExtensionKind)) || new Set(types).size !== types.length
+    || phase !== null && !['all', 'local', 'remote'].includes(phase)
     || audience !== null && (scope !== 'user' || !['own', 'shared'].includes(audience))
     || teamId !== null && scope !== 'team' || !identity(teamId) || !identity(workspaceId) || !identity(selected, 4096)) invalid();
   const rawLimit = parameters.get('limit') ?? '20', cursor = parameters.get('cursor');
   if (!/^[1-9]\d?$/u.test(rawLimit) || Number(rawLimit) > 50 || cursor !== null && (!/^[a-zA-Z0-9_-]{1,8192}$/u.test(cursor))) invalid();
-  return { q: q.trim(), types: kinds.filter(type => types.includes(type)), stock: stock as PluginExtensionQuery['stock'], source: source as PluginExtensionQuery['source'],
+  return { ...(phase ? { phase: phase as PluginExtensionQuery['phase'] } : {}), q: q.trim(), types: kinds.filter(type => types.includes(type)), stock: stock as PluginExtensionQuery['stock'], source: source as PluginExtensionQuery['source'],
     scope: scope as PluginExtensionQuery['scope'], audience: audience as PluginExtensionQuery['audience'], teamId, cursor, selected, limit: Number(rawLimit) };
 }
 
@@ -92,7 +95,7 @@ export function selectPluginExtensionItems(items: readonly PluginExtensionItem[]
 type SourceContinuations = Partial<Record<'store' | 'composio', string>>;
 function extensionCursorState(actor: CapabilityResourceActor, query: PluginExtensionQuery) {
   const { cursor: _cursor, selected: _selected, ...selection } = query;
-  const binding = createHash('sha256').update(JSON.stringify([actor.userId, actor.workspaceId ?? null, selection])).digest('base64url');
+  const binding = createHash('sha256').update(JSON.stringify([actor.userId, actor.workspaceId ?? null, { ...selection, phase: query.phase ?? 'all' }])).digest('base64url');
   let offset = 0, sources: SourceContinuations = {};
   if (query.cursor) {
     try {
@@ -131,12 +134,22 @@ export function projectPluginExtensionPage(actor: CapabilityResourceActor, query
 export type PluginExtensionSearchDependencies = {
   context(actor: CapabilityResourceActor): Promise<PluginWorkspaceCatalogScopeContext>;
   packages(actor: CapabilityResourceActor): Promise<PluginExtensionSourceResult & { scopes: PluginWorkspaceCatalogResponse['scopes'] }>;
-  store(actor: CapabilityResourceActor, options?: { search?: string; continuation?: string; selected?: string | null }): Promise<PluginExtensionSourceResult>;
-  composio(actor: CapabilityResourceActor, signal: AbortSignal, options?: { search?: string; continuation?: string; selectedSlug?: string }): Promise<PluginExtensionSourceResult>;
+  store(actor: CapabilityResourceActor, options?: { search?: string; continuation?: string; selected?: string | null; signal?: AbortSignal }): Promise<PluginExtensionSourceResult>;
+  composio(actor: CapabilityResourceActor, signal: AbortSignal, options?: { search?: string; continuation?: string; selectedSlug?: string; localOnly?: boolean }): Promise<PluginExtensionSourceResult>;
   mcp(actor: CapabilityResourceActor): Promise<PluginExtensionSourceResult>;
   /** Fresh authority after remote metadata IO; successful sources are not a cached authorization. */
-  revalidate(actor: CapabilityResourceActor, items: PluginExtensionItem[]): Promise<PluginExtensionItem[] | { items: PluginExtensionItem[]; coverage: PluginExtensionCoverage[] }>;
+  revalidate(actor: CapabilityResourceActor, items: PluginExtensionItem[]): Promise<PluginExtensionItem[] | { items: PluginExtensionItem[]; coverage: PluginExtensionCoverage[]; resources?: CapabilityResourceDescriptor[] }>;
 };
+
+const installedResourceSnapshots = new WeakMap<PluginExtensionSourceResult, CapabilityResourceDescriptor[]>();
+const searchResourceSnapshots = new WeakMap<PluginExtensionSearchResponse, { actor: string; resources: CapabilityResourceDescriptor[] }>();
+const actorSnapshotKey = (actor: CapabilityResourceActor) => JSON.stringify([actor.userId, actor.workspaceId ?? null]);
+
+/** Request-local final authority projection for trusted server consumers, never serialized or reused as a grant. */
+export function getPluginExtensionSearchResourceSnapshot(response: PluginExtensionSearchResponse, actor: CapabilityResourceActor): readonly CapabilityResourceDescriptor[] | undefined {
+  const observation = searchResourceSnapshots.get(response);
+  return observation?.actor === actorSnapshotKey(actor) ? observation.resources : undefined;
+}
 
 async function defaultDependencies(): Promise<PluginExtensionSearchDependencies> {
   const { resolvePluginWorkspaceCatalogScopeContext } = await import('./plugin-workspace-selection');
@@ -162,19 +175,22 @@ async function readInstalledExtensions(actor: CapabilityResourceActor) {
       ownership: item.ownership, ownershipLabel: item.ownershipLabel, icon: item.icon, package: item });
     page += 1;
   } while (catalog.pagination.hasNextPage && page <= 2000);
-  return { items, scopes: catalog.scopes, coverage: { source: 'packages' as const, status: catalog.pagination.hasNextPage ? 'partial' as const : 'complete' as const } };
+  const result = { items, scopes: catalog.scopes, coverage: { source: 'packages' as const, status: catalog.pagination.hasNextPage ? 'partial' as const : 'complete' as const } };
+  installedResourceSnapshots.set(result, resources);
+  return result;
 }
 
-async function readStoreExtensions(actor: CapabilityResourceActor, options: { search?: string; continuation?: string; selected?: string | null } = {}): Promise<PluginExtensionSourceResult> {
+async function readStoreExtensions(actor: CapabilityResourceActor, options: { search?: string; continuation?: string; selected?: string | null; signal?: AbortSignal } = {}): Promise<PluginExtensionSourceResult> {
   const { listCapabilityPackageStoreAction } = await import('@/app/lib/capabilities/packages/store-actions');
   const items: PluginExtensionItem[] = [], seen = new Set<string>();
   let partial = false, hasNext = true;
   const initialPage = options.continuation ? Number(options.continuation) : 1;
   if (!Number.isSafeInteger(initialPage) || initialPage < 1 || initialPage > 100000) invalid('PLUGIN_SEARCH_CURSOR_INVALID');
   let page = initialPage;
-  for (; hasNext && page < initialPage + 20; page += 1) {
+  for (; hasNext && page < initialPage + 1; page += 1) {
     let result;
-    try { result = await listCapabilityPackageStoreAction(actor, { scope: 'all', q: options.search ?? '', page, limit: 50, installedLimit: 1 }); }
+    options.signal?.throwIfAborted();
+    try { result = await listCapabilityPackageStoreAction(actor, { scope: 'all', q: options.search ?? '', page, limit: 50, installedLimit: 1 }, { signal: options.signal }); }
     catch { partial = true; break; }
     hasNext = false;
     for (const store of result.stores) {
@@ -198,11 +214,13 @@ async function readStoreExtensions(actor: CapabilityResourceActor, options: { se
     const { readCanvasSkillStoreRegistry } = await import('@/app/lib/skills/canvas-skill-store');
     for (const kind of ['plugin', 'skill'] as const) {
       try {
-        const registry = kind === 'plugin' ? await readCanvasPluginStoreRegistry() : await readCanvasSkillStoreRegistry();
+        options.signal?.throwIfAborted();
+        const readOptions = { signal: options.signal, cache: 'metadata' as const };
+        const registry = kind === 'plugin' ? await readCanvasPluginStoreRegistry(readOptions) : await readCanvasSkillStoreRegistry(readOptions);
         const entries = 'plugins' in registry ? registry.plugins : registry.skills;
         const entry = entries.find(value => `store:${kind}:${registry.id}:${value.name}` === options.selected);
         if (!entry) continue;
-        const exact = await listCapabilityPackageStoreAction(actor, { scope: 'all', kind, q: entry.name, page: 1, limit: 50, installedLimit: 1 });
+        const exact = await listCapabilityPackageStoreAction(actor, { scope: 'all', kind, q: entry.name, page: 1, limit: 50, installedLimit: 1 }, { signal: options.signal });
         const offering = exact.stores.flatMap(store => store.offerings).find(value => value.registryId === registry.id && value.entryKey === entry.name);
         if (offering) items.push({ id: options.selected, kind, name: offering.entryKey, displayName: offering.displayName, description: offering.description,
           source: 'store', stock: offering.installedResourceRefs.length ? 'installed' : 'available', access: { canRead: true, canUse: false, canManage: false }, icon: offering.icon, offering });
@@ -213,7 +231,7 @@ async function readStoreExtensions(actor: CapabilityResourceActor, options: { se
     ...(partial ? { error: { code: 'PLUGIN_STORE_PARTIAL', message: 'Some package Store metadata could not be fully loaded.', retryable: true } } : {}) } };
 }
 
-export async function revalidateExtensions(actor: CapabilityResourceActor, items: PluginExtensionItem[]): Promise<{ items: PluginExtensionItem[]; coverage: PluginExtensionCoverage[] }> {
+export async function revalidateExtensions(actor: CapabilityResourceActor, items: PluginExtensionItem[]): Promise<{ items: PluginExtensionItem[]; coverage: PluginExtensionCoverage[]; resources?: CapabilityResourceDescriptor[] }> {
   const [{ listSharedIntegrationConnections }, { resolvePluginWorkspaceCatalogScopeContext },
     { revalidatePersonalComposioExtensionConnection, readMcpExtensions }] = await Promise.all([
     import('@/app/lib/integration-tools/connections/store'), import('./plugin-workspace-selection'), import('./plugin-extension-integrations')]);
@@ -222,8 +240,9 @@ export async function revalidateExtensions(actor: CapabilityResourceActor, items
   const unavailable = (source: PluginExtensionCoverage['source']) => failures.push({ source, status: 'partial',
     error: { code: 'PLUGIN_SEARCH_REVALIDATION_UNAVAILABLE', message: 'Some current extension permissions could not be checked.', retryable: true } });
   let packageItems: PluginExtensionItem[] = [], sharedItems: Awaited<ReturnType<typeof listSharedIntegrationConnections>> = [], packagesUnavailable = false;
+  let resources: CapabilityResourceDescriptor[] | undefined;
   if (items.some(item => item.kind === 'plugin' || item.kind === 'skill')) {
-    try { packageItems = (await readInstalledExtensions(actor)).items; } catch { packagesUnavailable = true; unavailable('packages'); }
+    try { const result = await readInstalledExtensions(actor); packageItems = result.items; resources = installedResourceSnapshots.get(result); } catch { packagesUnavailable = true; unavailable('packages'); }
   }
   if (items.some(item => item.kind === 'integration')) {
     try { sharedItems = await listSharedIntegrationConnections(actor, 'composio'); } catch { unavailable('composio'); }
@@ -276,7 +295,7 @@ export async function revalidateExtensions(actor: CapabilityResourceActor, items
     result.push(item);
   }
   await resolvePluginWorkspaceCatalogScopeContext(actor);
-  return { items: [...new Map(result.map(item => [item.id, item])).values()], coverage: [...failures, ...(currentMcp && currentMcp.coverage.status !== 'complete' ? [currentMcp.coverage] : []),
+  return { items: [...new Map(result.map(item => [item.id, item])).values()], ...(resources ? { resources } : {}), coverage: [...failures, ...(currentMcp && currentMcp.coverage.status !== 'complete' ? [currentMcp.coverage] : []),
     ...(composioChanged ? [{ source: 'composio' as const, status: 'partial' as const,
       error: { code: 'COMPOSIO_BINDING_CHANGED', message: 'A connection profile changed while loading. Reload the catalogue.', retryable: true } }] : [])] };
 }
@@ -284,7 +303,7 @@ export async function revalidateExtensions(actor: CapabilityResourceActor, items
 export async function searchPluginExtensions(actorInput: CapabilityResourceActor, query: PluginExtensionQuery,
   options: { dependencies?: PluginExtensionSearchDependencies; timeoutMs?: number; signal?: AbortSignal } = {}): Promise<PluginExtensionSearchResponse> {
   const actor = { userId: actorInput.userId, workspaceId: actorInput.workspaceId?.trim() || null }, dependencies = options.dependencies ?? await defaultDependencies();
-  const context = await dependencies.context(actor);
+  const context = await observeExtensionStage('context', () => dependencies.context(actor));
   const cursorState = extensionCursorState(actor, query);
   options.signal?.throwIfAborted();
   if (query.scope === 'team' && query.teamId && !context.readableTeamIds.has(query.teamId)) throw new CapabilityResourceError('PLUGIN_CATALOG_TEAM_NOT_FOUND', 'The selected team is unavailable in this context.', 404);
@@ -292,11 +311,13 @@ export async function searchPluginExtensions(actorInput: CapabilityResourceActor
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000) invalid();
   const load = async (source: PluginExtensionCoverage['source'], callback: (signal: AbortSignal) => Promise<PluginExtensionSourceResult>) => {
     const controller = new AbortController(); let timer: ReturnType<typeof setTimeout> | undefined, grace: ReturnType<typeof setTimeout> | undefined;
-    const abort = () => controller.abort(options.signal?.reason);
+    let rejectCancellation: ((reason?: unknown) => void) | undefined;
+    const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+    const abort = () => { controller.abort(options.signal?.reason); rejectCancellation?.(options.signal?.reason); };
     options.signal?.addEventListener('abort', abort, { once: true });
     if (options.signal?.aborted) abort();
     try {
-      return await Promise.race([callback(controller.signal), new Promise<PluginExtensionSourceResult>((resolve) => {
+      return await observeExtensionStage(source, () => Promise.race([cancellation, callback(controller.signal), new Promise<PluginExtensionSourceResult>((resolve) => {
         timer = setTimeout(() => {
           controller.abort();
           // The shared Composio collector preserves successful pages when its
@@ -304,13 +325,14 @@ export async function searchPluginExtensions(actorInput: CapabilityResourceActor
           grace = setTimeout(() => resolve({ items: [], coverage: { source, status: 'unavailable',
             error: { code: 'PLUGIN_SEARCH_SOURCE_TIMEOUT', message: 'An extension catalogue did not respond in time.', retryable: true } } }), source === 'composio' ? 100 : 0);
         }, timeoutMs);
-      })]);
+      })]), result => result.items.length);
     } catch { return { items: [], coverage: { source, status: 'unavailable' as const,
       error: { code: 'PLUGIN_SEARCH_SOURCE_UNAVAILABLE', message: 'An extension catalogue is currently unavailable.', retryable: true } } }; }
     finally { if (timer) clearTimeout(timer); if (grace) clearTimeout(grace); options.signal?.removeEventListener('abort', abort); }
   };
   let scopes: PluginWorkspaceCatalogResponse['scopes'] = { choices: ['all', 'user', ...(context.readableTeamIds.size ? ['team' as const] : []), ...(context.organizationAvailable ? ['organization' as const] : [])], teams: [...context.teams] };
   const selected = query.selected ?? '', selectedShared = selected.startsWith('canvas-connection:');
+  const phase = query.phase ?? 'all', local = phase !== 'remote', remote = phase !== 'local';
   const laterBatch = Object.keys(cursorState.sources).length > 0;
   const packagesRequested = !laterBatch && (query.source === 'all' || query.source === 'store') && query.types.some(type => type === 'plugin' || type === 'skill')
     || selected.startsWith('canvas-resource:') || selected.startsWith('store:');
@@ -323,23 +345,26 @@ export async function searchPluginExtensions(actorInput: CapabilityResourceActor
   const installedSystemOnly = query.source === 'all' && query.stock === 'installed' && query.scope === 'system'
     && !selected.startsWith('store:') && cursorState.sources.store === undefined;
   const loads = [];
-  if (packagesRequested) {
+  if (packagesRequested && local) {
     loads.push(load('packages', async () => { const result = await dependencies.packages(actor); scopes = result.scopes; return result; }));
   }
-  if (packagesRequested && !installedSystemOnly || cursorState.sources.store !== undefined) loads.push(load('store', () => dependencies.store(actor, { search: query.q, continuation: cursorState.sources.store, selected: query.selected })));
+  const storeRequested = remote && (query.stock !== 'installed' || query.source === 'store' || selected.startsWith('store:') || cursorState.sources.store !== undefined);
+  if (storeRequested && (packagesRequested && !installedSystemOnly || cursorState.sources.store !== undefined)) loads.push(load('store', signal => dependencies.store(actor, { search: query.q, continuation: cursorState.sources.store, selected: query.selected, signal })));
   if (composioRequested) loads.push(load('composio', signal => dependencies.composio(actor, signal, { search: query.q, continuation: cursorState.sources.composio,
-    selectedSlug: selected.startsWith('composio:') ? selected.slice('composio:'.length) : undefined })));
-  if (mcpRequested) loads.push(load('mcp', () => dependencies.mcp(actor)));
+    selectedSlug: selected.startsWith('composio:') ? selected.slice('composio:'.length) : undefined, ...(phase === 'local' ? { localOnly: true } : {}) })));
+  if (mcpRequested && local) loads.push(load('mcp', () => dependencies.mcp(actor)));
   const results = await Promise.all(loads);
   options.signal?.throwIfAborted();
-  const currentContext = await dependencies.context(actor);
+  const currentContext = await observeExtensionStage('context', () => dependencies.context(actor));
   if (query.scope === 'team' && query.teamId && !currentContext.readableTeamIds.has(query.teamId)) throw new CapabilityResourceError('PLUGIN_CATALOG_TEAM_NOT_FOUND', 'The selected team is unavailable in this context.', 404);
   scopes.teams = currentContext.teams.filter(team => currentContext.readableTeamIds.has(team.teamId));
   scopes.choices = scopes.choices.filter(scope => scope !== 'team' || currentContext.readableTeamIds.size > 0).filter(scope => scope !== 'organization' || currentContext.organizationAvailable);
-  const revalidated = await dependencies.revalidate(actor, [...new Map(results.flatMap(result => result.items).map(item => [item.id, item])).values()]);
+  const revalidated = await observeExtensionStage('revalidate', () => dependencies.revalidate(actor, [...new Map(results.flatMap(result => result.items).map(item => [item.id, item])).values()]));
   const current = Array.isArray(revalidated) ? revalidated : revalidated.items;
   const updates = Array.isArray(revalidated) ? [] : revalidated.coverage;
   const continuations: SourceContinuations = {};
   for (const result of results) if (result.continuation && (result.coverage.source === 'composio' || result.coverage.source === 'store')) continuations[result.coverage.source] = result.continuation;
-  return projectPluginExtensionPage(actor, query, current, scopes, results.map(result => updates.find(update => update.source === result.coverage.source) ?? result.coverage), continuations);
+  const response = projectPluginExtensionPage(actor, query, current, scopes, results.map(result => updates.find(update => update.source === result.coverage.source) ?? result.coverage), continuations);
+  if (!Array.isArray(revalidated) && revalidated.resources) searchResourceSnapshots.set(response, { actor: actorSnapshotKey(actor), resources: revalidated.resources });
+  return response;
 }

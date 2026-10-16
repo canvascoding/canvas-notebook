@@ -202,7 +202,15 @@ function mapGrant(row: Row): CapabilityResourceGrant {
 async function grantsOnConnection(database: SqlConnection, ref: string): Promise<CapabilityResourceGrant[]> {
   return (await database.all('SELECT * FROM capability_resource_grants WHERE resource_ref = $1 ORDER BY target_type, target_id', [ref]) as Row[]).map(mapGrant);
 }
-async function accessOnConnection(database: SqlConnection, actor: CapabilityResourceActor, entry: CapabilityResourceRecord, current?: Authority): Promise<CapabilityResourceAccess> {
+type CapabilityResourceReadFacts = {
+  configured: boolean;
+  validOwners: Set<string>;
+  validTeams: Set<string>;
+  grants: Map<string, CapabilityResourceGrant[]>;
+};
+function scopedIdentity(organizationId: string | null, id: string): string { return JSON.stringify([organizationId, id]); }
+async function accessOnConnection(database: SqlConnection, actor: CapabilityResourceActor, entry: CapabilityResourceRecord,
+  current?: Authority, facts?: CapabilityResourceReadFacts): Promise<CapabilityResourceAccess> {
   const auth = current ?? await authority(database, actor);
   const { metadata, storage } = entry;
   if (!auth.valid || !auth.contextValid || metadata.status !== 'active') return { ...NO_ACCESS };
@@ -210,13 +218,14 @@ async function accessOnConnection(database: SqlConnection, actor: CapabilityReso
   const membership = organizationId ? auth.memberships.get(organizationId) : null;
   if (organizationId && membership?.status !== 'active' || organizationId && auth.requestedWorkspace && auth.requestedWorkspace.organizationId !== organizationId) return { ...NO_ACCESS };
   if (metadata.ownership.type === 'user') {
-    const owner = await database.get(`SELECT u.id FROM "user" u WHERE u.id=$1 AND COALESCE(u.banned,0)=0
+    const owner = facts ? facts.validOwners.has(scopedIdentity(organizationId, metadata.ownership.ownerUserId))
+      : await database.get(`SELECT u.id FROM "user" u WHERE u.id=$1 AND COALESCE(u.banned,0)=0
       AND ($2::text IS NULL OR EXISTS (SELECT 1 FROM organization_user_permissions p WHERE p.user_id=u.id AND p.organization_id=$2 AND p.status='active'))`,
     [metadata.ownership.ownerUserId, organizationId]);
     if (!owner) return { ...NO_ACCESS };
   }
   if (metadata.ownership.type === 'system') {
-    const configured = await database.get('SELECT organization_id FROM canvas_organization_settings LIMIT 1');
+    const configured = facts ? facts.configured : await database.get('SELECT organization_id FROM canvas_organization_settings LIMIT 1');
     return configured && ![...auth.memberships.values()].some((value) => value.status === 'active') ? { ...NO_ACCESS }
       : { canRead: true, canUse: true, canEdit: false, canManage: false };
   }
@@ -226,8 +235,12 @@ async function accessOnConnection(database: SqlConnection, actor: CapabilityReso
   if (metadata.ownership.type === 'user' && metadata.metadataRevision === 0) return { ...NO_ACCESS };
   const team = metadata.ownership.type === 'team' ? auth.workspaces.get(metadata.ownership.workspaceId) : null;
   if (metadata.ownership.type === 'team') {
-    const teamRow = await database.get('SELECT type, organization_id, status FROM canvas_workspaces WHERE id = $1', [metadata.ownership.workspaceId]) as Row | undefined;
-    if (!teamRow || teamRow.type !== 'team' || teamRow.status !== 'active' || teamRow.organization_id !== organizationId) return { ...NO_ACCESS };
+    if (facts) {
+      if (!facts.validTeams.has(scopedIdentity(organizationId, metadata.ownership.workspaceId))) return { ...NO_ACCESS };
+    } else {
+      const teamRow = await database.get('SELECT type, organization_id, status FROM canvas_workspaces WHERE id = $1', [metadata.ownership.workspaceId]) as Row | undefined;
+      if (!teamRow || teamRow.type !== 'team' || teamRow.status !== 'active' || teamRow.organization_id !== organizationId) return { ...NO_ACCESS };
+    }
   }
   const manager = (metadata.ownership.type === 'organization' || metadata.ownership.type === 'team')
     && (admin(auth, organizationId) || Boolean(team?.type === 'team' && team.canManage));
@@ -235,7 +248,7 @@ async function accessOnConnection(database: SqlConnection, actor: CapabilityReso
     : metadata.ownership.type === 'team' ? Boolean(team?.canRead) : false);
   const access = { canRead: manager || inheritedUse, canUse: Boolean(inheritedUse), canEdit: manager && !readOnly(storage), canManage: manager && !readOnly(storage) };
   if (metadata.metadataRevision === 0 || !organizationId) return access;
-  const grants = await grantsOnConnection(database, metadata.resourceRef);
+  const grants = facts ? facts.grants.get(metadata.resourceRef) ?? [] : await grantsOnConnection(database, metadata.resourceRef);
   for (const grant of grants) {
     const targetMatches = matchesCapabilityScopeGrant(auth, organizationId, actor.workspaceId, grant);
     if (!targetMatches) continue;
@@ -281,6 +294,72 @@ export async function getCapabilityResourceAccess(actorInput: CapabilityResource
   };
   return database ? read(database) : connection(read);
 }
+
+export type CapabilityResourceAccessBatchEntry = CapabilityResourceAccessEntry & { grants?: CapabilityResourceGrant[] };
+
+/** One fresh metadata read phase. Never retain this result as runtime authority or across remote I/O. */
+export async function readCapabilityResourceAccessBatch(actorInput: CapabilityResourceActor,
+  storageInputs: readonly CapabilityResourceStorageBinding[], database?: SqlConnection,
+  options: { includeGrants?: boolean } = {}): Promise<CapabilityResourceAccessBatchEntry[]> {
+  const actor = actorSnapshot(actorInput), storages = storageInputs.map(storageSnapshot);
+  if (!storages.length) return [];
+  const read = async (current: SqlConnection) => {
+    const ids = [...new Set(storages.map(storage => storage.resourceId))];
+    const rows = await current.all(`SELECT * FROM capability_resources WHERE resource_ref = ANY($1::text[])
+      OR legacy_resource_id = ANY($1::text[])`, [ids]) as Row[];
+    const byId = new Map<string, CapabilityResourceRecord[]>();
+    for (const row of rows) {
+      const entry = mapResource(row);
+      for (const id of new Set([entry.metadata.resourceRef, entry.metadata.legacyResourceId])) {
+        const entries = byId.get(id) ?? []; entries.push(entry); byId.set(id, entries);
+      }
+    }
+    const entries = storages.map(storage => {
+      const matches = byId.get(storage.resourceId) ?? [];
+      if (matches.length > 1) error('RESOURCE_BINDING_CONFLICT', 'Resource reference is ambiguous.', 409);
+      const entry = matches[0];
+      if (entry && storageKey(entry.storage) !== storageKey(storage)) error('RESOURCE_BINDING_CONFLICT', 'Resource storage binding changed.', 409);
+      return entry ?? { metadata: baseline(storage), storage };
+    });
+    const auth = await authority(current, actor);
+    if (!auth.valid || !auth.contextValid) return entries.map(entry => ({ metadata: entry.metadata, access: { ...NO_ACCESS } }));
+    const facts: CapabilityResourceReadFacts = { configured: false, validOwners: new Set(), validTeams: new Set(), grants: new Map() };
+    const ownerIds = [...new Set(entries.flatMap(entry => entry.metadata.ownership.type === 'user' ? [entry.metadata.ownership.ownerUserId] : []))];
+    if (ownerIds.length) {
+      const owners = await current.all(`SELECT u.id,p.organization_id FROM "user" u
+        LEFT JOIN organization_user_permissions p ON p.user_id=u.id AND p.status='active'
+        WHERE u.id=ANY($1::text[]) AND COALESCE(u.banned,0)=0`, [ownerIds]) as Row[];
+      for (const owner of owners) {
+        facts.validOwners.add(scopedIdentity(null, String(owner.id)));
+        if (owner.organization_id) facts.validOwners.add(scopedIdentity(String(owner.organization_id), String(owner.id)));
+      }
+    }
+    if (entries.some(entry => entry.metadata.ownership.type === 'system')) {
+      facts.configured = Boolean(await current.get('SELECT organization_id FROM canvas_organization_settings LIMIT 1'));
+    }
+    const teamIds = [...new Set(entries.flatMap(entry => entry.metadata.ownership.type === 'team' ? [entry.metadata.ownership.workspaceId] : []))];
+    if (teamIds.length) {
+      const teams = await current.all(`SELECT id,organization_id FROM canvas_workspaces
+        WHERE id=ANY($1::text[]) AND type='team' AND status='active'`, [teamIds]) as Row[];
+      for (const team of teams) facts.validTeams.add(scopedIdentity(String(team.organization_id), String(team.id)));
+    }
+    const refs = [...new Set(entries.filter(entry => entry.metadata.metadataRevision > 0).map(entry => entry.metadata.resourceRef))];
+    if (refs.length) {
+      const grants = await current.all(`SELECT * FROM capability_resource_grants WHERE resource_ref=ANY($1::text[])
+        ORDER BY target_type,target_id`, [refs]) as Row[];
+      for (const row of grants) {
+        const grant = mapGrant(row), values = facts.grants.get(grant.resourceRef) ?? [];
+        values.push(grant); facts.grants.set(grant.resourceRef, values);
+      }
+    }
+    return Promise.all(entries.map(async entry => {
+      const access = await accessOnConnection(current, actor, entry, auth, facts);
+      return { metadata: entry.metadata, access,
+        ...(options.includeGrants && access.canManage ? { grants: facts.grants.get(entry.metadata.resourceRef) ?? [] } : {}) };
+    }));
+  };
+  return database ? read(database) : connection(read);
+}
 export async function listCapabilityResourceRecordsForActor(actorInput: CapabilityResourceActor,
   database?: SqlConnection): Promise<CapabilityResourceRecord[]> {
   const actor = actorSnapshot(actorInput);
@@ -289,12 +368,9 @@ export async function listCapabilityResourceRecordsForActor(actorInput: Capabili
     if (!auth.valid || !auth.contextValid) return [];
     const rows = await current.all(`SELECT * FROM capability_resources WHERE status = 'active' AND (ownership_type = 'system' OR owner_user_id = $1
       OR organization_id IN (SELECT organization_id FROM organization_user_permissions WHERE user_id = $1 AND status = 'active')) ORDER BY resource_ref`, [actor.userId]) as Row[];
-    const visible: CapabilityResourceRecord[] = [];
-    for (const row of rows) {
-      const entry = mapResource(row);
-      if ((await accessOnConnection(current, actor, entry, auth)).canRead) visible.push(entry);
-    }
-    return visible;
+    const entries = rows.map(mapResource);
+    const access = await readCapabilityResourceAccessBatch(actor, entries.map(entry => entry.storage), current);
+    return entries.filter((_, index) => access[index].access.canRead);
   };
   return database ? read(database) : connection(read);
 }

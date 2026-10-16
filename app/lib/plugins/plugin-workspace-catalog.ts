@@ -71,7 +71,9 @@ function publicItem(resource: CapabilityResourceDescriptor, parents: ReadonlyMap
   const item: PluginWorkspaceCatalogItem = { resourceRef: identity(resource.metadata.resourceRef, 2048), legacyResourceId: identity(resource.artifact.resourceId, 2048),
     kind: resource.artifact.resourceType, name, displayName: label(resource.metadata.displayName) ?? label(name) ?? name,
     description: label(resource.metadata.description ?? resource.description, 4096) ?? '', version: identity(resource.artifact.version, 200), revision: resource.artifact.revision,
-    icon: installedPluginExtensionIcon(resource.metadata.resourceRef, resource.artifact.revision, workspaceId),
+    ...(resource.artifact.hasDeclaredIcon === false ? {} : {
+      icon: installedPluginExtensionIcon(resource.metadata.resourceRef, resource.artifact.revision, workspaceId),
+    }),
     ownership: publicOwnership(resource.metadata.ownership), access: { canRead: resource.access.canRead === true, canUse: resource.access.canUse === true,
       canEdit: resource.access.canEdit === true, canManage: resource.access.canManage === true } };
   const ownershipLabel = label(resource.ownershipLabel);

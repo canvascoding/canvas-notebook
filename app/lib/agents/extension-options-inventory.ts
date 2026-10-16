@@ -42,9 +42,30 @@ function sharedSummary(value: IntegrationConnectionBindingAuthorization): Plugin
 /** No profile creation, account enumeration, status, tools or business probes. Existing central ENV migration semantics remain in its reader. */
 export async function readAgentComposioOptionsCatalogue(context: AgentExtensionOptionsContext, signal: AbortSignal,
   options: { search?: string; continuation?: string; selectedSlug?: string; profileId?: string;
-    onCatalogueMetadata?: (toolkits: readonly string[]) => void } = {}): Promise<PluginExtensionSourceResult> {
+    onCatalogueMetadata?: (toolkits: readonly string[]) => void; localOnly?: boolean } = {}): Promise<PluginExtensionSourceResult> {
   configurationTarget(context);
   await revalidateAgentExtensionOptionsContext(context);
+  if (options.localOnly) {
+    signal.throwIfAborted();
+    const apps = new Map<string, Extract<PluginExtensionItem, { kind: 'integration' }>>();
+    for (const value of await listAgentExtensionSharedOptions(context, 'composio')) {
+      const toolkit = slug(value.resource.application);
+      if (!toolkit) continue;
+      let item = apps.get(toolkit);
+      if (!item) {
+        item = { id: `composio:${toolkit}`, kind: 'integration', name: toolkit, displayName: toolkit, description: '',
+          source: 'composio', stock: 'installed', access: { canRead: true, canUse: false, canManage: false },
+          toolkit: { slug: toolkit, noAuth: false }, connections: [] };
+        apps.set(toolkit, item);
+      }
+      item.connections.push(sharedSummary(value));
+      item.access.canUse ||= value.canUse;
+      item.access.canManage ||= value.canManage;
+    }
+    signal.throwIfAborted();
+    await revalidateAgentExtensionOptionsContext(context);
+    return { items: [...apps.values()], coverage: { source: 'composio', status: 'complete' } };
+  }
   const scope = { secretScope: 'user' as const, userId: context.actor.userId };
   const mode = await getComposioMode(scope);
   const profiles = await listExistingComposioProfiles(context.actor.userId);

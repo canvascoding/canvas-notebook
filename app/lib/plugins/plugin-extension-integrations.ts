@@ -46,7 +46,7 @@ export function publicSharedExtensionConnection(value: IntegrationConnectionDesc
 
 /** Shared credential/profile/account identifiers never enter a management DTO. */
 export async function readComposioExtensions(actor: CapabilityResourceActor, signal: AbortSignal,
-  options: { search?: string; continuation?: string; maxPages?: number; selectedSlug?: string } = {}): Promise<PluginExtensionSourceResult> {
+  options: { search?: string; continuation?: string; maxPages?: number; selectedSlug?: string; localOnly?: boolean } = {}): Promise<PluginExtensionSourceResult> {
   const [{ resolveComposioContext, resolveBoundComposioContext }, { listComposioProfiles }, { getComposioMode, getComposio },
     { loadLocalComposioMetadata, loadManagedComposioMetadata, isComposioIntegrationApplicationVisible },
     { listSharedIntegrationConnections }] = await Promise.all([
@@ -67,6 +67,21 @@ export async function readComposioExtensions(actor: CapabilityResourceActor, sig
       toolkit: { slug, noAuth }, connections: [], ...(icon ? {icon} : {}) };
     apps.set(slug, value); return value;
   };
+  if (options.localOnly) {
+    signal.throwIfAborted();
+    for (const value of await listSharedIntegrationConnections(actor, 'composio')) {
+      if (!value.access.canRead || value.resource.status !== 'active') continue;
+      const slug = canonicalToolkit(value.resource.application);
+      if (slug && isComposioIntegrationApplicationVisible(slug)) app(slug).connections.push(publicSharedExtensionConnection(value));
+    }
+    for (const value of apps.values()) {
+      value.stock = 'installed';
+      value.access.canUse = value.connections.some(connection => connection.access.canUse);
+      value.access.canManage = value.connections.some(connection => connection.access.canManage);
+    }
+    signal.throwIfAborted();
+    return { items: [...apps.values()], coverage: { source: 'composio', status: 'complete' } };
+  }
   try {
     const effective = await resolveComposioContext({ userId: actor.userId, workspaceId: actor.workspaceId });
     const mode = await getComposioMode(effective.storageScope);

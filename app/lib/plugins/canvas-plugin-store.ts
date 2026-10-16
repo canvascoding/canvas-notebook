@@ -440,9 +440,9 @@ async function readUrlBytes(rawUrl: string, maxBytes = MAX_STORE_ARCHIVE_BYTES):
   return readBoundedStorePackageBytes(validateRegistryUrl(rawUrl), maxBytes);
 }
 
-async function readJsonUrl(rawUrl: string): Promise<unknown> {
+async function readJsonUrl(rawUrl: string, options: { signal?: AbortSignal; cache?: 'metadata' | 'fresh' } = {}): Promise<unknown> {
   const { readBoundedStoreRegistryJson } = await import('./store-registry-reader');
-  return readBoundedStoreRegistryJson(rawUrl);
+  return readBoundedStoreRegistryJson(rawUrl, options);
 }
 
 function normalizeStoreVersion(value: unknown): CanvasPluginStoreVersion | null {
@@ -506,9 +506,9 @@ function normalizeStorePlugin(value: unknown, registryUrl: string): CanvasPlugin
   };
 }
 
-export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStoreRegistry> {
+export async function readCanvasPluginStoreRegistry(options: { signal?: AbortSignal; cache?: 'metadata' | 'fresh' } = {}): Promise<CanvasPluginStoreRegistry> {
   const registryUrl = getRegistryUrl();
-  const parsed = await readJsonUrl(registryUrl);
+  const parsed = await readJsonUrl(registryUrl, options);
   if (!isRecord(parsed)) {
     throw new Error('Plugin store registry must be a JSON object.');
   }

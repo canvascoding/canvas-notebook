@@ -1,9 +1,10 @@
 import 'server-only';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
 
 import { listCapabilityResources } from '@/app/lib/capabilities/resources/actions';
 import { findCapabilityResourceRecord, withAuthorizedCapabilityPackageResource } from '@/app/lib/capabilities/resources/store';
 import { listCapabilityPackagePublishedRevisions } from '@/app/lib/capabilities/packages/store';
-import { getPluginExtensionSearchDependencies, revalidateExtensions, searchPluginExtensions } from '@/app/lib/plugins/plugin-extension-search';
+import { getPluginExtensionSearchDependencies, getPluginExtensionSearchResourceSnapshot, revalidateExtensions, searchPluginExtensions } from '@/app/lib/plugins/plugin-extension-search';
 import type { PluginExtensionItem, PluginExtensionQuery } from '@/app/lib/plugins/plugin-extension-contracts';
 import { AgentWorkflowError } from './workflow-contracts';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
@@ -67,10 +68,35 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
         retained.push({ ...item, connections });
       }
       await revalidateAgentExtensionOptionsContext(context);
-      return { items: retained, coverage };
+      return { items: retained, coverage, resources: packages.resources };
     },
   } });
-  const resources = new Map((await listCapabilityResources(resourceActor)).map(value => [value.metadata.resourceRef, value]));
+  const hasPackages = [...result.items, ...(result.selectedItem ? [result.selectedItem] : [])]
+    .some(item => (item.kind === 'plugin' || item.kind === 'skill') && item.package);
+  const resources = new Map((hasPackages ? getPluginExtensionSearchResourceSnapshot(result, resourceActor)
+    ?? await listCapabilityResources(resourceActor) : []).map(value => [value.metadata.resourceRef, value]));
+  // One exact immutable source per pin in this response, never an authorization
+  // cache across searches, actors, or the final Preview/Send lifecycle.
+  const packageSources = new Map<string, ReturnType<typeof readAgentExtensionPackageVersion>>();
+  const packageVersion = (pin: Parameters<typeof readAgentExtensionPackageVersion>[1]) => {
+    const key = JSON.stringify(pin);
+    let value = packageSources.get(key);
+    if (!value) { value = observeExtensionStage('package_source', () => readAgentExtensionPackageVersion(resourceActor, pin, { allowPersonalPackages: context.allowPersonal })); packageSources.set(key, value); }
+    return value;
+  };
+  const publishedPackages = new Map<string, ReturnType<typeof readPublishedPackage>>();
+  async function readPublishedPackage(reference: string) {
+    const record = await findCapabilityResourceRecord(reference);
+    if (!record) return null;
+    const versions = await withAuthorizedCapabilityPackageResource(resourceActor, record.storage, 'use', undefined,
+      async (authorization, database) => listCapabilityPackagePublishedRevisions(authorization.record.metadata.resourceRef, database));
+    return { record, versions };
+  }
+  const publishedPackage = (reference: string) => {
+    let value = publishedPackages.get(reference);
+    if (!value) { value = readPublishedPackage(reference); publishedPackages.set(reference, value); }
+    return value;
+  };
   async function project(item: PluginExtensionItem): Promise<AgentExtensionSearchItem> {
     if (item.kind === 'integration') return { item, eligibility: { action: 'choose_connection' } };
     if (item.kind === 'mcp') {
@@ -107,19 +133,31 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
     // Plugin children are selected from the actual held parent's child inventory.
     // A child display row is never treated as an independent package pin.
     const reference = item.package.parentResourceRef || resource.metadata.resourceRef;
-    const record = await findCapabilityResourceRecord(reference);
-    if (!record || resource.artifact.sourceType === 'plugin' && !item.package.parentResourceRef) return { item, eligibility: { action: 'unavailable', reason: {
+    if (resource.artifact.sourceType === 'plugin' && !item.package.parentResourceRef) return { item, eligibility: { action: 'unavailable', reason: {
       code: 'AGENT_EXTENSION_PARENT_SELECTION_REQUIRED', message: 'Open the parent plugin and choose this exact child from its published version.' } } };
-    let versions: Awaited<ReturnType<typeof listCapabilityPackagePublishedRevisions>>;
-    try { versions = await withAuthorizedCapabilityPackageResource(resourceActor, record.storage, 'use', undefined,
-      async (authorization, database) => listCapabilityPackagePublishedRevisions(authorization.record.metadata.resourceRef, database)); }
+    let published;
+    try { published = await publishedPackage(reference); }
     catch { return { item, eligibility: { action: 'unavailable', reason: { code: 'AGENT_EXTENSION_PACKAGE_UNAVAILABLE', message: 'This package version is no longer available.' } } }; }
+    if (!published) return { item, eligibility: { action: 'setup', reason: {
+      code: 'AGENT_EXTENSION_PARENT_SELECTION_REQUIRED', message: 'Open the parent plugin and choose this exact child from its published version.' } } };
+    const { record, versions } = published;
     if (!versions.length) return { item, eligibility: { action: 'setup', reason: { code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' } } };
     const publishedVersions = versions.map(version => ({ pin: { resourceRef: reference,
       publishedRevisionRef: version.revisionRef, checksum: version.checksum }, version: version.version, publishedAt: version.publishedAt }));
     if (resource.artifact.sourceType === 'plugin') {
       const selected = publishedVersions.find(version => version.version === resources.get(reference)?.artifact.version) ?? publishedVersions[0];
-      const parent = await readAgentExtensionPackageVersion(resourceActor, selected.pin, { allowPersonalPackages: context.allowPersonal });
+      const actualParent = resources.get(reference);
+      // The resource catalog has just parsed this exact installed parent. Its
+      // verified pointer matches the immutable published checksum. Search can
+      // expose that child identity without revalidating every byte for every
+      // sibling. Preview/Send still read and authorize the exact held package.
+      if (resource.artifact.pluginSkillRelativeRoot !== undefined && actualParent?.artifact.sourceType !== 'plugin'
+        && actualParent?.artifact.version === selected.version && actualParent.artifact.checksum === selected.pin.checksum
+        && record.storage.resourceId === resource.artifact.sourcePluginId) {
+        return { item, publishedVersions, selection: { kind: 'skill', origin: 'plugin_child',
+          relativeRoot: resource.artifact.pluginSkillRelativeRoot, package: selected.pin }, eligibility: { action: 'select' } };
+      }
+      const parent = await packageVersion(selected.pin);
       const child = parent.metadata.skillRoots.find(skill => skill.name === resource.artifact.name);
       if (parent.metadata.kind !== 'plugin' || !child || record.storage.resourceId !== resource.artifact.sourcePluginId) {
         return { item, eligibility: { action: 'unavailable', reason: { code: 'AGENT_EXTENSION_PARENT_SELECTION_REQUIRED',
@@ -132,11 +170,11 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
     }
     return { item, publishedVersions, eligibility: { action: 'select' } };
   }
-  let items = await Promise.all(result.items.map(project));
+  let items = await observeExtensionStage('projection', () => Promise.all(result.items.map(project)), values => values.length);
   let selectedItem = result.selectedItem ? await project(result.selectedItem) : null;
   if (isChatExtensionOptionsContext(context)) {
-    items = await Promise.all(items.map(item => projectChatExtensionSearchItem(context, item)));
-    if (selectedItem) selectedItem = await projectChatExtensionSearchItem(context, selectedItem);
+    items = await observeExtensionStage('projection', () => Promise.all(items.map(item => projectChatExtensionSearchItem(context, item, { resources, packageVersion }))), values => values.length);
+    if (selectedItem) selectedItem = await projectChatExtensionSearchItem(context, selectedItem, { resources, packageVersion });
   }
   await revalidateAgentExtensionOptionsContext(context);
   const nextCursor = result.pagination.nextCursor ? Buffer.from(JSON.stringify({ v: 1, context: context.contextKey,
