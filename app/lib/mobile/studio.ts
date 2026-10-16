@@ -32,6 +32,7 @@ import {
   QUALITY_OPTIONS,
 } from '@/app/lib/integrations/image-generation-constants';
 import { getStudioProviderConfig } from '@/app/lib/integrations/studio-config';
+import { normalizeStudioPrompt } from '@/app/lib/integrations/studio-prompt';
 import {
   getStudioGeneration,
   getStudioOutputForUser,
@@ -210,11 +211,13 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     : mode === 'image' && provider === 'openai'
       ? optionalString(value.aspectRatio, 'Aspect ratio', 40) || aspectRatios[0] || '1:1'
       : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
-  const prompt = optionalString(
-    value.prompt,
-    'Prompt',
+  const prompt = normalizeStudioPrompt(
+    value.prompt ?? '',
     mode === 'image' && provider === 'openai' ? 32_000 : 4_000,
-  ) || '';
+  );
+  if (prompt === null) {
+    throw new MobileStudioError('Prompt is invalid.', 400, 'INVALID_STUDIO_REQUEST');
+  }
   const references = parseReferences(value.references, mode, provider);
   const productIds = identifierArray(value.productIds, 'Products', 5);
   const personaIds = identifierArray(value.personaIds, 'Personas', 3);

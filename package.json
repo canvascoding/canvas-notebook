@@ -820,7 +820,8 @@
     "test:files:operation-review-toggle": "tsx --conditions react-server scripts/workspace-operation-review-availability-test.ts && tsx scripts/workspace-operation-review-gating-ui-test.tsx",
     "test:dictation:preparation": "python3 scripts/dictation-host-model-test.py && tsx --conditions react-server scripts/local-dictation-preparation-test.ts && tsx --conditions react-server scripts/local-dictation-route-test.ts",
     "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts",
-    "build:decision-models": "tsc -p packages/decision-models/tsconfig.json"
+    "build:decision-models": "tsc -p packages/decision-models/tsconfig.json",
+    "test:studio:prompt-linebreaks": "tsx --conditions react-server scripts/studio-prompt-text-test.ts && npm run test:studio:openai-service && npm run test:studio:veo && npm run test:studio:seedance && node --experimental-test-module-mocks --import tsx --conditions react-server scripts/studio-sound-prompt-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

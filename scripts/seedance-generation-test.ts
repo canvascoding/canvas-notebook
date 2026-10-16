@@ -59,7 +59,7 @@ async function main() {
 
     if (url.includes('/api/v1/jobs/createTask')) {
       assert.equal(body?.model, 'bytedance/seedance-2');
-      assert.equal(body?.input?.prompt, 'A tiny cinematic test');
+      assert.equal(body?.input?.prompt, 'A tiny cinematic test\n\n\tKeep the original colors.\nSlow camera.');
       assert.equal(body?.input?.first_frame_url, 'https://tempfile.redpandaai.co/test/start-frame.png');
       assert.equal(body?.input?.resolution, '480p');
       assert.equal(body?.input?.aspect_ratio, '21:9');
@@ -103,7 +103,7 @@ async function main() {
 
   try {
     const result = await generateSeedanceVideo({
-      prompt: 'A tiny cinematic test',
+      prompt: '  A tiny cinematic test\r\n\r\n\tKeep the original colors.\rSlow camera.  ',
       aspectRatio: '21:9',
       resolution: '480p',
       durationSeconds: 15,
@@ -127,6 +127,11 @@ async function main() {
     assert.equal(saved.toString(), 'fake video');
     assert.equal(calls.some((call) => call.url.includes('/api/file-base64-upload')), true);
     assert.equal(recordInfoCalls, 2);
+    const callsBeforeInvalid = calls.length;
+    for (const prompt of ['bad\u0000text', '\u000btext', 'text\u000c', 'p'.repeat(20_001)]) {
+      await assert.rejects(generateSeedanceVideo({ prompt }), /invalid control characters or exceeds/);
+    }
+    assert.equal(calls.length, callsBeforeInvalid, 'Invalid prompts must fail before provider HTTP requests');
 
     recordInfoCalls = 0;
     global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {

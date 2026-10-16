@@ -4,6 +4,7 @@ import { mock } from 'node:test';
 import sharp from 'sharp';
 import { StudioServiceError } from '../app/lib/integrations/studio-errors';
 import { StudioGenerationFailureError } from '../app/lib/integrations/studio-generation-failures';
+import { NextRequest } from 'next/server';
 import type { StudioScope } from '../app/lib/integrations/studio-scope';
 import type { StudioGenerateRequest } from '../app/lib/integrations/studio-generation-service';
 
@@ -74,6 +75,8 @@ async function main() {
     return outcome;
   };
   const unexpected = () => { throw new Error('An unrelated media service must not run in image regression tests.'); };
+  const videoCalls: Row[] = [];
+  const soundCalls: Row[] = [];
   class FakeOpenAI {
     images = {
       generate: (request: Row) => sdkResponse('generate', request),
@@ -114,12 +117,20 @@ async function main() {
       return { imageBytes: bytes.toString('base64'), mimeType: 'image/png', width: 32, height: 32, fileName: file, sourceId: file };
     }),
   } });
-  mock.module('@/app/lib/integrations/veo-generation-service', { exports: { generateVideo: unexpected } });
+  mock.module('@/app/lib/integrations/veo-generation-service', { exports: {
+    generateVideo: async (request: Row) => {
+      videoCalls.push(request);
+      return { path: 'fixture/video.mp4', mediaUrl: '/api/studio/media/fixture/video.mp4', fileSize: 10, mimeType: 'video/mp4', metadata: {} };
+    },
+  } });
   mock.module('@/app/lib/integrations/seedance-generation-service', { exports: {
     generateSeedanceVideo: unexpected, SEEDANCE_MODEL_ID: 'bytedance/seedance-2', SEEDANCE_PROVIDER_ID: 'bytedance',
   } });
   mock.module('@/app/lib/integrations/sound-generation-service', { exports: {
-    generateSound: unexpected, LYRIA_CLIP_MODEL_ID: 'lyria-3-clip-preview', LYRIA_PRO_MODEL_ID: 'lyria-3-pro-preview',
+    generateSound: async (request: Row) => {
+      soundCalls.push(request);
+      return { audioBytes: Buffer.from('fixture sound'), mimeType: 'audio/mpeg', metadata: {} };
+    }, LYRIA_CLIP_MODEL_ID: 'lyria-3-clip-preview', LYRIA_PRO_MODEL_ID: 'lyria-3-pro-preview',
   } });
   mock.module('@/app/lib/integrations/studio-generation-concurrency', { exports: {
     withStudioGenerationConcurrency: async (_mode: string, run: () => Promise<unknown>) => run(),
@@ -127,6 +138,13 @@ async function main() {
   mock.module('@/app/lib/integrations/studio-provider-credentials', { exports: { resolveStudioProviderCredential: async () => 'fixture-key' } });
   mock.module('@/app/lib/integrations/managed-media-client', { exports: { isManagedMediaFallbackAvailable: () => false, generateManagedMedia: unexpected } });
   mock.module('@/app/lib/mobile/push-devices', { exports: { sendStudioCompletedPush: async () => {}, sendFailureAttentionPush: async () => {} } });
+  mock.module('@/app/lib/auth', { exports: { auth: { api: { getSession: async () => ({ user: { id: scope.actorUserId } }) } } } });
+  mock.module('@/app/lib/integrations/studio-request-scope', { exports: { requireStudioRequestScope: async () => ({ scope }) } });
+  mock.module('@/app/lib/integrations/studio-generation-queue', { exports: {
+    assertStudioGenerationQueueCapacity: async () => {},
+    enqueueStudioGeneration: () => ({ queuePosition: 1, queueLength: 1 }),
+  } });
+  mock.module('@/app/lib/audit/audit-service', { exports: { recordAuditEvent: async () => {} } });
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async () => { throw new Error('Studio service regression tests must not perform network requests.'); };
 
@@ -139,6 +157,71 @@ async function main() {
     const generation = (id: string) => {
       const row = records.get(schema.studioGenerations)!.find((entry) => entry.id === id); assert.ok(row); return row;
     };
+
+    const formattedPrompt = 'Überblick 🖼️\n\n\t- Licht: weich\n- Hintergrund: blau';
+    const windowsPrompt = ` \t${formattedPrompt.replace(/\n/gu, '\r\n')}\r `;
+    const queued = await createStudioGeneration(scope, request({ prompt: windowsPrompt }));
+    assert.equal(queued.prompt, formattedPrompt);
+    assert.equal(generation(queued.generationId).prompt, formattedPrompt);
+    assert.equal(generation(queued.generationId).rawPrompt, formattedPrompt);
+    await runStudioGeneration(queued.generationId);
+    assert.equal(generation(queued.generationId).status, 'completed');
+    assert.equal(sdkCalls.at(-1)!.request.prompt, formattedPrompt, 'The real OpenAI adapter must send paragraphs and tabs to the SDK');
+
+    records.get(schema.studioPresets)!.push({
+      id: 'prompt-preset', workspaceId: scope.workspaceId, name: 'Soft light',
+      blocks: JSON.stringify([{ type: 'lighting', promptFragment: 'Soft\nwindow light' }]),
+    });
+    const withPreset = await executeStudioGeneration(scope, request({ prompt: windowsPrompt, preset_id: 'prompt-preset' }));
+    const composedPrompt = `## Preset — Visual Setting\nSoft\nwindow light\n\n## Instructions\n\n${formattedPrompt}`;
+    assert.equal(sdkCalls.at(-1)!.request.prompt, composedPrompt);
+    assert.equal(generation(withPreset.generationId).prompt, composedPrompt);
+    assert.equal(generation(withPreset.generationId).rawPrompt, formattedPrompt, 'User text stays separate from preset composition');
+
+    for (const mode of ['video', 'sound'] as const) {
+      const result = await executeStudioGeneration(scope, {
+        mode, provider: mode === 'video' ? 'veo' : 'gemini', prompt: windowsPrompt, aspect_ratio: '16:9',
+      });
+      assert.equal(result.status, 'completed');
+      assert.equal((mode === 'video' ? videoCalls : soundCalls).at(-1)!.prompt, formattedPrompt);
+      assert.equal(generation(result.generationId).rawPrompt, formattedPrompt);
+    }
+
+    const beforePromptInvalid = persistenceCalls;
+    for (const prompt of ['bad\u0000text', '\u000btext', 'text\u000c', 'p'.repeat(32_001)]) {
+      await assert.rejects(createStudioGeneration(scope, request({ prompt })), (error: unknown) => (
+        error instanceof StudioServiceError && error.code === 'INVALID_REQUEST'
+      ));
+    }
+    assert.equal(persistenceCalls, beforePromptInvalid, 'Invalid prompts fail before creating a job');
+    const geminiRequest = request({
+      provider: 'gemini', model: 'gemini-3.1-flash-image', image_size: undefined, prompt: 'p'.repeat(4_000),
+    });
+    assert.equal((await createStudioGeneration(scope, geminiRequest)).prompt.length, 4_000);
+    const beforeDefaultLimit = persistenceCalls;
+    await assert.rejects(createStudioGeneration(scope, { ...geminiRequest, prompt: 'p'.repeat(4_001) }),
+      (error: unknown) => error instanceof StudioServiceError && error.code === 'INVALID_REQUEST');
+    await assert.rejects(createStudioGeneration(scope, {
+      mode: 'sound', provider: 'gemini', prompt: ' \r\n\t ', extra_reference_urls: ['reference-0.png'],
+    }),
+      /Prompt required for sound generation/);
+    assert.equal(persistenceCalls, beforeDefaultLimit);
+    const referenceOnly = await executeStudioGeneration(scope, request({ prompt: ' \r\n\t ', extra_reference_urls: ['reference-0.png'] }));
+    assert.equal(referenceOnly.status, 'completed');
+    assert.equal(generation(referenceOnly.generationId).rawPrompt, '');
+
+    const { POST } = await import('../app/api/studio/generate/route');
+    const webRequest = (prompt: string) => new NextRequest('https://studio.fixture.invalid/api/studio/generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request({ prompt })),
+    });
+    const webResponse = await POST(webRequest(windowsPrompt));
+    assert.equal(webResponse.status, 201);
+    const webQueued = await webResponse.json();
+    assert.equal(webQueued.prompt, formattedPrompt);
+    assert.equal(generation(webQueued.generationId).rawPrompt, formattedPrompt);
+    await runStudioGeneration(webQueued.generationId);
+    assert.equal(sdkCalls.at(-1)!.request.prompt, formattedPrompt);
+    assert.equal((await POST(webRequest('bad\u0000text'))).status, 400);
 
     for (const model of ['gpt-image-2.5-flare-2026-09-08', 'gpt-image-2.5-sunburst-2026-09-08']) {
       const before = sdkCalls.length;

@@ -852,7 +852,7 @@ async function main() {
     legacy: false,
   };
   const studioImageResult = await runWithAgentExecutionContext(studioExecutionContext, () => studioImageTool.execute('studio-image', {
-    prompt: 'Eine Ente statt einem Affen',
+    prompt: 'Eine Ente statt einem Affen\r\n\r\n\tWeiches Licht.',
     provider: 'gemini',
   }));
   const studioImageText = getText(studioImageResult);
@@ -866,9 +866,10 @@ async function main() {
   assert.match(studioImageText, /The browser render URL and thumbnail preview URL are not filesystem paths/);
   assert.equal(studioImageCalls.length, 1);
   assert.equal(studioImageCalls[0].mode, 'image');
+  assert.equal(studioImageCalls[0].prompt, 'Eine Ente statt einem Affen\r\n\r\n\tWeiches Licht.');
 
   const studioSeedanceResult = await runWithAgentExecutionContext(studioExecutionContext, () => studioTool.execute('studio-seedance', {
-    prompt: 'A cinematic product reveal',
+    prompt: 'A cinematic product reveal\n\n\tSlow camera.',
     provider: 'bytedance',
     model: 'bytedance/seedance-2',
     aspect_ratio: '21:9',
@@ -880,6 +881,7 @@ async function main() {
   }));
   assert.match(getText(studioSeedanceResult), /Studio video generation completed \(1 output/);
   assert.equal(studioCalls.length, 1);
+  assert.equal(studioCalls[0].prompt, 'A cinematic product reveal\n\n\tSlow camera.');
   assert.equal(studioCalls[0].provider, 'bytedance');
   assert.equal(studioCalls[0].model, 'bytedance/seedance-2');
   assert.equal(studioCalls[0].aspect_ratio, '21:9');

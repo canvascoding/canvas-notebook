@@ -21,6 +21,7 @@ import {
 import { eq, and, desc, count, asc, inArray, or } from 'drizzle-orm';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { normalizeStudioPrompt } from '@/app/lib/integrations/studio-prompt';
 import { classifyStudioGenerationFailure, StudioGenerationFailureError, type StudioGenerationFailure } from '@/app/lib/integrations/studio-generation-failures';
 import {
   readAssetFile,
@@ -193,7 +194,15 @@ const MIME_EXTENSION: Record<string, string> = {
 };
 
 function sanitizePrompt(prompt: string, maximumLength = DEFAULT_MAX_PROMPT_LENGTH): string {
-  return prompt.replace(/\s+/g, ' ').trim().slice(0, maximumLength);
+  const normalized = normalizeStudioPrompt(prompt, maximumLength);
+  if (normalized === null) {
+    throw new StudioServiceError(
+      'Invalid Studio prompt',
+      `Der Prompt enthält ungültige Steuerzeichen oder überschreitet ${maximumLength} Zeichen.`,
+      'INVALID_REQUEST',
+    );
+  }
+  return normalized;
 }
 
 function extensionFromMime(mimeType: string): string {
@@ -1002,7 +1011,7 @@ export async function createStudioGeneration(
     workspaceId: scope.workspaceId,
     mode,
     prompt: rawPrompt,
-    rawPrompt: request.prompt,
+    rawPrompt,
     studioPresetId: request.preset_id ?? null,
     studioPresetName,
     aspectRatio,
