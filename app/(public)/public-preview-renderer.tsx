@@ -103,11 +103,16 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
   // Native identity precedes suffix selection and never needs an export codec.
   if (resolved.kind === 'native') {
     const content = resolved.snapshot.content;
-    const previewBytes = Buffer.byteLength(content.kind === 'plain_text' ? content.text : JSON.stringify(content), 'utf8');
+    const serializedContent = content.kind === 'plain_text' ? content.text : JSON.stringify(content);
+    const previewBytes = Buffer.byteLength(serializedContent, 'utf8');
     const nativePreviewTooLarge = previewBytes > TEXT_PREVIEW_SIZE_LIMIT;
-    const nativeContent = nativePreviewTooLarge ? undefined : content.kind === 'rich_text' ? { ...content,
-      document: rewritePublicNativeImageSources(content.document, resolved.workspacePath, resolved.row.token, resolved.workspace.workspaceId),
-    } : content;
+    // ProseMirror emits null-prototype attrs. Native JSON crosses the RSC
+    // boundary as ordinary JSON objects, only after the preview size check.
+    const previewContent = nativePreviewTooLarge ? undefined : content.kind === 'rich_text'
+      ? JSON.parse(serializedContent) as typeof content : content;
+    const nativeContent = previewContent?.kind === 'rich_text' ? { ...previewContent,
+      document: rewritePublicNativeImageSources(previewContent.document, resolved.workspacePath, resolved.row.token, resolved.workspace.workspaceId),
+    } : previewContent;
     let downloadUrl: string | undefined, downloadFileName: string | undefined;
     let markdownExportUrl: string | undefined, markdownPdfUrl: string | undefined, downloadUnavailableReason: string | undefined;
     try {
