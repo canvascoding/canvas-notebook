@@ -59,6 +59,7 @@ import {
 import {
   catalogDataToDraft,
   readAdminRuntimeCatalog,
+  removeAdminRuntimeCatalogProvider,
   RuntimeCatalogClientError,
   syncManagedRuntimeCatalog,
   updateAdminRuntimeCatalog,
@@ -574,7 +575,7 @@ function availableCredentialScopesForNewProvider(
 }
 
 function errorMessage(error: unknown, fallback: string, copy: PanelCopy): string {
-  if (error instanceof RuntimeCatalogClientError && error.code === 'CATALOG_REVISION_CONFLICT') {
+  if (error instanceof RuntimeCatalogClientError && ['CATALOG_REVISION_CONFLICT', 'PROVIDER_CHANGED'].includes(error.code)) {
     return copy.errors.revisionConflict;
   }
   return error instanceof Error ? error.message : fallback;
@@ -719,23 +720,39 @@ export function AiProvidersModelsPanel({
         && candidate.credentialScope === provider.credentialScope
       ));
       if (!storedProvider) throw new Error(copy.errors.verify);
-      if (verifyProvider) await verifyProvider(storedProvider.installationId);
-      else await verifyAdminProviderInstallation(storedProvider.installationId);
-      await loadCatalog();
+      try {
+        if (verifyProvider) await verifyProvider(storedProvider.installationId);
+        else await verifyAdminProviderInstallation(storedProvider.installationId);
+      } finally {
+        // Failed probes also persist readiness and advance the shared catalog revision.
+        await loadCatalog();
+        onCatalogChanged?.();
+      }
       setMessage(copy.verified);
     }
     setEditorOpen(false);
   };
 
   const removeProvider = async (provider: AiCatalogProviderDraft) => {
-    if (!draft) return;
-    const providers = draft.providers.filter((candidate) => candidate.clientKey !== provider.clientKey);
-    await persistDraft({
-      ...draft,
-      providers,
-      defaultSelection: sanitizeDefaultSelection(providers, draft.defaultSelection),
-    });
-    setEditorOpen(false);
+    if (!data) return;
+    const baseline = catalogDataToDraft(data).providers.find(candidate => candidate.providerInstallationId === provider.providerInstallationId);
+    if (!baseline) return;
+    try {
+      applyCatalogData(await removeAdminRuntimeCatalogProvider(baseline));
+      setMessage(copy.saved);
+      setError(null);
+      onCatalogChanged?.();
+      setEditorOpen(false);
+    } catch (removeError) {
+      if (removeError instanceof RuntimeCatalogClientError && removeError.status === 409) {
+        const latest = await readAdminRuntimeCatalog();
+        applyCatalogData(latest);
+        const current = catalogDataToDraft(latest).providers.find(candidate => candidate.providerInstallationId === provider.providerInstallationId);
+        if (current) setEditorProvider(current);
+        else setEditorOpen(false);
+      }
+      throw new Error(errorMessage(removeError, copy.errors.save, copy));
+    }
   };
 
   const newProviderDraft = (providerId: string): AiCatalogProviderDraft | null => {
