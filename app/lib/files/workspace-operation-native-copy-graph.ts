@@ -161,7 +161,7 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
             || clone.source.lifecycleGeneration !== original.lifecycleGeneration || clone.source.stateProof !== source.version.stateProof
             || clone.source.documentSequence !== source.version.documentSequence || clone.clone.path !== entry.path
             || clone.clone.lifecycleGeneration !== 1 || clone.clone.initialSequence !== 0 || entry.lifecycleGeneration !== 1
-            || entry.identity !== `document:${clone.clone.documentId}:1` || original.documentId === clone.clone.documentId) fail();
+            || entry.identity !== `registry:${clone.clone.documentId}:1` || original.documentId === clone.clone.documentId) fail();
           cloneReceipts.delete(clone.clone.documentId);
         } else {
           const logicalParent = implied(original) && implied(entry) && nativeCloneParents.has(id);

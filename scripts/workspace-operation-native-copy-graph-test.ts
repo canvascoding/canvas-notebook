@@ -25,7 +25,7 @@ function state(filePath: string, text: string, representation: Representation, w
   finally { doc.destroy(); }
 }
 function entry(value: PersistedCollaborationState): NativeNamespaceEntry {
-  return { workspaceId: value.workspaceId, path: value.path, kind: 'file', identity: `document:${value.documentId}:${value.lifecycleGeneration}`,
+  return { workspaceId: value.workspaceId, path: value.path, kind: 'file', identity: `registry:${value.documentId}:${value.lifecycleGeneration}`,
     documentId: value.documentId, lifecycleGeneration: value.lifecycleGeneration, filesystemIdentity: null };
 }
 function physical(workspaceId: string, filePath: string, kind: 'file' | 'directory', id: number): NativeNamespaceEntry {
