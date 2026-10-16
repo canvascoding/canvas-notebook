@@ -102,6 +102,12 @@ export function prepareNativeCopyLinkUpdates(input: {
       selected.add(recipe.linkId);
       return { ...structuredClone(recipe), linkId: link.id, source: structuredClone(cloneInventory.document),
         sourceVersion: structuredClone(cloneInventory.version), reference: structuredClone(link.ref), cloneSelection: null };
+    }).filter(recipe => {
+      // Cross-workspace path planning also emits equal-spelling rewrites. A
+      // fresh clone already contains that value; keep its initial native clock
+      // and proof, matching the compiler's actual mutation intents.
+      const current = recipe.reference.kind === 'link-mark' ? recipe.reference.expected.href : recipe.reference.expected;
+      return String(current) !== recipe.nextValue;
     });
     return { recipes: rebound, linkBindings: [...links].map(([sourceLinkId, link]) => ({ sourceLinkId, cloneLinkId: link.id })),
       prepared: rebound.length ? prepareNativeLinkMutations({ state: clone.state, recipes: rebound, operationId }) : null };
