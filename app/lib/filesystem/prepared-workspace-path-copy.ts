@@ -8,12 +8,12 @@ import { isDeepStrictEqual } from 'node:util';
 import { getFdDirectoryInventoryBackend, getFdPathMoveBackend, getFdPublicationBackend,
   type FdDirectoryInventoryBackend, type FdPathMoveBackend, type FdPublicationBackend } from '../files/fd-publication';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
-import { assertPathCopyPayload, capturePathCopyParentReceipts, capturePathCopyRequest, copyData, copyPath,
+import { assertPathCopyPayload, capturePathCopyParentReceipts, capturePathCopySharedParents, capturePathCopyRequest, copyData, copyPath,
   decodePreparedWorkspacePathCopyOriginal, freezeCopyData, preparedWorkspacePathCopyProof, PreparedWorkspacePathCopyError,
   type PreparedPathCopyDirectory, type PreparedPathCopyEntry, type PreparedPathCopyErrorCode, type PreparedPathCopyIdentity,
   type PreparedPathCopyParents, type PreparedPathCopyPayload, type PreparedPathCopySource,
   type PreparedWorkspacePathCopyInput, type PreparedWorkspacePathCopyOriginal, type PreparedWorkspacePathCopyParentReceipt,
-  type PreparedWorkspacePathCopyReceipt, type RecoveredWorkspacePathCopyInput } from './prepared-workspace-path-copy-contract';
+  type PreparedWorkspacePathCopyReceipt, type PreparedWorkspacePathCopySharedParent, type RecoveredWorkspacePathCopyInput } from './prepared-workspace-path-copy-contract';
 
 export * from './prepared-workspace-path-copy-contract';
 declare const copyBrand: unique symbol;
@@ -28,6 +28,7 @@ type Stage = {
   fds: Set<number>; closeFailures: unknown[]; source?: Space; destination?: Space; sourceFd?: number; payloadFd?: number;
   container?: Pin; containerRemoved: boolean; bornHere: boolean; built: Map<string, { kind: 'directory' | 'regular_file'; identity: PreparedPathCopyIdentity }>;
   facts?: PreparedWorkspacePathCopyOriginal; createdParents: PreparedWorkspacePathCopyParentReceipt[];
+  sharedParents: readonly PreparedWorkspacePathCopySharedParent[];
   pendingParent?: PreparedWorkspacePathCopyParentReceipt; receipt?: PreparedWorkspacePathCopyReceipt;
   disposition: 'pending' | 'already_published' | 'projection_absent'; started: boolean; mutationAttempted: boolean; discarded: boolean;
 };
@@ -304,6 +305,7 @@ async function build(stage: Stage, source: PreparedPathCopySource): Promise<Prep
 }
 function expectedParents(stage: Stage): PreparedPathCopyParents {
   const original = stage.facts!, directories = [...original.filesystem.destinationParents.directories,
+    ...stage.sharedParents.map(binding => ({ relativePath: binding.parentReceipt.relativePath, identity: binding.parentReceipt.identity })),
     ...stage.createdParents.map(receipt => ({ relativePath: receipt.relativePath, identity: receipt.identity }))];
   const parts = original.destinationPath.split('/').slice(0, -1);
   if (directories.length > parts.length || directories.some((item, index) => item.relativePath !== parts.slice(0, index + 1).join('/'))) throw failure(stage, 'recovery-conflict');
@@ -476,8 +478,9 @@ async function cleanup(stage: Stage, discard: boolean): Promise<void> {
   fs.rmdirSync(path.join(stage.destination!.resolved, container.relativePath)); stage.containerRemoved = true;
   await sync(stage, container.parent!.fd, true);
 }
-async function recover(stage: Stage, original: PreparedWorkspacePathCopyOriginal, created: readonly PreparedWorkspacePathCopyParentReceipt[]): Promise<void> {
-  stage.facts = original; stage.createdParents.push(...created);
+async function recover(stage: Stage, original: PreparedWorkspacePathCopyOriginal, created: readonly PreparedWorkspacePathCopyParentReceipt[],
+  shared: readonly PreparedWorkspacePathCopySharedParent[]): Promise<void> {
+  stage.facts = original; stage.createdParents.push(...created); stage.sharedParents = shared;
   stage.source = pinRoot(stage, stage.request.sourceWorkspace); stage.destination = pinRoot(stage, stage.request.destinationWorkspace);
   if (stage.source.resolved !== original.filesystem.sourceRoot.resolvedPath || !sameNode(stage.source.root.identity, original.filesystem.sourceRoot.identity)
     || stage.destination.resolved !== original.filesystem.destinationRoot.resolvedPath || !sameNode(stage.destination.root.identity, original.filesystem.destinationRoot.identity)) throw failure(stage, 'recovery-conflict');
@@ -526,6 +529,21 @@ function operation<T>(cap: PreparedWorkspacePathCopy, execute: (stage: Stage) =>
 export function readPreparedWorkspacePathCopy(cap: PreparedWorkspacePathCopy): PreparedWorkspacePathCopyOriginal { return current(cap).facts!; }
 export function readPreparedWorkspacePathCopyDisposition(cap: PreparedWorkspacePathCopy): Stage['disposition'] { return current(cap).disposition; }
 export function assertPreparedWorkspacePathCopyCurrent(cap: PreparedWorkspacePathCopy): Promise<void> { return operation(cap, verifyCurrent); }
+export function bindPreparedWorkspacePathCopySharedParent(cap: PreparedWorkspacePathCopy,
+  input: PreparedWorkspacePathCopySharedParent | readonly PreparedWorkspacePathCopySharedParent[]): Promise<void> {
+  let stage: Stage | undefined, shared: readonly PreparedWorkspacePathCopySharedParent[];
+  try {
+    if (arguments.length !== 2) throw failure(stages.get(cap), 'invalid-input');
+    stage = current(cap);
+    if (stage.started || stage.createdParents.length || stage.disposition === 'already_published') throw failure(stage, 'recovery-conflict');
+    shared = capturePathCopySharedParents(Array.isArray(input) ? input : [...stage.sharedParents, input], stage.facts!);
+    if (shared.length < stage.sharedParents.length || stage.sharedParents.some((old, index) => !isDeepStrictEqual(old, shared[index]))) throw failure(stage, 'recovery-conflict');
+  } catch (error) { return Promise.reject(poison(stage ?? stages.get(cap), error)); }
+  return operation(cap, async currentStage => {
+    verifySpaces(currentStage); currentStage.sharedParents = shared;
+    await verifyCurrent(currentStage);
+  });
+}
 export function assertPreparedWorkspacePathCopyParentReceipt(cap: PreparedWorkspacePathCopy, receipt: PreparedWorkspacePathCopyParentReceipt): void {
   const stage = stages.get(cap);
   if (arguments.length !== 2 || !stage || activeStage.getStore() !== stage || stage.phase !== 'callback') throw poison(stage, failure(stage, 'invalid-lifetime'));
@@ -579,7 +597,7 @@ async function run<T>(request: Request, prepare: (stage: Stage) => Promise<void>
   const active = activeStage.getStore(); if (active) throw poison(active, failure(active, 'reentrant-operation'));
   if (typeof callback !== 'function') throw failure(undefined, 'invalid-input');
   const stage: Stage = { request, io: getFdPublicationBackend(), inventory: getFdDirectoryInventoryBackend(), move: getFdPathMoveBackend(),
-    phase: 'preparing', failure: null, pending: null, fds: new Set(), closeFailures: [], built: new Map(), createdParents: [],
+    phase: 'preparing', failure: null, pending: null, fds: new Set(), closeFailures: [], built: new Map(), createdParents: [], sharedParents: [],
     containerRemoved: false, bornHere: false, disposition: 'pending', started: false, mutationAttempted: false, discarded: false };
   let value: T | undefined;
   try {
@@ -612,14 +630,15 @@ export async function withPreparedWorkspacePathCopy<T>(input: PreparedWorkspaceP
 export async function withRecoveredWorkspacePathCopy<T>(input: RecoveredWorkspacePathCopyInput,
   callback: (cap: PreparedWorkspacePathCopy) => Promise<T>): Promise<T> {
   try {
-    if (Reflect.ownKeys(input ?? {}).some(key => !['sourceWorkspace', 'destinationWorkspace', 'original', 'createdParents'].includes(key as string))) throw failure(undefined, 'invalid-input');
+    if (Reflect.ownKeys(input ?? {}).some(key => !['sourceWorkspace', 'destinationWorkspace', 'original', 'createdParents', 'sharedParents'].includes(key as string))) throw failure(undefined, 'invalid-input');
     const original = decodePreparedWorkspacePathCopyOriginal(copyData(input, 'original'));
     const request = capturePathCopyRequest({ sourceWorkspace: copyData(input, 'sourceWorkspace') as PreparedWorkspacePathCopyInput['sourceWorkspace'],
       destinationWorkspace: copyData(input, 'destinationWorkspace') as PreparedWorkspacePathCopyInput['destinationWorkspace'],
       sourcePath: original.sourcePath, destinationPath: original.destinationPath,
       sourceKind: original.source.kind === 'projection_file' ? 'regular_file' : original.source.kind, budget: original.budget, projectionPaths: original.projectionPaths });
     if (!isDeepStrictEqual(request.sourceWorkspace, original.sourceWorkspace) || !isDeepStrictEqual(request.destinationWorkspace, original.destinationWorkspace)) throw failure(undefined, 'scope-changed');
-    const created = capturePathCopyParentReceipts(copyData(input, 'createdParents', true), original);
-    return await run(request, stage => recover(stage, original, created), callback);
+    const shared = capturePathCopySharedParents(copyData(input, 'sharedParents', true), original);
+    const created = capturePathCopyParentReceipts(copyData(input, 'createdParents', true), original, shared);
+    return await run(request, stage => recover(stage, original, created, shared), callback);
   } catch (error) { throw poison(activeStage.getStore(), error); }
 }

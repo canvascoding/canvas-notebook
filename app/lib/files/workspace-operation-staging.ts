@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { constants, promises as fs } from 'node:fs';
+import nativeFs, { constants, promises as fs, type BigIntStats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -14,6 +14,13 @@ import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-writ
 import { isWorkspaceFileOperationLinkSafe } from '@/app/lib/markdown/workspace-file-operation-link-safety';
 import type { WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { WorkspaceOperationJournal, type WorkspaceOperationRecord } from './workspace-operation-journal';
+import { getFdDirectoryInventoryBackend, getFdPathMoveBackend, getFdPublicationBackend } from './fd-publication';
+import { NATIVE_RECOVERY_PAYLOAD_LIMIT } from '../collaboration/native-document-recovery';
+import { captureNativeCopyStageIdentity, decodeNativeCopyStage, prepareNativeCopyStage, NativeCopyStageDataError,
+  NATIVE_COPY_STAGE_MANIFEST_LIMIT, type WorkspaceOperationNativeCopyStage,
+  type WorkspaceOperationNativeCopyStageIdentity, type WorkspaceOperationNativeCopyStageInput } from './workspace-operation-native-copy-stage';
+export type { WorkspaceOperationNativeCopyStage, WorkspaceOperationNativeCopyStageIdentity,
+  WorkspaceOperationNativeCopyStageInput, WorkspaceOperationNativeCopyPhysical } from './workspace-operation-native-copy-stage';
 
 const DOCUMENT_LIMIT = 4 * 1024 * 1024;
 const TOTAL_LIMIT = 64 * 1024 * 1024;
@@ -290,15 +297,143 @@ function preparePayload(input: WorkspaceOperationStageInput): { payload: Manifes
   return { payload, bytes };
 }
 
+type NativeDirectoryPin = { fd: number; identity: BigIntStats; name: string; parent?: NativeDirectoryPin; absolute: string };
+function nativeCloseAll(fds: number[]): void {
+  const failures: unknown[] = [];
+  for (const fd of fds) try { nativeFs.closeSync(fd); } catch (error) { failures.push(error); }
+  if (failures.length) throw new AggregateError(failures, 'Native staging descriptor disposal could not be confirmed.');
+}
+function nativeStageError(error: unknown): never {
+  if (error instanceof WorkspaceOperationStagingError) throw error;
+  if (error instanceof NativeCopyStageDataError) throw new WorkspaceOperationStagingError(error.code, error.message, { cause: error });
+  throw error;
+}
+function nativeNode(a: BigIntStats, b: BigIntStats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.mode === b.mode && a.uid === b.uid && a.gid === b.gid && a.birthtimeNs === b.birthtimeNs;
+}
+function nativePrivate(info: BigIntStats, directory: boolean): void {
+  if ((directory ? !info.isDirectory() : !info.isFile() || info.nlink !== BigInt(1))
+    || info.uid !== BigInt(process.geteuid!()) || (info.mode & BigInt(0o7777)) !== BigInt(directory ? 0o700 : 0o600)) {
+    fail('UNSAFE_STORAGE', 'Native copy staging requires exact private owned nodes.');
+  }
+}
+function nativeRoot(directory: string): NativeDirectoryPin {
+  const fd = nativeFs.openSync(directory, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const identity = nativeFs.fstatSync(fd, { bigint: true }); nativePrivate(identity, true);
+    const pin = { fd, identity, name: '', absolute: directory }; nativeCheckDirectory(pin); return pin;
+  } catch (error) { nativeFs.closeSync(fd); throw error; }
+}
+function nativeCheckDirectory(pin: NativeDirectoryPin): void {
+  const actual = nativeFs.fstatSync(pin.fd, { bigint: true }); nativePrivate(actual, true);
+  if (!nativeNode(actual, pin.identity)) fail('UNSAFE_STORAGE', 'Native staging directory changed.');
+  if (pin.parent) {
+    nativeCheckDirectory(pin.parent);
+    const io = getFdPublicationBackend();
+    if (!io.hasExactNameAt(pin.parent.fd, pin.name)) fail('UNSAFE_STORAGE', 'Native staging namespace changed.');
+    const fd = io.openDirectoryAt(pin.parent.fd, pin.name);
+    try { if (!nativeNode(nativeFs.fstatSync(fd, { bigint: true }), pin.identity)) fail('UNSAFE_STORAGE', 'Native staging namespace changed.'); }
+    finally { nativeFs.closeSync(fd); }
+  } else {
+    const named = nativeFs.lstatSync(pin.absolute, { bigint: true });
+    if (!nativeNode(named, pin.identity) || named.isSymbolicLink() || nativeFs.realpathSync(pin.absolute) !== pin.absolute) fail('UNSAFE_STORAGE', 'Native staging root changed.');
+  }
+}
+function nativeOpenDirectory(parent: NativeDirectoryPin, name: string): NativeDirectoryPin | null {
+  nativeCheckDirectory(parent); let fd: number;
+  try { fd = getFdPublicationBackend().openDirectoryAt(parent.fd, name); }
+  catch (error) { if (hasCode(error, 'ENOENT')) return null; return fail('UNSAFE_STORAGE', 'Native staging operation is not an owned directory.'); }
+  try {
+    const identity = nativeFs.fstatSync(fd, { bigint: true }); nativePrivate(identity, true);
+    const pin = { fd, identity, name, parent, absolute: path.join(parent.absolute, name) }; nativeCheckDirectory(pin); return pin;
+  } catch (error) { nativeFs.closeSync(fd); throw error; }
+}
+async function nativeSync(pin: NativeDirectoryPin): Promise<void> {
+  nativeCheckDirectory(pin);
+  await new Promise<void>((resolve, reject) => nativeFs.fsync(pin.fd, error => error ? reject(error) : resolve()));
+  nativeCheckDirectory(pin);
+}
+async function nativeReadFile(directory: NativeDirectoryPin, name: string, maximum: number): Promise<Buffer> {
+  nativeCheckDirectory(directory);
+  const io = getFdPublicationBackend(), fd = io.openFileAt(directory.fd, name, 'readonly');
+  try {
+    const before = nativeFs.fstatSync(fd, { bigint: true }); nativePrivate(before, false);
+    if (before.size > BigInt(maximum)) fail('CORRUPT_STAGE', 'Native staging file exceeds its bound.');
+    const bytes = Buffer.alloc(Number(before.size) + 1); let position = 0;
+    while (position < bytes.length) {
+      const count = await new Promise<number>((resolve, reject) => nativeFs.read(fd, bytes, position,
+        Math.min(1024 * 1024, bytes.length - position), position, (error, read) => error ? reject(error) : resolve(read)));
+      nativeCheckDirectory(directory); if (!count) break; position += count;
+    }
+    const after = nativeFs.fstatSync(fd, { bigint: true });
+    if (position !== Number(before.size) || !nativeNode(before, after) || before.nlink !== after.nlink || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs || !io.hasExactNameAt(directory.fd, name)) fail('CORRUPT_STAGE', 'Native staging file changed while read.');
+    const named = io.openFileAt(directory.fd, name, 'readonly');
+    try { if (!nativeNode(nativeFs.fstatSync(named, { bigint: true }), before)) fail('CORRUPT_STAGE', 'Native staging file changed.'); }
+    finally { nativeFs.closeSync(named); }
+    return bytes.subarray(0, position);
+  } finally { nativeFs.closeSync(fd); }
+}
+async function nativeWriteFile(directory: NativeDirectoryPin, name: string, bytes: Buffer, born: Map<string, BigIntStats>): Promise<void> {
+  nativeCheckDirectory(directory); const fd = getFdPublicationBackend().openFileAt(directory.fd, name, 'private-wx');
+  try {
+    const identity = nativeFs.fstatSync(fd, { bigint: true }); nativePrivate(identity, false); born.set(name, identity); let position = 0;
+    while (position < bytes.length) {
+      const count = await new Promise<number>((resolve, reject) => nativeFs.write(fd, bytes, position,
+        Math.min(1024 * 1024, bytes.length - position), position, (error, written) => error ? reject(error) : resolve(written)));
+      nativeCheckDirectory(directory); if (!count) fail('CORRUPT_STAGE', 'Native staging write did not finish.'); position += count;
+    }
+    await new Promise<void>((resolve, reject) => nativeFs.fsync(fd, error => error ? reject(error) : resolve())); nativeCheckDirectory(directory);
+  } finally { nativeFs.closeSync(fd); }
+}
+function nativeJson(bytes: Buffer): Record<string, unknown> {
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes), value: unknown = JSON.parse(text);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail('CORRUPT_STAGE', 'Native manifest is not an object.');
+    return value as Record<string, unknown>;
+  } catch { return fail('CORRUPT_STAGE', 'Native manifest is invalid JSON.'); }
+}
+async function nativeLoad(root: NativeDirectoryPin, identity: WorkspaceOperationNativeCopyStageIdentity, name = identity.operationId): Promise<WorkspaceOperationNativeCopyStage | null> {
+  const directory = nativeOpenDirectory(root, name); if (!directory) return null;
+  try {
+    const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
+    if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
+    const actualIdentity = captureNativeCopyStageIdentity(manifest.identity);
+    if ((['operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'kind', 'canonicalRequestHash'] as const)
+      .some(key => actualIdentity[key] !== identity[key])) fail('STAGE_CONFLICT', 'Native stage belongs to a different original request.');
+    if ([...getFdDirectoryInventoryBackend().listDirectoryAt(directory.fd)].sort().join(',') !== 'manifest.json,native-records.bin') fail('CORRUPT_STAGE', 'Native stage contains unexpected files.');
+    const bytes = await nativeReadFile(directory, 'native-records.bin', NATIVE_RECOVERY_PAYLOAD_LIMIT);
+    nativeCheckDirectory(directory); return decodeNativeCopyStage(manifest, bytes, identity);
+  } catch (error) { return nativeStageError(error); }
+  finally { nativeFs.closeSync(directory.fd); }
+}
+/** API3 has no rmdir primitive. The private Store's exact directory namespace
+ * is checked immediately before named rmdir; this is observational, not CAS. */
+async function nativeRemoveDirectory(directory: NativeDirectoryPin, expected?: Map<string, BigIntStats>): Promise<void> {
+  nativeCheckDirectory(directory); const io = getFdPublicationBackend();
+  const names = getFdDirectoryInventoryBackend().listDirectoryAt(directory.fd);
+  if (names.some(name => !['manifest.json', 'native-records.bin'].includes(name))) fail('UNSAFE_STORAGE', 'Unexpected native staging node is retained.');
+  for (const name of names) {
+    nativeCheckDirectory(directory); const fd = io.openFileAt(directory.fd, name, 'readonly');
+    try {
+      const info = nativeFs.fstatSync(fd, { bigint: true }); nativePrivate(info, false);
+      if (expected && (!expected.has(name) || !nativeNode(info, expected.get(name)!))) fail('UNSAFE_STORAGE', 'Replacement native staging file is retained.');
+      io.unlinkFileAt(directory.fd, name, { dev: info.dev.toString(), ino: info.ino.toString(), uid: Number(info.uid), mode: 0o600 });
+    } finally { nativeFs.closeSync(fd); }
+  }
+  await nativeSync(directory); nativeCheckDirectory(directory);
+  nativeFs.rmdirSync(directory.absolute); await nativeSync(directory.parent!);
+}
+
 export class WorkspaceOperationStaging {
   private readonly dataRoot: string;
   private readonly completionLookup: (operationId: string) => Promise<Pick<WorkspaceOperationRecord,
-    'operationId' | 'planId' | 'sourceWorkspaceId' | 'destinationWorkspaceId' | 'status'> | null>;
+    'operationId' | 'planId' | 'sourceWorkspaceId' | 'destinationWorkspaceId' | 'status'> & Partial<Pick<WorkspaceOperationRecord, 'requestHash'>> | null>;
 
   constructor(options: {
     dataRoot?: string;
     completionLookup?: (operationId: string) => Promise<Pick<WorkspaceOperationRecord,
-      'operationId' | 'planId' | 'sourceWorkspaceId' | 'destinationWorkspaceId' | 'status'> | null>;
+      'operationId' | 'planId' | 'sourceWorkspaceId' | 'destinationWorkspaceId' | 'status'> & Partial<Pick<WorkspaceOperationRecord, 'requestHash'>> | null>;
   } = {}) {
     this.dataRoot = options.dataRoot ?? resolveCanvasDataRoot();
     this.completionLookup = options.completionLookup ?? (async (operationId) => new WorkspaceOperationJournal().get(operationId));
@@ -453,4 +588,149 @@ export class WorkspaceOperationStaging {
     await fs.rm(retiring, { recursive: true, force: true });
     await syncDirectory(root);
   }
+  /** Private immutable native branch of the existing operation recovery store.
+   * Original intent capture completes synchronously before any storage await. */
+  async stageNativeCopy(input: WorkspaceOperationNativeCopyStageInput): Promise<WorkspaceOperationNativeCopyStage> {
+    try {
+      const prepared = prepareNativeCopyStage(input), identity = prepared.manifest.identity;
+      const root = nativeRoot(await this.root()); let temporary: NativeDirectoryPin | null = null;
+      const born = new Map<string, BigIntStats>();
+      try {
+        const existing = await nativeLoad(root, identity);
+        if (existing) {
+          if (existing.payloadSha256 !== prepared.manifest.payloadSha256) fail('STAGE_CONFLICT', 'Native operation ID already has a different original.');
+          return existing;
+        }
+        const name = `.native-tmp-${randomUUID()}`;
+        getFdPublicationBackend().mkdirAt(root.fd, name, 0o700);
+        temporary = nativeOpenDirectory(root, name);
+        if (!temporary) fail('UNSAFE_STORAGE', 'Native staging birth could not be confirmed.');
+        await nativeWriteFile(temporary, 'native-records.bin', prepared.recordsBytes, born);
+        await nativeWriteFile(temporary, 'manifest.json', prepared.manifestBytes, born);
+        await nativeSync(temporary); nativeCheckDirectory(root); nativeCheckDirectory(temporary);
+        try { getFdPathMoveBackend().renameNoReplaceAt(root.fd, name, root.fd, identity.operationId); }
+        catch (error) {
+          if (!hasCode(error, 'EEXIST') && !hasCode(error, 'ENOTEMPTY')) throw error;
+          const concurrent = await nativeLoad(root, identity);
+          if (!concurrent || concurrent.payloadSha256 !== prepared.manifest.payloadSha256) fail('STAGE_CONFLICT', 'Concurrent native staging has a different original.');
+          return concurrent;
+        }
+        // The original temporary name is gone. Do not use its old named pin
+        // after the exclusive rename; the directory FD still closes below.
+        await nativeSync(root);
+        const result = await nativeLoad(root, identity);
+        if (!result || result.payloadSha256 !== prepared.manifest.payloadSha256) fail('CORRUPT_STAGE', 'Published native stage differs.');
+        return result;
+      } finally {
+        try {
+          if (temporary) {
+            const named = nativeOpenDirectory(root, temporary.name);
+            if (named) {
+              try {
+                if (!nativeNode(named.identity, temporary.identity)) fail('UNSAFE_STORAGE', 'Foreign temporary staging is retained.');
+                await nativeRemoveDirectory(named, born);
+              } finally { nativeFs.closeSync(named.fd); }
+            }
+          }
+        } finally { nativeCloseAll(temporary ? [temporary.fd, root.fd] : [root.fd]); }
+      }
+    } catch (error) { return nativeStageError(error); }
+  }
+
+  async loadNativeCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<WorkspaceOperationNativeCopyStage> {
+    try {
+      const identity = captureNativeCopyStageIdentity(input), root = nativeRoot(await this.root());
+      try {
+        const result = await nativeLoad(root, identity);
+        if (!result) fail('CORRUPT_STAGE', 'Native recovery stage is missing.'); return result;
+      } finally { nativeFs.closeSync(root.fd); }
+    } catch (error) { return nativeStageError(error); }
+  }
+
+  /** Original private stage recovery even when no journal header committed.
+   * This reads immutable data; current C2/principal/plan admission belongs to
+   * the fixed owner and no identity or new destination is synthesized here. */
+  async loadNativeCopyByOperationId(operationId: string): Promise<WorkspaceOperationNativeCopyStage | null> {
+    if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)) fail('STAGE_CONFLICT', 'Invalid operation ID.');
+    const captured = operationId, root = nativeRoot(await this.root());
+    try {
+      const directory = nativeOpenDirectory(root, captured); if (!directory) return null;
+      try {
+        const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
+        if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
+        if (manifest.version !== 2 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
+        const identity = captureNativeCopyStageIdentity(manifest.identity);
+        if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage operation identity differs.');
+        nativeCheckDirectory(directory);
+        const original = await nativeLoad(root, identity);
+        if (!original) fail('CORRUPT_STAGE', 'Original native stage disappeared during recovery.');
+        // Keep the first manifest's actual directory pin throughout nativeLoad;
+        // an identical-byte replacement directory must not be silently adopted.
+        nativeCheckDirectory(directory); return original;
+      } finally { nativeFs.closeSync(directory.fd); }
+    } catch (error) { return nativeStageError(error); }
+    finally { nativeFs.closeSync(root.fd); }
+  }
+
+  /** Dispatch only. Corrupt/unrecognized manifests never fall through to V1. */
+  async readKind(operationId: string): Promise<'native-copy' | 'legacy' | null> {
+    if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)) fail('STAGE_CONFLICT', 'Invalid operation ID.');
+    const captured = operationId, root = nativeRoot(await this.root());
+    try {
+      const directory = nativeOpenDirectory(root, captured); if (!directory) return null;
+      try {
+        const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
+        if (manifest.version === 2 && manifest.kind === 'native-copy') {
+          const identity = captureNativeCopyStageIdentity(manifest.identity);
+          if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage identity differs.');
+          const { payloadSha256, ...body } = manifest;
+          if (digest(JSON.stringify(body)) !== payloadSha256) fail('CORRUPT_STAGE', 'Native stage manifest hash differs.');
+          return 'native-copy';
+        }
+        const keys = ['version', 'operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'preview', 'documents', 'linkPreflight', 'payloadSha256'];
+        if (manifest.version !== 1 || manifest.operationId !== captured || Object.keys(manifest).length !== keys.length
+          || keys.some(key => !Object.hasOwn(manifest, key)) || !manifest.preview || !Array.isArray(manifest.documents)) fail('CORRUPT_STAGE', 'Unknown stage format.');
+        const { payloadSha256, ...body } = manifest;
+        if (digest(JSON.stringify(body)) !== payloadSha256) fail('CORRUPT_STAGE', 'Legacy stage manifest hash differs.');
+        return 'legacy';
+      } catch (error) { return nativeStageError(error); }
+      finally { nativeFs.closeSync(directory.fd); }
+    } finally { nativeFs.closeSync(root.fd); }
+  }
+
+  async removeCompletedNativeCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<void> {
+    try {
+      const identity = captureNativeCopyStageIdentity(input), operation = await this.completionLookup(identity.operationId);
+      if (!operation || operation.operationId !== identity.operationId || operation.status !== 'completed' || operation.planId !== identity.planId
+        || operation.requestHash !== identity.canonicalRequestHash || operation.sourceWorkspaceId !== identity.sourceWorkspaceId
+        || operation.destinationWorkspaceId !== identity.destinationWorkspaceId) fail('NOT_COMPLETED', 'Native recovery retirement requires its exact durable completed journal.');
+      const root = nativeRoot(await this.root());
+      try {
+        const prefix = `.native-completed-${identity.operationId}-`;
+        for (const name of getFdDirectoryInventoryBackend().listDirectoryAt(root.fd)) {
+          if (!name.startsWith(prefix) || !/^[a-f0-9-]{36}$/u.test(name.slice(prefix.length))) continue;
+          // Original C1/C2 and every native binary are checked before deleting
+          // even a previously retired private directory after a restart.
+          await nativeLoad(root, identity, name);
+          const retired = nativeOpenDirectory(root, name);
+          if (retired) try { await nativeRemoveDirectory(retired); } finally { nativeFs.closeSync(retired.fd); }
+        }
+        if (!await nativeLoad(root, identity)) { await nativeSync(root); return; }
+        const directory = nativeOpenDirectory(root, identity.operationId);
+        if (!directory) fail('CORRUPT_STAGE', 'Native stage disappeared before retirement.');
+        try {
+          nativeCheckDirectory(directory);
+          const name = prefix + randomUUID();
+          getFdPathMoveBackend().renameNoReplaceAt(root.fd, identity.operationId, root.fd, name); await nativeSync(root);
+          const retiring = nativeOpenDirectory(root, name);
+          if (!retiring) fail('CORRUPT_STAGE', 'Retired native stage disappeared.');
+          try {
+            if (!nativeNode(retiring.identity, directory.identity)) fail('UNSAFE_STORAGE', 'Foreign retired native stage is retained.');
+            await nativeRemoveDirectory(retiring);
+          } finally { nativeFs.closeSync(retiring.fd); }
+        } finally { nativeFs.closeSync(directory.fd); }
+      } finally { nativeFs.closeSync(root.fd); }
+    } catch (error) { return nativeStageError(error); }
+  }
+
 }

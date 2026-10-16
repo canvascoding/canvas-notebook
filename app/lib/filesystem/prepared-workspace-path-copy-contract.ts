@@ -41,6 +41,13 @@ export type PreparedWorkspacePathCopyReceipt = Readonly<{ version: 1; original: 
   createdParents: readonly PreparedWorkspacePathCopyParentReceipt[];
   observation: Readonly<{ kind: 'published'; method: 'rename-no-replace'; copy: PreparedPathCopyPayload }>
     | Readonly<{ kind: 'projection_absent' }> }>;
+/** Mechanical original data only. The fixed owner must first verify the
+ * producer's immutable original journal, durable path receipt and parent ACK. */
+export type PreparedWorkspacePathCopySharedParent = Readonly<{
+  producerOriginal: PreparedWorkspacePathCopyOriginal;
+  producerReceipt: PreparedWorkspacePathCopyReceipt;
+  parentReceipt: PreparedWorkspacePathCopyParentReceipt;
+}>;
 export type PreparedWorkspacePathCopyInput = Readonly<{
   sourceWorkspace: WorkspaceContext; destinationWorkspace: WorkspaceContext; sourcePath: string; destinationPath: string;
   sourceKind: 'regular_file' | 'directory' | 'projection_absent'; budget?: PreparedPathCopyBudget;
@@ -50,6 +57,7 @@ export type PreparedWorkspacePathCopyInput = Readonly<{
 export type RecoveredWorkspacePathCopyInput = Readonly<{
   sourceWorkspace: WorkspaceContext; destinationWorkspace: WorkspaceContext; original: PreparedWorkspacePathCopyOriginal;
   createdParents?: readonly PreparedWorkspacePathCopyParentReceipt[];
+  sharedParents?: readonly PreparedWorkspacePathCopySharedParent[];
 }>;
 export type PreparedPathCopyErrorCode = 'invalid-input' | 'invalid-lifetime' | 'reentrant-operation' | 'already-published'
   | 'scope-changed' | 'unsafe-path' | 'source-changed' | 'staging-changed' | 'destination-occupied' | 'budget-exceeded'
@@ -228,15 +236,82 @@ export function preparedWorkspacePathCopyProof(value: PreparedWorkspacePathCopyO
     : data && typeof data === 'object' ? '{' + Object.keys(data).sort().map(key => JSON.stringify(key) + ':' + canonical(Reflect.get(data, key))).join(',') + '}' : JSON.stringify(data);
   return createHash('sha256').update(canonical(value)).digest('hex');
 }
-export function capturePathCopyParentReceipts(input: unknown, original: PreparedWorkspacePathCopyOriginal): readonly PreparedWorkspacePathCopyParentReceipt[] {
+export function capturePathCopyParentReceipts(input: unknown, original: PreparedWorkspacePathCopyOriginal,
+  sharedParents: readonly PreparedWorkspacePathCopySharedParent[] = []): readonly PreparedWorkspacePathCopyParentReceipt[] {
   if (input === undefined) return Object.freeze([]);
   const value = captureWorkspaceOperationNativePlanData(input, () => copyFailure('invalid-input'));
   if (!Array.isArray(value) || value.length > 32 || !original.staging && value.length) copyFailure('invalid-input');
-  const components = original.destinationPath.split('/').slice(0, -1), offset = original.filesystem.destinationParents.directories.length;
+  const components = original.destinationPath.split('/').slice(0, -1), offset = original.filesystem.destinationParents.directories.length + sharedParents.length;
   for (const [index, raw] of value.entries()) {
     const item = record(raw, ['version', 'originalProof', 'relativePath', 'identity']);
     if (item.version !== 1 || item.originalProof !== preparedWorkspacePathCopyProof(original)
       || item.relativePath !== components.slice(0, offset + index + 1).join('/') || offset + index >= components.length) copyFailure('invalid-input'); identity(item.identity);
   }
   return freezeCopyData(value as PreparedWorkspacePathCopyParentReceipt[]);
+}
+
+export function capturePathCopySharedParents(input: unknown,
+  consumer: PreparedWorkspacePathCopyOriginal): readonly PreparedWorkspacePathCopySharedParent[] {
+  if (input === undefined) return Object.freeze([]);
+  const value = captureWorkspaceOperationNativePlanData(input, reason => copyFailure(reason === 'too-large' ? 'budget-exceeded' : 'invalid-input'));
+  if (!Array.isArray(value) || value.length > 32) copyFailure('invalid-input');
+  const components = consumer.destinationPath.split('/').slice(0, -1), offset = consumer.filesystem.destinationParents.directories.length;
+  const stableNode = (a: PreparedPathCopyIdentity, b: PreparedPathCopyIdentity) =>
+    (['device', 'inode', 'mode', 'uid', 'gid', 'birthtimeNs'] as const).every(key => a[key] === b[key]);
+  const publishedPayload = (before: PreparedPathCopyPayload, after: PreparedPathCopyPayload): void => {
+    if (before.kind !== after.kind) copyFailure('invalid-input');
+    const normalize = (payload: PreparedPathCopyPayload) => payload.kind === 'regular_file'
+      ? [{ relativePath: '', ...payload }] : payload.entries;
+    const old = normalize(before), observed = normalize(after);
+    if (old.length !== observed.length || old.some((entry, index) => {
+      const actual = observed[index];
+      return entry.kind !== actual.kind || entry.relativePath !== actual.relativePath
+        || !stableNode(entry.identity, actual.identity)
+        || (['linkCount', 'size', 'mtimeNs'] as const).some(key => entry.identity[key] !== actual.identity[key])
+        || index !== 0 && entry.identity.ctimeNs !== actual.identity.ctimeNs
+        || entry.kind === 'regular_file' && (actual.kind !== 'regular_file' || entry.sha256 !== actual.sha256);
+    })) copyFailure('invalid-input');
+  };
+  for (const [index, raw] of value.entries()) {
+    const item = record(raw, ['producerOriginal', 'producerReceipt', 'parentReceipt']);
+    const producer = decodePreparedWorkspacePathCopyOriginal(item.producerOriginal), proof = preparedWorkspacePathCopyProof(producer);
+    if (!producer.staging || proof === preparedWorkspacePathCopyProof(consumer)
+      || !isDeepStrictEqual(producer.sourceWorkspace, consumer.sourceWorkspace)
+      || !isDeepStrictEqual(producer.destinationWorkspace, consumer.destinationWorkspace)
+      || producer.filesystem.destinationRoot.resolvedPath !== consumer.filesystem.destinationRoot.resolvedPath
+      || !stableNode(producer.filesystem.destinationRoot.identity, consumer.filesystem.destinationRoot.identity)
+      || producer.filesystem.sourceRoot.resolvedPath !== consumer.filesystem.sourceRoot.resolvedPath
+      || !stableNode(producer.filesystem.sourceRoot.identity, consumer.filesystem.sourceRoot.identity)
+      || producer.destinationPath === consumer.destinationPath || producer.destinationPath.startsWith(consumer.destinationPath + '/')
+      || consumer.destinationPath.startsWith(producer.destinationPath + '/')) copyFailure('invalid-input');
+    const receipt = record(item.producerReceipt, ['version', 'original', 'createdParents', 'observation']);
+    if (receipt.version !== 1 || !isDeepStrictEqual(decodePreparedWorkspacePathCopyOriginal(receipt.original), producer)
+      || !Array.isArray(receipt.createdParents) || !receipt.createdParents.length || receipt.createdParents.length > 32) copyFailure('invalid-input');
+    const producerParts = producer.destinationPath.split('/').slice(0, -1), producerOffset = producer.filesystem.destinationParents.directories.length;
+    let previousDepth = -1;
+    for (const birthValue of receipt.createdParents) {
+      const birth = record(birthValue, ['version', 'originalProof', 'relativePath', 'identity']);
+      const pathname = copyPath(birth.relativePath), depth = pathname.split('/').length;
+      const observed = identity(birth.identity);
+      if (birth.version !== 1 || birth.originalProof !== proof || depth <= producerOffset || depth > producerParts.length
+        || pathname !== producerParts.slice(0, depth).join('/') || previousDepth !== -1 && depth !== previousDepth + 1
+        || (observed.mode & 0o170000) !== 0o040000 || (observed.mode & 0o022)) copyFailure('invalid-input');
+      previousDepth = depth;
+    }
+    const observation = record(receipt.observation, ['kind', 'method', 'copy']);
+    if (observation.kind !== 'published' || observation.method !== 'rename-no-replace') copyFailure('invalid-input');
+    const copy = snapshot(observation.copy, producer.budget, producer.destinationPath, [], true);
+    if (copy.kind !== 'regular_file' && copy.kind !== 'directory') copyFailure('invalid-input');
+    const payload: PreparedPathCopyPayload = copy.kind === 'regular_file' ? copy : {
+      kind: 'directory', entries: copy.entries.map(entry => {
+        if (entry.kind === 'projection_file') copyFailure('invalid-input');
+        return entry;
+      }),
+    };
+    publishedPayload(producer.staging.payload, payload);
+    const birth = record(item.parentReceipt, ['version', 'originalProof', 'relativePath', 'identity']); identity(birth.identity);
+    if (!receipt.createdParents.some(row => isDeepStrictEqual(row, birth)) || birth.version !== 1 || birth.originalProof !== proof
+      || offset + index >= components.length || birth.relativePath !== components.slice(0, offset + index + 1).join('/')) copyFailure('invalid-input');
+  }
+  return freezeCopyData(value as unknown as PreparedWorkspacePathCopySharedParent[]);
 }
