@@ -2,6 +2,8 @@
 
 Stand: 16. Oktober 2026. Produkt-/Testcommit Root `2f223a0084b4b640c83db6871d66ea7e51fec388`, identisch übernommen als QA `411c23407139fb4573c58f478eb8c16385a1f4bd`. Dieses Paket schließt den manuellen monotonen Public-Widerruf. Create, Policy, Access, native Publicreader und automatische Lifecyclehooks bleiben eigene offene Anschlüsse.
 
+Der nachfolgende [Policy-/UI-Anschluss](./yjs-public-share-policy-evidence.md) auf Root `b9fb44f1c` / QA `3422a68fd` ergänzt frische fachspezifische Rechteprüfungen auf derselben SQL-Verbindung. Der Widerruf besteht damit 60 Gruppen einschließlich drei zusätzlicher tatsächlicher Rechteentzüge mit Rollback. Die nachstehenden 57er-Belege dokumentieren weiterhin den ursprünglichen Abschluss; Policy ist im neueren Nachweis separat geschlossen.
+
 ## Verhalten und Autorität
 
 Der [bestehende Dispatcher](../app/lib/public-sharing/public-file-shares.ts) führt den tatsächlichen DELETE-Request beziehungsweise die echte laufende `public_share_file`-Invocation zum neuen [Writer](../app/lib/public-sharing/writer.ts). Historische `userId`-/`isAdmin`-Angaben verleihen keine Autorität. Eine Workspaceangabe wählt nur den zu prüfenden Kontext. Der [DELETE-Handler](../app/api/security/public-shares/[id]/route.ts) und der bestehende [Agententoolzweig](../app/lib/pi/scoped-tools.ts) verwenden diese gemeinsame Prüfung.
