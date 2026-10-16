@@ -1,0 +1,271 @@
+import 'server-only';
+
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { constants, promises as fs, type Stats } from 'node:fs';
+import type { FileHandle } from 'node:fs/promises';
+import path from 'node:path';
+import { openDb, type SqlConnection } from '../db';
+import { getWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../collaboration/file-lifecycle-admission-context';
+import { hasCollaborationHandoffExecutionContext } from '../collaboration/handoff-execution-context';
+import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import { resolveWorkspaceDataRoot } from '../workspaces/context';
+import { workspaceAbsoluteRoot } from '../workspaces/contracts';
+import { captureWorkspaceOperationJobPolicy, withWorkspaceOperationJobPolicyOnConnection,
+  type WorkspaceOperationJobPolicyAccess } from '../workspaces/workspace-operation-job-principal';
+import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim,
+  type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
+import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+
+declare const ownerBrand: unique symbol;
+export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true }>;
+export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJobPolicyAccess & { database: SqlConnection }>;
+type Identity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
+type Directory = { named: string; real: string; handle: FileHandle; stat: Stats };
+type Phase = { active: boolean; accepting: boolean; transaction: string; pending: Set<Promise<unknown>> };
+type Capture = {
+  owner: WorkspaceOperationJobLifecycleOwner; claim: WorkspaceOperationBatchClaim; binding: WorkspaceOperationBatchClaimBinding;
+  sourcePath: string; active: boolean; accepting: boolean; disposed: boolean; failure?: Error; disposalFailure?: Error;
+  database?: SqlConnection; identity?: Identity; lease?: WorkspaceFileLifecycleLease;
+  directories: Directory[]; phase?: Phase; pending: Set<Promise<unknown>>;
+};
+const owners = new WeakMap<WorkspaceOperationJobLifecycleOwner, Capture>();
+const context = new AsyncLocalStorage<Capture>();
+const phaseContext = new AsyncLocalStorage<Phase>();
+const asError = (error: unknown) => error instanceof Error ? error : new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID');
+
+export class WorkspaceOperationJobLifecycleError extends Error {
+  readonly status: number;
+  constructor(readonly code: 'JOB_LIFECYCLE_REQUIRED' | 'JOB_LIFECYCLE_INVALID' | 'JOB_LIFECYCLE_REENTRANT'
+    | 'JOB_LIFECYCLE_CHANGED' | 'JOB_LIFECYCLE_DETACHED' | 'JOB_LIFECYCLE_COMMIT_UNCONFIRMED'
+    | 'JOB_LIFECYCLE_DISPOSAL_UNCONFIRMED', options?: ErrorOptions) {
+    super(code, options); this.name = 'WorkspaceOperationJobLifecycleError';
+    this.status = code.endsWith('UNCONFIRMED') ? 503 : 409;
+  }
+}
+function fail(code: WorkspaceOperationJobLifecycleError['code']): never { throw new WorkspaceOperationJobLifecycleError(code); }
+function poison(captured: Capture, error: unknown): never {
+  const failure = asError(error); captured.failure ??= failure;
+  const current = context.getStore(); if (current && current !== captured) current.failure ??= failure;
+  throw failure;
+}
+function current(captured: Capture): SqlConnection {
+  if (captured.failure) throw captured.failure;
+  if (owners.get(captured.owner) !== captured || context.getStore() !== captured || !captured.active || captured.disposed
+    || !captured.database || !captured.lease?.active
+    || getWorkspaceFileLifecycleLeases()?.get(captured.binding.workspaceId) !== captured.lease
+    || readWorkspaceOperationBatchClaimBinding(captured.claim) !== captured.binding) fail('JOB_LIFECYCLE_REQUIRED');
+  return captured.database;
+}
+async function captureDirectory(named: string): Promise<Directory> {
+  const stat = await fs.lstat(named);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) fail('JOB_LIFECYCLE_CHANGED');
+  const real = await fs.realpath(named), handle = await fs.open(named, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    const held = await handle.stat();
+    if (!held.isDirectory() || held.dev !== stat.dev || held.ino !== stat.ino || held.uid !== stat.uid || held.mode !== stat.mode) fail('JOB_LIFECYCLE_CHANGED');
+    return { named, real, handle, stat };
+  } catch (error) { await handle.close(); throw error; }
+}
+async function checkDirectories(captured: Capture): Promise<void> {
+  for (const directory of captured.directories) {
+    const held = await directory.handle.stat(), named = await fs.lstat(directory.named);
+    if (!named.isDirectory() || named.isSymbolicLink() || !held.isDirectory()
+      || held.dev !== directory.stat.dev || held.ino !== directory.stat.ino || held.uid !== directory.stat.uid || held.mode !== directory.stat.mode
+      || named.dev !== held.dev || named.ino !== held.ino || named.uid !== held.uid || named.mode !== held.mode
+      || await fs.realpath(directory.named) !== directory.real) fail('JOB_LIFECYCLE_CHANGED');
+  }
+}
+async function identity(database: SqlConnection, assign: boolean): Promise<{ identity: Identity; transaction: string | null }> {
+  const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database,
+    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema,
+    pg_catalog.current_setting('search_path') AS search_path,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,
+    pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication,
+    ${assign ? 'pg_catalog.pg_current_xact_id()' : 'pg_catalog.pg_current_xact_id_if_assigned()'}::text AS transaction
+    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`) as Record<string, unknown> | undefined;
+  if (!row || !Number.isSafeInteger(row.backend) || Number(row.backend) < 1 || typeof row.start !== 'string'
+    || !/^[0-9]+\.[0-9]+$/u.test(row.start) || !Number.isSafeInteger(Number(row.database)) || Number(row.database) < 1
+    || !Number.isSafeInteger(Number(row.schema)) || Number(row.schema) < 1 || typeof row.search_path !== 'string'
+    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin'
+    || row.transaction !== null && (typeof row.transaction !== 'string' || !/^[0-9]{1,32}$/u.test(row.transaction))) fail('JOB_LIFECYCLE_CHANGED');
+  return { identity: Object.freeze({ backend: Number(row.backend), start: row.start, database: Number(row.database),
+    schema: Number(row.schema), searchPath: row.search_path }), transaction: row.transaction as string | null };
+}
+const sameIdentity = (left: Identity, right: Identity) => Object.keys(left).every(key => Reflect.get(left, key) === Reflect.get(right, key));
+async function checkOwner(captured: Capture, transaction?: string): Promise<void> {
+  const database = current(captured); await checkDirectories(captured); current(captured);
+  const now = await identity(database, transaction !== undefined), before = captured.identity!, source = captured.binding.source;
+  if (!sameIdentity(before, now.identity) || now.identity.database !== source.databaseOid || now.identity.schema !== source.schemaOid
+    || now.identity.searchPath !== source.searchPath || (transaction === undefined ? now.transaction !== null : now.transaction !== transaction)) fail('JOB_LIFECYCLE_CHANGED');
+  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(captured.binding.workspaceId)));
+  const held = await database.get(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_stat_activity a ON a.pid=l.pid
+    WHERE l.locktype='advisory' AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=$1::oid
+      AND l.classid::bigint=$2 AND l.objid::bigint=$3 AND l.pid=$4 AND extract(epoch FROM a.backend_start)::text=$5) AS held`,
+  [source.databaseOid, Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff')), before.backend, before.start]) as { held?: boolean } | undefined;
+  if (held?.held !== true || !await captured.lease!.verify()) fail('JOB_LIFECYCLE_CHANGED');
+  current(captured);
+}
+async function checkIdle(captured: Capture): Promise<void> {
+  const database = current(captured), first = await identity(database, true), second = await identity(database, false);
+  if (!sameIdentity(captured.identity!, first.identity) || !sameIdentity(first.identity, second.identity) || second.transaction !== null) fail('JOB_LIFECYCLE_CHANGED');
+  await checkOwner(captured);
+}
+function checkPhase(captured: Capture, phase: Phase): void {
+  current(captured);
+  if (captured.phase !== phase || !phase.active || !phase.accepting || phaseContext.getStore() !== phase) fail('JOB_LIFECYCLE_REQUIRED');
+}
+
+/** A single original direct/apply Delete. This exposes no raw owner connection. */
+export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
+  operation: (owner: WorkspaceOperationJobLifecycleOwner) => Promise<T>,
+  openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
+  const inherited = context.getStore();
+  if (inherited) poison(inherited, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
+  const binding = readWorkspaceOperationBatchClaimBinding(claim), authorization = binding.authorization;
+  const plan = binding.plan, step = plan.pathSteps[0], jobScope = authorization.mode === 'direct' ? authorization.jobScope : undefined;
+  if (authorization.mode !== 'direct' || binding.actionMode !== 'apply' || !jobScope || jobScope.legacy
+    || binding.workspaceId !== jobScope.workspaceId || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId
+    || plan.readiness !== 'ready' || plan.pathSteps.length !== 1 || step?.kind !== 'delete' || step.destinationPath != null
+    || !isCanonicalAdmissionPath(step.sourcePath) || typeof operation !== 'function' || typeof jobScope.rootRelativePath !== 'string'
+    || workspaceAbsoluteRoot(jobScope.rootRelativePath) !== jobScope.rootPath) fail('JOB_LIFECYCLE_INVALID');
+  const rootRelativePath = jobScope.rootRelativePath;
+  if (getWorkspaceFileLifecycleLeases()?.has(binding.workspaceId) || hasCollaborationHandoffExecutionContext()) fail('JOB_LIFECYCLE_REENTRANT');
+  return withWorkspaceMutationLock(binding.workspaceId, async () => {
+    const owner = Object.freeze(Object.create(null)) as WorkspaceOperationJobLifecycleOwner;
+    const captured: Capture = { owner, claim, binding, sourcePath: step.sourcePath, active: false, accepting: true,
+      disposed: false, directories: [], pending: new Set() };
+    owners.set(owner, captured);
+    let value: T | undefined, failure: Error | undefined;
+    try {
+      const data = await captureDirectory(resolveWorkspaceDataRoot()); captured.directories.push(data);
+      const root = await captureDirectory(jobScope.rootPath); captured.directories.push(root);
+      if (root.real !== path.join(data.real, rootRelativePath) || !root.real.startsWith(`${data.real}${path.sep}`)) fail('JOB_LIFECYCLE_CHANGED');
+      value = await withWorkspaceFileLifecycleGuard({ workspaceId: binding.workspaceId, paths: [step.sourcePath] }, async () => {
+        captured.lease = getWorkspaceFileLifecycleLeases()?.get(binding.workspaceId);
+        captured.active = true;
+        return context.run(captured, async () => {
+          await checkIdle(captured);
+          // A real current job policy is required before the caller can do physical work.
+          await withWorkspaceOperationJobLifecycleTransaction(owner, async () => undefined);
+          let result: T | undefined;
+          try { result = await operation(owner); } catch (error) { captured.failure ??= asError(error); }
+          captured.accepting = false;
+          if (captured.pending.size) {
+            captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
+            await Promise.allSettled([...captured.pending]);
+          }
+          if (captured.failure) throw captured.failure;
+          await checkIdle(captured);
+          if (captured.failure) throw captured.failure;
+          return result as T;
+        });
+      }, async () => {
+        const original = await openConnection();
+        const database: SqlConnection = Object.freeze({ get: original.get.bind(original), all: original.all.bind(original), run: original.run.bind(original),
+          close: async (reason?: Error) => {
+            if (captured.disposed) return; captured.disposed = true;
+            try { await original.close(reason); } catch (error) { captured.disposalFailure = asError(error); throw captured.disposalFailure; }
+          } });
+        captured.database = database;
+        try {
+          const first = await identity(database, true), second = await identity(database, false);
+          if (!sameIdentity(first.identity, second.identity) || second.transaction !== null) fail('JOB_LIFECYCLE_CHANGED');
+          captured.identity = second.identity; return database;
+        } catch (error) { try { await database.close(asError(error)); } catch { /* Disposal failure is retained separately. */ } throw error; }
+      });
+    } catch (error) { failure = asError(error); }
+    finally {
+      captured.active = false; captured.accepting = false; owners.delete(owner);
+      for (const directory of captured.directories.reverse()) {
+        try { await directory.handle.close(); } catch (error) { captured.disposalFailure ??= asError(error); }
+      }
+    }
+    if (captured.disposalFailure) throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DISPOSAL_UNCONFIRMED',
+      { cause: failure ? new AggregateError([failure, captured.disposalFailure]) : captured.disposalFailure });
+    if (failure) throw failure;
+    return value as T;
+  });
+}
+
+/** Short serial phases on the actual outer B. Internal DAL only, not an arbitrary SQL sandbox. */
+export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
+  operation: (access: WorkspaceOperationJobLifecycleAccess) => Promise<T>): Promise<T> {
+  const captured = owner && typeof owner === 'object' ? owners.get(owner) : undefined;
+  if (!captured) {
+    const error = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REQUIRED'), active = context.getStore();
+    if (active) active.failure ??= error; return Promise.reject(error);
+  }
+  try {
+    current(captured);
+    if (!captured.accepting || captured.phase || captured.pending.size || typeof operation !== 'function') fail('JOB_LIFECYCLE_REENTRANT');
+  } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+  const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set() };
+  captured.phase = phase;
+  const pending = (async () => {
+    const database = captured.database!; let begun = false, commitAttempted = false;
+    try {
+      await checkIdle(captured);
+      const policy = await captureWorkspaceOperationJobPolicy(); current(captured);
+      await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
+      const started = await identity(database, true);
+      if (!started.transaction) fail('JOB_LIFECYCLE_CHANGED'); phase.transaction = started.transaction;
+      const result = await withWorkspaceOperationJobPolicyOnConnection(database, { claim: captured.claim, policy }, async access => {
+        const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
+          await access.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
+        const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>): Promise<R> => {
+          try {
+            checkPhase(captured, phase);
+            if (phase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
+            if (sql !== undefined && (typeof sql !== 'string' || sql.length > 32768 || /[;\u0000]/u.test(sql)
+              || /\bpg_(?:try_)?advisory_/iu.test(sql) || !/^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/iu.test(sql))) fail('JOB_LIFECYCLE_INVALID');
+          } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+          const checked = (async () => { try { await check(); checkPhase(captured, phase);
+            const value = await query(); await check(); checkPhase(captured, phase); return value; }
+            catch (error) { return poison(captured, error); } })();
+          phase.pending.add(checked); void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked)); return checked;
+        };
+        const facade: SqlConnection = Object.freeze({ get: (sql: string, values?: unknown[]) => dispatch(sql, () => database.get(sql, values)),
+          all: (sql: string, values?: unknown[]) => dispatch(sql, () => database.all(sql, values)),
+          run: (sql: string, values?: unknown[]) => dispatch(sql, () => database.run(sql, values)),
+          close: () => dispatch('CLOSE', async () => undefined) });
+        return phaseContext.run(phase, async () => {
+          await check();
+          let result: T | undefined;
+          try { result = await operation(Object.freeze({ ...access, database: facade,
+            assertCurrent: () => dispatch(undefined, async () => undefined) })); }
+          catch (error) { captured.failure ??= asError(error); }
+          phase.accepting = false;
+          if (phase.pending.size) {
+            captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
+            await Promise.allSettled([...phase.pending]);
+          }
+          if (captured.failure) throw captured.failure;
+          await check(); if (captured.failure) throw captured.failure; return result as T;
+        });
+      });
+      if (captured.failure) throw captured.failure;
+      await checkOwner(captured, phase.transaction);
+      phase.accepting = false; commitAttempted = true; await database.run('COMMIT'); begun = false;
+      captured.phase = undefined; phase.active = false; await checkIdle(captured);
+      if (captured.failure) throw captured.failure; return result;
+    } catch (error) {
+      let failure = asError(error);
+      captured.failure ??= failure; phase.accepting = false;
+      if (phase.pending.size) await Promise.allSettled([...phase.pending]);
+      if (begun) { try { await database.run('ROLLBACK'); } catch (rollbackError) { failure = new AggregateError([failure, asError(rollbackError)]); } }
+      if (commitAttempted) {
+        failure = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_COMMIT_UNCONFIRMED', { cause: failure });
+        captured.failure = failure;
+        // A caught uncertain result must not leave an inherited live lease.
+        if (captured.lease) captured.lease.active = false;
+        try { await database.close(failure); } catch { /* Disposal failure is retained separately. */ }
+      }
+      return poison(captured, failure);
+    } finally { phase.accepting = false; phase.active = false; if (captured.phase === phase) captured.phase = undefined; }
+  })();
+  captured.pending.add(pending); void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending)); return pending;
+}

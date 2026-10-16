@@ -150,6 +150,19 @@ async function claimConnection<T>(captured: Pick<ClaimCapture, 'runtime'>, opera
   return value as T;
 }
 
+/** Original frozen facts for preparation only. No fresh DB, actor, ACL or SQL-owner proof. */
+export function readWorkspaceOperationBatchClaimBinding(claim: WorkspaceOperationBatchClaim): WorkspaceOperationBatchClaimBinding {
+  const captured = claim && typeof claim === 'object' ? claims.get(claim) : undefined;
+  if (!captured) {
+    const error = claimError('BATCH_CLAIM_REQUIRED'), active = claimContext.getStore();
+    if (active) poisonClaim(active, error);
+    throw error;
+  }
+  claimCurrent(captured);
+  if (captured.finished) poisonClaim(captured, claimError('BATCH_CLAIM_REQUIRED'));
+  return captured.binding;
+}
+
 /** Borrowed short transaction only. Never opens/closes/commits B, and grants no actor or lifecycle-owner authority. */
 export function assertWorkspaceOperationBatchClaimOnConnection(database: SqlConnection,
   claim: WorkspaceOperationBatchClaim): Promise<WorkspaceOperationBatchClaimBinding> {
