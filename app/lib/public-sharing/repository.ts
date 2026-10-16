@@ -100,3 +100,58 @@ export async function revokePublicShareOnConnection(database: SqlConnection, inp
       AND file_identity=$16 AND target_revision_policy=$17 AND created_by_user_id=$18 RETURNING ${columns}`, values) as Row | undefined;
   return updated ? mapRow(updated) : null;
 }
+
+/** Borrowed B only. Caller owns normalized deltas, current authority, target
+ * liveness and the locked original row; it handles no-op without calling here.
+ * Policy edits preserve every original target pin, token and access field. */
+export async function updatePublicSharePolicyOnConnection(database: SqlConnection, input: {
+  table: string; expected: PublicShareRow; nowMs: number;
+  changes: { expiresAtMs?: number | null; securityMode?: 'strict' | 'interactive'; reason?: string | null };
+}): Promise<PublicShareRow | null> {
+  const table = relation(input.table), row = input.expected, changes = input.changes;
+  if (typeof input.nowMs !== 'number' || !Number.isSafeInteger(input.nowMs) || input.nowMs < 0
+    || !Number.isFinite(new Date(input.nowMs).getTime()) || !changes || Object.getPrototypeOf(changes) !== Object.prototype
+    || Reflect.ownKeys(changes).some(key => typeof key !== 'string' || !['expiresAtMs','securityMode','reason'].includes(key)
+      || !Object.getOwnPropertyDescriptor(changes,key)?.enumerable
+      || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(changes,key),'value'))) {
+    throw new TypeError('Invalid public share policy input.');
+  }
+  const now = input.nowMs, revision = integer(row.policyRevision, 1);
+  if (revision === Number.MAX_SAFE_INTEGER) throw new TypeError('Public share revision exhausted.');
+  binding(row as Row);
+  const oldExpiry = row.expiresAt === null ? null : row.expiresAt instanceof Date ? row.expiresAt.getTime() : NaN;
+  const expiresAt = changes.expiresAtMs === undefined ? oldExpiry : changes.expiresAtMs;
+  const securityMode = changes.securityMode === undefined ? row.securityMode : changes.securityMode;
+  const reason = changes.reason === undefined ? row.reason : changes.reason;
+  if (oldExpiry !== null && !Number.isSafeInteger(oldExpiry)
+    || expiresAt !== null && (typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt)
+      || !Number.isFinite(new Date(expiresAt).getTime()))
+    || changes.expiresAtMs !== undefined && expiresAt !== null && expiresAt <= now
+    || securityMode !== 'strict' && securityMode !== 'interactive'
+    || reason !== null && typeof reason !== 'string'
+    || changes.reason !== undefined && changes.reason !== null && changes.reason.length > 500) {
+    throw new TypeError('Invalid public share policy values.');
+  }
+  if (row.status !== 'active') return null;
+  // Capture only primitive expectations before yielding; no path lookup or
+  // replacement binding can turn a failed original-row CAS into success.
+  const values = [now, expiresAt, securityMode, reason, row.id, row.workspaceId, row.organizationId, row.customerId,
+    row.projectId, row.workspaceType, row.workspaceRootRelativePath, row.workspacePath, row.tokenHash, revision,
+    row.documentId, row.lineageId, row.lifecycleGeneration, row.fileIdentity, row.targetRevisionPolicy, row.createdByUserId,
+    oldExpiry, row.securityMode, row.reason];
+  const strings = [row.id,row.workspaceId,row.organizationId,row.customerId,row.projectId,row.workspaceType,
+    row.workspaceRootRelativePath,row.workspacePath,row.tokenHash,row.documentId,row.lineageId,row.fileIdentity,
+    row.targetRevisionPolicy,row.createdByUserId,row.securityMode,row.reason];
+  if (strings.some(value => value !== null && typeof value !== 'string')) throw new TypeError('Invalid public share policy expectation.');
+  const updated = await database.get(`UPDATE ${table} SET expires_at=$2,security_mode=$3,reason=$4,
+    policy_revision=policy_revision+1,updated_at=$1
+    WHERE id=$5 AND workspace_id IS NOT DISTINCT FROM $6 AND organization_id IS NOT DISTINCT FROM $7
+      AND customer_id IS NOT DISTINCT FROM $8 AND project_id IS NOT DISTINCT FROM $9
+      AND workspace_type IS NOT DISTINCT FROM $10 AND workspace_root_relative_path IS NOT DISTINCT FROM $11 AND workspace_path=$12
+      AND token_hash=$13 AND policy_revision=$14 AND status='active' AND (expires_at IS NULL OR expires_at>$1)
+      AND document_id IS NOT DISTINCT FROM $15 AND lineage_id IS NOT DISTINCT FROM $16
+      AND lifecycle_generation IS NOT DISTINCT FROM $17 AND file_identity=$18 AND target_revision_policy=$19
+      AND created_by_user_id=$20 AND expires_at IS NOT DISTINCT FROM $21 AND security_mode=$22
+      AND reason IS NOT DISTINCT FROM $23 RETURNING ${columns}`, values) as Row | undefined;
+  return updated ? mapRow(updated) : null;
+}

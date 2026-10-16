@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { isAdminUser } from '@/app/lib/admin-auth';
-import { revokePublicFileShare, updatePublicFileShare, PublicSharePolicyError } from '@/app/lib/public-sharing/public-file-shares';
+import { revokePublicFileShare, updatePublicFileShare } from '@/app/lib/public-sharing/public-file-shares';
 import { parsePublicSharePolicy, requirePublicShareBody } from '@/app/lib/public-sharing/share-policy-input';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -11,20 +11,28 @@ import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 import { publicShareWriterFailure } from '@/app/lib/public-sharing/writer';
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
+  const original = new NextRequest(request.url,{method:request.method,headers:new Headers(request.headers)});
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canCreatePublicLinks' });
   if (workspaceResult.response) return workspaceResult.response;
   const { session, workspace } = workspaceResult;
   const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'public-shares-update' });
   if (!limited.ok) return limited.response;
+  let policy: ReturnType<typeof parsePublicSharePolicy>, expectedPolicyRevision: number;
   try {
     const body = requirePublicShareBody(await request.json());
     if (typeof body.policyRevision !== 'number') {
       return NextResponse.json({ success: false, error: 'Policy revision is required.' }, { status: 400 });
     }
+    expectedPolicyRevision = body.policyRevision;
+    policy = parsePublicSharePolicy(body);
+  } catch (error) {
+    return NextResponse.json({success:false,error:error instanceof Error ? error.message : 'Invalid public share policy.'},{status:400});
+  }
+  try {
     const { id } = await context.params;
     const share = await updatePublicFileShare({
-      id, userId: session.user.id, workspace, expectedPolicyRevision: body.policyRevision,
-      ...parsePublicSharePolicy(body), baseUrl: getPublicRequestOrigin(request),
+      id, request: original, workspaceId: workspace.workspaceId, expectedPolicyRevision,
+      ...policy, baseUrl: getPublicRequestOrigin(request),
     });
     if (!share) return NextResponse.json({ success: false, error: 'Public share not found.' }, { status: 404 });
     clearFileTreeCache(workspace.workspaceId);
@@ -37,9 +45,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     });
     return NextResponse.json({ success: true, share });
   } catch (error) {
+    const failure = publicShareWriterFailure(error);
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to update public share.' },
-      { status: error instanceof PublicSharePolicyError ? error.status : 400 },
+      {success:false,error:failure?.message ?? 'The public link action could not be confirmed.',
+        ...(failure ? {code:failure.code} : {})},
+      {status:failure?.status ?? 503},
     );
   }
 }
@@ -48,7 +58,8 @@ export async function DELETE(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const original = new NextRequest(request.url,{method:request.method,headers:new Headers(request.headers)});
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const { session, workspace } = workspaceResult;
 
@@ -65,7 +76,7 @@ export async function DELETE(
   try {
     const share = await revokePublicFileShare({
       id,
-      request,
+      request: original,
       workspaceId: workspace.workspaceId,
       baseUrl: getPublicRequestOrigin(request),
     });

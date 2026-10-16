@@ -28,7 +28,8 @@ import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { NextRequest } from 'next/server';
-import { revokePublicShareForRequest, revokePublicShareForAgent } from './writer';
+import { revokePublicShareForRequest, revokePublicShareForAgent, updatePublicSharePolicyForRequest,
+  PublicShareWriterError } from './writer';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
 export type PublicShareSource = 'ui' | 'agent';
@@ -734,22 +735,17 @@ async function applySharePolicy(row: PublicShareRow, params: SharePolicyUpdate):
   return updated;
 }
 
-export async function updatePublicFileShare(params: SharePolicyUpdate & { id: string; baseUrl?: string | null }): Promise<PublicShareDto | null> {
-  const workspace = resolveOperationWorkspace(params.workspace);
-  const [row] = await db.select().from(publicFileShares).where(and(
-    eq(publicFileShares.id, params.id), workspaceScopePredicate(workspace),
-  )).limit(1);
-  if (!row) return null;
-  if (workspace && !workspace.permissions.canCreatePublicLinks) throw new PublicSharePolicyError('Forbidden', 403);
-  assertCanManageShare(row, params.userId, workspace);
-  if (!Number.isSafeInteger(params.expectedPolicyRevision) || params.expectedPolicyRevision < 1) {
-    throw new PublicSharePolicyError('A valid policy revision is required.', 400);
-  }
-  if (row.policyRevision !== params.expectedPolicyRevision || (await reconcileRow(row)).status !== 'active') {
-    throw new PublicSharePolicyError('Public share changed or expired. Reload its settings before saving.', 409);
-  }
-  const updated = await applySharePolicy(row, { ...params, workspace });
-  return toDto(updated, params.baseUrl, workspace?.displayName ?? null);
+export async function updatePublicFileShare(params: Omit<SharePolicyUpdate,'userId'> & {
+  id: string; request?: NextRequest; workspaceId?: string; userId?: string; baseUrl?: string | null;
+}): Promise<PublicShareDto | null> {
+  if (!params.request) throw new PublicShareWriterError('PUBLIC_SHARE_WRITE_INVALID');
+  const workspaceId = params.workspaceId ?? params.workspace?.workspaceId;
+  const result = await updatePublicSharePolicyForRequest(params.request,{id:params.id,
+    ...(workspaceId === undefined ? {} : {workspaceId}),expectedPolicyRevision:params.expectedPolicyRevision,
+    ...(params.expiresAt === undefined ? {} : {expiresAt:params.expiresAt}),
+    ...(params.securityMode === undefined ? {} : {securityMode:params.securityMode}),
+    ...(params.reason === undefined ? {} : {reason:params.reason})});
+  return result ? toDto(result.row,params.baseUrl,result.workspace.displayName ?? null) : null;
 }
 
 export async function createPublicFileShares(params: {

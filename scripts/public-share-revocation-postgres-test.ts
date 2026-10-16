@@ -658,7 +658,70 @@ async function main(): Promise<void> {
       const writes = await writeProof(); assert.equal((await via(surface, target.id))?.row.status, 'revoked');
       assert.deepEqual(await row(target.id), after); assert.deepEqual(await writeProof(), writes, 'A fresh request must observe the committed revoke without issuing another mutation.');
     });
-    assert.equal(passed, 57);
+    await admin.query('CREATE SEQUENCE fixture_revoke_acl_change_attempts');
+    for (const scenario of ['Web manager', 'Agent member', 'Web admin'] as const)
+    await check(`${scenario} actual same-B capability removal rolls back revoke while canRead remains available`, async () => {
+      const adminCase = scenario === 'Web admin';
+      if (adminCase) await admin.query("UPDATE \"user\" SET role='admin' WHERE id='other'");
+      const originalQuery = Client.prototype.query;
+      let triggerCreated = false, functionCreated = false;
+      try {
+        const target = await seed({ owner: scenario === 'Agent member' ? 'member' : 'owner' });
+        const before = await row(target.id), writes = await writeProof();
+        const attempts = (await admin.query('SELECT last_value::text AS value,is_called FROM fixture_revoke_acl_change_attempts')).rows[0];
+        const affectedUser = adminCase ? 'other' : 'member';
+        const aclBefore = (await admin.query(`SELECT to_jsonb(p) AS row FROM organization_user_permissions p
+          WHERE organization_id='revoke-org' AND user_id=$1`, [affectedUser])).rows[0].row;
+        const userBefore = (await admin.query('SELECT to_jsonb(u) AS row FROM "user" u WHERE id=$1', [affectedUser])).rows[0].row;
+        assert.equal(aclBefore.status, 'active'); assert.equal(aclBefore.can_create_public_links, adminCase ? 0 : 1);
+        assert.equal(aclBefore.can_write_team_workspace, adminCase ? 0 : 1);
+        assert.equal(userBefore.role, adminCase ? 'admin' : 'user');
+        assert.equal((await auth.api.getSession({ headers: (await request(affectedUser, false, target.id)).headers }))?.user.role,
+          adminCase ? 'admin' : 'user');
+        const rights = adminCase
+          ? "UPDATE \"user\" SET role='user' WHERE id='other' AND role='admin'"
+          : "UPDATE organization_user_permissions SET can_create_public_links=0 WHERE organization_id='revoke-org' AND user_id='member' AND status='active' AND can_write_team_workspace=1 AND can_create_public_links=1";
+        await admin.query(`CREATE FUNCTION fixture_revoke_acl_change() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+          IF NEW.id='${target.id}' THEN ${rights}; IF NOT FOUND THEN RAISE EXCEPTION 'Owned revoke capability row was not changed'; END IF;
+            PERFORM nextval('fixture_revoke_acl_change_attempts'); END IF; RETURN NEW; END $$`);
+        functionCreated = true;
+        await admin.query('CREATE TRIGGER fixture_revoke_acl_change AFTER UPDATE ON public_file_shares FOR EACH ROW EXECUTE FUNCTION fixture_revoke_acl_change()');
+        triggerCreated = true;
+        const writerClients = new Set<Client>();
+        let dml = 0, rollbacks = 0, commits = 0;
+        Client.prototype.query = function (this: Client, ...args: unknown[]) {
+          const sql = queryText(args);
+          if (runtimeClient(this) && isShareUpdate(sql) && queryValues(args).includes(target.id)) {
+            dml++; writerClients.add(this);
+          }
+          if (writerClients.has(this) && sql === 'COMMIT') commits++;
+          if (writerClients.has(this) && sql === 'ROLLBACK') return Promise.resolve(Reflect.apply(originalQuery, this, args)).then(result => {
+            rollbacks++; return result;
+          });
+          return Reflect.apply(originalQuery, this, args);
+        } as typeof Client.prototype.query;
+        await assert.rejects(scenario === 'Agent member' ? via('agent', target.id) : web(target.id, affectedUser),
+          error => error instanceof writer.PublicShareWriterError && error.code === 'PUBLIC_SHARE_WRITE_DENIED');
+        Client.prototype.query = originalQuery;
+        const attempted = (await admin.query('SELECT last_value::text AS value,is_called FROM fixture_revoke_acl_change_attempts')).rows[0];
+        assert.equal(BigInt(attempted.value), BigInt(attempts.value) + (attempts.is_called ? BigInt(1) : BigInt(0))); assert.equal(attempted.is_called, true);
+        const writeAfter = await writeProof();
+        assert.equal(BigInt(writeAfter.value), BigInt(writes.value) + (writes.is_called ? BigInt(1) : BigInt(0))); assert.equal(writeAfter.is_called, true);
+        assert.equal(dml, 1); assert.equal(writerClients.size, 1); assert.equal(rollbacks, 1); assert.equal(commits, 0);
+        assert.deepEqual(await row(target.id), before);
+        assert.deepEqual((await admin.query(`SELECT to_jsonb(p) AS row FROM organization_user_permissions p
+          WHERE organization_id='revoke-org' AND user_id=$1`, [affectedUser])).rows[0].row, aclBefore);
+        assert.deepEqual((await admin.query('SELECT to_jsonb(u) AS row FROM "user" u WHERE id=$1', [affectedUser])).rows[0].row, userBefore);
+      } finally {
+        Client.prototype.query = originalQuery;
+        try { if (triggerCreated) await admin.query('DROP TRIGGER fixture_revoke_acl_change ON public_file_shares'); }
+        finally {
+          try { if (functionCreated) await admin.query('DROP FUNCTION fixture_revoke_acl_change()'); }
+          finally { if (adminCase) await admin.query("UPDATE \"user\" SET role='user' WHERE id='other'"); }
+        }
+      }
+    });
+    assert.equal(passed, 60);
 
     assert.equal(fetches, 0); await own();
     console.log('Public share revoke SQL assertions complete:', JSON.stringify({ passed, fetches }));
