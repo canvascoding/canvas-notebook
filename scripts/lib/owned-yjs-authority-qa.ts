@@ -285,7 +285,7 @@ async function appendNativeDescriptorFingerprint(repo: string, digest: Hash): Pr
   assert(manifest && Object.getPrototypeOf(manifest) === Object.prototype);
   assert.deepEqual(Object.keys(manifest), keys);
   assert.equal(JSON.stringify(manifest, null, 2) + '\n', manifestBytes.toString('utf8'));
-  assert.equal(manifest.version, 1); assert.equal(manifest.apiVersion, 2); assert.equal(manifest.napiVersion, 8);
+  assert.equal(manifest.version, 1); assert.equal(manifest.apiVersion, 3); assert.equal(manifest.napiVersion, 8);
   assert.equal(manifest.platform, process.platform); assert.equal(manifest.arch, process.arch);
   assert.equal(typeof manifest.nodeVersion, 'string'); assert.equal(typeof manifest.compiler, 'string');
   assert.equal(manifest.sourceSha256, hash(source)); assert.equal(manifest.sourceSha256, hash(packagedSource));

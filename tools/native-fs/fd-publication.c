@@ -226,12 +226,46 @@ static napi_value rename_no_replace_at(napi_env env, napi_callback_info info) {
 #endif
   return nothing(env);
 }
+static napi_value list_directory_at(napi_env env, napi_callback_info info) {
+  napi_value args[2], result; int parent;
+  if (!arguments(env, info, 1, args) || !directory(env, args[0], &parent)) return NULL;
+  /* A new description leaves the caller's directory cursor untouched.
+   * Names are a bounded observation, not an immutable subtree snapshot. */
+  int fd = openat(parent, ".", O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  if (fd < 0) return syscall_error(env, errno);
+  DIR *stream = fdopendir(fd);
+  if (!stream) { int error = errno; close(fd); return syscall_error(env, error); }
+  if (napi_create_array(env, &result) != napi_ok) {
+    closedir(stream); return refused(env, "FD_PUBLICATION_UNCONFIRMED");
+  }
+  uint32_t count = 0; int error = 0, pending = 0, invalid = 0, unconfirmed = 0;
+  for (;;) {
+    errno = 0; struct dirent *entry = readdir(stream);
+    if (!entry) { error = errno; break; }
+    if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+    if (++count > SCAN_LIMIT) { error = EOVERFLOW; break; }
+    napi_value name; char roundtrip[NAME_MAX + 1];
+    if (napi_create_string_utf8(env, entry->d_name, NAPI_AUTO_LENGTH, &name) != napi_ok) { unconfirmed = 1; break; }
+    if (!component(env, name, roundtrip)) { pending = 1; break; }
+    /* Node may substitute U+FFFD for invalid filesystem UTF-8. Never expose
+     * that lossy alias as a confirmed original directory entry. */
+    if (strcmp(roundtrip, entry->d_name)) { invalid = 1; break; }
+    if (napi_set_element(env, result, count - 1, name) != napi_ok) { unconfirmed = 1; break; }
+  }
+  if (closedir(stream) && !error) error = errno;
+  if (pending) return NULL;
+  if (invalid) return refused(env, "FD_PUBLICATION_INVALID_INPUT");
+  if (error == EOVERFLOW) return refused(env, "FD_PUBLICATION_SCAN_LIMIT");
+  if (error) return syscall_error(env, error);
+  if (unconfirmed || napi_object_freeze(env, result) != napi_ok) return refused(env, "FD_PUBLICATION_UNCONFIRMED");
+  return result;
+}
 static napi_value initialize(napi_env env, napi_value exports) {
-  const char *names[] = {"openDirectoryAt", "openFileAt", "mkdirAt", "linkAt", "unlinkFileAt", "hasExactNameAt", "renameNoReplaceAt"};
-  napi_callback functions[] = {open_directory, open_file, mkdir_at, link_at, unlink_file, exact_name, rename_no_replace_at};
-  for (int i = 0; i < 7; i++) { napi_value fn; napi_create_function(env, names[i], NAPI_AUTO_LENGTH, functions[i], NULL, &fn); napi_set_named_property(env, exports, names[i], fn); }
+  const char *names[] = {"openDirectoryAt", "openFileAt", "mkdirAt", "linkAt", "unlinkFileAt", "hasExactNameAt", "renameNoReplaceAt", "listDirectoryAt"};
+  napi_callback functions[] = {open_directory, open_file, mkdir_at, link_at, unlink_file, exact_name, rename_no_replace_at, list_directory_at};
+  for (int i = 0; i < 8; i++) { napi_value fn; napi_create_function(env, names[i], NAPI_AUTO_LENGTH, functions[i], NULL, &fn); napi_set_named_property(env, exports, names[i], fn); }
   napi_value version, napi, platform, arch;
-  napi_create_int32(env, 2, &version); napi_set_named_property(env, exports, "apiVersion", version);
+  napi_create_int32(env, 3, &version); napi_set_named_property(env, exports, "apiVersion", version);
   napi_create_int32(env, 8, &napi); napi_set_named_property(env, exports, "napiVersion", napi);
   napi_create_string_utf8(env, CANVAS_PLATFORM, NAPI_AUTO_LENGTH, &platform); napi_set_named_property(env, exports, "platform", platform);
   napi_create_string_utf8(env, CANVAS_ARCH, NAPI_AUTO_LENGTH, &arch); napi_set_named_property(env, exports, "arch", arch);

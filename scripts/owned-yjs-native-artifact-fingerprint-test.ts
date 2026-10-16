@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   const artifactNames = ['manifest.json', 'source.c', 'fd-publication.node'].map(name => `${nativeDirectory}/${name}`);
   const sourceBytes = Buffer.from('/* Synthetic source; never compiled or executed. */\n');
   const binaryBytes = Buffer.from([0, 255, 1, 42, 0, 97, 115, 109]);
-  const manifest = { version: 1, apiVersion: 2, napiVersion: 8, platform: process.platform, arch: process.arch,
+  const manifest = { version: 1, apiVersion: 3, napiVersion: 8, platform: process.platform, arch: process.arch,
     sourceSha256: hash(sourceBytes), binarySha256: hash(binaryBytes), nodeVersion: 'synthetic-node', compiler: 'synthetic-compiler' };
   const manifestBytes = Buffer.from(JSON.stringify(manifest, null, 2) + '\n');
   const originals = new Map<string, Buffer>([[sourceName, sourceBytes], [artifactNames[0], manifestBytes],

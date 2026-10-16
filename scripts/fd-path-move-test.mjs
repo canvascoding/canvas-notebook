@@ -36,7 +36,7 @@ function loadFacade() {
 }
 
 function checkShape(api, originalAddon) {
-  const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt', 'renameNoReplaceAt'];
+  const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt', 'renameNoReplaceAt', 'listDirectoryAt'];
   const keys = originalAddon ? [...methods, 'apiVersion', 'napiVersion', 'platform', 'arch'] : ['apiVersion', 'backend', 'renameNoReplaceAt'];
   assert.deepEqual(Reflect.ownKeys(api).sort(), keys.sort());
   assert(Object.isFrozen(api));
@@ -47,7 +47,7 @@ function checkShape(api, originalAddon) {
     assert.equal(descriptor.writable, false);
     assert.equal(descriptor.configurable, false);
   }
-  assert.equal(api.apiVersion, originalAddon ? 2 : 1);
+  assert.equal(api.apiVersion, originalAddon ? 3 : 1);
   assert.equal(typeof api.renameNoReplaceAt, 'function');
   if (originalAddon) {
     assert.equal(api.napiVersion, 8);

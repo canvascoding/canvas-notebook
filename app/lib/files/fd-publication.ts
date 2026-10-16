@@ -24,6 +24,12 @@ export type FdPathMoveBackend = Readonly<{
   apiVersion: 1; backend: 'linux-node-api8' | 'darwin-node-api8';
   renameNoReplaceAt(sourceFd: number, sourceName: string, targetFd: number, targetName: string): void;
 }>;
+/** One bounded descriptor-relative directory observation, never a workspace
+ * snapshot or authorization. The caller must fence and validate its lifetime. */
+export type FdDirectoryInventoryBackend = Readonly<{
+  apiVersion: 1; backend: 'linux-node-api8' | 'darwin-node-api8';
+  listDirectoryAt(parentFd: number): readonly string[];
+}>;
 export class FdPublicationError extends Error {
   constructor(readonly code: string) { super('The descriptor operation could not be confirmed.'); this.name = 'FdPublicationError'; }
 }
@@ -119,12 +125,13 @@ function linuxBackend(): FdPublicationBackend {
   });
 }
 
-type DescriptorAddon = Readonly<{ apiVersion: 2; napiVersion: 8; platform: 'darwin' | 'linux'; arch: string;
+type DescriptorAddon = Readonly<{ apiVersion: 3; napiVersion: 8; platform: 'darwin' | 'linux'; arch: string;
   openDirectoryAt: (fd: number, name: string) => number; openFileAt: (fd: number, name: string, mode: string) => number;
   mkdirAt: (fd: number, name: string, mode: number) => void; linkAt: FdPublicationBackend['linkAt'];
   unlinkFileAt: (fd: number, name: string, dev: string, ino: string, uid: number, mode: number) => void;
-  hasExactNameAt: FdPublicationBackend['hasExactNameAt']; renameNoReplaceAt: FdPathMoveBackend['renameNoReplaceAt'] }>;
-const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt', 'renameNoReplaceAt'] as const;
+  hasExactNameAt: FdPublicationBackend['hasExactNameAt']; renameNoReplaceAt: FdPathMoveBackend['renameNoReplaceAt'];
+  listDirectoryAt: FdDirectoryInventoryBackend['listDirectoryAt'] }>;
+const methods = ['openDirectoryAt', 'openFileAt', 'mkdirAt', 'linkAt', 'unlinkFileAt', 'hasExactNameAt', 'renameNoReplaceAt', 'listDirectoryAt'] as const;
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 function artifact(filename: string): Buffer {
   const fd = fs.openSync(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -148,7 +155,7 @@ function nativeAddon(): DescriptorAddon {
   const keys = ['version', 'apiVersion', 'napiVersion', 'platform', 'arch', 'sourceSha256', 'binarySha256', 'nodeVersion', 'compiler'];
   if (!manifest || Object.getPrototypeOf(manifest) !== Object.prototype || Reflect.ownKeys(manifest).length !== keys.length
     || keys.some(key => !Object.hasOwn(manifest, key)) || JSON.stringify(manifest, null, 2) + '\n' !== manifestBytes.toString('utf8')
-    || manifest.version !== 1 || manifest.apiVersion !== 2 || manifest.napiVersion !== 8 || manifest.platform !== process.platform || manifest.arch !== process.arch
+    || manifest.version !== 1 || manifest.apiVersion !== 3 || manifest.napiVersion !== 8 || manifest.platform !== process.platform || manifest.arch !== process.arch
     || typeof manifest.sourceSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(manifest.sourceSha256)
     || typeof manifest.binarySha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(manifest.binarySha256)
     || typeof manifest.nodeVersion !== 'string' || typeof manifest.compiler !== 'string' || Number(process.versions.napi) < 8) fail('FD_PUBLICATION_MANIFEST_INVALID');
@@ -159,7 +166,7 @@ function nativeAddon(): DescriptorAddon {
     || [...methods, 'apiVersion', 'napiVersion', 'platform', 'arch'].some(key => {
       const descriptor = Object.getOwnPropertyDescriptor(addon, key);
       return !descriptor?.enumerable || !('value' in descriptor);
-    }) || addon.apiVersion !== 2 || addon.napiVersion !== 8
+    }) || addon.apiVersion !== 3 || addon.napiVersion !== 8
     || addon.platform !== process.platform || addon.arch !== process.arch || methods.some(key => typeof addon[key] !== 'function')
     || sha(artifact(binaryPath)) !== manifest.binarySha256) fail('FD_PUBLICATION_MANIFEST_INVALID');
   return addon;
@@ -189,6 +196,25 @@ export function getFdPathMoveBackend(): FdPathMoveBackend {
         guarded(() => {
           directory(sourceFd); directory(targetFd); component(sourceName); component(targetName);
           addon.renameNoReplaceAt(sourceFd, sourceName, targetFd, targetName);
+        });
+      },
+    });
+  });
+}
+
+export function getFdDirectoryInventoryBackend(): FdDirectoryInventoryBackend {
+  arity(arguments.length, 0);
+  return guarded(() => {
+    const addon = nativeAddon();
+    return Object.freeze({ apiVersion: 1, backend: addon.platform === 'linux' ? 'linux-node-api8' : 'darwin-node-api8',
+      listDirectoryAt(fd: number): readonly string[] {
+        arity(arguments.length, 1);
+        return guarded(() => {
+          directory(fd); const names = addon.listDirectoryAt(fd);
+          if (!Array.isArray(names) || !Object.isFrozen(names) || names.length > limit
+            || new Set(names).size !== names.length) fail('FD_PUBLICATION_NAMESPACE_CHANGED');
+          for (const name of names) component(name);
+          return names;
         });
       },
     });
