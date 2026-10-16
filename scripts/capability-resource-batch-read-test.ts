@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { Pool } from 'pg';
 import type { SqlConnection } from '../app/lib/db';
 import type { CapabilityResourceActor, CapabilityResourceStorageBinding } from '../app/lib/capabilities/resources/contracts';
 import type { CanvasSkillInstallRecord } from '../app/lib/skills/canvas-skill-store';
@@ -8,9 +9,27 @@ import { createCapabilityPackageStoreApplicationFixture } from './helpers/capabi
 
 /** Actual ACL SQL and artifact catalogues; instrumentation counts reads without replacing authorization. */
 async function main() {
-  const fixture = await createCapabilityPackageStoreApplicationFixture();
+  const native = process.argv.includes('--native');
+  const maintenanceUrl = native ? process.env.DATABASE_URL : undefined;
+  if (native) {
+    assert.equal(process.env.NODE_ENV, 'test');
+    assert.equal(process.env.CANVAS_SHARED_CONNECTION_POSTGRES_TEST, '1', 'Native mode never silently falls back to PGlite.');
+    const parsed = new URL(maintenanceUrl ?? '');
+    assert.equal(parsed.hostname, '127.0.0.1'); assert.equal(parsed.port, '55433'); assert.equal(parsed.search, '');
+  }
+  const fixture = await createCapabilityPackageStoreApplicationFixture({ native, ...(native ? { nativePoolMax: 10 as const } : {}) });
   const originalOpen = fixture.database.openDb;
+  let nonceDatabase: string | undefined;
   try {
+    assert.equal(fixture.native, native);
+    if (native) {
+      const identity = await fixture.sql.get(`SELECT current_database() AS name,current_user AS role,pg_get_userbyid(datdba) AS owner
+        FROM pg_database WHERE datname=current_database()`) as { name: string; role: string; owner: string };
+      assert.match(identity.name, /^canvas_connection_test_[a-f0-9]{32}$/u);
+      assert.equal(identity.owner, identity.role, 'The fixture may create and drop only its own nonce database.');
+      assert.notEqual(identity.name, new URL(maintenanceUrl!).pathname.slice(1));
+      nonceDatabase = identity.name;
+    }
     const store = await import('../app/lib/capabilities/resources/store');
     const labels = await import('../app/lib/capabilities/resources/labels');
     const actions = await import('../app/lib/capabilities/resources/actions');
@@ -194,8 +213,19 @@ async function main() {
     assert.equal(new Set(catalogBudgets.map(value => value.queries)).size, 1,
       `Complete catalog SQL must be constant for 1/10/50 real resources: ${JSON.stringify(catalogBudgets)}`);
     assert.equal(fixture.providerRequests(), 0);
-    console.log(`PASS actual PGlite resource batches: mixed ACL parity, scoped grants/labels, constant ${budgets[0]} queries for 9/18/58 bindings, borrowed lease ownership, current revocation/bans/team status, immutable parent/child catalogue and inspection, full 1/10/50-resource catalog budgets ${JSON.stringify(catalogBudgets)}, zero provider probes.`);
-  } finally { fixture.database.openDb = originalOpen; await fixture.close(); }
+    console.log(`PASS actual ${native ? 'native PostgreSQL' : 'PGlite'} resource batches: mixed ACL parity, scoped grants/labels, constant ${budgets[0]} queries for 9/18/58 bindings, borrowed lease ownership, current revocation/bans/team status, immutable parent/child catalogue and inspection, full 1/10/50-resource catalog budgets ${JSON.stringify(catalogBudgets)}, zero provider probes.`);
+  } finally {
+    fixture.database.openDb = originalOpen; await fixture.close();
+    await assert.rejects(fs.stat(fixture.root), { code: 'ENOENT' }, 'The isolated fixture data directory is removed.');
+    if (native && nonceDatabase) {
+      const observer = new Pool({ connectionString: maintenanceUrl, max: 1 });
+      try {
+        assert.equal((await observer.query('SELECT datname FROM pg_database WHERE datname=$1', [nonceDatabase])).rowCount, 0,
+          'The native helper must drop the exact owned nonce database after releasing all leases.');
+        console.log('PASS native isolation and cleanup: distinct owned nonce database verified, nonce database absent after teardown, isolated fixture files removed.');
+      } finally { await observer.end(); }
+    }
+  }
 }
 
 void main().catch(error => { console.error(error); process.exitCode = 1; });
