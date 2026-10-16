@@ -187,7 +187,7 @@ async function withFixture(browser: Browser, mobile: boolean, operation: (fixtur
   let workspaceId: string | undefined, primary: unknown, failed = false;
   const contexts: BrowserContext[] = [];
   try {
-    const response = await context.request.post('/api/workspaces', { data: { type: 'personal', name: `Native move ${owned.nonce} ${randomUUID()}` } });
+    const response = await context.request.post('/api/workspaces', { data: { type: 'personal', name: `Native move ${owned.nonce.slice(0, 8)} ${randomUUID()}` } });
     expect(response.status()).toBe(201); const body = await response.json(); workspaceId = body.workspace.id;
     expect(body.starterDocumentInitialization.status).toBe('completed');
     const availability = await context.request.get('/api/document-review/availability');
