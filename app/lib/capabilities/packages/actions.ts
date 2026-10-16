@@ -13,7 +13,7 @@ import { refreshCapabilityRuntimeForScope } from '../activation-actions';
 import { CapabilityPackageError, type AuthorizedCapabilityPackageResource, type AuthorizedCapabilityPackageSource, type CapabilityPackageDescriptor,
   type CapabilityPackageDraft, type CapabilityPackageDraftLocation, type CapabilityPackagePublishedLocation,
   type CapabilityPackageSourceStamp, type CapabilityPackageOwnedDraftListQuery } from './contracts';
-import { resolveCapabilityPackageArtifact, assertCapabilityPackageArtifactCurrent, validateCapabilityPackage,
+import { resolveCapabilityPackageArtifact, assertCapabilityPackageArtifactCurrent,
   capabilityPackageLegacyStorageBinding, stageCapabilityPackageRegistryPointer, withCapabilityPackageRegistryPublication,
   type ResolvedCapabilityPackageArtifact } from './artifacts';
 import { createCapabilityPackageDraft, createEmptyCapabilityPackageDraft, deleteCapabilityPackageDraftFile, listCapabilityPackageFiles, preparePublishedSnapshot,
@@ -22,12 +22,15 @@ import { createCapabilityPackageDraft, createEmptyCapabilityPackageDraft, delete
 import { beginCapabilityPackageDraft, beginNewCapabilityPackageDraft, discardCapabilityPackageDraft, getCapabilityPackageDraftRecord,
   getCapabilityPackagePublishedRevision, listCapabilityPackagePublishedRevisions, getCapabilityPackageState,
   getCapabilityPackageOwnedDraftStatus, listCapabilityPackageOwnedDraftStatuses, mutateCapabilityPackageDraft, publishCapabilityPackageDraft,
-  withCapabilityPackageDraftRead, withCapabilityPackagePublication, findCapabilityPackagePublicationReplay, getCapabilityPackageOperationStatus, type CapabilityPackageDraftRecord } from './store';
+  withCapabilityPackageDraftRead, withCapabilityPackagePublication, findCapabilityPackagePublicationReplay, getCapabilityPackageOperationStatus,
+  isCreatorAuthoredPluginResource, type CapabilityPackageDraftRecord } from './store';
 import { capabilityPackageDiscardSchema, capabilityPackageDraftCreationSchema, capabilityPackageDraftReferenceSchema,
   capabilityPackageFileDeleteSchema, capabilityPackageFileReadSchema, capabilityPackageFileWriteSchema,
   capabilityPackagePublishedFileSchema, capabilityPackagePublishedTreeSchema, capabilityPackagePublishSchema,
   capabilityPackageReferenceSchema, capabilityPackageOperationQuerySchema } from './schemas';
 import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin } from './store-origin';
+import { validateCapabilityPackageDraftContents } from './authoring-validation';
+import { CapabilityPackageValidationError } from './validation-contracts';
 
 function parentStorage(source: ResolvedCapabilityPackageArtifact): CapabilityResourceStorageBinding | undefined {
   if (source.storage.sourceType !== 'plugin') return undefined;
@@ -202,9 +205,11 @@ export async function deleteCapabilityPackageDraftFileAction(actor: CapabilityRe
 }
 
 export async function validateCapabilityPackageDraftAction(actor: CapabilityResourceActor, reference: string) {
-  return withCapabilityPackageDraftRead(actor, capabilityPackageDraftReferenceSchema.parse(reference), async record => ({
+  return withCapabilityPackageDraftRead(actor, capabilityPackageDraftReferenceSchema.parse(reference), async (record, database) => ({
     ...publicDraft(record, record.authorization.record.metadata),
-    validation: await validateCapabilityPackage(record.draft.kind, draftLocation(record.draft, record.targetOwnership).rootPath, { name: record.draft.name }),
+    validation: await validateCapabilityPackageDraftContents(record.draft, draftLocation(record.draft, record.targetOwnership),
+      record.draft.operation === 'create' || await isCreatorAuthoredPluginResource(record.draft.operation === 'fork'
+        ? record.draft.sourceResourceRef : record.draft.resourceRef, database)),
   }));
 }
 
@@ -244,8 +249,10 @@ export async function publishCapabilityPackageDraftAction(actor: CapabilityResou
     try {
       result = await publishCapabilityPackageDraft(actor, input, async (context, database) => {
         const location = draftLocation(context.draft, context.authorization.record.metadata.ownership);
-        const validation = await validateCapabilityPackage(context.draft.kind, location.rootPath, { name: context.draft.name });
-        if (!validation.valid || !validation.version || !validation.checksum) throw new CapabilityPackageError('PACKAGE_INVALID', validation.errors.join(' ') || 'The package is invalid.');
+        const validation = await validateCapabilityPackageDraftContents(context.draft, location,
+          context.draft.operation === 'create' || await isCreatorAuthoredPluginResource(context.draft.operation === 'fork'
+            ? context.draft.sourceResourceRef : context.draft.resourceRef, database));
+        if (!validation.valid || !validation.version || !validation.checksum) throw new CapabilityPackageValidationError(validation);
         const snapshot = await preparePublishedSnapshot(location, { resourceRef: context.draft.resourceRef, revisionRef: context.revisionRef,
           kind: context.draft.kind, name: context.draft.name, owner: context.authorization.record.metadata.ownership,
           version: validation.version, checksum: validation.checksum }, validation);

@@ -293,8 +293,24 @@ async function main() {
     await fs.cp(packageRoot, seedPackage, { recursive: true });
     await fs.writeFile(path.join(seedPackage, '.canvas-plugin/plugin.json'), JSON.stringify({ ...manifest, name: 'artifact-seed-package',
       skillRefs: [{ name: 'skill-creator', source: 'seed' }] }));
+    const { createCapabilityResourceId } = await import('../app/lib/capabilities/reference');
+    const { resolveScopedSkillsDataDir } = await import('../app/lib/runtime-data-paths');
+    const coreSeedId = createCapabilityResourceId({ resourceType: 'skill', scopeType: 'system', sourceType: 'core', name: 'skill-creator' });
+    const coreSeedBefore = await resource.inspectCapabilityResource({ userId: 'owner' }, coreSeedId);
     const seedInstalled = await registry.installCanvasPluginFromPath(seedPackage, { scope, enable: false });
-    assert(seedInstalled.success && seedInstalled.plugin?.resourceId);
+    assert(seedInstalled.success && seedInstalled.plugin?.resourceId, JSON.stringify({ code: seedInstalled.code,
+      error: seedInstalled.error, validationErrors: seedInstalled.validation?.errors }));
+    const coreSeedReference = seedInstalled.plugin.skills.find(skill => skill.name === 'skill-creator');
+    assert(coreSeedReference);
+    assert.equal(coreSeedReference.materialized, false, 'A legitimate Core seed reference must not materialize a second owned skill.');
+    assert.equal(coreSeedReference.preexistingStandalone, true, 'A referring plugin does not own Core activation settings.');
+    assert.equal(coreSeedReference.path, path.join(process.cwd(), 'seed_skills/skill-creator/SKILL.md'));
+    await assert.rejects(fs.lstat(path.join(resolveScopedSkillsDataDir(scope), 'skill-creator')), { code: 'ENOENT' },
+      'Referencing an existing Core skill must not create a DATA shadow.');
+    assert.deepEqual((await resource.inspectCapabilityResource({ userId: 'owner' }, coreSeedId)).artifact, coreSeedBefore.artifact,
+      'The existing Core identity, version, revision and checksum remain exact.');
+    await assert.rejects(artifacts.assertLegacyCapabilityPackageMutationAllowed('skill', 'skill-creator', scope), { code: 'PACKAGE_READ_ONLY' },
+      'Preserving a genuine reference does not bypass the actual Core mutation guard.');
     const seedSource = await artifacts.resolveCapabilityPackageArtifact({ userId: 'owner' }, seedInstalled.plugin.resourceId);
     assert.equal(seedSource.bundledReferences?.length, 1);
     assert.equal(seedSource.sourceStamp.dependencies?.[0].relativeRoot, 'skills/skill-creator');

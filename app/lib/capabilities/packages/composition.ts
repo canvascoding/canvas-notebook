@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
 import YAML from 'yaml';
-import { isValidCanvasPluginName, isValidCanvasPluginVersion, validateCanvasPluginPackage, type CanvasPluginManifest, type CanvasPluginMcpConnector } from '@/app/lib/plugins/canvas-plugin-manifest';
+import { isValidCanvasPluginName, isValidCanvasPluginVersion, validateCanvasPluginPackage, type CanvasPluginManifest, type CanvasPluginMcpConnector, type CanvasPluginConnectorManifest } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidAgentSkillName, parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { CapabilityResourceActor } from '../resources/contracts';
@@ -16,7 +16,7 @@ import { getCapabilityPackageDraftRecord, mutateCapabilityPackageDraft } from '.
 import { normalizeCapabilityPackageRelativePath, readExactPackageInventory, resolveCapabilityPackageDraftLocation, withCapturedCapabilityPackageInventory, writeCapabilityPackageDraftBatch, type ExactCapabilityPackageInventory } from './io';
 import { capabilityPackageDraftReferenceSchema, capabilityPackageSkillCompositionSchema, capabilityPackageWorkspaceDraftImportSchema, capabilityPackageWorkspaceDraftQuerySchema } from './schemas';
 import { readableImportWorkspace, recordCapabilityPackageSourceCaptures, type CapabilityPackageSourceCapture } from './source-captures';
-import { projectCapabilityPackageMcpTemplateConfig } from './mcp-template-projection';
+import { assertPortable, assertPortableFiles, assertMcpConfig, parseYaml } from './portable-declarations';
 
 type Entry = {path:string;bytes:Buffer;executable?:boolean};
 type PackageCapture = Extract<CapabilityPackageSourceCapture,{source:'package'}>;
@@ -39,69 +39,6 @@ const originKey=(source:CapturedSkill):string=>canonical([source.capture.parentS
 function mappedSourcePath(file:string,mappings:ReadonlyMap<string,string>):string {
   const source=[...mappings.keys()].sort((a,b)=>b.length-a.length).find(root=>below(file,root));
   return source===undefined?file:path.posix.join(mappings.get(source)!,relativeFile(file,source));
-}
-
-function assertPortable(value:unknown):void {
-  const pending=[{value,depth:0}],seen=new Set<object>();let nodes=0,bytes=0;
-  while(pending.length) {
-    const item=pending.pop()!;
-    if(++nodes>10_000 || item.depth>24 || bytes>1024*1024) invalid('A package declaration exceeds its bounded portable structure.');
-    if(typeof item.value==='string') {bytes+=Buffer.byteLength(item.value);continue;}
-    // Normalized internal manifests include absent optional properties as undefined.
-    // JSON inputs cannot carry undefined; MCP byte validation remains an exact comparison.
-    if(item.value===undefined || item.value===null || typeof item.value==='boolean' || typeof item.value==='number'&&Number.isFinite(item.value)) continue;
-    if(!item.value || typeof item.value!=='object') invalid('Package declarations require portable JSON values.');
-    if(!Array.isArray(item.value)&&![Object.prototype,null].includes(Object.getPrototypeOf(item.value))) invalid('Package declarations require portable JSON objects.');
-    if(seen.has(item.value)) invalid('Package declarations must not contain cyclic or aliased structures.');
-    seen.add(item.value);
-    for(const [key,child] of Object.entries(item.value)) {
-      if(pending.length+nodes>=10_000) invalid('A package declaration exceeds its bounded portable structure.');
-      bytes+=Buffer.byteLength(key);
-      if(/^(?:accountSelectionRef|connectedAccountId|accountId|profileId|connectionId|connectionRef|providerRef|serverDefinitionId|ownerUserId|clientSecret|accessToken|refreshToken)$/iu.test(key)) {
-        invalid('Package declarations must not contain private account, connection or credential identities.');
-      }
-      pending.push({value:child,depth:item.depth+1});
-    }
-  }
-  if(bytes>1024*1024) invalid('A package declaration exceeds its bounded portable structure.');
-}
-
-function parseYaml(bytes:Buffer):Record<string,unknown> {
-  if(bytes.length>1024*1024) invalid('A package declaration exceeds its size limit.');
-  try {const result=object(YAML.parse(bytes.toString('utf8'),{maxAliasCount:0}));assertPortable(result);return result;}
-  catch(error) {if(error instanceof CapabilityPackageError) throw error;invalid('The package YAML declaration is invalid or contains aliases.');}
-}
-
-function assertMcpConfig(bytes:Buffer,connector?:string):void {
-  let value:unknown;try{value=JSON.parse(bytes.toString('utf8'));}catch{invalid('An MCP template must be valid JSON.');}
-  assertPortable(value);const raw=object(value);
-  if(Object.hasOwn(raw,'mcpServers')&&(Object.keys(raw).length!==1 || !raw.mcpServers || typeof raw.mcpServers!=='object'||Array.isArray(raw.mcpServers))) {
-    invalid('An MCP server wrapper may contain only its portable mcpServers declarations.');
-  }
-  const servers=Object.hasOwn(raw,'mcpServers')?Object.entries(object(raw.mcpServers)):[[connector??'template',raw] as const];
-  if(!servers.length || connector && Object.hasOwn(raw,'mcpServers') && !Object.hasOwn(object(raw.mcpServers),connector)) invalid('An MCP template does not contain its declared connector.');
-  for(const [name,server] of servers) {
-    const candidate=object(server),projected=projectCapabilityPackageMcpTemplateConfig(candidate,name);
-    if(!Object.keys(candidate).length || projected.redactedFields.length || canonical(candidate)!==canonical(projected.config)) {
-      invalid('Every copied MCP configuration must contain only portable supported fields and placeholders.');
-    }
-  }
-}
-
-function assertPortableFiles(files:Map<string,Entry>,connectors:readonly CanvasPluginMcpConnector[]=[],legacyConfigPath?:string):void {
-  for(const file of files.values()) {
-    if(file.path.endsWith('.json')) {
-      let document:unknown;try{document=JSON.parse(file.bytes.toString('utf8'));}catch{continue;}
-      assertPortable(document);if(Object.hasOwn(object(document),'mcpServers')) assertMcpConfig(file.bytes);
-    } else if(/\.ya?ml$/u.test(file.path)) parseYaml(file.bytes);
-    else if(file.path==='SKILL.md'||file.path.endsWith('/SKILL.md')) {
-      const match=/^---\r?\n([\s\S]*?)\r?\n---/u.exec(file.bytes.toString('utf8'));if(match) parseYaml(Buffer.from(match[1]));
-    }
-  }
-  for(const connector of connectors) if(connector.configPath) {
-    const file=files.get(localRoot(connector.configPath));if(!file) invalid('A copied MCP connector config is missing.');assertMcpConfig(file.bytes,connector.name);
-  }
-  if(legacyConfigPath){const file=files.get(localRoot(legacyConfigPath));if(!file)invalid('A copied legacy MCP config is missing.');assertMcpConfig(file.bytes);}
 }
 
 type CaptureBudget={bytes:number;files:number;cache:Map<string,ExactCapabilityPackageInventory>};
@@ -299,6 +236,24 @@ function transformSkill(source:CapturedSkill,targetRoot:string,files:Map<string,
   return {capabilities:caps,mcp,...(legacyMcpConfigPath?{legacyMcpConfigPath}:{}),changes};
 }
 
+/** Resolve only identities present in the captured portable template; never guess a server from a display name. */
+function canonicalLegacyMcpConnectors(files:Map<string,Entry>,configPath:string):CanvasPluginMcpConnector[] {
+  const file=files.get(localRoot(configPath));if(!file)invalid('The legacy MCP template is missing.');
+  assertMcpConfig(file.bytes);
+  const config=object(JSON.parse(file.bytes.toString('utf8')));
+  const names=Object.hasOwn(config,'mcpServers')?Object.keys(object(config.mcpServers)):['mcp'];
+  return names.map(name=>({name,configPath,recommended:true}));
+}
+
+/** Existing runtime normalizers prefer a modern declaration for the same toolkit over its legacy recommendation. */
+function canonicalComposioConnectors(connectors:CanvasPluginConnectorManifest|undefined) {
+  const result=[...connectors?.composio??[]];
+  for(const toolkit of connectors?.composioToolkits??[]) {
+    if(!result.some(connector=>connector.toolkit===toolkit))result.push({toolkit,recommended:true});
+  }
+  return result;
+}
+
 export async function composeCapabilityPackageSkillsAction(actor:CapabilityResourceActor,reference:string,value:unknown) {
   const draftRef=capabilityPackageDraftReferenceSchema.parse(reference), input=capabilityPackageSkillCompositionSchema.parse(structuredClone(value));
   const budget:CaptureBudget={bytes:0,files:0,cache:new Map()};
@@ -312,11 +267,21 @@ export async function composeCapabilityPackageSkillsAction(actor:CapabilityResou
     const location=draftLocation({...record,draft}), current=await readExactPackageInventory(location.rootPath,{maxFiles:CAPABILITY_PACKAGE_LIMITS.maxFiles-budget.files,maxTotalBytes:CAPABILITY_PACKAGE_LIMITS.maxTotalBytes-budget.bytes});
     const files=new Map<string,Entry>(current.files.map(file=>[file.path,{path:file.path,bytes:file.bytes,executable:file.executable}]));
     assertPortableFiles(files);
-    const declared=current.files.some(file=>file.path==='.canvas-plugin/plugin.json');
+    const rawManifest=files.get('.canvas-plugin/plugin.json');
+    const declared=Boolean(rawManifest);
     const parsed=declared?await validateCanvasPluginPackage(location.rootPath):null;
     const manifest:CanvasPluginManifest=parsed?.manifest??{name:draft.name,version:'1.0.0',description:`Workflows provided by ${draft.name}.`,skills:'./skills'};
     if(declared && !parsed?.manifest) invalid('Repair the target plugin manifest before composing.');
+    const originalDeclaration=rawManifest?object(JSON.parse(rawManifest.bytes.toString('utf8'))):{};
+    // The compatibility normalizer deliberately omits newer metadata; composition must not drop a declared contract version.
+    const contractVersion=Object.hasOwn(originalDeclaration,'schemaVersion')?{schemaVersion:originalDeclaration.schemaVersion}:{};
     assertPortable(manifest);
+    if(manifest.connectors) {
+      const connectors=manifest.connectors;
+      if(connectors.mcpServers)connectors.mcp=mergeNamed(connectors.mcp,canonicalLegacyMcpConnectors(files,connectors.mcpServers),item=>item.name,'MCP connector');
+      connectors.composio=canonicalComposioConnectors(connectors);
+      delete connectors.mcpServers;delete connectors.composioToolkits;
+    }
     const skillsRoot=localRoot(manifest.skills??'skills');
     if(!skillsRoot) invalid('Composition requires a dedicated plugin skills directory.');
     const occupied=new Set(current.files.filter(file=>file.path.endsWith('/SKILL.md')).map(file=>path.posix.dirname(file.path)));
@@ -345,25 +310,16 @@ export async function composeCapabilityPackageSkillsAction(actor:CapabilityResou
       for(const item of origin){if(names.has(item.skill.name)&&names.get(item.skill.name)!==item.capture.targetName) conflict('One source skill has multiple target names; workflow references require an unambiguous selection.');names.set(item.skill.name,item.capture.targetName);}
       const transformed=transformSkill(source,source.capture.targetRelativeRoot,files,names,mappingsFor(source));
       const connectors=manifest.connectors??={};
-      if(transformed.legacyMcpConfigPath) {
-        if(connectors.mcpServers && localRoot(connectors.mcpServers)!==localRoot(transformed.legacyMcpConfigPath)) {
-          conflict('Legacy MCP template conflict: a plugin can preserve only one legacy template path. Declare distinct modern connectors before composing these sources.');
-        }
-        if([...connectors.mcp??[],...transformed.mcp].some(connector=>connector.name==='mcp')) {
-          conflict('The legacy MCP recommendation conflicts with a modern connector named mcp. Declare distinct connectors before composing these sources.');
-        }
-        connectors.mcpServers=transformed.legacyMcpConfigPath;
-      } else if(connectors.mcpServers && transformed.mcp.some(connector=>connector.name==='mcp') && !connectors.mcp?.some(connector=>connector.name==='mcp')) {
-        conflict('A modern connector named mcp would hide the existing legacy MCP recommendation.');
-      }
       connectors.mcp=mergeNamed(connectors.mcp,transformed.mcp,item=>item.name,'MCP connector');
+      if(transformed.legacyMcpConfigPath)connectors.mcp=mergeNamed(connectors.mcp,
+        canonicalLegacyMcpConnectors(files,transformed.legacyMcpConfigPath),item=>item.name,'MCP connector');
       const allCaps=[...(source.skill.workflow?.integrationCapabilities??[]),...transformed.capabilities];
       const usedComposio=new Set(allCaps.flatMap(cap=>cap.alternatives.filter(alt=>alt.source==='composio').map(alt=>alt.toolkit)));
-      connectors.composio=mergeNamed(connectors.composio,(source.parentManifest?.connectors?.composio??[]).filter(item=>usedComposio.has(item.toolkit)||!allCaps.length),item=>item.toolkit,'Composio connector');
+      connectors.composio=mergeNamed(connectors.composio,canonicalComposioConnectors(source.parentManifest?.connectors).filter(item=>usedComposio.has(item.toolkit)||!allCaps.length),item=>item.toolkit,'Composio connector');
       connectors.email=mergeNamed(connectors.email,source.parentManifest?.connectors?.email??[],item=>item.kind??'mailbox','Email connector');
       if(transformed.capabilities.length) manifest.workflow={version:1,integrationCapabilities:mergeCapabilities(manifest.workflow?.integrationCapabilities,transformed.capabilities)};
     }
-    files.set('.canvas-plugin/plugin.json',{path:'.canvas-plugin/plugin.json',bytes:Buffer.from(`${JSON.stringify(manifest,null,2)}\n`)});
+    files.set('.canvas-plugin/plugin.json',{path:'.canvas-plugin/plugin.json',bytes:Buffer.from(`${JSON.stringify({...contractVersion,...manifest},null,2)}\n`)});
     assertPortableFiles(files,manifest.connectors?.mcp,manifest.connectors?.mcpServers);
     await writeCapabilityPackageDraftBatch(location,[...files.values()],async root=>{await validateCompleteCapabilityPackage('plugin',root,{name:draft.name});},current.directories);
     await recordCapabilityPackageSourceCaptures(actor,draft,prepared.map(item=>item.capture),database);

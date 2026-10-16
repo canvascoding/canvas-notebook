@@ -3,6 +3,7 @@ import { Type } from 'typebox';
 import { z } from 'zod';
 import { CapabilityResourceError, type CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import { CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { capabilityPackageValidationErrorReport } from '@/app/lib/capabilities/packages/validation-contracts';
 import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
   capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
@@ -1371,6 +1372,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
         const known = isCapabilityPackageError(error) || error instanceof CapabilityResourceError, invalid = error instanceof z.ZodError;
         const message = known ? error.message : invalid ? 'Invalid package tool arguments.' : 'Package management is currently unavailable.';
         return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message,
+          ...(capabilityPackageValidationErrorReport(error) ? { validation: capabilityPackageValidationErrorReport(error) } : {}),
           code: known ? error.code : invalid ? 'PACKAGE_REQUEST_INVALID' : 'PACKAGE_SNAPSHOT_UNAVAILABLE' } };
       }
     },

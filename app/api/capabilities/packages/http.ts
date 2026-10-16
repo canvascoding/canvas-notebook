@@ -6,6 +6,7 @@ import { resourceRequestActor, resourceResponse } from '@/app/api/capabilities/r
 import { CapabilityResourceError } from '@/app/lib/capabilities/resources/contracts';
 import { CAPABILITY_PACKAGE_LIMITS, CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
+import { capabilityPackageValidationErrorReport } from '@/app/lib/capabilities/packages/validation-contracts';
 
 export { resourceRequestActor as packageRequestActor };
 
@@ -23,7 +24,8 @@ export async function packageRequestJson(request: Request, fileWrite = false): P
 
 export function packageResponseError(error: unknown): NextResponse {
   if (isCapabilityPackageError(error) || error instanceof CapabilityResourceError) {
-    return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
+    const validation = capabilityPackageValidationErrorReport(error);
+    return NextResponse.json({ success: false, code: error.code, error: error.message, ...(validation ? { validation } : {}) }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
   }
   if (error instanceof Error && error.name === 'ZodError') {
     return NextResponse.json({ success: false, code: 'PACKAGE_REQUEST_INVALID', error: 'The package request is invalid.' }, { status: 400, headers: { 'Cache-Control': 'no-store' } });

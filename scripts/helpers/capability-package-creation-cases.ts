@@ -55,8 +55,8 @@ export async function verifyCapabilityPackageCreation(input: {
   assert.equal((await collection.POST(request(owner.userId, 'POST', { ...creation, targetName: 'different-package' }), context())).status, 409,
     'Reusing a request key for a different operation must fail.');
   const files: Record<string, string> = {
-    '.canvas-plugin/plugin.json': JSON.stringify({ name: creation.targetName, version: '1.0.0', description: 'Created through the package API',
-      skills: 'skills', interface: { logo: './assets/logo.svg' } }),
+    '.canvas-plugin/plugin.json': JSON.stringify({ schemaVersion: 1, name: creation.targetName, version: '1.0.0', description: 'Created through the package API',
+      skills: 'skills', interface: { displayName: 'Created Context', shortDescription: 'Prepare a document from supplied context', logo: './assets/logo.svg' } }),
     'skills/created-context/SKILL.md': '---\nname: created-context\ndescription: Prepare a document from the supplied context\nmetadata:\n  version: "1.0.0"\n---\nRead references/guidance.md before preparing the document.\n',
     'skills/created-context/references/guidance.md': 'Keep source facts distinguishable from suggestions.\n',
     'assets/logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><title>Context document</title><desc>A document prepared from source facts</desc><rect x="56" y="28" width="144" height="200" rx="12" fill="#184E77"/><path d="M80 80h96M80 112h96M80 144h64" stroke="#FFF" stroke-width="12"/></svg>',

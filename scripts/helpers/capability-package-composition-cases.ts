@@ -36,8 +36,8 @@ export async function verifyCapabilityPackageComposition(input: {
     draftRef: draft.draftRef, expectedDraftRevision: draft.draftRevision, expectedMetadataRevision: 0,
     expectedGrantsRevision: 0, expectedPackageRevision: 0, expectedPublishedRevisionRef: null, requestId: randomUUID(),
   });
-  const manifest = (name: string, extra: Record<string, unknown> = {}) => ({ name, version: '1.0.0', description: 'Composition fixture',
-    skills: 'skills', interface: { logo: './assets/base.svg' }, ...extra });
+  const manifest = (name: string, extra: Record<string, unknown> = {}) => ({ schemaVersion: 1, name, version: '1.0.0', description: 'Composition fixture',
+    skills: 'skills', interface: { displayName: 'Composed Context', shortDescription: 'Use complete bundled context skills', logo: './assets/base.svg' }, ...extra });
   const pluginFiles = (name: string) => ({ '.canvas-plugin/plugin.json': JSON.stringify(manifest(name)),
     'skills/new-context/SKILL.md': skill('new-context'), 'assets/base.svg': image });
   const read = async (draft: CapabilityPackageDraft, file: string) => Buffer.from(
@@ -92,6 +92,7 @@ export async function verifyCapabilityPackageComposition(input: {
   assert.equal(child.skill.version, '1.0.1');
   assert.match(await read(target, 'skills/composed-research/SKILL.md'), /version: ["']?1\.0\.1/u);
   let parent = JSON.parse(await read(target, '.canvas-plugin/plugin.json'));
+  assert.equal(parent.schemaVersion, 1, 'Composition retains the exact declared Creator contract version.');
   const connector = parent.connectors.mcp.find((value: { name: string }) => value.name === 'research');
   assert(connector?.configPath); assert.match(await read(target, connector.configPath.replace(/^\.\//u, '')), /research\.example\.test/u);
   assert((await packages.validateCapabilityPackageDraftAction(owner, target.draftRef)).validation.valid);
@@ -243,7 +244,9 @@ export async function verifyCapabilityPackageComposition(input: {
     } }],
   });
   const legacyComposedManifest = JSON.parse(await read(legacyComposed.draft, '.canvas-plugin/plugin.json'));
-  const legacyConfigPath = legacyComposedManifest.connectors?.mcpServers ?? legacyComposedManifest.connectors?.mcp?.[0]?.configPath;
+  assert.equal(legacyComposedManifest.schemaVersion, 1);
+  assert.equal(legacyComposedManifest.connectors?.mcpServers, undefined, 'A new Creator target contains canonical modern declarations.');
+  const legacyConfigPath = legacyComposedManifest.connectors?.mcp?.find((connector: { name: string }) => connector.name === 'research')?.configPath;
   assert(legacyConfigPath, 'Composing a legacy MCP recommendation must preserve its connection declaration.');
   assert.match(await read(legacyComposed.draft, legacyConfigPath.replace(/^\.\//u, '')), /research\.example\.test/u);
   assert((await packages.validateCapabilityPackageDraftAction(owner, legacyComposed.draft.draftRef)).validation.valid);

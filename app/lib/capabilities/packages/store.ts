@@ -23,6 +23,30 @@ import { readHeldLegacyCapabilityStoreHistory, type PreparedLegacyCapabilityStor
 import { readCapabilityPackageDraftCaptures, withCapabilityPackageCaptureRead, type CapabilityPackageSourceCapture } from './source-captures';
 
 type Row = Record<string, unknown>;
+
+/** Only source-free creation can write this immutable provenance null-group.
+ * It survives deletion of the original publisher and cannot be removed by editing a manifest.
+ * This internal fact grants no access; callers hold the real draft/resource authority.
+ */
+export async function isCreatorAuthoredPluginResource(resourceRef: string, database: SqlConnection): Promise<boolean> {
+  const origins = await database.all(`WITH RECURSIVE origins(resource_ref) AS (
+      SELECT $1::text UNION
+      SELECT v.source_resource_ref FROM capability_package_versions v JOIN origins o ON v.resource_ref=o.resource_ref
+        WHERE v.kind='plugin' AND v.base_revision_ref IS NULL AND v.source_resource_ref IS NOT NULL
+    ) SELECT o.resource_ref, EXISTS (SELECT 1 FROM capability_package_versions v
+        WHERE v.resource_ref=o.resource_ref AND v.kind='plugin' AND v.base_revision_ref IS NULL AND v.source_resource_ref IS NULL
+          AND v.source_revision_ref IS NULL AND v.source_checksum IS NULL AND v.source_stamp IS NULL) AS creator,
+      EXISTS (SELECT 1 FROM capability_package_versions v WHERE v.resource_ref=o.resource_ref AND v.kind='plugin'
+        AND v.base_revision_ref IS NULL AND v.source_revision_ref IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM capability_package_versions s
+          WHERE s.revision_ref=v.source_revision_ref AND s.resource_ref=v.source_resource_ref)) AS unresolved
+      FROM origins o LIMIT 33`, [resourceRef]) as Array<{resource_ref: string; creator: boolean; unresolved: boolean}>;
+  if (origins.some(origin => origin.creator)) return true;
+  if (origins.some(origin => origin.unresolved)) throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The immutable package origin is unavailable. Restore the source before validating this derivative.', 409);
+  if (origins.length > 32) throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The package origin exceeds its validation ancestry limit.', 409);
+  return false;
+}
+
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
   targetOwnership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>;
   sourceStorage: CapabilityResourceStorageBinding | null; sourceParentStorage?: CapabilityResourceStorageBinding };

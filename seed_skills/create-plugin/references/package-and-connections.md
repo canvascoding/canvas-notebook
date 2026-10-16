@@ -8,6 +8,7 @@ Write `.canvas-plugin/plugin.json`, at least one complete child `skills/<name>/S
 
 ```json
 {
+  "schemaVersion": 1,
   "name": "account-brief",
   "version": "1.0.0",
   "description": "Prepare source-backed company briefs from CRM and research.",

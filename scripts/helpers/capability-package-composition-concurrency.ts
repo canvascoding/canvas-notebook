@@ -68,7 +68,9 @@ export async function verifyCapabilityPackageCompositionConcurrency(input: { pac
     const name = `composition-concurrency-${suffix}`, skillName = `concurrent-${suffix}-context`;
     let draft = await packages.createCapabilityPackageDraftAction(owner, { operation: 'create', kind: 'plugin', targetName: name, requestId: randomUUID() });
     const files = {
-      '.canvas-plugin/plugin.json': JSON.stringify({ name, version: '1.0.0', description: 'Native concurrent composition fixture', skills: 'skills' }),
+      '.canvas-plugin/plugin.json': JSON.stringify({ schemaVersion: 1, name, version: '1.0.0', description: 'Native concurrent composition fixture', skills: 'skills',
+        interface: { displayName: 'Concurrent Context', shortDescription: 'Bundle exact concurrent context skills', logo: './assets/logo.svg' } }),
+      'assets/logo.svg': '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><title>Concurrent context</title><desc>Context documents composed together</desc><rect x="8" y="8" width="48" height="48" fill="#184E77"/></svg>',
       [`skills/${skillName}/SKILL.md`]: `---\nname: ${skillName}\ndescription: Native concurrent composition context\nmetadata:\n  version: "1.0.0"\n---\nConcurrent source ${suffix}.\n`,
       [`skills/${skillName}/scripts/context.js`]: `process.stdout.write("immutable-${suffix}");\n`,
     };

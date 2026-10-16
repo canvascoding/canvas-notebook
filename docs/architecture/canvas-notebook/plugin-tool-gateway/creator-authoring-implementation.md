@@ -9,7 +9,7 @@ Grundlage ist der [bestätigte Org-Creator-Plan](creator-authoring-marketplace-p
 | P1 Neuanlage und Wiederaufnahme | Backend-/API-Grundlage abgeschlossen | Sourcefreier Org-Create, aktorprivate Liste/Status, dauerhafte Operationsbelege; native PostgreSQL-, API-, Gateway- und Regressionsprüfungen bestanden. Erstellungsoberfläche und Chat-E2E folgen P5/P7. |
 | P2 Vollständige Skill-/Integrationskomposition | Backend-/API-Grundlage abgeschlossen | Vollständige gemeinsame Komposition, private Quellen, explizite Legacyimporte und Gateway; erweiterte native PostgreSQL-, Parallelitäts- und Paketregressionen bestanden. |
 | P3 Creator und SVG-Teilskill | Implementierung und Serverpfade abgeschlossen | Geschütztes Core-Plugin, eigenständiger Skill Creator, vollständiger SVG-Teilskill, genaue Chat-/Agentreferenzen und negative Rechte-/Mutationstests bestanden. Natürlicher Modellauftrag und sichtbare Grafik bleiben Teil von P7. |
-| P4 Schema-/Paket-/SVG-Validierung | Offen | Noch keine Abnahme. |
+| P4 Schema-/Paket-/SVG-Validierung | Backend-/Vertragsprüfung abgeschlossen | Kanonisches Schema, vollständiger Bericht, tatsächliches XML/SVG, direkter Publish und Herkunftsvererbung; PGlite-, native PostgreSQL-, Bestands- und Typprüfungen bestanden. UI-/Modellnachweis bleibt P7. |
 | P5 Oberfläche | Offen | Noch keine Abnahme. |
 | P6 Org-Bereitstellung und Laufzeit | Offen | Noch keine Abnahme. |
 | P7 Creator-Agentenlauf und E2E | Offen | Noch keine Abnahme. |
@@ -93,3 +93,30 @@ Abgeschlossene Prüfungen:
 - Unabhängige Quellprüfung findet keinen weiteren konkreten Blocker in Core-Identität, Quellen-/Lockreihenfolge, Mutationsschutz oder Auswahlgrenzen.
 
 Die natürliche Erzeugung eines neuen Plugins durch ein Modell, dessen Zweckgrafik und der sichtbare gesamte Erstellungsweg werden erst in P7 abgenommen. P3 behauptet dafür noch keinen UI-/E2E-Erfolg.
+
+## P4: Kanonisches Manifest und verbindliche Paketprüfung
+
+Neue Pluginmanifeste tragen `schemaVersion: 1`. Der strikte gemeinsame Zod-Vertrag erzeugt das versionierte maschinenlesbare JSON-Schema und validiert die Creator-Vorlage. Die vollständige bestehende Runtimeprüfung bleibt für Dateien, Versionen, Workflow- und Connectorreferenzen zuständig. Konformitätsfälle gleichen Schema, Vorlage, Original-JSON und den tatsächlichen Runtimeparser ab. Doppelte JSON-Felder und still normalisierte Legacyaliase gelten nicht als gültige neue Autorenform.
+
+Ein gemeinsamer Draftbericht bindet Fehler, Datei-/Feldpfade und Reparaturhinweise an die tatsächliche Entwurfsrevision und Paketchecksumme. Explizite Validierung und abschließender Publish rufen denselben Dienst unter aktueller Draft-/Ressourcenautorität auf. Eine frühere erfolgreiche Validierung ist keine Publikationsfreigabe für geänderte Bytes. Neue Child-Skills brauchen eine gültige unabhängige Version. Der gemeinsame Portablevalidator aus der Komposition prüft auch direkt geschriebene Konfigurationen: private Accounts, Verbindungsidentitäten und eingebettete Zugangswerte werden abgewiesen; zentrale ENV-Platzhalter bleiben möglich.
+
+Das lokale Zweck-SVG wird anhand tatsächlicher begrenzter Bytes geprüft: bestehende passive Bildprüfung, höchstens 2 MiB, vollständiges namespacebewusstes XML, positives endliches `viewBox`, genau ein aussagekräftiges Wurzeltitel-/Beschreibungsfeld sowie statische Elemente und lokale Referenzen. Externe Ressourcen, aktive Elemente, CSS-/Scriptausführung, Animationen, DOCTYPE/Entities und unvollständiges XML werden abgewiesen. Tiefe und Knotenzahl sind begrenzt. Historische Bildleser behalten ihre bisherigen Verträge.
+
+Der Autorenvertrag bleibt bei späterem Edit und Fork erhalten. Die Klassifikation stammt aus der unveränderlichen ersten Veröffentlichungsherkunft und ihrer begrenzten Ableitungslinie; ein editierbares Manifestfeld und aktorabhängige Operationsbelege reichen dafür nicht. Die Herkunft überlebt das Löschen des ursprünglichen Erstellers. Fehlende referenzierte unveränderliche Ursprünge führen zu einem verständlichen blockierten Zustand. Alte unversionierte Quellen bleiben Legacy; historische Leser werden nicht rückwirkend verschärft.
+
+Komposition erhält die rohe neue `schemaVersion`. Alte MCP-Konfigurationen werden anhand ihrer tatsächlich geprüften Servernamen in kanonische Deklarationen überführt; Konflikte führen zu 409. Es werden keine Serveridentitäten geraten. Quellenbytes und Herkunft bleiben unverändert.
+
+Die bestehende Artefaktregression fand eine Kompatibilitätsfolge des P3-Schutzes: Ein legitimer Legacy-Seedverweis auf `skill-creator` wurde vor einer beabsichtigten Scoped-Kopie durch den Core-Mutationsguard blockiert. Der Installer behält jetzt ausschließlich nachgewiesene Core-Seedverweise am exakten ursprünglichen Verzeichnis-/`SKILL.md`-Pfad ohne Materialisierung oder eigene Aktivierungsverwaltung. Es entsteht kein zusätzlicher Skill unter `DATA`; tatsächliche Schreib-/Ersetzungsversuche bleiben geschützt. Die Regression prüft zusätzlich den fehlenden Schattenpfad, unveränderte Core-Identität und -Revision sowie den weiterhin gesperrten direkten Mutationsguard.
+
+Abgeschlossene Prüfungen:
+
+- Manifest-/JSON-Schema-/Vorlagenkonformität und tatsächliche SVG-Bytefälle bestehen. `test:plugins:creator` nimmt beide Vertragsprüfungen dauerhaft mit auf.
+- Der vollständige `capability-package-actions-test.ts` besteht mit PGlite, einschließlich aller bisherigen nachfolgenden HTTP-/Edit-/Forkfälle. Neue Negativfälle verwenden echte REST-, SQL- und Dateipfade: Schema, Childversion, fehlender Skill, private MCP-Header/Accountfelder, ENV-Platzhalter, Grafik geändert/gelöscht nach Validate, reparierte Veröffentlichung, unveränderte alte Pins, Rechteentzug, verlorene Belege, tatsächliche Erstellerlöschung und fehlende Ursprungsversionen.
+- Derselbe neue Creator-Validierungsblock besteht vollständig auf nativem PostgreSQL, einschließlich der zuletzt ergänzten Childversionsfälle. Ausschließlich eigene Nonce-Datenbank auf dem bestehenden lokalen Server, anschließend entfernt.
+- Eine anfängliche Korruptionsfixture hinterließ absichtlich gelöschte Ursprungsversionen und blockierte spätere Registrytests. Sie stellt jetzt die exakt gesicherten 15 Spalten jeder Version in `finally` wieder her und vergleicht sie. Der vollständige nachfolgende Actionlauf und die native Wiederholung bestehen.
+- Alle Komponenten der bestehenden Paketkette bestehen: IO, SQL-Store, Migration, vollständige Actions, Artefakte, exakte Runtime sowie beide sicheren Bereinigungsprüfungen. Nach dem gefundenen Fixturefehler wurden der korrigierte vollständige Actionlauf und die nachfolgenden Kettenkomponenten einzeln geprüft; daraus wird kein erfolgreicher Exit des zuvor abgebrochenen gemeinsamen npm-Aufrufs behauptet.
+- Vollständige bestehende Workflow- und Bildregressionen, gezielte vollständige Komposition und die Core-Creator-/Core-Schutzregression bestehen. Der echte Seedref-Fork behält seine vollständigen Dateien und seine Herkunft.
+- Produkt-TypeScript, fokussierter TypeScript-Lauf und ESLint bestehen. Die bereits belegten älteren Scriptdiagnosen bleiben außerhalb dieses Nachweises.
+- Unabhängige Quellprüfung bestätigt die geschlossenen konkreten Herkunfts-, Portable-, Childversions-, XML- und Diagnoselücken.
+
+Die Backend-/Vertragsabnahme von P4 ist damit abgeschlossen. UI-, natürlicher Modellauftrag, sichtbare Zweckgrafik und tatsächliche Providerwege werden erst in P5 bis P7 geprüft.

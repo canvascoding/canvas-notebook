@@ -789,6 +789,14 @@ async function materializePluginSkills(
   const standaloneRegistry = await readStandaloneSkillRegistry(scope);
 
   for (const skill of record.skills) {
+    const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
+    const coreSeedDir = path.join(SEED_SKILLS_DIR, skill.name);
+    if (skill.sourceType === 'seed' && isCoreSkillName(skill.name)
+      && resolvedSourceDir === coreSeedDir && path.resolve(skill.path) === path.join(coreSeedDir, 'SKILL.md')) {
+      // A reference to an existing Core skill neither creates a scoped shadow nor owns its activation.
+      materializedSkills.push({ ...skill, materialized: false, preexistingStandalone: true, standaloneDir: undefined });
+      continue;
+    }
     const standaloneDir = resolveStandaloneSkillDir(skill.name, scope);
     const resolvedStandaloneDir = path.resolve(/*turbopackIgnore: true*/ standaloneDir);
     if (!isPathInside(skillsDir, resolvedStandaloneDir)) {
@@ -818,7 +826,6 @@ async function materializePluginSkills(
       throw new Error(`Cannot install skill "${skill.name}" because ${standaloneDir} already exists but is not a valid skill.`);
     }
 
-    const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
     const allowedSourceRoot = skill.sourceType === 'seed' ? SEED_SKILLS_DIR : record.installDir;
     if (!isPathInside(allowedSourceRoot, resolvedSourceDir)) {
       throw new Error(

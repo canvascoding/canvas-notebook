@@ -9,6 +9,7 @@ import { createSharedConnectionTestDatabase } from './helpers/shared-connection-
 import { verifyCapabilityPackageCreation } from './helpers/capability-package-creation-cases';
 import { verifyCapabilityPackageComposition } from './helpers/capability-package-composition-cases';
 import { verifyCapabilityPackageCompositionConcurrency } from './helpers/capability-package-composition-concurrency';
+import { verifyCapabilityPackageCreatorValidation } from './helpers/capability-package-creator-validation-cases';
 
 async function main() {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'canvas-package-actions-'));
@@ -83,12 +84,17 @@ async function main() {
       headers:{...(userId?{'x-fixture-user':userId}:{}),'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const context=(params:Record<string,string>={})=>({params:Promise.resolve(params)});
     const responseData=async<T>(response:Response,status=200):Promise<T>=>{assert.equal(response.status,status,await response.clone().text());return (await response.json() as {data:T}).data;};
+    if(process.argv.includes('--creator-validation')) {
+      await verifyCapabilityPackageCreatorValidation({packages,raw,owner,other:editor,request,legacyRef:ref});
+      return;
+    }
     if(process.argv.includes('--composition-cases')) {
       await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
       return;
     }
     await verifyCapabilityPackageCreation({packages,raw,owner,other:editor,request,native:database.native});
     await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
+    await verifyCapabilityPackageCreatorValidation({packages,raw,owner,other:editor,request,legacyRef:ref});
     if(database.native) await verifyCapabilityPackageCompositionConcurrency({packages,raw,owner,pool:database.getPostgresRuntimeQueryable()});
     assert.equal((await inspectRoute.GET(request(null),context({resourceRef:ref}))).status,401);
     const inspected=await responseData<{package:CapabilityPackageDescriptor}>(await inspectRoute.GET(request('editor'),context({resourceRef:ref})));
