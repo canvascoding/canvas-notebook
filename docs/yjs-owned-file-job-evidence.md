@@ -42,6 +42,8 @@ Private, mit vollständigen Checksummen gesammelte Originalprotokolle und Quelle
 
 ## Nächster Anschluss
 
+Nachtrag: Der [geschlossene ursprüngliche Delete-Pfad](./yjs-original-delete-owned-evidence.md) verbindet inzwischen echte Datei-/Native-/Public-/Trashbelege mit diesem Owner. Seine finale 20er PG18-Folge und Gegenprobe sind dort getrennt dokumentiert. Der folgende Absatz beschreibt den damaligen Stand dieses Fundaments; der allgemeine Executoranschluss und Gesamtabschluss bleiben weiterhin offen.
+
 Der nächste Anschluss muss ursprüngliche Datei-/Dokument-/Lineage-/Generations- und Publicziele an den konkreten Jobschritt binden und auf dem bewiesenen Owner-B ausführen. Executor, Archive, atomare Sideeffectreceipts, COMMIT-Recovery und verzögerte Hooks bleiben offen; ein tatsächliches Interleaving mit dem Worker-Verlängerungstimer ist hier nicht geprüft. Ebenso offen sind Lockfamilie, vollständige Datei-/Linkkoordination und Gesamt-E2E. Dieses Fundament aktiviert keinen Core-SDK-Pfad.
 
 Der jüngste Nutzerwunsch nach einem Standard-Skill mit bedarfsweisem Kontext ist bereits in `docs/central-notebook-file-api-import-plan.md` §4.1–4.3 konkret enthalten. Marketplace wurde sauber auf HEAD `54ce6573502f67f4cb6227871000aa315ab87dbe` geprüft. Weder SDK noch `canvas-notebook-documents` sind dadurch ausgeliefert oder abgenommen. Nichts wurde mit diesem Fundament gepusht, veröffentlicht oder allgemein aktiviert.
