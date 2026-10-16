@@ -244,7 +244,9 @@ async function main() {
     const local99 = await editPublish(organizationRef, '99.0.0');
     assert.deepEqual(local99.state.currentSourceStamp.storeOrigin, baselineOrg); assert.notEqual(local99.published.checksum, baselineOrg.baselineChecksum);
     const local100 = await editPublish(organizationRef, '100.0.0');
-    assert.deepEqual(local100.state.currentSourceStamp.storeOrigin, baselineOrg); assert.equal(local100.published.sourceStamp.storeOrigin?.version, '1.0.0');
+    assert.deepEqual(local100.state.currentSourceStamp.storeOrigin, baselineOrg);
+    assert(local100.published.sourceStamp, 'An edit publication retains its source provenance.');
+    assert.equal(local100.published.sourceStamp.storeOrigin?.version, '1.0.0');
     await registry.addPackage('b', 'plugin', 'origin-design', '2.0.0', files('plugin', 'origin-design', '2.0.0', 'upstream-v2'), plugins.computeCanvasPluginChecksum);
     selectRegistry('b'); registry.resetCounts();
     const updated = await listPlugins(); safe(updated);

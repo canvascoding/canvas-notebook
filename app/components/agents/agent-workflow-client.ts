@@ -1,7 +1,10 @@
 import type { AgentWorkflowDescriptor } from '@/app/lib/agents/workflow-contracts';
 import type { AgentWorkflowPersonalOptions } from '@/app/lib/agents/workflow-personal-options';
+import type { StandaloneExtensionInput } from '@/app/lib/capabilities/extensions/contracts';
+import { isAgentWorkflowDescriptor } from './agent-workflow-descriptor';
 
 export type AgentWorkflowCapabilityView = AgentWorkflowDescriptor['packages'][number]['declarations'][number]['capabilities'][number];
+export type AgentWorkflowStandaloneView = NonNullable<AgentWorkflowDescriptor['standalone']>[number];
 export type AgentWorkflowChoiceContext = Readonly<{ workspaceId: string | null; organizationId?: string | null;
   projectId?: string | null; actorId?: string | null }>;
 export class AgentWorkflowClientError extends Error {
@@ -15,15 +18,17 @@ export function agentWorkflowUrl(agentId: string, scope?: string | null | AgentW
   }
   return `/api/agents/workflow?${query}`;
 }
-export function workflowSelectionValue(capability: AgentWorkflowCapabilityView): string {
-  if (capability.selectionOrigin === 'stale') return 'unavailable';
+export function workflowSelectionValue(capability: AgentWorkflowCapabilityView | AgentWorkflowStandaloneView): string {
+  if (capability.selectionOrigin === 'stale' || capability.selectionOrigin === 'missing') return 'unavailable';
   if (capability.selectionOrigin === 'default') return 'default';
-  if (capability.selectedKind === 'personal') return 'personal';
+  if ('selectedKind' in capability && capability.selectedKind === 'personal'
+    || 'selectedSelection' in capability && capability.selectionOrigin === 'user' && !capability.selectedChoiceId) return 'personal';
   return capability.selectedChoiceId ? `choice:${encodeURIComponent(capability.selectedChoiceId)}` : 'default';
 }
 export function retainWorkflowDrafts(previous: Record<string, string>, descriptor: AgentWorkflowDescriptor): Record<string, string> {
   const result: Record<string, string> = {};
-  for (const pkg of descriptor.packages) for (const declaration of pkg.declarations) for (const capability of declaration.capabilities) {
+  const capabilities = descriptor.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities));
+  for (const capability of [...capabilities, ...(descriptor.standalone ?? [])]) {
     const draft = previous[capability.capabilityKey];
     result[capability.capabilityKey] = draft === 'default' || capability.choices.some(choice => choice.availability === 'available'
       && `choice:${encodeURIComponent(choice.choiceId)}` === draft) ? draft : workflowSelectionValue(capability);
@@ -37,10 +42,7 @@ export async function requestWorkflow<T>(url: string, init?: RequestInit): Promi
   return payload.data;
 }
 function validWorkflowReply(value: AgentWorkflowDescriptor, agentId: string): boolean {
-  return Boolean(value && value.agentId === agentId && Number.isSafeInteger(value.revision) && value.revision > 0
-    && Number.isSafeInteger(value.workflowRevision) && value.workflowRevision >= 0
-    && Number.isSafeInteger(value.preferenceRevision) && value.preferenceRevision >= 0
-    && (value.workflowVersion === null || value.workflowVersion === 1) && Array.isArray(value.packages));
+  return isAgentWorkflowDescriptor(value, agentId);
 }
 export async function readAgentWorkflow(agentId: string, scope?: string | null | AgentWorkflowChoiceContext, signal?: AbortSignal): Promise<AgentWorkflowDescriptor> {
   const data = await requestWorkflow<AgentWorkflowDescriptor>(agentWorkflowUrl(agentId, scope), { signal });
@@ -50,7 +52,8 @@ export async function readAgentWorkflow(agentId: string, scope?: string | null |
 export type AgentWorkflowPersonalSelectionInput = { alternativeKey: string; target: { kind: 'personal'; source: 'mcp' | 'composio';
   providerRef: string; accountSelectionRef?: string } };
 export async function saveAgentWorkflowChoice(input: { agentId: string; workspaceId?: string | null; context?: AgentWorkflowChoiceContext; capabilityKey: string;
-  expectedWorkflowRevision: number; expectedPreferenceRevision: number } & ({ choiceId: string | null } | { personalSelection: AgentWorkflowPersonalSelectionInput }), signal?: AbortSignal): Promise<AgentWorkflowDescriptor> {
+  expectedWorkflowRevision: number; expectedPreferenceRevision: number } & ({ choiceId: string | null } | { personalSelection: AgentWorkflowPersonalSelectionInput }
+    | { standaloneSelection: StandaloneExtensionInput }), signal?: AbortSignal): Promise<AgentWorkflowDescriptor> {
   const { workspaceId, context, ...body } = input;
   const data = await requestWorkflow<AgentWorkflowDescriptor>(agentWorkflowUrl(input.agentId, context === undefined ? workspaceId : context), { method: 'PATCH', signal,
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });

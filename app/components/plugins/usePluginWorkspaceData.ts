@@ -14,10 +14,11 @@ export type PluginWorkspaceDataProps = { navigation: PluginNavigation; workspace
 
 /** No render may reuse rows from a previous selected actor workspace, scope or view. */
 export function usePluginWorkspaceData({ navigation, workspaceId, epoch }: PluginWorkspaceDataProps): PluginWorkspaceData {
-  const kind = navigation.kind ?? (navigation.area === 'skills' ? 'skill' : 'all');
+  const kind = navigation.kind === 'plugin' || navigation.kind === 'skill' || navigation.kind === 'all' ? navigation.kind : navigation.area === 'skills' ? 'skill' : 'all';
   const scope = navigation.scope, audience = scope === 'user' ? navigation.audience ?? 'own' : undefined;
   const teamId = scope === 'team' ? navigation.teamId : undefined, q = navigation.q ?? '', page = navigation.page ?? 1;
   const storeRequired = ['discover', 'library', 'updates'].includes(navigation.view) || Boolean(navigation.resourceRef);
+  const catalogRequired = navigation.view !== 'browse' || Boolean(navigation.resourceRef);
   const detailName = navigation.resourceRef ? navigation.plugin ?? navigation.skill : undefined;
   const detailKind = navigation.resourceRef && detailName ? navigation.plugin ? 'plugin' : 'skill' : kind;
   const key = JSON.stringify([workspaceId, scope, teamId ?? null, audience ?? null, kind, navigation.view, q, page,
@@ -27,6 +28,7 @@ export function usePluginWorkspaceData({ navigation, workspaceId, epoch }: Plugi
   const generation = useRef(0);
   useEffect(() => {
     const controller = new AbortController(), current = ++generation.current;
+    if (!catalogRequired && !storeRequired) return () => { generation.current += 1; controller.abort(); };
     const selection: PackageWorkspaceQuery = { scope, audience, teamId, kind: kind === 'all' ? undefined : kind, q, page, limit: 20 };
     const run = async () => {
       try {
@@ -52,6 +54,7 @@ export function usePluginWorkspaceData({ navigation, workspaceId, epoch }: Plugi
     };
     void run();
     return () => { generation.current += 1; controller.abort(); };
-  }, [key, scope, audience, teamId, kind, q, page, view, resourceRef, workspaceId, storeRequired, detailName, detailKind]);
+  }, [key, scope, audience, teamId, kind, q, page, view, resourceRef, workspaceId, storeRequired, catalogRequired, detailName, detailKind]);
+  if (!catalogRequired && !storeRequired) return { key, status: 'ready', error: null, catalog: null, store: null };
   return loaded?.key === key ? loaded : { key, status: 'loading', error: null, catalog: null, store: null };
 }

@@ -38,7 +38,7 @@ function Fixture() {
       contextDetailedLabel={label} contextTooltip="Estimated next-request context"
       hideNavHeader isHistoryOverlayOpen={false} isMobile={false} isSessionTitleGenerating={false}
       onCompact={() => updatePercent(20)} onDeleteSession={() => {}}
-      onSelectAgent={() => {}} onReloadAgents={async () => {}} onSetShowHistory={() => {}}
+      onSelectAgent={() => {}} onAgentCreated={() => false} onReloadAgents={async () => {}} onSetShowHistory={() => {}}
       onStartNewChat={() => {}} runtimeStatus={status} sessionDisplayLabel="Context measurement regression"
       sessionId={status.sessionId} showHistory={false} showSkillsLink={false}
       showWorkspaceSwitcher={false} totalUnreadCount={0} />

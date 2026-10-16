@@ -1278,12 +1278,15 @@ export const capabilityPackageVersions = pgTable('capability_package_versions', 
   files: text('files').notNull(), totalBytes: bigint('total_bytes', { mode: 'number' }).notNull(),
   publishedByUserId: text('published_by_user_id').references(() => user.id, { onDelete: 'set null' }),
   publishedAt: pgTimestamp('published_at').notNull(), baseRevisionRef: text('base_revision_ref'),
-  sourceResourceRef: text('source_resource_ref').notNull(), sourceRevisionRef: text('source_revision_ref'), sourceChecksum: text('source_checksum').notNull(),
-  sourceStamp: text('source_stamp').notNull(),
+  sourceResourceRef: text('source_resource_ref'), sourceRevisionRef: text('source_revision_ref'), sourceChecksum: text('source_checksum'),
+  sourceStamp: text('source_stamp'),
 }, table => ({
   resourceIdx: index('idx_capability_package_versions_resource').on(table.resourceRef, table.publishedAt),
   kindCheck: check('capability_package_versions_kind_check', sql`${table.kind} IN ('skill','plugin')`),
   sizeCheck: check('capability_package_versions_size_check', sql`${table.totalBytes} >= 0 AND ${table.totalBytes} <= 262144000`),
+  sourceCheck: check('capability_package_versions_source_check', sql`
+    (${table.sourceResourceRef} IS NULL AND ${table.sourceRevisionRef} IS NULL AND ${table.sourceChecksum} IS NULL AND ${table.sourceStamp} IS NULL)
+    OR (${table.sourceResourceRef} IS NOT NULL AND ${table.sourceChecksum} IS NOT NULL AND ${table.sourceStamp} IS NOT NULL)`),
 }));
 
 // A fork target is reserved privately and is created only in the successful publication transaction.
@@ -1293,18 +1296,57 @@ export const capabilityPackageDrafts = pgTable('capability_package_drafts', {
   kind: text('kind').notNull(), name: text('name').notNull(), operation: text('operation').notNull(),
   draftRevision: bigint('draft_revision', { mode: 'number' }).notNull().default(1),
   basePackageRevision: bigint('base_package_revision', { mode: 'number' }).notNull(), basePublishedRevisionRef: text('base_published_revision_ref'),
-  baseSourceStamp: text('base_source_stamp').notNull(), sourceResourceRef: text('source_resource_ref').notNull(),
-  sourceMetadataRevision: bigint('source_metadata_revision', { mode: 'number' }).notNull(),
-  sourceGrantsRevision: bigint('source_grants_revision', { mode: 'number' }).notNull(),
-  sourcePackageRevision: bigint('source_package_revision', { mode: 'number' }).notNull(), sourcePublishedRevisionRef: text('source_published_revision_ref'),
-  sourceStorage: text('source_storage').notNull(), sourceParentStorage: text('source_parent_storage'),
+  baseSourceStamp: text('base_source_stamp'), sourceResourceRef: text('source_resource_ref'),
+  sourceMetadataRevision: bigint('source_metadata_revision', { mode: 'number' }),
+  sourceGrantsRevision: bigint('source_grants_revision', { mode: 'number' }),
+  sourcePackageRevision: bigint('source_package_revision', { mode: 'number' }), sourcePublishedRevisionRef: text('source_published_revision_ref'),
+  sourceStorage: text('source_storage'), sourceParentStorage: text('source_parent_storage'),
   targetStorage: text('target_storage').notNull(), targetOwnership: text('target_ownership').notNull(),
   createdAt: pgTimestamp('created_at').notNull(), updatedAt: pgTimestamp('updated_at').notNull(),
 }, table => ({
   actorIdx: index('idx_capability_package_drafts_actor').on(table.actorUserId, table.createdAt),
   kindCheck: check('capability_package_drafts_kind_check', sql`${table.kind} IN ('skill','plugin')`),
-  operationCheck: check('capability_package_drafts_operation_check', sql`${table.operation} IN ('edit','fork')`),
+  operationCheck: check('capability_package_drafts_operation_check', sql`${table.operation} IN ('create','edit','fork')`),
+  sourceCheck: check('capability_package_drafts_source_check', sql`
+    (${table.operation} = 'create' AND ${table.baseSourceStamp} IS NULL AND ${table.sourceResourceRef} IS NULL
+      AND ${table.sourceMetadataRevision} IS NULL AND ${table.sourceGrantsRevision} IS NULL AND ${table.sourcePackageRevision} IS NULL
+      AND ${table.sourcePublishedRevisionRef} IS NULL AND ${table.sourceStorage} IS NULL AND ${table.sourceParentStorage} IS NULL
+      AND ${table.basePackageRevision} = 0 AND ${table.basePublishedRevisionRef} IS NULL)
+    OR (${table.operation} IN ('edit','fork') AND ${table.baseSourceStamp} IS NOT NULL AND ${table.sourceResourceRef} IS NOT NULL
+      AND ${table.sourceMetadataRevision} IS NOT NULL AND ${table.sourceGrantsRevision} IS NOT NULL
+      AND ${table.sourcePackageRevision} IS NOT NULL AND ${table.sourceStorage} IS NOT NULL)`),
   revisionCheck: check('capability_package_drafts_revision_check', sql`${table.draftRevision} >= 1 AND ${table.basePackageRevision} >= 0`),
+}));
+
+/** Recovery survives draft consumption; actor-private metadata never grants package read/use rights. */
+export const capabilityPackageOperations = pgTable('capability_package_operations', {
+  operationRef: text('operation_ref').primaryKey(),
+  actorUserId: text('actor_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  requestId: text('request_id'), requestHash: text('request_hash').notNull(),
+  operation: text('operation').notNull(), status: text('status').notNull(),
+  draftRef: text('draft_ref').notNull(), draftRevision: bigint('draft_revision', { mode: 'number' }).notNull(),
+  resourceRef: text('resource_ref').notNull(), publishedRevisionRef: text('published_revision_ref'),
+  kind: text('kind').notNull(), name: text('name').notNull(),
+  targetStorage: text('target_storage').notNull(), result: text('result'),
+  createdAt: pgTimestamp('created_at').notNull(), updatedAt: pgTimestamp('updated_at').notNull(),
+}, table => ({
+  requestIdx: uniqueIndex('idx_capability_package_operations_request').on(table.actorUserId, table.requestId),
+  draftIdx: index('idx_capability_package_operations_draft').on(table.actorUserId, table.draftRef, table.updatedAt),
+  publicationIdx: uniqueIndex('idx_capability_package_operations_publication').on(table.actorUserId, table.draftRef, table.draftRevision, table.operation),
+  operationCheck: check('capability_package_operations_operation_check', sql`${table.operation} IN ('create','publish','discard')`),
+  statusCheck: check('capability_package_operations_status_check', sql`${table.status} IN ('draft','published','discarded')`),
+}));
+
+/** Private authoring lineage; published rows are informative and never extend runtime ACLs. */
+export const capabilityPackageSourceCaptures = pgTable('capability_package_source_captures', {
+  captureRef: text('capture_ref').primaryKey(),
+  actorUserId: text('actor_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  draftRef: text('draft_ref').notNull(), targetResourceRef: text('target_resource_ref').notNull(),
+  publishedRevisionRef: text('published_revision_ref'), captureJson: text('capture_json').notNull(),
+  createdAt: pgTimestamp('created_at').notNull(),
+}, table => ({
+  draftIdx: index('idx_capability_package_source_captures_draft').on(table.actorUserId, table.draftRef),
+  publishedIdx: index('idx_capability_package_source_captures_published').on(table.targetResourceRef, table.publishedRevisionRef),
 }));
 
 // Shared provider bindings have their own lifecycle; package grants do not grant accounts.
@@ -1732,6 +1774,7 @@ export const piSessions = pgTable("pi_sessions", {
   summaryThroughTimestamp: bigint("summary_through_timestamp", { mode: "number" }),
   summaryThroughSequence: bigint("summary_through_sequence", { mode: "number" }),
   summaryRevision: bigint("summary_revision", { mode: "number" }).notNull().default(0),
+  messageQueueOrdinal: bigint("message_queue_ordinal", { mode: "number" }).notNull().default(0),
   systemPromptSnapshot: text("system_prompt_snapshot"),
   systemPromptSnapshotHash: text("system_prompt_snapshot_hash"),
   systemPromptSnapshotCreatedAt: pgTimestamp("system_prompt_snapshot_created_at"),
@@ -1771,21 +1814,51 @@ export const piSessions = pgTable("pi_sessions", {
   delegationIdx: index("idx_pi_sessions_delegation").on(table.userId, table.delegationId),
   sessionKindCheck: check("pi_sessions_session_kind_check", sql`${table.sessionKind} IN ('conversation', 'delegation_worker')`),
   delegationDepthCheck: check("pi_sessions_delegation_depth_check", sql`${table.delegationDepth} IN (0, 1)`),
+  messageQueueOrdinalCheck: check("pi_sessions_message_queue_ordinal_check", sql`${table.messageQueueOrdinal} BETWEEN 0 AND 9007199254740991`),
 }));
 
-// Durable admission receipts survive runtime loss; they deliberately store no prompt content.
-// The schema-driven PostgreSQL startup migration creates this additive table and its constraints.
+// Legacy receipts contain only a delivery hash. Versioned admissions additionally
+// retain their bounded private payload and execution state for recovery.
 export const piMessageDeliveryReceipts = pgTable("pi_message_delivery_receipts", {
   piSessionDbId: bigint("pi_session_db_id", { mode: "number" }).notNull().references(() => piSessions.id, { onDelete: "cascade" }),
   clientMessageId: text("client_message_id").notNull(),
   payloadHash: text("payload_hash").notNull(),
   runtimeToken: text("runtime_token").notNull(),
   state: text("state").notNull(),
+  payloadVersion: bigint("payload_version", { mode: "number" }),
+  privatePayload: text("private_payload"),
+  executionPhase: text("execution_phase"),
+  executionRevision: bigint("execution_revision", { mode: "number" }),
+  queueLane: text("queue_lane"),
+  queueOrdinal: bigint("queue_ordinal", { mode: "number" }),
+  queueDisposition: text("queue_disposition"),
   createdAt: pgTimestamp("created_at").notNull(),
   updatedAt: pgTimestamp("updated_at").notNull(),
 }, (table) => ({
   pk: primaryKey({ columns: [table.piSessionDbId, table.clientMessageId] }),
   stateCheck: check("pi_message_delivery_receipts_state_check", sql`${table.state} IN ('dispatching', 'accepted')`),
+  admissionShapeCheck: check("pi_message_delivery_receipts_admission_shape_check", sql`(
+    (${table.payloadVersion} IS NULL AND ${table.privatePayload} IS NULL
+      AND ${table.executionPhase} IS NULL AND ${table.executionRevision} IS NULL)
+    OR (${table.payloadVersion} = 1 AND ${table.privatePayload} IS NOT NULL
+      AND ${table.executionPhase} IN ('queued', 'dispatching', 'running', 'succeeded', 'failed', 'cancelled', 'outcome_unknown')
+      AND ${table.executionRevision} BETWEEN 1 AND 9007199254740991 AND ${table.state} = 'accepted') IS TRUE
+  )`),
+  privatePayloadSizeCheck: check("pi_message_delivery_receipts_private_payload_size_check",
+    sql`${table.privatePayload} IS NULL OR octet_length(${table.privatePayload}) <= 4194304`),
+  queueShapeCheck: check("pi_message_delivery_receipts_queue_shape_check", sql`(
+    (${table.queueLane} IS NULL AND ${table.queueOrdinal} IS NULL AND ${table.queueDisposition} IS NULL)
+    OR (${table.payloadVersion} = 1 AND ${table.state} = 'accepted'
+      AND ${table.queueLane} IN ('prompt', 'follow_up', 'steer')
+      AND ${table.queueOrdinal} BETWEEN 1 AND 9007199254740991
+      AND ${table.queueDisposition} IN ('ready', 'suspended')) IS TRUE
+  )`),
+  telegramSourceIdx: uniqueIndex("idx_pi_message_delivery_receipts_telegram_user_source")
+    .on(sql`(${table.privatePayload}::jsonb -> 'identity' ->> 'userId')`, table.clientMessageId)
+    .where(sql`${table.payloadVersion} = 1 AND ${table.privatePayload} IS NOT NULL
+      AND ${table.clientMessageId} ~ '^telegram:[0-9a-f]{64}$'`),
+  queueOrdinalIdx: uniqueIndex("idx_pi_message_delivery_receipts_queue_ordinal")
+    .on(table.piSessionDbId, table.queueOrdinal).where(sql`${table.queueOrdinal} IS NOT NULL`),
 }));
 
 export const piSessionCompactionAttempts = pgTable("pi_session_compaction_attempts", {

@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useRef, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import type { ChatReferenceSourceStatus } from './useComposerReferences';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { isImageFile } from '@/app/lib/files/file-icons';
 
 export interface ComposerReferencePickerItem<T = unknown> {
   id: string;
-  kind: 'file' | 'plugin' | 'skill';
+  kind: 'file' | 'plugin' | 'skill' | 'integration' | 'mcp';
   icon: ReactNode;
   label: string;
   payload: T;
@@ -15,11 +16,18 @@ export interface ComposerReferencePickerItem<T = unknown> {
 
 interface ComposerReferencePickerProps<T = unknown> {
   className?: string;
+  locale?: string;
   emptyState: string;
   isLoading?: boolean;
   header: string;
+  headerActions?: ReactNode;
+  notice?: string | null;
   items: ComposerReferencePickerItem<T>[];
   onSelect: (item: ComposerReferencePickerItem<T>) => void;
+  onConfigure?: (item: ComposerReferencePickerItem<T>) => void;
+  canConfigure?: (item: ComposerReferencePickerItem<T>) => boolean;
+  sourceStatuses?: readonly ChatReferenceSourceStatus[];
+  onRetrySource?: (source: ChatReferenceSourceStatus['source']) => void;
   onSearchKeyDown?: (event: KeyboardEvent<HTMLInputElement>) => void;
   onSearchValueChange?: (value: string) => void;
   searchAutoFocus?: boolean;
@@ -76,11 +84,18 @@ function ReferencePickerIcon<T>({ item }: { item: ComposerReferencePickerItem<T>
 
 export function ComposerReferencePicker<T = unknown>({
   className,
+  locale = 'en',
   emptyState,
   isLoading = false,
   header,
+  headerActions,
+  notice,
   items,
   onSelect,
+  onConfigure,
+  canConfigure,
+  sourceStatuses = [],
+  onRetrySource,
   onSearchKeyDown,
   onSearchValueChange,
   searchAutoFocus = false,
@@ -89,6 +104,7 @@ export function ComposerReferencePicker<T = unknown>({
   searchValue,
   selectedIndex,
 }: ComposerReferencePickerProps<T>) {
+  const copy = (de: string, en: string) => locale.startsWith('de') ? de : en;
   const showSearch = Boolean(onSearchValueChange);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -128,6 +144,7 @@ export function ComposerReferencePicker<T = unknown>({
     >
       <div className="border-b border-border p-2">
         <div className="text-xs text-muted-foreground">{header}</div>
+        {headerActions}
         {showSearch ? (
           <input
             ref={searchInputRef}
@@ -141,18 +158,18 @@ export function ComposerReferencePicker<T = unknown>({
           />
         ) : null}
       </div>
-      {items.map((item, index) => (
+      {items.map((item, index) => <div className="flex items-center" key={item.id}>
         <button
-          key={item.id}
           ref={(element) => {
             itemRefs.current[index] = element;
           }}
           type="button"
           data-testid="chat-reference-item"
+          data-reference-id={item.id}
           data-reference-kind={item.kind}
           data-active={index === selectedIndex ? 'true' : 'false'}
           onClick={() => onSelect(item)}
-          className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
+          className={`flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
             index === selectedIndex ? 'bg-accent' : ''
           }`}
         >
@@ -167,12 +184,19 @@ export function ComposerReferencePicker<T = unknown>({
           </div>
           {index === selectedIndex ? <span className="text-xs text-muted-foreground">↵</span> : null}
         </button>
-      ))}
+        {onConfigure && (item.kind === 'plugin' || item.kind === 'skill') && (!canConfigure || canConfigure(item)) ? <button type="button" onClick={() => onConfigure(item)}
+          className="shrink-0 px-2 py-2 text-xs text-muted-foreground hover:text-foreground" aria-label={`${copy('Anpassen', 'Customize')} ${item.label}`}>{copy('Anpassen', 'Customize')}</button> : null}
+      </div>)}
       {items.length === 0 ? (
         <div className="p-3 text-center text-sm text-muted-foreground">
-          {isLoading ? '...' : emptyState}
+          {isLoading || sourceStatuses.some(row => row.status === 'loading') ? copy('Wird geladen …', 'Loading…') : emptyState}
         </div>
       ) : null}
+      {notice && items.length > 0 ? <p role="status" className="border-t px-3 py-2 text-xs text-muted-foreground">{notice}</p> : null}
+      {sourceStatuses.map(row => row.status !== 'complete' ? <div role="status" key={row.source} className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-muted-foreground">
+        <span>{row.source === 'local' ? copy('Lokale Quellen', 'Local sources') : row.source === 'remote' ? copy('Weitere Integrationen', 'More integrations') : copy('Dateien', 'Files')}: {row.status === 'loading' ? copy('Wird geladen …', 'Loading…') : row.message ?? copy('Nicht verfügbar', 'Unavailable')}</span>
+        {row.status === 'unavailable' && onRetrySource ? <button type="button" className="shrink-0 underline" onClick={() => onRetrySource(row.source)}>{copy('Erneut versuchen', 'Try again')}</button> : null}
+      </div> : null)}
     </div>
   );
 }

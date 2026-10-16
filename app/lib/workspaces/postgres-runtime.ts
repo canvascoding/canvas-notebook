@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   areTeamFeaturesEnabled,
   getConfiguredOrganizationId,
@@ -530,6 +530,7 @@ async function ensurePermissionRow(
       ON CONFLICT(organization_id, user_id) DO UPDATE SET
         role = excluded.role,
         updated_at = excluded.updated_at
+      WHERE organization_user_permissions.role IS DISTINCT FROM excluded.role
     `,
     [
       organizationId,
@@ -613,13 +614,20 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   const now = Date.now();
 
   if (existing) {
-    const nextRootRelativePath = input.preserveExistingRoot ? existing.rootRelativePath : input.rootRelativePath;
     await database.run(
-      'UPDATE canvas_workspaces SET root_relative_path = $1, display_name = $2, is_default = $3, updated_at = $4 WHERE id = $5',
-      [nextRootRelativePath, existing.displayName || input.displayName, input.isDefault ? 1 : 0, now, existing.id],
+      `UPDATE canvas_workspaces
+        SET root_relative_path = CASE WHEN $6 THEN root_relative_path ELSE $1 END,
+          display_name = COALESCE(NULLIF(display_name, ''), $2), is_default = $3, updated_at = $4
+        WHERE id = $5 AND (
+          root_relative_path IS DISTINCT FROM CASE WHEN $6 THEN root_relative_path ELSE $1 END
+          OR display_name IS DISTINCT FROM COALESCE(NULLIF(display_name, ''), $2)
+          OR is_default IS DISTINCT FROM $3
+        )`,
+      [input.rootRelativePath, input.displayName, input.isDefault ? 1 : 0, now, existing.id, input.preserveExistingRoot === true],
     );
-    ensureWorkspaceDirectory(nextRootRelativePath);
-    return await getWorkspaceById(database, existing.id);
+    const workspace = await getWorkspaceById(database, existing.id);
+    if (workspace) ensureWorkspaceDirectory(workspace.rootRelativePath);
+    return workspace;
   }
 
   const id = `ws_${randomUUID()}`;
@@ -1282,15 +1290,14 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   if (organization) {
     assertOrganizationIdMatchesEnvironment(organization.organization_id);
     await database.run(
-      'UPDATE canvas_organization_settings SET deployment_mode = $1, team_features_enabled = $2, updated_at = $3 WHERE organization_id = $4',
+      `UPDATE canvas_organization_settings SET deployment_mode = $1, team_features_enabled = $2, updated_at = $3
+        WHERE organization_id = $4 AND (deployment_mode IS DISTINCT FROM $1 OR team_features_enabled IS DISTINCT FROM $2)`,
       [deploymentMode, teamFeaturesEnabled ? 1 : 0, now, organization.organization_id],
     );
-    organization = {
-      ...organization,
-      deployment_mode: deploymentMode,
-      team_features_enabled: teamFeaturesEnabled ? 1 : 0,
-      updated_at: now,
-    };
+    const current = await database.get(`SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+      FROM canvas_organization_settings WHERE organization_id = $1`, [organization.organization_id]) as OrganizationRow | undefined;
+    if (!current) throw new OrganizationBootstrapError('DATABASE_ERROR', 'The persisted organization is unavailable.');
+    organization = current;
   } else {
     const organizationId = getConfiguredOrganizationId() || `${LOCAL_ORGANIZATION_ID_PREFIX}${randomUUID()}`;
     await database.run(
@@ -1315,7 +1322,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
   if (!ownerUser) {
     throw new OrganizationBootstrapError('NO_USERS', 'The persisted organization owner is unavailable.');
   }
-  await database.run('UPDATE "user" SET role = $1, updated_at = $2 WHERE id = $3', ['admin', now, ownerUser.id]);
+  await database.run('UPDATE "user" SET role = $1, updated_at = $2 WHERE id = $3 AND role IS DISTINCT FROM $1', ['admin', now, ownerUser.id]);
   const ownerPermission = await ensurePermissionRow(database, organization.organization_id, ownerUser.id, 'owner');
 
   await ensureWorkspaceRecord(database, {
@@ -2359,8 +2366,9 @@ export async function resolveExistingPostgresWorkspaceForActor(
 
 export async function getPostgresOrganizationPermissionForUser(
   userId: string,
+  borrowedDatabase?: SqlConnection,
 ): Promise<OrganizationPermissionState> {
-  const database = await openDb();
+  const database = borrowedDatabase ?? await openDb();
   try {
     const organization = await getPrimaryOrganization(database);
     const deploymentMode = organization?.deployment_mode || getDeploymentMode();
@@ -2379,17 +2387,18 @@ export async function getPostgresOrganizationPermissionForUser(
       permission,
     };
   } finally {
-    await database.close();
+    if (!borrowedDatabase) await database.close();
   }
 }
 
 export async function findPostgresPermissionUserCandidate(
   userId: string,
+  borrowedDatabase?: SqlConnection,
 ): Promise<{ id: string; email: string | null; role: string | null } | null> {
-  const database = await openDb();
+  const database = borrowedDatabase ?? await openDb();
   try {
     return await findPostgresUserById(database, userId);
   } finally {
-    await database.close();
+    if (!borrowedDatabase) await database.close();
   }
 }

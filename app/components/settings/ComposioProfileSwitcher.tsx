@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   AlertTriangle,
@@ -66,9 +66,13 @@ type ComposioProfileSwitcherProps = {
   workspaceName: string;
   initialEffectiveProfile?: ComposioEffectiveProfile | null;
   onProfileChanged: () => void | Promise<void>;
-  onEffectiveProfileUsageChange?: (usage: { workspaceOverrideCount: number; automationCount: number }) => void;
+  onEffectiveProfileUsageChange?: (usage: {
+    workspaceOverrideCount: number;
+    automationCount: number;
+  }) => void;
   selectionRequest?: number;
   createRequest?: number;
+  isCurrent?: () => boolean;
 };
 
 function appPreview(profile: ComposioProfile, emptyLabel: string): string {
@@ -86,10 +90,13 @@ export function ComposioProfileSwitcher({
   onEffectiveProfileUsageChange,
   selectionRequest = 0,
   createRequest = 0,
+  isCurrent,
 }: ComposioProfileSwitcherProps) {
   const t = useTranslations('settings.connectedApps.profiles');
   const [profiles, setProfiles] = useState<ComposioProfile[]>([]);
-  const [effectiveProfile, setEffectiveProfile] = useState<ComposioEffectiveProfile | null>(initialEffectiveProfile || null);
+  const [effectiveProfile, setEffectiveProfile] = useState<ComposioEffectiveProfile | null>(
+    initialEffectiveProfile || null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -100,175 +107,352 @@ export function ComposioProfileSwitcher({
   const [newProfileName, setNewProfileName] = useState('');
   const [renamingProfileId, setRenamingProfileId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
+  const alive = useRef(false);
+  const ready = useRef(false);
+  const generation = useRef(0);
+  const controllers = useRef(new Set<AbortController>());
+  const readController = useRef<AbortController | null>(null);
+  const current = useCallback(() => alive.current && (!isCurrent || isCurrent()), [isCurrent]);
+  useLayoutEffect(() => {
+    alive.current = true;
+    const pendingControllers = controllers.current;
+    return () => {
+      alive.current = false;
+      ready.current = false;
+      generation.current += 1;
+      for (const controller of pendingControllers) {
+        controller.abort();
+      }
+      pendingControllers.clear();
+    };
+  }, [workspaceId, isCurrent]);
 
-  const requestHeaders = useCallback((json = false): HeadersInit => ({
-    [WORKSPACE_ID_HEADER]: workspaceId,
-    ...(json ? { 'Content-Type': 'application/json' } : {}),
-  }), [workspaceId]);
+  const requestHeaders = useCallback(
+    (json = false): HeadersInit => ({
+      [WORKSPACE_ID_HEADER]: workspaceId,
+      ...(json ? { 'Content-Type': 'application/json' } : {}),
+    }),
+    [workspaceId],
+  );
+
+  const profileRequest = useCallback(
+    async <T,>(
+      pathname: string,
+      init: RequestInit = {},
+      supplied?: AbortController,
+    ): Promise<{ response: Response; payload: T }> => {
+      if (!current()) {
+        throw new DOMException('The profile context changed.', 'AbortError');
+      }
+      const controller = supplied || new AbortController();
+      controllers.current.add(controller);
+      try {
+        const response = await fetch(pathname, {
+          ...init,
+          credentials: 'include',
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: requestHeaders(Boolean(init.body)),
+        });
+        const payload = (await response.json()) as T;
+        if (!current() || controller.signal.aborted) {
+          throw new DOMException('The profile context changed.', 'AbortError');
+        }
+        return { response, payload };
+      } finally {
+        controllers.current.delete(controller);
+      }
+    },
+    [current, requestHeaders],
+  );
 
   const loadProfiles = useCallback(async () => {
+    if (!current()) {
+      return false;
+    }
+    readController.current?.abort();
+    const controller = new AbortController();
+    const latest = ++generation.current;
+    readController.current = controller;
+    ready.current = false;
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/composio/profiles', {
-        credentials: 'include',
-        cache: 'no-store',
-        headers: requestHeaders(),
-      });
-      const payload = await response.json() as ProfilesPayload;
+      const { response, payload } = await profileRequest<ProfilesPayload>(
+        '/api/composio/profiles',
+        {},
+        controller,
+      );
+      if (!current() || latest !== generation.current) {
+        return false;
+      }
       if (!response.ok || payload.success === false) {
-        throw new Error(payload.error || t('loadError'));
+        throw new Error(t('loadError'));
       }
       const nextProfiles = Array.isArray(payload.profiles) ? payload.profiles : [];
-      const nextEffectiveProfile = payload.effectiveProfile || initialEffectiveProfile || null;
+      const nextEffectiveProfile = payload.effectiveProfile || null;
+      if (
+        !nextEffectiveProfile ||
+        nextEffectiveProfile.workspaceId !== workspaceId ||
+        !nextProfiles.some(
+          (profile) => profile.id === nextEffectiveProfile.id && profile.status === 'active',
+        )
+      ) {
+        throw new Error(t('loadError'));
+      }
       setProfiles(nextProfiles);
       setEffectiveProfile(nextEffectiveProfile);
-      const effectiveRecord = nextProfiles.find((profile) => profile.id === nextEffectiveProfile?.id);
+      ready.current = true;
+      const effectiveRecord = nextProfiles.find(
+        (profile) => profile.id === nextEffectiveProfile?.id,
+      );
       onEffectiveProfileUsageChange?.({
         workspaceOverrideCount: effectiveRecord?.workspaceOverrideCount || 0,
         automationCount: effectiveRecord?.automationCount || 0,
       });
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : t('loadError'));
+      return true;
+    } catch {
+      if (current() && !controller.signal.aborted && latest === generation.current) {
+        setProfiles([]);
+        setEffectiveProfile(null);
+        setError(t('loadError'));
+      }
+      return false;
     } finally {
-      setLoading(false);
+      if (current() && latest === generation.current) {
+        setLoading(false);
+      }
     }
-  }, [initialEffectiveProfile, onEffectiveProfileUsageChange, requestHeaders, t]);
+  }, [current, onEffectiveProfileUsageChange, profileRequest, t, workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
     queueMicrotask(() => {
-      if (!cancelled) void loadProfiles();
+      if (!cancelled && current()) {
+        void loadProfiles();
+      }
     });
     return () => {
       cancelled = true;
     };
-  }, [loadProfiles]);
+  }, [
+    current,
+    loadProfiles,
+    initialEffectiveProfile?.id,
+    initialEffectiveProfile?.source,
+    initialEffectiveProfile?.workspaceId,
+  ]);
 
   useEffect(() => {
-    if (selectionRequest <= 0) return;
-    queueMicrotask(() => setSelectionOpen(true));
-  }, [selectionRequest]);
-
-  useEffect(() => {
-    if (createRequest <= 0) return;
+    if (selectionRequest <= 0) {
+      return;
+    }
     queueMicrotask(() => {
+      if (current()) {
+        setSelectionOpen(true);
+      }
+    });
+  }, [current, selectionRequest]);
+
+  useEffect(() => {
+    if (createRequest <= 0) {
+      return;
+    }
+    queueMicrotask(() => {
+      if (!current()) {
+        return;
+      }
       setCreateOpen(true);
       setSelectionOpen(true);
     });
-  }, [createRequest]);
+  }, [current, createRequest]);
 
-  const summarizeTriggerChanges = useCallback((changes: TriggerChange[]) => {
-    const migrated = changes.filter((change) => change.status === 'migrated').length;
-    const paused = changes.filter((change) => change.status.startsWith('paused_')).length;
-    if (paused > 0) return t('changePaused', { paused, migrated });
-    if (migrated > 0) return t('changeMigrated', { count: migrated });
-    return t('changeSaved');
-  }, [t]);
+  const summarizeTriggerChanges = useCallback(
+    (changes: TriggerChange[]) => {
+      const migrated = changes.filter((change) => change.status === 'migrated').length;
+      const paused = changes.filter((change) => change.status.startsWith('paused_')).length;
+      if (paused > 0) return t('changePaused', { paused, migrated });
+      if (migrated > 0) return t('changeMigrated', { count: migrated });
+      return t('changeSaved');
+    },
+    [t],
+  );
 
-  const applyProfile = useCallback(async (profile: ComposioProfile) => {
-    setActionId(profile.id);
-    setError(null);
-    setNotice(null);
-    try {
-      const response = await fetch('/api/composio/workspace-profile', {
-        method: profile.isDefault ? 'DELETE' : 'PUT',
-        credentials: 'include',
-        headers: requestHeaders(!profile.isDefault),
-        body: profile.isDefault ? undefined : JSON.stringify({ workspaceId, profileId: profile.id }),
-      });
-      const payload = await response.json() as {
-        success?: boolean;
-        effectiveProfile?: ComposioEffectiveProfile;
-        triggerChanges?: TriggerChange[];
-        error?: string;
-      };
-      if (!response.ok || payload.success === false || !payload.effectiveProfile) {
-        throw new Error(payload.error || t('changeError'));
+  const applyProfile = useCallback(
+    async (profile: ComposioProfile) => {
+      if (!current() || !ready.current) {
+        return;
       }
-      setEffectiveProfile(payload.effectiveProfile);
-      setSelectionOpen(false);
-      setNotice(summarizeTriggerChanges(payload.triggerChanges || []));
-      await loadProfiles();
-      await onProfileChanged();
-    } catch (changeError) {
-      setError(changeError instanceof Error ? changeError.message : t('changeError'));
-    } finally {
-      setActionId(null);
-    }
-  }, [loadProfiles, onProfileChanged, requestHeaders, summarizeTriggerChanges, t, workspaceId]);
+      setActionId(profile.id);
+      setError(null);
+      setNotice(null);
+      try {
+        const { response, payload } = await profileRequest<{
+          success?: boolean;
+          effectiveProfile?: ComposioEffectiveProfile;
+          triggerChanges?: TriggerChange[];
+        }>('/api/composio/workspace-profile', {
+          method: profile.isDefault ? 'DELETE' : 'PUT',
+          credentials: 'include',
+          headers: requestHeaders(!profile.isDefault),
+          body: profile.isDefault
+            ? undefined
+            : JSON.stringify({ workspaceId, profileId: profile.id }),
+        });
+        if (
+          !response.ok ||
+          payload.success === false ||
+          !payload.effectiveProfile ||
+          payload.effectiveProfile.workspaceId !== workspaceId
+        ) {
+          throw new Error(t('changeError'));
+        }
+        setEffectiveProfile(payload.effectiveProfile);
+        setSelectionOpen(false);
+        setNotice(summarizeTriggerChanges(payload.triggerChanges || []));
+        if ((await loadProfiles()) && current()) {
+          await onProfileChanged();
+        }
+      } catch {
+        if (current()) {
+          setError(t('changeError'));
+        }
+      } finally {
+        if (current()) {
+          setActionId(null);
+        }
+      }
+    },
+    [
+      current,
+      loadProfiles,
+      onProfileChanged,
+      profileRequest,
+      requestHeaders,
+      summarizeTriggerChanges,
+      t,
+      workspaceId,
+    ],
+  );
 
   const createProfile = useCallback(async () => {
     const name = newProfileName.trim();
-    if (!name) return;
+    if (!name || !current() || !ready.current) {
+      return;
+    }
     setActionId('create');
     setError(null);
     try {
-      const response = await fetch('/api/composio/profiles', {
+      const { response, payload } = await profileRequest<{
+        success?: boolean;
+        profile?: ComposioProfile;
+      }>('/api/composio/profiles', {
         method: 'POST',
         credentials: 'include',
         headers: requestHeaders(true),
         body: JSON.stringify({ name }),
       });
-      const payload = await response.json() as { success?: boolean; profile?: ComposioProfile; error?: string };
       if (!response.ok || payload.success === false || !payload.profile) {
-        throw new Error(payload.error || t('createError'));
+        throw new Error(t('createError'));
       }
       setNewProfileName('');
       setCreateOpen(false);
-      await loadProfiles();
-      await applyProfile({ ...payload.profile, connectedApps: payload.profile.connectedApps || [] });
-    } catch (createError) {
-      setError(createError instanceof Error ? createError.message : t('createError'));
+      if ((await loadProfiles()) && current()) {
+        await applyProfile({
+          ...payload.profile,
+          connectedApps: payload.profile.connectedApps || [],
+        });
+      }
+    } catch {
+      if (current()) {
+        setError(t('createError'));
+      }
     } finally {
-      setActionId(null);
+      if (current()) {
+        setActionId(null);
+      }
     }
-  }, [applyProfile, loadProfiles, newProfileName, requestHeaders, t]);
+  }, [applyProfile, current, loadProfiles, newProfileName, profileRequest, requestHeaders, t]);
 
-  const renameProfile = useCallback(async (profileId: string) => {
-    const name = renameDraft.trim();
-    if (!name) return;
-    setActionId(`rename:${profileId}`);
-    setError(null);
-    try {
-      const response = await fetch(`/api/composio/profiles/${encodeURIComponent(profileId)}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: requestHeaders(true),
-        body: JSON.stringify({ name }),
-      });
-      const payload = await response.json() as { success?: boolean; error?: string };
-      if (!response.ok || payload.success === false) throw new Error(payload.error || t('renameError'));
-      setRenamingProfileId(null);
-      setRenameDraft('');
-      await loadProfiles();
-      await onProfileChanged();
-    } catch (renameError) {
-      setError(renameError instanceof Error ? renameError.message : t('renameError'));
-    } finally {
-      setActionId(null);
-    }
-  }, [loadProfiles, onProfileChanged, renameDraft, requestHeaders, t]);
+  const renameProfile = useCallback(
+    async (profileId: string) => {
+      const name = renameDraft.trim();
+      if (!name || !current() || !ready.current) {
+        return;
+      }
+      setActionId(`rename:${profileId}`);
+      setError(null);
+      try {
+        const { response, payload } = await profileRequest<{ success?: boolean }>(
+          `/api/composio/profiles/${encodeURIComponent(profileId)}`,
+          {
+            method: 'PATCH',
+            credentials: 'include',
+            headers: requestHeaders(true),
+            body: JSON.stringify({ name }),
+          },
+        );
+        if (!response.ok || payload.success === false) {
+          throw new Error(t('renameError'));
+        }
+        setRenamingProfileId(null);
+        setRenameDraft('');
+        if ((await loadProfiles()) && current()) {
+          await onProfileChanged();
+        }
+      } catch {
+        if (current()) {
+          setError(t('renameError'));
+        }
+      } finally {
+        if (current()) {
+          setActionId(null);
+        }
+      }
+    },
+    [current, loadProfiles, onProfileChanged, profileRequest, renameDraft, requestHeaders, t],
+  );
 
-  const archiveProfile = useCallback(async (profile: ComposioProfile) => {
-    if (!window.confirm(t('archiveConfirm', { name: profile.name }))) return;
-    setActionId(`archive:${profile.id}`);
-    setError(null);
-    try {
-      const response = await fetch(`/api/composio/profiles/${encodeURIComponent(profile.id)}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers: requestHeaders(),
-      });
-      const payload = await response.json() as { success?: boolean; error?: string };
-      if (!response.ok || payload.success === false) throw new Error(payload.error || t('archiveError'));
-      await loadProfiles();
-    } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : t('archiveError'));
-    } finally {
-      setActionId(null);
-    }
-  }, [loadProfiles, requestHeaders, t]);
+  const archiveProfile = useCallback(
+    async (profile: ComposioProfile) => {
+      if (!current() || !ready.current) {
+        return;
+      }
+      if (!window.confirm(t('archiveConfirm', { name: profile.name }))) {
+        return;
+      }
+      if (!current()) {
+        return;
+      }
+      setActionId(`archive:${profile.id}`);
+      setError(null);
+      try {
+        const { response, payload } = await profileRequest<{ success?: boolean }>(
+          `/api/composio/profiles/${encodeURIComponent(profile.id)}`,
+          {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: requestHeaders(),
+          },
+        );
+        if (!response.ok || payload.success === false) {
+          throw new Error(t('archiveError'));
+        }
+        await loadProfiles();
+      } catch {
+        if (current()) {
+          setError(t('archiveError'));
+        }
+      } finally {
+        if (current()) {
+          setActionId(null);
+        }
+      }
+    },
+    [current, loadProfiles, profileRequest, requestHeaders, t],
+  );
+
+  const disabled = loading || Boolean(actionId) || profiles.length === 0;
 
   if (loading && !effectiveProfile) {
     return (
@@ -299,9 +483,17 @@ export function ComposioProfileSwitcher({
                 <h3 className="truncate text-base font-semibold">
                   {effectiveProfile?.name || t('unknownProfile')}
                 </h3>
-                <Badge variant={effectiveProfile?.source === 'workspace_override' ? 'default' : 'outline'}>
-                  {effectiveProfile?.source === 'workspace_override' ? t('workspaceOnly') : t('usesDefault')}
-                </Badge>
+                {effectiveProfile ? (
+                  <Badge
+                    variant={
+                      effectiveProfile.source === 'workspace_override' ? 'default' : 'outline'
+                    }
+                  >
+                    {effectiveProfile?.source === 'workspace_override'
+                      ? t('workspaceOnly')
+                      : t('usesDefault')}
+                  </Badge>
+                ) : null}
               </div>
               <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">
                 {t('privateExplanation')}
@@ -309,7 +501,8 @@ export function ComposioProfileSwitcher({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
-            {effectiveProfile?.source === 'workspace_override' && profiles.some((profile) => profile.isDefault) ? (
+            {effectiveProfile?.source === 'workspace_override' &&
+            profiles.some((profile) => profile.isDefault) ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -317,16 +510,26 @@ export function ComposioProfileSwitcher({
                   const profile = profiles.find((candidate) => candidate.isDefault);
                   if (profile) void applyProfile(profile);
                 }}
-                disabled={Boolean(actionId)}
+                disabled={disabled}
               >
                 <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                 {t('restoreDefault')}
               </Button>
             ) : null}
-            <Button variant="outline" size="sm" onClick={() => setManagementOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setManagementOpen(true)}
+              disabled={disabled}
+            >
               {t('manage')}
             </Button>
-            <Button size="sm" onClick={() => setSelectionOpen(true)} data-testid="composio-change-profile">
+            <Button
+              size="sm"
+              onClick={() => setSelectionOpen(true)}
+              disabled={disabled}
+              data-testid="composio-change-profile"
+            >
               {t('change')}
             </Button>
           </div>
@@ -350,7 +553,10 @@ export function ComposioProfileSwitcher({
             <AlertTitle>{t('noCopyTitle')}</AlertTitle>
             <AlertDescription>{t('noCopyDescription')}</AlertDescription>
           </Alert>
-          <div className="max-h-[45vh] space-y-2 overflow-y-auto pr-1" data-testid="composio-profile-list">
+          <div
+            className="max-h-[45vh] space-y-2 overflow-y-auto pr-1"
+            data-testid="composio-profile-list"
+          >
             {profiles.map((profile) => {
               const selected = profile.id === effectiveProfile?.id;
               return (
@@ -358,21 +564,29 @@ export function ComposioProfileSwitcher({
                   key={profile.id}
                   type="button"
                   className={`group flex w-full items-start gap-3 rounded-lg border p-3 text-left transition-colors ${
-                    selected ? 'border-primary bg-primary/5' : 'hover:border-foreground/25 hover:bg-muted/30'
+                    selected
+                      ? 'border-primary bg-primary/5'
+                      : 'hover:border-foreground/25 hover:bg-muted/30'
                   }`}
                   onClick={() => void applyProfile(profile)}
-                  disabled={Boolean(actionId)}
+                  disabled={disabled}
                   data-testid={`composio-profile-option-${profile.id}`}
                 >
-                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                    selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/35'
-                  }`}>
+                  <span
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
+                      selected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-muted-foreground/35'
+                    }`}
+                  >
                     {selected ? <Check className="h-3 w-3" /> : null}
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{profile.name}</span>
-                      {profile.isDefault ? <Badge variant="outline">{t('defaultBadge')}</Badge> : null}
+                      {profile.isDefault ? (
+                        <Badge variant="outline">{t('defaultBadge')}</Badge>
+                      ) : null}
                     </span>
                     <span className="mt-1 block text-xs text-muted-foreground">
                       {appPreview(profile, t('noApps'))}
@@ -383,7 +597,9 @@ export function ComposioProfileSwitcher({
                       {t('automationUsage', { count: profile.automationCount })}
                     </span>
                   </span>
-                  {actionId === profile.id ? <Loader2 className="mt-1 h-4 w-4 animate-spin" /> : null}
+                  {actionId === profile.id ? (
+                    <Loader2 className="mt-1 h-4 w-4 animate-spin" />
+                  ) : null}
                 </button>
               );
             })}
@@ -400,14 +616,26 @@ export function ComposioProfileSwitcher({
                   maxLength={80}
                   autoFocus
                 />
-                <Button onClick={() => void createProfile()} disabled={!newProfileName.trim() || actionId === 'create'}>
-                  {actionId === 'create' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
+                <Button
+                  onClick={() => void createProfile()}
+                  disabled={!newProfileName.trim() || disabled}
+                >
+                  {actionId === 'create' ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Plus className="mr-1.5 h-4 w-4" />
+                  )}
                   {t('createAndUse')}
                 </Button>
               </div>
             </div>
           ) : (
-            <Button variant="outline" className="justify-start" onClick={() => setCreateOpen(true)}>
+            <Button
+              variant="outline"
+              className="justify-start"
+              onClick={() => setCreateOpen(true)}
+              disabled={disabled}
+            >
               <Plus className="mr-2 h-4 w-4" />
               {t('create')}
             </Button>
@@ -432,22 +660,36 @@ export function ComposioProfileSwitcher({
                       maxLength={80}
                       autoFocus
                     />
-                    <Button size="sm" onClick={() => void renameProfile(profile.id)} disabled={!renameDraft.trim()}>
-                      {actionId === `rename:${profile.id}` ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                    <Button
+                      size="sm"
+                      onClick={() => void renameProfile(profile.id)}
+                      disabled={!renameDraft.trim() || disabled}
+                    >
+                      {actionId === `rename:${profile.id}` ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : null}
                       {t('saveName')}
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setRenamingProfileId(null)}>{t('cancel')}</Button>
+                    <Button size="sm" variant="ghost" onClick={() => setRenamingProfileId(null)}>
+                      {t('cancel')}
+                    </Button>
                   </div>
                 ) : (
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate font-medium">{profile.name}</p>
-                        {profile.isDefault ? <Badge variant="outline">{t('defaultBadge')}</Badge> : null}
-                        {profile.id === effectiveProfile?.id ? <Badge>{t('activeHere')}</Badge> : null}
+                        {profile.isDefault ? (
+                          <Badge variant="outline">{t('defaultBadge')}</Badge>
+                        ) : null}
+                        {profile.id === effectiveProfile?.id ? (
+                          <Badge>{t('activeHere')}</Badge>
+                        ) : null}
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {appPreview(profile, t('noApps'))} · {t('workspaceUsage', { count: profile.workspaceOverrideCount })} · {t('automationUsage', { count: profile.automationCount })}
+                        {appPreview(profile, t('noApps'))} ·{' '}
+                        {t('workspaceUsage', { count: profile.workspaceOverrideCount })} ·{' '}
+                        {t('automationUsage', { count: profile.automationCount })}
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-2">
@@ -458,6 +700,7 @@ export function ComposioProfileSwitcher({
                           setRenamingProfileId(profile.id);
                           setRenameDraft(profile.name);
                         }}
+                        disabled={disabled}
                       >
                         <Pencil className="mr-1.5 h-3.5 w-3.5" />
                         {t('rename')}
@@ -468,10 +711,22 @@ export function ComposioProfileSwitcher({
                           variant="outline"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
                           onClick={() => void archiveProfile(profile)}
-                          disabled={profile.workspaceOverrideCount > 0 || profile.automationCount > 0 || Boolean(actionId)}
-                          title={profile.workspaceOverrideCount > 0 || profile.automationCount > 0 ? t('archiveInUse') : undefined}
+                          disabled={
+                            profile.workspaceOverrideCount > 0 ||
+                            profile.automationCount > 0 ||
+                            disabled
+                          }
+                          title={
+                            profile.workspaceOverrideCount > 0 || profile.automationCount > 0
+                              ? t('archiveInUse')
+                              : undefined
+                          }
                         >
-                          {actionId === `archive:${profile.id}` ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-1.5 h-3.5 w-3.5" />}
+                          {actionId === `archive:${profile.id}` ? (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                          )}
                           {t('archive')}
                         </Button>
                       ) : null}
@@ -482,7 +737,9 @@ export function ComposioProfileSwitcher({
             ))}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setManagementOpen(false)}>{t('close')}</Button>
+            <Button variant="outline" onClick={() => setManagementOpen(false)}>
+              {t('close')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

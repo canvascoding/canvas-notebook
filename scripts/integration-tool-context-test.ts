@@ -4,6 +4,7 @@ import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { createPiTestDatabase } from './helpers/pi-test-database';
+import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 
 async function main() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'canvas-integration-context-'));
@@ -23,11 +24,12 @@ async function main() {
   internals._load = (name, parent, isMain) => {
     if (name === 'server-only') return {};
     if (name === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(name)) return database;
-    // Only prompt package capture is isolated. Session, workspace and agent authorization remain real.
-    if (name === '@/app/lib/capabilities/packages/runtime-bindings') return {
-      captureCapabilityPackageRuntimeBindings: async () => {
+    // Only common prompt collection is isolated. This sentinel issues no proof;
+    // session, workspace and agent authorization remain real.
+    if (name === '@/app/lib/capabilities/extensions/effective-context') return {
+      resolveEffectiveExtensionContext: async (context: AgentExecutionContext) => {
         promptCaptureCount++;
-        return { skillReadRoots: [promptReadRoot], skillPackageBindings: [] };
+        return { ...context, skillReadRoots: [promptReadRoot], skillPackageBindings: [] };
       },
     };
     if (name === '@/app/lib/agents/workspace-brand-context') return { getWorkspaceBrandPromptBlock: async () => {

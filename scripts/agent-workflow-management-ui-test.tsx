@@ -4,11 +4,17 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 import { NextIntlClientProvider } from 'next-intl';
 import messages from '../messages/en.json';
+import type { AgentProfile } from '../app/lib/agents/registry';
 import type { AgentProfileItem } from '../app/components/settings/AgentSelectorCard';
-import type { AgentWorkflowConfiguration, AgentWorkflowDescriptor } from '../app/lib/agents/workflow-contracts';
-import type { AgentWorkflowManagement, AgentWorkflowManagementOptions, AgentWorkflowManagementPackageVersion } from '../app/lib/agents/workflow-management-contracts';
+import type { AgentWorkflowDescriptor } from '../app/lib/agents/workflow-contracts';
+import type { AgentExtensionManagementSnapshot } from '../app/components/agents/agent-workflow-management-client';
+import { agentExtensionOptionsRequestSchema, type AgentExtensionOptionsRequest, type AgentExtensionPackageVersion } from '../app/lib/agents/extension-options-contracts';
+import { agentExtensionConfigurationInputSchema, EXTENSION_SELECTION_LIMITS, type AgentExtensionConfigurationInput } from '../app/lib/capabilities/extensions/contracts';
 import { DEFAULT_AGENT_ID } from '../app/lib/channels/constants';
 
+// Actual SettingsPanel / PackageAgentSetup -> management dialog -> shared editor,
+// public parsers and mutation client. Only safe HTTP DTOs, auth session delivery
+// and unrelated Settings cards are controlled. This is no server/SDK/E2E proof.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   pretendToBeVisual: true, url: 'https://agent-management.fixture.invalid/settings?tab=agent-settings',
 });
@@ -35,18 +41,22 @@ const retained = { kind: 'retained' as const, retainedBindingRef: `agent-workflo
 const retainedFor = (revision: number) => revision === 4 ? retained : { kind: 'retained' as const,
   retainedBindingRef: `agent-workflow-retain:v1:${revision.toString(16).padStart(64, '0')}` };
 const checksum = 'b'.repeat(64);
-type Profile = AgentProfileItem & { workflowVersion: 1 | null; workflowRevision: number };
-type RequestRecord = { url: URL; method: string; body: Record<string, unknown> | null };
+type Fixed = Extract<AgentExtensionConfigurationInput, { mode: 'fixed' }>;
+type Profile = AgentProfileItem & AgentProfile & { workflowVersion: 1 | 2 | null; workflowRevision: number };
+type RequestRecord = { url: URL; method: string; body: Record<string, unknown> | null; option?: AgentExtensionOptionsRequest };
 type HeldResponse = { release(): void; promise: Promise<Response> };
-function reissueRetained(value: AgentWorkflowConfiguration | null, revision: number): void {
-  for (const pkg of value?.packages ?? []) for (const declaration of pkg.declarations) for (const capability of declaration.capabilities) {
+function reissueRetained(value: AgentExtensionConfigurationInput | null, revision: number): void {
+  if (value?.mode !== 'fixed') return;
+  for (const pkg of value.workflow?.packages ?? []) for (const declaration of pkg.declarations) for (const capability of declaration.capabilities) {
     const choices = capability.selection.mode === 'fixed' ? [capability.selection] : capability.selection.allowedChoices;
     for (const choice of choices) if (choice.target.kind === 'retained') choice.target = retainedFor(revision);
   }
 }
-
-function configuration(): AgentWorkflowConfiguration {
-  return { version: 1, packages: [{ resourceRef: resource, publishedRevisionRef: oldPin, checksum,
+function configuration(): Fixed {
+  return { version: 1, origin: 'agent_configuration', mode: 'fixed', selections: [{
+    selection: { kind: 'skill', origin: 'plugin_child', package: { resourceRef: resource, publishedRevisionRef: oldPin, checksum }, relativeRoot: 'skills/creative' },
+    requirement: 'optional', toolCap: null,
+  }], standalone: [], workflow: { version: 1, packages: [{ resourceRef: resource, publishedRevisionRef: oldPin, checksum,
     skillSelection: { kind: 'skills', relativeRoots: ['skills/creative'] }, declarations: [{ declarationPath, capabilities: [
       { capabilityId: 'design', required: true, selection: { mode: 'selectable', defaultChoiceId: 'studio', allowedChoices: [
         { choiceId: 'studio', alternativeKey: 'composio:canva', target: { kind: 'shared', source: 'composio', connectionRef: firstConnection, bindingRevision: 2 }, toolCap: null },
@@ -54,67 +64,50 @@ function configuration(): AgentWorkflowConfiguration {
       ], personalPolicy: { sources: ['composio'], alternativeKeys: ['composio:canva'], toolCap: ['CANVA_LIST_DESIGNS'] } } },
       { capabilityId: 'library', required: true, selection: { mode: 'fixed', alternativeKey: 'composio:canva',
         target: { kind: 'shared', source: 'composio', connectionRef: secondConnection, bindingRevision: 3 }, toolCap: ['CANVA_LIST_DESIGNS'] } },
-    ] }] }] };
+    ] }] }] } };
 }
 function profile(agentId: string, name: string, access = { canUse: true, canEdit: true, canManage: false }): Profile {
-  return { agentId, name, iconId: 'bot', type: 'special', removable: true, defaultProviderInstallationId: null,
+  return { id: agentId === 'fixture-alpha' ? 1 : 2, createdAt: '2026-10-14T12:00:00.000Z', updatedAt: '2026-10-14T12:00:00.000Z', agentId, name, iconId: 'bot', type: 'special', removable: true, defaultProviderInstallationId: null,
     defaultProvider: null, defaultModel: null, defaultThinking: null, enabledTools: ['read', 'email_list_mailboxes'],
     relevantSkills: null, relevantConnections: null, scopeType: 'user', organizationId: 'fixture-org',
-    ownerUserId: 'fixture-user', createdByUserId: 'fixture-user', revision: 4, workflowVersion: 1, workflowRevision: 2, access };
+    ownerUserId: 'fixture-user', createdByUserId: 'fixture-user', revision: 4, workflowVersion: 2, workflowRevision: 2, access };
 }
-function management(current: Profile): AgentWorkflowManagement {
+function management(current: Profile): AgentExtensionManagementSnapshot {
   assert(current.access);
-  const configured = configuration();
-  reissueRetained(configured, current.revision);
+  const configured = configuration(); reissueRetained(configured, current.revision);
   if (current.agentId === 'fixture-beta') {
-    const capability = configured.packages[0].declarations[0].capabilities[0];
-    capability.required = false;
+    const capability = configured.workflow!.packages[0].declarations[0].capabilities[0]; capability.required = false;
     capability.selection = { mode: 'fixed', alternativeKey: 'composio:canva',
       target: { kind: 'shared', source: 'composio', connectionRef: secondConnection, bindingRevision: 3 }, toolCap: ['CANVA_LIST_DESIGNS'] };
   }
-  return { schemaVersion: 1, view: 'management', agentId: current.agentId, revision: current.revision,
-    workflowRevision: current.workflowRevision, workflowVersion: current.workflowVersion, access: current.access,
-    profile: { agentId: current.agentId, name: current.name, iconId: current.iconId, scopeType: current.scopeType,
-      enabledTools: current.enabledTools }, configurationState: 'available', configuration: configured,
-    unavailablePackageCount: 0, unavailableConnectionCount: 0, bindingSummaries: [...(current.agentId === 'fixture-beta' ? [
-      { resourceRef: resource, publishedRevisionRef: oldPin, declarationPath, capabilityId: 'design', alternativeKey: 'composio:canva',
-        source: 'composio' as const, label: 'Campaign design', scopeLabel: 'team' as const, status: 'setup_required' as const },
-    ] : [
-      { resourceRef: resource, publishedRevisionRef: oldPin, declarationPath, capabilityId: 'design', alternativeKey: 'composio:canva',
-        choiceId: 'studio', source: 'composio' as const, label: 'Studio design', scopeLabel: 'organization' as const, status: 'unknown' as const },
-      { resourceRef: resource, publishedRevisionRef: oldPin, declarationPath, capabilityId: 'design', alternativeKey: 'composio:canva',
-        choiceId: 'personal-original', source: 'composio' as const, label: 'Original personal design', scopeLabel: 'personal' as const, status: 'unknown' as const },
-    ]),
-      { resourceRef: resource, publishedRevisionRef: oldPin, declarationPath, capabilityId: 'library', alternativeKey: 'composio:canva',
-        source: 'composio', label: 'Campaign design', scopeLabel: 'team', status: 'setup_required' },
-    ] };
+  return { agent: current, access: current.access, extensions: { agentId: current.agentId, revision: current.revision,
+    workflowRevision: current.workflowRevision, configurationState: 'available', configuration: configured, readiness: [] } };
 }
 function userProjection(current: Profile): AgentWorkflowDescriptor {
   assert(current.access);
   return { agentId: current.agentId, revision: current.revision, workflowVersion: current.workflowVersion,
-    workflowRevision: current.workflowRevision, preferenceRevision: 7, access: current.access, packages: [] };
+    workflowRevision: current.workflowRevision, preferenceRevision: 7, access: current.access, packages: [], standalone: [] };
 }
-function version(current: Profile, pin: string): AgentWorkflowManagementPackageVersion {
+function version(pin: string): AgentExtensionPackageVersion {
   const old = pin === oldPin;
-  return { schemaVersion: 1, view: 'package-version', agentId: current.agentId, revision: current.revision,
-    workflowRevision: current.workflowRevision, resourceRef: resource, publishedRevisionRef: pin,
-    checksum: old ? checksum : 'c'.repeat(64), kind: 'plugin', name: 'Creative package', version: old ? '1.0.0' : '2.0.0',
-    skillRoots: old ? [{ name: 'creative', relativeRoot: 'skills/creative' }, { name: 'sibling', relativeRoot: 'skills/sibling' }]
-      : [{ name: 'replacement', relativeRoot: 'skills/replacement' }],
+  return { pin: { resourceRef: resource, publishedRevisionRef: pin, checksum: old ? checksum : 'c'.repeat(64) }, kind: 'plugin',
+    name: 'creative-package', displayName: 'Creative package', description: 'Published creative package', version: old ? '1.0.0' : '2.0.0',
+    children: (old ? ['creative', 'sibling'] : ['replacement']).map(name => ({ name, relativeRoot: `skills/${name}`, description: `${name} child`, origin: 'plugin_child', required: false })),
     declarations: [{ declarationPath: old ? declarationPath : 'skills/replacement/agents/canvas.yaml', workflow: {
-      version: 1, integrationCapabilities: ['design', 'library'].map(id => ({ id, application: 'canva', required: id === 'library',
+      version: 1, integrationCapabilities: ['design', 'library'].map(id => ({ id, application: id === 'library' ? 'library' : 'canva', required: id === 'library',
         alternatives: [{ source: 'composio' as const, toolkit: 'canva', requiredTools: ['CANVA_LIST_DESIGNS'] }] })),
     } }] };
 }
 
-/** Actual React UI/client/builder; only SafeDTO HTTP and independent settings renderers are controlled. No backend/SDK authority claim. */
 async function main(): Promise<void> {
   const loader = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = loader._load, originalFetch = globalThis.fetch;
   const independentViews = new Set(['MemoryReviewAgentCard', 'AgentRuntimePreferenceCard', 'AgentCatalogModelOverrideEditor',
     'AgentManagedFilesCard', 'AgentSessionsCard', 'AgentDoctorCard']);
   const searchParams = new URLSearchParams('tab=agent-settings&workspaceId=fixture-workspace&organizationId=fixture-org&projectId=fixture-project');
+  const session = { user: { id: 'fixture-user' }, session: { id: 'fixture-session' } };
   loader._load = (name, parent, isMain) => {
+    if (name.endsWith('/auth-client')) return { authClient: { useSession: () => ({ data: session, isPending: false, error: null }), getSession: async () => ({ data: session }) } };
     if (name === 'next/navigation') return { useSearchParams: () => searchParams };
     if (name === 'next/link') return { __esModule: true, default: React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(function FixtureLink(props, ref) { return <a {...props} ref={ref} />; }) };
     if (parent?.filename.endsWith('/AgentSettingsPanel.tsx')) {
@@ -125,476 +118,349 @@ async function main(): Promise<void> {
   };
   const { render, screen, within, fireEvent, waitFor, cleanup, act } = await import('@testing-library/react');
   const { AgentSettingsPanel } = await import('../app/components/settings/AgentSettingsPanel');
+  const { PackageAgentSetup } = await import('../app/components/plugins/PackageAgentSetup');
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   useWorkspaceStore.setState({ activeWorkspaceId: 'fixture-workspace' });
   let alpha = profile('fixture-alpha', 'Agent Alpha'), beta = profile('fixture-beta', 'Agent Beta');
-  let snapshots = new Map<string, AgentWorkflowManagement>([[alpha.agentId, management(alpha)], [beta.agentId, management(beta)]]);
-  const requests: RequestRecord[] = [], writes: Record<string, unknown>[] = [], held: HeldResponse[] = [];
-  const transportErrors: unknown[] = [];
+  let snapshots = new Map<string, AgentExtensionManagementSnapshot>([[alpha.agentId, management(alpha)], [beta.agentId, management(beta)]]);
+  const requests: RequestRecord[] = [], writes: Record<string, unknown>[] = [], held: HeldResponse[] = [], transportErrors: unknown[] = [];
   let intercept: ((request: RequestRecord, reply: () => Response) => Response | Promise<Response> | undefined) | undefined;
   const ok = (data: unknown) => Response.json({ success: true, data });
   const retain = (reply: Response): HeldResponse => {
     let resolve!: (value: Response) => void;
-    const result = { promise: new Promise<Response>(done => { resolve = done; }), release: () => resolve(reply) };
-    held.push(result); return result;
+    const result = { promise: new Promise<Response>(done => { resolve = done; }), release: () => resolve(reply) }; held.push(result); return result;
+  };
+  const optionReply = (request: AgentExtensionOptionsRequest) => {
+    const head = { schemaVersion: 1, target: request.target, contextKey: JSON.stringify(request.target), coverage: [], limits: EXTENSION_SELECTION_LIMITS };
+    const pagination = { nextCursor: null, hasNextPage: false, loadedItems: 2 };
+    if (request.operation === 'search') return { ...head, operation: request.operation, items: [{ item: { id: resource, kind: 'plugin', name: 'creative-package',
+      displayName: 'Creative package', description: 'Published fixture bundle', source: 'local', stock: 'installed', access: { canRead: true, canUse: true, canManage: true } },
+      selection: { kind: 'plugin', package: version(oldPin).pin, skillSelection: { kind: 'all' } }, eligibility: { action: 'select' },
+      publishedVersions: [oldPin, nextPin].map(pin => ({ pin: version(pin).pin, version: pin === oldPin ? '1.0.0' : '2.0.0', publishedAt: 1 })) }],
+      selectedItem: null, scopes: { choices: ['all', 'user'], teams: [] }, pagination };
+    if (request.operation === 'package_version') return { ...head, operation: request.operation, package: version(request.publishedRevisionRef) };
+    if (request.operation === 'connection_choices') return { ...head, operation: request.operation, selector: request.selector, pagination,
+      connections: [firstConnection, secondConnection].map((connectionRef, index) => ({ id: connectionRef, label: index ? 'Campaign design' : 'Studio design', scopeLabel: 'organization',
+        selection: { kind: 'composio', source: 'composio', toolkit: 'canva', target: { kind: 'shared', connectionRef, bindingRevision: index + 2 } },
+        packageBinding: { alternativeKey: 'composio:canva', target: { kind: 'shared', source: 'composio', connectionRef, bindingRevision: index + 2 } },
+        allowedToolNames: ['CANVA_LIST_DESIGNS'], authorization: 'authorized', health: 'unknown', mappingRequired: false, eligibility: { action: 'select' } })),
+      profiles: request.profileId ? [] : [{ profileId: 'owned-profile', label: 'Design profile', status: 'unverified' }],
+      accounts: request.profileId ? ['A', 'B'].map((accountId, index) => ({ selection: { kind: 'composio', source: 'composio', toolkit: 'canva',
+        target: { kind: 'personal', profileId: 'owned-profile', accountBinding: 'account', accountId, connectionRef: `composio-personal:owned-profile:${accountId}` } },
+        accountSelectionRef: `opaque-${accountId}`, label: index ? 'Second design account' : 'First design account', status: 'ACTIVE', selectable: true,
+        packageBinding: { alternativeKey: 'composio:canva', target: { kind: 'personal', source: 'composio', ownerUserId: 'fixture-user', providerRef: 'opaque-own-profile', accountSelectionRef: `opaque-${accountId}` } } })) : [] };
+    return { ...head, operation: 'preview', preview: { configurationReadiness: 'valid', contextValidation: 'complete', personalSetupRequired: false,
+      runtimeReadiness: 'not_checked', providerHealth: 'unknown', finalSaveValidationRequired: true, issues: [], requirements: [], effectiveToolCaps: [], toolConflicts: [],
+      budget: { usedBytes: 700, maxBytes: 8192, detailStatus: 'complete', omittedDetails: 0 }, contextPreview: 'Controlled preview DTO. No compiler authority.' } };
   };
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), dom.window.location.origin), method = init?.method ?? 'GET';
-    const request = { url, method, body: init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null };
-    requests.push(request); if (method === 'PATCH') { assert(request.body); writes.push(request.body); }
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+    const request: RequestRecord = { url, method, body }; requests.push(request);
+    if (method === 'PATCH') { assert(body); writes.push(body); }
     const reply = (): Response => {
-      if (url.pathname === '/api/agents' && method === 'GET') {
-        assert.equal(url.searchParams.get('purpose'), 'configure', 'The actual Panel requests the configure-authorized discovery projection.');
-        assert.equal(url.searchParams.get('workspaceId'), 'fixture-workspace'); assert.equal(url.searchParams.get('organizationId'), 'fixture-org');
-        assert.equal(url.searchParams.get('projectId'), 'fixture-project'); return ok({ agents: [alpha, beta] });
+      if (['/api/agents/extension-options', '/api/agents/workflow'].includes(url.pathname) || url.pathname === '/api/agents' && (method === 'GET' || body?.extensions !== undefined)) assert.equal(url.searchParams.get('workspaceId'), 'fixture-workspace', `${method} ${url}`);
+      assert(!url.searchParams.has('actorId'), 'Actor is a UI delivery fence, never a caller-controlled API authority selector.');
+      if (url.pathname === '/api/agents/extension-options') {
+        assert.equal(method, 'POST'); assert.equal(init?.cache, 'no-store');
+        request.option = agentExtensionOptionsRequestSchema.parse(body); return ok(optionReply(request.option));
       }
-      if (url.pathname === `/api/capabilities/packages/${encodeURIComponent(resource)}/versions`) return ok({ versions:
-        [nextPin, oldPin].map(pin => ({ resourceRef: resource, revisionRef: pin, kind: 'plugin', name: 'Creative package',
-          version: pin === oldPin ? '1.0.0' : '2.0.0', checksum: pin === oldPin ? checksum : 'c'.repeat(64),
-          publishedByUserId: 'fixture-user', publishedAt: pin === oldPin ? 1 : 2, baseRevisionRef: pin === oldPin ? null : oldPin,
-          fileCount: 3, totalBytes: 48 })) });
-      const id = url.searchParams.get('agentId') ?? String(request.body?.agentId ?? '');
-      if (id === DEFAULT_AGENT_ID && method === 'GET') {
-        // The actual Panel initially requests default-Agent metadata before its first /agents reply selects Alpha.
-        if (url.pathname === '/api/agents/tools') return ok({ tools: [], config: { agentId: id, enabledTools: [] } });
-        if (url.pathname === '/api/agents/files') return ok({ files: Object.fromEntries(['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'].map(name => [name, ''])) });
-        if (url.pathname === '/api/sessions') return Response.json({ success: true, sessions: [] });
+      const id = url.searchParams.get('agentId') ?? String(body?.agentId ?? '');
+      if (url.pathname === '/api/agents' && method === 'GET' && !id) {
+        assert.equal(url.searchParams.get('purpose'), 'configure'); return ok({ agents: [alpha, beta] });
       }
+      if (url.pathname === '/api/sessions') return Response.json({ success: true, sessions: [] });
+      if (url.pathname === '/api/agents/files') return ok({ files: Object.fromEntries(['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'].map(name => [name, ''])) });
+      if (id === DEFAULT_AGENT_ID && url.pathname === '/api/agents/tools') return ok({ tools: [], config: { agentId: id, enabledTools: [] } });
       const current = id === alpha.agentId ? alpha : beta;
-      assert.equal(id, current.agentId, 'Every agent-specific request must target a known controlled agent.');
+      assert.equal(id, current.agentId, `Unexpected agent-specific request: ${url}`);
       if (url.pathname === '/api/agents/tools') return ok({ tools: [
         { name: 'read', label: 'Read files', group: 'Core', planningModeAllowed: true },
         { name: 'email_list_mailboxes', label: 'List email', group: 'Email', planningModeAllowed: true },
       ], config: { agentId: id, enabledTools: current.enabledTools } });
-      if (url.pathname === '/api/agents/files') return ok({ files: Object.fromEntries(['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'].map(name => [name, ''])) });
-      if (url.pathname === '/api/sessions') return Response.json({ success: true, sessions: [] });
+      if (url.pathname === '/api/agents' && method === 'GET') {
+        assert.equal(url.searchParams.get('purpose'), 'configure'); assert.equal(url.searchParams.get('includeFiles'), 'false'); return ok(snapshots.get(id));
+      }
       if (url.pathname === '/api/agents' && method === 'PATCH') {
-        assert(request.body); const input = request.body;
-        assert.equal(input.expectedRevision, current.revision);
-        if (Object.hasOwn(input, 'workflow')) {
-          assert.equal(input.expectedWorkflowRevision, current.workflowRevision);
-          assert(!Object.hasOwn(input, 'enabledTools'), 'Workflow Save must not change native tools.');
-        } else {
-          assert(Array.isArray(input.enabledTools), 'Only the actual native ToolsCard may send a tools-only write in this fixture.');
-        }
-        assert(!Object.hasOwn(input, 'expectedPreferenceRevision'), 'Central Save must not use Own-Choice CAS.');
-        const next = { ...current, revision: current.revision + 1, workflowRevision: current.workflowRevision + (Object.hasOwn(input, 'workflow') ? 1 : 0),
-          ...(Object.hasOwn(input, 'workflow') ? { workflowVersion: input.workflow === null ? null : 1 as const } : {}),
-          ...(Array.isArray(input.enabledTools) ? { enabledTools: [...input.enabledTools] as string[] } : {}) };
+        assert(body); assert.equal(body.expectedRevision, current.revision);
+        const extensionWrite = Object.hasOwn(body, 'extensions');
+        assert(!Object.hasOwn(body, 'workflow'), 'The new editor writes the complete extension contract, never a lossy legacy reconstruction.');
+        assert(!Object.hasOwn(body, 'expectedPreferenceRevision'));
+        if (extensionWrite) { assert.equal(body.expectedWorkflowRevision, current.workflowRevision); assert(!Object.hasOwn(body, 'enabledTools')); }
+        else assert(Array.isArray(body.enabledTools));
+        const next: Profile = { ...current, revision: current.revision + 1, workflowRevision: current.workflowRevision + (extensionWrite ? 1 : 0),
+          ...(extensionWrite ? { workflowVersion: (body.extensions as AgentExtensionConfigurationInput).mode === 'legacy_inherit' ? null : 2 as const } : {}),
+          ...(Array.isArray(body.enabledTools) ? { enabledTools: [...body.enabledTools] as string[] } : {}) };
         if (id === alpha.agentId) alpha = next; else beta = next;
-        const nextSnapshot = { ...snapshots.get(id)!, revision: next.revision, workflowRevision: next.workflowRevision,
-          profile: { ...snapshots.get(id)!.profile, enabledTools: next.enabledTools },
-          ...(Object.hasOwn(input, 'workflow') ? { configuration: structuredClone(input.workflow) as AgentWorkflowConfiguration | null,
-            configurationState: input.workflow === null ? 'legacy' as const : 'available' as const, workflowVersion: input.workflow === null ? null : 1 as const } : {}) };
-        reissueRetained(nextSnapshot.configuration, next.revision);
-        snapshots.set(id, nextSnapshot);
+        const nextConfiguration = extensionWrite ? agentExtensionConfigurationInputSchema.parse(body.extensions) : snapshots.get(id)!.extensions.configuration;
+        reissueRetained(nextConfiguration, next.revision);
+        snapshots.set(id, { agent: next, access: next.access!, extensions: { agentId: id, revision: next.revision, workflowRevision: next.workflowRevision,
+          configurationState: nextConfiguration?.mode === 'legacy_inherit' ? 'legacy' : 'available', configuration: nextConfiguration, readiness: [] } });
         return ok({ agent: next, workflow: userProjection(next) });
       }
-      assert.equal(url.pathname, '/api/agents/workflow'); assert.equal(init?.credentials, 'include');
-      assert.equal(url.searchParams.get('workspaceId'), 'fixture-workspace');
-      const header = { schemaVersion: 1 as const, agentId: id, revision: current.revision, workflowRevision: current.workflowRevision };
-      const view = url.searchParams.get('view');
-      if (view === 'management') return ok(snapshots.get(id));
-      assert.equal(Number(url.searchParams.get('expectedRevision')), current.revision);
-      assert.equal(Number(url.searchParams.get('expectedWorkflowRevision')), current.workflowRevision);
-      let result: AgentWorkflowManagementOptions;
-      if (view === 'packages') result = { ...header, view, packages: [{ resourceRef: resource, name: 'Creative package', displayName: 'Creative package',
-        kind: 'plugin', scopeLabel: 'team', versions: [
-          { revisionRef: nextPin, version: '2.0.0', checksum: 'c'.repeat(64), publishedAt: 2 },
-          { revisionRef: oldPin, version: '1.0.0', checksum, publishedAt: 1 },
-        ] }], pagination: { page: 1, limit: 20, totalItems: 1, totalPages: 1 } };
-      else if (view === 'package-version') result = version(current, url.searchParams.get('publishedRevisionRef')!);
-      else if (view === 'connections') result = { ...header, view, connections: [
-        { connectionRef: firstConnection, bindingRevision: 2, source: 'composio', label: 'Studio design', scopeLabel: 'organization',
-          application: 'canva', allowedToolNames: ['CANVA_LIST_DESIGNS'], status: 'unknown', mappingRequired: false },
-        { connectionRef: secondConnection, bindingRevision: 3, source: 'composio', label: 'Campaign design', scopeLabel: 'team',
-          application: 'canva', allowedToolNames: ['CANVA_LIST_DESIGNS'], status: 'setup_required', mappingRequired: false },
-      ], pagination: { page: 1, limit: 20, totalItems: 2, totalPages: 1 } };
-      else if (view === 'personal-connections') {
-        const providerRef = url.searchParams.get('providerRef');
-        result = { ...header, view, alternatives: [{ alternativeKey: 'composio:canva', source: 'composio', providers: [
-          { providerRef: 'opaque-own-profile', label: 'Canva', profileLabel: 'Design profile', origin: 'personal', status: providerRef ? 'available' : 'unverified',
-            ...(providerRef ? { noAuth: false, accounts: [
-              { accountSelectionRef: 'opaque-first-account', label: 'First design account', status: 'ACTIVE', selectable: true },
-              { accountSelectionRef: 'opaque-second-account', label: 'Second design account', status: 'ACTIVE', selectable: true },
-            ] } : {}) },
-        ] }] };
-      } else if (view === 'personal-mcp-definitions') result = { ...header, view, definitions: [] };
-      else throw new Error(`Unexpected controlled workflow view: ${String(view)}`);
-      return ok(result);
+      if (url.pathname === '/api/agents/workflow') return ok(userProjection(current));
+      throw new Error(`Unexpected controlled request ${method} ${url}`);
     };
-    try { return await (intercept?.(request, reply) ?? reply()); }
-    catch (error) { transportErrors.push(error); throw error; }
+    try { return await (intercept?.(request, reply) ?? reply()); } catch (error) { transportErrors.push(error); throw error; }
   };
-  const mount = (handler?: typeof intercept, setup?: () => void) => {
-    assert.equal(transportErrors.length, 0, 'A transport/assertion failure must never masquerade as a handled UI failure.');
-    cleanup(); for (const pending of held.splice(0)) pending.release();
+  const wrap = (node: React.ReactNode) => <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>{node}</NextIntlClientProvider>;
+  const mount = (handler?: typeof intercept, setup?: () => void, packageParent = false) => {
+    assert.equal(transportErrors.length, 0, `A controlled transport assertion cannot masquerade as a handled UI error: ${transportErrors.map(String).join('; ')}`);
+    cleanup(); for (const pending of held.splice(0)) pending.release(); dom.window.localStorage.clear();
     alpha = profile('fixture-alpha', 'Agent Alpha'); beta = profile('fixture-beta', 'Agent Beta');
     snapshots = new Map([[alpha.agentId, management(alpha)], [beta.agentId, management(beta)]]);
-    requests.length = 0; writes.length = 0; intercept = handler;
-    setup?.();
+    requests.length = 0; writes.length = 0; intercept = handler; setup?.();
     dom.window.localStorage.setItem('canvas-settings-agent-section-open-state', JSON.stringify({ tools: true }));
-    return render(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><AgentSettingsPanel currentUserId="fixture-user" /></NextIntlClientProvider>);
+    return render(wrap(packageParent ? <PackageAgentSetup workspaceId="fixture-workspace" resourceRef={resource} packageName="Creative package" /> : <AgentSettingsPanel currentUserId="fixture-user" />));
   };
-  const release = (pending: HeldResponse) => act(async () => pending.release());
-  const workflowRead = (request: RequestRecord, agentId: string, view = 'management') => request.method === 'GET'
-    && request.url.pathname === '/api/agents/workflow' && request.url.searchParams.get('agentId') === agentId
-    && request.url.searchParams.get('view') === view;
-  const reads = (view: string) => requests.filter(request => request.method === 'GET' && request.url.pathname === '/api/agents/workflow'
-    && request.url.searchParams.get('view') === view);
-  const choose = (name: 'Alpha' | 'Beta') => fireEvent.click(screen.getByRole('button', { name: new RegExp(`Agent ${name}`, 'u'), hidden: true }));
-  const open = async () => {
-    fireEvent.click(await screen.findByTestId('agent-settings-workflow-management-open'));
-    return screen.findByTestId('agent-workflow-management-dialog');
-  };
-  const save = () => screen.getByTestId('workflow-management-save') as HTMLButtonElement;
-  const label = (path: string, values: Record<string, string> = {}) => {
-    let value: unknown = Reflect.get(messages, 'agentWorkflowManagement');
+  const inspectRead = (request: RequestRecord, agentId = alpha.agentId) => request.method === 'GET' && request.url.pathname === '/api/agents'
+    && request.url.searchParams.get('agentId') === agentId;
+  const optionReads = (operation: string) => requests.filter(request => request.option?.operation === operation);
+  const label = (path: string) => {
+    let value: unknown = messages.agentWorkflowManagement;
     for (const part of path.split('.')) { assert(value && typeof value === 'object'); value = Reflect.get(value, part); }
-    assert.equal(typeof value, 'string');
-    return String(value).replace(/\{([A-Za-z]+)\}/gu, (token, key: string) => values[key] ?? token);
+    assert.equal(typeof value, 'string'); return value as string;
   };
-  const capability = (id: string) => {
-    const element = within(screen.getByTestId('workflow-management-bindings')).getByText(id, { exact: true })
-      .closest<HTMLElement>('[data-testid="workflow-management-capability"]');
-    assert(element); return within(element);
-  };
-  const required = (id = 'design') => capability(id).getByRole('checkbox', { name: label('bindings.requiredFor', { application: 'canva' }) });
+  const dialog = () => screen.getByTestId('agent-workflow-management-dialog');
+  const save = () => within(dialog()).getByRole<HTMLButtonElement>('button', { name: label('save') });
   const checked = (element: HTMLElement) => element instanceof dom.window.HTMLInputElement ? element.checked : element.getAttribute('aria-checked') === 'true';
-  const mode = (id = 'design') => capability(id).getByRole('combobox', { name: label('bindings.modeFor', { application: 'canva' }) }) as HTMLSelectElement;
-  const section = async (name: 'packages' | 'bindings' | 'operations') => {
-    const toggle = await screen.findByTestId(`workflow-management-${name}-toggle`);
-    if (toggle.getAttribute('aria-expanded') !== 'true') fireEvent.click(toggle);
-    return screen.findByTestId(`workflow-management-${name}`);
-  };
+  const choose = (name: 'Alpha' | 'Beta') => fireEvent.click(screen.getByRole('button', { name: new RegExp(`Agent ${name}`, 'u'), hidden: true }));
+  const open = async () => { fireEvent.click(await screen.findByTestId('agent-settings-workflow-management-open')); return screen.findByTestId('agent-workflow-management-dialog'); };
   const loadBindings = async () => {
-    const node = await section('bindings');
-    if (!within(node).queryAllByTestId('workflow-management-capability').length) {
-      fireEvent.click(within(node).getByRole('button', { name: label('bindings.load') }));
+    const pkg = await screen.findByTestId('agent-extension-package');
+    await within(pkg).findByText('Creative package');
+    if (!(pkg as HTMLDetailsElement).open) fireEvent.click(pkg.querySelector('summary')!);
+    for (const name of ['canva', 'library']) {
+      const button = within(pkg).getByRole('button', { name: new RegExp(`^${name} · (Required|Optional) connection$`, 'u') });
+      if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button);
     }
-    await waitFor(() => assert(['fixed', 'selectable'].includes(mode().value)));
+    return pkg;
   };
+  const capability = (id: 'design' | 'library' = 'design') => {
+    const element = screen.getAllByTestId('agent-extension-capability').find(node => within(node).queryAllByText(id).length > 0); assert(element); return within(element);
+  };
+  const required = (id: 'design' | 'library' = 'design') => capability(id).getByRole<HTMLInputElement>('checkbox', { name: 'Required' });
+  const mode = () => capability().getByRole<HTMLSelectElement>('combobox', { name: 'Binding for canva' });
+  const ready = () => waitFor(() => assert.equal(screen.getByTestId('agent-extension-preview-status').textContent?.includes('Checking configuration'), false));
   const dirtyDesign = async () => { await loadBindings(); fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); };
   const saved = async () => { await screen.findByText(label('saved')); await waitFor(() => assert.equal(save().disabled, true)); };
-  const close = () => fireEvent.click(within(screen.getByTestId('agent-workflow-management-dialog')).getByRole('button', { name: label('close') }));
-  const reloadDiscard = async () => {
-    fireEvent.click(screen.getByTestId('workflow-management-reload'));
-    const confirmation = await screen.findByRole('alertdialog');
-    fireEvent.click(within(confirmation).getByRole('button', { name: label('confirm.discard') }));
+  const close = () => { const footer = dialog().querySelector<HTMLElement>('[data-slot="dialog-footer"]'); assert(footer); fireEvent.click(within(footer).getByRole('button', { name: label('close') })); };
+  const release = (pending: HeldResponse) => act(async () => pending.release());
+  const reload = () => fireEvent.click(within(dialog()).getByRole('button', { name: label('reload') }));
+  const reloadDiscard = async () => { reload(); fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: label('confirm.discard') })); };
+  const confirmReset = async (kind: 'inherit' | 'fixed') => {
+    const control = screen.getByTestId(`agent-extension-reset-${kind}`), details = control.closest('details');
+    if (details && !details.open) fireEvent.click(details.querySelector('summary')!);
+    fireEvent.click(control); const apply = screen.getByTestId<HTMLButtonElement>('agent-extension-reset-apply');
+    assert(apply.disabled); fireEvent.click(screen.getByTestId('agent-extension-reset-confirm')); assert(!apply.disabled); fireEvent.click(apply);
+    await waitFor(() => assert.equal(save().disabled, false));
   };
-  const nativeRead = () => {
-    const row = screen.getByText('read', { exact: true }).closest<HTMLElement>('[data-slot="collapsible"]'); assert(row);
-    return within(row).getByRole('switch', { name: 'Read files' });
-  };
-  const staleListCase = async () => {
-    mount(); await open(); await dirtyDesign();
-    let oldList: HeldResponse | undefined;
-    intercept = (request, reply) => {
-      if (request.method !== 'GET' || request.url.pathname !== '/api/agents') return;
-      oldList = retain(reply()); return oldList.promise;
-    };
-    // Controlled event to the actual Selector handler; Radix correctly makes this background inert in a native browser.
-    const selectorCard = screen.getByText(messages.settings.agentPanel.selector.title, { exact: true }).closest<HTMLElement>('[data-slot="card"]'); assert(selectorCard);
-    fireEvent.click(within(selectorCard).getByRole('button', { name: messages.settings.agentPanel.selector.reload, hidden: true }));
-    await waitFor(() => assert(oldList));
-    fireEvent.click(save()); await saved(); assert.equal(alpha.revision, 5);
-    intercept = undefined; assert(oldList); await release(oldList);
-    close(); await waitFor(() => assert.equal(Boolean(screen.queryByTestId('agent-workflow-management-dialog')), false));
-    await waitFor(() => assert.equal(nativeRead().getAttribute('aria-checked'), 'true'));
-    fireEvent.click(nativeRead());
-    await waitFor(() => assert(writes.some(input => Object.hasOwn(input, 'enabledTools'))));
-    const written = writes.find(input => Object.hasOwn(input, 'enabledTools')); assert(written);
-    console.log('OBSERVED stale-agent-list native PATCH', JSON.stringify({ expectedRevision: written.expectedRevision, expected: 5 }));
-    assert.equal(written.agentId, alpha.agentId); assert.equal(written.expectedRevision, 5,
-      'A pre-save Agent-list response must not replace the acknowledged profile revision used by the actual native ToolsCard.');
-    await waitFor(() => assert.equal(alpha.revision, 6));
-    assert.equal(transportErrors.length, 0); cases += 1;
-  };
+  const submitted = (index = 0): Fixed => { const value = agentExtensionConfigurationInputSchema.parse(writes[index].extensions); assert.equal(value.mode, 'fixed'); if (value.mode !== 'fixed') throw new Error('Expected a fixed configuration'); return value; };
+  const designOf = (value: Fixed) => value.workflow!.packages[0].declarations[0].capabilities.find(item => item.capabilityId === 'design')!;
   let cases = 0;
   try {
-    if (process.argv.includes('--stale-agent-list')) { await staleListCase(); console.log('PASS central Workflow ACK / stale Agent-list / native ToolsCard CAS.'); return; }
-    if (!process.argv.includes('--recovery-only')) {
-    mount(undefined, () => {
-      alpha.access = { canUse: false, canEdit: true, canManage: false }; snapshots.set(alpha.agentId, management(alpha));
-    });
-    await open();
-    await waitFor(() => assert(requests.some(request => workflowRead(request, alpha.agentId))));
-    assert.equal(Boolean(screen.queryByTestId('agent-settings-workflow')), false, 'AgentUse-only personal choice must remain separate from AgentEdit configuration.');
-    assert.equal(reads('packages').length, 0, 'Opening configuration must not eagerly enumerate all packages.');
-    assert.equal(reads('connections').length, 0, 'Connection options must remain lazy.');
-    assert.equal(reads('personal-connections').length, 0, 'Opening configuration must not enumerate personal profiles or probe accounts.');
-    assert.equal(writes.length, 0); cases += 1;
+    mount(undefined, () => { alpha.access = { canUse: false, canEdit: true, canManage: false }; snapshots.set(alpha.agentId, management(alpha)); });
+    await open(); await ready();
+    assert.equal(Boolean(screen.queryByTestId('agent-settings-workflow')), false);
+    assert.equal(optionReads('connection_choices').length, 0, 'Opening central configuration must not enumerate personal accounts.');
+    assert(optionReads('package_version').every(row => row.option?.operation === 'package_version' && row.option.publishedRevisionRef === oldPin));
+    assert.equal(writes.length, 0); cases++;
 
-    mount(undefined, () => {
-      alpha.access = { canUse: true, canEdit: false, canManage: false }; snapshots.set(alpha.agentId, management(alpha));
-    });
+    mount(undefined, () => { alpha.access = { canUse: true, canEdit: false, canManage: false }; snapshots.set(alpha.agentId, management(alpha)); });
     await screen.findByTestId('agent-settings-workflow');
-    assert.equal(Boolean(screen.queryByTestId('agent-settings-workflow-management-open')), false, 'Use-only is not Configure authority.');
-    assert.equal(reads('management').length, 0); cases += 1;
+    assert.equal(Boolean(screen.queryByTestId('agent-settings-workflow-management-open')), false);
+    assert.equal(requests.filter(row => inspectRead(row)).length, 0); cases++;
 
-    mount(); await open();
-    const packages = await section('packages');
-    fireEvent.click(within(packages).getByRole('button', { name: new RegExp(label('packages.configured'), 'u') }));
-    const selectedSkill = await screen.findByRole('checkbox', { name: label('packages.skill', { name: 'creative' }) });
-    assert.equal(checked(selectedSkill), true);
-    assert.equal(checked(screen.getByRole('checkbox', { name: label('packages.skill', { name: 'sibling' }) })), false);
-    assert.equal(reads('package-version').at(-1)?.url.searchParams.get('publishedRevisionRef'), oldPin);
-    assert.equal(reads('package-version').filter(request => request.url.searchParams.get('publishedRevisionRef') === nextPin).length, 0,
-      'Opening an exact old pin must not substitute the current HEAD.');
-    await loadBindings(); assert.equal(mode().value, 'selectable'); assert.equal(mode('library').value, 'fixed');
-    assert.equal(required('library').getAttribute('disabled'), '');
-    fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false));
-    fireEvent.click(save()); await saved();
-    const firstWrite = writes[0]; assert(firstWrite);
-    assert.deepEqual(Object.keys(firstWrite).sort(), ['agentId', 'expectedRevision', 'expectedWorkflowRevision', 'workflow']);
-    const submitted = firstWrite.workflow as AgentWorkflowConfiguration;
-    assert.deepEqual(submitted.packages[0].skillSelection, { kind: 'skills', relativeRoots: ['skills/creative'] });
-    assert.equal(submitted.packages[0].publishedRevisionRef, oldPin); assert.equal(submitted.packages[0].checksum, checksum);
-    const designSelection = submitted.packages[0].declarations[0].capabilities[0].selection; assert.equal(designSelection.mode, 'selectable');
-    if (designSelection.mode !== 'selectable') throw new Error('The actual submitted selection must remain selectable.');
-    assert.deepEqual(designSelection.allowedChoices[1].target, retained, 'Unrelated edits preserve the original opaque personal approval exactly.');
-    assert.equal(designSelection.allowedChoices[0].toolCap, null); assert.equal(designSelection.defaultChoiceId, 'studio');
-    assert(requests.filter(request => workflowRead(request, alpha.agentId)).length >= 2,
-      'A save acknowledgement must be followed by fresh central management, rather than adopting its User projection.');
-    const nativeSummary = await section('operations'); assert(nativeSummary.textContent?.includes('email_list_mailboxes'));
-    assert.equal(Boolean(within(nativeSummary).queryByRole('switch')), false); assert.equal(Boolean(within(nativeSummary).queryByRole('checkbox')), false);
-    assert.deepEqual(alpha.enabledTools, ['read', 'email_list_mailboxes']); cases += 1;
+    mount(); await open(); const pkg = await loadBindings(); await ready();
+    assert(checked(within(pkg).getByRole('checkbox', { name: /creative.*creative child/u })));
+    assert(!checked(within(pkg).getByRole('checkbox', { name: /sibling.*sibling child/u })));
+    assert.equal(mode().value, 'selectable'); assert.equal(required('library').disabled, true);
+    assert(!optionReads('package_version').some(row => row.option?.operation === 'package_version' && row.option.publishedRevisionRef === nextPin));
+    fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    const first = submitted(); assert.deepEqual(Object.keys(writes[0]).sort(), ['agentId', 'expectedRevision', 'expectedWorkflowRevision', 'extensions']);
+    assert.equal(first.workflow!.packages[0].publishedRevisionRef, oldPin); assert.equal(first.workflow!.packages[0].checksum, checksum);
+    assert.deepEqual(first.workflow!.packages[0].skillSelection, { kind: 'skills', relativeRoots: ['skills/creative'] });
+    const selection = designOf(first).selection; assert.equal(selection.mode, 'selectable'); if (selection.mode !== 'selectable') throw new Error('Expected selectable');
+    assert.deepEqual(selection.allowedChoices[1].target, retained); assert.equal(selection.defaultChoiceId, 'studio'); assert.equal(selection.allowedChoices[0].toolCap, null);
+    assert(requests.filter(row => inspectRead(row)).length >= 2, 'Acknowledgement is followed by real configure inspection, not its user projection.');
+    assert.deepEqual(alpha.enabledTools, ['read', 'email_list_mailboxes']); cases++;
 
-    await loadBindings();
-    fireEvent.change(capability('design').getByRole('combobox', { name: label('bindings.default') }), { target: { value: 'personal-original' } });
-    const personalPolicy = capability('design').getByTestId('workflow-management-personal-policy');
-    fireEvent.click(within(personalPolicy).getByRole('checkbox', { name: label('bindings.allowPersonal') }));
-    fireEvent.click(save()); await saved();
-    const secondWrite = writes[1]; assert(secondWrite); assert.equal(secondWrite.expectedRevision, 5); assert.equal(secondWrite.expectedWorkflowRevision, 3);
-    const updated = (secondWrite.workflow as AgentWorkflowConfiguration).packages[0].declarations[0].capabilities[0].selection;
-    assert.equal(updated.mode, 'selectable'); if (updated.mode !== 'selectable') throw new Error('Selectable binding required.');
-    assert.equal(updated.defaultChoiceId, 'personal-original'); assert.equal(updated.personalPolicy, undefined);
-    assert.deepEqual(updated.allowedChoices[1].target, retainedFor(5), 'The second Save uses refreshed opaque handles from management, not pre-save retention handles.'); cases += 1;
+    await loadBindings(); fireEvent.change(capability().getByRole('combobox', { name: 'Default' }), { target: { value: 'personal-original' } });
+    fireEvent.click(capability().getByRole('checkbox', { name: 'Personal account: canva' }));
+    await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    const second = designOf(submitted(1)).selection; assert.equal(second.mode, 'selectable'); if (second.mode !== 'selectable') throw new Error('Expected selectable');
+    assert.equal(second.defaultChoiceId, 'personal-original'); assert.equal(second.personalPolicy, undefined); assert.deepEqual(second.allowedChoices[1].target, retainedFor(5));
+    assert.equal(writes[1].expectedRevision, 5); assert.equal(writes[1].expectedWorkflowRevision, 3); cases++;
 
-    mount(undefined, () => { alpha.ownerUserId = 'foreign-agent-owner'; }); await open(); await loadBindings();
-    const originalChoice = capability('design').getAllByTestId('workflow-management-choice')[1];
-    fireEvent.click(within(originalChoice).getByRole('button', { name: label('target.personal') }));
-    const providerSelect = await within(originalChoice).findByRole('combobox', { name: label('target.provider') });
-    assert.equal(reads('personal-connections').length, 1);
-    assert.equal(reads('personal-connections')[0].url.searchParams.has('providerRef'), false,
-      'Opening own profiles is metadata-only; an explicit profile selection is a separate account-discovery request.');
-    fireEvent.change(providerSelect, { target: { value: 'opaque-own-profile' } });
-    const accountSelect = await within(originalChoice).findByRole('combobox', { name: label('target.account') }) as HTMLSelectElement;
-    assert.equal(reads('personal-connections').length, 2); assert.equal(reads('personal-connections')[1].url.searchParams.get('providerRef'), 'opaque-own-profile');
-    assert.equal(accountSelect.value, '', 'Multiple ACTIVE accounts must not implicitly select the first account.');
-    assert((within(originalChoice).getByRole('button', { name: label('target.use') }) as HTMLButtonElement).disabled);
-    fireEvent.change(accountSelect, { target: { value: 'opaque-second-account' } });
-    fireEvent.click(within(originalChoice).getByRole('button', { name: label('target.use') }));
-    fireEvent.click(save()); await saved();
-    const personalInput = (writes[0].workflow as AgentWorkflowConfiguration).packages[0].declarations[0].capabilities[0].selection;
-    assert.equal(personalInput.mode, 'selectable'); if (personalInput.mode !== 'selectable') throw new Error('Selectable binding required.');
-    assert.deepEqual(personalInput.allowedChoices[1].target, { kind: 'personal', source: 'composio', ownerUserId: 'fixture-user',
-      providerRef: 'opaque-own-profile', accountSelectionRef: 'opaque-second-account' },
-    'A new own personal choice binds the current actor, never the foreign owner of an edit-authorized Agent.');
-    assert(!JSON.stringify(writes[0]).includes('profileId')); assert(!JSON.stringify(writes[0]).includes('connectedAccountId'));
-    assert.equal(writes.length, 1); cases += 1;
-    }
+    mount(undefined, () => { alpha.ownerUserId = 'foreign-agent-owner'; snapshots.set(alpha.agentId, management(alpha)); });
+    await open(); await loadBindings(); fireEvent.click(capability().getAllByRole('button', { name: 'Change connection' })[1]);
+    await screen.findByRole('button', { name: /Design profile/u });
+    assert.equal(optionReads('connection_choices').length, 1); assert(!optionReads('connection_choices')[0].body?.profileId);
+    fireEvent.click(screen.getByRole('button', { name: /Design profile/u })); await screen.findByText('Second design account');
+    assert.equal(optionReads('connection_choices').length, 2); assert.equal(optionReads('connection_choices')[1].body?.profileId, 'owned-profile');
+    assert(save().disabled, 'Merely inspecting accounts cannot select the first one.');
+    const account = screen.getByText('Second design account').closest('div.flex'); assert(account);
+    fireEvent.click(within(account as HTMLElement).getByRole('button', { name: 'This account' }));
+    await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    const personal = designOf(submitted()).selection; assert(personal.mode === 'selectable');
+    assert.deepEqual(personal.allowedChoices[1].target, { kind: 'personal', source: 'composio', ownerUserId: 'fixture-user', providerRef: 'opaque-own-profile', accountSelectionRef: 'opaque-B' });
+    assert.equal(writes.length, 1); cases++;
+
+    const standaloneRef = 'canvas-connection:66666666-6666-4666-8666-666666666666';
+    const standalone = { mode: 'fixed' as const, configurationId: 'knowledge-mcp', entry: { selection: { kind: 'mcp' as const, source: 'mcp' as const,
+      target: { kind: 'shared' as const, connectionRef: standaloneRef, bindingRevision: 5 } }, requirement: 'required' as const, toolCap: ['lookup'] } };
+    const savedSummary = { configurationId: standalone.configurationId, selection: standalone.entry.selection, label: 'Saved Knowledge MCP',
+      scopeLabel: 'organization' as const, icon: { url: `/api/plugins/mcp-icons/${encodeURIComponent(standaloneRef)}?binding=${'a'.repeat(64)}`, sourceKey: 'exact-saved-mcp-logo' } };
+    mount((request, reply) => {
+      if (inspectRead(request)) snapshots.get(alpha.agentId)!.extensions.standaloneSummaries = [savedSummary];
+      return reply();
+    }, () => { const current = snapshots.get(alpha.agentId)!.extensions.configuration; assert(current?.mode === 'fixed'); current.standalone.push(structuredClone(standalone)); });
+    await open();
+    const standaloneHeader = () => screen.getByTestId('agent-extension-standalone').querySelector('summary')!;
+    await waitFor(() => assert(standaloneHeader().textContent?.includes('Saved Knowledge MCP')));
+    assert.equal(within(standaloneHeader()).getByTestId('plugin-extension-avatar').dataset.sourceKey, savedSummary.icon.sourceKey);
+    await dirtyDesign(); fireEvent.click(save()); await saved();
+    assert.deepEqual(submitted().standalone, [standalone], 'A package-only edit preserves complete V2 standalone settings and caps.');
+    assert.equal(screen.getAllByTestId('agent-extension-standalone').length, 1);
+    await waitFor(() => assert(standaloneHeader().textContent?.includes('Saved Knowledge MCP')));
+    assert.equal(within(standaloneHeader()).getByTestId('plugin-extension-avatar').dataset.sourceKey, savedSummary.icon.sourceKey,
+      'Settings -> genuine inspect DTO -> shared editor retains exact connection display metadata after save/reload.'); cases++;
 
     let firstConflict = true, failedReload = false, failedSave = false;
     mount((request, reply) => {
-      if (request.method === 'PATCH' && firstConflict) {
-        firstConflict = false; alpha = { ...alpha, revision: 5, workflowRevision: 3 };
-        snapshots.set(alpha.agentId, management(alpha));
-        return Response.json({ success: false, code: 'AGENT_WORKFLOW_REVISION_CONFLICT' }, { status: 409 });
-      }
-      if (workflowRead(request, alpha.agentId) && failedReload) {
-        failedReload = false; return Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: 503 });
-      }
-      if (request.method === 'PATCH' && failedSave) {
-        failedSave = false; return Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: 503 });
-      }
+      if (request.method === 'PATCH' && firstConflict) { firstConflict = false; alpha = { ...alpha, revision: 5, workflowRevision: 3 }; snapshots.set(alpha.agentId, management(alpha)); return Response.json({ success: false, code: 'AGENT_WORKFLOW_REVISION_CONFLICT' }, { status: 409 }); }
+      if (inspectRead(request) && failedReload) { failedReload = false; return Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: 503 }); }
+      if (request.method === 'PATCH' && failedSave) { failedSave = false; return Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: 503 }); }
       return reply();
     });
-    await open(); await dirtyDesign(); fireEvent.click(save());
-    await screen.findByText(label('errors.conflict')); assert.equal(checked(required()), false); assert.equal(save().disabled, true);
-    const beforeCancel = reads('management').length;
-    fireEvent.click(screen.getByTestId('workflow-management-reload'));
-    const cancelled = await screen.findByRole('alertdialog');
-    fireEvent.click(within(cancelled).getByRole('button', { name: label('confirm.cancel') }));
-    assert.equal(reads('management').length, beforeCancel); assert.equal(checked(required()), false);
-    failedReload = true; await reloadDiscard(); await screen.findByText(label('errors.load'));
-    assert.equal(checked(required()), false); assert.equal(save().disabled, true,
-      'A failed refresh after 409 cannot refresh the draft CAS or reopen Save.');
-    assert.equal(writes.length, 1);
-    await reloadDiscard(); await waitFor(() => assert.equal(Boolean(screen.queryByTestId('workflow-management-error')), false));
-    await dirtyDesign(); failedSave = true; fireEvent.click(save()); await screen.findByText(label('errors.load'));
-    assert.equal(checked(required()), false); await waitFor(() => assert.equal(save().disabled, false,
-      'An ordinary failed Save503 retains the same draft and allows an explicit retry without adopting revisions.'));
-    fireEvent.click(save()); await saved();
-    assert.equal(writes.length, 3); assert.equal(writes[1].expectedRevision, 5); assert.equal(writes[2].expectedRevision, 5);
-    assert.equal(writes[1].expectedWorkflowRevision, 3); assert.equal(writes[2].expectedWorkflowRevision, 3); cases += 1;
-    if (process.argv.includes('--recovery-only')) { assert.equal(transportErrors.length, 0); console.log('PASS isolated dirty recovery.'); return; }
+    await open(); await dirtyDesign(); fireEvent.click(save()); await screen.findByText(label('errors.conflict')); assert(save().disabled); assert(!checked(required()));
+    const beforeCancel = requests.filter(row => inspectRead(row)).length; reload();
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: label('confirm.cancel') }));
+    assert.equal(requests.filter(row => inspectRead(row)).length, beforeCancel); assert(!checked(required()));
+    failedReload = true; await reloadDiscard(); await screen.findByText(label('errors.load')); assert(save().disabled); await loadBindings(); assert(!checked(required()));
+    assert.equal(writes.length, 1); await reloadDiscard(); await loadBindings(); await dirtyDesign();
+    failedSave = true; fireEvent.click(save()); await screen.findByText(label('errors.load'));
+    assert(!checked(required())); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    assert.equal(writes.length, 3); assert.deepEqual(writes.slice(1).map(item => [item.expectedRevision, item.expectedWorkflowRevision]), [[5, 3], [5, 3]]); cases++;
 
-    mount((request, reply) => request.method === 'PATCH'
-      ? Response.json({ success: false, code: 'AGENT_ACCESS_DENIED' }, { status: 403 }) : reply());
+    let failAcknowledgedRefresh = false;
+    mount((request, reply) => {
+      if (request.method === 'PATCH') { const acknowledgement = reply(); failAcknowledgedRefresh = true; return acknowledgement; }
+      if (inspectRead(request) && failAcknowledgedRefresh) return Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: 503 });
+    });
+    await open(); await dirtyDesign(); fireEvent.click(save()); await screen.findByText(label('errors.load'));
+    assert.equal(alpha.revision, 5); assert(save().disabled); fireEvent.click(save()); assert.equal(writes.length, 1,
+      'An acknowledged write followed by failed Inspect cannot be submitted twice.');
+    assert(dialog().textContent?.includes('The change was already accepted. Reload the saved configuration.'));
+    intercept = undefined; reload(); await loadBindings(); await dirtyDesign(); fireEvent.click(save()); await saved();
+    assert.equal(writes[1].expectedRevision, 5); assert.equal(writes[1].expectedWorkflowRevision, 3); cases++;
+
+    mount(request => request.method === 'PATCH' ? Response.json({ success: false, code: 'AGENT_ACCESS_DENIED' }, { status: 403 }) : undefined);
     await open(); await dirtyDesign(); fireEvent.click(save()); await screen.findByText(label('errors.denied'));
-    assert.equal(checked(required()), false); assert((required() as HTMLInputElement).disabled); assert(save().disabled);
-    fireEvent.click(save()); assert.equal(writes.length, 1, 'A denial never causes a fallback configuration or a second write.'); cases += 1;
+    assert(required().disabled); assert(save().disabled); fireEvent.click(save()); assert.equal(writes.length, 1); cases++;
 
-    mount(undefined, () => {
-      const original = snapshots.get(alpha.agentId)!;
-      snapshots.set(alpha.agentId, { ...original, configurationState: 'blocked', configuration: null, unavailablePackageCount: 1 });
-    });
-    await open(); await screen.findByTestId('workflow-management-blocked'); assert(save().disabled);
-    assert.equal(writes.length, 0); assert.equal(Boolean(screen.queryByTestId('workflow-management-packages')), false,
-      'An inaccessible central configuration must not silently become an editable empty package list.');
-    fireEvent.click(screen.getByRole('button', { name: label('blocked.rebuild') }));
-    const rebuild = await screen.findByRole('alertdialog'); fireEvent.click(within(rebuild).getByRole('button', { name: label('confirm.rebuild') }));
-    await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    assert.deepEqual(writes[0].workflow, { version: 1, packages: [] }); assert.equal(writes.length, 1); cases += 1;
+    mount(undefined, () => { const value = snapshots.get(alpha.agentId)!; value.extensions.configurationState = 'blocked'; value.extensions.configuration = null; });
+    await open(); await screen.findByText('The saved selection is unavailable. Editing does not replace it with an empty selection.');
+    assert(save().disabled); assert(!screen.queryByTestId('agent-extension-package')); assert.equal(writes.length, 0);
+    await confirmReset('fixed'); fireEvent.click(save()); await saved(); assert.deepEqual(submitted().workflow?.packages, []); assert.equal(writes.length, 1); cases++;
 
-    mount(); await open();
-    const oldPackage = await section('packages');
-    fireEvent.click(within(oldPackage).getByRole('button', { name: new RegExp(label('packages.configured'), 'u') }));
-    await screen.findByRole('checkbox', { name: label('packages.skill', { name: 'creative' }) });
-    fireEvent.click(within(oldPackage).getByRole('button', { name: label('packages.versions') }));
-    const versionSelect = await screen.findByRole('combobox', { name: label('packages.publishedVersion') });
-    fireEvent.change(versionSelect, { target: { value: nextPin } });
-    fireEvent.click(screen.getByRole('button', { name: label('packages.useVersion') }));
-    await waitFor(() => assert(reads('package-version').some(request => request.url.searchParams.get('publishedRevisionRef') === nextPin)));
-    const changedPackages = await section('packages');
-    fireEvent.click(within(changedPackages).getByRole('button', { name: /Creative package/u }));
-    const rootMode = await screen.findByRole('combobox', { name: label('packages.selection') }) as HTMLSelectElement;
-    assert.equal(rootMode.value, 'skills', 'A removed Child root cannot silently turn into whole-Plugin selection.');
-    const replacement = screen.getByRole('checkbox', { name: label('packages.skill', { name: 'replacement' }) });
-    assert.equal(checked(replacement), false); assert(save().disabled);
-    fireEvent.click(replacement);
-    await section('bindings'); await screen.findByText('skills/replacement/agents/canvas.yaml', { exact: true });
-    await waitFor(() => assert.equal(mode('library').value, 'none'));
-    assert.equal(Boolean(screen.queryByText(label('target.retained'))), false, 'An explicit pin replacement cannot carry a prior personal/MCP approval into a new slot.');
-    assert(save().disabled); assert.equal(writes.length, 0);
-    fireEvent.change(mode('library'), { target: { value: 'fixed' } });
-    fireEvent.click(capability('library').getByRole('button', { name: label('target.shared') }));
-    const sharedSelect = await capability('library').findByRole('combobox', { name: label('target.shared') });
-    fireEvent.change(sharedSelect, { target: { value: secondConnection } });
-    fireEvent.click(capability('library').getByRole('button', { name: label('target.use') }));
+    mount(); await open(); await loadBindings(); fireEvent.click(screen.getByRole('button', { name: 'Remove package from agent' }));
     await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    const replaced = writes[0].workflow as AgentWorkflowConfiguration;
-    assert.equal(replaced.packages[0].publishedRevisionRef, nextPin); assert.equal(replaced.packages[0].checksum, 'c'.repeat(64));
-    assert.deepEqual(replaced.packages[0].skillSelection, { kind: 'skills', relativeRoots: ['skills/replacement'] });
-    assert(!JSON.stringify(replaced).includes(retained.retainedBindingRef));
-    fireEvent.click(screen.getByRole('button', { name: label('clear') }));
-    const reset = await screen.findByRole('alertdialog'); fireEvent.click(within(reset).getByRole('button', { name: label('confirm.clear') }));
-    await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    assert.equal(writes[1].workflow, null); assert.deepEqual(alpha.enabledTools, ['read', 'email_list_mailboxes']); cases += 1;
+    assert.equal(submitted().mode, 'fixed'); assert.deepEqual(submitted().workflow?.packages, []); assert.deepEqual(submitted().selections, []);
+    assert.equal(alpha.workflowVersion, 2, 'Fixed empty must never silently become legacy inheritance.'); assert.deepEqual(alpha.enabledTools, ['read', 'email_list_mailboxes']);
+    await confirmReset('inherit'); fireEvent.click(save()); await saved();
+    assert.deepEqual(writes[1].extensions, { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' }); assert.equal(alpha.workflowVersion, null);
+    assert.deepEqual(alpha.enabledTools, ['read', 'email_list_mailboxes']); cases++;
 
-    let oldAlphaRead: HeldResponse | undefined;
-    mount((request, reply) => {
-      if (!workflowRead(request, alpha.agentId) || oldAlphaRead) return;
-      oldAlphaRead = retain(reply()); return oldAlphaRead.promise;
-    });
-    await open(); await waitFor(() => assert(oldAlphaRead));
-    // Real Selector event handlers; these deterministic epoch tests do not claim a native click through Radix's inert background.
-    choose('Beta'); await open(); await loadBindings();
-    assert.equal(mode().value, 'fixed'); assert.equal(checked(required()), false);
-    intercept = undefined; assert(oldAlphaRead); await release(oldAlphaRead);
-    assert.equal(mode().value, 'fixed'); assert.equal(checked(required()), false);
+    mount(); await open(); await loadBindings(); fireEvent.click(screen.getByRole('button', { name: 'Remove package from agent' }));
+    fireEvent.click(await screen.findByRole('button', { name: /Creative package · Plugin/u }));
+    fireEvent.change(await screen.findByLabelText('Published version'), { target: { value: nextPin } });
+    await waitFor(() => assert.equal(screen.queryByText('Checking package version…'), null));
+    fireEvent.click(screen.getByRole('button', { name: 'Select for agent' }));
+    const replacedPkg = await screen.findByTestId('agent-extension-package'); fireEvent.click(replacedPkg.querySelector('summary')!);
+    await within(replacedPkg).findByText('replacement');
+    fireEvent.click(within(replacedPkg).getByRole('button', { name: 'library · Required connection' }));
+    fireEvent.change(screen.getByLabelText('Binding for library'), { target: { value: 'fixed' } });
+    await screen.findByText('Campaign design'); const shared = screen.getByText('Campaign design').closest('div.rounded-md'); assert(shared);
+    fireEvent.click(within(shared as HTMLElement).getByRole('button', { name: 'Choose' }));
+    await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    const replaced = submitted(); assert.equal(replaced.workflow!.packages[0].publishedRevisionRef, nextPin); assert.equal(replaced.workflow!.packages[0].checksum, 'c'.repeat(64));
+    assert(!JSON.stringify(replaced).includes(retained.retainedBindingRef)); assert(!JSON.stringify(replaced).includes('skills/creative')); cases++;
+
+    let oldRead: HeldResponse | undefined;
+    mount((request, reply) => { if (!inspectRead(request) || oldRead) return; oldRead = retain(reply()); return oldRead.promise; });
+    await open(); await waitFor(() => assert(oldRead)); choose('Beta'); await open(); await loadBindings();
+    assert.equal(mode().value, 'fixed'); assert(!checked(required())); intercept = undefined; assert(oldRead); await release(oldRead);
+    assert.equal(mode().value, 'fixed'); fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
+    assert.equal(writes[0].agentId, beta.agentId); cases++;
+
+    oldRead = undefined;
+    mount((request, reply) => { if (!inspectRead(request) || oldRead) return; oldRead = retain(reply()); return oldRead.promise; });
+    await open(); await waitFor(() => assert(oldRead)); choose('Beta'); await open(); await loadBindings();
+    alpha = { ...alpha, revision: 5, workflowRevision: 3 }; const freshAlpha = management(alpha); assert(freshAlpha.extensions.configuration?.mode === 'fixed');
+    designOf(freshAlpha.extensions.configuration).required = false; snapshots.set(alpha.agentId, freshAlpha); intercept = undefined;
+    choose('Alpha'); await open(); await loadBindings(); assert(!checked(required())); assert(oldRead); await release(oldRead); assert(!checked(required()));
     fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    assert.equal(writes.length, 1); assert.equal(writes[0].agentId, beta.agentId);
-    const betaConfig = writes[0].workflow as AgentWorkflowConfiguration;
-    assert.equal(betaConfig.packages[0].declarations[0].capabilities[0].selection.mode, 'fixed'); cases += 1;
-
-    oldAlphaRead = undefined;
-    mount((request, reply) => {
-      if (!workflowRead(request, alpha.agentId) || oldAlphaRead) return;
-      oldAlphaRead = retain(reply()); return oldAlphaRead.promise;
-    });
-    await open(); await waitFor(() => assert(oldAlphaRead)); choose('Beta'); await open(); await loadBindings();
-    alpha = { ...alpha, revision: 5, workflowRevision: 3 };
-    const freshAlpha = management(alpha); assert(freshAlpha.configuration);
-    freshAlpha.configuration.packages[0].declarations[0].capabilities[0].required = false;
-    snapshots.set(alpha.agentId, freshAlpha); intercept = undefined;
-    choose('Alpha'); await open(); await loadBindings(); assert.equal(checked(required()), false);
-    assert(oldAlphaRead); await release(oldAlphaRead); assert.equal(checked(required()), false);
-    fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    assert.equal(writes[0].agentId, alpha.agentId); assert.equal(writes[0].expectedRevision, 5); assert.equal(writes[0].expectedWorkflowRevision, 3); cases += 1;
+    assert.equal(writes[0].expectedRevision, 5); assert.equal(writes[0].expectedWorkflowRevision, 3); cases++;
 
     for (const errorStatus of [null, 503] as const) {
       let oldWrite: HeldResponse | undefined;
-      mount((request, reply) => {
-        if (request.method !== 'PATCH') return;
-        oldWrite = retain(errorStatus === null ? reply() : Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: errorStatus }));
-        return oldWrite.promise;
-      });
+      mount((request, reply) => { if (request.method !== 'PATCH') return; oldWrite = retain(errorStatus === null ? reply() : Response.json({ success: false, code: 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE' }, { status: errorStatus })); return oldWrite.promise; });
       await open(); await dirtyDesign(); fireEvent.click(save()); await waitFor(() => assert(oldWrite));
-      choose('Beta'); await open(); await loadBindings(); assert.equal(mode().value, 'fixed');
-      const beforeReads = requests.filter(request => workflowRead(request, alpha.agentId)).length;
-      intercept = undefined; assert(oldWrite); await release(oldWrite);
-      await waitFor(() => assert.equal(Boolean(screen.queryByTestId('workflow-management-error')), false));
-      assert.equal(mode().value, 'fixed'); assert.equal(checked(required()), false);
-      assert.equal(requests.filter(request => workflowRead(request, alpha.agentId)).length, beforeReads,
-        'A departed Agent save ACK/error must not trigger an old Agent reload into the active dialog.');
-      fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-      assert.equal(writes[1].agentId, beta.agentId); assert.equal(writes[1].expectedRevision, 4); cases += 1;
+      choose('Beta'); await open(); await loadBindings(); assert.equal(mode().value, 'fixed'); const reads = requests.filter(row => inspectRead(row)).length;
+      intercept = undefined; assert(oldWrite); await release(oldWrite); assert.equal(mode().value, 'fixed'); assert(!checked(required()));
+      assert.equal(requests.filter(row => inspectRead(row)).length, reads, 'A departed save cannot trigger an old-agent reload.');
+      fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved(); assert.equal(writes[1].agentId, beta.agentId); cases++;
     }
 
     let pendingWrite: HeldResponse | undefined;
-    mount((request, reply) => {
-      if (request.method !== 'PATCH') return;
-      pendingWrite = retain(reply()); return pendingWrite.promise;
-    });
+    mount((request, reply) => { if (request.method !== 'PATCH') return; pendingWrite = retain(reply()); return pendingWrite.promise; });
     await open(); await dirtyDesign(); fireEvent.click(save()); await waitFor(() => assert(pendingWrite));
-    choose('Beta'); await open(); await loadBindings(); choose('Alpha'); await open();
-    const readCount = requests.filter(request => workflowRead(request, alpha.agentId)).length;
-    await act(async () => {}); assert.equal(requests.filter(request => workflowRead(request, alpha.agentId)).length, readCount);
-    assert(screen.getByTestId('agent-workflow-management-dialog').textContent?.includes(label('loading')),
-      'Returning to an Agent with a sent write waits for its acknowledgement before reading a new management snapshot.');
-    intercept = undefined; assert(pendingWrite); await release(pendingWrite);
-    await loadBindings(); assert.equal(checked(required()), false);
-    fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved();
-    assert.equal(writes[1].agentId, alpha.agentId); assert.equal(writes[1].expectedRevision, 5); assert.equal(writes[1].expectedWorkflowRevision, 3); cases += 1;
+    choose('Beta'); await open(); await loadBindings(); choose('Alpha'); await open(); const readCount = requests.filter(row => inspectRead(row)).length;
+    await act(async () => {}); assert.equal(requests.filter(row => inspectRead(row)).length, readCount); assert(dialog().textContent?.includes(label('loading')));
+    intercept = undefined; assert(pendingWrite); await release(pendingWrite); await loadBindings(); assert(!checked(required()));
+    fireEvent.click(required()); await waitFor(() => assert.equal(save().disabled, false)); fireEvent.click(save()); await saved(); assert.equal(writes[1].expectedRevision, 5); cases++;
 
     let cancelledRead: HeldResponse | undefined;
-    mount((request, reply) => {
-      if (!workflowRead(request, alpha.agentId)) return;
-      cancelledRead = retain(reply()); return cancelledRead.promise;
-    });
-    await open(); await waitFor(() => assert(cancelledRead));
-    const closeWhileReading = within(screen.getByTestId('agent-workflow-management-dialog')).getByRole('button', { name: label('close') }) as HTMLButtonElement;
-    assert.equal(closeWhileReading.disabled, false, 'A pending metadata read must remain cancellable.');
-    fireEvent.click(closeWhileReading); await waitFor(() => assert.equal(Boolean(screen.queryByTestId('agent-workflow-management-dialog')), false));
-    assert(document.activeElement === screen.getByTestId('agent-settings-workflow-management-open'), 'Close restores focus to the persistent management trigger.');
-    intercept = undefined; assert(cancelledRead); await release(cancelledRead);
-    assert.equal(Boolean(screen.queryByTestId('agent-workflow-management-dialog')), false); assert.equal(writes.length, 0);
-    alpha = { ...alpha, revision: 5, workflowRevision: 3 };
-    const reopened = management(alpha); assert(reopened.configuration); reopened.configuration.packages[0].declarations[0].capabilities[0].required = false;
-    snapshots.set(alpha.agentId, reopened); await open(); await loadBindings(); assert.equal(checked(required()), false); cases += 1;
+    mount((request, reply) => { if (!inspectRead(request)) return; cancelledRead = retain(reply()); return cancelledRead.promise; });
+    await open(); await waitFor(() => assert(cancelledRead)); close(); await waitFor(() => assert(!screen.queryByTestId('agent-workflow-management-dialog')));
+    assert(document.activeElement === screen.getByTestId('agent-settings-workflow-management-open')); intercept = undefined; assert(cancelledRead); await release(cancelledRead);
+    assert(!screen.queryByTestId('agent-workflow-management-dialog')); assert.equal(writes.length, 0); cases++;
 
     let actorRead: HeldResponse | undefined;
-    const actorPanel = mount((request, reply) => {
-      if (!workflowRead(request, alpha.agentId) || actorRead) return;
-      actorRead = retain(reply()); return actorRead.promise;
-    });
+    const actorPanel = mount((request, reply) => { if (!inspectRead(request) || actorRead) return; actorRead = retain(reply()); return actorRead.promise; });
     await open(); await waitFor(() => assert(actorRead)); intercept = undefined;
-    alpha = { ...alpha, revision: 5, workflowRevision: 3 };
-    const secondActorSnapshot = management(alpha); assert(secondActorSnapshot.configuration);
-    secondActorSnapshot.configuration.packages[0].declarations[0].capabilities[0].required = false;
-    snapshots.set(alpha.agentId, secondActorSnapshot);
-    actorPanel.rerender(<NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}><AgentSettingsPanel currentUserId="second-actor" /></NextIntlClientProvider>);
-    await waitFor(() => assert.equal(Boolean(screen.queryByTestId('agent-workflow-management-dialog')), false));
-    await open(); await loadBindings(); assert.equal(checked(required()), false);
-    assert(actorRead); await release(actorRead); assert.equal(checked(required()), false);
-    assert.equal(writes.length, 0); assert(requests.every(request => !request.url.searchParams.has('actorId')),
-      'The UI actor identity fences delivery but is never a caller-controlled API authority filter.'); cases += 1;
+    alpha = { ...alpha, revision: 5, workflowRevision: 3 }; const secondActor = management(alpha); assert(secondActor.extensions.configuration?.mode === 'fixed');
+    designOf(secondActor.extensions.configuration).required = false; snapshots.set(alpha.agentId, secondActor);
+    actorPanel.rerender(wrap(<AgentSettingsPanel currentUserId="second-actor" />)); await waitFor(() => assert(!screen.queryByTestId('agent-workflow-management-dialog')));
+    await open(); await loadBindings(); assert(!checked(required())); assert(actorRead); await release(actorRead); assert(!checked(required())); assert.equal(writes.length, 0); cases++;
 
-    mount((request, reply) => workflowRead(request, alpha.agentId)
-      ? ok({ ...snapshots.get(alpha.agentId), agentId: beta.agentId }) : reply());
-    await open(); await screen.findByText(label('errors.conflict'));
-    assert(save().disabled); assert.equal(Boolean(screen.queryByTestId('workflow-management-packages')), false); assert.equal(writes.length, 0);
-    intercept = undefined; fireEvent.click(screen.getByTestId('workflow-management-reload'));
-    await section('packages'); assert.equal(Boolean(screen.queryByTestId('workflow-management-error')), false); cases += 1;
+    mount((request, reply) => inspectRead(request) ? ok({ ...snapshots.get(alpha.agentId), extensions: { ...snapshots.get(alpha.agentId)!.extensions, agentId: beta.agentId } }) : reply());
+    await open(); await screen.findByText(label('errors.conflict')); assert(save().disabled); assert(!screen.queryByTestId('agent-extension-package'));
+    intercept = undefined; reload(); await loadBindings(); assert.equal(writes.length, 0); cases++;
 
-    await staleListCase();
+    mount(); await open(); await dirtyDesign(); let staleList: HeldResponse | undefined;
+    intercept = (request, reply) => { if (request.method !== 'GET' || request.url.pathname !== '/api/agents' || request.url.searchParams.has('agentId')) return; staleList = retain(reply()); return staleList.promise; };
+    const selector = screen.getByText(messages.settings.agentPanel.selector.title).closest<HTMLElement>('[data-slot="card"]'); assert(selector);
+    fireEvent.click(within(selector).getByRole('button', { name: messages.settings.agentPanel.selector.reload, hidden: true })); await waitFor(() => assert(staleList));
+    fireEvent.click(save()); await saved(); intercept = undefined; assert(staleList); await release(staleList); close();
+    await waitFor(() => assert(!screen.queryByTestId('agent-workflow-management-dialog')));
+    const nativeRow = screen.getByText('read', { exact: true }).closest<HTMLElement>('[data-slot="collapsible"]'); assert(nativeRow);
+    fireEvent.click(within(nativeRow).getByRole('switch', { name: 'Read files' }));
+    await waitFor(() => assert(writes.some(item => Object.hasOwn(item, 'enabledTools'))));
+    assert.equal(writes.find(item => Object.hasOwn(item, 'enabledTools'))?.expectedRevision, 5); cases++;
+
+    mount(undefined, undefined, true); fireEvent.click(screen.getByTestId('package-agent-setup-expand'));
+    const agentSelect = await screen.findByTestId('package-agent-setup-select'); fireEvent.change(agentSelect, { target: { value: alpha.agentId } });
+    fireEvent.click(screen.getByTestId('package-agent-setup-open')); await dirtyDesign(); fireEvent.click(save()); await saved();
+    assert.equal(writes.length, 1); assert.equal(writes[0].agentId, alpha.agentId); assert.equal(submitted().workflow!.packages[0].publishedRevisionRef, oldPin);
+    assert.equal(requests.find(row => row.method === 'PATCH')?.url.searchParams.get('organizationId'), null,
+      'Package parent forwards its real workspace context and does not invent the Settings organization/project.'); cases++;
+
     assert.equal(transportErrors.length, 0);
-    console.log(`PASS agent workflow management UI: ${cases} controlled-HTTP cases (no backend/SDK authority claim).`);
+    console.log(`PASS ${cases} real shared-editor management React cases through Settings and PackageAgentSetup: exact pins/children/retention/accounts, CAS/recovery, held-response scopes, acknowledgement and native-tools revision. HTTP/auth-session metadata controlled; no backend/SDK/browser E2E claim.`);
   } finally {
-    for (const pending of held) pending.release(); cleanup(); loader._load = originalLoad; globalThis.fetch = originalFetch;
-    dom.window.close();
+    for (const pending of held) pending.release(); cleanup(); loader._load = originalLoad; globalThis.fetch = originalFetch; dom.window.close();
   }
 }
 void main().catch(error => { console.error(error); process.exitCode = 1; });

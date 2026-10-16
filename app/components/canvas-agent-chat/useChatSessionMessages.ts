@@ -23,7 +23,8 @@ import {
   rememberChatSessionCacheEntry,
 } from '@/app/lib/chat/session-cache';
 import { fetchChatSessionMessages, patchChatSessions, type ChatSessionMessagesPayload } from '@/app/lib/chat/session-api';
-import { loadComposerDraft } from '@/app/lib/chat/draft-storage';
+import { loadComposerDraft, loadComposerDraftBody } from '@/app/lib/chat/draft-storage';
+import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type {
   AISession,
@@ -86,6 +87,7 @@ type UseChatSessionMessagesParams = {
   setHasUnreadInCurrentSession: Dispatch<SetStateAction<boolean>>;
   setHistory: Dispatch<SetStateAction<AISession[]>>;
   setInput: Dispatch<SetStateAction<string>>;
+  setInputBody?: Dispatch<SetStateAction<ChatBodyV1>>;
   setIsLoadingOlder: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setOldestMessageId: Dispatch<SetStateAction<number | null>>;
@@ -148,6 +150,7 @@ export function useChatSessionMessages({
   setHasUnreadInCurrentSession,
   setHistory,
   setInput,
+  setInputBody,
   setIsLoadingOlder,
   setMessages,
   setOldestMessageId,
@@ -407,7 +410,9 @@ export function useChatSessionMessages({
     resetRuntimeMessageRefs();
     userStartedNewChatRef.current = false;
     const sessionDraft = loadComposerDraft(session.sessionId);
-    setInput(sessionDraft ?? '');
+    const sessionDraftBody = loadComposerDraftBody(session.sessionId);
+    if (sessionDraftBody && setInputBody) setInputBody(sessionDraftBody);
+    else setInput(sessionDraft ?? '');
     setShowMobileDetails(false);
     setActiveProvider(session.provider || DEFAULT_PROVIDER_ID);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
@@ -422,12 +427,16 @@ export function useChatSessionMessages({
     const cachedCandidate = readCachedChatSession(sessionAgentId, session.sessionId) || readLatestCachedChatSession(session.sessionId);
     const cachedEntry = cachedCandidate && (!workspaceId || cachedCandidate.session.workspace?.workspaceId === workspaceId)
       ? cachedCandidate : null;
-    const hasCachedMessages = Boolean(cachedEntry && isCacheableMessageSet(cachedEntry.messages));
+    // A local pre-response placeholder has no persisted identity and cannot
+    // establish an active response after reload. Live events stay independent.
+    const cachedMessages = cachedEntry?.messages.filter(message => !(message.role === 'assistant' && message.status === 'sending'
+      && !message.piMessage && typeof message.content === 'string' && !message.content.trim() && !message.attachments?.length)) ?? [];
+    const hasCachedMessages = Boolean(cachedEntry && isCacheableMessageSet(cachedMessages));
     setIsLoadingMessages(!hasCachedMessages);
 
     if (cachedEntry && hasCachedMessages) {
-      setMessages(cachedEntry.messages);
-      hydrateRuntimeMessageRefs(cachedEntry.messages);
+      setMessages(cachedMessages);
+      hydrateRuntimeMessageRefs(cachedMessages);
       applyPagination(cachedEntry);
       const initialScrollTop = scrollContainerRef.current?.scrollTop;
       requestAnimationFrame(() => {
@@ -467,7 +476,7 @@ export function useChatSessionMessages({
       setShowUnreadBanner(false);
     }
 
-    const requestSnapshot = cachedEntry && hasCachedMessages ? cachedEntry.messages : [];
+    const requestSnapshot = cachedEntry && hasCachedMessages ? cachedMessages : [];
     const initialScrollTop = scrollContainerRef.current?.scrollTop;
     try {
       const statusPromise = ensureSessionSubscribed(session.sessionId).then(() => (
@@ -552,7 +561,7 @@ export function useChatSessionMessages({
         }
       }
     }
-  }, [activeWorkspaceId, applyMessagePage, applyPagination, cancelSessionLoad, deferredSavedMessageRefreshSessionRef, hasLiveMessagesInProgress, isAtBottomRef, refreshSavedMessagesRef, scrollContainerRef, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, skipNextSessionStatusRefreshRef, t, userStartedNewChatRef, wsRequest]);
+  }, [activeWorkspaceId, applyMessagePage, applyPagination, cancelSessionLoad, deferredSavedMessageRefreshSessionRef, hasLiveMessagesInProgress, isAtBottomRef, refreshSavedMessagesRef, scrollContainerRef, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasUnreadInCurrentSession, setHistory, setInput, setInputBody, setIsLoadingOlder, setLastCompactionMarker, setMessages, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, skipNextSessionStatusRefreshRef, t, userStartedNewChatRef, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;

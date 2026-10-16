@@ -54,7 +54,7 @@ type AgentGrantsEditorProps = {
   active: boolean;
   agentId: string;
   revision: number;
-  onChanged?: (agent: AgentSummary) => void | Promise<void>;
+  onChanged?: (agent: AgentSummary, mutation: { expectedRevision: number }) => void | Promise<void>;
 };
 
 const EMPTY_TARGETS: AgentGrantTargetCatalog = {
@@ -227,6 +227,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
 
   const save = async () => {
     if (!canSubmit) return;
+    const expectedRevision = currentRevision;
     setSaving(true);
     setError(null);
     try {
@@ -236,7 +237,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId,
-          expectedRevision: currentRevision,
+          expectedRevision,
           targetType,
           targetId: resolvedTargetId,
           ...accessPayload(level),
@@ -248,7 +249,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
         data.grant,
       ].sort((left, right) => `${left.targetType}:${left.targetId}`.localeCompare(`${right.targetType}:${right.targetId}`)));
       if (targetType !== 'organization') setTargetId('');
-      await onChanged?.(data.agent);
+      await onChanged?.(data.agent, { expectedRevision });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.save'));
     } finally {
@@ -258,6 +259,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
 
   const remove = async (grant: AgentGrant) => {
     const key = `${grant.targetType}:${grant.targetId}`;
+    const expectedRevision = currentRevision;
     setPendingKey(key);
     setError(null);
     try {
@@ -267,14 +269,14 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId,
-          expectedRevision: currentRevision,
+          expectedRevision,
           targetType: grant.targetType,
           targetId: grant.targetId,
         }),
       }));
       setAgent(data.agent);
       setGrants((current) => current.filter((entry) => !(entry.targetType === grant.targetType && entry.targetId === grant.targetId)));
-      await onChanged?.(data.agent);
+      await onChanged?.(data.agent, { expectedRevision });
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : t('errors.remove'));
     } finally {

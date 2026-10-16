@@ -275,8 +275,13 @@ export async function listComposioProfiles(ownerUserIdValue: string): Promise<Co
 }
 
 export async function listExistingComposioProfiles(ownerUserIdValue: string): Promise<ComposioConnectionProfile[]> {
+  return withDatabase(database => listExistingComposioProfilesOnConnection(database, ownerUserIdValue));
+}
+
+/** Read existing profiles using the caller's lease; never initializes profiles or workspace defaults. */
+export async function listExistingComposioProfilesOnConnection(database: SqlConnection,
+  ownerUserIdValue: string): Promise<ComposioConnectionProfile[]> {
   const ownerUserId = normalizeUserId(ownerUserIdValue);
-  return withDatabase(async (database) => {
     const rows = await database.all(`
       SELECT
         profile.id,
@@ -306,8 +311,14 @@ export async function listExistingComposioProfiles(ownerUserIdValue: string): Pr
       WHERE profile.owner_user_id = $1 AND profile.status = 'active'
       ORDER BY profile.is_default DESC, profile.created_at ASC, profile.id ASC
     `, [ownerUserId]) as ProfileWithUsageRow[];
-    return rows.map(profileFromRow);
-  });
+  return rows.map(profileFromRow);
+}
+
+/** Exact active owner binding only, using the same profile identity and mapper as the ordinary resolver. */
+export async function readOwnedComposioProfileOnConnection(database: SqlConnection,
+  ownerUserIdValue: string, profileIdValue: string): Promise<ComposioConnectionProfile | null> {
+  const row = await getOwnedProfileRow(database, normalizeUserId(ownerUserIdValue), normalizeProfileId(profileIdValue), { activeOnly: true });
+  return row ? profileFromRow(row) : null;
 }
 
 export async function createComposioProfile(input: {

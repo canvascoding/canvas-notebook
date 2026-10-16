@@ -1,338 +1,215 @@
 'use client';
 
-import {
-  useCallback,
-  createElement,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  startTransition,
-  type ChangeEvent,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-} from 'react';
-import type { ComposerReferencePickerItem } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
-import type { FilePickerFile, PluginPickerPlugin, ReferencePickerValue, SkillPickerSkill } from '@/app/components/canvas-agent-chat/ChatComposer';
-import { findActiveComposerReference, replaceComposerReference, type ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
-import { filterSkillsForAgent } from '@/app/lib/chat/reference-capabilities';
-import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import { safeFetchJson } from '@/app/lib/chat/fetch-json';
-import { getFileDisplayPath } from '@/app/lib/files/display-name';
+import { createElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
+  type Dispatch, type RefObject, type SetStateAction } from 'react';
+import { useTranslations } from 'next-intl';
+import type { ComposerReferencePickerItem } from './ComposerReferencePicker';
+import type { ChatInlineEditorHandle } from './ChatInlineEditor';
+import { PluginExtensionAvatar } from '@/app/components/plugins/PluginExtensionAvatar';
+import { deriveChatBodySelection, parseChatBody, projectChatBodyText, type ChatBodyV1, type ChatReferenceBundleV1 } from '@/app/lib/chat/chat-body-contracts';
+import type { ChatExtensionOptionsTarget } from '@/app/lib/chat/extension-options-contracts';
+import { requestChatExtensionOptions } from '@/app/lib/chat/extension-options-client';
+import type { ChatReferenceDialogRequest, ChatReferencePickerValue } from '@/app/lib/chat/composer-reference-types';
+import type { ChatExtensionSelectionInput } from '@/app/lib/capabilities/extensions/contracts';
+import { findInlineComposerReference } from '@/app/lib/chat/inline-references';
+import { chatInlineReferenceIconKey, type ChatInlineTextRange } from '@/app/lib/chat/inline-editor';
+import type { ComposerReferenceMatch } from '@/app/lib/chat/composer-references';
+import type { PluginExtensionKind } from '@/app/lib/plugins/plugin-extension-contracts';
 import { listWorkspaceFileReferences } from '@/app/lib/files/client';
+import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
-import { CanvasPluginIcon } from '@/app/lib/plugins/plugin-icons';
-import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
-import { searchSkillReferenceEntries } from '@/app/lib/skills/skill-reference-search';
+import { openedDocumentAuthScope, isOpenedDocumentAuthCurrent, subscribeOpenedDocumentAuthInvalidation } from '@/app/lib/collaboration/opened-document-registry';
+import { getTransientChatAccountSelections } from '@/app/lib/chat/transient-account-selections';
 
-type UseComposerReferencesParams = {
-  agentId: string;
-  input: string;
-  relevantSkillNames?: string[] | null;
-  workspaceId: string | null;
-  resetInputHistoryNavigation: () => void;
-  setInput: Dispatch<SetStateAction<string>>;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-};
+type Params = { agentId: string | null; sessionId: string | null; inputBody: ChatBodyV1; workspaceId: string | null;
+  resetInputHistoryNavigation: () => void; setInputBody: Dispatch<SetStateAction<ChatBodyV1>>;
+  editorRef: RefObject<ChatInlineEditorHandle | null> };
+export type ChatReferenceTypeFilter = 'all' | PluginExtensionKind;
+export type ChatReferenceSourceStatus = { source: 'local' | 'remote' | 'files'; status: 'loading' | 'complete' | 'unavailable'; message?: string };
 
-const REFERENCE_SEARCH_DEBOUNCE_MS = 120;
+export function useComposerReferences({ agentId, sessionId, inputBody, workspaceId, resetInputHistoryNavigation,
+  setInputBody, editorRef }: Params) {
+  const t = useTranslations('chat');
+  const target = useMemo<ChatExtensionOptionsTarget | null>(() => !workspaceId || !agentId ? null : sessionId
+    ? { kind: 'turn', sessionId, expectedAgentId: agentId, expectedWorkspaceId: workspaceId }
+    : { kind: 'draft_turn', agentId, workspaceId }, [agentId, sessionId, workspaceId]);
+  const auth = useSyncExternalStore(subscribeOpenedDocumentAuthInvalidation, openedDocumentAuthScope, () => null);
+  const scope = JSON.stringify([auth?.userId, auth?.sessionId, auth?.epoch, target]);
+  const receiptScope = JSON.stringify([auth?.userId, auth?.sessionId, auth?.epoch, workspaceId, agentId]);
+  const bodyRef = useRef(inputBody), epoch = useRef(0);
+  const receipts = useMemo(() => getTransientChatAccountSelections(receiptScope), [receiptScope]);
+  const [matchState, setMatch] = useState<{ scope: string; value: ComposerReferenceMatch } | null>(null);
+  const activeReferenceMatch = matchState?.scope === scope ? matchState.value : null;
+  const [referenceTypeFilter, setReferenceTypeFilter] = useState<ChatReferenceTypeFilter>('all');
+  const queryKey = JSON.stringify([scope, activeReferenceMatch?.kind, activeReferenceMatch?.query, referenceTypeFilter]);
+  const [itemsState, setItems] = useState<{ key: string; items: ComposerReferencePickerItem<ChatReferencePickerValue>[] } | null>(null);
+  const referencePickerItems = useMemo(() => itemsState?.key === queryKey ? itemsState.items : [], [itemsState, queryKey]);
+  const [focus, setFocus] = useState<{ key: string; id: string } | null>(null);
+  const selectedReferenceIndex = Math.max(0, focus?.key === queryKey ? referencePickerItems.findIndex(item => item.id === focus.id) : 0);
+  const [sourceState, setSources] = useState<{ key: string; statuses: ChatReferenceSourceStatus[] } | null>(null);
+  const referenceSourceStatuses = sourceState?.key === queryKey ? sourceState.statuses : [];
+  const sourceRetries = useRef(new Map<ChatReferenceSourceStatus['source'], () => void>());
+  const [loadingState, setLoading] = useState(false), [referencePickerError, setError] = useState<string | null>(null);
+  const isLoadingReferenceItems = Boolean(activeReferenceMatch && (sourceState?.key !== queryKey || loadingState));
+  const [pendingState, setPendingReference] = useState<ChatReferenceDialogRequest | null>(null);
+  const pendingReference = pendingState?.issuedScope === scope ? pendingState : null;
+  const latest = useRef({ scope, target, pendingReference });
+  useLayoutEffect(() => { latest.current = { scope, target, pendingReference }; epoch.current++; }, [scope, target, pendingReference]);
+  useLayoutEffect(() => { bodyRef.current = inputBody; }, [inputBody]);
+  const closeReferencePicker = useCallback(() => { epoch.current++; setMatch(null); setItems(null); setFocus(null); setLoading(false); setError(null); }, [setMatch, setItems, setFocus, setLoading, setError]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setMatch(current => current?.scope !== scope ? null : current);
+      setPendingReference(current => current?.issuedScope !== scope ? null : current);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [scope]);
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === 'AbortError';
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : 'Failed to load references';
-}
-
-export function useComposerReferences({
-  agentId,
-  input,
-  relevantSkillNames,
-  workspaceId,
-  resetInputHistoryNavigation,
-  setInput,
-  textareaRef,
-}: UseComposerReferencesParams) {
-  const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
-  const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<ReferencePickerValue>[]>([]);
-  const [selectedReferenceIndex, setSelectedReferenceIndex] = useState(0);
-  const [skillCache, setSkillCache] = useState<{ workspaceIdentity: symbol; skills: SkillPickerSkill[] } | null>(null);
-  const [pluginCache, setPluginCache] = useState<{ workspaceIdentity: symbol; plugins: PluginPickerPlugin[] } | null>(null);
-  const [isLoadingReferenceItems, setIsLoadingReferenceItems] = useState(false);
-  const [referencePickerError, setReferencePickerError] = useState<string | null>(null);
-  const referenceRequestIdRef = useRef(0);
-  const referenceAbortControllerRef = useRef<AbortController | null>(null);
-  const referenceDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const workspaceIdentity = useMemo(() => Symbol(workspaceId ?? undefined), [workspaceId]);
-  const workspaceIdentityRef = useRef(workspaceIdentity);
-  useLayoutEffect(() => { workspaceIdentityRef.current = workspaceIdentity; }, [workspaceIdentity]);
-  const availableSkills = skillCache?.workspaceIdentity === workspaceIdentity ? skillCache.skills : null;
-  const availablePlugins = pluginCache?.workspaceIdentity === workspaceIdentity ? pluginCache.plugins : null;
-
-  const closeReferencePicker = useCallback(() => {
-    if (referenceDebounceTimerRef.current) {
-      clearTimeout(referenceDebounceTimerRef.current);
-      referenceDebounceTimerRef.current = null;
+  const handleSelectionChange = useCallback((range: ChatInlineTextRange) => {
+    const match = findInlineComposerReference(bodyRef.current, range);
+    setMatch(previous => JSON.stringify(previous) === JSON.stringify(match ? { scope, value: match } : null) ? previous : match ? { scope, value: match } : null);
+    if (!match) closeReferencePicker();
+  }, [closeReferencePicker, scope, setMatch]);
+  const handleInputChange = useCallback((body: ChatBodyV1) => {
+    if (latest.current.pendingReference && JSON.stringify(body) !== JSON.stringify(latest.current.pendingReference.originalBody)) {
+      latest.current.pendingReference = null; setPendingReference(null);
     }
-    referenceAbortControllerRef.current?.abort();
-    referenceAbortControllerRef.current = null;
-    setActiveReferenceMatch(null);
-    setReferencePickerItems([]);
-    setSelectedReferenceIndex(0);
-    setReferencePickerError(null);
-    setIsLoadingReferenceItems(false);
-    referenceRequestIdRef.current += 1;
-  }, []);
+    bodyRef.current = body; resetInputHistoryNavigation(); setInputBody(body);
+    handleSelectionChange(editorRef.current?.getSelection() ?? { from: 0, to: 0 });
+  }, [editorRef, handleSelectionChange, resetInputHistoryNavigation, setInputBody, setPendingReference]);
+  const openReferencePicker = useCallback(() => {
+    const end = editorRef.current?.getSelection().to ?? 0;
+    editorRef.current?.setSelection(end);
+    setReferenceTypeFilter('all');
+    const preceding = projectChatBodyText(bodyRef.current)[end - 1];
+    const trigger = preceding && !/\s|[([{"'`,;]/u.test(preceding) ? ' @' : '@';
+    editorRef.current?.replaceText(trigger, { from: end, to: end });
+    editorRef.current?.focus();
+  }, [editorRef, setReferenceTypeFilter]);
 
   useEffect(() => {
-    startTransition(closeReferencePicker);
-  }, [closeReferencePicker, workspaceId]);
-
-  useEffect(() => () => {
-    if (referenceDebounceTimerRef.current) clearTimeout(referenceDebounceTimerRef.current);
-    referenceAbortControllerRef.current?.abort();
-  }, []);
-
-  const fetchFiles = useCallback(async (
-    query: string = '',
-    signal?: AbortSignal,
-  ): Promise<ComposerReferencePickerItem<ReferencePickerValue>[]> => {
-    if (!workspaceId) {
-      throw new Error('Workspace context is not ready');
-    }
-    const files = await listWorkspaceFileReferences({ query, limit: 50, workspaceId, signal });
-    return files.map((file) => ({
-      id: `file:${file.path}`,
-      kind: 'file' as const,
-      icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }),
-      label: getFileDisplayPath(file.path),
-      secondaryLabel: 'File',
-      payload: file as FilePickerFile,
-    }));
-  }, [workspaceId]);
-
-  const buildCapabilityReferenceItems = useCallback((plugins: PluginPickerPlugin[], skills: SkillPickerSkill[], query: string) => {
-    const effectiveSkills = filterSkillsForAgent(skills, {
-      agentId,
-      defaultAgentId: DEFAULT_AGENT_ID,
-      relevantSkillNames,
-    });
-    const skillNames = new Set(effectiveSkills.map((skill) => skill.name));
-    const pluginItems = searchSkillReferenceEntries(
-      plugins.map((plugin) => ({
-        ...plugin,
-        title: plugin.interface?.displayName || plugin.name,
-        description: plugin.interface?.shortDescription || plugin.description,
-      })),
-      query,
-    ).filter((plugin) => !skillNames.has(plugin.name)).map((plugin) => ({
-      id: `plugin:${plugin.name}`,
-      kind: 'plugin' as const,
-      icon: createElement(CanvasPluginIcon, { plugin, className: 'h-5 w-5 text-[10px]' }),
-      label: plugin.interface?.displayName || plugin.name,
-      secondaryLabel: `/${plugin.name} · Plugin`,
-      payload: plugin,
-    }));
-
-    const pluginNames = new Set(plugins.map((plugin) => plugin.name));
-    const skillItems = searchSkillReferenceEntries(effectiveSkills, query).map((skill) => ({
-      id: `skill:${skill.name}`,
-      kind: 'skill' as const,
-      icon: createElement(CanvasSkillIcon, { skill, className: 'h-5 w-5 text-[10px]' }),
-      label: skill.title,
-      secondaryLabel: `/${skill.name} · ${pluginNames.has(skill.name) ? 'Skill + Plugin' : 'Skill'}`,
-      payload: skill,
-    }));
-
-    return [...pluginItems, ...skillItems];
-  }, [agentId, relevantSkillNames]);
-
-  const fetchPlugins = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
-    if (availablePlugins) {
-      return availablePlugins;
-    }
-
-    const params = new URLSearchParams();
-    if (workspaceId) params.set('workspaceId', workspaceId);
-    const res = await fetch(`/api/plugins?${params}`, { cache: 'no-store', credentials: 'include', signal });
-    const data = await safeFetchJson<{ success: boolean; plugins?: PluginPickerPlugin[]; error?: string }>(res);
-    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
-    if (!res.ok || !data?.success) {
-      throw new Error(data?.error || 'Failed to load plugins');
-    }
-
-    const nextPlugins = (data.plugins || [])
-      .filter((plugin) => plugin.enabled !== false)
-      .map((plugin) => ({ ...plugin }));
-    setPluginCache({ workspaceIdentity, plugins: nextPlugins });
-    return nextPlugins;
-  }, [availablePlugins, workspaceId, workspaceIdentity]);
-
-  const fetchSkills = useCallback(async (signal?: AbortSignal) => {
-    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
-    if (availableSkills) {
-      return availableSkills;
-    }
-
-    const params = new URLSearchParams();
-    if (workspaceId) params.set('workspaceId', workspaceId);
-    const res = await fetch(`/api/skills?${params}`, { cache: 'no-store', credentials: 'include', signal });
-    const data = await safeFetchJson<{ success: boolean; skills?: Array<SkillPickerSkill & { path?: string }>; error?: string }>(res);
-    if (signal?.aborted || workspaceIdentityRef.current !== workspaceIdentity) throw new DOMException('Workspace changed', 'AbortError');
-    if (!res.ok || !data?.success) {
-      throw new Error(data?.error || 'Failed to load skills');
-    }
-
-    const nextSkills = (data.skills || []).filter((skill) => skill.enabled).map((skill) => ({ ...skill }));
-    setSkillCache({ workspaceIdentity, skills: nextSkills });
-    return nextSkills;
-  }, [availableSkills, workspaceId, workspaceIdentity]);
-
-  const fetchCapabilities = useCallback(async (signal?: AbortSignal) => {
-    const [pluginResult, skillResult] = await Promise.allSettled([
-      fetchPlugins(signal),
-      fetchSkills(signal),
-    ]);
-    if (pluginResult.status === 'rejected' && skillResult.status === 'rejected') {
-      throw pluginResult.reason;
-    }
-    return {
-      plugins: pluginResult.status === 'fulfilled' ? pluginResult.value : [],
-      skills: skillResult.status === 'fulfilled' ? skillResult.value : [],
-      partialError: pluginResult.status === 'rejected'
-        ? errorMessage(pluginResult.reason)
-        : skillResult.status === 'rejected'
-          ? errorMessage(skillResult.reason)
-          : null,
+    if (!activeReferenceMatch || !target || !workspaceId) return;
+    const controller = new AbortController(), version = ++epoch.current, match = activeReferenceMatch;
+    const current = () => !controller.signal.aborted && epoch.current === version && latest.current.scope === scope && isOpenedDocumentAuthCurrent(auth);
+    const results = new Map<ChatReferenceSourceStatus['source'], ComposerReferencePickerItem<ChatReferencePickerValue>[]>();
+    const statuses = new Map<ChatReferenceSourceStatus['source'], ChatReferenceSourceStatus>();
+    const publish = () => {
+      if (!current()) return;
+      const merged = new Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>(), exact = new Set<string>();
+      for (const source of ['local', 'remote', 'files'] as const) for (const item of results.get(source) ?? []) {
+        const payload = item.payload;
+        const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+        const identity = selection ? chatInlineReferenceIconKey(selection) : item.id;
+        if (exact.has(identity) && !merged.has(item.id)) continue;
+        exact.add(identity); merged.set(item.id, item);
+      }
+      setItems({ key: queryKey, items: [...merged.values()] });
+      const states = [...statuses.values()];
+      setSources({ key: queryKey, statuses: states }); setLoading(states.some(row => row.status === 'loading'));
+      setError(states.filter(row => row.status === 'unavailable').map(row => row.message ?? row.source).join(' · ') || null);
     };
-  }, [fetchPlugins, fetchSkills]);
+    const timer = setTimeout(() => {
+      const load = (source: ChatReferenceSourceStatus['source']) => {
+        if (!current()) return;
+        statuses.set(source, { source, status: 'loading' }); publish();
+        void (async () => {
+          const items: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [];
+          if (source === 'files') {
+            const files = await listWorkspaceFileReferences({ query: match.query, limit: 30, workspaceId, signal: controller.signal });
+            items.push(...files.map(file => ({ id: `file:${file.path}`, kind: 'file' as const, label: getFileDisplayPath(file.path),
+              secondaryLabel: 'File', payload: file, icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }) })));
+          } else {
+            const result = await requestChatExtensionOptions({ operation: 'search', target, phase: source,
+              q: match.query, types: referenceTypeFilter === 'all' ? ['plugin', 'skill', 'integration', 'mcp'] : [referenceTypeFilter],
+              stock: 'all', source: 'all', scope: 'all', audience: null, teamId: null, cursor: null, selected: null, limit: 30 }, controller.signal);
+            const recentKeys = new Set<string>();
+          for (const recent of result.recents) {
+            const selection = recent.bodyBundle.primary.selection, key = chatInlineReferenceIconKey(selection);
+            recentKeys.add(key);
+            items.push({ id: `recent:${key}`, kind: selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind,
+              label: recent.bodyBundle.caption, secondaryLabel: t('referenceRecent') + ' · ' + (selection.kind === 'composio' ? 'Composio' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind),
+              icon: createElement(PluginExtensionAvatar, { name: recent.bodyBundle.caption, identity: `${scope}:${key}`, icon: recent.publicIcon, size: 'sm' }),
+              payload: { type: 'recent', recent } });
+          }
+          for (const option of result.items) {
+            if (option.selection && recentKeys.has(chatInlineReferenceIconKey(option.selection))) continue;
+            const item = option.item;
+            items.push({ id: item.id, kind: item.kind, label: item.displayName, secondaryLabel: option.eligibility.reason?.message ?? item.description,
+              icon: createElement(PluginExtensionAvatar, { name: item.displayName, identity: `${scope}:${item.id}`, icon: item.icon, size: 'sm' }),
+              payload: { type: 'extension', option } });
+          }
+            const errors = result.coverage.filter(row => row.status === 'unavailable').map(row => row.error?.message ?? row.source);
+            statuses.set(source, errors.length ? { source, status: 'unavailable', message: errors.join(' · ') } : { source, status: 'complete' });
+          }
+          if (source === 'files') statuses.set(source, { source, status: 'complete' });
+          results.set(source, items); publish();
+        })().catch(reason => { if (current()) { statuses.set(source, { source, status: 'unavailable', message: String(reason.message ?? reason) }); publish(); } });
+      };
+      sourceRetries.current = new Map();
+      const sources: ChatReferenceSourceStatus['source'][] = match.kind === 'file' ? [] : ['local', 'remote'];
+      if (match.kind !== 'capability' && referenceTypeFilter === 'all') sources.push('files');
+      for (const source of sources) statuses.set(source, { source, status: 'loading' });
+      publish();
+      for (const source of sources) { sourceRetries.current.set(source, () => load(source)); load(source); }
+    }, activeReferenceMatch.query ? 120 : 0);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [activeReferenceMatch, target, scope, workspaceId, referenceTypeFilter, t, auth, queryKey]);
 
-  const loadReferenceItems = useCallback(async (
-    match: ComposerReferenceMatch,
-    requestId: number,
-    signal: AbortSignal,
-  ) => {
-    try {
-      let items: ComposerReferencePickerItem<ReferencePickerValue>[] = [];
-      let partialError: string | null = null;
-
-      if (match.kind === 'file') {
-        items = await fetchFiles(match.query, signal);
-      } else if (match.kind === 'capability') {
-        const capabilities = await fetchCapabilities(signal);
-        items = buildCapabilityReferenceItems(capabilities.plugins, capabilities.skills, match.query);
-        partialError = capabilities.partialError;
-      } else {
-        const [fileResult, capabilityResult] = await Promise.allSettled([
-          fetchFiles(match.query, signal),
-          fetchCapabilities(signal),
-        ]);
-        if (fileResult.status === 'rejected' && capabilityResult.status === 'rejected') {
-          throw fileResult.reason;
-        }
-        const fileItems = fileResult.status === 'fulfilled' ? fileResult.value : [];
-        const capabilityItems = capabilityResult.status === 'fulfilled'
-          ? buildCapabilityReferenceItems(
-            capabilityResult.value.plugins,
-            capabilityResult.value.skills,
-            match.query,
-          )
-          : [];
-        items = [...fileItems, ...capabilityItems];
-        partialError = fileResult.status === 'rejected'
-          ? errorMessage(fileResult.reason)
-          : capabilityResult.status === 'rejected'
-            ? errorMessage(capabilityResult.reason)
-            : capabilityResult.value.partialError;
-      }
-
-      if (signal.aborted || referenceRequestIdRef.current !== requestId) return;
-      setReferencePickerItems(items);
-      setSelectedReferenceIndex(0);
-      setReferencePickerError(items.length === 0 ? partialError : null);
-    } catch (error) {
-      if (signal.aborted || referenceRequestIdRef.current !== requestId || isAbortError(error)) return;
-      setReferencePickerItems([]);
-      setSelectedReferenceIndex(0);
-      setReferencePickerError(errorMessage(error));
-    } finally {
-      if (!signal.aborted && referenceRequestIdRef.current === requestId) {
-        setIsLoadingReferenceItems(false);
-      }
-    }
-  }, [buildCapabilityReferenceItems, fetchCapabilities, fetchFiles]);
-
-  const handleInputChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPos = e.target.selectionStart;
-    resetInputHistoryNavigation();
-    setInput(value);
-
-    const match = findActiveComposerReference(value, cursorPos);
-    if (!match) {
-      closeReferencePicker();
-      return;
-    }
-
-    if (referenceDebounceTimerRef.current) clearTimeout(referenceDebounceTimerRef.current);
-    referenceAbortControllerRef.current?.abort();
-    const controller = new AbortController();
-    referenceAbortControllerRef.current = controller;
-    setActiveReferenceMatch(match);
-    setIsLoadingReferenceItems(true);
-    setReferencePickerError(null);
-    const requestId = referenceRequestIdRef.current + 1;
-    referenceRequestIdRef.current = requestId;
-    referenceDebounceTimerRef.current = setTimeout(() => {
-      referenceDebounceTimerRef.current = null;
-      void loadReferenceItems(match, requestId, controller.signal);
-    }, match.query ? REFERENCE_SEARCH_DEBOUNCE_MS : 0);
-  }, [closeReferencePicker, loadReferenceItems, resetInputHistoryNavigation, setInput]);
-
-  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ReferencePickerValue>) => {
-    if (!activeReferenceMatch) {
-      return;
-    }
-
-    const replacement = item.kind === 'file'
-      ? `@"${(item.payload as FilePickerFile).path}" `
-      : `/${(item.payload as PluginPickerPlugin | SkillPickerSkill).name} `;
-    const { nextValue, nextCursorPosition } = replaceComposerReference(input, activeReferenceMatch, replacement);
-
-    resetInputHistoryNavigation();
-    setInput(nextValue);
+  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ChatReferencePickerValue>, configure = false) => {
+    if (!activeReferenceMatch || !target || latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth) || !referencePickerItems.includes(item)) return;
+    const range = { from: activeReferenceMatch.startIndex, to: activeReferenceMatch.endIndex }, payload = item.payload;
     closeReferencePicker();
+    if (payload.type === 'file' || payload.type === 'directory') {
+      editorRef.current?.replaceText(`@"${payload.path}" `, range); editorRef.current?.focus(); return;
+    }
+    latest.current.pendingReference = null;
+    const accountSelections = Object.fromEntries([...receipts].filter(([, entry]) => entry.expiresAt > Date.now()));
+    if (payload.type === 'extension') setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target, originalBody: bodyRef.current, range, option: payload.option, configure, accountSelections });
+    else if (payload.type === 'recent') setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target, originalBody: bodyRef.current, range, recent: payload.recent, configure, accountSelections });
+  }, [activeReferenceMatch, closeReferencePicker, editorRef, target, scope, auth, referencePickerItems, receipts, setPendingReference]);
 
-    setTimeout(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    }, 0);
-  }, [activeReferenceMatch, closeReferencePicker, input, resetInputHistoryNavigation, setInput, textareaRef]);
-
-  const selectNextReference = useCallback(() => {
-    setSelectedReferenceIndex((prev) => (prev < referencePickerItems.length - 1 ? prev + 1 : prev));
-  }, [referencePickerItems.length]);
-
-  const selectPreviousReference = useCallback(() => {
-    setSelectedReferenceIndex((prev) => (prev > 0 ? prev - 1 : 0));
-  }, []);
-
-  return {
-    activeReferenceMatch,
-    closeReferencePicker,
-    handleInputChange,
-    handleReferenceSelect,
-    isLoadingReferenceItems,
-    referencePickerError,
-    referencePickerItems,
-    selectedReferenceIndex,
-    selectNextReference,
-    selectPreviousReference,
-  };
+  const acceptReference = useCallback((bundle: ChatReferenceBundleV1, intake: ChatExtensionSelectionInput | null,
+    receiptExpiries: Readonly<Record<string, number>> = {}) => {
+    const pending = pendingReference;
+    if (!pending || pending.issuedScope !== scope || latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth) || latest.current.pendingReference !== pending
+      || JSON.stringify(pending.target) !== JSON.stringify(latest.current.target)) throw new Error(t('referenceChatChanged'));
+    if (pending.confirmSelection) {
+      if (!intake?.selections.some(entry => chatInlineReferenceIconKey(entry.selection) === chatInlineReferenceIconKey(pending.confirmSelection!)))
+        throw new Error(t('referenceConfirmExactAccount'));
+    } else {
+      if (JSON.stringify(bodyRef.current) !== JSON.stringify(pending.originalBody)) throw new Error(t('referenceInputChanged'));
+      parseChatBody({ ...bodyRef.current, parts: [...bodyRef.current.parts,
+        { type: 'extension_reference', occurrenceId: crypto.randomUUID(), bundleId: bundle.id }], bundles: [...bodyRef.current.bundles, bundle] });
+      if (!editorRef.current?.insertReference(bundle, pending.range ?? undefined)) throw new Error(t('referenceInsertFailed'));
+    }
+    for (const entry of intake?.selections ?? []) if (entry.accountSelectionRef) {
+      const key = chatInlineReferenceIconKey(entry.selection), expiresAt = receiptExpiries[key];
+      if (Number.isFinite(expiresAt) && expiresAt > Date.now()) receipts.set(key,
+        { receipt: entry.accountSelectionRef, expiresAt: Math.min(expiresAt, Date.now() + 4 * 60_000) });
+    }
+    setPendingReference(null); editorRef.current?.focus();
+  }, [editorRef, pendingReference, receipts, scope, t, auth, setPendingReference]);
+  const prepareIntakeSelection = useCallback(async (body: ChatBodyV1): Promise<ChatExtensionSelectionInput | null> => {
+    if (latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth)) throw new Error(t('referenceChatChanged'));
+    if (latest.current.pendingReference) throw new Error(t('loadingReferences'));
+    const selection = deriveChatBodySelection(body);
+    if (!selection) return null;
+    return { ...selection, selections: selection.selections.map(entry => {
+      if (entry.selection.kind !== 'composio' || entry.selection.target.kind !== 'personal' || entry.selection.target.accountBinding !== 'account') return entry;
+      const current = receipts.get(chatInlineReferenceIconKey(entry.selection));
+      if (!current || current.expiresAt <= Date.now()) {
+        if (latest.current.target) setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target: latest.current.target, originalBody: bodyRef.current, range: null, confirmSelection: entry.selection });
+        throw new Error(t('referenceAccountConfirmationRequired'));
+      }
+      return { ...entry, accountSelectionRef: current.receipt };
+    }) };
+  }, [receipts, t, scope, auth, setPendingReference]);
+  return { target, activeReferenceMatch, closeReferencePicker, handleInputChange, handleSelectionChange, handleReferenceSelect,
+    isLoadingReferenceItems, referencePickerError, referencePickerItems, selectedReferenceIndex,
+    selectNextReference: () => { const item = referencePickerItems[Math.min(referencePickerItems.length - 1, selectedReferenceIndex + 1)]; if (item) setFocus({ key: queryKey, id: item.id }); },
+    selectPreviousReference: () => { const item = referencePickerItems[Math.max(0, selectedReferenceIndex - 1)]; if (item) setFocus({ key: queryKey, id: item.id }); },
+    referenceSourceStatuses, retryReferenceSource: (source: ChatReferenceSourceStatus['source']) => sourceRetries.current.get(source)?.(),
+    configureReference: (item: ComposerReferencePickerItem<ChatReferencePickerValue>) => handleReferenceSelect(item, true),
+    referenceTypeFilter, setReferenceTypeFilter, openReferencePicker, pendingReference,
+    closeReferenceDialog: () => { latest.current.pendingReference = null; setPendingReference(null); editorRef.current?.focus(); }, acceptReference, prepareIntakeSelection };
 }

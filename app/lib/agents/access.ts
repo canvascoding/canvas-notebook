@@ -120,7 +120,12 @@ function rowToMember(row: AgentMemberRow): AgentMemberRecord {
   };
 }
 
-async function requireOrganizationId(userId: string): Promise<string> {
+async function requireOrganizationId(userId: string, database?: SqlConnection): Promise<string> {
+  if (database) {
+    const verified = await resolveVerifiedAgentActorContextOnConnection({ userId }, database, { lock: true });
+    if (!verified.organizationId) throw new AgentAccessError('ORGANIZATION_SETUP_REQUIRED', 'Complete the app setup before managing agent access.', 409);
+    return verified.organizationId;
+  }
   const state = await readOrganizationPermissionForUser(userId);
   if (!state.configured || !state.organizationId || state.permission?.status !== 'active') {
     throw new AgentAccessError(
@@ -335,12 +340,12 @@ export async function listAgentAccessForUser(
   return new Map(entries.filter(([, access]) => access.canUse));
 }
 
-export async function createAgentManagerMembership(agentIdInput: string, userId: string): Promise<AgentMemberRecord> {
+export async function createAgentManagerMembership(agentIdInput: string, userId: string, connection?: SqlConnection): Promise<AgentMemberRecord> {
   const agentId = normalizeManagedAgentId(agentIdInput);
-  const organizationId = await requireOrganizationId(userId);
-  const database = await openDb();
+  const database = connection ?? await openDb();
   try {
-    await database.run('BEGIN');
+    if (!connection) await database.run('BEGIN');
+    const organizationId = await requireOrganizationId(userId, database);
     await assertSpecialAgent(database, agentId);
     const user = await database.get(
       `SELECT id FROM "user" WHERE id = $1 AND COALESCE(banned, 0) = 0 LIMIT 1`,
@@ -370,17 +375,17 @@ export async function createAgentManagerMembership(agentIdInput: string, userId:
     await database.run(`UPDATE agents SET access_policy = 'restricted', updated_at = $1 WHERE agent_id = $2`, [now, agentId]);
     const row = await readAgentMember(database, agentId, userId);
     if (!row) throw new AgentAccessError('AGENT_MEMBER_UPDATE_FAILED', 'Agent member update failed.', 500);
-    await database.run('COMMIT');
+    if (!connection) await database.run('COMMIT');
     return rowToMember(row);
   } catch (error) {
-    try {
+    if (!connection) try {
       await database.run('ROLLBACK');
     } catch {
       // Preserve the original error.
     }
     throw error;
   } finally {
-    await database.close();
+    if (!connection) await database.close();
   }
 }
 

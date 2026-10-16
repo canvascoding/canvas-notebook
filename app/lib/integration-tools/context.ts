@@ -5,6 +5,7 @@ import { db } from '@/app/lib/db';
 import { piSessions, user } from '@/app/lib/db/schema';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentAuthorizationContextForSession, resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { isIssuedScopedIntegrationTurn, resolveEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
 import { IntegrationContractError, type IntegrationExecutionContext } from './contracts';
 
 export type ResolvedIntegrationExecutionContext = {
@@ -84,27 +85,51 @@ export async function resolveRuntimeIntegrationExecutionContext(input: {
   executionContext: AgentExecutionContext;
   policyRevision: string;
 }): Promise<ResolvedIntegrationExecutionContext> {
-  const expected = { ...input.executionContext };
+  const expected = { ...input.executionContext,
+    ...(input.executionContext.turnExtensions ? { turnExtensions: structuredClone(input.executionContext.turnExtensions) } : {}),
+    skillReadRoots: [...(input.executionContext.skillReadRoots ?? [])],
+    skillPackageBindings: [...(input.executionContext.skillPackageBindings ?? [])],
+  };
   const policyRevision = input.policyRevision;
   if (!expected.workspaceId.trim() || !expected.agentId?.trim()) {
     throw new IntegrationContractError('invalid_request', 'A server-bound agent and workspace are required for integrations.');
   }
-  const resolved = await resolveIntegrationExecutionContext({
+  // Validate the original issued source before any await. Opaque handles retain
+  // object identity; copied public refs or JSON cannot substitute for them.
+  const scopedTurn = isIssuedScopedIntegrationTurn(expected);
+  const resolveCurrent = () => resolveIntegrationAuthorizationContext({
     actorUserId: expected.userId,
     sessionId: expected.sessionId,
     agentId: expected.agentId,
     policyRevision,
   });
+  const resolved = await resolveCurrent();
   const current = resolved.executionContext;
   if (current.userId !== expected.userId || current.sessionId !== expected.sessionId
     || current.agentId !== expected.agentId || current.workspaceId !== expected.workspaceId
     || current.workspaceType !== expected.workspaceType || current.organizationId !== expected.organizationId
     || current.customerId !== expected.customerId || current.projectId !== expected.projectId
     || current.workspaceRoot !== expected.workspaceRoot || current.workspaceRootRelativePath !== expected.workspaceRootRelativePath
-    || current.legacy !== expected.legacy) {
+    || current.legacy !== expected.legacy || scopedTurn && (current.canWrite !== expected.canWrite
+      || current.canDelete !== expected.canDelete || current.canShare !== expected.canShare)) {
     throw new IntegrationContractError('provider_denied', 'The originating agent workspace changed. Reload its tools before continuing.');
   }
-  return { ...resolved, integrationContext: { ...resolved.integrationContext, sessionId: expected.sessionId }, executionContext: { ...current,
+  const captured = { ...current,
     ...(expected.agentTurnId ? { agentTurnId: expected.agentTurnId } : {}),
-  } };
+    ...(expected.turnExtensions ? { turnExtensions: expected.turnExtensions } : {}),
+    ...(expected.turnExtensionSource ? { turnExtensionSource: expected.turnExtensionSource } : {}),
+    ...(expected.delegatedExtensionSource ? { delegatedExtensionSource: expected.delegatedExtensionSource } : {}),
+    skillReadRoots: expected.skillReadRoots, skillPackageBindings: expected.skillPackageBindings,
+  };
+  const executionContext = await resolveEffectiveExtensionContext(captured, { preserveIssuedBindings: true });
+  const latest = (await resolveCurrent()).executionContext;
+  if (['userId', 'sessionId', 'agentId', 'workspaceId', 'workspaceType', 'organizationId', 'customerId', 'projectId',
+    'workspaceRoot', 'workspaceRootRelativePath', 'legacy', 'canWrite', 'canDelete', 'canShare']
+    .some(key => latest[key as keyof AgentExecutionContext] !== current[key as keyof AgentExecutionContext])) {
+    throw new IntegrationContractError('provider_denied', 'The originating agent authority changed. Reload its tools before continuing.');
+  }
+  if (scopedTurn && !isIssuedScopedIntegrationTurn(executionContext)) {
+    throw new IntegrationContractError('provider_denied', 'The originating turn selection is unavailable. Reload its tools before continuing.');
+  }
+  return { ...resolved, integrationContext: { ...resolved.integrationContext, sessionId: expected.sessionId }, executionContext };
 }

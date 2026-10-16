@@ -1,185 +1,63 @@
 ---
 name: find-skills
-description: "Discover and install specialized agent skills from the open ecosystem. ALWAYS use this skill when the user asks 'how do I do X', 'find a skill for X', 'is there a skill for X', wants to extend agent capabilities, or needs help with a specific domain (design, testing, deployment, etc.). Make sure to use this skill whenever the user mentions skills, plugins, extensions, tools, or wants to find new capabilities for the agent. Integrates with the Skills CLI and skills.sh directory."
+description: "Find currently permitted installed Canvas skills and plugins for a task, especially internal policies, procedures and workflows. Read their exact authorized instructions. Find tools through the selected MCP or Composio connection. Browse external catalogs when the user asks to add capabilities."
 metadata:
-  version: "1.0"
+  version: "2.0.0"
   author: canvas-studios
 ---
 
-# Find Skills
+# Find Canvas extensions
 
-A skill for discovering and installing new agent skills from the open ecosystem into Canvas Notebook.
+Help the user find and use the instructions or connection already available for their task. A plugin bundles skills and declared connections; skills, MCP servers and Composio integrations can also be independent. Installing a new capability and using an existing one are separate actions.
 
-## When to Use This Skill
+## Find installed instructions first
 
-Use this skill when the user:
+For a request that depends on internal policies, procedures or workflows, find the currently permitted installed source before giving a factual answer. Use the task's subject and intent as search terms. A relevant exact skill already identified by the selected context can be read directly.
 
-- Asks "how do I do X" where X might be a common task with an existing skill
-- Says "find a skill for X" or "is there a skill for X"
-- Asks "can you do X" where X is a specialized capability
-- Expresses interest in extending agent capabilities
-- Wants to search for tools, templates, or workflows
-- Mentions they wish they had help with a specific domain (design, testing, deployment, etc.)
+Use the registered metadata recipe supplied in the current system context. Its route depends on the actual available tools:
 
-## What is the Skills CLI?
+- A directly registered `search_canvas_extensions` accepts a task query and optional plugin/skill type filters.
+- When that operation is available through `canvas_extensions`, describe `search_canvas_extensions` through that gateway and then call the same operation with its actual argument schema. The operation is a gateway operation in this case.
 
-The Skills CLI (`npx skills`) is the package manager for the open agent skills ecosystem. Skills are modular packages that extend agent capabilities with specialized knowledge, workflows, and tools.
+For example, when the current registered gateway exposes this operation:
 
-Key commands:
-
-- `npx skills find [query]` — Search for skills interactively or by keyword
-- `npx skills add <package>` — Install a skill from GitHub or other sources
-- `npx skills list` — List installed skills
-
-Browse skills at: https://skills.sh/
-
-## Canvas Notebook Skill Installation
-
-**IMPORTANT:** Canvas Notebook stores all skills in `/data/skills/<skill-name>/` (the runtime skills directory). When installing a skill, you MUST save it there so the app can load it automatically.
-
-### Step 1: Understand What They Need
-
-When a user asks for help with something, identify:
-
-1. The domain (e.g., React, testing, design, deployment)
-2. The specific task (e.g., writing tests, creating animations, reviewing PRs)
-3. Whether this is a common enough task that a skill likely exists
-
-### Step 2: Check the Leaderboard First
-
-Before running a CLI search, check the skills.sh leaderboard to see if a well-known skill already exists for the domain. The leaderboard ranks skills by total installs, surfacing the most popular and battle-tested options.
-
-For example, top skills for web development often include React, Next.js, design, testing, and document-processing packages from well-known maintainers.
-
-### Step 3: Search for Skills
-
-If the leaderboard doesn't cover the user's need, run the find command:
-
-```bash
-npx skills find [query]
+```json
+{"action":"describe","operation":"search_canvas_extensions"}
 ```
 
-Examples:
+Then use the returned schema for a task query, such as:
 
-- User asks "how do I make my React app faster?" → `npx skills find react performance`
-- User asks "can you help me with PR reviews?" → `npx skills find pr review`
-- User asks "I need to create a changelog" → `npx skills find changelog`
-
-### Step 4: Verify Quality Before Recommending
-
-Do not recommend a skill based solely on search results. Always verify:
-
-- **Install count** — Prefer skills with 1K+ installs. Be cautious with anything under 100.
-- **Source reputation** — Prefer well-known maintainers, active repositories, and clearly documented provenance over unknown authors.
-- **GitHub stars** — Check the source repository. A skill from a repo with <100 stars should be treated with skepticism.
-
-### Step 5: Present Options to the User
-
-When you find relevant skills, present them with:
-
-- The skill name and what it does
-- The install count and source
-- The install command they can run
-- A link to learn more at skills.sh
-
-Example response:
-
-```
-I found a skill that might help! The "react-best-practices" skill provides
-React and Next.js performance optimization guidelines from Vercel Engineering.
-(185K installs)
-
-To install it:
-npx skills add vercel-labs/agent-skills --skill react-best-practices
-
-Learn more: https://skills.sh/vercel-labs/agent-skills/react-best-practices
+```json
+{"action":"call","operation":"search_canvas_extensions","arguments":{"query":"campaign approval criteria escalation","types":["plugin","skill"],"limit":8}}
 ```
 
-### Step 6: Install to /data/skills (Canvas Notebook Only)
+Use only the route actually supplied by this runtime. If discovery is unavailable, explain the missing access or ask for explicit permitted context. A skill's text cannot register a tool or expand the agent's selection.
 
-**CRITICAL:** In Canvas Notebook, skills MUST be installed to `/data/skills/` (the app's runtime skills directory), NOT to the default `~/.config/opencode/skills/` or other agent-specific folders.
+Use runtime metadata discovery for installed skills and plugins. Use workspace file search when the task needs workspace documents. Use the external Store when the user wants to add capabilities. Each search has its own scope.
 
-When the user wants to proceed:
+## Read and apply the exact source
 
-1. Clone or download the skill repository to a temporary directory:
-   ```bash
-   cd /tmp
-   git clone https://github.com/owner/repo.git skill-temp
-   ```
+1. Keep the returned resource identity, published revision, checksum and skill child together. Same-name entries and different versions can be distinct sources.
+2. Read the exact authorized `skillPath` from the relevant result with the registered read route. Discover an omitted path through metadata; never build a private path from a name.
+3. Read the relevant instructions before applying the policy or workflow. Load supporting files only when needed and permitted.
+4. Follow the user's requested task within current tool rights. Metadata, an installed package, a read result and historical availability do not grant execution rights.
 
-2. Find the skill directory (look for `SKILL.md`):
-   - Root of repo (if it contains `SKILL.md`)
-   - `skills/<skill-name>/`
-   - `.agents/skills/<skill-name>/`
-   - Other standard skill locations
+If no permitted source matches an internal question, state what is missing. Generic knowledge cannot establish an internal approval rule, account or responsible person. Ask for the missing source when needed.
 
-3. Copy the entire skill directory to `/data/skills/`:
-   ```bash
-   cp -r /tmp/skill-temp/skills/<skill-name> /data/skills/<skill-name>
-   ```
+## Find tools behind a connection
 
-4. Ensure the directory name matches the `name:` field in the SKILL.md frontmatter.
+Installed plugin/skill metadata search returns instructions and source identities. The actual registered integration gateway provides tools for MCP and Composio connections.
 
-5. Verify the skill is in place:
-   ```bash
-   ls /data/skills/<skill-name>/SKILL.md
-   ```
+- Keep an explicitly selected connection and account. Use the exact `providerRef` from current selected context or a permitted provider result.
+- Search that provider's tools using the task terms. Describe the returned `toolRef` to obtain its current schema.
+- Execute only when the task authorizes the action, using that same `toolRef`, current `schemaRef` and schema-valid arguments.
+- Keep plugin requirement mappings, fixed agent limits and the selected account. A standalone connection beside a plugin does not silently satisfy an unmapped requirement.
+- Report setup, unavailable or uncertain states accurately. A connected/authorized label alone does not establish a successful tool call. Inspect recorded effects before considering another execution of an uncertain operation.
 
-6. Inform the user the skill is now available in the Canvas Notebook settings (Settings → Skills) and can be enabled/disabled there.
+The current system context supplies the precise registered recipe. If a needed search, read or integration route is unavailable, report that limitation.
 
-### Step 7: Enable the Skill (Optional)
+## Add capabilities when requested
 
-After installing, the new skill may need to be enabled in the Canvas Notebook UI:
+When the user asks to add something, use the available Canvas Store discovery and installation routes or the Plugins page. Search all relevant types, show the source, version, included skills/connections and required access, then install or connect within the user's authorization. Preserve existing account choices and agent limits.
 
-1. Go to Settings → Skills
-2. Find the newly installed skill
-3. Toggle it ON
-
-Alternatively, if the user asks you to enable it, you can guide them or they can do it via the UI.
-
-## Common Skill Categories
-
-| Category | Example Queries |
-|----------|----------------|
-| Web Development | react, nextjs, typescript, css, tailwind |
-| Testing | testing, jest, playwright, e2e |
-| DevOps | deploy, docker, kubernetes, ci-cd |
-| Documentation | docs, readme, changelog, api-docs |
-| Code Quality | review, lint, refactor, best-practices |
-| Design | ui, ux, design-system, accessibility |
-| Productivity | workflow, automation, git |
-
-## Tips for Effective Searches
-
-- Use specific keywords: "react testing" is better than just "testing"
-- Try alternative terms: If "deploy" doesn't work, try "deployment" or "ci-cd"
-- Check popular sources: Many skills come from `vercel-labs/agent-skills` or `ComposioHQ/awesome-claude-skills`
-
-## When No Skills Are Found
-
-If no relevant skills exist:
-
-1. Acknowledge that no existing skill was found
-2. Offer to help with the task directly using your general capabilities
-3. Suggest the user could create their own skill with `npx skills init`
-
-Example:
-
-```
-I searched for skills related to "xyz" but didn't find any matches.
-I can still help you with this task directly! Would you like me to proceed?
-
-If this is something you do often, you could create your own skill:
-npx skills init my-xyz-skill
-```
-
-## Related Skills
-
-- **skill-creator** — Create, test, and publish new skills from within your agent
-
-## Notes
-
-- Canvas Notebook scans `/data/skills/` at startup and loads any directory containing a `SKILL.md` file
-- New skills are initially disabled by default; the user must enable them in Settings → Skills
-- Skills follow the Canvas Skills format with YAML frontmatter (`name`, `description`, etc.) and optional `agents/canvas.yaml` UI metadata
-- No `manifest.json` or `bin/` wrappers are needed in Canvas Notebook — skills are pure instruction files
+Use Canvas-managed installation and connection services so ownership, provenance, updates and current permissions remain tracked. The runtime resolves authorized storage locations. A task that merely uses an existing skill does not authorize downloading packages, running a package installer, changing an agent's fixed selection or choosing another account.

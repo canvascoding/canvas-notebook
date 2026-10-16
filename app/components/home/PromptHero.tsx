@@ -1,12 +1,19 @@
 'use client';
 
-import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { getPathname, useRouter } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload } from 'lucide-react';
-import { getFileIconComponent } from '@/app/lib/files/file-icons';
+import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload, AtSign } from 'lucide-react';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { createPromptHandoff, persistPromptHandoff } from '@/app/lib/chat/prompt-handoff';
+import { captureChatSendValue } from '@/app/lib/chat/send-transaction';
+import { parseChatBody, projectChatBodyText, type ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
+import { createTextChatBody } from '@/app/lib/chat/body-state';
+import { ChatInlineEditor, type ChatInlineEditorHandle } from '@/app/components/canvas-agent-chat/ChatInlineEditor';
+import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
+import { useChatReferencePresentation } from '@/app/components/canvas-agent-chat/useChatReferencePresentation';
+import { ChatExtensionReferenceDialog } from '@/app/components/canvas-agent-chat/ChatExtensionReferenceDialog';
+import { ComposerReferencePicker } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-agent';
@@ -24,11 +31,10 @@ import type {
 } from '@/app/components/shared/ImagePreprocessDialog';
 import { isHeicUploadFile, shouldPreprocessImageFile } from '@/app/lib/images/client-preprocess';
 import { prepareImageFilesForUpload, serializeUploadConvertParams } from '@/app/lib/images/client-upload-conversion';
-import { fetchChatAgents } from '@/app/lib/chat/agent-api';
+import { useChatAgentList } from '@/app/components/canvas-agent-chat/useChatAgentList';
 import { fetchLastActiveAgentId, saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { getAgentProfileDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
-import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { HomeStudioPrompt } from './HomeStudioPrompt';
 
@@ -37,12 +43,13 @@ type UploadProgressOptions = {
   progressIndex?: number;
 };
 
-type FilePickerFile = WorkspaceFileReferenceEntry;
 export type HomePromptMode = 'notebook' | 'studio';
+export type HomePlainTextPromptRequest = { id: string; workspaceId: string; text: string };
 
 interface PromptHeroProps {
   onModeChange?: (mode: HomePromptMode) => void;
   compact?: boolean;
+  plainTextRequest?: HomePlainTextPromptRequest | null;
 }
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
@@ -61,12 +68,13 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
   }));
 }
 
-export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = {}) {
+export function PromptHero({ onModeChange, compact = false, plainTextRequest }: PromptHeroProps = {}) {
   const locale = useLocale();
   const router = useRouter();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
-  const [prompt, setPrompt] = useState('');
+  const [promptBody, setPromptBody] = useState<ChatBodyV1>(() => createTextChatBody(''));
+  const prompt = useMemo(() => projectChatBodyText(promptBody), [promptBody]);
   const [expanded, setExpanded] = useState(!compact);
   const [mode, setMode] = useState<HomePromptMode>('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => selectActiveWorkspace(state)?.id ?? null);
@@ -74,20 +82,10 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const submittingRef = useRef(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [agentListState, setAgentListState] = useState<{
-    workspaceId: string | null;
-    agents: AgentProfile[];
-  }>({ workspaceId: null, agents: [] });
+  const { availableAgents, refreshAgents, acceptCreatedAgent, scopeKey } = useChatAgentList(activeWorkspaceId);
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const [showFilePicker, setShowFilePicker] = useState(false);
-  const [, setFilePickerQuery] = useState('');
-  const [filePickerFiles, setFilePickerFiles] = useState<FilePickerFile[]>([]);
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const filePickerRef = useRef<HTMLDivElement>(null);
+  const editorRef = useRef<ChatInlineEditorHandle>(null);
 
   const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -102,9 +100,6 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     setMode(nextMode);
     onModeChange?.(nextMode);
   };
-  const availableAgents = useMemo(() => (
-    agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
-  ), [activeWorkspaceId, agentListState]);
   const agentOptions = useMemo(() => (
     (availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE])
       .map((agent) => ({
@@ -115,6 +110,29 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
   const effectiveSelectedAgentId = selectedAgent?.agentId || DEFAULT_AGENT_ID;
   const selectedAgentName = getAgentProfileDisplayName(effectiveSelectedAgentId, selectedAgent?.name);
+  const resetInputHistoryNavigation = useCallback(() => {}, []);
+  const { target: referenceTarget, activeReferenceMatch, closeReferencePicker, handleInputChange,
+    handleSelectionChange, handleReferenceSelect, referencePickerItems, selectedReferenceIndex,
+    selectNextReference, selectPreviousReference, isLoadingReferenceItems, referencePickerError,
+    openReferencePicker, referenceTypeFilter, setReferenceTypeFilter, pendingReference,
+    referenceSourceStatuses, retryReferenceSource, configureReference,
+    closeReferenceDialog, acceptReference, prepareIntakeSelection } = useComposerReferences({
+    agentId: effectiveSelectedAgentId, sessionId: null, inputBody: promptBody, workspaceId: activeWorkspaceId,
+    resetInputHistoryNavigation, setInputBody: setPromptBody, editorRef,
+  });
+  const referenceIcons = useChatReferencePresentation(referenceTarget, [promptBody]);
+  const latestPrompt = useRef({ body: promptBody, attachments, agentId: effectiveSelectedAgentId, workspaceId: activeWorkspaceId });
+  useLayoutEffect(() => { latestPrompt.current = { body: promptBody, attachments, agentId: effectiveSelectedAgentId,
+    workspaceId: activeWorkspaceId }; }, [activeWorkspaceId, attachments, effectiveSelectedAgentId, promptBody]);
+  useEffect(() => {
+    if (!plainTextRequest || plainTextRequest.workspaceId !== activeWorkspaceId) return;
+    const timer = setTimeout(() => {
+      if (useWorkspaceStore.getState().activeWorkspaceId !== plainTextRequest.workspaceId) return;
+      setPromptBody(createTextChatBody(plainTextRequest.text)); setExpanded(true); closeReferencePicker();
+      requestAnimationFrame(() => editorRef.current?.focusEnd());
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeWorkspaceId, closeReferencePicker, plainTextRequest]);
   const promptSuggestions = useMemo(() => (
     isStudioMode
       ? [
@@ -135,20 +153,12 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     const loadAgentState = async () => {
       if (!activeWorkspaceId) return;
       try {
-        const [agents, lastActiveAgentId] = await Promise.all([
-          fetchChatAgents(activeWorkspaceId),
-          fetchLastActiveAgentId(),
-        ]);
+        const lastActiveAgentId = await fetchLastActiveAgentId();
         if (!isActive) return;
-
-        setAgentListState({ workspaceId: activeWorkspaceId, agents });
-        const hasStoredAgent = agents.length === 0 || agents.some((agent) => agent.agentId === lastActiveAgentId);
-        setSelectedAgentId(hasStoredAgent ? lastActiveAgentId : DEFAULT_AGENT_ID);
+        setSelectedAgentId(current => current === DEFAULT_AGENT_ID ? lastActiveAgentId : current);
       } catch (error) {
         if (!isActive) return;
         console.error('Failed to load home agent selector state', error);
-        setAgentListState({ workspaceId: activeWorkspaceId, agents: [DEFAULT_AGENT_PROFILE] });
-        setSelectedAgentId(DEFAULT_AGENT_ID);
       }
     };
 
@@ -157,7 +167,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     return () => {
       isActive = false;
     };
-  }, [activeWorkspaceId]);
+  }, [activeWorkspaceId, scopeKey]);
 
   const handleAgentSelect = useCallback((agentId: string) => {
     setSelectedAgentId(agentId);
@@ -350,106 +360,35 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
-  const fetchFiles = useCallback(async (query: string = '') => {
-    setIsLoadingFiles(true);
-    try {
-      if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
-      setFilePickerFiles(await listWorkspaceFileReferences({ query, limit: 50, workspaceId: activeWorkspaceId }));
-      setSelectedFileIndex(0);
-    } catch (err) {
-      console.error('Failed to fetch files', err);
-    } finally {
-      setIsLoadingFiles(false);
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    if (pendingReference && event.key === 'Escape') { event.preventDefault(); closeReferenceDialog(); return; }
+    if (pendingReference && (event.key === 'Enter' && !event.shiftKey || event.key === 'Tab')) { event.preventDefault(); return; }
+    if (activeReferenceMatch && event.key === 'Escape') {
+      event.preventDefault(); closeReferencePicker(); return;
     }
-  }, [activeWorkspaceId]);
-
-  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const value = e.target.value;
-    const cursorPos = e.target.selectionStart;
-    setPrompt(value);
-
-    const lastAtIndex = value.lastIndexOf('@', cursorPos);
-    if (lastAtIndex !== -1 && cursorPos > lastAtIndex) {
-      const textAfterAt = value.slice(lastAtIndex + 1, cursorPos);
-      const hasSpace = textAfterAt.includes(' ');
-      const hasCompletedQuote = textAfterAt.includes('"') && textAfterAt.indexOf('"') < textAfterAt.length - 1;
-      const hasAnotherAt = textAfterAt.includes('@');
-
-      if (!hasSpace && !hasCompletedQuote && !hasAnotherAt) {
-        const query = textAfterAt;
-        setFilePickerQuery(query);
-        setShowFilePicker(true);
-        void fetchFiles(query);
+    if (activeReferenceMatch) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); selectNextReference(); return; }
+      if (event.key === 'ArrowUp') { event.preventDefault(); selectPreviousReference(); return; }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const item = referencePickerItems[selectedReferenceIndex];
+        if (item) handleReferenceSelect(item);
         return;
       }
     }
-
-    setShowFilePicker(false);
-  }, [fetchFiles]);
-
-  const handleFileSelect = useCallback((file: FilePickerFile) => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    const cursorPos = textarea.selectionStart;
-    const value = prompt;
-    const lastAtIndex = value.lastIndexOf('@', cursorPos);
-
-    if (lastAtIndex !== -1) {
-      const before = value.slice(0, lastAtIndex);
-      const after = value.slice(cursorPos);
-      const newValue = `${before}"${file.path}" ${after}`;
-      setPrompt(newValue);
-      setShowFilePicker(false);
-      setFilePickerQuery('');
-
-      setTimeout(() => {
-        textarea.focus();
-        const newCursorPos = before.length + file.path.length + 3;
-        textarea.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    }
-  }, [prompt]);
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (showFilePicker && filePickerFiles.length > 0) {
-      switch (event.key) {
-        case 'ArrowDown':
-          event.preventDefault();
-          setSelectedFileIndex((prev) =>
-            prev < filePickerFiles.length - 1 ? prev + 1 : prev
-          );
-          return;
-        case 'ArrowUp':
-          event.preventDefault();
-          setSelectedFileIndex((prev) => (prev > 0 ? prev - 1 : 0));
-          return;
-        case 'Enter':
-        case 'Tab':
-          event.preventDefault();
-          if (filePickerFiles[selectedFileIndex]) {
-            handleFileSelect(filePickerFiles[selectedFileIndex]);
-          }
-          return;
-        case 'Escape':
-          setShowFilePicker(false);
-          return;
-      }
-    }
-
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      handleSubmit();
-    }
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void handleSubmit(); }
   };
 
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
-    const normalizedPrompt = prompt.trim();
+    const body = parseChatBody(promptBody), capturedAttachments = captureChatSendValue(attachments);
+    const originalDraft = JSON.stringify({ body, attachments: capturedAttachments,
+      agentId: effectiveSelectedAgentId, workspaceId: activeWorkspaceId });
     if (isUploading) {
       return;
     }
-    if (!normalizedPrompt && attachments.length === 0) {
+    if (!projectChatBodyText(body).trim() && capturedAttachments.length === 0) {
       return;
     }
 
@@ -469,7 +408,12 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
     setSubmitError(null);
 
     try {
-      const payload = createPromptHandoff({ prompt: normalizedPrompt, attachments,
+      // Account seals stay exclusively in the scoped RAM cache. The handoff
+      // stores only the exact public body, never the returned intake envelope.
+      await prepareIntakeSelection(body);
+      if (openedDocumentAuthScope() !== auth || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId
+        || JSON.stringify(latestPrompt.current) !== originalDraft) throw new Error(tChat('referenceInputChanged'));
+      const payload = createPromptHandoff({ prompt: projectChatBodyText(body), body, attachments: capturedAttachments,
         agentId: effectiveSelectedAgentId, workspaceId: activeWorkspaceId, auth });
       persistPromptHandoff(window.sessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY, payload);
       clearCanvasChatActiveSessionStorage(activeWorkspaceId);
@@ -484,9 +428,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
   };
 
   useEffect(() => {
-    if (!compact && textareaRef.current) {
-      textareaRef.current.focus();
-    }
+    if (!compact) editorRef.current?.focus();
   }, [compact]);
 
   const { isDraggingFiles, dropHandlers } = useChatFileDrop({
@@ -585,19 +527,19 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
           <div className="text-xs text-destructive">{uploadError}</div>
         )}
 
-        <div className="relative">
-          <textarea
-            ref={textareaRef}
-            value={prompt}
-            onChange={handleInputChange}
+        <div className="relative" data-home-prompt-editor {...(!isStudioMode ? dropHandlers : {})}>
+          <ChatInlineEditor
+            ref={editorRef}
+            body={promptBody}
+            icons={referenceIcons}
+            onBodyChange={handleInputChange}
+            onSelectionChange={handleSelectionChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isStudioMode ? tHome('focus.composer.studioPlaceholder') : compact ? tHome('start.aiPlaceholder') : tHome('hero.placeholder')}
+            disabled={isSubmitting}
+            placeholder={!compact && prompt.length === 0 ? '' : compact ? tHome('start.aiPlaceholder') : tHome('hero.placeholder')}
             aria-label={tHome('start.aiPlaceholder')}
-            data-prompt-hero-textarea
-            className={`${expanded ? 'min-h-24' : 'h-12 min-h-12'} w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${!compact && prompt.length === 0 ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
-            rows={expanded ? 3 : 1}
-            {...(!isStudioMode ? dropHandlers : {})}
+            className={`${expanded ? 'min-h-24' : 'min-h-12'} max-h-[min(280px,40dvh)] w-full overflow-y-auto rounded-lg border bg-background p-3 text-base focus-within:outline-none focus-within:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus-within:ring-ring'}`}
           />
           {prompt.length === 0 && !compact ? (
             <TypewriterPromptSuggestion
@@ -615,36 +557,28 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
             </div>
           ) : null}
 
-          {showFilePicker && (
-            <div
-              ref={filePickerRef}
-              className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
-            >
-              <div className="p-2 text-xs text-muted-foreground border-b border-border">
-                {isLoadingFiles ? tChat('loadingFiles') : tChat('filesFound', { count: filePickerFiles.length })}
-              </div>
-              {filePickerFiles.map((file, index) => (
-                <button
-                  key={file.path}
-                  type="button"
-                  onClick={() => handleFileSelect(file)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent ${
-                    index === selectedFileIndex ? 'bg-accent' : ''
-                  }`}
-                >
-                  {getFileIconComponent({
-                    name: file.name,
-                    path: file.path,
-                    type: file.type,
-                  })}
-                  <span className="truncate">{file.name}</span>
-                  {file.type === 'directory' && (
-                    <span className="text-xs text-muted-foreground ml-auto">{tHome('chatPrompt.directoryBadge')}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
+          {activeReferenceMatch ? <ComposerReferencePicker
+            locale={locale}
+            header={isLoadingReferenceItems ? tChat('loadingReferences') : tChat('referencesFound', { count: referencePickerItems.length })}
+            emptyState={referencePickerError ? tChat('referenceSearchFailed', { message: referencePickerError }) : tChat('noReferencesAvailable')}
+            isLoading={isLoadingReferenceItems}
+            items={referencePickerItems}
+            selectedIndex={selectedReferenceIndex}
+            onSelect={handleReferenceSelect}
+            onConfigure={configureReference}
+            canConfigure={item => { const payload = item.payload; const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+              return selection?.kind === 'plugin' || selection?.kind === 'skill'; }}
+            sourceStatuses={referenceSourceStatuses}
+            onRetrySource={retryReferenceSource}
+            notice={referencePickerError}
+            headerActions={<div className="mt-2 flex flex-wrap gap-1" aria-label={tChat('referenceTypeFilter')}>
+              {(['all', 'plugin', 'skill', 'integration', 'mcp'] as const).map(type => <button key={type} type="button"
+                aria-pressed={referenceTypeFilter === type} onClick={() => setReferenceTypeFilter(type)}
+                className={`rounded-md px-2 py-1 text-xs transition-colors ${referenceTypeFilter === type ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'}`}>
+                {type === 'all' ? tChat('referenceAllTypes') : type === 'integration' ? 'Composio' : type === 'mcp' ? 'MCP' : type === 'plugin' ? 'Plugins' : 'Skills'}
+              </button>)}
+            </div>}
+          /> : null}
         </div>
 
         {expanded ? <div className="flex items-center justify-between gap-3">
@@ -660,6 +594,11 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
               >
                 <Paperclip className="h-5 w-5" />
               </button>
+              <button type="button" onClick={openReferencePicker} disabled={isSubmitting || !referenceTarget}
+                title={tChat('openReferences')} aria-label={tChat('openReferences')}
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:opacity-50">
+                <AtSign className="h-4 w-4" />
+              </button>
               <input
                 type="file"
                 ref={fileInputRef}
@@ -669,6 +608,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
                 multiple
               />
               <ChatAgentSelector
+                context={{ workspaceId: activeWorkspaceId }}
                 variant="desktop"
                 activeAgentId={effectiveSelectedAgentId}
                 activeAgentName={selectedAgentName}
@@ -677,13 +617,8 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
                 className="max-w-[11rem] bg-background"
                 testId="home-agent-id"
                 onSelectAgent={handleAgentSelect}
-                onReloadAgents={async () => {
-                  if (!activeWorkspaceId) return;
-                  setAgentListState({
-                    workspaceId: activeWorkspaceId,
-                    agents: await fetchChatAgents(activeWorkspaceId),
-                  });
-                }}
+                onAgentCreated={acceptCreatedAgent}
+                onReloadAgents={refreshAgents}
               />
             </div>
           )}
@@ -691,7 +626,7 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
           <button
             type="submit"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
-            disabled={isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
+            disabled={Boolean(pendingReference) || isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
           >
             {isStudioMode ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             <span className="sr-only sm:not-sr-only">{isStudioMode ? tHome('focus.composer.studioSubmit') : tHome('hero.submit')}</span>
@@ -699,6 +634,9 @@ export function PromptHero({ onModeChange, compact = false }: PromptHeroProps = 
         </div> : null}
       </form>
     </div>
+
+    {pendingReference ? <ChatExtensionReferenceDialog request={pendingReference}
+      onClose={closeReferenceDialog} onSelect={acceptReference} /> : null}
 
     <AttachmentPreviewDialog
       attachment={previewAttachment}

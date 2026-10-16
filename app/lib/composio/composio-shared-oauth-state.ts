@@ -25,14 +25,17 @@ export type SharedComposioOAuthFlow = {
 
 /** Resolve routing from the issued connection, before provider I/O or flow writes. */
 export function resolveSharedComposioOAuthReturnPath(context: ResolvedComposioContext,
-  input: { returnLocale?: 'de' | 'en'; returnPath?: string | null }): string {
+  input: { returnLocale?: 'de' | 'en'; returnPath?: string | null; catalogReturnPath?: string }): string {
   const shared = context.sharedBinding;
   if (!shared || !isAuthorizedIntegrationConnection(shared.authorization)) {
     throw new IntegrationConnectionError('invalid_request', 'A managed app connection is required.');
   }
   const { resource, actor } = shared.authorization;
+  if (input.catalogReturnPath !== undefined && input.returnLocale === undefined) {
+    throw new IntegrationConnectionError('CONNECTION_OAUTH_RETURN_INVALID', 'A catalog return requires its locale.');
+  }
   if (input.returnLocale !== undefined) {
-    return sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, input.returnLocale), 'connected');
+    return sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, input.returnLocale, input.catalogReturnPath), 'connected');
   }
   const path = safeAppReturnTo(input.returnPath || `/settings?tab=integrations&connectionRef=${encodeURIComponent(resource.connectionRef)}`);
   if (!path) throw new IntegrationConnectionError('invalid_request', 'Choose a valid app return path.');
@@ -40,7 +43,7 @@ export function resolveSharedComposioOAuthReturnPath(context: ResolvedComposioCo
   if (destination.searchParams.has('sharedOAuth')) {
     const locale = /^\/(de|en)\/plugins$/u.exec(destination.pathname)?.[1];
     if (locale !== 'de' && locale !== 'en'
-      || path !== sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, locale), 'connected')) {
+      || path !== sharedConnectionOAuthReturnHref(createSharedConnectionOAuthReturn(resource, actor, locale, destination.searchParams.get('view') === 'browse' ? path : undefined), 'connected')) {
       throw new IntegrationConnectionError('invalid_request', 'The shared sign-in return path is invalid.');
     }
   }
@@ -48,7 +51,7 @@ export function resolveSharedComposioOAuthReturnPath(context: ResolvedComposioCo
 }
 
 export async function createSharedComposioOAuthFlowState(input: { context: ResolvedComposioContext; credentialRevision: string;
-  returnPath?: string | null; returnLocale?: 'de' | 'en' }, externalDatabase?: SqlConnection) {
+  returnPath?: string | null; returnLocale?: 'de' | 'en'; catalogReturnPath?: string }, externalDatabase?: SqlConnection) {
   const shared = input.context.sharedBinding;
   if (!shared || !isAuthorizedIntegrationConnection(shared.authorization) || shared.authorization.operation !== 'manage'
     || !shared.authorization.access.canManage || shared.authorization.backend.source !== 'composio') {

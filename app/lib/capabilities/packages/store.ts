@@ -15,15 +15,41 @@ import { CAPABILITY_PACKAGE_CONTRACT_VERSION, CAPABILITY_PACKAGE_LIMITS, CAPABIL
   type CapabilityPackagePublishedRevision, type CapabilityPackagePublishRequest, type CapabilityPackageSourceStamp,
   type CapabilityPackageState, type CapabilityPackagePublishedSummary, type CapabilityPackageOwnedDraftStatus,
   type CapabilityPackageOwnedDraftList, type CapabilityPackageOwnedDraftListQuery } from './contracts';
+import type { CapabilityPackageSourceDraftCreation, CapabilityPackageOperationStatus, CapabilityPackageOperationQuery } from './contracts';
 import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
 import { assertPreparedCapabilityStorePackage, getPreparedCapabilityStorePackage, type PreparedCapabilityStorePackage } from './store-source';
 import type { CapabilityPackageStoreUpdateRequest } from './store-contracts';
 import { readHeldLegacyCapabilityStoreHistory, type PreparedLegacyCapabilityStoreHistory } from './legacy-store-source';
+import { readCapabilityPackageDraftCaptures, withCapabilityPackageCaptureRead, type CapabilityPackageSourceCapture } from './source-captures';
 
 type Row = Record<string, unknown>;
+
+/** Only source-free creation can write this immutable provenance null-group.
+ * It survives deletion of the original publisher and cannot be removed by editing a manifest.
+ * This internal fact grants no access; callers hold the real draft/resource authority.
+ */
+export async function isCreatorAuthoredPluginResource(resourceRef: string, database: SqlConnection): Promise<boolean> {
+  const origins = await database.all(`WITH RECURSIVE origins(resource_ref) AS (
+      SELECT $1::text UNION
+      SELECT v.source_resource_ref FROM capability_package_versions v JOIN origins o ON v.resource_ref=o.resource_ref
+        WHERE v.kind='plugin' AND v.base_revision_ref IS NULL AND v.source_resource_ref IS NOT NULL
+    ) SELECT o.resource_ref, EXISTS (SELECT 1 FROM capability_package_versions v
+        WHERE v.resource_ref=o.resource_ref AND v.kind='plugin' AND v.base_revision_ref IS NULL AND v.source_resource_ref IS NULL
+          AND v.source_revision_ref IS NULL AND v.source_checksum IS NULL AND v.source_stamp IS NULL) AS creator,
+      EXISTS (SELECT 1 FROM capability_package_versions v WHERE v.resource_ref=o.resource_ref AND v.kind='plugin'
+        AND v.base_revision_ref IS NULL AND v.source_revision_ref IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM capability_package_versions s
+          WHERE s.revision_ref=v.source_revision_ref AND s.resource_ref=v.source_resource_ref)) AS unresolved
+      FROM origins o LIMIT 33`, [resourceRef]) as Array<{resource_ref: string; creator: boolean; unresolved: boolean}>;
+  if (origins.some(origin => origin.creator)) return true;
+  if (origins.some(origin => origin.unresolved)) throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The immutable package origin is unavailable. Restore the source before validating this derivative.', 409);
+  if (origins.length > 32) throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The package origin exceeds its validation ancestry limit.', 409);
+  return false;
+}
+
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
   targetOwnership: Exclude<CapabilityResourceOwnerScope, { type: 'system' }>;
-  sourceStorage: CapabilityResourceStorageBinding; sourceParentStorage?: CapabilityResourceStorageBinding };
+  sourceStorage: CapabilityResourceStorageBinding | null; sourceParentStorage?: CapabilityResourceStorageBinding };
 type PrivateDraft = CapabilityPackageDraftRecord;
 export type CapabilityPackagePublicationBinding = { revisionRef: string; version: string; checksum: string; rootPath: string; storeOrigin?: CapabilityStoreOrigin };
 type Publication = { authorization: AuthorizedCapabilityPackageResource; binding: CapabilityPackagePublicationBinding; database: SqlConnection };
@@ -109,16 +135,20 @@ function mapPublished(row: Row): CapabilityPackagePublishedRevision {
     kind: row.kind as CapabilityPackagePublishedRevision['kind'], name: String(row.name), version: String(row.version), checksum: String(row.checksum),
     files: json(row.files), totalBytes: Number(row.total_bytes), publishedByUserId: row.published_by_user_id == null ? null : String(row.published_by_user_id),
     publishedAt: Number(row.published_at), baseRevisionRef: row.base_revision_ref == null ? null : String(row.base_revision_ref),
-    sourceResourceRef:String(row.source_resource_ref),sourceRevisionRef:row.source_revision_ref==null?null:String(row.source_revision_ref),sourceChecksum:String(row.source_checksum),sourceStamp:json(row.source_stamp) };
+    sourceResourceRef:row.source_resource_ref==null?null:String(row.source_resource_ref),sourceRevisionRef:row.source_revision_ref==null?null:String(row.source_revision_ref),
+    sourceChecksum:row.source_checksum==null?null:String(row.source_checksum),sourceStamp:row.source_stamp==null?null:json(row.source_stamp) };
 }
 function mapDraft(row: Row): PrivateDraft {
-  return { draft: { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION, draftRef: String(row.draft_ref), resourceRef: String(row.resource_ref),
+  const common = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION, draftRef: String(row.draft_ref), resourceRef: String(row.resource_ref),
     kind: row.kind as CapabilityPackageDraft['kind'], name: String(row.name), operation: row.operation as CapabilityPackageDraft['operation'], actorUserId: String(row.actor_user_id),
     draftRevision: Number(row.draft_revision), basePackageRevision: Number(row.base_package_revision), basePublishedRevisionRef: row.base_published_revision_ref == null ? null : String(row.base_published_revision_ref),
-    baseSourceStamp: json(row.base_source_stamp), sourceResourceRef: String(row.source_resource_ref), sourceMetadataRevision: Number(row.source_metadata_revision),
+    createdAt: Number(row.created_at), updatedAt: Number(row.updated_at) };
+  const draft: CapabilityPackageDraft = row.operation === 'create' ? { ...common, operation: 'create',
+    baseSourceStamp: null, sourceResourceRef: null, sourceMetadataRevision: null, sourceGrantsRevision: null, sourcePackageRevision: null, sourcePublishedRevisionRef: null }
+    : { ...common, operation: row.operation as 'edit' | 'fork', baseSourceStamp: json<CapabilityPackageSourceStamp>(row.base_source_stamp), sourceResourceRef: String(row.source_resource_ref), sourceMetadataRevision: Number(row.source_metadata_revision),
     sourceGrantsRevision: Number(row.source_grants_revision),sourcePackageRevision:Number(row.source_package_revision),
-    sourcePublishedRevisionRef:row.source_published_revision_ref==null?null:String(row.source_published_revision_ref), createdAt: Number(row.created_at), updatedAt: Number(row.updated_at) },
-    targetStorage: json(row.target_storage), targetOwnership: json(row.target_ownership), sourceStorage: json(row.source_storage),
+    sourcePublishedRevisionRef:row.source_published_revision_ref==null?null:String(row.source_published_revision_ref) };
+  return { draft, targetStorage: json(row.target_storage), targetOwnership: json(row.target_ownership), sourceStorage: row.source_storage==null?null:json(row.source_storage),
     ...(row.source_parent_storage ? { sourceParentStorage: json<CapabilityResourceStorageBinding>(row.source_parent_storage) } : {}) };
 }
 function assertHead(state: CapabilityPackageState | null, expected: CapabilityPackageExpectedHead): void {
@@ -221,16 +251,15 @@ function ownedDraftStatusOwnership(value: unknown): CapabilityPackageOwnedDraftS
 /** Only selected safe SQL columns are consumed, never a full private draft record. */
 function projectOwnedDraftStatus(row: Row): CapabilityPackageOwnedDraftStatus {
   const { draft_ref: draftRef, resource_ref: resourceRef, source_resource_ref: sourceResourceRef, kind, name, operation } = row;
+  const validSource = operation === 'create' ? sourceResourceRef === null : typeof sourceResourceRef === 'string' && sourceResourceRef.length <= 2_048
+    && (canonicalResourceRef.test(sourceResourceRef) || sourceResourceRef.startsWith(`canvas-capability:v1:${String(kind)}:`) && /^[a-zA-Z0-9%_.:~-]+$/u.test(sourceResourceRef));
   if (typeof draftRef !== 'string' || !canonicalDraftRef.test(draftRef) || typeof resourceRef !== 'string' || !canonicalResourceRef.test(resourceRef)
     || !['skill','plugin'].includes(String(kind)) || typeof name !== 'string' || name !== name.trim().normalize('NFKC')
     || name !== name.toLowerCase() || Array.from(name).length > 64 || !/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(name)
-    || kind === 'plugin' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name) || operation !== 'edit' && operation !== 'fork'
-    || typeof sourceResourceRef !== 'string' || sourceResourceRef.length > 2_048
-    || !canonicalResourceRef.test(sourceResourceRef) && !(sourceResourceRef.startsWith(`canvas-capability:v1:${String(kind)}:`)
-      && /^[a-zA-Z0-9%_.:~-]+$/u.test(sourceResourceRef))) return ownedDraftStatusUnavailable();
+    || kind === 'plugin' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(name) || !['create','edit','fork'].includes(String(operation)) || !validSource) return ownedDraftStatusUnavailable();
   const createdAt = ownedDraftStatusNumber(row.created_at), updatedAt = ownedDraftStatusNumber(row.updated_at);
   if (updatedAt < createdAt) return ownedDraftStatusUnavailable();
-  return { draftRef, resourceRef, sourceResourceRef, kind: kind as CapabilityPackageOwnedDraftStatus['kind'], name, operation,
+  return { draftRef, resourceRef, sourceResourceRef: sourceResourceRef as string | null, kind: kind as CapabilityPackageOwnedDraftStatus['kind'], name, operation: operation as CapabilityPackageOwnedDraftStatus['operation'],
     draftRevision: ownedDraftStatusNumber(row.draft_revision, true), targetOwnership: ownedDraftStatusOwnership(row.target_ownership), createdAt, updatedAt };
 }
 async function assertOwnedDraftActor(database: SqlConnection, actor: CapabilityResourceActor): Promise<void> {
@@ -293,6 +322,129 @@ export async function listCapabilityPackageOwnedDraftStatuses(actorInput: Capabi
   });
 }
 
+function operationRequestHash(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+async function lockOperationRequest(database: SqlConnection, actor: CapabilityResourceActor, requestId?: string): Promise<void> {
+  if (requestId) await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))', [`capability-package-request:${actor.userId}:${requestId}`]);
+}
+
+async function operationForRequest(database: SqlConnection, actor: CapabilityResourceActor, requestId: string, hash: string): Promise<Row | undefined> {
+  const row = await database.get('SELECT * FROM capability_package_operations WHERE actor_user_id=$1 AND request_id=$2', [actor.userId, requestId]) as Row | undefined;
+  if (row && row.request_hash !== hash) fail('PACKAGE_REQUEST_CONFLICT', 'This request identifier was already used for another package operation.', 409);
+  return row;
+}
+
+function publicationRequestHash(request: CapabilityPackagePublishRequest): string {
+  return operationRequestHash(['publish',request.draftRef,request.expectedDraftRevision,request.expectedMetadataRevision,request.expectedGrantsRevision,
+    request.expectedPackageRevision,request.expectedPublishedRevisionRef]);
+}
+
+/** Full replay results still require today's read permission. Recovery metadata uses a separate path. */
+export async function findCapabilityPackagePublicationReplay(actorInput: CapabilityResourceActor, request: CapabilityPackagePublishRequest): Promise<{
+  state: CapabilityPackageState; published: CapabilityPackagePublishedRevision;
+} | null> {
+  const actor = actorSnapshot(actorInput);
+  return usingDatabase(undefined, async database => {
+    await assertOwnedDraftActor(database, actor);
+    const hash = publicationRequestHash(request);
+    const byRequest = request.requestId ? await operationForRequest(database,actor,request.requestId,hash) : undefined;
+    const row = byRequest ?? await database.get(`SELECT * FROM capability_package_operations WHERE actor_user_id=$1 AND draft_ref=$2
+      AND draft_revision=$3 AND operation='publish'`, [actor.userId,request.draftRef,request.expectedDraftRevision]) as Row | undefined;
+    if (!row) return null;
+    if (row.operation !== 'publish' || row.request_hash !== hash) fail('PACKAGE_REQUEST_CONFLICT', 'The publication request differs from the completed operation.', 409);
+    const storage = json<CapabilityResourceStorageBinding>(row.target_storage);
+    return withAuthorizedCapabilityPackageResource(actor,storage,'read',undefined,async () => {
+      const result = json<{state:CapabilityPackageState;published:CapabilityPackagePublishedRevision}>(row.result);
+      if (result.published.resourceRef !== row.resource_ref || result.published.revisionRef !== row.published_revision_ref) {
+        fail('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The publication result is unavailable.', 503);
+      }
+      return result;
+    });
+  });
+}
+
+async function recordPackageOperation(database: SqlConnection, actor: CapabilityResourceActor, input: {
+  requestId?: string; requestHash: string; operation: CapabilityPackageOperationStatus['operation']; status: CapabilityPackageOperationStatus['status'];
+  draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding; publishedRevisionRef?: string; result?: unknown;
+}): Promise<void> {
+  const now = Date.now(), draft = input.draft;
+  await database.run(`INSERT INTO capability_package_operations (operation_ref,actor_user_id,request_id,request_hash,operation,status,
+    draft_ref,draft_revision,resource_ref,published_revision_ref,kind,name,target_storage,result,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15)`,
+  [randomUUID(),actor.userId,input.requestId ?? null,input.requestHash,input.operation,input.status,draft.draftRef,draft.draftRevision,draft.resourceRef,
+    input.publishedRevisionRef ?? null,draft.kind,draft.name,JSON.stringify(input.targetStorage),input.result === undefined ? null : JSON.stringify(input.result),now]);
+}
+
+const operationStatusColumns = 'o.request_id,o.operation,o.status,o.draft_ref,o.draft_revision,o.resource_ref,o.published_revision_ref,o.kind,o.name,o.created_at,o.updated_at';
+
+/** Recovery is creator metadata only, including after source/target access was revoked. */
+export async function getCapabilityPackageOperationStatus(actorInput: CapabilityResourceActor, query: CapabilityPackageOperationQuery): Promise<CapabilityPackageOperationStatus> {
+  const actor = actorSnapshot(actorInput);
+  return usingDatabase(undefined, async database => {
+    await assertOwnedDraftActor(database, actor);
+    const value = 'requestId' in query ? query.requestId : query.draftRef;
+    const row = await database.get(`SELECT ${operationStatusColumns},d.draft_revision AS current_draft_revision,d.updated_at AS current_draft_updated_at,v.checksum AS published_checksum
+      FROM capability_package_operations o LEFT JOIN capability_package_drafts d ON d.actor_user_id=o.actor_user_id AND d.draft_ref=o.draft_ref
+      LEFT JOIN capability_package_versions v ON v.resource_ref=o.resource_ref AND v.revision_ref=o.published_revision_ref
+      WHERE o.actor_user_id=$1 AND o.${'requestId' in query ? 'request_id' : 'draft_ref'}=$2
+      ORDER BY CASE o.operation WHEN 'publish' THEN 0 WHEN 'discard' THEN 1 ELSE 2 END,o.updated_at DESC LIMIT 1`, [actor.userId,value]) as Row | undefined;
+    if (!row) fail('PACKAGE_NOT_FOUND', 'The package operation was not found.', 404);
+    if (!canonicalDraftRef.test(String(row.draft_ref)) || !canonicalResourceRef.test(String(row.resource_ref))
+      || !['create','publish','discard'].includes(String(row.operation)) || !['draft','published','discarded'].includes(String(row.status))
+      || !['skill','plugin'].includes(String(row.kind)) || typeof row.name !== 'string' || row.name.length > 64
+      || row.name !== row.name.trim().normalize('NFKC') || row.name !== row.name.toLowerCase() || !/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(row.name)
+      || row.request_id !== null && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(String(row.request_id))
+      || row.status === 'published' && row.published_revision_ref === null
+      || row.published_checksum != null && (typeof row.published_checksum !== 'string' || !/^[a-f0-9]{64}$/u.test(row.published_checksum))
+      || row.published_revision_ref !== null && !/^canvas-package-revision:[a-f0-9-]{36}$/u.test(String(row.published_revision_ref))) return ownedDraftStatusUnavailable();
+    let draftRevision = ownedDraftStatusNumber(row.draft_revision, true), updatedAt = ownedDraftStatusNumber(row.updated_at);
+    if (row.status === 'draft') {
+      if (row.current_draft_revision == null) return ownedDraftStatusUnavailable();
+      draftRevision = ownedDraftStatusNumber(row.current_draft_revision, true); updatedAt = Math.max(updatedAt,ownedDraftStatusNumber(row.current_draft_updated_at));
+    }
+    return { requestId: row.request_id == null ? null : String(row.request_id), operation: row.operation as CapabilityPackageOperationStatus['operation'],
+      status: row.status as CapabilityPackageOperationStatus['status'], draftRef: String(row.draft_ref), draftRevision, resourceRef: String(row.resource_ref),
+      publishedRevisionRef: row.published_revision_ref == null ? null : String(row.published_revision_ref),
+      publishedChecksum: row.published_checksum == null ? null : String(row.published_checksum), kind: row.kind as CapabilityPackageOperationStatus['kind'], name: row.name,
+      createdAt: ownedDraftStatusNumber(row.created_at), updatedAt };
+  });
+}
+
+export async function beginNewCapabilityPackageDraft(actorInput: CapabilityResourceActor,
+  input: Extract<CapabilityPackageDraftCreation, { operation: 'create' }>, target: AuthorizedCapabilityPackageResource,
+  callback: (draft: CapabilityPackageDraft) => Promise<void>): Promise<CapabilityPackageDraft> {
+  const actor = actorSnapshot(actorInput), owner = target.record.metadata.ownership;
+  if (!isAuthorizedCapabilityPackageResource(target) || !sameActor(actor,target.actor) || !target.access.canManage
+    || owner.type !== 'organization' || target.record.storage.resourceType !== input.kind || target.record.storage.name !== input.targetName) {
+    fail('PACKAGE_ACCESS_DENIED', 'Creating a package requires current organization management permission.', 403);
+  }
+  return withAuthorizedCapabilityPackageTarget(actor,target.record.storage,owner,async (_held,database) => {
+    await lockOperationRequest(database,actor,input.requestId);
+    const requestHash = operationRequestHash(['create',input.kind,input.targetName,owner.organizationId]);
+    const prior = await operationForRequest(database,actor,input.requestId,requestHash);
+    if (prior) {
+      if (prior.status !== 'draft') fail('PACKAGE_DRAFT_CONFLICT', 'This draft was already consumed. Inspect its operation result.', 409);
+      const row = await database.get('SELECT * FROM capability_package_drafts WHERE actor_user_id=$1 AND draft_ref=$2 FOR SHARE', [actor.userId,prior.draft_ref]) as Row | undefined;
+      if (!row) fail('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The recovered draft is unavailable.', 503);
+      return mapDraft(row).draft;
+    }
+    const now = Date.now();
+    const draft: CapabilityPackageDraft = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION, draftRef: `canvas-package-draft:${randomUUID()}`,
+      resourceRef: `canvas-resource:${randomUUID()}`,kind:input.kind,name:input.targetName,operation:'create',actorUserId:actor.userId,draftRevision:1,
+      basePackageRevision:0,basePublishedRevisionRef:null,baseSourceStamp:null,sourceResourceRef:null,sourceMetadataRevision:null,sourceGrantsRevision:null,
+      sourcePackageRevision:null,sourcePublishedRevisionRef:null,createdAt:now,updatedAt:now };
+    await database.run(`INSERT INTO capability_package_drafts (draft_ref,resource_ref,actor_user_id,kind,name,operation,draft_revision,base_package_revision,
+      base_published_revision_ref,base_source_stamp,source_resource_ref,source_metadata_revision,source_grants_revision,source_package_revision,source_published_revision_ref,source_storage,source_parent_storage,target_storage,target_ownership,created_at,updated_at)
+      VALUES ($1,$2,$3,$4,$5,'create',1,0,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,NULL,$6,$7,$8,$8)`,
+    [draft.draftRef,draft.resourceRef,actor.userId,draft.kind,draft.name,JSON.stringify(target.record.storage),JSON.stringify(owner),now]);
+    await callback(Object.freeze(structuredClone(draft)));
+    await recordPackageOperation(database,actor,{requestId:input.requestId,requestHash,operation:'create',status:'draft',draft,targetStorage:target.record.storage});
+    return draft;
+  });
+}
+
 /** Server-only private bindings. Never serialize this record in an API response. */
 export async function getCapabilityPackageDraftRecord(actorInput: CapabilityResourceActor, draftRef: string): Promise<CapabilityPackageDraftRecord & {authorization:AuthorizedCapabilityPackageResource}> {
   return withCapabilityPackageDraftRead(actorInput,draftRef,async record=>record);
@@ -313,16 +465,40 @@ export async function withCapabilityPackageDraftRead<T>(actorInput:CapabilityRes
 }
 
 async function withDraftAuthorization<T>(actor: CapabilityResourceActor, stored: PrivateDraft,
-  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>): Promise<T> {
+  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>,
+  additionalCaptures: readonly CapabilityPackageSourceCapture[] = []): Promise<T> {
   const { draft } = stored;
   if (actor.userId !== draft.actorUserId) fail('PACKAGE_NOT_FOUND', 'The package draft was not found.', 404);
-  if (draft.operation === 'edit') return withAuthorizedCapabilityPackageResource(actor, stored.targetStorage, 'edit', undefined, callback);
-  return withAuthorizedCapabilityPackageTarget(actor, stored.targetStorage, stored.targetOwnership, async (target, database) =>
-    withAuthorizedCapabilityPackageResource(actor, stored.sourceStorage, 'read', undefined, async () => callback(target, database),
-      { parentStorage: stored.sourceParentStorage, database }));
+  const database=await openDb();
+  try {
+    await database.run('BEGIN');
+    await authority(database,actor,true);
+    // Freeze the capture set before acquiring any resource locks. Every draft operation uses
+    // this order, including reads, so a concurrent composition cannot add an unheld source.
+    await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`capability-package-draft:${draft.draftRef}`]);
+    const captures=[...await readCapabilityPackageDraftCaptures(actor,draft.draftRef,database),...additionalCaptures];
+    const bindings=[stored.targetStorage,stored.sourceStorage,stored.sourceParentStorage,
+      ...captures.flatMap(source=>source.source==='package'?[source.storage,source.parentStorage]:[])];
+    for(const resourceId of [...new Set(bindings.filter((binding):binding is CapabilityResourceStorageBinding=>Boolean(binding)).map(binding=>binding.resourceId))].sort()) {
+      await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`capability-resource:${resourceId}`]);
+    }
+    const guarded=(authorization:AuthorizedCapabilityPackageResource)=>withCapabilityPackageCaptureRead(actor,captures,database,()=>callback(authorization,database));
+    let result:T;
+    if(draft.operation==='edit') result=await withAuthorizedCapabilityPackageResource(actor,stored.targetStorage,'edit',undefined,guarded,{database});
+    else if(draft.operation==='create') result=await withAuthorizedCapabilityPackageTarget(actor,stored.targetStorage,stored.targetOwnership,guarded,{database});
+    else {
+      if(!stored.sourceStorage) fail('PACKAGE_SNAPSHOT_UNAVAILABLE','The draft source is unavailable.',503);
+      const sourceStorage=stored.sourceStorage;
+      result=await withAuthorizedCapabilityPackageTarget(actor,stored.targetStorage,stored.targetOwnership,async target=>
+        withAuthorizedCapabilityPackageResource(actor,sourceStorage,'read',undefined,async()=>guarded(target),{parentStorage:stored.sourceParentStorage,database}),{database});
+    }
+    await database.run('COMMIT');
+    return result;
+  } catch(error) {try{await database.run('ROLLBACK');}catch{/* Preserve the original failure. */}throw error;}
+  finally{await database.close();}
 }
 
-export async function beginCapabilityPackageDraft(actorInput: CapabilityResourceActor, input: CapabilityPackageDraftCreation,
+export async function beginCapabilityPackageDraft(actorInput: CapabilityResourceActor, input: CapabilityPackageSourceDraftCreation,
   seed: CapabilityPackageDraftSeed, callback: (draft: CapabilityPackageDraft, database: SqlConnection) => Promise<void>): Promise<CapabilityPackageDraft> {
   const actor = actorSnapshot(actorInput), request = structuredClone(input), source = seed.source, sourceAuth = source.authorization;
   if (!isAuthorizedCapabilityPackageResource(sourceAuth) || !sameActor(actor, sourceAuth.actor) || !sourceAuth.access.canRead
@@ -373,7 +549,8 @@ export async function beginCapabilityPackageDraft(actorInput: CapabilityResource
 }
 
 export async function mutateCapabilityPackageDraft<T>(actorInput: CapabilityResourceActor, draftRef: string, expectedDraftRevision: number,
-  callback: (draft: CapabilityPackageDraft, database: SqlConnection) => Promise<T>): Promise<{ draft: CapabilityPackageDraft; result: T }> {
+  callback: (draft: CapabilityPackageDraft, database: SqlConnection) => Promise<T>,
+  options: {sourceCaptures?:readonly CapabilityPackageSourceCapture[]} = {}): Promise<{ draft: CapabilityPackageDraft; result: T }> {
   const actor = actorSnapshot(actorInput), ref = text(draftRef, 'Draft reference'), expected = revision(expectedDraftRevision);
   const row = await usingDatabase(undefined, async db => db.get('SELECT * FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2', [ref, actor.userId])) as Row | undefined;
   if (!row) fail('PACKAGE_NOT_FOUND', 'The package draft was not found.', 404);
@@ -388,7 +565,7 @@ export async function mutateCapabilityPackageDraft<T>(actorInput: CapabilityReso
     const changed = await database.run('UPDATE capability_package_drafts SET draft_revision=$1,updated_at=$2 WHERE draft_ref=$3 AND actor_user_id=$4 AND draft_revision=$5', [next.draftRevision,next.updatedAt,ref,actor.userId,expected]) as { changes?: number };
     if (changed.changes !== 1) fail('PACKAGE_DRAFT_CONFLICT', 'The package draft changed during editing.', 409);
     return { draft: next, result };
-  });
+  },options.sourceCaptures);
 }
 
 export async function discardCapabilityPackageDraft(actorInput: CapabilityResourceActor, draftRef: string, expectedDraftRevision: number,
@@ -405,6 +582,10 @@ export async function discardCapabilityPackageDraft(actorInput: CapabilityResour
     const draft = mapDraft(row).draft;
     if (draft.draftRevision !== expected) fail('PACKAGE_DRAFT_CONFLICT', 'The package draft changed. Reload before discarding it.', 409);
     await callback(Object.freeze(structuredClone(draft)),database);
+    await database.run('DELETE FROM capability_package_source_captures WHERE actor_user_id=$1 AND draft_ref=$2 AND published_revision_ref IS NULL',[actor.userId,ref]);
+    const stored = mapDraft(row);
+    await recordPackageOperation(database,actor,{requestHash:operationRequestHash(['discard',ref,expected]),operation:'discard',status:'discarded',draft,targetStorage:stored.targetStorage});
+    await database.run("UPDATE capability_package_operations SET status='discarded',draft_revision=$1,updated_at=$2 WHERE actor_user_id=$3 AND draft_ref=$4 AND operation='create'", [draft.draftRevision,Date.now(),actor.userId,ref]);
     await database.run('DELETE FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2', [ref,actor.userId]);
     await database.run('COMMIT');
   } catch (error) { try { await database.run('ROLLBACK'); } catch { /* Preserve the original error. */ } throw error; }
@@ -492,10 +673,16 @@ export type CapabilityPackagePublishContext = { authorization: AuthorizedCapabil
 export async function publishCapabilityPackageDraft(actorInput: CapabilityResourceActor, requestInput: CapabilityPackagePublishRequest,
   callback: (context: CapabilityPackagePublishContext, database: SqlConnection) => Promise<CapabilityPackagePublicationResult>): Promise<{ state: CapabilityPackageState; published: CapabilityPackagePublishedRevision }> {
   const actor = actorSnapshot(actorInput), request = structuredClone(requestInput);
+  const replay = await findCapabilityPackagePublicationReplay(actor,request);
+  if (replay) return replay;
+  try {
   const row = await usingDatabase(undefined, async db => db.get('SELECT * FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2',[text(request.draftRef,'Draft reference'),actor.userId])) as Row | undefined;
   if (!row) fail('PACKAGE_NOT_FOUND','The package draft was not found.',404);
   const stored = mapDraft(row);
-  return withDraftAuthorization(actor,stored,async (initial,database) => {
+  return await withDraftAuthorization(actor,stored,async (initial,database) => {
+    await lockOperationRequest(database,actor,request.requestId);
+    const requestHash = publicationRequestHash(request);
+    if (request.requestId) await operationForRequest(database,actor,request.requestId,requestHash);
     const locked = await database.get('SELECT * FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2 FOR UPDATE',[request.draftRef,actor.userId]) as Row | undefined;
     if (!locked) fail('PACKAGE_NOT_FOUND','The package draft was not found.',404);
     const { draft } = mapDraft(locked);
@@ -509,18 +696,22 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
       if (draft.basePackageRevision !== request.expectedPackageRevision || draft.basePublishedRevisionRef !== request.expectedPublishedRevisionRef) fail('PACKAGE_REVISION_CONFLICT','The draft is based on another package revision.',409);
       if (draft.operation === 'edit') assertCurrentSource(state,draft.baseSourceStamp);
       const revisionRef = `canvas-package-revision:${randomUUID()}`;
-      const baseOrigin = normalizeCapabilityStoreOrigin(draft.baseSourceStamp.storeOrigin, draft.baseSourceStamp.resourceId) ?? undefined;
+      const baseOrigin = draft.baseSourceStamp ? normalizeCapabilityStoreOrigin(draft.baseSourceStamp.storeOrigin, draft.baseSourceStamp.resourceId) ?? undefined : undefined;
       const publishedOrigin = draft.operation === 'fork' ? deriveCapabilityStoreOrigin(baseOrigin, authorization.record.storage.resourceId) : baseOrigin;
       const expectedOrigin = publishedOrigin ? Object.freeze(publishedOrigin) : undefined;
       const heldDraft = Object.freeze(structuredClone(draft));
       const prepared = await originPreparations.run({ authorization, expectedOrigin, database, revisionRef },
         () => callback({authorization,draft:heldDraft,state,revisionRef},database));
       const result = await commitCapabilityPackagePublication(authorization, database, state, revisionRef, prepared, expectedOrigin,
-        { resourceRef: draft.sourceResourceRef, revisionRef: draft.sourcePublishedRevisionRef, stamp: draft.baseSourceStamp });
+        draft.operation === 'create' ? null : { resourceRef: draft.sourceResourceRef, revisionRef: draft.sourcePublishedRevisionRef, stamp: draft.baseSourceStamp });
+      await recordPackageOperation(database,actor,{requestId:request.requestId,requestHash,operation:'publish',status:'published',draft,
+        targetStorage:stored.targetStorage,publishedRevisionRef:revisionRef,result});
+      await database.run('UPDATE capability_package_source_captures SET published_revision_ref=$1 WHERE actor_user_id=$2 AND draft_ref=$3 AND published_revision_ref IS NULL',[revisionRef,actor.userId,draft.draftRef]);
+      await database.run("UPDATE capability_package_operations SET status='published',draft_revision=$1,published_revision_ref=$2,updated_at=$3 WHERE actor_user_id=$4 AND draft_ref=$5 AND operation='create'", [draft.draftRevision,revisionRef,Date.now(),actor.userId,draft.draftRef]);
       await database.run('DELETE FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2',[draft.draftRef,actor.userId]);
       return result;
     };
-    if (draft.operation === 'fork') {
+    if (draft.operation === 'fork' || draft.operation === 'create') {
       const created = await createCapabilityPackageTargetOnConnection(initial,draft.resourceRef,database);
       // New target has no inherited grants. Its first public resource revisions are one, not zero.
       const expected = request.expectedMetadataRevision === 0 && request.expectedGrantsRevision === 0
@@ -530,11 +721,18 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
     }
     return withAuthorizedCapabilityPackageResource(actor,stored.targetStorage,'publish',request,publish,{database});
   });
+  } catch (error) {
+    if (error instanceof CapabilityPackageError && ['PACKAGE_NOT_FOUND','PACKAGE_NAMESPACE_CONFLICT','PACKAGE_REVISION_CONFLICT','PACKAGE_DRAFT_CONFLICT'].includes(error.code)) {
+      const completed = await findCapabilityPackagePublicationReplay(actor,requestInput);
+      if (completed) return completed;
+    }
+    throw error;
+  }
 }
 
 async function commitCapabilityPackagePublication(authorization: AuthorizedCapabilityPackageResource, database: SqlConnection,
   state: CapabilityPackageState | null, revisionRef: string, prepared: CapabilityPackagePublicationResult,
-  expectedOrigin: CapabilityStoreOrigin | undefined, provenance: { resourceRef: string; revisionRef: string | null; stamp: CapabilityPackageSourceStamp },
+  expectedOrigin: CapabilityStoreOrigin | undefined, provenance: { resourceRef: string; revisionRef: string | null; stamp: CapabilityPackageSourceStamp } | null,
 ): Promise<{ state: CapabilityPackageState; published: CapabilityPackagePublishedRevision }> {
   if (!isHeldCapabilityPackageResource(authorization, database)) fail('PACKAGE_ACCESS_DENIED', 'A held publication is required.', 403);
   const storage = authorization.record.storage, resourceRef = authorization.record.metadata.resourceRef;
@@ -552,9 +750,9 @@ async function commitCapabilityPackagePublication(authorization: AuthorizedCapab
   const published: CapabilityPackagePublishedRevision = { contractVersion: CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:resourceRef,revisionRef,
     kind:storage.resourceType,name:storage.name,version:validation.version,checksum:validation.checksum,files:structuredClone(validation.files),totalBytes:validation.totalBytes,
     publishedByUserId:authorization.actor.userId,publishedAt:now,baseRevisionRef:state?.currentPublishedRevisionRef ?? null,
-    sourceResourceRef:provenance.resourceRef,sourceRevisionRef:provenance.revisionRef,sourceChecksum:provenance.stamp.checksum,sourceStamp:structuredClone(provenance.stamp) };
+    sourceResourceRef:provenance?.resourceRef ?? null,sourceRevisionRef:provenance?.revisionRef ?? null,sourceChecksum:provenance?.stamp.checksum ?? null,sourceStamp:provenance ? structuredClone(provenance.stamp) : null };
   await database.run(`INSERT INTO capability_package_versions (revision_ref,resource_ref,kind,name,version,checksum,files,total_bytes,published_by_user_id,published_at,base_revision_ref,source_resource_ref,source_revision_ref,source_checksum,source_stamp)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[revisionRef,resourceRef,storage.resourceType,storage.name,published.version,published.checksum,JSON.stringify(published.files),published.totalBytes,authorization.actor.userId,now,published.baseRevisionRef,published.sourceResourceRef,published.sourceRevisionRef,published.sourceChecksum,JSON.stringify(published.sourceStamp)]);
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,[revisionRef,resourceRef,storage.resourceType,storage.name,published.version,published.checksum,JSON.stringify(published.files),published.totalBytes,authorization.actor.userId,now,published.baseRevisionRef,published.sourceResourceRef,published.sourceRevisionRef,published.sourceChecksum,published.sourceStamp ? JSON.stringify(published.sourceStamp) : null]);
   const next: CapabilityPackageState = {contractVersion:CAPABILITY_PACKAGE_CONTRACT_VERSION,resourceRef:resourceRef,kind:storage.resourceType,name:storage.name,
     packageRevision:(state?.packageRevision ?? 0)+1,currentPublishedRevisionRef:revisionRef,currentSourceStamp:sourceStamp,updatedByUserId:authorization.actor.userId,updatedAt:now};
   await database.run(`INSERT INTO capability_package_states (resource_ref,kind,name,package_revision,current_published_revision_ref,current_source_stamp,updated_by_user_id,updated_at)

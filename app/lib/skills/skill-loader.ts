@@ -10,7 +10,8 @@ import {
   createDefaultSkillMd,
   type CanvasSkillStorageScope,
 } from './canvas-skill-manifest';
-import { CORE_SKILL_NAMES, coreSkillInstallError, isCoreSkillName } from './core-skills';
+import { CORE_SKILL_NAMES, coreSkillInstallError } from './core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { loadCoreSkillByName, loadCoreSkills } from './core-skill-loader';
 import { enableSkillInConfig, disableSkillInConfig, areAllSkillsEnabled } from './enabled-skills';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
@@ -18,6 +19,7 @@ import {
   getAllKnownSkillNames,
   loadEnabledPluginSkills,
   listCanvasPlugins,
+  isManifestDeclaredPluginRootSkill,
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import { readCanvasSkillRegistry } from './canvas-skill-store';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
@@ -174,7 +176,7 @@ export async function loadSkillsFromDisk(
       for (const record of plugin.skills) {
         const skillPath = path.resolve(record.path || path.join(record.directory, 'SKILL.md'));
         if (!skillPath.startsWith(`${path.resolve(plugin.installDir)}${path.sep}`)) continue;
-        const skill = await parseSkillFile(skillPath);
+        const skill = await parseSkillFile(skillPath, { validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath) });
         if (!skill || skill.name !== record.name) continue;
         skill.plugin = { name: plugin.name, version: plugin.version, displayName: plugin.interface?.displayName,
           skillAssetPath: path.relative(plugin.installDir, skill.directory) };
@@ -267,7 +269,7 @@ export async function createSkillDirectory(
     if (!isValidAgentSkillName(name)) {
       return { success: false, error: 'Invalid skill name' };
     }
-    if (isCoreSkillName(name)) {
+    if (isProtectedCoreSkillName(name)) {
       return { success: false, error: coreSkillInstallError(name) };
     }
 
@@ -413,7 +415,7 @@ export async function deleteSkillDirectory(
       if (!isValidAgentSkillName(name)) {
         return { success: false, error: 'Invalid skill name' };
       }
-      if (isCoreSkillName(name)) {
+      if (isProtectedCoreSkillName(name)) {
         return { success: false, error: coreSkillInstallError(name) };
       }
 

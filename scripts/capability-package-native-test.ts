@@ -56,6 +56,7 @@ async function main(){
         const snapshot=await io.preparePublishedSnapshot(location(context.draft),{resourceRef:ref,revisionRef:context.revisionRef,kind:'skill',name:binding.name,version:validation.version!,checksum:validation.checksum!,owner:ownership},validation);
         staged=await store.withCapabilityPackagePublication(context.authorization,{revisionRef:context.revisionRef,version:validation.version!,checksum:validation.checksum!,rootPath:snapshot.location.rootPath},db,()=>artifacts.stageCapabilityPackageRegistryPointer(context.authorization,snapshot));
         if(failure)throw new Error('fixture-registry-stage-rollback');sourceRoot=snapshot.location.rootPath;
+        assert(saved.baseSourceStamp,'An edit retains its captured source observation.');
         return{snapshot,sourceStamp:{...saved.baseSourceStamp,checksum:validation.checksum!,registryChecksum:validation.checksum!,artifactRevision:staged.record.revision??null}};
       });}catch(error){if(staged)await staged.rollback();throw error;}
     });

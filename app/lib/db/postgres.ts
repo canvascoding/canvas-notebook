@@ -24,6 +24,10 @@ import { postgresFailureCode } from './postgres-diagnostics';
 import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
 import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
 import { EXCALIDRAW_SCENE_SERVICE_STATEMENTS } from './excalidraw-scene-service-migration';
+import { runChatMessageAdmissionMigration } from './chat-message-admission-migration';
+import { runChatMessageQueueMigration } from './chat-message-queue-migration';
+import { runChatMessageTelegramSourceMigration } from './chat-message-telegram-source-migration';
+import { CAPABILITY_PACKAGE_AUTHORING_STATEMENTS } from './capability-package-authoring-migration';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1046,6 +1050,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const table of tables) {
     await pool.query(createTableSql(table));
   }
+  for (const statement of CAPABILITY_PACKAGE_AUTHORING_STATEMENTS) await pool.query(statement);
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_managed_team_pending_user ON managed_team_pending_identities (pending_user_id)');
   await migratePostgresOauthArrayLiterals(pool);
   await normalizePostgresEpochTimestampColumns(pool);
@@ -1627,6 +1632,9 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of WORKSPACE_OPERATION_JOURNAL_STATEMENTS) await pool.query(statement);
   for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pool.query(statement);
   for (const statement of MOBILE_MCP_APP_CALL_STATEMENTS) await pool.query(statement);
+  await runChatMessageAdmissionMigration(pool);
+  await runChatMessageQueueMigration(pool);
+  await runChatMessageTelegramSourceMigration(pool);
 
   await ensurePostgresCompactionAttemptTelemetry(pool);
   await ensurePostgresCompactionAttemptIndexes(pool);

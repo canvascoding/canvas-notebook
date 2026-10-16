@@ -49,6 +49,9 @@ function sameChallenge(verifier, expected) {
  */
 export async function startMcpOAuthProvider(options = {}) {
   if (options.tls && (!options.tls.key || !options.tls.cert)) throw new Error('The own HTTPS provider requires its private key and certificate.');
+  if (options.passiveLogo !== undefined && typeof options.passiveLogo !== 'boolean') {
+    throw new Error('The private passive logo option must be an explicit boolean.');
+  }
   if (options.cleanAuthorizationAddress !== undefined && typeof options.cleanAuthorizationAddress !== 'boolean') {
     throw new Error('The private native consent address option must be an explicit boolean.');
   }
@@ -81,6 +84,8 @@ export async function startMcpOAuthProvider(options = {}) {
     toolsLists: 0,
     toolCalls: 0,
     unauthorizedMcpRequests: 0,
+    iconDiscoveryReads: 0,
+    iconReads: 0,
   };
   let origin;
 
@@ -93,6 +98,19 @@ export async function startMcpOAuthProvider(options = {}) {
       const target = new URL(request.url || '/', origin);
       const method = request.method || 'GET';
       const resource = `${origin}/mcp`;
+
+      if (options.passiveLogo === true && method === 'GET' && target.pathname === '/' && !target.search) {
+        stats.iconDiscoveryReads += 1;
+        response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="icon" type="image/svg+xml" href="/logo.svg"><title>Local MCP fixture</title></head><body>Canvas local MCP fixture</body></html>');
+        return;
+      }
+      if (options.passiveLogo === true && method === 'GET' && target.pathname === '/logo.svg' && !target.search) {
+        stats.iconReads += 1;
+        response.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
+        response.end('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#047857"/><path d="M8 16h16M16 8v16" stroke="white" stroke-width="3"/></svg>');
+        return;
+      }
 
       if (method === 'GET' && ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'].includes(target.pathname)) {
         return json(response, 200, { resource, authorization_servers: [origin], scopes_supported: ['tools:read', 'tools:call'] });

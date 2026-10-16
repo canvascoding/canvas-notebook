@@ -3,6 +3,7 @@ import 'server-only';
 import { promises as fs } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import type { SqlConnection } from '@/app/lib/db';
 import { type CapabilityResourceActor, type CapabilityResourceDescriptor,
   type CapabilityResourceStorageBinding } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityCandidate, CapabilityResourceType } from '@/app/lib/capabilities/types';
@@ -21,6 +22,8 @@ import { readExactPackageInventory, resolveOwnerScopedPackageVersionPath, verify
 import { CapabilityPackageError, isCapabilityPackageError, type CapabilityPackageSourceStamp, type CapabilityPackageValidation,
   type CapabilityPackagePrivateLocation, type CapabilityPackagePreparedSnapshot, type AuthorizedCapabilityPackageResource } from './contracts';
 import { deriveCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
+import { isProtectedCoreCapabilityName, isCorePluginChildSkillName } from '@/app/lib/plugins/core-plugins';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
 
 export type ResolvedCapabilityPackageArtifact = {
   descriptor: CapabilityResourceDescriptor;
@@ -71,6 +74,7 @@ async function readExactPackagePlugin(actor: CapabilityResourceActor, candidate:
 }
 
 export async function resolveCapabilityPackageArtifact(actor: CapabilityResourceActor, resourceRef: string): Promise<ResolvedCapabilityPackageArtifact> {
+  return observeExtensionStage('artifact_resolve', async () => {
   const { inspectCapabilityResource } = await import('@/app/lib/capabilities/resources/actions');
   const { assertReadableCapabilityCandidate, loadCapabilityCandidatesForResourceActor } = await import('@/app/lib/capabilities/resources/read');
   const descriptor = await inspectCapabilityResource(actor, resourceRef);
@@ -119,7 +123,9 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
     for (const reference of [...sourceManifest.skillRefs].sort((left, right) => left.name.localeCompare(right.name))) {
       if (reference.source && reference.source !== 'seed') invalid('The plugin contains an unsupported external skill reference.');
       const dependency = resolved.candidates.find(value => value.ref.resourceType === 'skill' && value.ref.sourceType === 'plugin'
-        && value.ref.sourcePluginId === candidate.ref.resourceId && value.ref.name === reference.name);
+        && value.ref.sourcePluginId === candidate.ref.resourceId && value.ref.name === reference.name)
+        ?? (pluginResult?.plugin.core ? resolved.candidates.find(value => value.ref.resourceType === 'skill'
+          && value.ref.scopeType === 'system' && value.ref.sourceType === 'core' && value.ref.name === reference.name) : undefined);
       const seedRoot = requirePathInside(path.join(process.cwd(), 'seed_skills'), reference.name);
       if (!dependency?.runtimePath || path.resolve(dependency.runtimePath) !== path.join(seedRoot, 'SKILL.md')) invalid('The referenced skill source is unavailable.');
       await assertReadableCapabilityCandidate(actor, dependency, resolved.candidates);
@@ -143,7 +149,14 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
     const parentManifest = (await validateCanvasPluginPackage(parentResolved.plugin.installDir)).manifest;
     const externalSeed = parentManifest?.skillRefs?.some(reference => (!reference.source || reference.source === 'seed') && reference.name === candidate.ref.name)
       && path.resolve(packageRoot) === requirePathInside(path.join(process.cwd(), 'seed_skills'), candidate.ref.name);
-    if ((!relativeRoot || relativeRoot.startsWith('../') || path.isAbsolute(relativeRoot)) && !externalSeed) invalid('The child skill source is unavailable.');
+    if ((relativeRoot.startsWith('../') || path.isAbsolute(relativeRoot)) && !externalSeed) invalid('The child skill source is unavailable.');
+    if (!relativeRoot && !externalSeed) {
+      const parsed = parentManifest && await parsePluginSkillsFromManifest(parentManifest, parentResolved.plugin.installDir,
+        (await validateCanvasPluginPackage(parentResolved.plugin.installDir)).skillsDir);
+      if (!parsed || parsed.errors.length || !parsed.skills.some(skill => skill.name === candidate.ref.name
+        && path.resolve(skill.directory) === path.resolve(parentResolved.plugin.installDir)
+        && path.resolve(skill.path) === path.resolve(candidate.runtimePath!))) invalid('The root child is not declared by this plugin manifest.');
+    }
     sourceStamp.parentResourceRef = parentMetadata.resourceRef;
     sourceStamp.parentRevisionRef = parentResolved.plugin.publishedRevisionRef || null;
     sourceStamp.relativeRoot = externalSeed ? null : relativeRoot;
@@ -160,6 +173,7 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
       kind: candidate.ref.resourceType, name: candidate.ref.name },
     readOnly: candidate.ref.sourceType !== 'standalone' || candidate.ref.scopeType === 'system', defaultEnabled,
     ...(bundledReferences.length ? { bundledReferences } : {}) };
+  });
 }
 
 export async function assertCapabilityPackageArtifactCurrent(actor: CapabilityResourceActor, previous: ResolvedCapabilityPackageArtifact): Promise<void> {
@@ -269,11 +283,12 @@ export function capabilityPackageLegacyStorageBinding(kind: CapabilityResourceTy
       organizationId: storage.organizationId, ownerUserId: storage.userId }) };
 }
 
-type RegistryPackagePointer = { version: string; checksum: string; installDir: string; resourceId?: string;
+type RegistryPackagePointer = { version: string; checksum: string; installDir: string; resourceId?: string; skills?: readonly {name:string}[];
   packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string; enabled?: boolean; packageDefaultEnabled?: boolean; storeOrigin?: CapabilityStoreOrigin };
 
 export async function assertCapabilityPackageRegistryPointerCurrent(kind: CapabilityResourceType,
-  record: RegistryPackagePointer & { name: string; resourceId?: string }, scope?: CapabilityDataStorageScope | null): Promise<void> {
+  record: RegistryPackagePointer & { name: string; resourceId?: string }, scope?: CapabilityDataStorageScope | null,
+  database?: SqlConnection): Promise<void> {
   if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return;
   const unavailable = () => { throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The installed package publication is unavailable.', 503); };
   if (!record.packageManaged || !record.packageResourceRef || !record.publishedRevisionRef || !record.resourceId) return unavailable();
@@ -286,9 +301,9 @@ export async function assertCapabilityPackageRegistryPointerCurrent(kind: Capabi
   if (path.resolve(record.installDir) !== resolveOwnerScopedPackageVersionPath(location)) return unavailable();
   const store = await import('./store');
   if (!store.isCapabilityPackagePublicationAllowed(capabilityPackageLegacyStorageBinding(kind, record.name, scope), record)) {
-    const state = await store.getCapabilityPackageState(record.packageResourceRef);
+    const state = await store.getCapabilityPackageState(record.packageResourceRef, database);
     const published = state?.currentPublishedRevisionRef === record.publishedRevisionRef
-      ? await store.getCapabilityPackagePublishedRevision(record.packageResourceRef, record.publishedRevisionRef) : null;
+      ? await store.getCapabilityPackagePublishedRevision(record.packageResourceRef, record.publishedRevisionRef, database) : null;
     if (!state || !published || state.kind !== kind || state.name !== record.name || state.currentSourceStamp.resourceId !== record.resourceId
       || published.kind !== kind || published.name !== record.name || published.version !== record.version || published.checksum !== record.checksum
       || !sameCapabilityStoreOrigin(record.storeOrigin, state.currentSourceStamp.storeOrigin)) return unavailable();
@@ -298,6 +313,7 @@ export async function assertCapabilityPackageRegistryPointerCurrent(kind: Capabi
 
 export async function assertLegacyCapabilityPackageMutationAllowed(kind: CapabilityResourceType, name: string,
   scope?: CapabilityDataStorageScope | null, current?: RegistryPackagePointer): Promise<void> {
+  if(isProtectedCoreCapabilityName(kind,name)) throw new CapabilityPackageError('PACKAGE_READ_ONLY','Built-in Canvas capabilities cannot be changed through package or legacy installers.',403);
   if (!current?.packageManaged && !current?.packageResourceRef && !current?.publishedRevisionRef) return;
   const binding = capabilityPackageLegacyStorageBinding(kind, name, scope);
   const store = await import('./store');
@@ -312,6 +328,10 @@ export async function assertCapabilityPackageRegistryWriteAllowed(kind: Capabili
   scope?: CapabilityDataStorageScope | null): Promise<void> {
   for (const name of new Set([...Object.keys(previous), ...Object.keys(next)])) {
     const before = previous[name], after = next[name];
+    if(JSON.stringify(before)!==JSON.stringify(after) && (isProtectedCoreCapabilityName(kind,name)
+      || kind==='plugin' && after?.skills?.some(skill=>isCorePluginChildSkillName(skill.name)))) {
+      throw new CapabilityPackageError('PACKAGE_READ_ONLY','Built-in Canvas capability names cannot be replaced or reconfigured.',403);
+    }
     if (!before?.packageManaged && !before?.packageResourceRef && !before?.publishedRevisionRef
       && !after?.packageManaged && !after?.packageResourceRef && !after?.publishedRevisionRef) {
       if (after?.storeOrigin !== undefined) {

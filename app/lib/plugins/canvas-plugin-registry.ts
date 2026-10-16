@@ -42,6 +42,9 @@ import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { resolveActivePluginOrganizationScope } from '@/app/lib/plugins/plugin-scope-protection';
 import { deriveCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, normalizeCapabilityStoreOrigin,
   type CapabilityStoreOrigin } from '@/app/lib/capabilities/packages/store-origin';
+import { corePluginMutationError, corePluginResourceId, isCorePluginName, isCorePluginChildSkillName } from './core-plugins';
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { CapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
 
 export interface CanvasPluginSkillRecord {
   name: string;
@@ -57,13 +60,14 @@ export interface CanvasPluginSkillRecord {
 }
 
 export interface CanvasPluginInstallRecord {
+  core?: boolean;
   storeOrigin?: CapabilityStoreOrigin;
   packageManaged?: boolean;
   packageResourceRef?: string;
   publishedRevisionRef?: string;
   resourceId?: string;
   scopeType?: DataStorageScopeType;
-  sourceType?: 'standalone';
+  sourceType?: 'standalone' | 'core';
   organizationId?: string | null;
   ownerUserId?: string | null;
   revision?: number;
@@ -263,6 +267,12 @@ export async function writeCanvasPluginRegistry(
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return createEmptyRegistry();
       throw error;
     });
+    for (const name of new Set([...Object.keys(previous.plugins), ...Object.keys(registry.plugins)])) {
+      const before = previous.plugins[name], after = registry.plugins[name];
+      if ((isCorePluginName(name) || isCorePluginName(before?.name) || isCorePluginName(after?.name))
+        && JSON.stringify(before) !== JSON.stringify(after)) throw new CapabilityPackageError('PACKAGE_READ_ONLY', corePluginMutationError(name), 403);
+      if (after?.core || after?.sourceType === 'core') throw new CapabilityPackageError('PACKAGE_READ_ONLY', 'Core plugin records are supplied only by the built-in loader.', 403);
+    }
     const { assertCapabilityPackageRegistryWriteAllowed } = await import('@/app/lib/capabilities/packages/artifacts');
     await assertCapabilityPackageRegistryWriteAllowed('plugin', previous.plugins, registry.plugins, scope);
     const tmpPath = createAtomicTempPath(registryPath);
@@ -495,6 +505,12 @@ export async function discoverPluginSkillFiles(skillsDir: string): Promise<strin
   }
 }
 
+/** A manifest-derived relationship, not an arbitrary directory-name validation override. */
+export function isManifestDeclaredPluginRootSkill(plugin: { installDir: string; skillsDir?: string }, skillPath: string): boolean {
+  return plugin.skillsDir !== undefined && path.resolve(plugin.skillsDir) === path.resolve(plugin.installDir)
+    && path.basename(skillPath) === 'SKILL.md' && path.resolve(path.dirname(skillPath)) === path.resolve(plugin.installDir);
+}
+
 async function parsePluginSkills(
   pluginName: string,
   pluginVersion: string,
@@ -513,7 +529,11 @@ async function parsePluginSkills(
   }
 
   for (const skillFile of skillFiles) {
-    const skill = await parseSkillFile(skillFile);
+    // A manifest-declared root SKILL.md lives in the version/staging package
+    // folder. Its own validated name supplies the identity, not that folder's
+    // temporary name. Ordinary child directories keep their name check.
+    const rootSkill = isManifestDeclaredPluginRootSkill({ installDir: pluginRoot, skillsDir }, skillFile);
+    const skill = await parseSkillFile(skillFile, { validateDirectoryName: !rootSkill });
     if (!skill) {
       errors.push(`Invalid skill file: ${skillsDir ? path.relative(skillsDir, skillFile) : skillFile}`);
       continue;
@@ -769,6 +789,14 @@ async function materializePluginSkills(
   const standaloneRegistry = await readStandaloneSkillRegistry(scope);
 
   for (const skill of record.skills) {
+    const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
+    const coreSeedDir = path.join(SEED_SKILLS_DIR, skill.name);
+    if (skill.sourceType === 'seed' && isCoreSkillName(skill.name)
+      && resolvedSourceDir === coreSeedDir && path.resolve(skill.path) === path.join(coreSeedDir, 'SKILL.md')) {
+      // A reference to an existing Core skill neither creates a scoped shadow nor owns its activation.
+      materializedSkills.push({ ...skill, materialized: false, preexistingStandalone: true, standaloneDir: undefined });
+      continue;
+    }
     const standaloneDir = resolveStandaloneSkillDir(skill.name, scope);
     const resolvedStandaloneDir = path.resolve(/*turbopackIgnore: true*/ standaloneDir);
     if (!isPathInside(skillsDir, resolvedStandaloneDir)) {
@@ -798,7 +826,6 @@ async function materializePluginSkills(
       throw new Error(`Cannot install skill "${skill.name}" because ${standaloneDir} already exists but is not a valid skill.`);
     }
 
-    const resolvedSourceDir = path.resolve(/*turbopackIgnore: true*/ skill.directory);
     const allowedSourceRoot = skill.sourceType === 'seed' ? SEED_SKILLS_DIR : record.installDir;
     if (!isPathInside(allowedSourceRoot, resolvedSourceDir)) {
       throw new Error(
@@ -853,7 +880,7 @@ async function parseInstalledPluginRecordSkill(
   record: CanvasPluginSkillRecord,
 ): Promise<CanvasSkill | null> {
   const skillPath = record.path || requirePathInside(record.directory, 'SKILL.md');
-  const skill = await parseSkillFile(skillPath);
+  const skill = await parseSkillFile(skillPath, { validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath) });
   if (!skill) return null;
 
   const resolvedDirectory = path.resolve(/*turbopackIgnore: true*/ skill.directory);
@@ -1276,6 +1303,7 @@ export async function installCanvasPluginFromPath(
   }
 
   const manifest = validation.manifest;
+  if (isCorePluginName(manifest.name)) return corePluginProtection(manifest.name);
   const rootDir = validation.rootDir;
   if (options.storeOrigin !== undefined) {
     const scope = resolveDataStorageScope(options.scope);
@@ -1310,6 +1338,9 @@ export async function installCanvasPluginFromPath(
         },
       };
     }
+    const reservedChild=candidateSkills.records.find(skill=>isCorePluginChildSkillName(skill.name));
+    if(reservedChild) return {success:false,code:'CAPABILITY_NAMESPACE_PROTECTED',status:409,
+      error:`Skill "${reservedChild.name}" belongs to a built-in Canvas core plugin.`,protectedName:reservedChild.name,protectedScopeType:'system'};
     if (enable) {
       const protection = await pluginSkillActivationProtection(candidateSkills.records.map((skill) => skill.name), options.scope);
       if (protection) return { ...protection, validation };
@@ -1498,7 +1529,9 @@ export async function listCanvasPlugins(
   scope?: CanvasPluginStorageScope | null,
 ): Promise<CanvasPluginInstallRecord[]> {
   const registry = await readCanvasPluginRegistry(scope);
-  return Object.values(registry.plugins)
+  const { loadCoreCanvasPlugins } = await import('./core-plugin-loader');
+  const core = resolveDataStorageScope(scope).scopeType === 'organization' ? [] : await loadCoreCanvasPlugins();
+  return [...Object.values(registry.plugins).filter(plugin => !isCorePluginName(plugin.name)), ...core]
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
@@ -1531,6 +1564,10 @@ export async function getCanvasPlugin(
   scope?: CanvasPluginStorageScope | null,
 ): Promise<CanvasPluginInstallRecord | null> {
   if (!isValidCanvasPluginName(name)) return null;
+  if (isCorePluginName(name)) {
+    if (resolveDataStorageScope(scope).scopeType === 'organization') return null;
+    return (await import('./core-plugin-loader')).loadCoreCanvasPlugin(name);
+  }
   const registry = await readCanvasPluginRegistry(scope);
   return registry.plugins[name] || null;
 }
@@ -1544,6 +1581,7 @@ export async function setCanvasPluginEnabled(
   if (!isValidCanvasPluginName(name)) {
     return { success: false, error: 'Invalid plugin name' };
   }
+  if (isCorePluginName(name)) return corePluginProtection(name);
 
   return withPluginMutation(scope, async () => {
     if (enabled) {
@@ -1591,6 +1629,7 @@ export async function deleteCanvasPlugin(
   if (!isValidCanvasPluginName(name)) {
     return { success: false, error: 'Invalid plugin name' };
   }
+  if (isCorePluginName(name)) return corePluginProtection(name);
 
   return withPluginMutation(scope, async () => {
     const registry = await readCanvasPluginRegistryForWrite(scope);
@@ -1657,11 +1696,12 @@ export async function loadEnabledPluginSkills(
   options: { excludePackageManaged?: boolean } = {},
 ): Promise<CanvasSkill[]> {
   const registry = await readCanvasPluginRegistry(scope);
+  const plugins = await listCanvasPlugins(scope);
   const pluginSkills: CanvasSkill[] = [];
   const allSkillNames = await getAllKnownSkillNames(scope, registry);
   const enabledSkillNameSet = resolveEnabledSkillNames(allSkillNames, enabledSkills);
 
-  for (const plugin of Object.values(registry.plugins)) {
+  for (const plugin of plugins) {
     if (options.excludePackageManaged && plugin.packageManaged) continue;
     if (!plugin.enabled) {
       continue;
@@ -1672,13 +1712,18 @@ export async function loadEnabledPluginSkills(
     );
 
     for (const skill of parsedSkills) {
-      if (!skill) continue;
-      skill.enabled = enabledSkillNameSet.has(skill.name);
+      if (!skill || plugin.core && isCoreSkillName(skill.name)) continue;
+      skill.enabled = plugin.core || enabledSkillNameSet.has(skill.name);
       pluginSkills.push(skill);
     }
   }
 
   return pluginSkills.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function corePluginProtection(name: string): CanvasPluginInstallResult {
+  return { success: false, code: 'CAPABILITY_NAMESPACE_PROTECTED', status: 409, error: corePluginMutationError(name),
+    protectedName: name, protectedScopeType: 'system', protectedResourceId: corePluginResourceId(name)! };
 }
 
 export async function getActivePluginSkillNames(scope?: CanvasPluginStorageScope | null): Promise<string[]> {

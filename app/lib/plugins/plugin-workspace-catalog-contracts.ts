@@ -1,4 +1,5 @@
 import type { CapabilityResourceAccess, CapabilityResourceDescriptor, CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
+import type { PluginExtensionIcon } from './plugin-extension-icons';
 
 export const PLUGIN_WORKSPACE_CATALOG_SCHEMA_VERSION = 1;
 export const PLUGIN_WORKSPACE_CATALOG_DEFAULT_LIMIT = 20;
@@ -25,6 +26,7 @@ export type PluginWorkspaceCatalogItem = {
   name: string;
   displayName: string;
   description: string;
+  icon?: PluginExtensionIcon;
   version: string;
   revision: number;
   ownership: CapabilityResourceOwnerScope;
@@ -49,6 +51,7 @@ export type PluginWorkspaceCatalogResponse = {
 /** Server-derived projection context. Requested team IDs cannot populate this authority set. */
 export type PluginWorkspaceCatalogScopeContext = {
   actorUserId: string;
+  workspaceId?: string | null;
   organizationAvailable: boolean;
   readableTeamIds: ReadonlySet<string>;
   teams: readonly PluginWorkspaceCatalogTeamChoice[];

@@ -355,7 +355,13 @@ async function main() {
       assert.equal(response.headers.get('Cache-Control'), 'no-store');
       assert((await response.json()).data.agents.some((item: { agentId: string; access: { canUse: boolean; canEdit: boolean } }) =>
         item.agentId === agent.agentId && item.access.canEdit && !item.access.canUse));
-      assert.equal((await route.GET(request({ purpose: 'configure', agentId: agent.agentId }))).status, 400);
+      const inspection = await route.GET(request({ purpose: 'configure', agentId: agent.agentId }));
+      assert.equal(inspection.status, 200);
+      assert.equal(inspection.headers.get('Cache-Control'), 'no-store');
+      const inspected = (await inspection.json()).data;
+      assert.deepEqual(inspected.access, { canUse: false, canEdit: true, canManage: false });
+      assert.equal(inspected.agent.agentId, agent.agentId);
+      safe(inspected);
       assert.equal((await route.GET(request({ purpose: 'invalid' }))).status, 400);
       assert.equal((await route.GET(request({ purpose: 'configure', organizationId: 'foreign-organization' }))).status, 403,
         'An explicit organization identity must not be replaced by the readable workspace organization.');

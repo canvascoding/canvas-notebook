@@ -33,6 +33,7 @@ import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 import { PiSessionRuntimeAccessError } from '@/app/lib/pi/session-runtime-access';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { getChannelRouter, getRuntimeService } from './agent-runtime-loader';
 import {
   hasPendingMobileChatTicket,
@@ -60,6 +61,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 function getClientError(error: unknown): { code: string; message: string } {
+  if (error instanceof AgentWorkflowError) return { code: error.code, message: error.message };
   if (error instanceof PiSessionRuntimeAccessError && error.code === 'SESSION_AMBIGUOUS') {
     return {
       code: 'SESSION_DATA_CONFLICT',
@@ -71,6 +73,20 @@ function getClientError(error: unknown): { code: string; message: string } {
     return { code: String(error.code), message: error.message };
   }
   return { code: 'RUNTIME_ERROR', message: getErrorMessage(error) };
+}
+
+function withConnectionWorkspace(context: ChatRequestContext | undefined,
+  workspace: NonNullable<ChatRequestContext['workspace']> | undefined): ChatRequestContext | undefined {
+  if (!workspace) return context;
+  // This is the server's verified connection snapshot, not caller JSON. Optional
+  // presentation fields must stay absent when no value was produced internally.
+  return { ...context, channelId: 'mobile', currentPage: '/chat', workspace: {
+    workspaceId: workspace.workspaceId, workspaceType: workspace.workspaceType, workspaceName: workspace.workspaceName,
+    canWrite: workspace.canWrite, canDelete: workspace.canDelete, canShare: workspace.canShare,
+    ...(workspace.organizationId === undefined ? {} : { organizationId: workspace.organizationId }),
+    ...(workspace.workspaceDescription === undefined ? {} : { workspaceDescription: workspace.workspaceDescription }),
+    ...(workspace.brandContext === undefined ? {} : { brandContext: workspace.brandContext }),
+  } };
 }
 
 // Initialize WebSocket bridge on module load
@@ -744,29 +760,15 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
-      const requestedAgentId = typeof message.agentId === 'string'
-        ? message.agentId.trim() || undefined
-        : undefined;
+      const requestedAgentId = message.expectedAgentId ?? message.agentId;
       const agentId = existingSession?.agentId || requestedAgentId;
       if (existingSession && requestedAgentId && requestedAgentId !== existingSession.agentId) {
-        console.warn('[WebSocket] send_message corrected stale agent', {
-          connectionId: connection.id,
-          userId,
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-          requestedAgentId,
-          sessionAgentId: existingSession.agentId,
-        });
+        sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false,
+          code: 'AGENT_EXTENSION_CONTEXT_DENIED', error: 'The message belongs to a different agent.' });
+        return;
       }
 
-      const context = connection.workspace
-        ? {
-            ...message.context,
-            channelId: 'mobile',
-            currentPage: '/chat',
-            workspace: connection.workspace,
-          }
-        : message.context;
+      const context = withConnectionWorkspace(message.context, connection.workspace);
       const agentMessageTimestamp = typeof (message.message as { timestamp?: unknown }).timestamp === 'number'
         ? (message.message as { timestamp: number }).timestamp
         : undefined;
@@ -785,18 +787,33 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           contextPage: context?.currentPage,
           contextChannel: context?.channelId,
         });
-        const { handleInboundChannelMessage } = await getChannelRouter();
+        const submission = { ...(message.body === undefined ? {} : { body: message.body }),
+          ...(message.selection === undefined ? {} : { selection: message.selection }),
+          ...(requestedAgentId === undefined ? {} : { expectedAgentId: requestedAgentId }),
+          ...((message.expectedWorkspaceId ?? connection.workspace?.workspaceId) === undefined ? {}
+            : { expectedWorkspaceId: message.expectedWorkspaceId ?? connection.workspace?.workspaceId }) };
+        // A confirmed replay must not reactivate channel links or create a runtime.
+        // The service still validates its exact original intent and current Use.
+        const previous = existingSession ? await (await import('@/app/lib/pi/durable-message-admission')).readOwnedAcceptedChatMessage({
+          userId, sessionId: message.sessionId, clientMessageId: message.clientMessageId!,
+          ...(requestedAgentId === undefined ? {} : { expectedAgentId: requestedAgentId }),
+          ...(submission.expectedWorkspaceId === undefined ? {} : { expectedWorkspaceId: submission.expectedWorkspaceId }),
+        }) : null;
+        const { handleInboundChannelMessage } = previous ? { handleInboundChannelMessage: null } : await getChannelRouter();
         dispatchTiming.mark('channelRouterImport');
-        const status = await handleInboundChannelMessage({
+        const status = previous ? { sessionId: message.sessionId, status: await runtimeService.sendMessage(message.sessionId, userId,
+          message.message as Parameters<typeof runtimeService.sendMessage>[2], { ...context, channelId: WEB_CHANNEL_ID }, submission) }
+          : await handleInboundChannelMessage!({
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
           requestedSessionId: message.sessionId,
-          agentId,
+          ...(agentId === undefined ? {} : { agentId }),
           ...(typeof message.clientMessageId === 'string' ? { clientMessageId: message.clientMessageId } : {}),
-          ...(agentMessageTimestamp ? { agentMessageTimestamp } : {}),
+          ...(agentMessageTimestamp === undefined ? {} : { agentMessageTimestamp }),
+          ...submission,
           userId,
           text: typeof message.message.content === 'string' ? message.message.content : '',
-          contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,
+          ...(Array.isArray(message.message.content) ? { contentParts: message.message.content } : {}),
           metadata: { displayName: 'Web Chat' },
         }, context);
         dispatchTiming.mark('runtimeDispatch');
@@ -806,8 +823,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           requestId: message.requestId,
           sessionId: message.sessionId,
           resolvedSessionId: status.sessionId,
-          phase: status.status.phase,
-          canAbort: status.status.canAbort,
+          phase: status.status?.phase,
+          canAbort: status.status?.canAbort,
           timing: dispatchTiming.snapshot(),
         });
         sendWs(ws, {
@@ -836,6 +853,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           requestId: message.requestId,
           success: false,
           error: clientError.message,
+          code: clientError.code,
         });
       }
       break;
@@ -897,8 +915,13 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           message.action,
           message.message,
           message.queueItemId,
-          message.context,
+          withConnectionWorkspace(message.context, connection.workspace),
           message.focusTopic,
+          { ...(message.body === undefined ? {} : { body: message.body }),
+            ...(message.selection === undefined ? {} : { selection: message.selection }),
+            ...(message.expectedAgentId === undefined ? {} : { expectedAgentId: message.expectedAgentId }),
+            ...((message.expectedWorkspaceId ?? connection.workspace?.workspaceId) === undefined ? {}
+              : { expectedWorkspaceId: message.expectedWorkspaceId ?? connection.workspace?.workspaceId }) },
         );
         console.log('[WebSocket] control completed', {
           connectionId: connection.id,
@@ -906,8 +929,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           requestId: message.requestId,
           sessionId: message.sessionId,
           action: message.action,
-          phase: status.phase,
-          canAbort: status.canAbort,
+          phase: status?.phase,
+          canAbort: status?.canAbort,
         });
         sendWs(ws, {
           type: 'control_result',
@@ -928,7 +951,8 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           type: 'control_result',
           requestId: message.requestId,
           success: false,
-          error: getErrorMessage(error),
+          error: getClientError(error).message,
+          code: getClientError(error).code,
         });
       }
       break;

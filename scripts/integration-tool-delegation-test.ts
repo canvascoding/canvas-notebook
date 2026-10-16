@@ -30,6 +30,10 @@ async function main() {
       getModels: () => [], getProviders: () => [], registerBuiltInApiProviders: () => undefined, isContextOverflow: () => false,
     };
     if (name === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(name)) return database;
+    if (name.includes('license/seat-limit')) return { assertUserSeatAccess: async ({ userId }: { userId: string }) => {
+      assert.ok(['owner', 'alice', 'bob'].includes(userId));
+      return { userId, mode: 'team', organizationId: environment.CANVAS_ORGANIZATION_ID };
+    } };
     if (name === '@/app/lib/skills/effective-skill-read-roots') return {
       resolveEffectiveSkillReadRoots: async () => [], resolvePersonalSkillReadRoots: async () => [],
     };
@@ -55,7 +59,7 @@ async function main() {
     const now = new Date();
     const session = (sessionId: string, agentId = DEFAULT_AGENT_ID, userId = 'alice') => ({ sessionId, userId, agentId,
       workspaceId: 'team-a', workspaceType: 'team', organizationId: 'delegation-org', provider: 'fixture', model: 'fixture', createdAt: now, updatedAt: now });
-    await database.db.insert(piSessions).values([session('parent'), session('other-parent'), session('foreign-parent', DEFAULT_AGENT_ID, 'bob')]);
+    await database.db.insert(piSessions).values([session('parent'), session('finite-parent'), session('other-parent'), session('foreign-parent', DEFAULT_AGENT_ID, 'bob')]);
     const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
     await replaceScopedEnvEntries('integrations', [{ key: 'COMPOSIO_API_KEY', value: 'fixture-only-private-key' }], { secretScope: 'legacy' });
     const { serverPreferencesPath } = await import('../app/lib/terminal-policy');
@@ -108,6 +112,61 @@ async function main() {
     assert.equal(snapshot.parent.agentTurnId, 'parent-issued-turn');
     assert.ok(!JSON.stringify(snapshot).includes('fixture-only-private-key'));
     assert.ok(!JSON.stringify(snapshot).includes(account.composioUserId));
+    // Real receipt intake + issued parent/child source. The only external
+    // boundaries are fixture licensing/model metadata and the local SDK HTTP server.
+    const { listPersonalWorkflowProviderAccountChoices } = await import('../app/lib/integration-tools/workflow-personal-bindings');
+    const { prepareAcceptedTurnExtensionSelection, readAcceptedTurnExtensionSelection } = await import('../app/lib/capabilities/extensions/accepted-turn-selection');
+    const { getAuthorizedAgentWorkflowPackageSelections } = await import('../app/lib/capabilities/packages/runtime-bindings');
+    const { resolveEffectiveExtensionContext } = await import('../app/lib/capabilities/extensions/effective-context');
+    const { reissueAcceptedTurnRuntimeSelection, resolveDelegatedExtensionContextSource } = await import('../app/lib/capabilities/extensions/turn-runtime');
+    const { captureDelegatedExtensionSource } = await import('../app/lib/capabilities/extensions/delegation-source');
+    const finiteBase = (await factories('finite-parent', 'finite-parent-turn')).context;
+    const choices = await listPersonalWorkflowProviderAccountChoices({ actor: { userId: 'alice', sessionId: 'finite-parent',
+      source: 'system', sourceAgentId: DEFAULT_AGENT_ID, organizationId: 'delegation-org', workspaceId: 'team-a' },
+      providerRef: selectedProvider.providerRef, exactToolkit: { profileId: account.profileId, toolkit: 'canva' } });
+    const accepted = await prepareAcceptedTurnExtensionSelection(finiteBase, { version: 1, origin: 'turn_reference', selections: [{
+      selection: { kind: 'composio', source: 'composio', toolkit: 'canva', target: { kind: 'personal', profileId: account.profileId,
+        accountBinding: 'account', accountId: 'approved-canva-account', connectionRef: `composio-personal:${account.profileId}:approved-canva-account` } },
+      requirement: 'optional', toolCap: ['DESIGN_CREATE'], accountSelectionRef: choices.accounts[0].accountSelectionRef,
+    }] });
+    const finiteTurn = { ...finiteBase, turnExtensions: readAcceptedTurnExtensionSelection(accepted, finiteBase).publicSelection };
+    const finitePackages = await getAuthorizedAgentWorkflowPackageSelections(finiteTurn);
+    const finiteIssued = { ...finiteTurn, turnExtensionSource: await reissueAcceptedTurnRuntimeSelection(finiteTurn, accepted, finiteBase,
+      { packageSelection: finitePackages }) };
+    const finiteParentContext = await resolveEffectiveExtensionContext(finiteIssued, { packageSelection: finitePackages });
+    const finiteParentTool = createIntegrationGatewayTool({ userId: 'alice', sessionId: 'finite-parent', agentId: DEFAULT_AGENT_ID,
+      executionContext: finiteParentContext }, { dispatcher });
+    const finiteInvoke = (request: unknown) => runWithAgentExecutionContext(finiteParentContext,
+      () => finiteParentTool.execute('finite-parent', request as never));
+    const finiteProviderPage = details(await finiteInvoke({ action: 'list', target: 'providers' })) as unknown as IntegrationProviderPage;
+    const finiteProvider = finiteProviderPage.providers[0]; assert(finiteProvider);
+    const finiteToolPage = details(await finiteInvoke({ action: 'list', target: 'tools', providerRef: finiteProvider.providerRef })) as unknown as IntegrationToolPage;
+    const finiteDescription = details(await finiteInvoke({ action: 'describe', toolRef: finiteToolPage.tools[0].toolRef })) as unknown as IntegrationToolSchema;
+    await setFlag(false);
+    const finiteSnapshot = await runWithAgentExecutionContext(finiteParentContext, () => captureDelegatedIntegrationBindings({ actorUserId: 'alice',
+      sourceSessionId: 'finite-parent', sourceAgentId: DEFAULT_AGENT_ID, dispatcher,
+      selections: [{ toolRef: finiteDescription.toolRef, schemaRef: finiteDescription.schemaRef }] }));
+    assert(finiteSnapshot, 'An issued finite turn can approve its exact schema with the experiment off.');
+    const finiteSource = await captureDelegatedExtensionSource(finiteParentContext); assert(finiteSource);
+    await database.db.insert(piSessions).values({ ...session('finite-child'), sessionKind: 'delegation_worker',
+      parentSessionId: 'finite-parent', delegationDepth: 1 });
+    await createPiDelegation({ id: 'finite-handoff', userId: 'alice', sourceSessionId: 'finite-parent', sourceAgentId: DEFAULT_AGENT_ID,
+      sourceAgentTurnId: 'finite-parent-turn', workerSessionId: 'finite-child', workerType: 'ephemeral',
+      goal: 'Use exact finite handoff', toolsets: ['composio'], integrationBindingSnapshot: finiteSnapshot });
+    await claimQueuedPiDelegation('finite-handoff', 'fixture-runner');
+    const finiteChildBase = (await factories('finite-child', 'finite-child-turn')).context;
+    const finiteChildContext = await resolveDelegatedExtensionContextSource(finiteSource, finiteChildBase, { delegationId: 'finite-handoff' });
+    const finiteSchemas = await prepareIntegrationBindingsForDelegatedRuntime({ executionContext: finiteChildContext, dispatcher });
+    assert.equal(finiteSchemas.length, 1);
+    const finiteChildTool = createIntegrationGatewayTool({ userId: 'alice', sessionId: 'finite-child', agentId: DEFAULT_AGENT_ID,
+      executionContext: finiteChildContext }, { dispatcher, prepareDelegation: input => prepareDelegatedIntegrationBindings({ ...input, dispatcher }) });
+    const beforeFinitePost = posts().length;
+    const finiteResult = await runWithAgentExecutionContext(finiteChildContext, () => finiteChildTool.execute('finite-child', {
+      action: 'call', toolRef: finiteSchemas[0].toolRef, schemaRef: finiteSchemas[0].schemaRef, arguments: { title: 'Finite handoff' } }));
+    assert.equal(errorCode(finiteResult), undefined);
+    assert.equal(posts().length, beforeFinitePost + 1);
+    assert.equal(posts().at(-1)!.body.connected_account_id, 'approved-canva-account');
+    await setFlag(true);
     assert.throws(() => readPrivateDelegatedIntegrationSnapshot({ ...snapshot, binding: { apiKey: 'SECRET' } }));
     await assert.rejects(captureDelegatedIntegrationBindings({ actorUserId: 'alice', sourceSessionId: 'other-parent',
       sourceAgentId: DEFAULT_AGENT_ID, selections: [selection], dispatcher }));

@@ -35,6 +35,11 @@ import {
 } from '@/app/lib/pi/system-prompt-snapshot';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { reissueCapabilityPackageRuntimeBindings, requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { resolveEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
+import { appendEffectiveExtensionContextPrompt } from '@/app/lib/capabilities/extensions/runtime-prompt';
+import { captureDelegatedExtensionSource, readDelegatedExtensionParentContext,
+  type HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
+import { resolveDelegatedExtensionContextSource } from '@/app/lib/capabilities/extensions/turn-runtime';
 import { buildActiveWorkspacePromptBlock } from '@/app/lib/pi/runtime-prompt-context';
 import {
   buildWorkspaceFileTreePrompt,
@@ -92,6 +97,8 @@ export type DelegateTaskRequest = {
   integrationBindings?: readonly IntegrationBindingSelection[];
   /** Server dispatcher marker; approved metadata itself is loaded from the owned active task. */
   hasIntegrationBindings?: boolean;
+  /** Private issued server source, retained by the dispatcher; never a tool/HTTP argument. */
+  delegatedExtensionSource?: HeldDelegatedExtensionSource;
   waitForResult: boolean;
   timeoutSeconds: number;
   workerSessionId?: string;
@@ -367,7 +374,8 @@ function buildDelegationPrompt(request: DelegateTaskRequest, integrationBindings
   };
 }
 
-function buildEphemeralSystemPrompt(baseSystemPrompt: string, request: DelegateTaskRequest, tools: AgentTool[]): string {
+function buildEphemeralSystemPrompt(baseSystemPrompt: string, request: DelegateTaskRequest, tools: AgentTool[],
+  executionContext?: AgentExecutionContext): string {
   const foundation = [
     baseSystemPrompt,
     '',
@@ -378,7 +386,9 @@ function buildEphemeralSystemPrompt(baseSystemPrompt: string, request: DelegateT
     `Requested toolsets: ${request.toolsets.join(', ') || 'none'}`,
     'Do not attempt to delegate further. Finish with a concise summary for the parent agent.',
   ].join('\n');
-  return appendEffectiveToolCapabilitiesPrompt(foundation, buildEffectiveToolManifest(tools));
+  const contextual = executionContext ? appendEffectiveExtensionContextPrompt(foundation, executionContext, tools,
+    `${request.goal}\n${request.context ?? ''}`) : foundation;
+  return appendEffectiveToolCapabilitiesPrompt(contextual, buildEffectiveToolManifest(tools));
 }
 
 function buildEphemeralSessionTitle(goal: string): string {
@@ -926,10 +936,14 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number, onTimeout: () =>
 
 async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise<DelegateTaskResult> {
   const ambientParent = getAgentExecutionContext();
-  const capturedParent = ambientParent && ambientParent.userId === request.userId
+  const matchedParent = ambientParent && ambientParent.userId === request.userId
     && ambientParent.sessionId === request.sourceSessionId && ambientParent.agentId === request.sourceAgentId
     ? { ...ambientParent, skillReadRoots: [...(ambientParent.skillReadRoots ?? [])],
       skillPackageBindings: [...(ambientParent.skillPackageBindings ?? [])] } : null;
+  const delegatedSource = request.delegatedExtensionSource ?? (matchedParent ? await captureDelegatedExtensionSource(matchedParent) : null);
+  const capturedParent = delegatedSource ? readDelegatedExtensionParentContext(delegatedSource) : matchedParent;
+  if (capturedParent && (capturedParent.userId !== request.userId || capturedParent.sessionId !== request.sourceSessionId
+    || capturedParent.agentId !== request.sourceAgentId)) throw new Error('The delegated source belongs to another parent session.');
   if (request.sessionId) {
     throw new Error('session_id is only supported when target_agent_id is set.');
   }
@@ -958,6 +972,13 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         throw new Error('Generated delegated session ID already exists. Try the task again.');
       }
       const initialScope = await resolveDelegationSourceScope(request);
+      if (capturedParent) assertSameDelegationWorkspace({ executionContext: capturedParent, workspace: initialScope.workspace }, initialScope);
+      const packageTurns = capturedParent?.turnExtensions?.selections.filter(entry => entry.selection.kind === 'plugin' || entry.selection.kind === 'skill');
+      const childContext = (source: AgentExecutionContext): AgentExecutionContext => ({
+        ...source, effectiveExtensions: undefined, turnExtensionSource: undefined, delegatedExtensionSource: undefined,
+        ...(packageTurns?.length ? { turnExtensions: { version: 1, origin: 'turn_reference', selections: structuredClone(packageTurns) } }
+          : { turnExtensions: undefined }), sessionId, agentId: request.sourceAgentId, agentTurnId,
+      });
       agentTurn = await beginEphemeralAgentTurn({
         turnId: agentTurnId,
         workspaceId: initialScope.executionContext.workspaceId,
@@ -976,42 +997,34 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         });
         const authorizedScope = await resolveDelegationSourceScope(request);
         assertSameDelegationWorkspace(initialScope, authorizedScope);
-        let childExecutionContext: AgentExecutionContext = {
-          ...authorizedScope.executionContext,
-          sessionId,
-          agentId: request.sourceAgentId,
-          agentTurnId,
-        };
-        let tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
+        let childExecutionContext = childContext(authorizedScope.executionContext);
+        let tools: AgentTool[] = delegatedSource ? [] : await resolveEphemeralTools(request, sessionId, childExecutionContext);
         const finalScope = await resolveDelegationSourceScope(request);
         assertSameDelegationWorkspace(initialScope, finalScope);
         if (delegationToolPermissionsChanged(authorizedScope.executionContext, finalScope.executionContext)) {
-          childExecutionContext = {
-            ...finalScope.executionContext,
-            sessionId,
-            agentId: request.sourceAgentId,
-            agentTurnId,
-          };
-          tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
+          childExecutionContext = childContext(finalScope.executionContext);
+          if (!delegatedSource) tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
         } else {
-          childExecutionContext = {
-            ...finalScope.executionContext,
-            sessionId,
-            agentId: request.sourceAgentId,
-            agentTurnId,
-          };
+          childExecutionContext = childContext(finalScope.executionContext);
         }
         const packageSource = capturedParent ?? finalScope.executionContext;
-        childExecutionContext = await reissueCapabilityPackageRuntimeBindings(packageSource, childExecutionContext);
+        if (!delegatedSource) {
+          childExecutionContext = await reissueCapabilityPackageRuntimeBindings(packageSource, childExecutionContext);
+          childExecutionContext = await resolveEffectiveExtensionContext(childExecutionContext, { preserveIssuedBindings: true });
+        // The final worker subset must be compiled with the actual child context,
+        // after its package and connection authority has been freshly resolved.
+          tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
+        }
+        const foundationContext = delegatedSource ? capturedParent! : childExecutionContext;
         const useBoundPackagePrompt = requiresCapabilityPackageBoundPrompt(packageSource)
           || requiresCapabilityPackageBoundPrompt(childExecutionContext);
         const { systemPrompt: managedSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
           ...(useBoundPackagePrompt ? {
-            workspaceId: childExecutionContext.workspaceId, organizationId: childExecutionContext.organizationId,
-            customerId: childExecutionContext.customerId, projectId: childExecutionContext.projectId,
+            workspaceId: foundationContext.workspaceId, organizationId: foundationContext.organizationId,
+            customerId: foundationContext.customerId, projectId: foundationContext.projectId,
           } : {}),
-        }, useBoundPackagePrompt ? { executionContext: childExecutionContext } : undefined);
+        }, useBoundPackagePrompt ? { executionContext: foundationContext } : undefined);
         const workspacePromptBlock = buildActiveWorkspacePromptBlock({
           workspaceId: childExecutionContext.workspaceId,
           workspaceType: childExecutionContext.workspaceType,
@@ -1023,20 +1036,19 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           canShare: childExecutionContext.canShare,
           brandContext: childExecutionContext.brandContext,
         });
-        const baseSystemPrompt = buildEphemeralSystemPrompt(
-          workspacePromptBlock ? `${managedSystemPrompt}\n\n${workspacePromptBlock}` : managedSystemPrompt,
-          request,
-          tools,
-        );
+        const workerFoundation = workspacePromptBlock ? `${managedSystemPrompt}\n\n${workspacePromptBlock}` : managedSystemPrompt;
+        const persistedFoundation = buildEphemeralSystemPrompt(workerFoundation, request, tools);
+        let baseSystemPrompt = buildEphemeralSystemPrompt(workerFoundation, request, tools,
+          delegatedSource ? undefined : childExecutionContext);
         const workspaceFileTree = await buildWorkspaceFileTreePrompt({
           workspaceId: childExecutionContext.workspaceId,
           rootPath: childExecutionContext.workspaceRoot,
         });
-        const systemPrompt = replaceWorkspaceFileTreePromptBlock(
+        let systemPrompt = replaceWorkspaceFileTreePromptBlock(
           baseSystemPrompt,
           workspaceFileTree.promptBlock,
         );
-        const promptSnapshot = buildPiSystemPromptSnapshotFromText(baseSystemPrompt);
+        const promptSnapshot = buildPiSystemPromptSnapshotFromText(persistedFoundation);
         throwIfDelegationAborted(execution.controller.signal);
 
         let preparedSnapshot: Awaited<ReturnType<typeof prepareSessionRuntimeSnapshot>>;
@@ -1114,6 +1126,15 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         }
 
         throwIfDelegationAborted(execution.controller.signal);
+        if (delegatedSource) {
+          if (!request.delegationId) throw new Error('A stored active task is required for this delegated source.');
+          const currentChild = await resolveAgentExecutionContextForSession({ userId: request.userId, sessionId, agentId: request.sourceAgentId });
+          childExecutionContext = await resolveDelegatedExtensionContextSource(delegatedSource,
+            { ...currentChild, agentTurnId }, { delegationId: request.delegationId });
+          tools = await resolveEphemeralTools(request, sessionId, childExecutionContext);
+          baseSystemPrompt = buildEphemeralSystemPrompt(workerFoundation, request, tools, childExecutionContext);
+          systemPrompt = replaceWorkspaceFileTreePromptBlock(baseSystemPrompt, workspaceFileTree.promptBlock);
+        }
         const runtime = await resolveAndPinSessionRuntime({
           organizationId: finalScope.executionContext.organizationId!,
           userId: request.userId,
@@ -1463,6 +1484,17 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   }
 
   throwIfDelegationAborted(request.abortSignal);
+  const ambient = getAgentExecutionContext();
+  const matchedParent = ambient && ambient.userId === request.userId && ambient.sessionId === request.sourceSessionId
+    && ambient.agentId === request.sourceAgentId ? { ...ambient } : undefined;
+  const delegatedSource = request.delegatedExtensionSource ?? (matchedParent ? await captureDelegatedExtensionSource(matchedParent) : null);
+  if (delegatedSource) {
+    const parent = readDelegatedExtensionParentContext(delegatedSource);
+    if (parent.userId !== request.userId || parent.sessionId !== request.sourceSessionId || parent.agentId !== request.sourceAgentId) {
+      throw new Error('The delegated extension source belongs to a different parent session.');
+    }
+    if (!request.delegationId) throw new Error('A stored active task is required for this delegated source.');
+  }
   const initialScope = await resolveDelegationSourceScope(request);
   const sessionId = await ensureManagedDelegatedSession(request, initialScope);
   const { getOrCreatePiRuntimeWithState } = await import('@/app/lib/pi/live-runtime');
@@ -1472,7 +1504,8 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     assertSameDelegationWorkspace(initialScope, sourceScope);
     await requireManagedDelegatedSessionReuse(request, sessionId, sourceScope);
 
-    const runtimeHandle = await getOrCreatePiRuntimeWithState(sessionId, request.userId);
+    const runtimeHandle = await getOrCreatePiRuntimeWithState(sessionId, request.userId,
+      delegatedSource ? { metadataOnlyExternal: true } : undefined);
     const runtime = runtimeHandle.runtime as RuntimeInstance;
     if (runtime.agentId !== request.targetAgentId) {
       throw new Error('Target runtime belongs to a different agent.');
@@ -1481,11 +1514,11 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     if (currentStatus.canAbort || currentStatus.phase !== 'idle') {
       throw new Error('Target session is already running. Pick another session or wait for it to finish.');
     }
-    await runtime.reloadTools();
+    if (!delegatedSource) await runtime.reloadTools();
     let startScope = await resolveDelegationSourceScope(request);
     assertSameDelegationWorkspace(sourceScope, startScope);
     if (delegationToolPermissionsChanged(sourceScope.executionContext, startScope.executionContext)) {
-      await runtime.reloadTools();
+      if (!delegatedSource) await runtime.reloadTools();
       const confirmedScope = await resolveDelegationSourceScope(request);
       assertSameDelegationWorkspace(startScope, confirmedScope);
       if (delegationToolPermissionsChanged(startScope.executionContext, confirmedScope.executionContext)) {
@@ -1499,10 +1532,10 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     }
 
     const baselineMessageCount = runtime.agent.state.messages.length;
-    const integrationBindings = request.hasIntegrationBindings || request.integrationBindings?.length
+    const integrationBindings = !delegatedSource && (request.hasIntegrationBindings || request.integrationBindings?.length)
       ? await (await import('@/app/lib/integration-tools/delegation')).prepareIntegrationBindingsForDelegatedRuntime({
         executionContext: startTargetContext, signal: request.abortSignal }) : [];
-    if ((request.hasIntegrationBindings || request.integrationBindings?.length) && !integrationBindings.length) {
+    if (!delegatedSource && (request.hasIntegrationBindings || request.integrationBindings?.length) && !integrationBindings.length) {
       throw new Error('The approved integration handoff was not found for this active task.');
     }
     const promptMessage = buildDelegationPrompt(request, integrationBindings);
@@ -1515,7 +1548,16 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     const releaseProgress = attachManagedProgressBridge(runtime, request);
     try {
       throwIfDelegationAborted(request.abortSignal);
-      runtime.startPrompt(promptMessage);
+      if (delegatedSource) {
+        if (!runtime.startDelegatedPrompt) throw new Error('The target runtime cannot retain this delegated extension source.');
+        await runtime.startDelegatedPrompt(promptMessage, delegatedSource, request.delegationId!,
+          request.hasIntegrationBindings || request.integrationBindings?.length ? async issuedContext => {
+            const schemas = await (await import('@/app/lib/integration-tools/delegation')).prepareIntegrationBindingsForDelegatedRuntime({
+              executionContext: issuedContext, signal: request.abortSignal });
+            if (!schemas.length) throw new Error('The approved integration handoff was not found for this active task.');
+            return buildDelegationPrompt(request, schemas);
+          } : undefined);
+      } else runtime.startPrompt(promptMessage);
     } catch (error) {
       waitHandle?.cancel();
       releaseAbortBinding();

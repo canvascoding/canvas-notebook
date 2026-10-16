@@ -15,19 +15,39 @@ import { UNRESTRICTED_INTEGRATION_POLICY } from './policy';
 import { schemaFingerprint } from './schema';
 import { isIntegrationTurnUncertain } from './uncertain-turns';
 import { isPersistedIntegrationTurnUncertain } from './uncertain-turn-store';
+import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
+import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
+import { isIssuedScopedIntegrationTurn } from '@/app/lib/capabilities/extensions/effective-context';
+import { readDelegatedTurnRuntimeParentSource } from '@/app/lib/capabilities/extensions/turn-runtime';
+import { readDelegatedExtensionParentContext } from '@/app/lib/capabilities/extensions/delegation-source';
+import { attachAgentWorkflowRuntimeProjection } from '@/app/lib/agents/workflow-runtime';
+import { transferPersonalWorkflowProviderTargets } from './workflow-personal-bindings';
+import { transferWorkflowProviderAssociations } from './workflow-provider-associations';
 
 function reject(code: 'provider_denied' | 'schema_changed' = 'provider_denied'): never {
   throw new IntegrationContractError(code, 'The approved integration binding changed or is unavailable. Ask the delegating agent to refresh it.');
 }
 
 async function parentAuthority(input: {
-  actorUserId: string; sessionId: string; agentId: string; ceiling: IntegrationPolicy;
+  actorUserId: string; sessionId: string; agentId: string; ceiling: IntegrationPolicy; executionContext?: AgentExecutionContext;
 }) {
-  const stored = await resolveIntegrationExecutionContext({ ...input, policyRevision: 'integration-handoff-preflight' });
+  if (input.executionContext && (input.executionContext.userId !== input.actorUserId
+    || input.executionContext.sessionId !== input.sessionId || input.executionContext.agentId !== input.agentId)) reject();
+  const stored = input.executionContext ? { executionContext: input.executionContext }
+    : await resolveIntegrationExecutionContext({ ...input, policyRevision: 'integration-handoff-preflight' });
   const resolved = await resolveRuntimeIntegrationExecutionContext({ executionContext: stored.executionContext, policyRevision: 'integration-handoff-preflight' });
   const runtimePolicy = await resolveIntegrationRuntimePolicy({ executionContext: resolved.executionContext, ceiling: input.ceiling });
+  const context = { ...resolved.integrationContext, policyRevision: runtimePolicy.policyRevision };
+  if (runtimePolicy.workflowProjection) attachAgentWorkflowRuntimeProjection(context, runtimePolicy.workflowProjection);
   return { executionContext: resolved.executionContext,
-    context: { ...resolved.integrationContext, policyRevision: runtimePolicy.policyRevision }, policy: runtimePolicy.policy };
+    context, policy: runtimePolicy.policy };
+}
+
+async function requireHandoffGateway(context?: AgentExecutionContext): Promise<void> {
+  // This validates issued provenance even when the global preference is on.
+  const scoped = context ? isIssuedScopedIntegrationTurn(context) : false;
+  const fixed = context ? isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(context)) : false;
+  if (!scoped && !fixed && !readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled) reject();
 }
 
 /** Only opaque issued references are selectable. No schema, slug, URL or provider identity comes from the model. */
@@ -53,16 +73,17 @@ export async function captureDelegatedIntegrationBindings(input: {
   if (issuingContext && (isIntegrationTurnUncertain(issuingContext) || await isPersistedIntegrationTurnUncertain(issuingContext))) {
     throw new IntegrationContractError('outcome_unknown', 'The originating turn has an uncertain external result. Do not delegate another attempt.');
   }
-  if (!readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled) reject();
+  await requireHandoffGateway(issuingContext);
   signal?.throwIfAborted();
   await requireDelegationSource({ userId: actorUserId, sourceSessionId, sourceAgentId });
   const authority = await parentAuthority({ actorUserId, sessionId: sourceSessionId, agentId: sourceAgentId,
-    ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+    ceiling: UNRESTRICTED_INTEGRATION_POLICY, executionContext: issuingContext });
   if (issuingContext && (issuingContext.workspaceId !== authority.executionContext.workspaceId
     || issuingContext.organizationId !== authority.executionContext.organizationId)) reject();
   const bindings = [];
   for (const selection of selections) bindings.push(await dispatcher.exportDelegatedComposioSchema({ ...authority, selection, signal }));
-  const confirmed = await parentAuthority({ actorUserId, sessionId: sourceSessionId, agentId: sourceAgentId, ceiling: authority.policy });
+  const confirmed = await parentAuthority({ actorUserId, sessionId: sourceSessionId, agentId: sourceAgentId,
+    ceiling: authority.policy, executionContext: authority.executionContext });
   if (schemaFingerprint(confirmed.context) !== schemaFingerprint(authority.context)
     || schemaFingerprint(confirmed.policy) !== schemaFingerprint(authority.policy)) reject('schema_changed');
   if (issuingContext && (isIntegrationTurnUncertain(issuingContext) || await isPersistedIntegrationTurnUncertain(issuingContext))) {
@@ -87,12 +108,14 @@ export async function prepareDelegatedIntegrationBindings(input: {
 }): Promise<readonly IntegrationToolSchema[]> {
   const executionContext = { ...input.executionContext };
   const context = { ...input.context };
+  transferPersonalWorkflowProviderTargets(input.context, context);
+  transferWorkflowProviderAssociations(input.context, context);
   const policy = structuredClone(input.policy);
   const delegation = input.delegation ? { ...input.delegation } : null;
   const dispatcher = input.dispatcher ?? integrationDispatcher;
   const signal = input.signal;
   if (!delegation || delegation.integrationBindingsJson === null) return [];
-  if (!readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled) reject();
+  await requireHandoffGateway(executionContext);
   if (context.actorUserId !== executionContext.userId || context.sessionId !== executionContext.sessionId
     || context.agentId !== executionContext.agentId || context.workspaceId !== executionContext.workspaceId
     || (context.organizationId ?? null) !== (executionContext.organizationId ?? null)) reject();
@@ -108,7 +131,7 @@ export async function prepareDelegatedIntegrationBindings(input: {
 
   const checkAuthority = async () => {
     signal?.throwIfAborted();
-    if (!readIntegrationToolGatewayAvailability().integrationToolGatewayEnabled) reject();
+    await requireHandoffGateway(executionContext);
     if (isIntegrationTurnUncertain(parentTurn) || await isPersistedIntegrationTurnUncertain(parentTurn)) {
       throw new IntegrationContractError('outcome_unknown', 'The originating turn has an uncertain external result. Do not execute a delegated attempt.');
     }
@@ -116,8 +139,10 @@ export async function prepareDelegatedIntegrationBindings(input: {
     if (!currentTask || schemaFingerprint(currentTask) !== schemaFingerprint(delegation)) reject();
     await requireDelegationSource({ userId: executionContext.userId,
       sourceSessionId: delegation.sourceSessionId, sourceAgentId: delegation.sourceAgentId });
+    const source = readDelegatedTurnRuntimeParentSource(executionContext, delegation.id);
     const parent = await parentAuthority({ actorUserId: executionContext.userId, sessionId: delegation.sourceSessionId,
-      agentId: delegation.sourceAgentId, ceiling: snapshot.parent.policy });
+      agentId: delegation.sourceAgentId, ceiling: snapshot.parent.policy,
+      ...(source ? { executionContext: readDelegatedExtensionParentContext(source) } : {}) });
     if (parent.context.policyRevision !== snapshot.parent.policyRevision
       || schemaFingerprint(parent.policy) !== schemaFingerprint(snapshot.parent.policy)
       || parent.context.workspaceId !== snapshot.parent.workspaceId
@@ -150,7 +175,9 @@ export async function prepareIntegrationBindingsForDelegatedRuntime(input: {
 }): Promise<readonly IntegrationToolSchema[]> {
   const resolved = await resolveRuntimeIntegrationExecutionContext({ executionContext: input.executionContext, policyRevision: 'integration-handoff-preflight' });
   const current = await resolveIntegrationRuntimePolicy({ executionContext: resolved.executionContext, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+  const context = { ...resolved.integrationContext, policyRevision: current.policyRevision };
+  if (current.workflowProjection) attachAgentWorkflowRuntimeProjection(context, current.workflowProjection);
   return prepareDelegatedIntegrationBindings({ executionContext: resolved.executionContext,
-    context: { ...resolved.integrationContext, policyRevision: current.policyRevision }, policy: current.policy,
+    context, policy: current.policy,
     delegation: current.delegation, dispatcher: input.dispatcher, signal: input.signal });
 }

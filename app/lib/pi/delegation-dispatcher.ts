@@ -3,6 +3,8 @@ import { parseIntegrationBindingSelections } from '@/app/lib/integration-tools/d
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { requireDelegationSource } from '@/app/lib/pi/delegation-policy';
 import { normalizeMainAgentIdAlias } from '@/app/lib/agents/main-agent';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { captureDelegatedExtensionSource, type HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 
 import { randomUUID } from 'node:crypto';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
@@ -39,6 +41,13 @@ const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DELIVERY_RETRY_INTERVAL_MS = 30_000;
 const LEASE_HEARTBEAT_INTERVAL_MS = 5_000;
 const LEASE_RECOVERY_INTERVAL_MS = 15_000;
+
+type QueuedExtensionSource = { source: HeldDelegatedExtensionSource | null; userId: string; sourceSessionId: string;
+  sourceAgentId: string; sourceAgentTurnId: string | null };
+const sourceHost = globalThis as typeof globalThis & { __canvasDelegationQueuedExtensionSourcesV1?: Map<string, QueuedExtensionSource> };
+// Retain issued objects across an in-process queue wait; serialized task fields
+// alone never reconstruct authority. Durable replay requires Phase4's issuer.
+const queuedExtensionSources = sourceHost.__canvasDelegationQueuedExtensionSourcesV1 ??= new Map<string, QueuedExtensionSource>();
 
 type StartDelegatedRun = (request: DelegateTaskRequest) => Promise<DelegateTaskResult>;
 type DeliverDelegationCompletion = (record: PiDelegationRecord) => Promise<void>;
@@ -232,7 +241,9 @@ export class PiDelegationDispatcher {
     const integrationSelection = { actorUserId: request.userId, sourceSessionId: request.sourceSessionId,
       sourceAgentId: request.sourceAgentId, selections: parseIntegrationBindingSelections(request.integrationBindings), signal: request.abortSignal };
     const ambient = getAgentExecutionContext();
-    const sourceContext = ambient ? { ...ambient } : null;
+    const sourceContext = ambient ? { ...ambient } : await resolveAgentExecutionContextForSession({
+      userId: request.userId, sessionId: request.sourceSessionId, agentId: request.sourceAgentId,
+    });
     if (sourceContext && (sourceContext.userId !== integrationSelection.actorUserId
       || sourceContext.sessionId !== integrationSelection.sourceSessionId
       || sourceContext.agentId !== normalizeMainAgentIdAlias(integrationSelection.sourceAgentId))) {
@@ -254,6 +265,11 @@ export class PiDelegationDispatcher {
       await requireManagedDelegatedSessionReuse(request, requestedSessionId);
     }
     const delegationId = request.delegationId?.trim() || buildDelegationId();
+    // Authenticated direct delegation requests get a server-owned identity too;
+    // callers never supply it or a private extension source.
+    sourceContext.agentTurnId ??= randomUUID();
+    const extensionSource = await captureDelegatedExtensionSource(sourceContext);
+    if (queuedExtensionSources.has(delegationId)) throw new Error('The delegated task identity already exists.');
     const workerSessionId = requestedSessionId
       || request.workerSessionId?.trim()
       || buildWorkerSessionId();
@@ -268,7 +284,12 @@ export class PiDelegationDispatcher {
         throw new Error('The delegated turn workspace or approved binding changed.');
       }
     }
-    const record = await createPiDelegation({
+    const retainedSource: QueuedExtensionSource = { source: extensionSource, userId: request.userId,
+      sourceSessionId: request.sourceSessionId, sourceAgentId: request.sourceAgentId,
+      sourceAgentTurnId: sourceContext.agentTurnId ?? null };
+    queuedExtensionSources.set(delegationId, retainedSource);
+    let record: PiDelegationRecord;
+    try { record = await createPiDelegation({
       id: delegationId,
       userId: request.userId,
       sourceSessionId: request.sourceSessionId,
@@ -283,7 +304,10 @@ export class PiDelegationDispatcher {
       workerRole: request.workerRole,
       toolsets: request.toolsets,
       integrationBindingSnapshot,
-    });
+    }); } catch (error) {
+      if (queuedExtensionSources.get(delegationId) === retainedSource) queuedExtensionSources.delete(delegationId);
+      throw error;
+    }
     await persistLifecycleProgress({ delegationId: record.id, userId: record.userId, kind: 'queued', eventKey: 'queued' });
     this.schedulePump();
 
@@ -304,6 +328,7 @@ export class PiDelegationDispatcher {
   async cancel(id: string, userId: string): Promise<PiDelegationRecord | null> {
     const record = await requestPiDelegationCancellation(id, userId);
     if (record?.status === 'cancelled') {
+      queuedExtensionSources.delete(id);
       await persistLifecycleProgress({ delegationId: id, userId, kind: 'cancelled', eventKey: 'cancelled' });
       await this.deliver(id);
     }
@@ -440,6 +465,7 @@ export class PiDelegationDispatcher {
   ): Promise<void> {
     let record = claimed;
     if (record.attemptCount > 1) {
+      queuedExtensionSources.delete(record.id);
       const persistedResult = await recoverPersistedWorkerResult(record);
       if (persistedResult) {
         await this.finalize(record.id, persistedResult, controller.signal);
@@ -472,6 +498,12 @@ export class PiDelegationDispatcher {
     };
 
     try {
+      const retained = queuedExtensionSources.get(record.id);
+      if (!retained || retained.userId !== record.userId
+        || retained.sourceSessionId !== record.sourceSessionId || retained.sourceAgentId !== record.sourceAgentId
+        || retained.sourceAgentTurnId !== record.sourceAgentTurnId) {
+        throw new Error('The originating extension selection cannot be resumed. Start a new delegated task.');
+      }
       const started = await this.startDelegatedRunFn({
         delegationId: record.id,
         userId: record.userId,
@@ -487,6 +519,7 @@ export class PiDelegationDispatcher {
         workerRole: record.workerRole ?? undefined,
         toolsets: piDelegationToolsets(record),
         hasIntegrationBindings: record.integrationBindingsJson !== null,
+        ...(retained?.source ? { delegatedExtensionSource: retained.source } : {}),
         waitForResult: false,
         timeoutSeconds: 0,
         onCompletion: reportCompletion,
@@ -513,7 +546,7 @@ export class PiDelegationDispatcher {
         timeout_seconds: 0,
         error: errorMessage(error),
       }, controller.signal);
-    }
+    } finally { queuedExtensionSources.delete(record.id); }
   }
 
   private async finalize(

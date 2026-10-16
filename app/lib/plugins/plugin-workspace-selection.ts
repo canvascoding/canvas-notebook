@@ -49,7 +49,7 @@ export async function resolvePluginWorkspaceCatalogScopeContext(input: Capabilit
     const ids = [...readableTeamIds].sort().slice(0, PLUGIN_WORKSPACE_CATALOG_MAX_TEAM_CHOICES);
     const rows = ids.length ? (await database.all(`SELECT id, display_name FROM canvas_workspaces WHERE id IN (${ids.map((_, index) => `$${index + 1}`).join(',')}) AND type='team' AND status='active' ORDER BY lower(display_name), id LIMIT ${PLUGIN_WORKSPACE_CATALOG_MAX_TEAM_CHOICES}`, ids) as Array<{ id: string; display_name: unknown }>) : [];
     const configured = await database.get('SELECT organization_id FROM canvas_organization_settings ORDER BY created_at ASC LIMIT 1') as { organization_id: string } | undefined;
-    return { actorUserId: actor.userId, readableTeamIds,
+    return { actorUserId: actor.userId, workspaceId: actor.workspaceId, readableTeamIds,
       organizationAvailable: Boolean(configured && current.memberships.get(configured.organization_id)?.status === 'active'),
       teams: rows.filter(row => readableTeamIds.has(row.id)).map(row => ({ teamId: row.id,
         label: typeof row.display_name === 'string' ? row.display_name.replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, '').trim().slice(0, 200) || 'Team' : 'Team' })) };

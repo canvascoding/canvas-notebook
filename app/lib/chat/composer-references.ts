@@ -1,5 +1,5 @@
 export type ComposerReferenceKind = 'file' | 'capability' | 'all';
-export type ComposerReferenceTrigger = '@' | '+' | '/';
+export type ComposerReferenceTrigger = '@' | '+';
 
 export interface ComposerReferenceMatch {
   kind: ComposerReferenceKind;
@@ -7,10 +7,6 @@ export interface ComposerReferenceMatch {
   query: string;
   startIndex: number;
   endIndex: number;
-}
-
-function isSlashBoundaryCharacter(character: string | undefined): boolean {
-  return !character || /\s|[\(\[\{"'`,;]/.test(character);
 }
 
 function isFileBoundaryCharacter(character: string | undefined): boolean {
@@ -28,9 +24,7 @@ function getFileReferenceMatchForTrigger(value: string, cursorPosition: number, 
   }
 
   const query = value.slice(lastTriggerIndex + 1, cursorPosition);
-  const hasUnsupportedWhitespace = trigger === '+'
-    ? /[\r\n\t]/.test(query) || query.includes('  ')
-    : /\s/.test(query);
+  const hasUnsupportedWhitespace = /[\r\n\t]/.test(query) || query.includes('  ');
   const hasCompletedQuote = query.includes('"') && query.indexOf('"') < query.length - 1;
   const hasAnotherAt = query.includes('@');
   const hasAnotherPlus = query.includes('+');
@@ -44,7 +38,7 @@ function getFileReferenceMatchForTrigger(value: string, cursorPosition: number, 
   }
 
   return {
-    kind: trigger === '+' ? 'all' : 'file',
+    kind: 'all',
     trigger,
     query,
     startIndex: lastTriggerIndex,
@@ -63,43 +57,8 @@ function getFileReferenceMatch(value: string, cursorPosition: number): ComposerR
   return atMatch || plusMatch;
 }
 
-function getSkillReferenceMatch(value: string, cursorPosition: number): ComposerReferenceMatch | null {
-  const lastSlashIndex = value.lastIndexOf('/', cursorPosition);
-  if (lastSlashIndex === -1 || cursorPosition <= lastSlashIndex) {
-    return null;
-  }
-
-  if (!isSlashBoundaryCharacter(value[lastSlashIndex - 1])) {
-    return null;
-  }
-
-  if (value[lastSlashIndex + 1] === '/') {
-    return null;
-  }
-
-  const query = value.slice(lastSlashIndex + 1, cursorPosition);
-  if (/\s/.test(query) || query.includes('/') || query.includes(':') || query.includes('.')) {
-    return null;
-  }
-
-  return {
-    kind: 'capability',
-    trigger: '/',
-    query,
-    startIndex: lastSlashIndex,
-    endIndex: cursorPosition,
-  };
-}
-
 export function findActiveComposerReference(value: string, cursorPosition: number): ComposerReferenceMatch | null {
-  const fileMatch = getFileReferenceMatch(value, cursorPosition);
-  const skillMatch = getSkillReferenceMatch(value, cursorPosition);
-
-  if (fileMatch && skillMatch) {
-    return fileMatch.startIndex > skillMatch.startIndex ? fileMatch : skillMatch;
-  }
-
-  return fileMatch || skillMatch;
+  return getFileReferenceMatch(value, cursorPosition);
 }
 
 export function replaceComposerReference(

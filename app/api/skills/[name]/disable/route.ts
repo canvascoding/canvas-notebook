@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { refreshPersonalCapabilityRuntime } from '@/app/lib/capabilities/activation-actions';
 import { requireActiveCapabilityUser } from '@/app/lib/capabilities/request-auth';
-import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { coreSkillInstallError } from '@/app/lib/skills/core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { disableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { readEnabledSkillsForScope, writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
@@ -16,7 +17,7 @@ export async function POST(
     if (!capabilityUser.ok) return capabilityUser.response;
 
     const { name } = await params;
-    if (isCoreSkillName(name)) {
+    if (isProtectedCoreSkillName(name)) {
       return NextResponse.json(
         { success: false, error: coreSkillInstallError(name) },
         { status: 409 },

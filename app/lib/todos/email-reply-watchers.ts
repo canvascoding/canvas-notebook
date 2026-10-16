@@ -427,7 +427,8 @@ async function markReplyEvent(eventId: string, status: 'dispatched' | 'failed', 
     .where(eq(todoEmailReplyEvents.id, eventId));
 }
 
-async function dispatchReplyToSession(watcher: TodoEmailReplyWatcher, todo: TodoWithRelations, message: EmailReadMessage, replyText: string): Promise<void> {
+async function dispatchReplyToSession(watcher: TodoEmailReplyWatcher, todo: TodoWithRelations, event: TodoEmailReplyEvent): Promise<void> {
+  if (typeof event.replyText !== 'string' || !event.replyText.trim()) throw new Error('The stored email reply has no readable text.');
   const sourceSessionId = watcher.sourceSessionId?.trim();
   const sourceAgentId = watcher.sourceAgentId?.trim();
   if (!sourceSessionId || !sourceAgentId) {
@@ -442,15 +443,15 @@ async function dispatchReplyToSession(watcher: TodoEmailReplyWatcher, todo: Todo
     agentId: sourceAgentId,
   });
 
-  const receivedAt = parseDate(message.date);
-  const timestamp = Date.now();
-  const agentMessage: Extract<AgentMessage, { role: 'user' }> = {
+  const timestamp = event.createdAt.getTime();
+  const agentMessage: Extract<AgentMessage, { role: 'user' }> & { clientMessageId: string } = {
     role: 'user',
+    clientMessageId: `todo-email-reply:${event.id}`,
     content: buildTodoEmailReplyAgentMessage({
       todo,
-      replyText,
-      from: message.from,
-      receivedAt,
+      replyText: event.replyText,
+      from: event.fromAddress ?? undefined,
+      receivedAt: event.receivedAt,
       locale: watcher.locale,
     }),
     timestamp,
@@ -508,7 +509,7 @@ async function processMessageCandidate(watcher: TodoEmailReplyWatcher, candidate
   }
 
   try {
-    await dispatchReplyToSession(watcher, todo, readMessage, replyText);
+    await dispatchReplyToSession(watcher, todo, event);
     await markReplyEvent(event.id, 'dispatched');
     return 'processed';
   } catch (error) {

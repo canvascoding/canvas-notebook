@@ -3,12 +3,14 @@ import { agentWorkflowManagementRequestSchema, type AgentWorkflowManagement, typ
 import type { AgentWorkflowConfiguration, AgentWorkflowDescriptor } from '@/app/lib/agents/workflow-contracts';
 import type { AgentProfile } from '@/app/lib/agents/registry';
 import type { CapabilityPackagePublishedSummary } from '@/app/lib/capabilities/packages/contracts';
+import { agentExtensionConfigurationInputSchema, type AgentExtensionConfigurationInput } from '@/app/lib/capabilities/extensions/contracts';
+import type { AgentExtensionConfigurationDescriptor } from '@/app/lib/agents/extension-inspection';
 import { AgentWorkflowClientError, requestWorkflow } from './agent-workflow-client';
 
 export type AgentWorkflowManagementContext = Readonly<{ agentId: string; workspaceId: string | null;
   projectId?: string | null; organizationId?: string | null; actorId?: string | null }>;
 export type AgentWorkflowManagementSaveInput = { agentId: string; expectedRevision: number; expectedWorkflowRevision: number;
-  workflow?: AgentWorkflowConfiguration | null; enabledTools?: string[] | null };
+  workflow?: AgentWorkflowConfiguration | null; extensions?: AgentExtensionConfigurationInput; enabledTools?: string[] | null };
 export type AgentWorkflowManagementSaveResult = { agent: AgentProfile & { access: AgentWorkflowManagement['access'] };
   workflow: AgentWorkflowDescriptor };
 export class AgentWorkflowManagementClientError extends AgentWorkflowClientError {
@@ -66,6 +68,33 @@ export async function readAgentWorkflowManagementOptions<R extends AgentWorkflow
 export function readAgentWorkflowManagement(context: AgentWorkflowManagementContext, signal?: AbortSignal): Promise<AgentWorkflowManagement> {
   return readAgentWorkflowManagementOptions(context, { view: 'management', agentId: context.agentId }, signal);
 }
+export type AgentExtensionManagementSnapshot = { agent: AgentProfile; access: AgentWorkflowManagement['access'];
+  extensions: AgentExtensionConfigurationDescriptor };
+/** Genuine configure inspection, not a V1 reconstruction from names or an empty fallback. */
+export async function readAgentExtensionManagement(contextInput: AgentWorkflowManagementContext,
+  signal?: AbortSignal): Promise<AgentExtensionManagementSnapshot> {
+  const context = capture(contextInput);
+  const data = await requestWorkflow<AgentExtensionManagementSnapshot>(url('/api/agents', context,
+    { agentId: context.agentId, purpose: 'configure', includeFiles: false }), { signal });
+  const extension = data?.extensions;
+  if (data?.agent?.agentId !== context.agentId || !revision(data.agent.revision, true)
+    || extension?.agentId !== context.agentId || extension.revision !== data.agent.revision
+    || !revision(extension.workflowRevision) || extension.workflowRevision !== (data.agent.workflowRevision ?? 0)
+    || !data.access || ['canUse', 'canEdit', 'canManage'].some(key => typeof Reflect.get(data.access, key) !== 'boolean')
+    || !['legacy', 'available', 'blocked'].includes(extension.configurationState) || !Array.isArray(extension.readiness)) {
+    throw new AgentWorkflowManagementClientError('WORKFLOW_REPLY_INVALID');
+  }
+  if (extension.configurationState === 'blocked') {
+    if (extension.configuration !== null) throw new AgentWorkflowManagementClientError('WORKFLOW_REPLY_INVALID');
+  } else {
+    const parsed = agentExtensionConfigurationInputSchema.safeParse(extension.configuration);
+    if (!parsed.success || (extension.configurationState === 'legacy') !== (parsed.data.mode === 'legacy_inherit')) {
+      throw new AgentWorkflowManagementClientError('WORKFLOW_REPLY_INVALID');
+    }
+    extension.configuration = parsed.data;
+  }
+  return data;
+}
 /** History supplies candidate metadata only; applying a version still requires the exact manager package-version gate. */
 export async function readAgentWorkflowPackageVersions(contextInput: AgentWorkflowManagementContext, resourceRef: string,
   signal?: AbortSignal): Promise<CapabilityPackagePublishedSummary[]> {
@@ -90,15 +119,17 @@ export async function saveAgentWorkflowManagement(contextInput: AgentWorkflowMan
   signal?: AbortSignal): Promise<AgentWorkflowManagementSaveResult> {
   const context = capture(contextInput), body = structuredClone(input);
   if (body.agentId !== context.agentId || !revision(body.expectedRevision, true) || !revision(body.expectedWorkflowRevision)
-    || Object.keys(body).some(key => !['agentId', 'expectedRevision', 'expectedWorkflowRevision', 'workflow', 'enabledTools'].includes(key))
-    || body.workflow === undefined && body.enabledTools === undefined
+    || Object.keys(body).some(key => !['agentId', 'expectedRevision', 'expectedWorkflowRevision', 'workflow', 'extensions', 'enabledTools'].includes(key))
+    || body.workflow === undefined && body.extensions === undefined && body.enabledTools === undefined
+    || body.workflow !== undefined && body.extensions !== undefined
+    || body.extensions !== undefined && !agentExtensionConfigurationInputSchema.safeParse(body.extensions).success
     || body.enabledTools !== undefined && body.enabledTools !== null && (!Array.isArray(body.enabledTools) || body.enabledTools.length > 512
       || body.enabledTools.some(tool => !identifier(tool)) || new Set(body.enabledTools).size !== body.enabledTools.length)) {
     throw new AgentWorkflowManagementClientError('WORKFLOW_CLIENT_INVALID');
   }
   const data = await requestWorkflow<AgentWorkflowManagementSaveResult>(url('/api/agents', context), { method: 'PATCH', signal,
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const workflowRevision = body.expectedWorkflowRevision + (body.workflow === undefined ? 0 : 1);
+  const workflowRevision = body.expectedWorkflowRevision + (body.workflow === undefined && body.extensions === undefined ? 0 : 1);
   if (data.agent?.agentId !== context.agentId || data.agent.revision !== body.expectedRevision + 1
     || data.agent.workflowRevision !== workflowRevision || data.workflow?.agentId !== context.agentId
     || data.workflow.revision !== data.agent.revision || data.workflow.workflowRevision !== workflowRevision) {

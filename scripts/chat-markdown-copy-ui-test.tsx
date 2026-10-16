@@ -50,7 +50,7 @@ async function main() {
     const props: React.ComponentProps<typeof Header> = {
       activeAgentDisplayName: 'Bradley', activeSessionAgentId: 'agent-a', chatAgentOptions: [], contextDetailedLabel: '', contextTooltip: '',
       hideNavHeader: true, isHistoryOverlayOpen: false, isMobile: false, isSessionTitleGenerating: false, onCompact: () => {},
-      onDeleteSession: () => {}, onSelectAgent: () => {}, onReloadAgents: async () => {}, onSetShowHistory: () => {}, onStartNewChat: () => {},
+      onDeleteSession: () => {}, onSelectAgent: () => {}, onAgentCreated: () => false, onReloadAgents: async () => {}, onSetShowHistory: () => {}, onStartNewChat: () => {},
       runtimeStatus: null, sessionDisplayLabel: 'Debug chat', sessionId: 'chat/a', workspaceId: 'workspace-a',
       showHistory: false, showSkillsLink: false, showWorkspaceSwitcher: false, totalUnreadCount: 0,
     };
