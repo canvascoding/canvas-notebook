@@ -1004,6 +1004,11 @@ async function resolveNativePublicShareRow(row: PublicShareRow, options: Resolve
     const status = error instanceof PublicShareNativeReadError ? error.status
       : error && typeof error === 'object' && [409, 413].includes(Number(Reflect.get(error, 'status'))) ? Number(Reflect.get(error, 'status'))
       : error && typeof error === 'object' && ['55P03', '40P01'].includes(String(Reflect.get(error, 'code'))) ? 409 : 503;
+    if (status >= 500) console.warn('[public-sharing] Native resolution failed.', { status,
+      kind: error instanceof PublicShareNativeReadError ? 'native-read'
+        : error instanceof TypeError ? 'type' : error instanceof RangeError ? 'range' : 'unavailable',
+      code: error && typeof error === 'object' && ['55P03', '40P01', '57014', 'ECONNRESET', 'ECONNREFUSED'].includes(String(Reflect.get(error, 'code')))
+        ? String(Reflect.get(error, 'code')) : null });
     return {ok: false, status, error: 'Public document is unavailable.'};
   }
 }

@@ -17,14 +17,21 @@ export class PublicShareReadError extends Error {
 
 export async function assertPublicShareStillActive(resolved: ResolvedShare): Promise<void> {
   const current = await resolvePublicShareToken(resolved.row.token, { recordAccess: false });
-  if (!current.ok) throw new PublicShareReadError('Public share changed or is no longer available.',
-    current.status === 409 || current.status === 413 || current.status === 503 ? current.status : 410);
+  if (!current.ok) {
+    console.warn('[public-sharing] Read revalidation rejected.', { phase: 'resolution', status: current.status });
+    throw new PublicShareReadError('Public share changed or is no longer available.',
+      current.status === 409 || current.status === 413 || current.status === 503 ? current.status : 410);
+  }
   if (current.row.policyRevision !== resolved.row.policyRevision
     || current.kind !== resolved.kind || current.row.id !== resolved.row.id
     || current.row.tokenHash !== resolved.row.tokenHash || current.row.workspaceId !== resolved.row.workspaceId
     || current.row.documentId !== resolved.row.documentId || current.row.lineageId !== resolved.row.lineageId
     || current.row.lifecycleGeneration !== resolved.row.lifecycleGeneration
     || current.workspacePath !== resolved.workspacePath || current.row.fileIdentity !== resolved.row.fileIdentity) {
+    console.warn('[public-sharing] Read revalidation rejected.', { phase: 'binding',
+      sameKind: current.kind === resolved.kind, sameShare: current.row.id === resolved.row.id,
+      samePolicy: current.row.policyRevision === resolved.row.policyRevision,
+      sameFileIdentity: current.row.fileIdentity === resolved.row.fileIdentity });
     throw new PublicShareReadError('Public share changed or is no longer available.', 410);
   }
   if (current.kind === 'native' && resolved.kind === 'native'
@@ -35,6 +42,11 @@ export async function assertPublicShareStillActive(resolved: ResolvedShare): Pro
         || current.snapshot.version.stateProof !== resolved.snapshot.version.stateProof
         || current.snapshot.version.documentSequence !== resolved.snapshot.version.documentSequence
         || current.exportProfile.newlineStyle !== resolved.exportProfile.newlineStyle || current.exportProfile.hasBom !== resolved.exportProfile.hasBom)) {
+    console.warn('[public-sharing] Read revalidation rejected.', { phase: 'snapshot',
+      sameStateProof: current.snapshot.version.stateProof === resolved.snapshot.version.stateProof,
+      sameSequence: current.snapshot.version.documentSequence === resolved.snapshot.version.documentSequence,
+      sameProfile: current.exportProfile.newlineStyle === resolved.exportProfile.newlineStyle
+        && current.exportProfile.hasBom === resolved.exportProfile.hasBom });
     throw new PublicShareReadError('The native public document changed during this read.', 409);
   }
 }

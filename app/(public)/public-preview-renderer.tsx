@@ -16,7 +16,7 @@ import {
 import { rewritePublicMarkdownImageSources, rewritePublicNativeImageSources } from '@/app/lib/public-sharing/public-markdown-images';
 import type { PublicShareResolution } from '@/app/lib/public-sharing/public-file-shares';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
-import { assertPublicShareStillActive, readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
+import { assertPublicShareStillActive, readPublicShareText, PublicShareReadError } from '@/app/lib/public-sharing/public-share-text';
 import { exportNativePublicSnapshot, nativePublicExportMetadata, PublicShareNativeExportError } from '@/app/lib/public-sharing/native-public-export';
 
 type ResolvedPublicShare = Extract<PublicShareResolution, { ok: true }>;
@@ -122,7 +122,12 @@ export async function PublicResolvedFilePreview({ resolved }: { resolved: Resolv
       downloadUnavailableReason = error.statusCode === 413 ? 'This document is too large to download here.'
         : 'A text download is unavailable for this document.';
     }
-    try { await assertPublicShareStillActive(resolved); } catch { notFound(); }
+    try { await assertPublicShareStillActive(resolved); } catch (error) {
+      console.warn('[public-sharing] Native preview revalidation rejected.', {
+        status: error instanceof PublicShareReadError ? error.statusCode : 503,
+      });
+      notFound();
+    }
     return <PublicFilePreview fileName={resolved.share.fileName} mimeType={resolved.mimeType} sizeBytes={resolved.sizeBytes}
       previewKind="markdown" nativeContent={nativeContent} nativePreviewTooLarge={nativePreviewTooLarge} securityMode="strict" downloadUrl={downloadUrl}
       downloadFileName={downloadFileName} downloadUnavailableReason={downloadUnavailableReason}
