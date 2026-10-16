@@ -126,6 +126,7 @@ function PackageCompositionPicker({ draftRef, revision, workspaceId, disabled, o
         <Button type="button" size="sm" onClick={addRequirement} disabled={disabled || item.kind === 'mcp' && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(connector)}>
           <Plus className="size-4" />{t('addRequirement')}</Button></> : null}
     </section> : null}
-    <PluginExtensionSearchResults data={data} workspaceId={workspaceId} onOpen={select} onMore={setCursor} onRetry={() => { setSelection(null); setChosen([]); data.retry(); }} />
+    <PluginExtensionSearchResults data={data} workspaceId={workspaceId} onOpen={select} onMore={setCursor}
+      onRetry={source => { if (!source) { setSelection(null); setChosen([]); } data.retry(source); }} />
   </section>;
 }

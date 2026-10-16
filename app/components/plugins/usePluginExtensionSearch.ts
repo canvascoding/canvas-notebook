@@ -2,10 +2,10 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PluginNavigation } from '@/app/lib/plugins/plugin-navigation';
-import type { PluginExtensionItem, PluginExtensionSearchResponse } from '@/app/lib/plugins/plugin-extension-contracts';
+import type { PluginExtensionCoverage, PluginExtensionItem, PluginExtensionSearchResponse } from '@/app/lib/plugins/plugin-extension-contracts';
 import { authClient } from '@/app/lib/auth-client';
 import { PackageWorkspaceRequestError, workspaceRequest, type PackageWorkspaceQuery } from './plugin-workspace-client';
-import { pluginExtensionSearchPhaseRequests, pluginExtensionSearchPhaseCursor, type ExtensionSearchPhase } from './plugin-extension-search-phases';
+import { pluginExtensionSearchPhaseRequests, pluginExtensionSearchPhaseCursor, type ExtensionSearchPhase, type ExtensionSearchPhaseRequest } from './plugin-extension-search-phases';
 
 /** A received metadata response and its actual request context, never runtime authority. */
 export type PluginExtensionSelectionMetadata = {
@@ -20,7 +20,9 @@ export type PluginExtensionSearchData = {
   items: PluginExtensionItem[];
   selectedItem: PluginExtensionItem | null;
   selectionMetadata?: PluginExtensionSelectionMetadata | null;
-  retry: () => void;
+  /** Existing full refresh remains available; a coverage retry refreshes only its actual local/remote request group. */
+  retry: (source?: PluginExtensionCoverage['source']) => void;
+  pendingSources?: PluginExtensionCoverage['source'][];
 };
 type Loaded = Omit<PluginExtensionSearchData, 'updating' | 'retry'> & {
   pending?: boolean;
@@ -52,7 +54,14 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
   const requestKey = JSON.stringify([contextKey, requestedSelection ?? null]);
   const query: PackageWorkspaceQuery = useMemo(() => ({ q, types: kind === 'all' ? undefined : kind, scope, audience, teamId,
     stock, source, cursor, selected: requestedSelection, limit: 20 }), [q, kind, scope, audience, teamId, stock, source, cursor, requestedSelection]);
-  const retry = useCallback(() => setAttempt(value => value + 1), []);
+  const phaseRetry = useRef<{ requestKey: string; run: (source: PluginExtensionCoverage['source']) => void } | null>(null);
+  const retry = useCallback((source?: PluginExtensionCoverage['source']) => {
+    if (source) {
+      if (phaseRetry.current?.requestKey === requestKey) phaseRetry.current.run(source);
+      return;
+    }
+    setAttempt(value => value + 1);
+  }, [requestKey]);
   const generation = useRef(0);
   useEffect(() => {
     const controller = new AbortController(), current = ++generation.current;
@@ -64,7 +73,16 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
     };
     const phases = pluginExtensionSearchPhaseRequests(cursor), responses = new Map<ExtensionSearchPhase, PluginExtensionSearchResponse>();
     const failures = new Map<ExtensionSearchPhase, PackageWorkspaceRequestError>();
+    const pendingPhases = new Set(phases.map(phase => phase.phase));
     let remaining = phases.length;
+    const phaseForSource = (source: PluginExtensionCoverage['source']): ExtensionSearchPhaseRequest => {
+      // Composio's local inventory and remote catalogue share one public source label.
+      // Prefer the actual failed response, then fall back to the source's normal request group.
+      const failed = (['remote', 'local', 'all'] as const).find(phase => responses.get(phase)?.coverage.some(row => row.source === source
+        && (row.status === 'partial' || row.status === 'unavailable')));
+      const preferred = failed ?? (source === 'packages' || source === 'mcp' ? 'local' : 'remote');
+      return phases.find(phase => phase.phase === preferred) ?? phases.find(phase => phase.phase === 'all') ?? { phase: preferred };
+    };
     const publish = (received: PluginExtensionSearchResponse | null) => {
       if (!isCurrent()) return;
       const ordered = (['local', 'remote', 'all'] as const).flatMap(phase => responses.has(phase) ? [responses.get(phase)!] : []);
@@ -74,7 +92,8 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
         const priorResponse = previous?.key === key && cursor ? previous.response : null;
         const prior = priorResponse ? previous!.items : [];
         if (!latestResponse) {
-          if (remaining) return previous;
+          if (remaining) return previous?.key === key ? { ...previous, pending: true,
+            pendingSources: (previous.response?.coverage ?? []).filter(source => pendingPhases.has(phaseForSource(source.source).phase)).map(source => source.source) } : previous;
           const failure = [...failures.values()][0] ?? new PackageWorkspaceRequestError(0, 'PLUGIN_SEARCH_UNAVAILABLE');
           return priorResponse ? { ...previous!, requestKey, contextKey, chainKey, requestedSelection, pending: false,
             receivedResponse: null, rowResponses: new Map(), error: { code: failure.code }, selectedItem: null, selectionMetadata: null }
@@ -89,6 +108,7 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
         const failedCoverage = [...failures].flatMap(([phase, failure]) => (phase === 'local' ? ['packages', 'mcp'] as const : ['store', 'composio'] as const)
           .map(source => ({ source, status: 'unavailable' as const, error: { code: failure.code, message: 'Some extension metadata could not be loaded.', retryable: true } })));
         const coverage = [...new Map([...(priorResponse?.coverage ?? []), ...ordered.flatMap(response => response.coverage), ...failedCoverage].map(source => [source.source, source])).values()];
+        const pendingSources = coverage.filter(source => pendingPhases.has(phaseForSource(source.source).phase)).map(source => source.source);
         // A continuation response can describe only its current upstream batch. Never
         // promote its batch total to a total for all the previously appended sources.
         const totalItems = !cursor && !remaining && !failures.size && ordered.every(response => response.pagination.totalItems !== undefined && !response.pagination.nextCursor)
@@ -97,17 +117,22 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
         const pagination = { nextCursor, hasNextPage: Boolean(nextCursor), loadedItems: items.length, totalItems };
         const selectedResponse = ordered.findLast(response => response.selectedItem?.id === requestedSelection);
         const selectedItem = selectedResponse?.selectedItem ?? null;
-        return { key, requestKey, contextKey, chainKey, requestedSelection, pending: remaining > 0, receivedResponse: latestResponse, rowResponses,
+        return { key, requestKey, contextKey, chainKey, requestedSelection, pending: remaining > 0, pendingSources, receivedResponse: latestResponse, rowResponses,
           status: 'ready', error: null, response: { ...latestResponse, coverage, pagination }, items, selectedItem,
           selectionMetadata: selectedItem && selectedResponse ? { source: 'selected', response: selectedResponse, actorId, sessionId, workspaceId } : null };
       }));
     };
-    for (const phase of phases) void workspaceRequest<PluginExtensionSearchResponse>(purpose === 'authoring' ? '/api/plugins/authoring-search' : '/api/plugins/search', workspaceId,
+    const loadPhase = (phase: ExtensionSearchPhaseRequest, sourceRetry = false) => {
+      if (!isCurrent() || sourceRetry && pendingPhases.has(phase.phase)) return;
+      pendingPhases.add(phase.phase); remaining = pendingPhases.size;
+      if (sourceRetry) publish(null);
+      void workspaceRequest<PluginExtensionSearchResponse>(purpose === 'authoring' ? '/api/plugins/authoring-search' : '/api/plugins/search', workspaceId,
       { signal: controller.signal }, { ...query, phase: phase.phase, cursor: phase.cursor }).then(response => {
         if (!isCurrent()) return;
         if (response.schemaVersion !== 1 || !Array.isArray(response.items) || !Array.isArray(response.coverage) || !response.pagination
           || !response.scopes || !Array.isArray(response.scopes.choices) || !Array.isArray(response.scopes.teams)) throw new PackageWorkspaceRequestError(502, 'PLUGIN_SEARCH_RESPONSE_INVALID');
-        responses.set(phase.phase, response); remaining--; publish(response);
+        responses.set(phase.phase, response); failures.delete(phase.phase); pendingPhases.delete(phase.phase);
+        remaining = pendingPhases.size; publish(response);
       }).catch(error => {
         if (!isCurrent()) return;
         const failure = error instanceof PackageWorkspaceRequestError ? error : new PackageWorkspaceRequestError(0, 'PLUGIN_SEARCH_UNAVAILABLE');
@@ -116,9 +141,12 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
             status: 'error', error: { code: failure.code }, response: null, items: [], selectedItem: null }));
           controller.abort(); return;
         }
-        failures.set(phase.phase, failure); remaining--; publish(null);
+        failures.set(phase.phase, failure); pendingPhases.delete(phase.phase); remaining = pendingPhases.size; publish(null);
       });
-    return () => { generation.current += 1; controller.abort(); };
+    };
+    phaseRetry.current = { requestKey, run: source => loadPhase(phaseForSource(source), true) };
+    for (const phase of phases) loadPhase(phase);
+    return () => { generation.current += 1; controller.abort(); if (phaseRetry.current?.requestKey === requestKey) phaseRetry.current = null; };
   }, [key, requestKey, contextKey, chainKey, query, workspaceId, cursor, requestedSelection, actorId, sessionId, purpose]);
   if (loaded?.key !== key) return { key, status: 'loading', updating: false, error: null, response: null, items: [], selectedItem: null, retry };
   const selectedRow = loaded.requestKey === requestKey && !loaded.error && receivedRow?.row.access.canRead ? receivedRow : null;

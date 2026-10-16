@@ -173,7 +173,7 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
               if (extensionCursor === navigation.extensionCursor) { if (confirmPluginNavigation()) data.retry(); }
               else navigate({ extensionCursor });
             }}
-              onRetry={() => { if (confirmPluginNavigation()) data.retry(); }} />}
+              onRetry={source => { if (confirmPluginNavigation()) data.retry(source); }} />}
   </section>;
 }
 
