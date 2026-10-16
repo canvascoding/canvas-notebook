@@ -202,7 +202,8 @@ function ReferenceDialogSession({ request, onClose, onSelect }: Props) {
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}><DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-xl" data-testid="chat-extension-reference-dialog">
     <DialogHeader><DialogTitle className="flex items-center gap-3"><PluginExtensionAvatar size="sm" name={title}
       identity={JSON.stringify([scope, pin ?? selection ?? item?.id])} icon={metadata?.icon ?? item?.icon ?? request.recent?.publicIcon} />{title}</DialogTitle>
-      <DialogDescription>{request.confirmSelection ? copy('Bestätige dasselbe Konto für diese Nachricht.', 'Confirm the same account for this message.')
+      <DialogDescription>{unavailable || missingIdentity ? copy('Richte diese Quelle auf der Plugin-Seite ein und wähle sie danach erneut im Chat aus.', 'Set up this source on the Plugins page, then select it again in chat.')
+        : request.confirmSelection ? copy('Bestätige dasselbe Konto für diese Nachricht.', 'Confirm the same account for this message.')
         : copy('Wähle die Bestandteile und bei Bedarf die Verbindung. Danach wird die Referenz in deinen Text eingefügt.', 'Choose its components and connection when needed. The reference is then inserted into your text.')}</DialogDescription></DialogHeader>
     {unavailable || missingIdentity ? <div className="space-y-3"><p role="status" className="text-sm text-muted-foreground">{request.option?.eligibility.reason?.message ?? request.recent?.eligibility.reason?.message
       ?? copy('Diese Quelle muss zuerst eingerichtet werden.', 'Set up this source before using it.')}</p>

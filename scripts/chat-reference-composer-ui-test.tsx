@@ -69,7 +69,14 @@ async function main() {
   let now = originalNow(), scopeNumber = 0, cases = 0;
   const blocked: AgentExtensionSearchItem = { item: { ...plugin.item, id: 'blocked-plugin' }, eligibility: { action: 'unavailable', reason: { code: 'USE_DENIED', message: 'Current use is required.' } } };
   const missingSelection: AgentExtensionSearchItem = { item: { ...plugin.item, id: 'missing-selection' }, eligibility: { action: 'select' } };
-  const rows = [mcpOption(1), mcpOption(2), metadataMcp, integration, plugin, ...coreRows, standaloneSkill, blocked, missingSelection];
+  const unpublishedSkillRef = 'canvas-capability:v1:skill:user:fixture-owner:standalone:canvas-design';
+  const unpublishedSkill: AgentExtensionSearchItem = { item: { ...commonItem, kind: 'skill', id: unpublishedSkillRef,
+    name: 'canvas-design', displayName: 'Canvas design', source: 'local',
+    package: { resourceRef: unpublishedSkillRef, legacyResourceId: unpublishedSkillRef, kind: 'skill', name: 'canvas-design',
+      displayName: 'Canvas design', description: 'Unpublished personal source', version: '1.0.0', revision: 0,
+      ownership: { type: 'user', ownerUserId: 'fixture-owner', organizationId: null }, access: { canRead: true, canUse: true, canEdit: false, canManage: false } } }, eligibility: { action: 'setup', reason: {
+      code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' } } };
+  const rows = [mcpOption(1), mcpOption(2), metadataMcp, integration, plugin, ...coreRows, standaloneSkill, blocked, missingSelection, unpublishedSkill];
   let current: Frame | undefined, requests: ChatExtensionOptionsRequest[] = [], pending: Pending[] = [], holdPreview = false;
   let servedMetadata = packageMetadata, holdRemote = false, failRemote = false;
   let remotePending: Array<{ request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>; resolve: (response: Response) => void }> = [];
@@ -295,13 +302,21 @@ async function main() {
     assert.equal(requests.filter(request => request.operation === 'search' && request.phase === 'remote').length, 2);
     check('a failed remote source leaves local rows usable and Retry reloads only that source');
 
-    for (const id of ['blocked-plugin', 'missing-selection']) {
+    for (const id of ['blocked-plugin', 'missing-selection', unpublishedSkillRef]) {
       await mount(plain('Keep this text ')); await open(id, false);
       await screen.findByTestId('chat-extension-reference-dialog');
       assert.equal(screen.queryByRole('button', { name: 'Insert into text' }), null);
       const setup = screen.getByRole('link', { name: 'Open plugins' });
       assert.equal(setup.getAttribute('target'), '_blank');
       assert.equal(new URL(setup.getAttribute('href')!, 'https://fixture.invalid').searchParams.get('workspaceId'), 'workspace-a');
+      assert(screen.getByText('Set up this source on the Plugins page, then select it again in chat.'));
+      assert.equal(screen.queryByText('Choose its components and connection when needed. The reference is then inserted into your text.'), null);
+      if (id === unpublishedSkillRef) {
+        const setupUrl = new URL(setup.getAttribute('href')!, 'https://fixture.invalid');
+        assert.equal(setupUrl.searchParams.get('resourceRef'), unpublishedSkillRef);
+        assert.equal(setupUrl.searchParams.get('area'), 'skills');
+        assert(screen.getByText('Publish this package before selecting it.'));
+      }
       assert(projectChatBodyText(frame().body).startsWith('Keep this text '));
       assert(!requests.some(request => request.operation === 'preview'));
     }

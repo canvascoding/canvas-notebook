@@ -138,8 +138,9 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
     let published;
     try { published = await publishedPackage(reference); }
     catch { return { item, eligibility: { action: 'unavailable', reason: { code: 'AGENT_EXTENSION_PACKAGE_UNAVAILABLE', message: 'This package version is no longer available.' } } }; }
-    if (!published) return { item, eligibility: { action: 'setup', reason: {
-      code: 'AGENT_EXTENSION_PARENT_SELECTION_REQUIRED', message: 'Open the parent plugin and choose this exact child from its published version.' } } };
+    if (!published) return { item, eligibility: { action: 'setup', reason: resource.artifact.sourceType === 'plugin' ? {
+      code: 'AGENT_EXTENSION_PARENT_SELECTION_REQUIRED', message: 'Open the parent plugin and choose this exact child from its published version.' }
+      : { code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' } } };
     const { record, versions } = published;
     if (!versions.length) return { item, eligibility: { action: 'setup', reason: { code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' } } };
     const publishedVersions = versions.map(version => ({ pin: { resourceRef: reference,

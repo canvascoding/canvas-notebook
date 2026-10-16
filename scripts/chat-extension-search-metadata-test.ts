@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { createDurableMessageExecutionFixture } from './helpers/durable-message-execution-fixture';
 import { deriveChatBodySelection, parseChatBody } from '../app/lib/chat/chat-body-contracts';
 import type { ExtensionSelection } from '../app/lib/capabilities/extensions/contracts';
@@ -16,11 +18,33 @@ async function main() {
     const contexts = await import('../app/lib/chat/extension-options-context');
     const eligibility = await import('../app/lib/chat/extension-options-eligibility');
     const { listChatExtensionOptions } = await import('../app/lib/chat/extension-options');
+    const { findCapabilityResourceRecord } = await import('../app/lib/capabilities/resources/store');
+    const paths = await import('../app/lib/runtime-data-paths');
     const { setPersonalCapabilityActivation } = await import('../app/lib/capabilities/activation-actions');
     const owner = app.owner, alice = app.alice;
     const general = await management.createManagedAgent({ ...alice, source: 'api' }, { name: 'Metadata search reader', scopeType: 'user', enabledTools: ['read'],
       extensions: { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' } });
     const target = { kind: 'draft_turn' as const, agentId: general.agent.agentId, workspaceId: app.alice.workspaceId! };
+    const legacyName = 'search-metadata-unpublished-standalone';
+    const legacyDirectory = path.join(paths.resolveScopedSkillsDataDir(app.userScope(alice.userId)), legacyName);
+    await fs.mkdir(legacyDirectory, { recursive: true });
+    await fs.writeFile(path.join(legacyDirectory, 'SKILL.md'), `---\nname: ${legacyName}\ndescription: Unpublished personal standalone source\n---\nPrepare this source before selecting it.\n`);
+    const legacyResource = (await resources.listCapabilityResources(alice)).find(resource => resource.artifact.name === legacyName)!;
+    assert(legacyResource); assert.equal(legacyResource.artifact.sourceType, 'standalone');
+    assert.equal(await findCapabilityResourceRecord(legacyResource.metadata.resourceRef), null);
+    const { POST } = await import('../app/api/chat/extension-options/route');
+    const { NextRequest } = await import('next/server');
+    const legacyResponse = await POST(new NextRequest(`http://localhost:3001/api/chat/extension-options?workspaceId=${target.workspaceId}`, {
+      method: 'POST', headers: app.headers(alice.userId), body: JSON.stringify({ operation: 'search', phase: 'local', target, q: legacyName, types: ['skill'] }),
+    }));
+    assert.equal(legacyResponse.status, 200);
+    const legacyResult = await legacyResponse.json();
+    const legacyOption = legacyResult.data.items.find((row: { item: { id: string } }) => row.item.id === legacyResource.metadata.resourceRef);
+    assert(legacyOption); assert.equal(legacyOption.eligibility.action, 'setup');
+    assert.deepEqual(legacyOption.eligibility.reason, { code: 'AGENT_EXTENSION_PUBLISH_REQUIRED', message: 'Publish this package before selecting it.' });
+    assert.equal(legacyOption.selection, undefined);
+    assert.equal(await findCapabilityResourceRecord(legacyResource.metadata.resourceRef), null, 'Metadata setup must not implicitly publish or adopt a legacy skill.');
+    console.log('PASS actual Chat metadata API: an unpublished legacy standalone skill requires publication, without an invented parent or implicit adoption.');
     const name = 'search-metadata-parent';
     const archive = await app.registry.addPackage('application', 'plugin', name, '1.0.0', {
       '.canvas-plugin/plugin.json': JSON.stringify({ name, version: '1.0.0', description: 'Actual metadata source', skills: './skills' }),
