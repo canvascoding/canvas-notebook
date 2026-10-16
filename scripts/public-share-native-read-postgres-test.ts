@@ -569,6 +569,114 @@ async function main(): Promise<void> {
       assert.deepEqual(await row(publication.share.id), before); assert.deepEqual(await row(neighborShare.share.id), neighborBefore);
       assert.equal(await writeProof(), writes); await noFile(target.fullPath); await noFile(neighbor.fullPath);
     });
+    await check('automatic lifecycle hooks preserve exact names apart from occupied trimmed neighbors', async () => {
+      const { withWorkspaceFileLifecycleGuard } = await import('../app/lib/files/workspace-file-lifecycle-guard');
+      const assertRevoked = (before: Row, after: Row | undefined, reason: string) => {
+        assert(after); assert.equal(after.status, 'revoked'); assert.equal(after.revoked_reason, reason);
+        assert.equal(Number(after.policy_revision), Number(before.policy_revision) + 1);
+        assert(Number(after.revoked_at) > 0); assert(Number(after.updated_at) >= Number(before.updated_at));
+        assert.deepEqual({ ...after, status: before.status, revoked_reason: before.revoked_reason, revoked_at: before.revoked_at,
+          policy_revision: before.policy_revision, updated_at: before.updated_at }, before);
+      };
+
+      const deleteName = `hook-delete-${crypto.randomUUID()}.md`, exactDelete = ` ${deleteName}`;
+      const deleteNeighbor = await nativeAt('plain_text', { filePath: deleteName, canonical: 'Keep the trimmed delete neighbor.\n' });
+      const deleteTarget = await nativeAt('tiptap_xml', { filePath: exactDelete, canonical: '# Delete only the exact target\n' });
+      const deleteNeighborShare = await publish(deleteName), deleteShare = await publish(exactDelete);
+      const deleteNeighborBefore = await row(deleteNeighborShare.share.id), deleteBefore = await row(deleteShare.share.id);
+      assert(deleteNeighborBefore); assert(deleteBefore);
+      const deleteNeighborProof = await nativeProof(deleteNeighbor), deleteProof = await nativeProof(deleteTarget);
+      const deleteWrites = await writeProof();
+      await withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId, paths: [exactDelete] },
+        () => sharing.syncPublicSharesAfterDelete([exactDelete], workspace));
+      assert.deepEqual(await row(deleteNeighborShare.share.id), deleteNeighborBefore);
+      assertRevoked(deleteBefore, await row(deleteShare.share.id), 'target_deleted');
+      assert.equal(await writeProof(), deleteWrites + BigInt(1));
+      assert.deepEqual(await nativeProof(deleteNeighbor), deleteNeighborProof); assert.deepEqual(await nativeProof(deleteTarget), deleteProof);
+      await noFile(deleteNeighbor.fullPath); await noFile(deleteTarget.fullPath);
+
+      const moveName = `hook-move-${crypto.randomUUID()}.md`, exactMove = ` ${moveName}`;
+      const destination = `hook-moved-${crypto.randomUUID()}.md`;
+      const moveNeighbor = await nativeAt('plain_text', { filePath: moveName, canonical: 'Keep the trimmed move neighbor.\n' });
+      const moveTarget = await nativeAt('tiptap_blocks', { filePath: exactMove, canonical: '# Move only the exact target\n' });
+      const moveNeighborShare = await publish(moveName), moveShare = await publish(exactMove);
+      const moveNeighborBefore = await row(moveNeighborShare.share.id), moveBefore = await row(moveShare.share.id);
+      assert(moveNeighborBefore); assert(moveBefore);
+      const moveNeighborProof = await nativeProof(moveNeighbor), moveProof = await nativeProof(moveTarget);
+      const moveWrites = await writeProof();
+      await withWorkspaceFileLifecycleGuard({ workspaceId: workspace.workspaceId, paths: [exactMove, destination] },
+        () => sharing.syncPublicSharesAfterMove(exactMove, destination, workspace));
+      assert.deepEqual(await row(moveNeighborShare.share.id), moveNeighborBefore);
+      assertRevoked(moveBefore, await row(moveShare.share.id), 'target_moved');
+      assert.equal(await writeProof(), moveWrites + BigInt(1));
+      assert.deepEqual(await nativeProof(moveNeighbor), moveNeighborProof); assert.deepEqual(await nativeProof(moveTarget), moveProof);
+      await noFile(moveNeighbor.fullPath); await noFile(moveTarget.fullPath);
+
+      const writeName = `hook-write-${crypto.randomUUID()}.md`, exactWrite = ` ${writeName}`;
+      const writeNeighborPath = path.join(workspace.rootPath, writeName), writeTargetPath = path.join(workspace.rootPath, exactWrite);
+      const neighborText = 'Keep the physical trimmed write neighbor.\n', originalText = 'Original exact physical target.\n';
+      await writeFile(writeNeighborPath, neighborText, { flag: 'wx', mode: 0o600 });
+      await writeFile(writeTargetPath, originalText, { flag: 'wx', mode: 0o600 });
+      const writeNeighborShare = await publish(writeName), writeShare = await publish(exactWrite);
+      const writeNeighborBefore = await row(writeNeighborShare.share.id), writeBefore = await row(writeShare.share.id);
+      assert(writeNeighborBefore); assert(writeBefore);
+      for (const before of [writeNeighborBefore, writeBefore]) {
+        for (const key of ['document_id', 'lineage_id', 'lifecycle_generation']) assert.equal(before[key], null);
+      }
+      const replacement = 'Only the exact leading-space physical target gets a longer new revision.\n';
+      await writeFile(writeTargetPath, replacement);
+      const physical = await stat(writeTargetPath), writes = await writeProof();
+      await sharing.syncPublicSharesAfterWrite([exactWrite], workspace);
+      assert.deepEqual(await row(writeNeighborShare.share.id), writeNeighborBefore);
+      const after = await row(writeShare.share.id); assert(after);
+      const identity = `${physical.dev}:${physical.ino}:${physical.birthtimeMs}`;
+      const revision = `${Math.trunc(physical.mtimeMs)}:${physical.size}:${identity}`;
+      assert.notEqual(revision, writeBefore.last_known_revision); assert(Number(after.updated_at) >= Number(writeBefore.updated_at));
+      assert.deepEqual({ ...after, updated_at: writeBefore.updated_at }, { ...writeBefore, file_identity: identity,
+        last_known_revision: revision, size_bytes: physical.size, mime_type: 'text/markdown; charset=utf-8', file_name: exactWrite });
+      assert.equal(await writeProof(), writes + BigInt(1));
+      assert.equal(await readFile(writeNeighborPath, 'utf8'), neighborText); assert.equal(await readFile(writeTargetPath, 'utf8'), replacement);
+      assert.deepEqual(await nativeProof(deleteNeighbor), deleteNeighborProof); assert.deepEqual(await nativeProof(deleteTarget), deleteProof);
+      assert.deepEqual(await nativeProof(moveNeighbor), moveNeighborProof); assert.deepEqual(await nativeProof(moveTarget), moveProof);
+    });
+    await check('physical TXT and Office aliases fail closed without rebinding an occupied trimmed neighbor', async () => {
+      for (const extension of ['txt', 'docx'] as const) {
+        const name = `hook-physical-${crypto.randomUUID()}.${extension}`, exact = extension === 'txt' ? ` ${name}` : `${name} `;
+        const neighborPath = path.join(workspace.rootPath, name), targetPath = path.join(workspace.rootPath, exact);
+        const neighborBytes = Buffer.from(`Keep the distinct trimmed ${extension} neighbor.\n`);
+        const targetBytes = Buffer.from(`Preserve the separately published exact ${extension} target with different bytes.\n`);
+        await writeFile(neighborPath, neighborBytes, { flag: 'wx', mode: 0o600 });
+        await writeFile(targetPath, targetBytes, { flag: 'wx', mode: 0o600 });
+        const neighbor = await publish(name), publication = await publish(exact);
+        const neighborBefore = await row(neighbor.share.id), before = await row(publication.share.id);
+        assert(neighborBefore); assert(before); assert.notEqual(publication.share.id, neighbor.share.id);
+        const neighborStat = await stat(neighborPath), targetStat = await stat(targetPath);
+        assert.notEqual(targetStat.ino, neighborStat.ino);
+        for (const [stored, filePath, physical, bytes] of [
+          [neighborBefore, name, neighborStat, neighborBytes], [before, exact, targetStat, targetBytes],
+        ] as const) {
+          for (const key of ['document_id', 'lineage_id', 'lifecycle_generation']) assert.equal(stored[key], null);
+          assert.equal(stored.status, 'active'); assert.equal(stored.workspace_path, filePath); assert.equal(stored.file_name, filePath);
+          assert.equal(stored.file_identity, `${physical.dev}:${physical.ino}:${physical.birthtimeMs}`);
+          assert.equal(stored.last_known_revision, `${Math.trunc(physical.mtimeMs)}:${physical.size}:${physical.dev}:${physical.ino}:${physical.birthtimeMs}`);
+          assert.equal(Number(stored.size_bytes), bytes.length);
+        }
+        const writes = await writeProof();
+        await assert.rejects(() => sharing.syncPublicSharesAfterWrite([exact], workspace), Error);
+        assert.deepEqual(await row(neighbor.share.id), neighborBefore); assert.deepEqual(await row(publication.share.id), before);
+        assert.equal(await writeProof(), writes);
+        const resolved = await sharing.resolvePublicShareToken(publication.token, { recordAccess: false });
+        assert.equal(resolved.ok, false); if (resolved.ok) throw new Error('An unsupported physical alias exposed a file.');
+        assert.equal(resolved.status, 404);
+        assert.deepEqual(await row(neighbor.share.id), neighborBefore); assert.deepEqual(await row(publication.share.id), before);
+        assert.equal(await writeProof(), writes);
+        assert.deepEqual(await readFile(neighborPath), neighborBytes); assert.deepEqual(await readFile(targetPath), targetBytes);
+        for (const [filePath, original] of [[neighborPath, neighborStat], [targetPath, targetStat]] as const) {
+          const current = await stat(filePath);
+          for (const key of ['dev', 'ino', 'uid', 'nlink', 'size', 'birthtimeMs', 'mtimeMs', 'ctimeMs'] as const) assert.equal(current[key], original[key]);
+        }
+      }
+    });
     await check('native anonymous public authority survives creator session removal without reauthentication', async () => {
       const target = await nativeAt('tiptap_blocks'), publication = await publish(target.filePath);
       await admin.query('DELETE FROM "session" WHERE id=$1', ['native-read-session']);
@@ -579,7 +687,7 @@ async function main(): Promise<void> {
       assert.equal(resolved.workspace.permissions.canDelete, false); assert.equal(resolved.workspace.permissions.canCreatePublicLinks, false);
       const response = await fileRequest(publication); assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), target.expectedBytes);
     });
-    assert.equal(passed, 27);
+    assert.equal(passed, 29);
     for (const target of nativeTargets) await noFile(target.fullPath);
     assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), originalSourceHash);
     console.log('Public native read SQL assertions complete:', JSON.stringify({ passed, fetches, sourceSha256: originalSourceHash }));

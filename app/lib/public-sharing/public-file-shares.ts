@@ -23,7 +23,7 @@ import {
   LEGACY_PERSONAL_WORKSPACE_ID,
   createLegacyPersonalWorkspaceContext,
 } from '@/app/lib/workspaces/context';
-import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
+import { normalizeWorkspaceRelativePath, resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { NextRequest } from 'next/server';
@@ -475,7 +475,10 @@ export function isSensitiveWorkspacePath(workspacePath: string): boolean {
 }
 
 async function getWorkspaceFileDetails(inputPath: string, workspace?: WorkspaceContext | null): Promise<WorkspaceFileDetails> {
-  const workspacePath = normalizeWorkspacePath(inputPath, workspace);
+  const workspacePath = publicShareReadPath(inputPath, workspace);
+  if (normalizeWorkspaceRelativePath(workspacePath) !== workspacePath) {
+    throw new Error('This public share path is blocked because filesystem resolution would change its name.');
+  }
   if (isSensitiveWorkspacePath(workspacePath)) {
     throw new Error('This file path is blocked from public sharing because it looks sensitive.');
   }
@@ -893,7 +896,7 @@ export async function syncPublicSharesAfterDelete(paths: string[], workspace?: W
   const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const normalized = paths.map((candidate) => {
     try {
-      return normalizeWorkspacePath(candidate, resolvedWorkspace);
+      return publicShareReadPath(candidate, resolvedWorkspace);
     } catch {
       return null;
     }
@@ -918,7 +921,7 @@ export async function syncPublicSharesAfterWrite(paths: string[], workspace?: Wo
   const resolvedWorkspace = resolveOperationWorkspace(workspace);
   const normalized = paths.map((candidate) => {
     try {
-      return normalizeWorkspacePath(candidate, resolvedWorkspace);
+      return publicShareReadPath(candidate, resolvedWorkspace);
     } catch {
       return null;
     }
@@ -981,8 +984,8 @@ export async function syncPublicSharesAfterMove(
   let normalizedOld: string;
   let normalizedNew: string;
   try {
-    normalizedOld = normalizeWorkspacePath(oldPath, resolvedWorkspace);
-    normalizedNew = normalizeWorkspacePath(newPath, resolvedWorkspace);
+    normalizedOld = publicShareReadPath(oldPath, resolvedWorkspace);
+    normalizedNew = publicShareReadPath(newPath, resolvedWorkspace);
   } catch {
     return;
   }
