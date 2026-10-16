@@ -865,7 +865,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_skill_draft',
       label: 'Creating Canvas skill draft',
-      description: 'Creates a complete managed workspace package under the hidden .canvas-skill-drafts path and returns its packagePath; managed drafts do not appear in file browser/search. For a new skill, provide skillName, description, and optional version. To edit an editable personal skill, use the same skillName and provide sourceSkillName and sourceScope. To copy a read-only or managed skill, use a different skillName and provide sourceSkillName and sourceScope; install the resulting personal fork.',
+      description: 'Legacy personal workspace skill draft; returns draftId and packagePath, never a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft. Existing workspace drafts use inspect_canvas_package_workspace_draft then import_canvas_package_workspace_draft. Creates a complete package under hidden .canvas-skill-drafts; managed workspace drafts do not appear in file browser/search. For an editable personal skill, use the same skillName with sourceSkillName and sourceScope. A read-only source requires a differently named personal fork.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Target skill name for the draft folder. For normal edits, use the same name as sourceSkillName.' }),
         description: Type.Optional(Type.String({ description: 'Description for a new skill draft.' })),
@@ -944,7 +944,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'install_canvas_skill_from_workspace',
       label: 'Installing Canvas skill from workspace',
-      description: 'Installs a new personal Canvas skill or a differently named personal fork from a workspace folder containing one complete package. The package must include SKILL.md and a version in SKILL.md metadata.version or agents/canvas.yaml skill.version; agents/canvas.yaml is optional when SKILL.md declares a version, and versions must match if both declare one. Managed drafts under .canvas-skill-drafts are deleted after successful install by default; failed validation leaves them available for recovery. cleanupDraft=false deliberately retains a managed draft.',
+      description: 'Legacy personal workspace skill installation using packagePath as draftPath, not a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft; import an existing workspace draft with import_canvas_package_workspace_draft. Installs one complete personal skill or differently named personal fork. Requires SKILL.md and a matching version in metadata.version or optional agents/canvas.yaml skill.version. Managed .canvas-skill-drafts are deleted after success by default; validation failure or cleanupDraft=false retains them.',
       parameters: Type.Object({
         draftPath: Type.String({ description: 'Workspace-relative path to the skill package folder.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after install. Defaults to true.' })),
@@ -1189,7 +1189,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_plugin_draft',
       label: 'Creating Canvas plugin draft',
-      description: 'Creates a managed plugin package draft under .canvas-plugin-drafts with a valid manifest and one editable starter skill. Edit this package, then install_canvas_plugin_from_workspace using the returned packagePath.',
+      description: 'Legacy personal workspace plugin draft; returns draftId and packagePath, never a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft. Existing workspace drafts use inspect_canvas_package_workspace_draft then import_canvas_package_workspace_draft. Creates .canvas-plugin-drafts content with a valid manifest and one starter skill for the personal workspace installer.',
       parameters: Type.Object({
         pluginName: Type.String({ description: 'New plugin name in lowercase kebab-case.' }),
         description: Type.Optional(Type.String({ description: 'Short plugin description.' })),
@@ -1244,7 +1244,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
     {
       name: 'install_canvas_plugin_from_workspace',
       label: 'Installing Canvas plugin from workspace',
-      description: 'Installs a new Canvas plugin package from a workspace directory. Create or edit the package with the create-plugin skill first; the directory must contain .canvas-plugin/plugin.json and valid skill content.',
+      description: 'Legacy personal workspace plugin installation using packagePath as workspacePath, not a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft; import an existing workspace draft with import_canvas_package_workspace_draft. The directory must contain .canvas-plugin/plugin.json and valid skill content. This installer does not publish a managed organization package.',
       parameters: Type.Object({
         workspacePath: Type.String({ description: 'Workspace-relative plugin package directory.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the plugin after install. Defaults to true.' })),
@@ -1400,7 +1400,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       (actions, actor, params) => actions.inspectCapabilityPackage(actor, params.resourceRef as string)),
     tool('list_canvas_package_scopes', 'Lists personal, organization and actual team targets this actor may create a new package in. This cannot grant access or change ownership of an existing package.', z.object({}).strict(),
       (actions, actor) => actions.listCapabilityPackageCreationScopes(actor)),
-    tool('create_canvas_package_draft', 'Creates an actor-private complete package draft. Use operation=create with kind, targetName and one UUID requestId for a new package without a source; its target is the actor’s current organization and requires current organization creation rights. Reuse that requestId after an uncertain result and inspect its operation status first. Editing requires current canEdit and inspected metadata/grants/content revisions. Legacy forks retain their authorized target and source checks. New resources are created only at publication, with no inherited grants and disabled activation. No workspace paths, organization IDs or credentials are accepted.', capabilityPackageDraftCreationSchema,
+    tool('create_canvas_package_draft', 'Create a new organization plugin or skill package; returns its actor-private draftRef. Use operation=create, kind=plugin or skill, targetName and one UUID requestId. This is the managed Creator route, not a legacy workspace draftId/packagePath. The server selects the current organization and checks creation rights. Reuse that requestId after an uncertain result and inspect its operation status first. Editing requires current canEdit and inspected metadata/grants/content revisions. Legacy forks retain their authorized target and source checks. New resources are created only at publication, with no inherited grants and disabled activation. No workspace paths, organization IDs or credentials are accepted.', capabilityPackageDraftCreationSchema,
       (actions, actor, params) => actions.createCapabilityPackageDraftAction(actor, params)),
     tool('list_canvas_package_drafts', 'Lists only this actor’s private draft recovery metadata with bounded pagination. Reopen an issued draftRef in another chat; no source lookup or package bytes are returned. The list grants no source, file, edit or publication authority, and an active actor/workspace is still required.', capabilityPackageOwnedDraftListQuerySchema,
       (actions, actor, params) => actions.listCapabilityPackageOwnedDraftStatusesAction(actor, params)),
