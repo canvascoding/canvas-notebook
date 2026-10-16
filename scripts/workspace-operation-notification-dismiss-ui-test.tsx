@@ -100,7 +100,9 @@ async function main() {
     assert.equal(dismissCalls, 1, 'the expanded list offers the same action');
     cleanup();
 
-    summary = { ...summary, items: [item], sections: { ...summary.sections, notifications: [item] } };
+    const unreadItem = { ...item, unread: true };
+    summary = { ...summary, unreadCount: 1, counts: { ...summary.counts, unread: 1 },
+      items: [unreadItem], sections: { ...summary.sections, notifications: [unreadItem] } };
     fail = true;
     screen = render(wrap(<NotificationBell />));
     await settle();

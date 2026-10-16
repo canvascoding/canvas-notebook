@@ -571,6 +571,7 @@
     "test:db:postgres-regressions": "npm run test:db:postgres-sql-compatibility && npm run test:db:provider && npm run test:db:postgres-file-metadata && npm run test:db:postgres-session-runtime-snapshot",
     "test:db:build-isolation": "tsx --conditions react-server scripts/build-database-isolation-test.ts",
     "test:notifications:preview": "tsx scripts/notification-preview-test.ts",
+    "test:notifications:read-state": "tsx scripts/notification-bell-read-state-test.tsx",
     "test:sessions:read-state": "tsx scripts/session-read-state-test.ts",
     "test:todos:store": "tsx --conditions react-server scripts/todo-store-test.ts",
     "test:todos:detail": "tsx scripts/todo-navigation-test.ts && tsx scripts/todo-relative-time-test.ts && tsx scripts/todo-client-presentation-test.ts && tsx scripts/todo-detail-store-test.ts && tsx scripts/todo-personal-file-links-test.tsx",
