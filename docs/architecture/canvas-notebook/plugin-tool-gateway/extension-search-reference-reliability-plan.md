@@ -1,12 +1,13 @@
 # Erweiterungssuche und Inline-Auswahl: Zuverlässigkeitsplan
 
-Stand: 16.10.2026. **Plan, noch nicht umgesetzt.** Geprüfter Produktstand: `25dd54d59` im Notebook-Worktree `1cf2`.
+Stand: 16.10.2026. **Funktionale Umsetzung und lokale API-/SQL-/Browserabnahme abgeschlossen; vorgeschlagenes warmes Such-p95-Ziel weiterhin offen.** Die folgenden Befunde und Ziele beschreiben den Ausgangsstand `25dd54d59` im Notebook-Worktree `1cf2`. Finaler Produktstand `f688a77df`; konkrete Restkosten, zwei vollständige Messrunden und Nachweise: [Umsetzung und Abnahme](extension-search-reference-reliability-implementation.md).
 
-Auftrag: Die gemeinsame Suche auf der Pluginseite und im Chat muss schnell und zuverlässig bedienbar sein. Ein ausdrücklich gewählter verwendbarer Treffer soll ohne unnötige Bestätigung als Inline-Referenz im Text landen. Echte Verbindungsentscheidungen bleiben explizit. Zunächst wird dieser Plan abgestimmt; keine Produktcodeänderung ist erfolgt.
+Auftrag: Die gemeinsame Suche auf der Pluginseite und im Chat muss schnell und zuverlässig bedienbar sein. Ein ausdrücklich gewählter verwendbarer Treffer soll ohne unnötige Bestätigung als Inline-Referenz im Text landen. Echte Verbindungsentscheidungen bleiben explizit. Nach dem ursprünglich angefragten Plan wurde die Umsetzung einschließlich E2E-Test ausdrücklich beauftragt.
 
 ## 1. Bestätigte Befunde und Grenzen
 
 - Der Nutzerscreenshot zu `canvas-design` zeigt einen Treffer mit `AGENT_EXTENSION_PARENT_SELECTION_REQUIRED`: Der Suchpfad hat keine direkt verwendbare Auswahl geliefert und verlangt die Auswahl über das veröffentlichte Elternpaket. Trotzdem öffnet der normale Trefferklick einen allgemeinen Einfügedialog. Der deaktivierte Button ist hier Folge des widersprüchlichen Auswahlvertrags, keine fehlende weitere Nutzerbestätigung.
+- Die spätere echte Browser-/API-Abnahme präzisiert diesen Ausgangsbefund: Das lokale `canvas-design` ist ein Legacy-Standalone-Skill ohne veröffentlichte Paketversion. Der Parent-Grund war dafür falsch; `f688a77df` korrigiert ihn zu einer erforderlichen Veröffentlichung. Die ursprüngliche Anzeige bewies somit keine tatsächliche Plugin-Kind-Zuordnung.
 - Andere gezeigte Treffer melden fehlendes aktuelles Paket-Use. Der Name allein beweist weder Nutzbarkeit noch dieselbe Herkunft; gleichnamige Einträge dürfen nicht pauschal zusammengeführt werden.
 - Jede Extension-/Recent-Auswahl öffnet derzeit `ChatExtensionReferenceDialog`, auch Core-Skills ohne Verbindungswahl. Ein einfacher, direkt verwendbarer Core-Skill hat dagegen serverseitig eine echte `core_skill`-Selection mit `eligibility=select`; die sichtbare Gegenprobe mit `skill-creator` im Home-Composer zeigt einen aktiven Einfügen-Button. Ein global identischer Fehler für sämtliche Arten ist damit nicht belegt; die im Screenshot gezeigten Parent-/Use-Fälle bleiben bestätigt.
 - Ein neuer Chat ist serverseitig über `draft_turn` unterstützt. Eine fehlende gespeicherte Sitzung ist keine belegte Ursache und darf für das Einfügen nicht erst erzeugt werden.
