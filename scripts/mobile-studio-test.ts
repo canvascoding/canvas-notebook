@@ -34,7 +34,8 @@ assert.equal(request.output_format, 'webp');
 assert.equal(request.background, 'transparent');
 assert.equal(request.moderation, 'low');
 assert.equal(request.output_compression, 42);
-assert.equal(request.input_fidelity, 'high');
+assert.equal(request.input_fidelity, undefined);
+assert.equal(Object.hasOwn(request, 'input_fidelity'), false);
 assert.equal(request.stream, true);
 assert.equal(request.partial_images, 3);
 assert.equal(request.image_size, '3840x2160');
@@ -49,6 +50,17 @@ const flareRequest = parseMobileStudioGenerationRequest({
 });
 assert.equal(flareRequest.model, 'gpt-image-2.5-flare');
 assert.equal(flareRequest.quality, 'xhigh');
+
+for (const model of ['gpt-image-2.5-sunburst', 'gpt-image-2.5-flare', 'gpt-image-2.5-flare-2026-09-08']) {
+  for (const inputFidelity of [undefined, 'low', 'high']) {
+    const parsed = parseMobileStudioGenerationRequest({ provider: 'openai', model, prompt: 'Legacy client', inputFidelity });
+    assert.equal(parsed.model, model);
+    assert.equal(Object.hasOwn(parsed, 'input_fidelity'), false);
+  }
+}
+assert.equal(parseMobileStudioGenerationRequest({ provider: 'openai', model: 'gpt-image-2', prompt: 'Legacy model' }).model, 'gpt-image-2.5-sunburst');
+assert.throws(() => parseMobileStudioGenerationRequest({ provider: 'openai', model: 'gpt-image-2.5-unknown', prompt: 'Unknown model' }), /not supported/);
+assert.throws(() => parseMobileStudioGenerationRequest({ provider: 'openai', prompt: 'Invalid legacy option', inputFidelity: 'invalid' }), /Input fidelity/);
 
 const customFormatRequest = parseMobileStudioGenerationRequest({
   mode: 'image',

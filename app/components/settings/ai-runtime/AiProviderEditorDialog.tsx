@@ -25,7 +25,7 @@ import type {
   AiProviderSafeConfig,
 } from '@/app/lib/agent-runtime-policy/types';
 import { defaultOllamaServerUrl, normalizeOllamaServerUrl } from '@/app/lib/agent-runtime-policy/ollama-url';
-import { getAuthMethodForProvider } from '@/app/lib/pi/provider-help';
+import { getAuthMethodForProvider, getProviderHelp } from '@/app/lib/pi/provider-help';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -41,6 +41,7 @@ import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 import type { AiCatalogProviderDraft } from './catalog-client';
+import { findStoredCredentialScope } from './credential-presence-client';
 
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 
@@ -192,6 +193,7 @@ export function AiProviderEditorDialog({
   const [ollamaApiKey, setOllamaApiKey] = useState('');
   const [ollamaApiKeyBaseline, setOllamaApiKeyBaseline] = useState('');
   const [credentialLoading, setCredentialLoading] = useState(false);
+  const [credentialLookupDone, setCredentialLookupDone] = useState('');
   const credentialEditorRef = useRef<ProviderInstallationCredentialEditorHandle>(null);
 
   useEffect(() => {
@@ -275,6 +277,37 @@ export function AiProviderEditorDialog({
     : allowedCredentialScopes;
   const oauthAvailable = !newProviderOption || newProviderOption.credentialScopes.includes('user');
   const showConfiguration = !isNew || providerSelectionConfirmed;
+  const requiredCredentialKeys = getProviderHelp(draft?.providerId ?? '')?.envVars?.filter(field => field.required).map(field => field.name) ?? [];
+  const credentialLookup = open && isNew && providerSelectionConfirmed && draft && provider?.providerId === draft.providerId
+    && draft.config.authMethod !== 'oauth' && authContract !== 'oauth' && requiredCredentialKeys.length
+    ? JSON.stringify({ requiredKeys: requiredCredentialKeys, scopes: credentialScopes, preferredScope: provider.credentialScope,
+        providerId: draft.providerId, installationIds: newProviderOption?.installationIds })
+    : '';
+  const detectingCredentials = Boolean(credentialLookup && credentialLookupDone !== credentialLookup);
+
+  useEffect(() => {
+    if (!credentialLookup) return;
+    const controller = new AbortController();
+    const lookup = JSON.parse(credentialLookup) as {
+      requiredKeys: string[]; scopes: AiCredentialScope[]; preferredScope: AiCredentialScope;
+      providerId: string; installationIds?: Partial<Record<AiCredentialScope, string>>;
+    };
+    void findStoredCredentialScope({ ...lookup, signal: controller.signal }).then(scope => {
+      if (controller.signal.aborted || !scope) return;
+      setDraft(current => current?.providerId === lookup.providerId ? {
+        ...current, credentialScope: scope, providerInstallationId: lookup.installationIds?.[scope],
+      } : current);
+    }).catch(() => {
+      if (!controller.signal.aborted) setError(copy.errors.credentialLoad);
+    }).finally(() => {
+      if (!controller.signal.aborted) setCredentialLookupDone(credentialLookup);
+    });
+    return () => controller.abort();
+  }, [credentialLookup, copy.errors.credentialLoad]);
+
+  useEffect(() => {
+    if (!open) startTransition(() => setCredentialLookupDone(''));
+  }, [open]);
   const selectedModelIds = useMemo(() => new Set(draft?.modelIds ?? []), [draft]);
   const shownModels = useMemo(() => {
     if (!draft) return [];
@@ -301,7 +334,7 @@ export function AiProviderEditorDialog({
   ));
   const showAccessStep = Boolean(showConfiguration && draft?.modelIds.length);
   const canSubmit = Boolean(
-    draft?.enabled
+    !detectingCredentials && draft?.enabled
     && draft.modelIds.length > 0
     && draft.modelIds.includes(draft.defaultModelId),
   );
@@ -586,7 +619,12 @@ export function AiProviderEditorDialog({
                 </div>
               </div>
 
-              {isOllama ? (
+              {detectingCredentials ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                  <Loader2 className="size-4 animate-spin" />
+                  {locale?.toLowerCase().startsWith('de') ? 'Vorhandene Zugangsdaten in Secrets werden geprüft …' : 'Checking existing credentials in Secrets…'}
+                </div>
+              ) : isOllama ? (
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="ollama-server-url">{copy.serverUrl}</Label>
@@ -713,9 +751,10 @@ export function AiProviderEditorDialog({
                   />
                 </div>
               )}
+              {!detectingCredentials && !isOllama && <p className="mt-3 text-xs text-muted-foreground">{copy.credentialScope}: {copy.scope[draft.credentialScope]}</p>}
               {isNew && !isOllama && !connectionStepConfirmed && (
                 <div className="mt-5 flex justify-end border-t pt-4">
-                  <Button type="button" variant="outline" onClick={() => setConnectionStepConfirmed(true)}>
+                  <Button type="button" variant="outline" disabled={detectingCredentials} onClick={() => setConnectionStepConfirmed(true)}>
                     {copy.continueToModels}
                   </Button>
                 </div>
@@ -924,7 +963,7 @@ export function AiProviderEditorDialog({
                   {busyAction === 'save-verify' ? copy.saving : copy.saveVerifyAndUse}
                 </Button>
               ) : (
-                <Button type="button" disabled={busyAction !== null || !isDirty} onClick={() => void save(false)} data-testid="provider-save">
+                <Button type="button" disabled={busyAction !== null || detectingCredentials || !isDirty} onClick={() => void save(false)} data-testid="provider-save">
                   {busyAction === 'save' ? <Loader2 className="size-4 animate-spin" /> : <BrainCircuit className="size-4" />}
                   {busyAction === 'save' ? copy.saving : copy.save}
                 </Button>

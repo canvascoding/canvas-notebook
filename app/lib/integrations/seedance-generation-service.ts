@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import { normalizeStudioPrompt } from '@/app/lib/integrations/studio-prompt';
 import {
   ensureStudioOutputsWorkspace,
   generateOutputFilename,
@@ -109,7 +110,9 @@ interface KieUploadResponse {
 }
 
 function sanitizePrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim().slice(0, 20_000);
+  const normalized = normalizeStudioPrompt(prompt, 20_000);
+  if (normalized === null) throw new IntegrationServiceError('Prompt contains invalid control characters or exceeds 20000 characters.', 400);
+  return normalized;
 }
 
 function promptToSlug(prompt: string): string {

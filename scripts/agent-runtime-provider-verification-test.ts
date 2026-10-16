@@ -56,8 +56,11 @@ moduleInternals._load = function load(request, parent, isMain) {
 
 async function main() {
   const { verifyProviderInstallation } = await import('../app/lib/agent-runtime-policy/provider-verification-service');
-  for (const [id, temperature] of [['gpt-5.4', undefined], ['gpt-4.1', 0]] as const) {
-    selectedModel = { ...selectedModel, id };
+  for (const [id, api, temperature] of [
+    ['gpt-5.4', 'openai-responses', undefined], ['gpt-4.1', 'openai-responses', 0],
+    ['gpt-6-luna', 'openai-codex-responses', undefined],
+  ] as const) {
+    selectedModel = { ...selectedModel, id, api, provider: api === 'openai-codex-responses' ? 'openai-codex' : 'openai' };
     const result = await verifyProviderInstallation({ organizationId: 'org-probe', actorUserId: 'user-probe', providerInstallationId: installationId });
     assert.equal(result.success, true);
     assert.equal(requests.at(-1)?.temperature, temperature);
@@ -65,13 +68,13 @@ async function main() {
     assert.equal(requests.at(-1)?.headers?.['x-probe'], 'scoped');
     assert.ok(requests.at(-1)?.signal);
   }
-  assert.equal(writes.length, 2);
+  assert.equal(writes.length, 3);
   assert.ok(authScopes.every((scope) => scope.organizationId === 'org-probe' && scope.userId === 'user-probe'));
   const abort = new AbortController();
   abort.abort(new Error('fixture abort'));
   await assert.rejects(verifyProviderInstallation({ organizationId: 'org-probe', actorUserId: 'user-probe', providerInstallationId: installationId, signal: abort.signal }), { code: 'PROVIDER_VERIFICATION_ABORTED' });
-  assert.equal(requests.length, 2);
-  assert.equal(writes.length, 2);
+  assert.equal(requests.length, 3);
+  assert.equal(writes.length, 3);
   console.log('provider verification option and scope contracts passed');
 }
 

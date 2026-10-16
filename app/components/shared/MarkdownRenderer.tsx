@@ -2,6 +2,8 @@
 
 import React, { useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
+import type { Element } from 'hast';
+import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import {
   CANVAS_MARKDOWN_REHYPE_PLUGINS,
@@ -325,10 +327,21 @@ export function MarkdownRenderer({
     pre: ({
       children,
       className: preClassName,
-      node: _node,
+      node,
       ...props
-    }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode; node?: unknown }) => {
+    }: React.HTMLAttributes<HTMLPreElement> & { children?: React.ReactNode; node?: Element }) => {
       const code = getReactNodeText(children).replace(/\n$/, '');
+      const codeNode = node?.children.find((child): child is Element => (
+        child.type === 'element' && child.tagName === 'code'
+      ));
+      const languages = codeNode?.properties?.className;
+      if (Array.isArray(languages) && languages.includes('language-mermaid')) {
+        return (
+          <div {...markdownSourcePositionProps(props)} data-markdown-atom={sourcePositionsEnabled ? 'true' : undefined}>
+            <MermaidDiagram code={code} />
+          </div>
+        );
+      }
       return (
         <div className="markdown-document-code-block group relative my-3 max-w-full">
           <div className="absolute right-1 top-1 z-10">

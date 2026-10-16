@@ -145,7 +145,7 @@ export async function transcribeAudio(request: TranscribeAudioRequest, settings?
     }
     aborted(request.signal);
     text = text.trim();
-    if (!text) throw new TranscriptionServiceError('Transcription completed without transcript text.', 'EMPTY_TRANSCRIPT', 502);
+    if (!text) throw new TranscriptionServiceError('No speech was recognized. Check your microphone and try recording again.', 'EMPTY_TRANSCRIPT', 422);
     return { text, provider: selected.provider, model: selected.model, durationMs: Date.now() - startedAt };
   } catch (error) {
     aborted(request.signal);

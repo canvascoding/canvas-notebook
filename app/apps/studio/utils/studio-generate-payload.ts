@@ -2,6 +2,7 @@ import type { StudioGeneratePayload } from '../types/generation';
 import type { StudioGenerationState } from '@/app/store/studio-generation-store';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { getAcceptedFileReferenceCountForMode } from './video-reference-limits';
+import { getOpenAIImageModelCapabilities } from '@/app/lib/integrations/image-generation-constants';
 
 type StudioGenerateInput = Pick<
   StudioGenerationState,
@@ -84,7 +85,9 @@ export function buildStudioGeneratePayload(input: StudioGenerateInput): StudioGe
     output_compression: input.provider === 'openai' && (input.outputFormat === 'jpeg' || input.outputFormat === 'webp')
       ? input.outputCompression
       : undefined,
-    input_fidelity: input.provider === 'openai' ? input.inputFidelity : undefined,
+    input_fidelity: input.mode === 'image' && input.provider === 'openai' && getOpenAIImageModelCapabilities(input.model)?.supportsInputFidelity
+      ? input.inputFidelity
+      : undefined,
     image_size: input.mode === 'image' && (input.provider === 'gemini' || input.provider === 'openai')
       ? input.imageSize
       : undefined,

@@ -220,7 +220,7 @@ async function main(): Promise<void> {
     controls.localText = ' \n ';
     const emptyLocal = await invoke();
     assert.equal(details(emptyLocal).code, 'EMPTY_TRANSCRIPT');
-    assert.equal(details(emptyLocal).status, 502);
+    assert.equal(details(emptyLocal).status, 422);
     controls.localText = 'Local audio transcript.';
     assert.equal(cloudCalls.length, beforeLocalCloud, 'local errors do not trigger a cloud fallback');
 
@@ -236,7 +236,7 @@ async function main(): Promise<void> {
     controls.cloudText = '';
     const emptyCloud = await invoke();
     assert.equal(details(emptyCloud).code, 'EMPTY_TRANSCRIPT');
-    assert.equal(details(emptyCloud).status, 502);
+    assert.equal(details(emptyCloud).status, 422);
 
     globalThis.fetch = (async (url: URL | RequestInfo, init?: RequestInit) => {
       assert.ok(init?.signal);

@@ -171,7 +171,13 @@ async function main(): Promise<void> {
     assert.equal(cloudCalls.length, beforeUnavailable, 'missing local models never trigger cloud fallback');
     localAvailable = true;
     localText = ' \n ';
-    await assert.rejects(service.transcribeAudio(sample), /text|transcript/i, 'empty local transcripts use the shared failure contract');
+    await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
+      assert.ok(error instanceof service.TranscriptionServiceError);
+      assert.equal(error.code, 'EMPTY_TRANSCRIPT');
+      assert.equal(error.status, 422, 'no recognized speech is an input outcome, not a gateway failure');
+      assert.match(error.message, /microphone/i);
+      return true;
+    });
     localText = 'Local transcript.';
     localError = Object.assign(new Error('Local transcription timed out.'), { name: 'TimeoutError' });
     await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
@@ -193,8 +199,16 @@ async function main(): Promise<void> {
     assert.equal(cloudCalls.length, beforeMissingKey, 'a configured alternate provider is not a fallback');
 
     await systemKeys('fixture-system-openai', 'fixture-system-groq');
-    cloudResponse = async () => new Response(JSON.stringify({ text: '  ' }), { status: 200 });
-    await assert.rejects(service.transcribeAudio(sample), /text|transcript/i);
+    for (const text of ['', ' \n ']) {
+      cloudResponse = async () => new Response(JSON.stringify({ text }), { status: 200 });
+      await assert.rejects(service.transcribeAudio(sample), (error: unknown) => {
+        assert.ok(error instanceof service.TranscriptionServiceError);
+        assert.equal(error.code, 'EMPTY_TRANSCRIPT');
+        assert.equal(error.status, 422, 'a successful provider response with no speech must not become HTTP 502');
+        assert.match(error.message, /microphone/i);
+        return true;
+      });
+    }
     for (const [status, providerCode, code, expectedStatus, message] of [
       [401, 'invalid_api_key', 'TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, /OPENAI_API_KEY.*settings\?tab=secrets/u],
       [403, null, 'TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, /access.*denied/iu],

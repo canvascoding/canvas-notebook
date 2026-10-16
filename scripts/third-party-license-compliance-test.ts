@@ -295,8 +295,8 @@ const dictationPythonVersions = new Map([
 ]);
 assert.equal(
   pythonEntries.length,
-  45,
-  'the bundled Python lock must retain only the reviewed base package set',
+  51,
+  'the bundled Python lock must retain the base package set including Matplotlib',
 );
 assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
 assert.deepEqual(

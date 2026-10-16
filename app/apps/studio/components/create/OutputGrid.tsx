@@ -8,6 +8,7 @@ import { OutputThumbnail } from './OutputThumbnail';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Loader2 } from 'lucide-react';
+import { hasStudioOutputMedia } from '../../utils/studio-output-media';
 
 export type OutputMediaFilter = 'all' | 'image' | 'video' | 'sound' | 'favorites' | 'generating' | 'failed';
 export type OutputDateFilter = 'all' | 'today' | 'yesterday' | 'last7' | 'last30' | 'older';
@@ -76,7 +77,7 @@ export function OutputGrid({
     }
   };
 
-  const getGenerationError = (generation: StudioGeneration) => {
+  const getGenerationError = (generation: { metadata?: string | null }) => {
     try {
       const parsed = generation.metadata ? JSON.parse(generation.metadata) : null;
       return typeof parsed?.error === 'string' ? parsed.error : generation.metadata || null;
@@ -94,11 +95,16 @@ export function OutputGrid({
   const failedGenerations = generations.filter(
     (generation) =>
       generation.status === 'failed' &&
-      generation.outputs.length === 0,
+      !generation.outputs.some((output) => !hasStudioOutputMedia(output) && getGenerationError(output) === getGenerationError(generation)),
+  );
+
+  const failedOutputs = generations.flatMap((generation) =>
+    generation.outputs.filter((output) => !hasStudioOutputMedia(output))
+      .map((output) => ({ generation, output })),
   );
 
   const outputs = generations.flatMap((generation) =>
-    generation.outputs.map((output) => ({
+    generation.outputs.filter(hasStudioOutputMedia).map((output) => ({
       generation,
       ...output,
       generationId: generation.id,
@@ -108,7 +114,7 @@ export function OutputGrid({
     })),
   );
 
-  if (initialLoading && outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0) {
+  if (initialLoading && outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0 && failedOutputs.length === 0) {
     return (
       <div className="flex min-h-[520px] flex-col justify-center px-3 py-8">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-5">
@@ -134,7 +140,7 @@ export function OutputGrid({
     );
   }
 
-  if (outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0) {
+  if (outputs.length === 0 && pendingGenerations.length === 0 && failedGenerations.length === 0 && failedOutputs.length === 0) {
     return <>{emptyState}</>;
   }
 
@@ -183,6 +189,15 @@ export function OutputGrid({
       return sortOrder === 'newest' ? right - left : left - right;
     });
 
+  const visibleFailedOutputs = failedOutputs
+    .filter(() => mediaFilter === 'all' || mediaFilter === 'failed')
+    .filter(({ output }) => matchesDateFilter(output.createdAt))
+    .sort((a, b) => {
+      const left = new Date(a.output.createdAt).getTime();
+      const right = new Date(b.output.createdAt).getTime();
+      return sortOrder === 'newest' ? right - left : left - right;
+    });
+
   const visibleOutputs = outputs
     .filter((output) => {
       if (mediaFilter === 'all') return true;
@@ -217,7 +232,7 @@ export function OutputGrid({
     }))
     .filter((section) => section.outputs.length > 0);
 
-  if (visibleOutputs.length === 0 && visiblePendingGenerations.length === 0 && visibleFailedGenerations.length === 0) {
+  if (visibleOutputs.length === 0 && visiblePendingGenerations.length === 0 && visibleFailedGenerations.length === 0 && visibleFailedOutputs.length === 0) {
     return filterEmptyState ? (
       <>{filterEmptyState}</>
     ) : (
@@ -229,12 +244,12 @@ export function OutputGrid({
 
   return (
     <div className="space-y-6 p-3">
-      {visiblePendingGenerations.length > 0 || visibleFailedGenerations.length > 0 ? (
+      {visiblePendingGenerations.length > 0 || visibleFailedGenerations.length > 0 || visibleFailedOutputs.length > 0 ? (
         <section className="space-y-3">
           <div className="flex items-center justify-between px-1">
             <h2 className="text-sm font-semibold text-foreground">In progress</h2>
             <span className="text-xs text-muted-foreground">
-              {visiblePendingGenerations.length + visibleFailedGenerations.length} active
+              {visiblePendingGenerations.length + visibleFailedGenerations.length + visibleFailedOutputs.length} active
             </span>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
@@ -251,6 +266,17 @@ export function OutputGrid({
                 message={getGenerationError(generation)}
                 prompt={generation.rawPrompt || generation.prompt}
                 onDelete={() => onDeleteGeneration?.(generation)}
+                onRemix={onRemixGeneration ? () => onRemixGeneration(generation) : undefined}
+              />
+            ))}
+
+            {visibleFailedOutputs.map(({ generation, output }) => (
+              <OutputErrorCard
+                key={output.id}
+                mode={generation.mode}
+                message={getGenerationError(output) || getGenerationError(generation)}
+                prompt={generation.rawPrompt || generation.prompt}
+                onDelete={() => onDelete(generation, output)}
                 onRemix={onRemixGeneration ? () => onRemixGeneration(generation) : undefined}
               />
             ))}

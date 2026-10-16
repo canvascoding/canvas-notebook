@@ -167,6 +167,44 @@ export function updateAdminRuntimeCatalog(draft: AiRuntimeCatalogDraft): Promise
   });
 }
 
+function providerConfiguration(provider: AiCatalogProviderDraft): string {
+  return JSON.stringify([
+    provider.providerId, provider.credentialScope, provider.enabled,
+    Object.entries(provider.config).sort(([left], [right]) => left.localeCompare(right)),
+    [...provider.modelIds].sort(), provider.defaultModelId,
+  ]);
+}
+
+/** Reapply only the confirmed removal to a fresh catalog, preserving concurrent changes. */
+export async function removeAdminRuntimeCatalogProvider(provider: AiCatalogProviderDraft): Promise<AdminRuntimeCatalogData> {
+  if (!provider.providerInstallationId) {
+    throw new RuntimeCatalogClientError('A stored provider installation is required.', 'INVALID_PROVIDER_INSTALLATION', 400);
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const latest = await readAdminRuntimeCatalog();
+    const draft = catalogDataToDraft(latest);
+    const current = draft.providers.find(candidate => candidate.providerInstallationId === provider.providerInstallationId);
+    if (!current) return latest;
+    // Verification status/revision may change freely; configuration changes require a new confirmation.
+    if (providerConfiguration(current) !== providerConfiguration(provider)) {
+      throw new RuntimeCatalogClientError('The provider configuration changed. Review it before removing it.', 'PROVIDER_CHANGED', 409);
+    }
+    const removesDefault = draft.defaultSelection?.providerInstallationId
+      ? draft.defaultSelection.providerInstallationId === provider.providerInstallationId
+      : draft.defaultSelection?.providerId === provider.providerId;
+    try {
+      return await updateAdminRuntimeCatalog({
+        ...draft,
+        providers: draft.providers.filter(candidate => candidate.providerInstallationId !== provider.providerInstallationId),
+        defaultSelection: removesDefault ? null : draft.defaultSelection,
+      });
+    } catch (error) {
+      if (attempt > 0 || !(error instanceof RuntimeCatalogClientError) || error.code !== 'CATALOG_REVISION_CONFLICT') throw error;
+    }
+  }
+  throw new RuntimeCatalogClientError('The catalog changed. Reload it and repeat the change.', 'CATALOG_REVISION_CONFLICT', 409);
+}
+
 export function syncManagedRuntimeCatalog(input: {
   expectedRevision: number;
   setAsDefault: boolean;

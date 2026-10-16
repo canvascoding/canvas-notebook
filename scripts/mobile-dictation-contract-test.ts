@@ -119,7 +119,7 @@ async function main() {
   assert.equal(transcriptions, before, 'rejected uploads never invoke transcription');
   const oversizedStream = new Request('https://canvas.test/upload', { method: 'POST', headers: { 'content-type': 'multipart/form-data; boundary=x' }, body: new Uint8Array(26 * 1024 * 1024) });
   await assert.rejects(mobile.readMobileDictationForm(oversizedStream), (error: unknown) => error instanceof TranscriptionServiceError && error.status === 413);
-  for (const [code, status] of [['TRANSCRIPTION_ABORTED', 499], ['TRANSCRIPTION_TIMEOUT', 504], ['TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502], ['AUDIO_TOO_LONG', 413]] as const) {
+  for (const [code, status] of [['TRANSCRIPTION_ABORTED', 499], ['TRANSCRIPTION_TIMEOUT', 504], ['TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502], ['EMPTY_TRANSCRIPT', 422], ['AUDIO_TOO_LONG', 413]] as const) {
     failure = new TranscriptionServiceError('Fixture provider error.', code, status);
     const result = await transcribeRoute.POST(upload());
     assert.equal(result.status, status); assert.equal((await result.json()).code, code);

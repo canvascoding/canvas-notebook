@@ -96,6 +96,9 @@ The old Expo parser ignores the additive field and needs no changes or rebuild.
 - The service accepts at most 25 MB and validates supported audio MIME types,
   including codec parameters and known extensions for unspecified MIME types.
 - Cloud requests combine caller cancellation with a 90-second timeout.
+- A successful provider response with empty or whitespace-only text returns
+  `EMPTY_TRANSCRIPT` with HTTP 422. The web microphone shows a localized
+  no-speech message and keeps the draft intact so the user can record again.
 - Local requests use the existing verified runtime and model installation. There
   is no automatic cloud fallback. The reviewed whisper.cpp runtime retains its
   ten-minute audio limit.

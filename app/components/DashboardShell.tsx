@@ -61,6 +61,7 @@ import {
   useShouldShowWorkspaceSwitcher,
 } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
+import { requestWorkspaceFileLinkTarget } from '@/app/lib/files/file-link-request';
 import { requestCollaborationDocumentLocation } from '@/app/lib/collaboration/document-location-request';
 import { findOpenedLiveDocument, LiveDocumentNetworkError, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { createNotebookDocumentLocationWatcher } from '@/app/lib/notebook/document-location-watcher';
@@ -167,6 +168,8 @@ type OpenNotebookFileOptions = {
   explorerBehavior?: OpenWorkspaceFileOptions['explorerBehavior'];
   workspaceId?: string;
   transitionId?: string;
+  documentId?: string;
+  lineageId?: string;
 };
 
 type PendingDocumentOpen = {
@@ -507,6 +510,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const desktopChatRef = useRef<HTMLDivElement | null>(null);
   const surfaceTabsRef = useRef<HTMLDivElement | null>(null);
   const openedPathRef = useRef<string | null>(null);
+  const openedRouteIdentityRef = useRef<string | null>(null);
   const initialNotebookStateResolvedRef = useRef(false);
   const previousCurrentFileIdentityRef = useRef<string | null>(null);
   const documentTabsRef = useRef(documentTabs);
@@ -551,7 +555,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const { chatContext: emailChatContext } = useEmailChatContext();
 
   const navigationIntent = getNotebookNavigationIntent(searchParams);
-  const routeFilePath = navigationIntent.path;
+  const routeFilePath = navigationIntent.path ?? ((navigationIntent.documentId || navigationIntent.lineageId) ? '' : null);
+  const routeDocumentId = navigationIntent.documentId;
+  const routeLineageId = navigationIntent.lineageId;
   const routeWorkspaceId = navigationIntent.workspaceId;
   const routeSessionId = navigationIntent.sessionId;
   const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
@@ -749,8 +755,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     options: OpenNotebookFileOptions = {},
   ) => {
     const initialPath = normalizeNotebookFilePath(path);
-    if (!initialPath) return null;
-    let normalizedPath: string = initialPath;
+    if (!initialPath && !options.documentId && !options.lineageId) return null;
+    let normalizedPath: string = initialPath ?? '';
     if (!notebookMountedRef.current) return { status: 'superseded' as const, path: normalizedPath };
     cancelPendingDocumentOpen();
     const generation = documentOpenGenerationRef.current;
@@ -760,9 +766,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const canOpen = () => notebookMountedRef.current && documentOpenGenerationRef.current === generation
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       && useFileStore.getState().treeGeneration === before.treeGeneration;
-    const expectedDocumentId = documentTabsWorkspaceIdRef.current === workspaceId
+    let expectedLineageId = options.lineageId;
+    let expectedDocumentId = options.documentId ?? (documentTabsWorkspaceIdRef.current === workspaceId
       && Object.hasOwn(documentTabsRef.current.documentIds ?? {}, normalizedPath)
-      ? documentTabsRef.current.documentIds?.[normalizedPath] : undefined;
+      ? documentTabsRef.current.documentIds?.[normalizedPath] : undefined);
     const shouldShowPending = Boolean(workspaceId && !(before.currentFileWorkspaceId === workspaceId
       && before.currentFile?.path === normalizedPath
       && (!expectedDocumentId || before.currentFile.collaboration?.document?.id === expectedDocumentId)));
@@ -771,7 +778,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       openFileRequestId: before.openFileRequestId,
     });
     try {
-      if (workspaceId && expectedDocumentId && !(before.currentFileWorkspaceId === workspaceId
+      if (workspaceId && (options.documentId || options.lineageId)) {
+        const controller = new AbortController();
+        documentOpenControllerRef.current = controller;
+        const timer = setTimeout(() => controller.abort(), 10_000);
+        try {
+          const target = await requestWorkspaceFileLinkTarget(workspaceId, options, controller.signal);
+          if (!canOpen() || useFileStore.getState().openFileRequestId !== before.openFileRequestId) {
+            return { status: 'superseded' as const, path: normalizedPath };
+          }
+          if (!target) return { status: 'missing' as const, path: normalizedPath, error: 'The linked file is unavailable.' };
+          normalizedPath = target.path;
+          expectedDocumentId = target.documentId ?? undefined;
+          expectedLineageId = target.lineageId ?? undefined;
+          if (shouldShowPending) setPendingDocumentOpen(current => current?.generation === generation
+            ? { ...current, path: normalizedPath } : current);
+        } finally {
+          clearTimeout(timer);
+          if (documentOpenControllerRef.current === controller) documentOpenControllerRef.current = null;
+        }
+      }
+      if (workspaceId && expectedDocumentId && !options.documentId && !options.lineageId && !(before.currentFileWorkspaceId === workspaceId
         && before.currentFile?.path === normalizedPath && before.currentFile.collaboration?.document?.id === expectedDocumentId)) {
         const controller = new AbortController();
         documentOpenControllerRef.current = controller;
@@ -815,6 +842,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         transitionId,
         workspaceId,
         expectedDocumentId,
+        expectedLineageId,
         explorerBehavior: options.explorerBehavior,
         isCurrent: canOpen,
       });
@@ -835,6 +863,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
       const loadedPath = useFileStore.getState().currentFile?.path ?? null;
       if (loadedPath === normalizedPath && workspaceId) {
+        if (options.documentId || options.lineageId) {
+          const url = new URL(window.location.href);
+          const intent = getNotebookNavigationIntent(url.searchParams);
+          if (intent.documentId === options.documentId && intent.lineageId === options.lineageId) {
+            url.searchParams.set('path', normalizedPath);
+            openedPathRef.current = normalizedPath;
+            openedRouteIdentityRef.current = JSON.stringify([normalizedPath, options.documentId ?? null, options.lineageId ?? null]);
+            window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+          }
+        }
         try {
           writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
         } catch {
@@ -852,7 +890,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const workspaceId = options.workspaceId ?? useWorkspaceStore.getState().activeWorkspaceId;
     const pending = openNotebookFile(path, options);
     const generation = documentOpenGenerationRef.current;
-    const result = await pending;
+    const result = await pending.catch(error => ({ status: 'failed' as const,
+      error: error instanceof Error ? error.message : 'The linked file could not be opened.' }));
     if (!notebookMountedRef.current || documentOpenGenerationRef.current !== generation
       || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
       || !result || result.status === 'opened' || result.status === 'superseded') return;
@@ -963,7 +1002,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'SHOW_CHAT' });
       return;
     }
-    if (routeFilePath) {
+    if (routeFilePath !== null) {
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
@@ -1002,12 +1041,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       : null;
     if (
       !pendingBridgeRequest
-      && routeFilePath
+      && routeFilePath !== null
       && workspaceScopedNavigationMatches(routeWorkspaceId, activeWorkspaceId)
-      && openedPathRef.current !== routeFilePath
+      && (openedPathRef.current !== routeFilePath
+        || openedRouteIdentityRef.current !== JSON.stringify([routeFilePath, routeDocumentId ?? null, routeLineageId ?? null]))
     ) {
       openedPathRef.current = routeFilePath;
-      void openNotebookEntry(routeFilePath);
+      openedRouteIdentityRef.current = JSON.stringify([routeFilePath, routeDocumentId ?? null, routeLineageId ?? null]);
+      void openNotebookEntry(routeFilePath, { documentId: routeDocumentId, lineageId: routeLineageId });
     }
   }, [
     activeWorkspaceId,
@@ -1015,6 +1056,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     openNotebookEntry,
     routeFilePath,
     routeWorkspaceId,
+    routeDocumentId,
+    routeLineageId,
   ]);
 
   useEffect(() => {
@@ -1073,7 +1116,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
           openFileRequestId: useFileStore.getState().openFileRequestId });
         dispatch({ type: 'DOCUMENT_OPENED' });
       }
-      if (entry.kind === 'waiting' || intent.path) return;
+      if (entry.kind === 'waiting' || intent.path || intent.documentId || intent.lineageId) return;
       if (entry.kind === 'chat') {
         dispatch({ type: 'SHOW_CHAT' });
         return;

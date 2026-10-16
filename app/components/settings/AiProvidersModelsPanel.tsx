@@ -59,6 +59,7 @@ import {
 import {
   catalogDataToDraft,
   readAdminRuntimeCatalog,
+  removeAdminRuntimeCatalogProvider,
   RuntimeCatalogClientError,
   syncManagedRuntimeCatalog,
   updateAdminRuntimeCatalog,
@@ -320,7 +321,7 @@ const DE_COPY: PanelCopy = {
       enabledNeedsModel: 'Wähle mindestens ein Modell aus, bevor du den Provider aktivierst.',
       defaultRequired: 'Wähle für die freigegebenen Modelle einen Provider-Standard.',
       discovery: 'Die Modelle konnten nicht vom Ollama-Server geladen werden.',
-      credentialLoad: 'Der Ollama API-Key konnte nicht geladen werden.',
+      credentialLoad: 'Die vorhandenen Zugangsdaten konnten nicht aus Secrets geladen werden.',
       credentialSave: 'Die Provider-Einstellungen konnten nicht gespeichert werden.',
     },
     scope: SCOPE_DE,
@@ -468,7 +469,7 @@ const EN_COPY: PanelCopy = {
       enabledNeedsModel: 'Select at least one model before enabling the provider.',
       defaultRequired: 'Choose a provider default for the allowed models.',
       discovery: 'Models could not be loaded from the Ollama server.',
-      credentialLoad: 'The Ollama API key could not be loaded.',
+      credentialLoad: 'Existing credentials could not be loaded from Secrets.',
       credentialSave: 'The provider settings could not be saved.',
     },
     scope: SCOPE_EN,
@@ -574,7 +575,7 @@ function availableCredentialScopesForNewProvider(
 }
 
 function errorMessage(error: unknown, fallback: string, copy: PanelCopy): string {
-  if (error instanceof RuntimeCatalogClientError && error.code === 'CATALOG_REVISION_CONFLICT') {
+  if (error instanceof RuntimeCatalogClientError && ['CATALOG_REVISION_CONFLICT', 'PROVIDER_CHANGED'].includes(error.code)) {
     return copy.errors.revisionConflict;
   }
   return error instanceof Error ? error.message : fallback;
@@ -719,23 +720,39 @@ export function AiProvidersModelsPanel({
         && candidate.credentialScope === provider.credentialScope
       ));
       if (!storedProvider) throw new Error(copy.errors.verify);
-      if (verifyProvider) await verifyProvider(storedProvider.installationId);
-      else await verifyAdminProviderInstallation(storedProvider.installationId);
-      await loadCatalog();
+      try {
+        if (verifyProvider) await verifyProvider(storedProvider.installationId);
+        else await verifyAdminProviderInstallation(storedProvider.installationId);
+      } finally {
+        // Failed probes also persist readiness and advance the shared catalog revision.
+        await loadCatalog();
+        onCatalogChanged?.();
+      }
       setMessage(copy.verified);
     }
     setEditorOpen(false);
   };
 
   const removeProvider = async (provider: AiCatalogProviderDraft) => {
-    if (!draft) return;
-    const providers = draft.providers.filter((candidate) => candidate.clientKey !== provider.clientKey);
-    await persistDraft({
-      ...draft,
-      providers,
-      defaultSelection: sanitizeDefaultSelection(providers, draft.defaultSelection),
-    });
-    setEditorOpen(false);
+    if (!data) return;
+    const baseline = catalogDataToDraft(data).providers.find(candidate => candidate.providerInstallationId === provider.providerInstallationId);
+    if (!baseline) return;
+    try {
+      applyCatalogData(await removeAdminRuntimeCatalogProvider(baseline));
+      setMessage(copy.saved);
+      setError(null);
+      onCatalogChanged?.();
+      setEditorOpen(false);
+    } catch (removeError) {
+      if (removeError instanceof RuntimeCatalogClientError && removeError.status === 409) {
+        const latest = await readAdminRuntimeCatalog();
+        applyCatalogData(latest);
+        const current = catalogDataToDraft(latest).providers.find(candidate => candidate.providerInstallationId === provider.providerInstallationId);
+        if (current) setEditorProvider(current);
+        else setEditorOpen(false);
+      }
+      throw new Error(errorMessage(removeError, copy.errors.save, copy));
+    }
   };
 
   const newProviderDraft = (providerId: string): AiCatalogProviderDraft | null => {

@@ -92,7 +92,7 @@ async function main() {
   try {
     const result = await generateVideo(
       {
-        prompt: 'A detailed product flythrough',
+        prompt: '  A detailed product flythrough\r\n\r\n\tKeep the original colors.\rSlow camera.  ',
         model: 'veo-3.1-fast-generate-preview',
         resolution: '720p',
         aspectRatio: '16:9',
@@ -106,14 +106,19 @@ async function main() {
     );
 
     assert.equal(generateCalls.length, 1);
+    assert.equal(generateCalls[0].prompt, 'A detailed product flythrough\n\n\tKeep the original colors.\nSlow camera.');
     assert.equal(result.fileSize, Buffer.byteLength('veo video bytes'));
     assert.equal(result.mimeType, 'video/mp4');
-    assert.ok(result.path.startsWith('studio-gen-a-detailed-product-flythrough-0-'));
+    assert.ok(result.path.startsWith('studio-gen-a-detailed-product-flythrough-'));
     assert.equal(result.mediaUrl, `/api/studio/media/studio/outputs/${encodeURIComponent(result.path)}`);
     assert.equal(result.metadata.provider, 'gemini');
     assert.equal(result.metadata.model, 'veo-3.1-fast-generate-preview');
     assert.equal(result.metadata.createdBy, 'studio-generation');
     assert.equal(result.metadata.output && typeof result.metadata.output === 'object', true);
+    for (const prompt of ['bad\u0000text', '\u000btext', 'text\u000c']) {
+      await assert.rejects(generateVideo({ prompt }), /invalid control characters/);
+    }
+    assert.equal(generateCalls.length, 1, 'Invalid controls must not reach the SDK');
     assert.equal(fetchCalls[0], 'https://generativelanguage.googleapis.com/test-video.mp4?key=test-gemini-key');
 
     const saved = await fs.readFile(path.join(tempRoot, 'studio', 'outputs', result.path));

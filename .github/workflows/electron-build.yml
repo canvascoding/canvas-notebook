@@ -133,6 +133,7 @@ jobs:
           fi
 
           codesign --verify --deep --strict --verbose=2 "$app_path"
+          CANVAS_ELECTRON_MAC_TEST_BUNDLE="$app_path" node --test electron/main/microphone-packaging.test.mjs
           xcrun stapler validate "$app_path"
           spctl --assess --type execute --verbose=4 "$app_path"
 

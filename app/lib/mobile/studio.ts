@@ -20,6 +20,7 @@ import {
   getAspectRatiosForProvider,
   getDefaultOpenAIImageSize,
   getOpenAIImageAspectRatio,
+  getOpenAIImageModelCapabilities,
   getDefaultModelForProvider,
   getImageSizesForModel,
   getMaxImageCountForProvider,
@@ -31,6 +32,7 @@ import {
   QUALITY_OPTIONS,
 } from '@/app/lib/integrations/image-generation-constants';
 import { getStudioProviderConfig } from '@/app/lib/integrations/studio-config';
+import { normalizeStudioPrompt } from '@/app/lib/integrations/studio-prompt';
 import {
   getStudioGeneration,
   getStudioOutputForUser,
@@ -199,18 +201,23 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const providers = MODE_PROVIDERS[mode];
   const provider = enumValue(value.provider, providers, providers[0], 'Provider');
   const models = getModelsForProvider(mode, provider).map((model) => model.id);
-  const model = enumValue(value.model, models, getDefaultModelForProvider(mode, provider), 'Model');
+  const model = mode === 'image' && provider === 'openai'
+    ? getOpenAIImageModelCapabilities(optionalString(value.model, 'Model', 180) || getDefaultModelForProvider(mode, provider))?.modelId
+    : enumValue(value.model, models, getDefaultModelForProvider(mode, provider), 'Model');
+  if (!model) throw new MobileStudioError('The selected image model is not supported.', 400, 'UNSUPPORTED_STUDIO_OPTION');
   const aspectRatios = getAspectRatiosForProvider(mode, provider);
   let aspectRatio = mode === 'sound'
     ? '1:1'
     : mode === 'image' && provider === 'openai'
       ? optionalString(value.aspectRatio, 'Aspect ratio', 40) || aspectRatios[0] || '1:1'
       : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
-  const prompt = optionalString(
-    value.prompt,
-    'Prompt',
+  const prompt = normalizeStudioPrompt(
+    value.prompt ?? '',
     mode === 'image' && provider === 'openai' ? 32_000 : 4_000,
-  ) || '';
+  );
+  if (prompt === null) {
+    throw new MobileStudioError('Prompt is invalid.', 400, 'INVALID_STUDIO_REQUEST');
+  }
   const references = parseReferences(value.references, mode, provider);
   const productIds = identifierArray(value.productIds, 'Products', 5);
   const personaIds = identifierArray(value.personaIds, 'Personas', 3);
@@ -251,9 +258,9 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   const outputCompression = provider === 'openai'
     ? integerValue(value.outputCompression, 100, 0, 100, 'Output compression')
     : undefined;
-  const inputFidelity = provider === 'openai'
-    ? enumValue(value.inputFidelity, OPENAI_INPUT_FIDELITY_OPTIONS, 'low', 'Input fidelity')
-    : undefined;
+  if (provider === 'openai' && value.inputFidelity !== undefined) {
+    enumValue(value.inputFidelity, OPENAI_INPUT_FIDELITY_OPTIONS, 'low', 'Input fidelity');
+  }
   const stream = provider === 'openai' ? booleanValue(value.stream, false) : undefined;
   const partialImages = provider === 'openai' && value.partialImages !== undefined
     ? integerValue(value.partialImages, 0, 0, 3, 'Partial images')
@@ -322,7 +329,6 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     background,
     moderation,
     output_compression: outputFormat === 'jpeg' || outputFormat === 'webp' ? outputCompression : undefined,
-    input_fidelity: inputFidelity,
     stream,
     partial_images: partialImages,
     image_size: imageSize,
@@ -411,6 +417,7 @@ export async function getMobileStudioCatalog(input: {
       models: getModelsForProvider(mode, provider).map((model) => ({
         id: model.id,
         label: modelLabel(model.id),
+        ...(mode === 'image' && provider === 'openai' ? { capabilities: getOpenAIImageModelCapabilities(model.id) } : {}),
         aspectRatios: [...getAspectRatiosForProvider(mode, provider)],
         imageSizes: mode === 'image'
           ? provider === 'openai'
@@ -443,6 +450,7 @@ export async function getMobileStudioCatalog(input: {
       },
       openAIImage: {
         modelId: OPENAI_IMAGE_MODEL_ID,
+        supportsInputFidelity: getOpenAIImageModelCapabilities(OPENAI_IMAGE_MODEL_ID)?.supportsInputFidelity ?? false,
         maxPromptLength: 32_000,
         maxOutputCount: getMaxImageCountForProvider('image', 'openai'),
         maxInputImages: MAX_REFERENCE_COUNT,
@@ -598,6 +606,11 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
     model: generation.model,
     status: generation.status,
     error: generationError(generation.metadata),
+    errorCode: metadataString(metadata, 'errorCode', 80),
+    errorRetryable: metadata.retryable === true,
+    warning: scrubError(metadata.warning),
+    warnings: Array.isArray(metadata.warnings) ? metadata.warnings.map(scrubError).filter((value): value is string => value !== null) : [],
+    failedOutputCount: metadataInteger(metadata, 'failedOutputCount', 0),
     settings: {
       count: Math.min(outputCount, LEGACY_MOBILE_MAX_IMAGE_COUNT),
       quality: legacyQuality,
@@ -638,7 +651,7 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
       startFramePath: metadataString(metadata, 'startFramePath'),
       endFramePath: metadataString(metadata, 'endFramePath'),
     },
-    outputs: generation.outputs.map((output) => {
+    outputs: generation.outputs.filter((output) => Boolean(output.filePath && output.mimeType)).map((output) => {
       const type = outputType(output.type, output.mimeType);
       return {
         id: output.id,

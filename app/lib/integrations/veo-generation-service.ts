@@ -17,6 +17,7 @@ import {
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import { normalizeStudioPrompt } from '@/app/lib/integrations/studio-prompt';
 import {
   getVideoModelCapabilities,
   VEO_MAX_REFERENCE_IMAGES,
@@ -64,7 +65,9 @@ interface GenerateVideoOptions {
 }
 
 function sanitizePrompt(prompt: string): string {
-  return prompt.replace(/\s+/g, ' ').trim();
+  const normalized = normalizeStudioPrompt(prompt);
+  if (normalized === null) throw new IntegrationServiceError('Prompt contains invalid control characters.', 400);
+  return normalized;
 }
 
 function promptToSlug(prompt: string): string {

@@ -48,6 +48,9 @@
     "mac": {
       "category": "public.app-category.productivity",
       "hardenedRuntime": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Canvas Notebook uses your microphone to record speech for dictation."
+      },
       "gatekeeperAssess": false,
       "notarize": true,
       "target": [

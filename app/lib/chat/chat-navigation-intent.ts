@@ -14,6 +14,8 @@ export type ChatNavigationIntent = {
 
 export type NotebookNavigationIntent = ChatNavigationIntent & {
   path: string | null;
+  documentId?: string;
+  lineageId?: string;
 };
 
 function normalizeQueryValue(value: string | null): string | null {
@@ -82,9 +84,13 @@ export function buildNotebookChatRedirectHref(searchParams: RouteSearchParams): 
 export function getNotebookNavigationIntent(searchParams: SearchParamsReader): NotebookNavigationIntent {
   const chatIntent = getChatNavigationIntent(searchParams);
   const path = normalizeChatFilePath(searchParams.get('path') || '') || null;
+  const documentId = searchParams.get('documentId');
+  const lineageId = searchParams.get('lineageId');
 
   return {
     ...chatIntent,
     path,
+    ...(documentId !== null ? { documentId: documentId || ' ' } : {}),
+    ...(lineageId !== null ? { lineageId: lineageId || ' ' } : {}),
   };
 }

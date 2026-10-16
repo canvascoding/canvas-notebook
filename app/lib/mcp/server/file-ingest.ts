@@ -1,4 +1,5 @@
 import 'server-only';
+import { directMcpFileLinkFields } from '@/app/lib/mcp/server/file-links';
 
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -14,7 +15,6 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { createAtomicTempPath, resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
 import type { DirectMcpAccessPrincipal } from './access-token-verifier';
 import type { DirectMcpIngestContentValidation } from './ingest-validation';
-import { resolveDirectMcpOrigin } from './config';
 
 export class DirectMcpFileIngestError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'DirectMcpFileIngestError'; }
@@ -30,6 +30,8 @@ export type DirectMcpFileReceipt = {
   revision_id: string;
   operation_id: string;
   document_url: string;
+  document_id: string | null;
+  lineage_id: string | null;
   markdown: DirectMcpIngestContentValidation['markdown'];
   warnings: DirectMcpIngestContentValidation['warnings'];
 };
@@ -118,7 +120,8 @@ export async function createDirectMcpWorkspaceFile(input: {
         throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The imported document has a different active revision. Read its current state before retrying.');
       }
       input.signal?.throwIfAborted();
-      return { ...previous.receipt!, status: 'already_created' };
+      return { ...previous.receipt!, ...directMcpFileLinkFields({ workspaceId: input.workspace.workspaceId, path: target,
+        documentId: state.document?.id ?? null, lineageId: state.lineageId ?? null }), status: 'already_created' };
     }
     if (existing) {
       throw new DirectMcpFileIngestError(previous ? 'MCP_INGEST_RECOVERY_REQUIRED' : 'MCP_INGEST_PATH_EXISTS',
@@ -145,13 +148,12 @@ export async function createDirectMcpWorkspaceFile(input: {
     if (!verified || verified.sha256 !== sha256 || verified.stats.size !== content.length) {
       throw new DirectMcpFileIngestError('MCP_INGEST_VERIFICATION_FAILED', 'The imported file could not be verified. Inspect the stored file before retrying.');
     }
-    const url = new URL('/notebook', resolveDirectMcpOrigin());
-    url.searchParams.set('workspaceId', input.workspace.workspaceId);
-    url.searchParams.set('path', target);
+    const fileLink = directMcpFileLinkFields({ workspaceId: input.workspace.workspaceId, path: target,
+      documentId: written.collaboration?.document?.id ?? null, lineageId: written.revision.lineageId ?? null });
     const receipt: DirectMcpFileReceipt = {
       status: 'created', workspace_id: input.workspace.workspaceId, path: target, size: content.length,
       sha256, mime_type: validation.mimeType, revision_id: written.revision.id, operation_id: operationId,
-      document_url: url.toString(), markdown: validation.markdown, warnings: validation.warnings,
+      ...fileLink, markdown: validation.markdown, warnings: validation.warnings,
     };
     await writeRecord(recordPath, { version: 1, fingerprint: input.fingerprint, sha256, phase: 'completed', receipt });
     return receipt;

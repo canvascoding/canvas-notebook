@@ -129,6 +129,19 @@ async function main() {
     const stillMemberA = await store.readUnifiedEnvState(userA);
     assert.equal(entryValue({ entries: stillMemberA.entries }, 'ADMIN_TARGETED_VALUE'), undefined);
 
+    await store.replaceEnvView('integrations', [{ key: 'OPENAI_API_KEY', value: 'presence-only-private-fixture' }], userA);
+    const presence = await route.GET(request('http://canvas.test/api/integrations/env?scope=all&metadataOnly=1', 'member-a'));
+    const presenceBody = await presence.json();
+    assert.deepEqual(presenceBody.data.entries.find((entry: { key: string }) => entry.key === 'OPENAI_API_KEY'),
+      { key: 'OPENAI_API_KEY', configured: true, readable: true });
+    assert.equal(JSON.stringify(presenceBody).includes('presence-only-private-fixture'), false, 'presence never returns secret values');
+    assert.equal('rawContent' in presenceBody.data, false);
+    const providerKey = await route.GET(request('http://canvas.test/api/integrations/env?scope=all&view=provider&key=OPENAI_API_KEY', 'member-a'));
+    assert.equal(entryValue((await responseBody(providerKey)).data, 'OPENAI_API_KEY'), 'presence-only-private-fixture', 'provider setup also recognizes integrations-owned keys');
+    assert.equal(presence.headers.get('cache-control'), 'private, no-store');
+    assert.equal((await route.GET(request('http://canvas.test/api/integrations/env?scope=all&secretScope=system&metadataOnly=1', 'member-a'))).status, 403);
+    assert.equal((await route.GET(request('http://canvas.test/api/integrations/env?scope=all&metadataOnly=1'))).status, 401);
+
     await store.patchUnifiedEnvEntries([{ key: 'ORG_SCOPE_VALUE', value: 'org-a-fixture' }], orgAScope);
     await store.patchUnifiedEnvEntries([{ key: 'ORG_SCOPE_VALUE', value: 'org-b-fixture' }], orgBScope);
     const orgBRead = await route.GET(request('http://canvas.test/api/integrations/env?secretScope=organization&scope=all&organizationId=org-a', 'admin-b'));
@@ -339,6 +352,10 @@ async function main() {
     assert.equal(unreadable.data.readable, false);
     assert.equal(unreadable.data.readinessCode, 'master_key_missing', 'safe diagnostics remain available after protected entries are filtered');
     assert.equal('masterKeySource' in unreadable.data, false);
+    const unreadableMetadata = await (await route.GET(request('http://canvas.test/api/integrations/env?scope=all&metadataOnly=1', 'member-a'))).json();
+    assert.ok(unreadableMetadata.data.entries.some((entry: { readable: boolean }) => entry.readable === false));
+    assert.ok(unreadableMetadata.data.entries.every((entry: { readable: boolean; configured: boolean }) => entry.readable || !entry.configured));
+    assert.equal(JSON.stringify(unreadableMetadata).includes('"value"'), false, 'unreadable metadata never exposes values');
     const blockedWrite = await route.PATCH(request('http://canvas.test/api/integrations/env', 'member-a', json('PATCH', { scope: 'all', patches: [{ key: 'MUST_NOT_REPLACE', value: 'fixture' }] })));
     assert.equal(blockedWrite.status, 503);
     const blockedBody = await blockedWrite.json();

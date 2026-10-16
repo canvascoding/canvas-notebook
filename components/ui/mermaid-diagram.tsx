@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import mermaid from 'mermaid';
+import mermaid, { type MermaidConfig } from 'mermaid';
+import { readMermaidTheme } from '@/app/lib/markdown/mermaid-theme-browser';
+import { WORKSPACE_APPEARANCE_UPDATED_EVENT } from '@/app/lib/workspaces/appearance-theme';
 import { ZoomIn, ZoomOut, RotateCcw, Download, Maximize2, X } from 'lucide-react';
 import {
   Dialog,
@@ -11,15 +13,8 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  // Keep Mermaid diagrams interactive while letting Mermaid sanitize the SVG
-  // before it is inserted into the authenticated application document.
-  securityLevel: 'strict',
-});
-
 let mermaidRenderCounter = 0;
+let mermaidRenderQueue: Promise<unknown> = Promise.resolve();
 
 interface MermaidDiagramProps {
   code: string;
@@ -33,10 +28,23 @@ function cleanupMermaidDom(id: string) {
   if (d1) d1.remove();
 }
 
-async function renderMermaid(code: string, prefix: string): Promise<{ svg: string; id: string }> {
+async function renderMermaid(code: string, prefix: string, config: MermaidConfig): Promise<{ svg: string; id: string }> {
   const id = `${prefix}-${++mermaidRenderCounter}`;
-  const { svg } = await mermaid.render(id, code.trim());
-  return { svg, id };
+  // Initialization changes Mermaid's global configuration. Keep it and render
+  // in one queue so concurrently mounted diagrams cannot exchange themes.
+  const job = mermaidRenderQueue.then(async () => {
+    await document.fonts?.ready;
+    mermaid.initialize(config);
+    try {
+      const { svg } = await mermaid.render(id, code.trim());
+      return { svg, id };
+    } catch (error) {
+      cleanupMermaidDom(id);
+      throw error;
+    }
+  });
+  mermaidRenderQueue = job.catch(() => undefined);
+  return job;
 }
 
 export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps) {
@@ -44,10 +52,9 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
   const [error, setError] = useState<string | null>(null);
   const [svg, setSvg] = useState<string | null>(null);
   const svgIdRef = useRef<string | null>(null);
-  const [isDark, setIsDark] = useState(false);
+  const [themeConfig, setThemeConfig] = useState<MermaidConfig | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [fullscreenSvg, setFullscreenSvg] = useState<string | null>(null);
-  const [fullscreenId, setFullscreenId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
@@ -59,26 +66,28 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const updateTheme = () => {
-      const root = document.documentElement;
-      const dark = root.classList.contains('dark') || mq.matches;
-      setIsDark(dark);
+      const next = readMermaidTheme();
+      setThemeConfig((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next);
     };
     updateTheme();
     mq.addEventListener('change', updateTheme);
+    window.addEventListener(WORKSPACE_APPEARANCE_UPDATED_EVENT, updateTheme);
     const observer = new MutationObserver(updateTheme);
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
     return () => {
       mq.removeEventListener('change', updateTheme);
+      window.removeEventListener(WORKSPACE_APPEARANCE_UPDATED_EVENT, updateTheme);
       observer.disconnect();
     };
   }, []);
 
   useEffect(() => {
+    if (!themeConfig) return;
     let cancelled = false;
     const renderDiagram = async () => {
       try {
         if (svgIdRef.current) cleanupMermaidDom(svgIdRef.current);
-        const result = await renderMermaid(code, 'm');
+        const result = await renderMermaid(code, 'm', themeConfig);
         if (!cancelled) {
           setSvg(result.svg);
           svgIdRef.current = result.id;
@@ -97,31 +106,41 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
     return () => {
       cancelled = true;
     };
-  }, [code, isDark]);
+  }, [code, themeConfig]);
 
   useEffect(() => {
-    const id = svgIdRef.current;
     return () => {
-      if (id) cleanupMermaidDom(id);
-      if (fullscreenId) cleanupMermaidDom(fullscreenId);
+      if (svgIdRef.current) cleanupMermaidDom(svgIdRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openDialog = useCallback(async () => {
+  const openDialog = useCallback(() => {
     if (!interactive) return;
-    try {
-      if (fullscreenId) cleanupMermaidDom(fullscreenId);
-      const result = await renderMermaid(code, 'mf');
+    setFullscreenSvg(null);
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+    setDialogOpen(true);
+  }, [interactive]);
+
+  useEffect(() => {
+    if (!dialogOpen || !themeConfig) return;
+    let cancelled = false;
+    let renderedId: string | null = null;
+    void renderMermaid(code, 'mf', themeConfig).then((result) => {
+      renderedId = result.id;
+      if (cancelled) {
+        cleanupMermaidDom(result.id);
+        return;
+      }
       setFullscreenSvg(result.svg);
-      setFullscreenId(result.id);
-      setZoom(1);
-      setPan({ x: 0, y: 0 });
-      setDialogOpen(true);
-    } catch {
-      setFullscreenSvg(null);
-    }
-  }, [code, interactive, fullscreenId]);
+    }).catch(() => {
+      if (!cancelled) setFullscreenSvg(null);
+    });
+    return () => {
+      cancelled = true;
+      if (renderedId) cleanupMermaidDom(renderedId);
+    };
+  }, [code, dialogOpen, themeConfig]);
 
   const wheelRef = useRef<HTMLDivElement>(null);
 
@@ -251,7 +270,7 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
         tabIndex={interactive ? 0 : undefined}
         onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') openDialog(); } : undefined}
       >
-        <div ref={containerRef} dangerouslySetInnerHTML={{ __html: svg }} />
+        <div ref={containerRef} className="min-w-0 w-full [&_svg]:mx-auto" dangerouslySetInnerHTML={{ __html: svg }} />
         {interactive && (
           <div className="pointer-events-none absolute bottom-1 right-1 flex items-center gap-1 rounded bg-black/60 px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity">
             <Maximize2 className="size-3.5 text-white" />
@@ -306,8 +325,10 @@ export function MermaidDiagram({ code, interactive = true }: MermaidDiagramProps
               className="min-h-full min-w-full flex items-center justify-center p-8"
               style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`, transformOrigin: 'center center', transition: isPanning ? 'none' : 'transform 0.15s ease' }}
             >
-              {fullscreenSvg && (
+              {fullscreenSvg ? (
                 <div dangerouslySetInnerHTML={{ __html: fullscreenSvg }} className="[&_svg]:max-w-none" />
+              ) : (
+                <span className="text-xs text-muted-foreground">Rendering diagram…</span>
               )}
             </div>
           </div>

@@ -10,6 +10,7 @@ import {
   OPENAI_MODELS,
   QUALITY_OPTIONS,
   getMaxImageCountForProvider,
+  getOpenAIImageModelCapabilities,
   getOpenAIImageRequestValidationError,
   getOpenAIImageAspectRatio,
   getOpenAIImageFormatPreset,
@@ -18,12 +19,32 @@ import {
   normalizeOpenAIImageModelId,
   normalizeOpenAIImageOutputFormat,
 } from '../app/lib/integrations/image-generation-constants';
+import { normalizeOpenAIImageRequestOptions } from '../app/lib/integrations/openai-image-request';
 
 assert.equal(OPENAI_IMAGE_MODEL_ID, 'gpt-image-2.5-sunburst');
 assert.equal(OPENAI_FLARE_IMAGE_MODEL_ID, 'gpt-image-2.5-flare');
 assert.deepEqual(OPENAI_MODELS.map((model) => model.id), [OPENAI_IMAGE_MODEL_ID, OPENAI_FLARE_IMAGE_MODEL_ID]);
 assert.equal(normalizeOpenAIImageModelId('gpt-image-2'), OPENAI_IMAGE_MODEL_ID);
 assert.equal(normalizeOpenAIImageModelId('gpt-image-2-2026-04-21'), OPENAI_IMAGE_MODEL_ID);
+for (const model of [OPENAI_IMAGE_MODEL_ID, OPENAI_FLARE_IMAGE_MODEL_ID]) {
+  for (const modelId of [model, `${model}-2026-09-08`]) {
+    const capabilities = getOpenAIImageModelCapabilities(modelId);
+    assert.ok(capabilities);
+    assert.equal(capabilities.modelId, modelId);
+    assert.equal(capabilities.familyId, model);
+    assert.equal(capabilities.supportsInputFidelity, false);
+    for (const inputFidelity of ['low', 'high'] as const) {
+      // Old clients may still submit this field; compatibility acceptance must
+      // never turn it into an unsupported outbound OpenAI parameter.
+      assert.equal(getOpenAIImageRequestValidationError({ model: modelId, inputFidelity }), null);
+      const effective = normalizeOpenAIImageRequestOptions({ model: modelId, inputFidelity });
+      assert.equal(effective.model, modelId);
+      assert.equal(Object.hasOwn(effective, 'inputFidelity'), false);
+    }
+  }
+}
+assert.equal(getOpenAIImageModelCapabilities('gpt-image-2.5-flare-2026-10-14'), null);
+assert.throws(() => normalizeOpenAIImageRequestOptions({ model: 'gpt-image-2.5-unknown' }), /Model/);
 assert.deepEqual(QUALITY_OPTIONS, ['auto', 'low', 'medium', 'high', 'xhigh', 'max']);
 assert.equal(getMaxImageCountForProvider('image', 'openai'), 10);
 assert.deepEqual(OPENAI_ASPECT_RATIOS, ['1:1', '3:2', '2:3', '16:9', '9:16', '4:3', '3:4', '4:5', 'auto']);
@@ -86,30 +107,37 @@ assert.doesNotMatch(studioToolSource, /gpt-image-2(?!\.5|-2026)/);
 assert.match(studioToolSource, /Type\.Literal\('xhigh'\)/);
 assert.match(studioToolSource, /Type\.Literal\('max'\)/);
 assert.match(studioToolSource, /output_compression/);
-assert.match(studioToolSource, /input_fidelity/);
 assert.match(studioToolSource, /partial_images/);
 
-const providerSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/image-generation-providers.ts'), 'utf8');
-for (const apiParameter of [
-  'background',
-  'input_fidelity',
-  'moderation',
-  'output_compression',
-  'output_format',
-  'partial_images',
-  'quality',
-  'size',
-  'stream',
-  'user',
-]) {
-  assert.match(providerSource, new RegExp(apiParameter), `Provider must pass ${apiParameter}`);
-}
+assert.deepEqual(normalizeOpenAIImageRequestOptions({
+  model: 'gpt-image-2',
+  imageSize: '1280 × 1024',
+  inputFidelity: 'high',
+  quality: 'xhigh',
+  background: 'transparent',
+  outputFormat: 'jpeg',
+  outputCompression: 80,
+  stream: true,
+  partialImages: 0,
+}), {
+  model: OPENAI_IMAGE_MODEL_ID,
+  imageSize: '1280x1024',
+  quality: 'xhigh',
+  background: 'transparent',
+  outputFormat: 'png',
+  moderation: 'auto',
+  stream: true,
+  partialImages: 0,
+});
+assert.equal(normalizeOpenAIImageRequestOptions({ model: OPENAI_IMAGE_MODEL_ID, outputFormat: 'webp', outputCompression: 0 }).outputCompression, 0);
+assert.equal(Object.hasOwn(normalizeOpenAIImageRequestOptions({ model: OPENAI_IMAGE_MODEL_ID, outputFormat: 'png', outputCompression: 80 }), 'outputCompression'), false);
+assert.equal(Object.hasOwn(normalizeOpenAIImageRequestOptions({ model: OPENAI_IMAGE_MODEL_ID, stream: false }), 'partialImages'), false);
 
 const studioGenerationHookSource = readFileSync(path.join(process.cwd(), 'app/apps/studio/hooks/useStudioGeneration.ts'), 'utf8');
 assert.match(studioGenerationHookSource, /image_size: imageFormat\.imageSize/u);
 
 const generationServiceSource = readFileSync(path.join(process.cwd(), 'app/lib/integrations/studio-generation-service.ts'), 'utf8');
-const validationPosition = generationServiceSource.indexOf('getOpenAIImageRequestValidationError({');
+const validationPosition = generationServiceSource.indexOf('normalizeOpenAIImageRequestOptions({');
 const persistencePosition = generationServiceSource.indexOf('const requestMetadata = JSON.stringify({');
 assert.ok(validationPosition >= 0 && validationPosition < persistencePosition, 'OpenAI options must be validated before persistence');
 assert.match(generationServiceSource, /getOpenAIImageAspectRatio\(openAIImageSize, requestedAspectRatio\)/u);

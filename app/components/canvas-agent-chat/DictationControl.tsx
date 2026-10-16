@@ -5,7 +5,7 @@ import { Loader2, Mic, Square } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 type StatusResponse = { success: boolean; data?: { available: boolean } };
-type TranscriptResponse = { success: boolean; data?: { text?: unknown }; error?: unknown };
+type TranscriptResponse = { success: boolean; data?: { text?: unknown }; error?: unknown; code?: unknown };
 
 export function DictationControl({ disabled, onTranscript, availability, transcribeUrl = '/api/dictation/transcribe', formFields, testId = 'chat-dictation' }: {
   disabled: boolean; onTranscript: (text: string) => void;
@@ -53,6 +53,7 @@ export function DictationControl({ disabled, onTranscript, availability, transcr
       const response = await fetch(transcribeUrl, { method: 'POST', body: form });
       const result = await response.json().catch(() => null) as TranscriptResponse | null;
       if (!response.ok || result?.success !== true) {
+        if (result?.code === 'EMPTY_TRANSCRIPT') throw new Error(t('emptyTranscript'));
         const message = typeof result?.error === 'string' ? result.error.trim() : '';
         throw new Error(message || `${t('transcriptionError')} (HTTP ${response.status})`);
       }
