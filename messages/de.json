@@ -8717,7 +8717,8 @@
       "publish": "Version veröffentlichen",
       "discard": "Privaten Entwurf verwerfen",
       "discarded": "Privater Entwurf verworfen. Das veröffentlichte Paket bleibt unverändert.",
-      "openVariant": "Freigaben und Aktivierung für {name} einstellen"
+      "openVariant": "Freigaben und Aktivierung für {name} einstellen",
+      "provisionPublished": "Bereitstellung dieser Version öffnen"
     },
     "workspace": {
       "catalog": {
@@ -9074,6 +9075,55 @@
         "advancedHint": "Diese Referenzen kennzeichnen dieses exakt zugängliche Paket. Sie enthalten keine Zugangsdaten oder Verbindungskonfiguration.",
         "resourceRef": "Ressourcenreferenz"
       }
+    },
+    "provisioning": {
+      "title": "Für die Organisation bereitstellen",
+      "publishedVersion": "{name} · veröffentlichte Version {version}",
+      "loading": "Aktueller Bereitstellungsstand wird geladen…",
+      "reload": "Stand neu laden",
+      "audienceTitle": "1. Wer darf dieses Paket nutzen?",
+      "audienceHint": "Dies ändert ausschließlich das Nutzungsrecht. Bestehende Bearbeitungs- und Verwaltungsrechte bleiben erhalten.",
+      "users": "Ausgewählte Personen",
+      "organization": "Alle Mitglieder der Organisation",
+      "unnamedUser": "Organisationsmitglied",
+      "noUsers": "Es sind keine auswählbaren Mitglieder verfügbar.",
+      "otherTargets": "Weitere Nutzungsfreigaben sind vorhanden. Beim Speichern ersetzt dieser Nutzerkreis deren Nutzungsrechte; Bearbeitungs- und Verwaltungsrechte bleiben erhalten.",
+      "saveAudience": "Nutzerkreis speichern",
+      "activationTitle": "2. Paket aktivieren",
+      "active": "Die Paketaktivierung ist freigegeben. Individuelle Regeln und Einstellungen gelten weiterhin.",
+      "inactive": "Die veröffentlichte Version ist gespeichert. Die Paketaktivierung ist noch nicht freigegeben.",
+      "activate": "Paketaktivierung freigeben",
+      "activationHint": "Diese Freigabe vergibt kein Nutzungsrecht und verbindet keine persönlichen Konten. Bei optionaler Richtlinie aktivieren Mitglieder die Nutzung zusätzlich für sich. Speichere Änderungen am Nutzerkreis zuerst.",
+      "policyBlocked": "Deine aktuelle Regel blockiert dieses Paket. Aktivierung allein hebt diese Sperre nicht auf.",
+      "nextTitle": "3. Diese genaue Version nutzen",
+      "connectionsHint": "Wähle Verbindungen im vorhandenen Chat- oder Agenteneditor. Jede Person nutzt eigene berechtigte Konten. Auch ein eingerichtetes Paket benötigt noch eine tatsächliche Workflowprüfung.",
+      "chat": "Im Chat vorbereiten",
+      "chooseWorkspace": "Wähle einen Arbeitsbereich, um einen Chat oder Agenten vorzubereiten.",
+      "exactVersion": "Details zur veröffentlichten Version",
+      "headChanged": "Eine neuere Version ist aktuell. Du siehst weiterhin die gewählte veröffentlichte Version. Änderungen an der Bereitstellung sind gesperrt; öffne dafür ausdrücklich die aktuelle Version.",
+      "errors": {
+        "conflict": "Das Paket oder seine Rechte haben sich geändert. Lade den Stand vor einem erneuten Versuch neu. Die veröffentlichte Version bleibt erhalten.",
+        "denied": "Dein aktueller Zugriff erlaubt diesen Schritt nicht. Das Paket wurde nicht erneut veröffentlicht.",
+        "unavailable": "Dieser Schritt konnte nicht bestätigt werden. Lade den Stand neu, um vor einem erneuten Versuch das gespeicherte Ergebnis zu sehen."
+      },
+      "saved": {
+        "audience": "Nutzerkreis gespeichert.",
+        "activation": "Aktivierung bestätigt.",
+        "personal_activation": "Nutzung für dich aktiviert."
+      },
+      "openCurrent": "Aktuelle Version öffnen",
+      "readiness": {
+        "unknown": "Die Verbindungsprüfung im Zielchat oder Agenten steht noch aus.",
+        "available": "Das Paket ist im aktuellen Kontext verfügbar. Verbindungen werden im Zielchat oder Agenten geprüft.",
+        "disabled": "Das Paket ist für deinen aktuellen Kontext noch nicht aktiviert.",
+        "blocked": "Eine Regel blockiert das Paket im aktuellen Kontext.",
+        "conflict": "Konflikte im aktuellen Paketstand müssen zuerst behoben werden.",
+        "personal-connection-required": "Eine eigene berechtigte Verbindung ist noch erforderlich."
+      },
+      "currentDetailsHint": "Bereitstellung sowie vorbereitete Chat- und Agentenauswahl beziehen sich auf die gewählte veröffentlichte Version. Die übrigen Paketdetails und Verbindungsübersichten zeigen den aktuell installierten Stand.",
+      "enableForMe": "Für mich aktivieren",
+      "personalHint": "Die Nutzung ist für dich noch ausgeschaltet. Aktiviere sie für dich, um diese Version im Chat oder Agenten vorzubereiten. Die Organisationsregel und die Einstellungen anderer Mitglieder bleiben erhalten.",
+      "useNotGranted": "Du kannst dieses Paket verwalten, hast aber aktuell kein Nutzungsrecht. Nimm dich bei Bedarf ausdrücklich in den Nutzerkreis auf."
     }
   },
   "automationen": {

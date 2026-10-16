@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import type { SqlConnection } from '../../app/lib/db';
-import type { CapabilityPackageDraft } from '../../app/lib/capabilities/packages/contracts';
+import type { CapabilityPackageDraft, CapabilityPackageOperationStatus } from '../../app/lib/capabilities/packages/contracts';
 
 type Packages = typeof import('../../app/lib/capabilities/packages/actions');
 type Actor = { userId: string; workspaceId: string };
@@ -23,7 +23,7 @@ export async function verifyCapabilityPackageCreation(input: {
   const operation = async (requestId: string, userId = owner.userId) => {
     const response = await recovery.GET(request(userId, 'GET', undefined,
       `http://localhost/api/capabilities/packages/operations?requestId=${requestId}`), context());
-    return data<{ operation: { status: string; draftRef: string; draftRevision: number; resourceRef: string; publishedRevisionRef: string | null } }>(response);
+    return data<{ operation: CapabilityPackageOperationStatus }>(response);
   };
   const creation = { operation: 'create', kind: 'plugin', targetName: 'package-created-org', requestId: randomUUID() };
   assert.equal((await collection.POST(request(null, 'POST', creation), context())).status, 401);
@@ -69,6 +69,7 @@ export async function verifyCapabilityPackageCreation(input: {
   const afterWrites = await data<{ draft: CapabilityPackageDraft }>(await collection.POST(request(owner.userId, 'POST', creation), context()));
   assert.equal(afterWrites.draft.draftRevision, draft.draftRevision, 'Create recovery must not return stale draft revision one.');
   assert.equal((await operation(creation.requestId)).operation.draftRevision, draft.draftRevision);
+  assert.equal((await operation(creation.requestId)).operation.publishedChecksum, null);
   assert((await packages.validateCapabilityPackageDraftAction(owner, draft.draftRef)).validation.valid);
   const publishRequest = { draftRef: draft.draftRef, expectedDraftRevision: draft.draftRevision, expectedMetadataRevision: 0,
     expectedGrantsRevision: 0, expectedPackageRevision: 0, expectedPublishedRevisionRef: null, requestId: randomUUID() };
@@ -78,7 +79,11 @@ export async function verifyCapabilityPackageCreation(input: {
   const recovered = await operation(publishRequest.requestId);
   assert.equal(recovered.operation.status, 'published');
   assert.equal(recovered.operation.publishedRevisionRef, published.published.revisionRef);
+  assert.equal(recovered.operation.publishedChecksum, published.published.checksum);
+  assert.deepEqual(Object.keys(recovered.operation).sort(), ['requestId','operation','status','draftRef','draftRevision','resourceRef',
+    'publishedRevisionRef','publishedChecksum','kind','name','createdAt','updatedAt'].sort(), 'Recovery exposes only the actor-private metadata contract.');
   assert.equal((await operation(creation.requestId)).operation.status, 'published', 'The create key remains useful after its draft is consumed.');
+  assert.equal((await operation(creation.requestId)).operation.publishedChecksum, published.published.checksum);
   const second = await packages.publishCapabilityPackageDraftAction(owner, publishRequest);
   assert.equal(second.published.revisionRef, published.published.revisionRef, 'Lost publish response must not create a second immutable version.');
   assert.equal((await raw.get('SELECT COUNT(*)::integer AS count FROM capability_package_versions WHERE resource_ref=$1', [draft.resourceRef]) as { count: number }).count, 1);
@@ -93,6 +98,22 @@ export async function verifyCapabilityPackageCreation(input: {
   const foreign = await recovery.GET(request(other.userId, 'GET', undefined,
     `http://localhost/api/capabilities/packages/operations?requestId=${publishRequest.requestId}`), context());
   assert.equal(foreign.status, 404, 'Publication recovery remains private to the actual actor.');
+  await raw.run("UPDATE capability_resources SET status='archived' WHERE resource_ref=$1",[draft.resourceRef]);
+  try {
+    assert.equal((await operation(publishRequest.requestId)).operation.publishedChecksum,published.published.checksum,
+      'An actor-private receipt retains exact publication metadata after resource Read is revoked.');
+    await assert.rejects(packages.readCapabilityPackageFileAction(owner,draft.resourceRef,{path:'skills/created-context/SKILL.md'}),
+      error=>[403,404].includes((error as {status?:number}).status??0),'Receipt metadata cannot grant file Read.');
+  } finally {await raw.run("UPDATE capability_resources SET status='active' WHERE resource_ref=$1",[draft.resourceRef]);}
+  for(const missing of [{resourceRef:`canvas-resource:${randomUUID()}`,revisionRef:published.published.revisionRef},
+    {resourceRef:draft.resourceRef,revisionRef:`canvas-package-revision:${randomUUID()}`}]){
+    await raw.run('UPDATE capability_package_operations SET resource_ref=$1,published_revision_ref=$2 WHERE actor_user_id=$3 AND request_id=$4',
+      [missing.resourceRef,missing.revisionRef,owner.userId,publishRequest.requestId]);
+    try{assert.equal((await operation(publishRequest.requestId)).operation.publishedChecksum,null,
+      'A missing exact resource/revision pair never falls back to a current head or another resource’s version.');}
+    finally{await raw.run('UPDATE capability_package_operations SET resource_ref=$1,published_revision_ref=$2 WHERE actor_user_id=$3 AND request_id=$4',
+      [draft.resourceRef,published.published.revisionRef,owner.userId,publishRequest.requestId]);}
+  }
   for (const query of ['', 'requestId=invalid', `requestId=${creation.requestId}&requestId=${creation.requestId}`,
     `requestId=${creation.requestId}&draftRef=${draft.draftRef}`, 'rootPath=/tmp']) {
     assert.equal((await recovery.GET(request(owner.userId, 'GET', undefined,

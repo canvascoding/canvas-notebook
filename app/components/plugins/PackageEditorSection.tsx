@@ -1,7 +1,7 @@
 'use client';
 
 import { startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { Download, FileCode2, Loader2, RefreshCw, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { InlineNotice } from '@/components/ui/inline-notice';
+import type { ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
+import { publishedPackageNavigation } from './package-provisioning-client';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackageFileRead, CapabilityPackageOperationStatus,
   CapabilityPackageOwnedDraftStatus, CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry } from '@/app/lib/capabilities/packages/contracts';
@@ -22,7 +24,7 @@ import { PackageWorkspaceRequestError } from './plugin-workspace-client';
 import { PackageCreatorResumeButton } from './PackageCreatorResumeButton';
 
 type ScopeChoice = { type: 'user' | 'organization' | 'team'; workspaceId?: string; label: string };
-type VersionSummary = Pick<CapabilityPackagePublishedRevision, 'revisionRef' | 'version' | 'publishedAt'>;
+type VersionSummary = Pick<CapabilityPackagePublishedRevision, 'revisionRef' | 'version' | 'publishedAt' | 'checksum'>;
 type DraftView = { draft: CapabilityPackageDraft; target: { ownership: CapabilityResourceOwnerScope;
   expectedMetadataRevision: number; expectedGrantsRevision: number } };
 type FileView = { file: CapabilityPackageFileRead; text: string | null };
@@ -31,6 +33,7 @@ type PackageEditorProps = {
   resourceRef?: string; workspaceId?: string | null; onUpdated?: () => void;
   initialDraftRef?: string; initiallyOpen?: boolean; initialFile?: string;
   onDraftStarted?: (draft: CapabilityPackageDraft) => void;
+  onPublished?: (pin: ExtensionPackagePin) => void;
 };
 type ApiPayload<T> = { success: boolean; data?: T; code?: string; validation?: CapabilityPackageDraftValidationReport };
 class PackageRequestError extends Error {
@@ -60,8 +63,8 @@ export function PackageEditorSection(props: PackageEditorProps) {
 }
 
 /** Each exact resource/workspace/draft selection owns its state and request generation. */
-function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false, initialFile, onDraftStarted }: PackageEditorProps) {
-  const t = useTranslations('skills.packageEditor');
+function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false, initialFile, onDraftStarted, onPublished }: PackageEditorProps) {
+  const t = useTranslations('skills.packageEditor'), locale = useLocale();
   const storageKey = `canvas-private-package-draft:${resourceRef || initialDraftRef || ''}:${workspaceId || ''}`;
   const [descriptor, setDescriptor] = useState<CapabilityPackageDescriptor | null>(null);
   const [draftView, setDraftView] = useState<DraftView | null>(null);
@@ -83,13 +86,17 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [publishedVariant, setPublishedVariant] = useState<{ name: string; kind: 'skill' | 'plugin'; scope: string } | null>(null);
+  const [publishedVariant, setPublishedVariant] = useState<ExtensionPackagePin | null>(null);
+  const publishedAck = useRef<ExtensionPackagePin | null>(null);
+  const [publicationGeneration, setPublicationGeneration] = useState(0);
   const generation = useRef(0);
   const loadRevision = useRef(0);
   const readController = useRef<AbortController | null>(null);
   const upload = useRef<HTMLInputElement | null>(null);
   const resumedDraft = useRef(initialDraftRef);
   const recoveredPackage = useRef<string | undefined>(undefined);
+  const recoveredRevision = useRef<string | null>(null);
+  const recoveredChecksum = useRef<string | null>(null);
   const startedDraft = useRef<CapabilityPackageDraft | null>(null);
   const [draftStartGeneration, setDraftStartGeneration] = useState(0);
   const dirty = fileView?.text !== null && fileView?.text !== undefined && fileText !== fileView.text;
@@ -108,6 +115,12 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
     startedDraft.current = null;
     onDraftStarted?.(draft);
   }, [draftStartGeneration, onDraftStarted, pending]);
+
+  useEffect(() => {
+    if (pending || !publishedAck.current) return;
+    const pin = publishedAck.current; publishedAck.current = null;
+    if (onPublished) { onPublished(pin); onUpdated?.(); }
+  }, [pending, publicationGeneration, onPublished, onUpdated]);
 
   const apiPath = useCallback((suffix: string, query?: Record<string, string | number>) => {
     const parameters = new URLSearchParams();
@@ -167,6 +180,8 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
             if (recovered.operation.status === 'published') {
               recoveredResourceRef = recovered.operation.resourceRef;
               recoveredPackage.current = recoveredResourceRef;
+              recoveredRevision.current = recovered.operation.publishedRevisionRef;
+              recoveredChecksum.current = recovered.operation.publishedChecksum ?? null;
               setNotice(t('recoveredPublished'));
             } else if (recovered.operation.status === 'discarded') setNotice(t('recoveredDiscarded'));
             else throw failure;
@@ -216,6 +231,15 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
           || selected.file.size !== capturedFile.size || draftData && (selected.draft?.draftRef !== draftData.draft.draftRef
             || selected.draft?.draftRevision !== draftData.draft.draftRevision)) throw new PackageRequestError(409, 'PACKAGE_REVISION_CONFLICT');
         initialView = {file: selected.file, text: textContent(selected.file)};
+      }
+      if (recoveredRevision.current && recoveredResourceRef) {
+        const exact = recoveredChecksum.current ? { revisionRef: recoveredRevision.current, checksum: recoveredChecksum.current }
+          : versionData.versions.find(value => value.revisionRef === recoveredRevision.current);
+        if (exact?.checksum) {
+          const pin = { resourceRef: recoveredResourceRef, publishedRevisionRef: exact.revisionRef, checksum: exact.checksum };
+          setPublishedVariant(pin); publishedAck.current = pin; setPublicationGeneration(value => value + 1);
+          recoveredRevision.current = null; recoveredChecksum.current = null;
+        }
       }
       setDescriptor(packageData?.package ?? null); setScopes(scopeData.scopes); setVersions(versionData.versions);
       setSelectedVersion(packageData?.package.published?.revisionRef || '');
@@ -351,9 +375,10 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         expectedPackageRevision: draft.basePackageRevision, expectedPublishedRevisionRef: draft.basePublishedRevisionRef,
         expectedMetadataRevision: draftView.target.expectedMetadataRevision, expectedGrantsRevision: draftView.target.expectedGrantsRevision }) });
     rememberDraft(null); setDraftView(null); setValidation(null); setFilePath(''); setFileView(null); setFileText('');
-    if (draft.operation !== 'edit') setPublishedVariant({ name: draft.name, kind: draft.kind,
-      scope: draftView.target.ownership.type === 'user' ? 'user' : 'organization' });
-    await load(); setNotice(t('published', { name: draft.name, version: result.published.version })); onUpdated?.();
+    const pin = { resourceRef: result.state.resourceRef, publishedRevisionRef: result.published.revisionRef, checksum: result.published.checksum };
+    setPublishedVariant(pin); publishedAck.current = pin; setPublicationGeneration(value => value + 1);
+    recoveredPackage.current = pin.resourceRef;
+    await load(); setNotice(t('published', { name: draft.name, version: result.published.version })); if (!onPublished) onUpdated?.();
   };
   const files = tree.filter((entry): entry is Extract<CapabilityPackageTreeEntry, { type: 'file' }> => entry.type === 'file');
   const owner = draftView?.target.ownership || blockedDraft?.targetOwnership || descriptor?.resource.ownership;
@@ -546,10 +571,8 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
             rememberDraft(null); setBlockedDraft(null); setFileView(null); setFileText(''); await load(); setNotice(t('discarded'));
           })}>{t('discard')}</Button>
         </div> : null}
-        {publishedVariant ? <p className="text-sm"><a className="underline underline-offset-4" href={`/plugins?${new URLSearchParams({ view: 'installed',
-          scope: publishedVariant.scope, ...(publishedVariant.kind === 'plugin' ? { plugin: publishedVariant.name, source: 'installed' }
-            : { area: 'skills', q: publishedVariant.name }) })}`}>
-          {t('openVariant', { name: publishedVariant.name })}
+        {publishedVariant ? <p className="text-sm"><a className="underline underline-offset-4" href={`/${locale}${publishedPackageNavigation(publishedVariant, workspaceId)}`}>
+          {t('provisionPublished')}
         </a></p> : null}
       </div>
     </details>

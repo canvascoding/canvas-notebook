@@ -32,6 +32,8 @@ export type PluginNavigation = {
   resourceId?: string;
   resourceRef?: string;
   draftRef?: string;
+  publishedRevisionRef?: string;
+  publishedChecksum?: string;
   task?: typeof PLUGIN_DETAIL_TASKS[number];
   file?: string;
   workspaceId?: string;
@@ -49,7 +51,7 @@ const UUID = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}';
 const RESOURCE_REF = new RegExp(`^canvas-resource:${UUID}$`, 'u');
 const DRAFT_REF = new RegExp(`^canvas-package-draft:${UUID}$`, 'u');
 const LEGACY_RESOURCE_REF = /^canvas-capability:v1:(?:plugin|skill):(?:system|(?:org|user):[a-z0-9_.%~-]+):(?:core|standalone|plugin:[a-z0-9_.%~-]+):[a-z0-9_.%~-]+$/iu;
-const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file', 'connectionRef', 'sharedOAuth', 'extensionId', 'setup'] as const;
+const DETAIL_KEYS = ['plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'publishedRevisionRef', 'publishedChecksum', 'task', 'file', 'connectionRef', 'sharedOAuth', 'extensionId', 'setup'] as const;
 
 /** URL identity is a selection only; the server resolves current access for every read/write. */
 export function isPluginNavigationResourceRef(value: string): boolean {
@@ -118,6 +120,11 @@ export function readPluginNavigation(params: Pick<URLSearchParams, 'get'>): Plug
   }
   const resourceRef = params.get('resourceRef');
   if (resourceRef && isPluginNavigationResourceRef(resourceRef) && navigation.source !== 'store') navigation.resourceRef = resourceRef;
+  const publishedRevisionRef = params.get('publishedRevisionRef'), publishedChecksum = params.get('publishedChecksum');
+  if (navigation.resourceRef && publishedRevisionRef && new RegExp(`^canvas-package-revision:${UUID}$`, 'u').test(publishedRevisionRef)
+    && publishedChecksum && /^[a-f0-9]{64}$/u.test(publishedChecksum)) {
+    navigation.publishedRevisionRef = publishedRevisionRef; navigation.publishedChecksum = publishedChecksum;
+  }
   const draftRef = params.get('draftRef');
   if (view === 'drafts' && draftRef && DRAFT_REF.test(draftRef)) navigation.draftRef = draftRef;
   if (navigation.plugin || navigation.skill || navigation.resourceRef || navigation.draftRef) {
@@ -175,7 +182,7 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
   }
   if (('resourceRef' in patch && patch.resourceRef !== current.resourceRef) || ('plugin' in patch && patch.plugin !== current.plugin)
     || ('skill' in patch && patch.skill !== current.skill) || ('draftRef' in patch && patch.draftRef !== current.draftRef)) {
-    for (const key of ['task', 'file']) params.delete(key);
+    for (const key of ['task', 'file', 'publishedRevisionRef', 'publishedChecksum']) params.delete(key);
   }
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) params.delete(key);
@@ -188,7 +195,7 @@ export function updatePluginNavigation(search: string, patch: Partial<PluginNavi
   params.set('view', next.view);
   if (next.scope === (next.view === 'browse' ? 'all' : 'user')) params.delete('scope');
   else params.set('scope', next.scope);
-  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'connectionRef', 'sharedOAuth', 'stock', 'extensionSource', 'extensionId', 'extensionCursor', 'setup'] as const) {
+  for (const key of ['teamId', 'audience', 'kind', 'skill', 'resourceRef', 'draftRef', 'publishedRevisionRef', 'publishedChecksum', 'task', 'file', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'connectionRef', 'sharedOAuth', 'stock', 'extensionSource', 'extensionId', 'extensionCursor', 'setup'] as const) {
     if (next[key] === undefined) params.delete(key);
     else params.set(key, next[key]);
   }
@@ -213,7 +220,7 @@ export function legacyPluginSettingsHref(params: Record<string, string | string[
   const tab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
   if (tab !== 'plugins' && tab !== 'skills') return null;
   const query = new URLSearchParams();
-  for (const key of ['view', 'scope', 'teamId', 'audience', 'kind', 'plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'task', 'file', 'workspaceId', ...FILTER_KEYS] as const) {
+  for (const key of ['view', 'scope', 'teamId', 'audience', 'kind', 'plugin', 'skill', 'source', 'storeRegistryId', 'storeVersion', 'storeChecksum', 'resourceId', 'resourceRef', 'draftRef', 'publishedRevisionRef', 'publishedChecksum', 'task', 'file', 'workspaceId', ...FILTER_KEYS] as const) {
     const value = params[key];
     if (typeof value === 'string') query.set(key, value);
   }

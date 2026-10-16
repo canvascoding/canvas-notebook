@@ -27,7 +27,7 @@ type Loaded = Omit<PluginExtensionSearchData, 'updating' | 'retry'> & {
 };
 
 /** One query covers all four kinds; neither detail navigation nor paging changes its context. */
-export function usePluginExtensionSearch({ navigation, workspaceId, epoch }: { navigation: PluginNavigation; workspaceId: string | null; epoch: number }): PluginExtensionSearchData {
+export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpose = 'browse' }: { navigation: PluginNavigation; workspaceId: string | null; epoch: number; purpose?: 'browse' | 'authoring' }): PluginExtensionSearchData {
   const { data: session, isPending, error: sessionError } = authClient.useSession();
   const actorId = !isPending && !sessionError ? session?.user.id ?? null : null;
   const sessionId = !isPending && !sessionError ? session?.session.id ?? null : null;
@@ -37,7 +37,7 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch }: { n
   const selected = navigation.extensionId;
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const key = JSON.stringify([actorId, sessionId, workspaceId, q, kind, scope, audience ?? null, teamId ?? null, stock, source, epoch]);
+  const key = JSON.stringify([actorId, sessionId, workspaceId, q, kind, scope, audience ?? null, teamId ?? null, stock, source, epoch, purpose]);
   const chainKey = JSON.stringify([key, attempt]);
   const contextKey = JSON.stringify([key, cursor ?? null, attempt]);
   const currentResponse = loaded?.contextKey === contextKey && loaded.status === 'ready' && !loaded.error ? loaded.receivedResponse : null;
@@ -60,7 +60,7 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch }: { n
       return !controller.signal.aborted && generation.current === current && !currentSession.isPending && !currentSession.error
         && currentSession.data?.user.id === actorId && currentSession.data?.session.id === sessionId;
     };
-    void workspaceRequest<PluginExtensionSearchResponse>('/api/plugins/search', workspaceId, { signal: controller.signal }, query).then(response => {
+    void workspaceRequest<PluginExtensionSearchResponse>(purpose === 'authoring' ? '/api/plugins/authoring-search' : '/api/plugins/search', workspaceId, { signal: controller.signal }, query).then(response => {
       if (!isCurrent()) return;
       if (response.schemaVersion !== 1 || !Array.isArray(response.items) || !Array.isArray(response.coverage) || !response.pagination
         || !response.scopes || !Array.isArray(response.scopes.choices) || !Array.isArray(response.scopes.teams)) throw new PackageWorkspaceRequestError(502, 'PLUGIN_SEARCH_RESPONSE_INVALID');
@@ -96,7 +96,7 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch }: { n
       }));
     });
     return () => { generation.current += 1; controller.abort(); };
-  }, [key, requestKey, contextKey, chainKey, query, workspaceId, cursor, requestedSelection, actorId, sessionId]);
+  }, [key, requestKey, contextKey, chainKey, query, workspaceId, cursor, requestedSelection, actorId, sessionId, purpose]);
   if (loaded?.key !== key) return { key, status: 'loading', updating: false, error: null, response: null, items: [], selectedItem: null, retry };
   const selectedRow = loaded.requestKey === requestKey && !loaded.error && receivedRow?.row.access.canRead ? receivedRow : null;
   const selectedItem = selectedRow?.row ?? (selected && loaded.requestKey === requestKey && loaded.selectedItem?.id === selected ? loaded.selectedItem : null);

@@ -43,7 +43,7 @@ function PackageCompositionPicker({ draftRef, revision, workspaceId, disabled, o
   const [chosen, setChosen] = useState<string[]>([]), [connector, setConnector] = useState(''), [required, setRequired] = useState(true);
   useEffect(() => { const timer = setTimeout(() => { setQuery(text); setCursor(undefined); }, 250); return () => clearTimeout(timer); }, [text]);
   const navigation: PluginNavigation = { area: 'plugins', view: 'browse', scope: 'all', kind, stock: 'all', q: query, extensionCursor: cursor };
-  const data = usePluginExtensionSearch({ navigation, workspaceId: workspaceId ?? null, epoch: 0 });
+  const data = usePluginExtensionSearch({ navigation, workspaceId: workspaceId ?? null, epoch: 0, purpose: 'authoring' });
   const item = selection?.key === data.key ? selection.item : null;
   const inspectionKey = JSON.stringify([workspaceId, draftRef, revision, data.key, item?.id, inspectionAttempt]);
   const current = useRef(inspectionKey);

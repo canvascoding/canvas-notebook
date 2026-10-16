@@ -66,7 +66,7 @@ async function main() {
     requests.push({ suffix, method, workspace: url.searchParams.get('workspaceId') });
     const segments = suffix.split('/').filter(Boolean).map(decodeURIComponent);
     if (segments[0] === 'operations') return recoveredPublished === url.searchParams.get('draftRef')
-      ? body({ operation: { status: 'published', resourceRef: targetRef } }) : body({}, 404);
+      ? body({ operation: { status: 'published', resourceRef: targetRef, publishedRevisionRef: 'canvas-package-revision:55555555-5555-4555-8555-555555555555', publishedChecksum: 'b'.repeat(64) } }) : body({}, 404);
     if (segments[0] === 'drafts') {
       if (method === 'POST' && segments.length === 1) {
         await holdCreate;
@@ -179,13 +179,17 @@ async function main() {
     assert.equal(requests.length, 3, 'A disappeared explicit draft stops after tree404/status404 and private receipt404, with no source fallback.');
 
     reset(); recoveredPublished = draftRef('e');
-    render(form({ initialDraftRef: recoveredPublished, initiallyOpen: true, workspaceId: 'team-one' }));
+    const recoveredPins: unknown[] = [];
+    render(form({ initialDraftRef: recoveredPublished, initiallyOpen: true, workspaceId: 'team-one', onPublished: pin => { assert(confirmPluginNavigation(), 'Recovery navigation waits for a released operation guard.'); recoveredPins.push(pin); } }));
     await screen.findByText(messages.skills.packageEditor.recoveredPublished);
     await screen.findByTestId('package-create-edit');
+    await waitFor(() => assert.equal(recoveredPins.length, 1));
+    assert.deepEqual(recoveredPins[0], { resourceRef: targetRef, publishedRevisionRef: 'canvas-package-revision:55555555-5555-4555-8555-555555555555', checksum: 'b'.repeat(64) });
     fireEvent.click(screen.getByTestId('package-reload'));
     await waitFor(() => assert.equal(requests.filter(value => value.suffix === `/${encodeURIComponent(targetRef)}`).length, 2));
     await waitFor(() => assert.equal((screen.getByTestId('package-reload') as HTMLButtonElement).disabled, false));
     assert(screen.getByTestId('package-create-edit'), 'Repeated reload retains the recovered source-free published package.');
+    assert.equal(recoveredPins.length, 1, 'Reload does not repeat acknowledged publication navigation.');
     assert.equal(requests.filter(value => value.suffix === '/operations').length, 1, 'The recovered reference is reauthorized directly without replaying publication.');
     unavailablePackage = true; fireEvent.click(screen.getByTestId('package-reload'));
     await screen.findByText(messages.skills.packageEditor.accessError);

@@ -7,6 +7,7 @@ import type { CapabilityPackageOwnedDraftStatus } from '@/app/lib/capabilities/p
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { PackageDraftsSection } from './PackageDraftsSection';
 import { PackageEditorSection } from './PackageEditorSection';
+import { publishedPackageNavigationPatch } from './package-provisioning-client';
 import { usePluginNavigation } from './usePluginNavigation';
 
 /** Own draft metadata stays reachable independently from the visible installed catalog. */
@@ -33,7 +34,7 @@ export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { 
       </header>
       {navigation.draftRef ? (
         <PackageEditorSection resourceRef={navigation.resourceRef} initialDraftRef={navigation.draftRef}
-          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} onDraftStarted={draft => navigate({
+          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} onPublished={pin => navigate(publishedPackageNavigationPatch(pin))} onDraftStarted={draft => navigate({
             area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts', resourceRef: draft.sourceResourceRef ?? undefined,
             draftRef: draft.draftRef, task: 'content', file: undefined,
           })} />

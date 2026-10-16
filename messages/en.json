@@ -8718,7 +8718,8 @@
       "publish": "Publish version",
       "discard": "Discard private draft",
       "discarded": "Private draft discarded. The published package is unchanged.",
-      "openVariant": "Configure access and activation for {name}"
+      "openVariant": "Configure access and activation for {name}",
+      "provisionPublished": "Open availability for this version"
     },
     "workspace": {
       "catalog": {
@@ -9075,6 +9076,55 @@
         "advancedHint": "These references identify this exact readable package. They contain no credentials or connection configuration.",
         "resourceRef": "Resource reference"
       }
+    },
+    "provisioning": {
+      "title": "Make available to your organization",
+      "publishedVersion": "{name} · published version {version}",
+      "loading": "Loading the current availability…",
+      "reload": "Reload status",
+      "audienceTitle": "1. Who may use this package?",
+      "audienceHint": "This changes Use permission only. Existing Edit and Manage permissions are preserved.",
+      "users": "Selected people",
+      "organization": "All members of the organization",
+      "unnamedUser": "Organization member",
+      "noUsers": "No selectable members are available.",
+      "otherTargets": "Other Use grants exist. Saving this audience replaces those Use grants; Edit and Manage permissions remain.",
+      "saveAudience": "Save audience",
+      "activationTitle": "2. Activate the package",
+      "active": "Package activation is allowed. Individual policy and preferences still apply.",
+      "inactive": "The published version is saved. Package activation is not yet allowed.",
+      "activate": "Allow package activation",
+      "activationHint": "This step does not grant Use permission or connect personal accounts. Under an optional policy, members also activate use for themselves. Save audience changes first.",
+      "policyBlocked": "Your current policy blocks this package. Activation alone does not resolve that block.",
+      "nextTitle": "3. Use this exact version",
+      "connectionsHint": "Choose connections in the existing chat or agent editor. Each person uses their own authorized accounts. A configured package still needs a real workflow check.",
+      "chat": "Prepare in chat",
+      "chooseWorkspace": "Choose a workspace to prepare a chat or agent.",
+      "exactVersion": "Published version details",
+      "headChanged": "A newer version is current. You are still viewing the selected published version. Availability changes are blocked; open the current version explicitly to change them.",
+      "errors": {
+        "conflict": "The package or its permissions changed. Reload status before retrying. The published version is retained.",
+        "denied": "Your current access does not allow this step. The package has not been published again.",
+        "unavailable": "This step could not be confirmed. Reload status to see the saved result before retrying."
+      },
+      "saved": {
+        "audience": "Audience saved.",
+        "activation": "Activation confirmed.",
+        "personal_activation": "Activated for your own use."
+      },
+      "openCurrent": "Open current version",
+      "readiness": {
+        "unknown": "Connection checks in the target chat or agent are still pending.",
+        "available": "The package is available in the current context. Connections are checked in the target chat or agent.",
+        "disabled": "The package is not enabled in your current context.",
+        "blocked": "A policy blocks the package in the current context.",
+        "conflict": "Conflicts in the current package source must be resolved first.",
+        "personal-connection-required": "Your own authorized connection is still required."
+      },
+      "currentDetailsHint": "Availability and prepared chat or agent selections use the selected published version. Other package details and connection overviews show the currently installed version.",
+      "enableForMe": "Activate for me",
+      "personalHint": "Use is still switched off for you. Activate it for yourself to prepare this version in chat or an agent. The organization policy and other members’ preferences are preserved.",
+      "useNotGranted": "You can manage this package, but do not currently have Use permission. Explicitly include yourself in the audience if needed."
     }
   },
   "automationen": {

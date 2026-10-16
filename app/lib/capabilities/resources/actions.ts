@@ -24,6 +24,7 @@ import { projectCapabilityPluginChildAccess } from './child-access';
 import {
   adoptCapabilityResource, findCapabilityResourceRecord, getCapabilityResourceAccess,
   listCapabilityResourceGrants, listCapabilityResourceGrantTargets, mutateCapabilityResource,
+  type CapabilityResourceMutationOptions,
 } from './store';
 
 function invalidRequest(): never {
@@ -225,14 +226,16 @@ export async function configureCapabilityResource(input: CapabilityResourceActor
   return descriptor(actor, context, candidate, entry);
 }
 
-export async function updateCapabilityResource(input: CapabilityResourceActor, reference: string, value: unknown): Promise<CapabilityResourceDescriptor> {
+export async function updateCapabilityResource(input: CapabilityResourceActor, reference: string, value: unknown,
+  options: CapabilityResourceMutationOptions = {}): Promise<CapabilityResourceDescriptor> {
   const ref = captureReference(reference);
   const mutation = parseCapabilityResourceMutation(value);
   const { actor, context } = await resolveActor(input);
   const candidate = await resolveInstalledCandidate(actor, context, ref);
   assertWritableArtifact(candidate);
   const record = await findCapabilityResourceRecord(ref);
-  const entry = record ? await mutateCapabilityResource(actor, record.metadata.resourceRef, mutation)
+  if (!record && options.beforeMutation) throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'The managed resource was not found.', 404);
+  const entry = record ? await mutateCapabilityResource(actor, record.metadata.resourceRef, mutation, options)
     : await adoptCapabilityResource(actor, binding(candidate), mutation);
   await afterMutation(actor, candidate, entry);
   // A manager may intentionally revoke their own grant. Return the committed revisions without re-authorizing access to contents.

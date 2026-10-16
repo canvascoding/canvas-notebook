@@ -159,7 +159,8 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
       resourceRef={activeUpdate.resourceRef} onInstalled={installed} onUpdated={() => { if (selection.current === selectionKey) { setUpdate(null); refresh(); navigate({ task: 'versions' }); } }}
       onClose={() => { if (confirmPluginNavigation()) setUpdate(null); }} />
       : navigation.resourceRef ? <PackageDetailWorkspace key={JSON.stringify([workspaceId, navigation.resourceRef, epoch])} resourceRef={navigation.resourceRef}
-        workspaceId={workspaceId} task={navigation.task ?? 'overview'} file={navigation.file} store={packageData.store} onNavigate={navigate} onUpdated={refresh} onConnectionsUpdated={connectionsUpdated} onClose={close}
+        workspaceId={workspaceId} publishedPin={navigation.publishedRevisionRef && navigation.publishedChecksum && navigation.resourceRef
+          ? { resourceRef: navigation.resourceRef, publishedRevisionRef: navigation.publishedRevisionRef, checksum: navigation.publishedChecksum } : undefined} task={navigation.task ?? 'overview'} file={navigation.file} store={packageData.store} onNavigate={navigate} onUpdated={refresh} onConnectionsUpdated={connectionsUpdated} onClose={close}
         onStoreUpdate={(value, resourceRef) => { if (selection.current === selectionKey && confirmPluginNavigation()) setUpdate({ selection: selectionKey, source: value, resourceRef }); }} />
         : source ? <StorePackageWizard source={source} workspaceId={workspaceId} initialOwnership={initialOwnership}
           releaseNotes={offering?.versions.find(value => value.version === source.version && value.checksum === source.checksum)?.notes}

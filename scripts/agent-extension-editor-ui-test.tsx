@@ -296,6 +296,27 @@ async function main() {
     render(wrap(<Form target={prospective} context={context} />, 'de')); await screen.findByLabelText('Plugins, Skills, Integrationen und MCP suchen');
     await ready(); assert(screen.getByText('Dauerhaft für diesen Agenten')); cases++;
 
+    cleanup(); requests.length = 0; validation = undefined;
+    const readSuggestedDraft = (): AgentExtensionEditorDraft => latest;
+    const existingStandalone = { mode: 'fixed' as const, entry: { selection: mcpSelection, requirement: 'required' as const, toolCap: null } };
+    const existingConfiguration = base(); assert(existingConfiguration.mode === 'fixed'); existingConfiguration.standalone = [existingStandalone];
+    render(wrap(<Form target={existing} context={context} start={{ intent: 'keep', configuration: existingConfiguration }} suggestedPackage={pin} />));
+    await ready(); assert.equal(readSuggestedDraft().intent, 'keep', 'The suggestion does not automatically change the existing configuration.');
+    fireEvent.click(screen.getByTestId('agent-package-suggestion-add'));
+    await waitFor(() => { const changed = readSuggestedDraft(); assert.equal(changed.intent, 'replace'); assert(changed.configuration?.mode === 'fixed' && changed.configuration.selections.length === 1); });
+    const added = readSuggestedDraft().configuration; assert(added?.mode === 'fixed'); assert.deepEqual(added.standalone, [existingStandalone]);
+    assert.deepEqual(added.workflow?.packages[0].publishedRevisionRef, pin.publishedRevisionRef);
+    assert(requests.some(row => row.request.operation === 'package_version' && row.request.publishedRevisionRef === pin.publishedRevisionRef));
+    await ready(); assert.equal((screen.getByTestId('agent-package-suggestion-add') as HTMLButtonElement).disabled, true); cases++;
+
+    cleanup(); requests.length = 0; validation = undefined;
+    const originalFixed = base(); assert(originalFixed.mode === 'fixed');
+    const oldPinned = addExtensionPackage(originalFixed, { ...packageMetadata, pin: secondPin });
+    render(wrap(<Form target={existing} context={context} start={{ intent: 'keep', configuration: oldPinned }} suggestedPackage={pin} />));
+    await ready(); fireEvent.click(screen.getByTestId('agent-package-suggestion-add'));
+    await screen.findByRole('alert'); assert.equal(readSuggestedDraft().intent, 'keep');
+    assert.deepEqual(readSuggestedDraft().configuration, oldPinned, 'A suggestion cannot silently replace an existing pin for the same resource.'); cases++;
+
     const full = addExtensionPackage(base() as Extract<AgentExtensionConfigurationInput, { mode: 'fixed' }>, packageMetadata);
     assert(agentExtensionConfigurationInputSchema.safeParse(full).success);
     const withReceipt: AgentExtensionEditorDraft = { intent: 'replace', configuration: { ...full, standalone: [{ mode: 'fixed', entry: { selection: accountSelection, requirement: 'required', toolCap: ['read'], accountSelectionRef: receipt } }] } };

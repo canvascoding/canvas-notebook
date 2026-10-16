@@ -37,7 +37,7 @@ async function main() {
     if (url.pathname === '/api/auth/get-session') return Response.json(actor);
     assert.equal(url.searchParams.get('workspaceId'), 'workspace');
     assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), 'workspace');
-    if (url.pathname === '/api/plugins/search') {
+    if (url.pathname === '/api/plugins/authoring-search') {
       searchCount++;
       return Response.json({ success: true, data: { schemaVersion: 1, query: {}, items: [skill, integration, mcp], selectedItem: null,
         scopes: { choices: ['all'], teams: [] }, coverage: [{ source: 'packages', status: 'complete' }], pagination: { nextCursor: null, hasNextPage: false, loadedItems: 3 } } });

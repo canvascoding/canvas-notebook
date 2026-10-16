@@ -125,3 +125,17 @@ const returned = readPluginNavigation(new URLSearchParams({ view: 'browse', work
 assert.equal(returned.connectionRef, 'canvas-connection:11111111-1111-4111-8111-111111111111');
 assert.equal(returned.sharedOAuth, 'cancelled');
 console.log('Plugin navigation: explicit views, area defaults, legacy links, scope validation and query preservation passed');
+
+const publishedRevisionRef = 'canvas-package-revision:33333333-3333-4333-8333-333333333333';
+const exactPublished = new URL(updatePluginNavigation(`view=drafts&draftRef=${draftRef}`, { view: 'browse', draftRef: undefined, resourceRef,
+  publishedRevisionRef, publishedChecksum: checksum, task: 'sharing' }), 'https://canvas.test');
+assert.equal(readPluginNavigation(exactPublished.searchParams).publishedRevisionRef, publishedRevisionRef);
+assert.equal(readPluginNavigation(exactPublished.searchParams).publishedChecksum, checksum);
+assert.equal(exactPublished.searchParams.has('draftRef'), false);
+const publishedTaskChange = new URL(updatePluginNavigation(exactPublished.search.slice(1), { task: 'connections' }), 'https://canvas.test');
+assert.equal(publishedTaskChange.searchParams.get('publishedRevisionRef'), publishedRevisionRef, 'Task changes retain exact publication identity.');
+const publishedResourceChange = new URL(updatePluginNavigation(exactPublished.search.slice(1), { resourceRef: 'canvas-resource:44444444-4444-4444-8444-444444444444' }), 'https://canvas.test');
+assert.equal(publishedResourceChange.searchParams.has('publishedRevisionRef'), false);
+assert.equal(publishedResourceChange.searchParams.has('publishedChecksum'), false);
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, publishedRevisionRef, publishedChecksum: 'invalid' })).publishedRevisionRef, undefined);
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, publishedRevisionRef })).publishedRevisionRef, undefined);

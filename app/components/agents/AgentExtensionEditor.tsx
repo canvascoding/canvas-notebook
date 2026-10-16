@@ -1,6 +1,6 @@
 'use client';
 
-import type { AgentExtensionConfigurationInput } from '@/app/lib/capabilities/extensions/contracts';
+import type { AgentExtensionConfigurationInput, ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
 import type { AgentExtensionConfigurationPreview, AgentExtensionConfigurationTarget, AgentExtensionOptionsRequest } from '@/app/lib/agents/extension-options-contracts';
 import type { AgentExtensionStandaloneSummary } from '@/app/lib/agents/extension-presentation-contracts';
 import type { AgentWorkflowManagementBindingSummary } from '@/app/lib/agents/workflow-management-contracts';
@@ -18,6 +18,7 @@ export type AgentExtensionEditorProps = { target: AgentExtensionConfigurationTar
   value: AgentExtensionEditorDraft; onChange: (value: AgentExtensionEditorDraft) => void;
   enabledTools?: string[] | null; model?: Pick<PreviewRequest, 'defaultProviderInstallationId' | 'defaultProvider'
     | 'defaultModel' | 'defaultThinking' | 'expectedCatalogRevision'>; disabled?: boolean;
+  suggestedPackage?: ExtensionPackagePin;
   onValidationChange?: (state: AgentExtensionEditorValidation) => void; suggestedSkillNames?: readonly string[];
   bindingSummaries?: readonly AgentWorkflowManagementBindingSummary[];
   standaloneSummaries?: readonly AgentExtensionStandaloneSummary[] };

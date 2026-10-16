@@ -28,12 +28,13 @@ const initialFilters: Filters = { types: ['plugin', 'skill', 'integration', 'mcp
 export function AgentExtensionEditorContent(props: AgentExtensionEditorProps) {
   return <EditorSession key={agentExtensionEditorContextKey(props.context, props.target)} {...props} />;
 }
-function EditorSession({ target, context, value, onChange, enabledTools, model, disabled, onValidationChange, suggestedSkillNames, bindingSummaries, standaloneSummaries }: AgentExtensionEditorProps) {
+function EditorSession({ target, context, value, onChange, enabledTools, model, disabled, onValidationChange, suggestedSkillNames, suggestedPackage, bindingSummaries, standaloneSummaries }: AgentExtensionEditorProps) {
   const copy = useAgentExtensionCopy(), scopeKey = agentExtensionEditorContextKey(context, target);
   const [query, setQuery] = useState(''), [filters, setFilters] = useState<Filters>(initialFilters), [cursor, setCursor] = useState<string | null>(null);
   const [search, setSearch] = useState<SearchData | null>(null), [searchPending, setSearchPending] = useState(false), [searchError, setSearchError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0), [detail, setDetail] = useState<AgentExtensionSearchItem | null>(null);
   const [selectedPin, setSelectedPin] = useState<ExtensionPackagePin | null>(null), [detailMetadata, setDetailMetadata] = useState<AgentExtensionPackageVersion | null>(null);
+  const [suggestionPending, setSuggestionPending] = useState(false), [suggestionError, setSuggestionError] = useState(false);
   const [detailPending, setDetailPending] = useState(false), [detailError, setDetailError] = useState<string | null>(null);
   const [cachedPackages, setCachedPackages] = useState<Record<string, AgentExtensionPackageVersion>>({});
   const [connectionPresentation, setConnectionPresentation] = useState<Record<string, AgentExtensionConnectionPresentation>>({});
@@ -49,6 +50,8 @@ function EditorSession({ target, context, value, onChange, enabledTools, model, 
   const [initialValue] = useState(value);
   const previewKey = JSON.stringify([scopeKey, value, enabledTools, model]), currentPreviewKey = useRef(previewKey);
   useLayoutEffect(() => { onValidation.current = onValidationChange; currentPreviewKey.current = previewKey; }, [onValidationChange, previewKey]);
+  const currentSuggestionContext = useRef({ configuration: value.configuration, disabled });
+  useLayoutEffect(() => { currentSuggestionContext.current = { configuration: value.configuration, disabled }; }, [value.configuration, disabled]);
   const fixed = value.configuration?.mode === 'fixed' ? value.configuration : null;
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
@@ -157,6 +160,20 @@ function EditorSession({ target, context, value, onChange, enabledTools, model, 
       mutate(addExtensionPackage(fixed, detailMetadata, selection)); closeDetail();
     } catch (reason) { setDetailError(reason instanceof Error ? reason.message : String(reason)); }
   };
+  const addSuggestion = async () => {
+    if (!fixed || !suggestedPackage || disabled || suggestionPending) return;
+    const originalConfiguration = JSON.stringify(fixed);
+    setSuggestionPending(true); setSuggestionError(false);
+    try {
+      const result = await requestAgentExtensionOptions(context, { operation: 'package_version', target, ...suggestedPackage });
+      if (!alive.current) return;
+      if (currentSuggestionContext.current.disabled || JSON.stringify(currentSuggestionContext.current.configuration) !== originalConfiguration) throw new Error('The agent draft changed.');
+      if (extensionPinKey(result.package.pin) !== extensionPinKey(suggestedPackage)) throw new Error('Changed package selection');
+      setCachedPackages(previous => ({ ...previous, [extensionPinKey(suggestedPackage)]: result.package }));
+      mutate(addExtensionPackage(fixed, result.package));
+    } catch { if (alive.current) setSuggestionError(true); }
+    finally { if (alive.current) setSuggestionPending(false); }
+  };
   const addConnection = (choice: AgentExtensionChosenConnection) => {
     if (!fixed || disabled) return;
     const identity = extensionSelectionIdentity(choice.selection);
@@ -184,6 +201,13 @@ function EditorSession({ target, context, value, onChange, enabledTools, model, 
   const packageCount = fixed?.workflow?.packages.length ?? 0;
   return <section className="min-w-0 space-y-4" data-testid="agent-extension-editor" aria-label={copy('Erweiterungen und Werkzeuge', 'Extensions and tools')}>
     <div className="space-y-1"><h3 className="text-sm font-semibold">{copy('Erweiterungen und Werkzeuge', 'Extensions and tools')}</h3><p className="text-xs leading-relaxed text-muted-foreground">{copy('Dauerhaft für diesen Agenten. Plugins bündeln Skills und Verbindungen; jeder Bestandteil lässt sich auch einzeln auswählen.', 'Always available to this agent. Plugins bundle skills and connections; each component can also be selected separately.')}</p></div>
+    {suggestedPackage ? <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3" data-testid="agent-package-suggestion">
+      <p className="text-sm">{copy('Die veröffentlichte Version diesem Agenten hinzufügen. Bestehende Pakete und Verbindungen bleiben erhalten.', 'Add the published version to this agent. Existing packages and connections are preserved.')}</p>
+      {fixed ? <Button type="button" size="sm" variant="outline" disabled={disabled || suggestionPending || fixed.selections.some(entry => (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill') && extensionPinKey(entry.selection.package) === extensionPinKey(suggestedPackage))}
+        data-testid="agent-package-suggestion-add" onClick={() => void addSuggestion()}>{suggestionPending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}{copy('Diese Version hinzufügen', 'Add this version')}</Button>
+        : <p className="text-xs text-muted-foreground">{copy('Die bestehende Vererbung bleibt erhalten. Lege zuerst unten ausdrücklich eine feste Auswahl an, um eine Version hinzuzufügen.', 'Existing inheritance is preserved. Explicitly create a fixed selection below before adding a version.')}</p>}
+      {suggestionError ? <p role="alert" className="text-xs text-destructive">{copy('Diese Version kann aktuell nicht hinzugefügt werden. Prüfe Nutzungsrecht und die bestehende Paketversion.', 'This version cannot be added now. Check Use permission and the currently selected package version.')}</p> : null}
+    </div> : null}
     {restorable ? <div className="flex flex-wrap items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs"><span className="flex-1">{copy('Ein gespeicherter Erweiterungsentwurf ist vorhanden.', 'A saved extension draft is available.')}</span>
       <Button type="button" size="sm" variant="outline" disabled={disabled} onClick={() => { changeDraft(restorable.draft); setDraftNotice(restorable.requiresAccountReselection); setRestorable(null); }}>{copy('Entwurf fortsetzen', 'Resume draft')}</Button>
       <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => { clearAgentExtensionDraft(scopeKey); setRestorable(null); }}>{copy('Verwerfen', 'Discard')}</Button></div> : null}

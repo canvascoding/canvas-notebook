@@ -343,7 +343,10 @@ export async function adoptCapabilityResource(actorInput: CapabilityResourceActo
     return { metadata: adopted.metadata, access: await accessOnConnection(database, actor, adopted, auth) };
   }, true);
 }
-export async function mutateCapabilityResource(actorInput: CapabilityResourceActor, resourceRefInput: string, mutationInput: CapabilityResourceMutation): Promise<CapabilityResourceAccessEntry> {
+export type CapabilityResourceMutationOptions = { beforeMutation?: (database: SqlConnection) => Promise<void> };
+
+export async function mutateCapabilityResource(actorInput: CapabilityResourceActor, resourceRefInput: string, mutationInput: CapabilityResourceMutation,
+  options: CapabilityResourceMutationOptions = {}): Promise<CapabilityResourceAccessEntry> {
   const actor = actorSnapshot(actorInput);
   const ref = text(resourceRefInput, 'Resource reference');
   const mutation = mutationSnapshot(mutationInput);
@@ -364,6 +367,8 @@ export async function mutateCapabilityResource(actorInput: CapabilityResourceAct
     if (entry.metadata.metadataRevision !== mutation.expectedMetadataRevision || entry.metadata.grantsRevision !== mutation.expectedGrantsRevision) {
       error('RESOURCE_REVISION_CONFLICT', 'Resource metadata or grants changed. Reload before editing.', 409);
     }
+    // Internal callers may bind this same authorized mutation to another authoritative SQL revision.
+    await options.beforeMutation?.(database);
     for (const grant of mutation.grants ?? []) await validateTarget(database, orgOf(entry.metadata.ownership), grant);
     if (mutation.metadata?.responsibleUserId) {
       if (orgOf(entry.metadata.ownership)) await validateTarget(database, orgOf(entry.metadata.ownership), { targetType: 'user', targetId: mutation.metadata.responsibleUserId });

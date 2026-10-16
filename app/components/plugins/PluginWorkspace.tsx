@@ -155,7 +155,8 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
       onUpdated={() => { if (selection.current === selectionKey) { setUpdate(null); refresh(); navigate({ task: 'versions' }); } }}
       onClose={() => { if (confirmPluginNavigation()) setUpdate(null); }} />
       : resourceRef ? <PackageDetailWorkspace key={JSON.stringify([workspaceId, resourceRef, epoch])} resourceRef={resourceRef}
-        workspaceId={workspaceId} task={navigation.task ?? 'overview'} file={navigation.file} store={data.store} onNavigate={navigate}
+        workspaceId={workspaceId} publishedPin={navigation.publishedRevisionRef && navigation.publishedChecksum && navigation.resourceRef
+          ? { resourceRef: navigation.resourceRef, publishedRevisionRef: navigation.publishedRevisionRef, checksum: navigation.publishedChecksum } : undefined} task={navigation.task ?? 'overview'} file={navigation.file} store={data.store} onNavigate={navigate}
         onUpdated={refresh} onClose={closeDetail} onStoreUpdate={(value, canonicalRef) => { if (confirmPluginNavigation()) setUpdate({ key: selectionKey, source: value, resourceRef: canonicalRef }); }} />
         : source ? <div className="space-y-4">
           {offering && offering.registryId === source.registryId && offering.versions.some(version => version.version === source.version && version.checksum === source.checksum)

@@ -98,6 +98,7 @@ async function main() {
       return;
     }
     await verifyCapabilityPackageCreation({packages,raw,owner,other:editor,request,native:database.native});
+    if(process.argv.includes('--creation')) return;
     await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
     await verifyCapabilityPackageCreatorValidation({packages,raw,owner,other:editor,request,legacyRef:ref});
     await verifyCapabilityPackageDraftPresentation({packages,raw,owner,other:editor,request});

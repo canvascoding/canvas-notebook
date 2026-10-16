@@ -3,7 +3,7 @@ import path from 'node:path';
 import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginVersion, validateCanvasPluginPackage } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { validateCreatorPluginManifest, CREATOR_PLUGIN_MANIFEST_MAX_BYTES } from '@/app/lib/plugins/creator-plugin-manifest';
-import { searchPluginExtensions } from '@/app/lib/plugins/plugin-extension-search';
+import { searchPluginExtensionAuthoringMetadata } from '@/app/lib/plugins/plugin-extension-authoring-search';
 import { parseSkillFile, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { CapabilityResourceActor } from '../resources/contracts';
 import { workflowApplicationSchema } from '../workflow-contracts';
@@ -78,7 +78,7 @@ export async function addCapabilityPackageDraftRequirementAction(actor: Capabili
   if (!current.file.eof) throw invalid('Repair the canonical plugin manifest before adding requirements.');
   const validation = validateCreatorPluginManifest(Buffer.from(current.file.content, 'base64').toString('utf8'));
   if (!validation.valid || !validation.manifest) throw invalid('Create or repair the canonical Creator Plugin manifest before adding requirements.');
-  const catalog = await searchPluginExtensions(actor, { q: '', types: ['integration', 'mcp'], selected: input.catalogId,
+  const catalog = await searchPluginExtensionAuthoringMetadata(actor, { q: '', types: ['integration', 'mcp'], selected: input.catalogId,
     stock: 'all', source: input.catalogId.startsWith('composio:') ? 'composio' : 'mcp', scope: 'all', audience: null, teamId: null, cursor: null, limit: 1 });
   const item = catalog.selectedItem;
   if (!item || item.id !== input.catalogId || !item.access.canRead || item.kind !== 'integration' && item.kind !== 'mcp') {

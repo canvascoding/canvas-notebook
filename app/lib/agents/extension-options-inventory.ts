@@ -41,7 +41,8 @@ function sharedSummary(value: IntegrationConnectionBindingAuthorization): Plugin
 
 /** No profile creation, account enumeration, status, tools or business probes. Existing central ENV migration semantics remain in its reader. */
 export async function readAgentComposioOptionsCatalogue(context: AgentExtensionOptionsContext, signal: AbortSignal,
-  options: { search?: string; continuation?: string; selectedSlug?: string; profileId?: string } = {}): Promise<PluginExtensionSourceResult> {
+  options: { search?: string; continuation?: string; selectedSlug?: string; profileId?: string;
+    onCatalogueMetadata?: (toolkits: readonly string[]) => void } = {}): Promise<PluginExtensionSourceResult> {
   configurationTarget(context);
   await revalidateAgentExtensionOptionsContext(context);
   const scope = { secretScope: 'user' as const, userId: context.actor.userId };
@@ -101,6 +102,9 @@ export async function readAgentComposioOptionsCatalogue(context: AgentExtensionO
       }
     }
   }
+  // Internal provenance for other read-only projections. Known shared apps below
+  // are not proof that the public provider catalogue contained the same toolkit.
+  options.onCatalogueMetadata?.([...apps.keys()]);
   const shared = await listAgentExtensionSharedOptions(context, 'composio');
   for (const value of shared) {
     const toolkit = slug(value.resource.application);

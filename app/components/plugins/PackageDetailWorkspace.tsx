@@ -11,6 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import type { ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
+import { PackageProvisioningSection } from './PackageProvisioningSection';
+import { publishedPackageNavigationPatch } from './package-provisioning-client';
 import { ResourceManagementSection } from './ResourceManagementSection';
 import { PackageEditorSection } from './PackageEditorSection';
 import { PackageRequirementsSetup } from './PackageRequirementsSetup';
@@ -25,6 +28,7 @@ export type PackageDetailWorkspaceProps = {
   workspaceId: string | null;
   task: typeof PLUGIN_DETAIL_TASKS[number];
   file?: string;
+  publishedPin?: ExtensionPackagePin;
   store?: CapabilityPackageStoreListResponse | null;
   /** The shell owns the existing navigation guard, including Back and task changes. */
   onNavigate: (patch: Partial<PluginNavigation>) => void;
@@ -58,8 +62,8 @@ function exactStoreUpdate(resource: CapabilityResourceDescriptor, presentation: 
   return sources.length === 1 ? sources[0] : null;
 }
 
-function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onNavigate, onUpdated, onConnectionsUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
-  const t = useTranslations('skills.workspace.detail'), locale = useLocale();
+function PackageDetailSession({ resourceRef, workspaceId, task, file, publishedPin, store, onNavigate, onUpdated, onConnectionsUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
+  const t = useTranslations('skills.workspace.detail'), provisioningCopy = useTranslations('skills.provisioning'), locale = useLocale();
   const [resource, setResource] = useState<CapabilityResourceDescriptor | null>(null);
   const [presentation, setPresentation] = useState<CapabilityPackagePresentation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -138,6 +142,7 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
         </div>
       </div> : <h1 className="text-xl font-semibold">{t('title')}</h1>}
     </header>
+    {publishedPin ? <InlineNotice size="compact">{provisioningCopy('currentDetailsHint')}</InlineNotice> : null}
     {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>
       : error ? <InlineNotice variant="destructive" size="compact">{t(error)}</InlineNotice>
         : resource ? <>
@@ -191,9 +196,13 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
               {presentation ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><PackageDetailPresentation presentation={presentation}
                 identity={JSON.stringify([resource.metadata.resourceRef, workspaceId, resource.artifact.revision])} /></div></details> : null}
             </TabsContent> : null}
-            {task === 'sharing' ? <TabsContent value="sharing"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></TabsContent> : null}
+            {task === 'sharing' ? <TabsContent value="sharing" className="space-y-6">
+              {resource.metadata.ownership.type === 'organization' && resource.access.canManage && publishedPin ? <PackageProvisioningSection
+                key={JSON.stringify(publishedPin)} pin={publishedPin} workspaceId={workspaceId} onUpdated={onUpdated} onSelectVersion={pin => onNavigate(publishedPackageNavigationPatch(pin))} /> : null}
+              <div>{publishedPin ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></div></details> : <ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} />}</div>
+            </TabsContent> : null}
             {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh}
-              onDraftStarted={draft => onNavigate({ area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
+              onPublished={pin => onNavigate(publishedPackageNavigationPatch(pin))} onDraftStarted={draft => onNavigate({ area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
                 resourceRef: draft.sourceResourceRef ?? undefined, draftRef: draft.draftRef, task: 'content', file: undefined })} /></TabsContent> : null}
             {task === 'versions' ? <TabsContent value="versions"><PackageDetailVersions resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} /></TabsContent> : null}
             {task === 'advanced' ? <TabsContent value="advanced" className="space-y-4" data-testid="package-detail-advanced"><h2 className="text-lg font-semibold">{t('advancedTitle')}</h2><p className="text-sm text-muted-foreground">{t('advancedHint')}</p>

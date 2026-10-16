@@ -103,18 +103,27 @@ export async function setPersonalCapabilityActivation(input: {
   enabled: boolean;
   expectedRevision?: number | null;
   snapshot?: EffectiveCapabilitySnapshot;
-}): Promise<{ preference: CapabilityPreferenceRecord; capability: EffectiveCapability }> {
-  const snapshot = input.snapshot || await resolveEffectiveCapabilitySnapshot(input.context);
-  const capability = snapshot.capabilities.find((entry) => entry.ref.resourceId === input.resourceId);
-  if (!capability) throw new Error('Organization capability not found.');
-  assertPersonalActivationAllowed(capability, input.enabled);
-
-  const preference = await setCapabilityPreference({
-    userId: input.actorUserId,
-    resourceId: capability.ref.resourceId,
-    enabled: input.enabled,
-    expectedRevision: input.expectedRevision,
-  });
+}, options: {
+  /** Internal resource authority may hold its lease around only the local preference CAS. */
+  withAuthorizedMutation?: (mutation: (snapshot: EffectiveCapabilitySnapshot) => Promise<{
+    preference: CapabilityPreferenceRecord; capability: EffectiveCapability;
+  }>) => Promise<{ preference: CapabilityPreferenceRecord; capability: EffectiveCapability }>;
+} = {}): Promise<{ preference: CapabilityPreferenceRecord; capability: EffectiveCapability }> {
+  const mutate = async (snapshot: EffectiveCapabilitySnapshot) => {
+    const capability = snapshot.capabilities.find((entry) => entry.ref.resourceId === input.resourceId);
+    if (!capability) throw new Error('Organization capability not found.');
+    assertPersonalActivationAllowed(capability, input.enabled);
+    const preference = await setCapabilityPreference({
+      userId: input.actorUserId,
+      resourceId: capability.ref.resourceId,
+      enabled: input.enabled,
+      expectedRevision: input.expectedRevision,
+    });
+    return { preference, capability };
+  };
+  const { preference, capability } = options.withAuthorizedMutation
+    ? await options.withAuthorizedMutation(mutate)
+    : await mutate(input.snapshot || await resolveEffectiveCapabilitySnapshot(input.context));
   await refreshPersonalCapabilityRuntime(input.actorUserId);
   await auditActivation({
     organizationId: input.context.organizationId,

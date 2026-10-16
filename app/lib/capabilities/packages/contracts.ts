@@ -200,6 +200,8 @@ export type CapabilityPackageOperationStatus = {
   operation: 'create' | 'publish' | 'discard';
   status: 'draft' | 'published' | 'discarded';
   draftRef: string; draftRevision: number; resourceRef: string; publishedRevisionRef: string | null;
+  /** Exact actor-private published receipt metadata; null when no matching immutable version is available. */
+  publishedChecksum: string | null;
   kind: CapabilityPackageKind; name: string; createdAt: number; updatedAt: number;
 };
 export type CapabilityPackageOperationQuery = { requestId: string } | { draftRef: string };

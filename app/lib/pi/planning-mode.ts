@@ -19,6 +19,8 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'inspect_canvas_package_draft_status',
   'inspect_canvas_package_operation',
   'inspect_canvas_package_workspace_draft',
+  'inspect_canvas_package_authoring_source',
+  'inspect_canvas_package_provisioning',
   'list_canvas_package_versions',
   'inspect_canvas_package_draft',
   'list_canvas_package_draft_files',

@@ -385,8 +385,9 @@ export async function getCapabilityPackageOperationStatus(actorInput: Capability
   return usingDatabase(undefined, async database => {
     await assertOwnedDraftActor(database, actor);
     const value = 'requestId' in query ? query.requestId : query.draftRef;
-    const row = await database.get(`SELECT ${operationStatusColumns},d.draft_revision AS current_draft_revision,d.updated_at AS current_draft_updated_at
+    const row = await database.get(`SELECT ${operationStatusColumns},d.draft_revision AS current_draft_revision,d.updated_at AS current_draft_updated_at,v.checksum AS published_checksum
       FROM capability_package_operations o LEFT JOIN capability_package_drafts d ON d.actor_user_id=o.actor_user_id AND d.draft_ref=o.draft_ref
+      LEFT JOIN capability_package_versions v ON v.resource_ref=o.resource_ref AND v.revision_ref=o.published_revision_ref
       WHERE o.actor_user_id=$1 AND o.${'requestId' in query ? 'request_id' : 'draft_ref'}=$2
       ORDER BY CASE o.operation WHEN 'publish' THEN 0 WHEN 'discard' THEN 1 ELSE 2 END,o.updated_at DESC LIMIT 1`, [actor.userId,value]) as Row | undefined;
     if (!row) fail('PACKAGE_NOT_FOUND', 'The package operation was not found.', 404);
@@ -396,6 +397,7 @@ export async function getCapabilityPackageOperationStatus(actorInput: Capability
       || row.name !== row.name.trim().normalize('NFKC') || row.name !== row.name.toLowerCase() || !/^[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*$/u.test(row.name)
       || row.request_id !== null && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(String(row.request_id))
       || row.status === 'published' && row.published_revision_ref === null
+      || row.published_checksum != null && (typeof row.published_checksum !== 'string' || !/^[a-f0-9]{64}$/u.test(row.published_checksum))
       || row.published_revision_ref !== null && !/^canvas-package-revision:[a-f0-9-]{36}$/u.test(String(row.published_revision_ref))) return ownedDraftStatusUnavailable();
     let draftRevision = ownedDraftStatusNumber(row.draft_revision, true), updatedAt = ownedDraftStatusNumber(row.updated_at);
     if (row.status === 'draft') {
@@ -404,7 +406,8 @@ export async function getCapabilityPackageOperationStatus(actorInput: Capability
     }
     return { requestId: row.request_id == null ? null : String(row.request_id), operation: row.operation as CapabilityPackageOperationStatus['operation'],
       status: row.status as CapabilityPackageOperationStatus['status'], draftRef: String(row.draft_ref), draftRevision, resourceRef: String(row.resource_ref),
-      publishedRevisionRef: row.published_revision_ref == null ? null : String(row.published_revision_ref), kind: row.kind as CapabilityPackageOperationStatus['kind'], name: row.name,
+      publishedRevisionRef: row.published_revision_ref == null ? null : String(row.published_revision_ref),
+      publishedChecksum: row.published_checksum == null ? null : String(row.published_checksum), kind: row.kind as CapabilityPackageOperationStatus['kind'], name: row.name,
       createdAt: ownedDraftStatusNumber(row.created_at), updatedAt };
   });
 }

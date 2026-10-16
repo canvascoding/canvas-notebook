@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, RefreshCw, Route, Wrench } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import type { ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
@@ -20,12 +21,13 @@ export type AgentWorkflowManagementDialogProps = {
   context: AgentWorkflowManagementContext; selectionEpoch: number; saveBlocked?: boolean;
   waitForPendingSave: (agentId: string) => Promise<void>;
   commit: (input: AgentWorkflowManagementSaveInput, captured: { context: AgentWorkflowManagementContext; selectionEpoch: number }) => Promise<AgentWorkflowManagementSaveResult>;
+  suggestedPackage?: ExtensionPackagePin;
   onRestoreFocus?: () => void; onOpenNativeTools?: () => void;
   onDraftStateChange?: (state: { dirty: boolean; pending: boolean }) => void;
 };
 
 function ManagementSession({ open, onOpenChange, agentName, context, selectionEpoch, waitForPendingSave, commit,
-  onRestoreFocus, onOpenNativeTools, onDraftStateChange, saveBlocked = false }: AgentWorkflowManagementDialogProps) {
+  onRestoreFocus, onOpenNativeTools, onDraftStateChange, suggestedPackage, saveBlocked = false }: AgentWorkflowManagementDialogProps) {
   const t = useTranslations('agentWorkflowManagement'), copy = useAgentExtensionCopy();
   const [snapshot, setSnapshot] = useState<AgentExtensionManagementSnapshot | null>(null);
   const [draft, setDraft] = useState<AgentExtensionEditorDraft>({ intent: 'keep', configuration: null });
@@ -106,7 +108,7 @@ function ManagementSession({ open, onOpenChange, agentName, context, selectionEp
       </div> : null}
       {snapshot && target && !loading ? <AgentExtensionEditor key={`${target.expectedRevision}:${target.expectedWorkflowRevision}`}
         target={target} context={context} value={draft} onChange={value => { setDraft(value); setSaved(false); }}
-        enabledTools={snapshot.agent.enabledTools} bindingSummaries={snapshot.extensions.bindingSummaries} standaloneSummaries={snapshot.extensions.standaloneSummaries}
+        suggestedPackage={suggestedPackage} enabledTools={snapshot.agent.enabledTools} bindingSummaries={snapshot.extensions.bindingSummaries} standaloneSummaries={snapshot.extensions.standaloneSummaries}
         disabled={locked} onValidationChange={setValidation} /> : null}
       {onOpenNativeTools ? <details className="rounded-lg border p-3"><summary className="cursor-pointer text-sm">{copy('Erweiterte Einstellungen', 'Advanced settings')}</summary>
         <Button type="button" className="mt-3" size="sm" variant="outline" disabled={saving || saveBlocked}

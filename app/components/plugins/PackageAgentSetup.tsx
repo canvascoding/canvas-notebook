@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Loader2, Route } from 'lucide-react';
+import type { ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
 import { isAgentIconId } from '@/app/lib/agents/icons';
 import { authClient } from '@/app/lib/auth-client';
 import { AgentWorkflowManagementDialog } from '@/app/components/agents/AgentWorkflowManagementDialog';
@@ -16,7 +17,7 @@ import { workspaceRequest } from './plugin-workspace-client';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 
 type AgentChoice = { agentId: string; name: string; iconId?: string | null; type: string; access: { canEdit: boolean } };
-type Props = { workspaceId: string; resourceRef: string; packageName: string };
+type Props = { workspaceId: string; resourceRef: string; packageName: string; suggestedPackage?: ExtensionPackagePin };
 
 /** This optional step configures an actual agent through the existing versioned workflow manager. */
 export function PackageAgentSetup(props: Props) {
@@ -26,7 +27,7 @@ export function PackageAgentSetup(props: Props) {
     {...props} actorId={session.user.id} sessionId={session.session.id} />;
 }
 
-function AgentSetupSession({ workspaceId, resourceRef, packageName, actorId, sessionId }: Props & { actorId: string; sessionId: string }) {
+function AgentSetupSession({ workspaceId, resourceRef, packageName, suggestedPackage, actorId, sessionId }: Props & { actorId: string; sessionId: string }) {
   const t = useTranslations('skills.workspace.setup');
   const [expanded, setExpanded] = useState(false), [agents, setAgents] = useState<AgentChoice[]>([]);
   const [loading, setLoading] = useState(false), [error, setError] = useState(false);
@@ -91,7 +92,7 @@ function AgentSetupSession({ workspaceId, resourceRef, packageName, actorId, ses
               onClick={() => { setEpoch(value => value + 1); setOpen(true); }}>{t('agentConfigure')}</Button>
           </>}
       {agent ? <AgentWorkflowManagementDialog open={open} onOpenChange={setOpen} agentId={agent.agentId} agentName={agent.name}
-        ownerUserId={actorId} context={context} selectionEpoch={epoch} waitForPendingSave={waitForPendingSave} commit={commit}
+        ownerUserId={actorId} suggestedPackage={suggestedPackage} context={context} selectionEpoch={epoch} waitForPendingSave={waitForPendingSave} commit={commit}
         onDraftStateChange={onDraftStateChange} onRestoreFocus={() => trigger.current?.focus()} /> : null}
     </div> : null}
   </section>;
