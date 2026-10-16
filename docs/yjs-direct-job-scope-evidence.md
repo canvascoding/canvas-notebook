@@ -2,6 +2,8 @@
 
 Stand: 16. Oktober 2026. Produktcode Root `11f9c851c5b173b05ed746f1d4baed9199ae3be9` / QA `3825eca58dcc55bea88356794232800c37f13d78`. Voraussetzung der weiteren Owned-Lifecyclebindung, keine vollständige Claim-/Public-/Dateiaktionsabnahme. Allgemeine native Aktivierung und Review Center bleiben ausgeschaltet.
 
+Die [nachfolgende echte Claim-/Laufzeitbindung](./yjs-claimed-file-job-evidence.md) auf Root `093a9cecc` / QA `85d76cefe` ergänzt inzwischen Übernahmeinkarnation, Originalprovenienz und die tatsächliche Workerhülle. Die Aussagen dieses Nachweises über noch fehlende Claimbindung beschreiben den oben genannten historischen Produktstand; aktuelle Actor-/Seat-/ACL-/Owner-B-Prüfung und ursprüngliche Archive-/Publicziele bleiben weiterhin offen.
+
 ## Geschlossene Lücke
 
 Direkte Datei-Jobs speichern bislang Actor und Requesthash, aber keinen ursprünglichen Workspace-Kontext. Der Worker liest vor Ausführung einen aktuellen Workspace; sein alter Gatevergleich bemerkt nur einen Rootwechsel gegenüber dieser bereits aktuellen ersten Auflösung. Änderungen zwischen Anforderung und Jobstart an Workspace, Organisation, Projekt, Kunde, Eigentümer, Typ oder Rootkontext bleiben damit ungebunden. Ein echter Claimrecord ist außerdem weiterhin kein opaker Autoritätsbeleg.
