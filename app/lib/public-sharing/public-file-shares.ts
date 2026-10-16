@@ -27,6 +27,7 @@ import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { NextRequest } from 'next/server';
+import type { NativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { revokePublicShareForRequest, revokePublicShareForAgent, updatePublicSharePolicyForRequest,
   createPublicSharesForRequest, createPublicSharesForAgent,
   PublicShareWriterError } from './writer';
@@ -84,16 +85,20 @@ export interface PublicShareAnnotation {
 
 export type PublicShareRow = typeof publicFileShares.$inferSelect;
 
-export type PublicShareResolution = {
+type ResolvedPublicShare = {
   ok: true;
   share: PublicShareDto;
   row: PublicShareRow;
   workspace: WorkspaceContext;
   workspacePath: string;
-  fullPath: string;
   sizeBytes: number;
   mimeType: string;
-} | {
+};
+
+export type PublicShareResolution = (ResolvedPublicShare & (
+  | {kind: 'physical'; fullPath: string}
+  | {kind: 'native'; snapshot: NativeCollaborationSnapshot; exportProfile: {newlineStyle: 'lf' | 'crlf'; hasBom: boolean}}
+)) | {
   ok: false;
   status: number;
   error: string;
@@ -616,6 +621,12 @@ async function reconcileRow(row: PublicShareRow): Promise<PublicShareRow> {
     return { ...row, status: 'expired' };
   }
 
+  if ([row.documentId, row.lineageId, row.lifecycleGeneration].some(value => value !== null)) {
+    const resolved = await resolveNativePublicShareRow(row, {recordAccess: false});
+    return resolved.ok ? {...row, lastKnownRevision: resolved.share.lastKnownRevision,
+      mimeType: resolved.mimeType, sizeBytes: resolved.sizeBytes} : {...row, status: 'stale'};
+  }
+
   let details: WorkspaceFileDetails;
   try {
     details = await getWorkspaceFileDetails(row.workspacePath, workspaceForRow(row));
@@ -976,7 +987,31 @@ export function queuePublicSharesAfterMove(
   timer.unref?.();
 }
 
+async function resolveNativePublicShareRow(row: PublicShareRow, options: ResolvePublicShareOptions): Promise<PublicShareResolution> {
+  if (row.documentId === null || row.lineageId === null || row.lifecycleGeneration === null) {
+    return {ok: false, status: 404, error: 'Public document binding is unavailable.'};
+  }
+  const {readNativePublicShare, PublicShareNativeReadError} = await import('./native-reader');
+  try {
+    const native = await readNativePublicShare(row, options.recordAccess !== false);
+    const mimeType = native.snapshot.content.kind === 'rich_text' ? 'text/markdown; charset=utf-8' : 'text/plain; charset=utf-8';
+    const metadata = {...native.row, mimeType, sizeBytes: native.stateByteLength,
+      lastKnownRevision: `native:${native.snapshot.lifecycleGeneration}:${native.snapshot.version.documentSequence}:${native.snapshot.version.stateProof}`};
+    return {ok: true, kind: 'native', row: native.row, share: toDto(metadata, null, native.workspace.displayName ?? null),
+      workspace: native.workspace, workspacePath: native.snapshot.path, sizeBytes: native.stateByteLength, mimeType,
+      snapshot: native.snapshot, exportProfile: native.exportProfile};
+  } catch (error) {
+    const status = error instanceof PublicShareNativeReadError ? error.status
+      : error && typeof error === 'object' && [409, 413].includes(Number(Reflect.get(error, 'status'))) ? Number(Reflect.get(error, 'status'))
+      : error && typeof error === 'object' && ['55P03', '40P01'].includes(String(Reflect.get(error, 'code'))) ? 409 : 503;
+    return {ok: false, status, error: 'Public document is unavailable.'};
+  }
+}
+
 async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublicShareOptions = {}): Promise<PublicShareResolution> {
+  if ([row.documentId, row.lineageId, row.lifecycleGeneration].some(value => value !== null)) {
+    return resolveNativePublicShareRow(row, options);
+  }
   const reconciled = await reconcileRow(row);
   if (reconciled.status !== 'active') {
     return {
@@ -1011,6 +1046,7 @@ async function resolvePublicShareRow(row: PublicShareRow, options: ResolvePublic
 
   return {
     ok: true,
+    kind: 'physical',
     share: toDto(updated, null, workspace.displayName ?? null),
     row: updated,
     workspace,
@@ -1057,7 +1093,7 @@ export async function resolvePublicShareShortCode(shortCode: string, options: Re
 
   const resolved = await resolvePublicShareRow(row, options);
   if (!resolved.ok) {
-    return { ok: false, status: 404, error: 'Public file not found.' };
+    return { ok: false, status: [404, 410].includes(resolved.status) ? 404 : resolved.status, error: 'Public file not found.' };
   }
   return resolved;
 }

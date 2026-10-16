@@ -15,7 +15,7 @@ import {
   resolvePublicShareToken,
 } from '@/app/lib/public-sharing/public-file-shares';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
-import { collectPublicMarkdownImageWorkspacePaths } from '@/app/lib/public-sharing/public-markdown-images';
+import { collectPublicMarkdownImageWorkspacePaths, collectPublicNativeImageWorkspacePaths } from '@/app/lib/public-sharing/public-markdown-images';
 import { assertPublicShareStillActive, readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.mdx', '.markdown']);
@@ -41,7 +41,7 @@ async function handlePublicMarkdownAssetRequest(
   const resolved = await resolvePublicShareToken(decodePathSegment(token), { recordAccess: false });
   if (!resolved.ok) return publicShareNotFoundResponse();
 
-  if (!MARKDOWN_EXTENSIONS.has(path.extname(resolved.workspacePath).toLowerCase())) {
+  if (resolved.kind === 'physical' && !MARKDOWN_EXTENSIONS.has(path.extname(resolved.workspacePath).toLowerCase())) {
     return publicShareNotFoundResponse();
   }
 
@@ -50,14 +50,20 @@ async function handlePublicMarkdownAssetRequest(
     return publicShareNotFoundResponse();
   }
 
-  let markdown: string;
+  let allowedAssetPaths: Set<string>;
   try {
-    markdown = await readPublicShareText(resolved);
+    if (resolved.kind === 'native') {
+      allowedAssetPaths = resolved.snapshot.content.kind === 'rich_text'
+        ? collectPublicNativeImageWorkspacePaths(resolved.snapshot.content.document, resolved.workspacePath, resolved.workspace.workspaceId)
+        : new Set();
+    } else {
+      const markdown = await readPublicShareText(resolved);
+      allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath, resolved.workspace.workspaceId);
+    }
   } catch {
     return publicShareNotFoundResponse();
   }
 
-  const allowedAssetPaths = collectPublicMarkdownImageWorkspacePaths(markdown, resolved.workspacePath, resolved.workspace.workspaceId);
   if (!allowedAssetPaths.has(requestedWorkspacePath)) {
     return publicShareNotFoundResponse();
   }

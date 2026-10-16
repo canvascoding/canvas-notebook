@@ -13,10 +13,11 @@ import {
   publicMarkdownPdfPath,
   publicMarpPreviewPath,
 } from '@/app/lib/public-sharing/public-markdown-export';
-import { rewritePublicMarkdownImageSources } from '@/app/lib/public-sharing/public-markdown-images';
+import { rewritePublicMarkdownImageSources, rewritePublicNativeImageSources } from '@/app/lib/public-sharing/public-markdown-images';
 import type { PublicShareResolution } from '@/app/lib/public-sharing/public-file-shares';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
-import { readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
+import { assertPublicShareStillActive, readPublicShareText } from '@/app/lib/public-sharing/public-share-text';
+import { exportNativePublicSnapshot, nativePublicExportMetadata, PublicShareNativeExportError } from '@/app/lib/public-sharing/native-public-export';
 
 type ResolvedPublicShare = Extract<PublicShareResolution, { ok: true }>;
 
@@ -99,6 +100,34 @@ function shouldReadTextContent(previewKind: PublicPreviewKind) {
 }
 
 export async function PublicResolvedFilePreview({ resolved }: { resolved: ResolvedPublicShare }) {
+  // Native identity precedes suffix selection and never needs an export codec.
+  if (resolved.kind === 'native') {
+    const content = resolved.snapshot.content;
+    const previewBytes = Buffer.byteLength(content.kind === 'plain_text' ? content.text : JSON.stringify(content), 'utf8');
+    const nativePreviewTooLarge = previewBytes > TEXT_PREVIEW_SIZE_LIMIT;
+    const nativeContent = nativePreviewTooLarge ? undefined : content.kind === 'rich_text' ? { ...content,
+      document: rewritePublicNativeImageSources(content.document, resolved.workspacePath, resolved.row.token, resolved.workspace.workspaceId),
+    } : content;
+    let downloadUrl: string | undefined, downloadFileName: string | undefined;
+    let markdownExportUrl: string | undefined, markdownPdfUrl: string | undefined, downloadUnavailableReason: string | undefined;
+    try {
+      exportNativePublicSnapshot(resolved.snapshot, resolved.exportProfile);
+      const metadata = nativePublicExportMetadata(resolved.share.fileName, resolved.snapshot);
+      downloadUrl = publicDownloadPath(resolved.row.token, resolved.share.fileName); downloadFileName = metadata.fileName;
+      if (metadata.mimeType.startsWith('text/markdown')) {
+        markdownExportUrl = publicMarkdownExportPath(resolved.row.token); markdownPdfUrl = publicMarkdownPdfPath(resolved.row.token);
+      }
+    } catch (error) {
+      if (!(error instanceof PublicShareNativeExportError)) throw error;
+      downloadUnavailableReason = error.statusCode === 413 ? 'This document is too large to download here.'
+        : 'A text download is unavailable for this document.';
+    }
+    try { await assertPublicShareStillActive(resolved); } catch { notFound(); }
+    return <PublicFilePreview fileName={resolved.share.fileName} mimeType={resolved.mimeType} sizeBytes={resolved.sizeBytes}
+      previewKind="markdown" nativeContent={nativeContent} nativePreviewTooLarge={nativePreviewTooLarge} securityMode="strict" downloadUrl={downloadUrl}
+      downloadFileName={downloadFileName} downloadUnavailableReason={downloadUnavailableReason}
+      markdownExportUrl={markdownExportUrl} markdownPdfUrl={markdownPdfUrl} />;
+  }
   const assetUrl = publicAssetPath(resolved.row.token, resolved.share.fileName);
   const downloadUrl = publicDownloadPath(resolved.row.token, resolved.share.fileName);
   const markdownExportUrl = publicMarkdownExportPath(resolved.row.token);

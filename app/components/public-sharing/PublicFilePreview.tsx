@@ -16,6 +16,8 @@ import { PdfViewer } from '@/app/components/editor/PdfViewer';
 import { ShareMarkdownDialog } from '@/app/components/file-browser/ShareMarkdownDialog';
 import { PublicMarpPreview } from '@/app/components/public-sharing/PublicMarpPreview';
 import { PublicSharePromotion } from '@/app/components/public-sharing/PublicSharePromotion';
+import { PublicNativeDocumentPreview } from '@/app/components/public-sharing/PublicNativeDocumentPreview';
+import type { NativeCollaborationContent } from '@/app/lib/collaboration/document-snapshot';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
 import type { PublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
 
@@ -29,8 +31,12 @@ interface PublicFilePreviewProps {
   mimeType: string;
   sizeBytes: number;
   previewKind: PublicPreviewKind;
-  assetUrl: string;
-  downloadUrl: string;
+  assetUrl?: string;
+  downloadUrl?: string;
+  downloadFileName?: string;
+  downloadUnavailableReason?: string;
+  nativeContent?: NativeCollaborationContent;
+  nativePreviewTooLarge?: boolean;
   content?: string | null;
   securityMode?: PublicShareSecurityMode;
   markdownExportUrl?: string;
@@ -101,7 +107,11 @@ export function PublicFilePreview({
   previewKind,
   assetUrl,
   downloadUrl,
+  downloadFileName,
+  downloadUnavailableReason,
   content,
+  nativeContent,
+  nativePreviewTooLarge = false,
   securityMode = 'strict',
   markdownExportUrl,
   markdownPdfUrl,
@@ -112,12 +122,12 @@ export function PublicFilePreview({
   const [htmlRefreshKey, setHtmlRefreshKey] = useState(0);
   const [shareOpen, setShareOpen] = useState(false);
   const extension = useMemo(() => getExtension(fileName), [fileName]);
-  const sizeLabel = formatBytes(sizeBytes);
+  const sizeLabel = nativeContent || nativePreviewTooLarge ? null : formatBytes(sizeBytes);
   const canShowTextContent = typeof content === 'string';
   const canShowHtmlCode = previewKind === 'html' && canShowTextContent;
   const canShareMarkdown = (
     (previewKind === 'markdown' || previewKind === 'marp') &&
-    canShowTextContent &&
+    (nativeContent || nativePreviewTooLarge || canShowTextContent) &&
     Boolean(markdownExportUrl && markdownPdfUrl)
   );
   const htmlSandbox = securityMode === 'interactive'
@@ -125,7 +135,18 @@ export function PublicFilePreview({
     : '';
 
   let body: ReactNode;
-  if (previewKind === 'marp' && marpPreviewUrl) {
+  if (nativePreviewTooLarge) {
+    body = <div role="status" data-public-native-preview-too-large="true"
+      className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
+      <AlertCircle className="h-8 w-8" />
+      <p className="text-sm font-medium text-foreground">Preview too large</p>
+      <p className="max-w-md text-xs">This document is too large for the public preview.</p>
+    </div>;
+  } else if (nativeContent) {
+    body = <PublicNativeDocumentPreview content={nativeContent} fileName={fileName} />;
+  } else if (!assetUrl || !downloadUrl) {
+    body = <p className="p-5 text-sm text-muted-foreground">Preview unavailable</p>;
+  } else if (previewKind === 'marp' && marpPreviewUrl) {
     body = <PublicMarpPreview fileName={fileName} previewUrl={marpPreviewUrl} />;
   } else if (previewKind === 'markdown' && canShowTextContent) {
     body = <MarkdownEditor value={content} readOnly />;
@@ -165,6 +186,7 @@ export function PublicFilePreview({
           <p className="truncate text-xs text-muted-foreground">
             Public read-only preview{sizeLabel ? ` · ${sizeLabel}` : ''}
           </p>
+          {downloadUnavailableReason ? <p role="status" className="text-xs text-muted-foreground">{downloadUnavailableReason}</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           {previewKind === 'html' && htmlMode === 'preview' ? (
@@ -207,12 +229,12 @@ export function PublicFilePreview({
               {t('share')}
             </Button>
           ) : null}
-          <Button asChild variant="secondary" size="sm">
-            <a href={downloadUrl} download={fileName}>
+          {downloadUrl ? <Button asChild variant="secondary" size="sm">
+            <a href={downloadUrl} download={downloadFileName ?? fileName}>
               <Download className="h-4 w-4" />
               Download
             </a>
-          </Button>
+          </Button> : null}
         </div>
       </header>
       <section key={`${previewKind}:${fileName}:${assetUrl}`} className="min-h-0 flex-1 overflow-hidden">

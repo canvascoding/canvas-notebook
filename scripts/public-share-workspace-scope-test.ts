@@ -144,6 +144,8 @@ async function main() {
     const betaToken = decodeURIComponent(betaShare.publicPath.split('/')[3]);
     const betaResolution = await sharing.resolvePublicShareToken(betaToken, { recordAccess: false });
     assert.ok(betaResolution.ok);
+    assert.equal(betaResolution.kind, 'physical');
+    if (betaResolution.kind !== 'physical') throw new Error('Expected the original physical share target.');
     assert.equal(betaResolution.workspace.workspaceId, beta.workspaceId);
     assert.equal(betaResolution.fullPath, await realpath(path.join(betaRoot, 'notes.md')));
 

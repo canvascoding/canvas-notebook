@@ -1,5 +1,6 @@
 import { collectMarkdownImageNodes } from './markdown-image-nodes';
 import { isMarkdownImagePath } from '@/app/lib/markdown/markdown-image-types';
+import type { JSONContent } from '@tiptap/core';
 
 const PRESERVED_URL_PREFIXES = ['/api/', '/public/', '/_next/'];
 const EXTERNAL_URL_PATTERN = /^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i;
@@ -133,4 +134,42 @@ export function rewritePublicMarkdownImageSources(markdown: string, markdownWork
     rewritten = `${rewritten.slice(0, image.index)}${image.replace(source)}${rewritten.slice(image.end)}`;
   }
   return rewritten;
+}
+
+/** Only actual image nodes grant access. Code, metadata and link marks do not. */
+export function collectPublicNativeImageWorkspacePaths(document: JSONContent, workspacePath: string, workspaceId: string): Set<string> {
+  const paths = new Set<string>(), pending = [document];
+  while (pending.length) {
+    const node = pending.pop()!;
+    if (node.type === 'image' && typeof node.attrs?.src === 'string') {
+      const imagePath = resolvePublicMarkdownImageWorkspacePath(workspacePath, node.attrs.src, workspaceId);
+      if (imagePath) paths.add(imagePath);
+    }
+    if (node.content) for (const child of node.content) pending.push(child);
+  }
+  return paths;
+}
+
+function publicNativeImageSource(source: string, workspacePath: string, token: string, workspaceId: string): string {
+  const imagePath = resolvePublicMarkdownImageWorkspacePath(workspacePath, source, workspaceId);
+  if (imagePath) return publicMarkdownImagePath(token, imagePath);
+  // An unresolved authenticated API URL must never be handed to the browser,
+  // including an absolute URL whose origin cannot establish workspace scope.
+  try {
+    const url = new URL(source);
+    if ((url.protocol === 'https:' || url.protocol === 'http:') && !url.pathname.startsWith('/api/')) return url.href;
+  } catch { /* Relative paths need an authorized workspace mapping above. */ }
+  return '';
+}
+
+/** Preserve the validated native tree; only public image transport is changed. */
+export function rewritePublicNativeImageSources(document: JSONContent, workspacePath: string, token: string, workspaceId: string): JSONContent {
+  const rewrite = (node: JSONContent): JSONContent => ({
+    ...node,
+    ...(node.type === 'image' ? { attrs: { ...node.attrs,
+      src: typeof node.attrs?.src === 'string' ? publicNativeImageSource(node.attrs.src, workspacePath, token, workspaceId) : '',
+    } } : {}),
+    ...(node.content ? { content: node.content.map(rewrite) } : {}),
+  });
+  return rewrite(document);
 }

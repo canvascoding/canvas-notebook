@@ -67,10 +67,12 @@ function mapRow(row: Row): PublicShareRow {
 /** Borrowed B only. Caller owns current Principal, relation/schema binding,
  * lock order, final assertions and transaction/COMMIT/cleanup. */
 export async function readPublicShareOnConnection(database: SqlConnection, input: {
-  table: string; workspaceId: string; id: string; forUpdate?: true;
+  table: string; workspaceId: string; id: string; forUpdate?: true; forShare?: true;
 }): Promise<PublicShareRow | null> {
   const table = relation(input.table), workspaceId = input.workspaceId, id = input.id, forUpdate = input.forUpdate === true;
-  const row = await database.get(`SELECT ${columns} FROM ${table} WHERE workspace_id=$1 AND id=$2${forUpdate ? ' FOR UPDATE NOWAIT' : ''}`,
+  if (forUpdate && input.forShare) throw new TypeError('Choose one public share row lock.');
+  const lock = forUpdate ? ' FOR UPDATE NOWAIT' : input.forShare === true ? ' FOR SHARE NOWAIT' : '';
+  const row = await database.get(`SELECT ${columns} FROM ${table} WHERE workspace_id=$1 AND id=$2${lock}`,
     [workspaceId, id]) as Row | undefined;
   return row ? mapRow(row) : null;
 }

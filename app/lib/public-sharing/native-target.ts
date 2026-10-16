@@ -55,7 +55,8 @@ function assertMetadata(row: Row, workspace: Pick<WorkspaceContext, 'workspaceTy
  */
 export async function readPublicShareNativeTargetOnConnection(database: SqlConnection,
   input: { workspace: WorkspaceContext; target: WorkspaceSideEffectWriterTarget; prefix: string },
-): Promise<{ snapshot: NativeCollaborationSnapshot; stateByteLength: number }> {
+): Promise<{ snapshot: NativeCollaborationSnapshot; stateByteLength: number;
+  exportProfile: { newlineStyle: 'lf' | 'crlf'; hasBom: boolean } }> {
   const { workspace, target, prefix } = input;
   // Only one already-qualified SQL identifier may be interpolated. Its actual
   // relation identity and transaction lifetime are the caller's existing fence.
@@ -124,7 +125,8 @@ export async function readPublicShareNativeTargetOnConnection(database: SqlConne
       assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
       return native;
     });
-    return { snapshot, stateByteLength: state.yjsState.byteLength };
+    return { snapshot, stateByteLength: state.yjsState.byteLength,
+      exportProfile: { newlineStyle: state.newlineStyle, hasBom: state.hasBom } };
   } catch (error) {
     if (error instanceof PublicShareNativeTargetError) throw error;
     changed();
