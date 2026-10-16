@@ -22,17 +22,23 @@ function regular(stat: Stats): void {
   if (!stat.isFile() || stat.nlink !== 1 || !Number.isSafeInteger(stat.size) || stat.size < 0) changed();
 }
 
-/** Historical filesystem proof only. Caller owns the actual workspace kernel,
- * authority, admission, SQL transaction and finality through operation cleanup.
- * No content is read and no native identity is inferred from a physical path. */
-export async function withPreparedPublicSharePhysicalTarget<T>(workspace: WorkspaceContext, row: PublicShareRow,
-  operation: (capture: Readonly<{ assertCurrent: () => Promise<void> }>) => Promise<T>): Promise<T> {
-  const configuredRootPath = workspace.rootPath, relativePath = row.workspacePath, fileIdentity = row.fileIdentity;
+export type PublicSharePhysicalPublicationMetadata = Readonly<{
+  workspacePath: string; fileName: string; fileIdentity: string; lastKnownRevision: string; sizeBytes: number;
+}>;
+type PreparedPhysicalTarget = Readonly<{
+  metadata: PublicSharePhysicalPublicationMetadata; assertCurrent: () => Promise<void>;
+}>;
+
+/** Mechanical filesystem proof only. The caller retains its actual kernel,
+ * current authority, admission and transaction through operation cleanup. */
+async function withPreparedPhysicalTarget<T>(workspace: WorkspaceContext, relativePath: string, expectedIdentity: string | undefined,
+  operation: (capture: PreparedPhysicalTarget) => Promise<T>): Promise<T> {
+  const configuredRootPath = workspace.rootPath;
   if (typeof configuredRootPath !== 'string' || !path.isAbsolute(configuredRootPath)
     || /[\u0000-\u001f\u007f]/u.test(configuredRootPath) || !isCanonicalAdmissionPath(relativePath)
     || isInternalWorkspaceStagingPath(relativePath) || isSensitiveWorkspacePath(relativePath)
-    || typeof fileIdentity !== 'string' || !fileIdentity || typeof operation !== 'function'
-    || row.documentId !== null || row.lineageId !== null || row.lifecycleGeneration !== null) changed();
+    || expectedIdentity !== undefined && (typeof expectedIdentity !== 'string' || !expectedIdentity)
+    || typeof operation !== 'function') changed();
 
   let handle: FileHandle | undefined;
   let active = false, accepting = false;
@@ -57,7 +63,7 @@ export async function withPreparedPublicSharePhysicalTarget<T>(workspace: Worksp
       }
       const observed = entries.get(relativePath)!;
       regular(observed.stat);
-      if (!publicShareFileIdentityMatches(observed.stat, fileIdentity)) changed();
+      if (expectedIdentity !== undefined && !publicShareFileIdentityMatches(observed.stat, expectedIdentity)) changed();
       fileVersion = observed.identity;
       source = { configuredRootPath, root: Object.freeze({ resolvedRootPath, identity: rootIdentity, entries }), observed };
       await assertWorkspaceOriginalPathCurrent(source);
@@ -71,15 +77,23 @@ export async function withPreparedPublicSharePhysicalTarget<T>(workspace: Worksp
         await assertWorkspaceOriginalPathCurrent(source);
         const before = await held.stat(); regular(before);
         const configuredRootStat = await fs.lstat(configuredRootPath);
-        if (filesystemFileVersion(before) !== fileVersion || !publicShareFileIdentityMatches(before, fileIdentity)
+        if (filesystemFileVersion(before) !== fileVersion
+          || expectedIdentity !== undefined && !publicShareFileIdentityMatches(before, expectedIdentity)
           || !configuredRootStat.isDirectory() || configuredRootStat.isSymbolicLink()
           || filesystemFileVersion(configuredRootStat) !== rootIdentity) changed();
         await assertWorkspaceOriginalPathCurrent(source);
         const after = await held.stat(); regular(after);
-        if (filesystemFileVersion(after) !== fileVersion || !publicShareFileIdentityMatches(after, fileIdentity)) changed();
+        if (filesystemFileVersion(after) !== fileVersion
+          || expectedIdentity !== undefined && !publicShareFileIdentityMatches(after, expectedIdentity)) changed();
+        return after;
       } catch (error) { throw error instanceof PublicSharePhysicalTargetError ? error : new PublicSharePhysicalTargetError(); }
     };
-    await assertPhysicalCurrent();
+    const initial = await assertPhysicalCurrent();
+    const fileIdentity = `${initial.dev}:${initial.ino}:${initial.birthtimeMs}`;
+    const metadata: PublicSharePhysicalPublicationMetadata = Object.freeze({
+      workspacePath: relativePath, fileName: path.posix.basename(relativePath), fileIdentity,
+      lastKnownRevision: `${Math.trunc(initial.mtimeMs)}:${initial.size}:${fileIdentity}`, sizeBytes: initial.size,
+    });
     active = true; accepting = true;
     const assertCurrent = (): Promise<void> => {
       const check = (async () => {
@@ -93,7 +107,7 @@ export async function withPreparedPublicSharePhysicalTarget<T>(workspace: Worksp
       void check.then(() => pending.delete(check), () => pending.delete(check));
       return check;
     };
-    try { outcome = { value: await operation(Object.freeze({ assertCurrent })) }; }
+    try { outcome = { value: await operation(Object.freeze({ metadata, assertCurrent })) }; }
     catch (error) { primary = { error }; }
     accepting = false;
     if (pending.size) {
@@ -117,4 +131,23 @@ export async function withPreparedPublicSharePhysicalTarget<T>(workspace: Worksp
   if (!primary && failure) primary = failure;
   if (primary) throw primary.error;
   return outcome!.value;
+}
+
+/** Historical filesystem proof only. Original all-null native pins and legacy
+ * dev:ino identities retain the existing policy contract. No metadata rebind. */
+export async function withPreparedPublicSharePhysicalTarget<T>(workspace: WorkspaceContext, row: PublicShareRow,
+  operation: (capture: Readonly<{ assertCurrent: () => Promise<void> }>) => Promise<T>): Promise<T> {
+  const relativePath = row.workspacePath, expectedIdentity = row.fileIdentity;
+  if (typeof expectedIdentity !== 'string' || !expectedIdentity || typeof operation !== 'function'
+    || row.documentId !== null || row.lineageId !== null || row.lifecycleGeneration !== null) changed();
+  return withPreparedPhysicalTarget(workspace, relativePath, expectedIdentity,
+    capture => operation(Object.freeze({ assertCurrent: capture.assertCurrent })));
+}
+
+/** Fresh publication facts come from the actual held FD, never a synthetic
+ * share row. This opens no SQL, reads no content and mints no authority.
+ * The caller must acquire its workspace kernel before entering this scope. */
+export async function withPreparedPublicSharePhysicalPublicationTarget<T>(workspace: WorkspaceContext, canonicalPath: string,
+  operation: (capture: PreparedPhysicalTarget) => Promise<T>): Promise<T> {
+  return withPreparedPhysicalTarget(workspace, canonicalPath, undefined, operation);
 }

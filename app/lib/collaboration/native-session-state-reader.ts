@@ -193,7 +193,7 @@ function freezeNative(snapshot: NativeCollaborationSnapshot): NativeCollaboratio
   }
   return snapshot;
 }
-function validateRawState(row: Row): void {
+export function validateRawState(row: Row): void {
   if (!['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(String(row.representation)) || row.status !== 'active'
     || row.schema_version !== COLLABORATION_SCHEMA_VERSION && Number(row.schema_version) !== COLLABORATION_SCHEMA_VERSION
     || !safeNumber(row.lifecycle_generation, 1) || !safeNumber(row.document_sequence) || !safeNumber(row.checkpoint_sequence)

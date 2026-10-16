@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { NextRequest } from 'next/server';
-import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import { serializeSignedCookie } from 'better-call';
 
 const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 let stage = 'private configuration', assertion = 'none', passed = 0, complete = false;
@@ -22,15 +22,15 @@ async function main(): Promise<void> {
   const url = new URL(connectionString);
   assert(['postgres:', 'postgresql:'].includes(url.protocol)); assert(['localhost', '127.0.0.1'].includes(url.hostname));
   assert.equal(url.port, '55433'); assert.equal(url.pathname, '/canvas_notebook'); assert.equal(url.search, '');
-  const schema = `public_share_read_${crypto.randomUUID().replaceAll('-', '')}`;
+  const schema = `public_share_read_${crypto.randomUUID().replaceAll('-', '')}`, nonce = crypto.randomUUID();
   assert.match(schema, /^public_share_read_[a-f0-9]{32}$/u);
   const environment = { ...process.env }, originalFetch = globalThis.fetch;
-  const dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-public-share-read-'));
+  const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'canvas-public-share-read-')));
   const rootIdentity = await stat(dataRoot);
   assert.equal(rootIdentity.uid, process.getuid!()); assert.equal(rootIdentity.mode & 0o077, 0);
   const control = new Client({ connectionString, connectionTimeoutMillis: 5000, options: '-c statement_timeout=15000' });
   const clients = new Set<Client>();
-  let created = false, schemaRemoved = false, dataRemoved = false, fetches = 0, pool: { end: () => Promise<void> } | undefined;
+  let created = false, schemaOid = 0, schemaRemoved = false, dataRemoved = false, fetches = 0, pool: { end: () => Promise<void> } | undefined;
   let primaryFailure: unknown;
   const ownClient = async () => {
     const client = new Client({ connectionString, connectionTimeoutMillis: 5000,
@@ -45,19 +45,42 @@ async function main(): Promise<void> {
     await control.connect();
     assert.equal(Math.floor(Number((await control.query("SELECT current_setting('server_version_num') AS version")).rows[0].version) / 10000), 18);
     await control.query(`CREATE SCHEMA "${schema}"`); created = true;
-    // Set the own schema before importing any runtime database module. This
-    // standalone service test needs no browser session, seat or license override.
+    await control.query(`COMMENT ON SCHEMA "${schema}" IS '${nonce}'`);
+    schemaOid = Number((await control.query('SELECT oid FROM pg_namespace WHERE nspname=$1', [schema])).rows[0].oid);
+    // Genuine request/session, signed runtime license and current rights are
+    // private fixture facts; no caller-created workspace grants Create access.
     Object.assign(process.env, { DATABASE_URL: connectionString,
       PGOPTIONS: `-c search_path=${schema},pg_catalog -c statement_timeout=15000`, CANVAS_DATABASE_PROVIDER: 'postgres',
-      DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_DEPLOYMENT_MODE: 'standalone', CANVAS_MCP_DIRECT_ENABLED: 'false',
-      BETTER_AUTH_BASE_URL: 'http://localhost', BETTER_AUTH_SECRET: crypto.randomBytes(32).toString('hex') });
-    delete process.env.BOOTSTRAP_ADMIN_EMAIL; delete process.env.NEXT_PHASE;
+      DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_INSTANCE_ID: `fixture-${crypto.randomUUID()}`,
+      CANVAS_DEPLOYMENT_MODE: 'team', CANVAS_TEAM_FEATURES_ENABLED: 'true', CANVAS_ORGANIZATION_ID: 'sharing-org',
+      CANVAS_MCP_DIRECT_ENABLED: 'false', BETTER_AUTH_BASE_URL: 'http://localhost', BASE_URL: 'http://localhost',
+      AUTH_COOKIE_SECURE: 'false', BETTER_AUTH_SECRET: crypto.randomBytes(32).toString('hex'),
+      CANVAS_LICENSE_RUNTIME_ENVIRONMENT: 'production', CANVAS_LICENSE_CONTROL_PLANE_URL: 'https://control.example.test' });
+    for (const key of ['BOOTSTRAP_ADMIN_EMAIL', 'NEXT_PHASE', 'CANVAS_LICENSE_TEST_PUBLIC_KEY', 'CANVAS_LICENSE_TEST_TRUSTED_PUBLIC_KEY_FINGERPRINTS']) delete process.env[key];
+    const keys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const fingerprint = crypto.createHash('sha256').update(keys.publicKey.export({ type: 'spki', format: 'der' })).digest('hex');
+    process.env.CANVAS_LICENSE_PUBLIC_KEY = keys.publicKey.export({ type: 'spki', format: 'pem' }).toString();
+    process.env.CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS = fingerprint;
+    const seconds = Math.floor(Date.now() / 1000);
+    const claims = { protocolVersion: 'canvas-team-seat-protocol-v1', licenseId: 'sharing-license', sub: process.env.CANVAS_INSTANCE_ID,
+      instanceId: process.env.CANVAS_INSTANCE_ID, iss: 'canvas-control-plane', aud: 'canvas-notebook', plan: 'community', status: 'active',
+      hostingMode: 'community', edition: 'team', licenseClass: 'commercial', licenseEnvironment: 'production', nonBillable: false,
+      deploymentMode: 'community', databaseProvider: 'postgres', vectorProvider: 'none', postgresRequired: true,
+      organizationId: 'sharing-org', capabilities: { multiUser: true, teamWorkspace: true, liveCollaboration: true, vectorSearch: false },
+      features: { multiUser: true, teamWorkspace: true, liveCollaboration: true }, seatLimit: 3, quotas: { users: 3 },
+      entitlementsVersion: 6, iat: seconds - 60, exp: seconds + 3600 };
+    const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: fingerprint.slice(0, 16) })).toString('base64url');
+    const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+    process.env.CANVAS_LICENSE_CERT = `${header}.${body}.${crypto.sign('RSA-SHA256', Buffer.from(`${header}.${body}`), keys.privateKey).toString('base64url')}`;
     globalThis.fetch = async () => { fetches++; throw new Error('No external network is permitted in this owned fixture.'); };
     stage = 'full migrations in own schema';
     const { runPostgresMigrations } = await import('../app/lib/db/postgres');
     const admin = await ownClient();
     const own = async () => {
-      const row = (await admin.query("SELECT current_schema() AS schema,current_setting('search_path') AS path")).rows[0];
+      const row = (await admin.query(`SELECT current_schema() AS schema,current_setting('search_path') AS path,
+        n.oid,obj_description(n.oid,'pg_namespace') AS nonce,n.nspowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) AS owner
+        FROM pg_namespace n WHERE n.nspname=$1`, [schema])).rows[0];
+      assert(row); assert.equal(Number(row.oid), schemaOid); assert.equal(row.nonce, nonce); assert.equal(row.owner, true);
       assert.equal(row.schema, schema); assert.deepEqual(row.path.split(',').map((value: string) => value.trim()), [schema, 'pg_catalog']);
     };
     await runPostgresMigrations({ query: async (sql: string, values?: unknown[]) => {
@@ -66,19 +89,36 @@ async function main(): Promise<void> {
     const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
     const runtime = getPostgresRuntimeQueryable(); assert(runtime); pool = runtime as typeof pool;
     assert.equal((await runtime.query('SELECT current_schema() AS schema')).rows[0].schema, schema);
+    const { getLicenseStatus } = await import('../app/lib/license');
+    const license = await getLicenseStatus(); assert.equal(license.licensed, true); assert.equal(license.edition, 'team'); assert.equal(license.seatLimit, 3);
     await admin.query(`INSERT INTO "user"(id,name,email,email_verified,role,banned,created_at,updated_at)
       VALUES('share-owner','Owner','owner@sharing.test',1,'admin',0,100,100)`);
-    await admin.query(`INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,created_at,updated_at)
-      VALUES('sharing-org','share-owner','standalone',100,100)`);
+    await admin.query(`INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at)
+      VALUES('sharing-org','share-owner','team',1,100,100)`);
+    await admin.query(`INSERT INTO organization_user_permissions(organization_id,user_id,role,status,can_write_team_workspace,can_create_public_links,created_at,updated_at)
+      VALUES('sharing-org','share-owner','owner','active',1,1,100,100)`);
+    await admin.query(`INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at)
+      VALUES('sharing-seat','sharing-org','owner@sharing.test','share-owner','owner','active',100,100,100,100)`);
+    await admin.query("INSERT INTO team_membership_sync_state(organization_id,created_at,updated_at) VALUES('sharing-org',100,100)");
     const rootRelativePath = 'teams/read-fixture', workspaceRoot = path.join(dataRoot, rootRelativePath);
     await mkdir(workspaceRoot, { recursive: true });
     await admin.query(`INSERT INTO canvas_workspaces(id,organization_id,type,display_name,root_relative_path,status,created_at,updated_at)
       VALUES('sharing-space','sharing-org','team','Sharing',$1,'active',100,100)`, [rootRelativePath]);
-    const workspace: WorkspaceContext = {
-      workspaceId: 'sharing-space', workspaceType: 'team', rootPath: workspaceRoot, rootRelativePath, displayName: 'Sharing',
-      organizationId: 'sharing-org', ownerUserId: null, status: 'active', actor: { userId: 'share-owner', role: 'admin' }, legacy: false,
-      permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true, canManageWorkspace: true, canRunAgent: true },
-    };
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    await admin.query(`INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at)
+      VALUES('sharing-session',$1,'share-owner',$2,100,100)`, [sessionToken, Date.now() + 3600000]);
+    const cookie = (await serializeSignedCookie('better-auth.session_token', sessionToken, process.env.BETTER_AUTH_SECRET!)).split(';')[0];
+    const request = () => new NextRequest('http://localhost/api/security/public-shares', { method: 'POST',
+      headers: { cookie, 'x-canvas-workspace-id': 'sharing-space' } });
+    const { auth } = await import('../app/lib/auth');
+    const actualSession = await auth.api.getSession({ headers: request().headers });
+    assert.equal(actualSession?.session.id, 'sharing-session'); assert.equal(actualSession?.user.id, 'share-owner');
+    const { readPostgresWorkspaceForActor } = await import('../app/lib/workspaces/postgres-runtime');
+    const workspace = await readPostgresWorkspaceForActor({ userId: 'share-owner', role: 'admin' }, 'sharing-space'); assert(workspace);
+    assert.equal(workspace.workspaceId, 'sharing-space'); assert.equal(workspace.workspaceType, 'team');
+    assert.equal(workspace.rootPath, workspaceRoot); assert.equal(workspace.organizationId, 'sharing-org');
+    assert.equal(workspace.actor?.userId, 'share-owner'); assert.equal(workspace.permissions.canRead, true);
+    assert.equal(workspace.permissions.canCreatePublicLinks, true);
     // A statement trigger also sees zero-row UPDATEs. nextval is deliberately
     // nontransactional: even a failed/rolled-back hidden allocation is visible.
     await admin.query(`CREATE SEQUENCE fixture_share_write_attempts;
@@ -107,7 +147,7 @@ async function main(): Promise<void> {
     const publish = async (name: string, legacy = false): Promise<Fixture> => {
       const file = `${name} ü.bin`;
       await writeFile(path.join(workspaceRoot, file), bytes);
-      const result = await service.createPublicFileShares({ paths: [file], createdByUserId: 'share-owner', workspace, baseUrl });
+      const result = await service.createPublicFileShares({ paths: [file], request: request(), workspaceId: workspace.workspaceId, baseUrl });
       assert.equal(result.skipped.length, 0); assert.equal(result.shares.length, 1);
       const share = result.shares[0]; assert.match(share.shortCode!, /^[ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789]{6}$/u);
       assert.equal(share.shortPath, `/p/${share.shortCode}`); assert.equal(share.shortUrl, `${normalizedBase}${share.shortPath}`);
@@ -175,7 +215,7 @@ async function main(): Promise<void> {
     });
     await check('explicit create retains short code allocation for a historical active share', async () => {
       const fixture = await publish('create-reuse', true), before = await snapshot(fixture.id), writesBefore = await audit();
-      const result = await service.createPublicFileShares({ paths: [fixture.file], createdByUserId: 'share-owner', workspace, baseUrl });
+      const result = await service.createPublicFileShares({ paths: [fixture.file], request: request(), workspaceId: workspace.workspaceId, baseUrl });
       assertion = 'create_reuse_no_skips'; assert.equal(result.skipped.length, 0);
       assertion = 'create_reuse_one_share'; assert.equal(result.shares.length, 1); const share = result.shares[0];
       assertion = 'create_reuse_same_id'; assert.equal(share.id, fixture.id);
@@ -236,6 +276,9 @@ async function main(): Promise<void> {
     if (pool) await cleanup(() => pool!.end());
     for (const client of clients) await cleanup(() => endClient(client));
     if (created && clients.size === 0 && cleanupErrors.length === 0) await cleanup(async () => {
+      const record = (await control.query(`SELECT oid,obj_description(oid,'pg_namespace') AS nonce,
+        nspowner=(SELECT oid FROM pg_roles WHERE rolname=current_user) AS owner FROM pg_namespace WHERE nspname=$1`, [schema])).rows[0];
+      assert(record); assert.equal(Number(record.oid), schemaOid); assert.equal(record.nonce, nonce); assert.equal(record.owner, true);
       await control.query(`DROP SCHEMA "${schema}" CASCADE`);
       schemaRemoved = (await control.query('SELECT to_regnamespace($1) IS NULL AS removed', [schema])).rows[0].removed === true;
       assert.equal(schemaRemoved, true);
