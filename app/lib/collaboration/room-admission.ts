@@ -212,6 +212,33 @@ async function captureTargets(database: SqlConnection, captured: CapturedRequest
 
 export { captureTargets as captureCollaborationAdmissionScopeTargets };
 
+/** Borrowed admission mechanics only. The caller owns current authorization,
+ * the actual connection, transaction, workspace fence and its commit/recovery.
+ * This neither enters a mutex nor grants lifecycle mutation authority. */
+export async function reserveCollaborationAdmissionOnConnection(database: SqlConnection,
+  input: CollaborationAdmissionRequest): Promise<CollaborationAdmissionResult> {
+  const captured = captureCollaborationAdmissionRequest(input);
+  await lockRequest(database, captured, true);
+  const existing = await readRequest(database, captured);
+  if (existing) return existing;
+  for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);
+  const targets = await captureTargets(database, captured);
+  await database.run(`INSERT INTO collaboration_admission_requests
+    (request_id, request_digest, intent_text, status, revision, created_at) VALUES ($1, $2, $3, 'reserved', 1, $4)`,
+  [captured.request.requestId, captured.requestDigest, captured.intentText, Date.now()]);
+  for (const [index, scope] of captured.request.scopes.entries()) {
+    await database.run(`INSERT INTO collaboration_admission_scopes
+      (request_id, ordinal, workspace_id, organization_id, path, kind) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [captured.request.requestId, index, scope.workspaceId, scope.organizationId, scope.path, scope.kind]);
+  }
+  for (const target of targets) {
+    await database.run(`INSERT INTO collaboration_admission_targets (request_id, document_id, snapshot_text)
+      VALUES ($1, $2, $3)`, [captured.request.requestId, target.document.documentId, JSON.stringify(target)]);
+  }
+  return Object.freeze({ requestId: captured.request.requestId, requestDigest: captured.requestDigest,
+    status: 'reserved' as const, revision: 1, targets: Object.freeze(targets) });
+}
+
 /**
  * Internal mechanics only, no auth or lifecycle mutation authority. Connections
  * must be dedicated and close(error) must destroy uncertain backends. No runtime
@@ -327,25 +354,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       const enter = (index: number): Promise<CollaborationAdmissionResult> => index < workspaceIds.length
         ? withWorkspaceMutationLock(workspaceIds[index], () => enter(index + 1))
         : transaction(async (database) => {
-        await lockRequest(database, captured, true);
-        const existing = await readRequest(database, captured);
-        if (existing) return existing;
-        for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);
-        const targets = await captureTargets(database, captured);
-        await database.run(`INSERT INTO collaboration_admission_requests
-          (request_id, request_digest, intent_text, status, revision, created_at) VALUES ($1, $2, $3, 'reserved', 1, $4)`,
-        [captured.request.requestId, captured.requestDigest, captured.intentText, Date.now()]);
-        for (const [index, scope] of captured.request.scopes.entries()) {
-          await database.run(`INSERT INTO collaboration_admission_scopes
-            (request_id, ordinal, workspace_id, organization_id, path, kind) VALUES ($1, $2, $3, $4, $5, $6)`,
-          [captured.request.requestId, index, scope.workspaceId, scope.organizationId, scope.path, scope.kind]);
-        }
-        for (const target of targets) {
-          await database.run(`INSERT INTO collaboration_admission_targets (request_id, document_id, snapshot_text)
-            VALUES ($1, $2, $3)`, [captured.request.requestId, target.document.documentId, JSON.stringify(target)]);
-        }
-        return Object.freeze({ requestId: captured.request.requestId, requestDigest: captured.requestDigest,
-          status: 'reserved' as const, revision: 1, targets: Object.freeze(targets) });
+        return reserveCollaborationAdmissionOnConnection(database, captured.request);
       }, async () => {
         const found = await readCaptured(captured);
         if (!found) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
