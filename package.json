@@ -180,6 +180,7 @@
     "test:agent:personal-provider": "tsx --conditions react-server scripts/personal-provider-recovery-test.ts && tsx --conditions react-server scripts/personal-provider-recovery-test.ts --openai",
     "test:agent:ollama-setup": "tsx --conditions react-server scripts/ollama-provider-setup-test.ts",
     "test:agent:runtime-settings-ui": "tsx scripts/agent-runtime-settings-ui-test.ts && tsx scripts/provider-connection-fields-test.tsx",
+    "test:agent:provider-setup": "tsx scripts/provider-catalog-removal-test.ts && tsx scripts/provider-credential-presence-test.ts && tsx scripts/provider-existing-secrets-test.tsx",
     "test:agent:tools-route": "tsx --conditions react-server scripts/agent-tools-route-test.ts",
     "test:agent:access": "tsx --conditions react-server scripts/agent-access-service-test.ts",
     "test:agent:bradley-display-name": "tsx --conditions react-server scripts/agent-display-name-migration-test.ts",

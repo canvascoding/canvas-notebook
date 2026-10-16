@@ -2,6 +2,7 @@
 
 import { forwardRef, startTransition, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { Eye, EyeOff, Loader2, Save, Trash2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
   const t = useTranslations('settings');
   const [envStates, setEnvStates] = useState<EnvVarState[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
@@ -79,6 +81,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
     const controller = new AbortController();
     loadController.current = controller;
     setLoading(true);
+    setLoadFailed(false);
     setLoadedIdentity(null);
     setEnvStates([]);
     setHasChanges(false);
@@ -86,40 +89,26 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
     try {
       const states: EnvVarState[] = await Promise.all(
         fields.map(async (envVar) => {
-          try {
-            const response = await fetch(
-              `/api/integrations/env?scope=${envVar.scope}&secretScope=${credentialScope}&key=${encodeURIComponent(envVar.name)}`,
-              { credentials: 'include', signal: controller.signal }
-            );
-            const data = await response.json();
-            const existingEntry = data.success
-              ? data.data.entries.find((e: { key: string }) => e.key === envVar.name)
-              : null;
+          const response = await fetch(
+            `/api/integrations/env?scope=all&view=provider&secretScope=${credentialScope}&key=${encodeURIComponent(envVar.name)}`,
+            { credentials: 'include', cache: 'no-store', signal: controller.signal }
+          );
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.data?.entries)) throw new Error('Credential load failed.');
+          const existingEntry = data.data.entries.find((entry: { key: string }) => entry.key === envVar.name);
+          if (existingEntry?.readable === false) throw new Error('Credential is not readable.');
 
-            return {
-              name: envVar.name,
-              description: envVar.description,
-              scope: envVar.scope,
-              required: envVar.required,
-              value: existingEntry?.value || '',
-              originalValue: existingEntry?.value || '',
-              isVisible: false,
-              isDirty: false,
-              exists: !!existingEntry,
-            };
-          } catch {
-            return {
-              name: envVar.name,
-              description: envVar.description,
-              scope: envVar.scope,
-              required: envVar.required,
-              value: '',
-              originalValue: '',
-              isVisible: false,
-              isDirty: false,
-              exists: false,
-            };
-          }
+          return {
+            name: envVar.name,
+            description: envVar.description,
+            scope: envVar.scope,
+            required: envVar.required,
+            value: existingEntry?.value || '',
+            originalValue: existingEntry?.value || '',
+            isVisible: false,
+            isDirty: false,
+            exists: Boolean(existingEntry?.value?.trim()),
+          };
         })
       );
 
@@ -127,9 +116,11 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
       setEnvStates(states);
       setLoadedIdentity(formIdentity);
       setHasChanges(false);
-    } catch (error) {
+    } catch {
       if (controller.signal.aborted) return;
-      console.error('Failed to load env values:', error);
+      console.error('Failed to load provider credentials.');
+      setLoadFailed(true);
+      setLoadedIdentity(formIdentity);
       setMessage({ type: 'error', text: t('providerEnv.errors.load') });
     } finally {
       if (!controller.signal.aborted) setLoading(false);
@@ -214,7 +205,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
   };
 
   const saveAll = async (): Promise<boolean> => {
-    if (isLoading) {
+    if (isLoading || loadFailed) {
       setMessage({ type: 'error', text: t('providerEnv.errors.load') });
       return false;
     }
@@ -334,6 +325,19 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
         </InlineNotice>
       )}
 
+      {!isLoading && loadFailed && (
+        <div className="flex items-center gap-3 text-sm">
+          <Button type="button" variant="outline" onClick={() => void loadEnvValues()}>{t('providerEnv.reload')}</Button>
+          <Link className="text-primary underline" href="/settings?tab=secrets">{t('providerEnv.openSecrets')}</Link>
+        </div>
+      )}
+
+      {!isLoading && !loadFailed && envStates.some(state => state.exists) && envStates.every(state => !state.required || state.value.trim()) && (
+        <div data-testid="provider-existing-credentials">
+          <InlineNotice variant="success" size="compact">{t('providerEnv.existingCredentials')}</InlineNotice>
+        </div>
+      )}
+
       {/* Dirty warning */}
       {!isLoading && hasChanges && (
         <InlineNotice variant="warning" size="compact">
@@ -347,7 +351,7 @@ export const ProviderEnvEditor = forwardRef<ProviderEnvEditorHandle, ProviderEnv
           <Loader2 className="h-4 w-4 animate-spin" />
           {t('providerEnv.loading')}
         </div>
-      ) : (
+      ) : !loadFailed && (
         <div className="space-y-4">
           {/* Env var inputs */}
           {envStates.map((state, index) => (

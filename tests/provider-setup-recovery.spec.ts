@@ -22,7 +22,11 @@ async function fixture(page: Page) {
     id: provider.providerId, name: provider.name, source: provider.source,
     models: provider.models.map(entry => ({ ...entry, contextWindow: 8192, maxTokens: 1024 })),
   };
-  const writes: Array<{ expectedRevision: number; providers: Array<{ providerInstallationId: string }> }> = [];
+  for (const id of ['openai', 'anthropic', 'google', 'openrouter']) state.discovery[id] = {
+    id, name: id, source: 'built-in', installationIds: { system: `${id}-system`, organization: `${id}-organization`, user: `${id}-user` },
+    models: [{ id: `${id}-model`, name: `${id}-model`, reasoning: false, supportsVision: false, contextWindow: 8192, maxTokens: 1024 }],
+  };
+  const writes: Array<{ expectedRevision: number; providers: Array<{ providerInstallationId: string; providerId: string; credentialScope: string }> }> = [];
   let reads = 0;
   let failedProbe = false;
   await page.route('**/api/admin/agent-runtime/catalog', async route => {
@@ -50,6 +54,42 @@ async function fixture(page: Page) {
   await page.goto('/en/settings?tab=ai-providers');
   await expect(page.getByTestId('provider-summary-openai-codex-user')).toBeVisible();
   return { state, writes, reads: () => reads, failedProbe: () => failedProbe };
+}
+
+for (const [providerId, key, scope] of [
+  ['openai', 'OPENAI_API_KEY', 'user'], ['anthropic', 'ANTHROPIC_API_KEY', 'organization'],
+  ['google', 'GEMINI_API_KEY', 'system'], ['openrouter', 'OPENROUTER_API_KEY', 'user'],
+] as const) {
+  for (const width of [1280, 390]) test(`reuses ${providerId} Secrets in ${scope} scope at ${width}px`, async ({ page }, testInfo) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width, height: 900 });
+    let secretWrites = 0;
+    await page.route('**/api/integrations/env**', async route => {
+      if (route.request().method() !== 'GET') { secretWrites++; await route.fulfill({ json: { success: true } }); return; }
+      const url = new URL(route.request().url());
+      const matches = url.searchParams.get('secretScope') === scope;
+      const metadata = url.searchParams.get('metadataOnly') === '1';
+      const requestedKey = url.searchParams.get('key');
+      await route.fulfill({ json: { success: true, data: { entries: matches && (metadata || requestedKey === key)
+        ? [metadata ? { key, configured: true, readable: true } : { key, value: 'existing-private-fixture', readable: true }] : [] } } });
+    });
+    const setup = await fixture(page);
+    await page.getByRole('button', { name: 'Add provider', exact: true }).click();
+    const dialog = page.getByTestId('provider-editor-dialog');
+    await dialog.getByTestId('provider-dialog-provider-select').selectOption(providerId);
+    await expect(dialog.getByTestId('provider-existing-credentials')).toBeVisible();
+    await expect(dialog).toHaveCSS('opacity', '1');
+    await expect(dialog.getByText('Required field not configured yet', { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('existing-secret-recognized.png'), scale: 'css' });
+    await dialog.getByRole('button', { name: 'Continue to models', exact: true }).click();
+    await dialog.getByRole('checkbox', { name: `${providerId}-model ${providerId}-model` }).check();
+    await expect(dialog.locator('#provider-credential-scope')).toHaveValue(scope);
+    await dialog.getByTestId('provider-save').click();
+    await expect(dialog).toHaveCount(0);
+    const saved = setup.writes.at(-1)?.providers.find(provider => provider.providerId === providerId);
+    expect(saved?.credentialScope).toBe(scope);
+    expect(secretWrites).toBe(0);
+  });
 }
 
 for (const width of [1280, 390]) {

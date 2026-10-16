@@ -167,10 +167,31 @@ export async function GET(request: NextRequest) {
     }
 
     if (secretScope === 'system') await migrateLegacyAgentEnvIfNeeded();
-    const state = clientEnvState(scope === 'all' ? await readUnifiedEnvState(storageScope) : await readScopedEnvState(scope, storageScope));
+    const loadedState = scope === 'all' ? await readUnifiedEnvState(storageScope) : await readScopedEnvState(scope, storageScope);
+    const providerView = scope === 'all' && (request.nextUrl.searchParams.get('view') === 'provider' || request.nextUrl.searchParams.get('metadataOnly') === '1');
+    const state = clientEnvState(providerView ? {
+      ...loadedState,
+      // Match the runtime resolver: agent overrides win, integrations-only keys remain usable.
+      entries: [...new Map([
+        ...projectEnvView(loadedState, 'integrations').entries.map(entry => [entry.key, entry] as const),
+        ...projectEnvView(loadedState, 'agents').entries.map(entry => [entry.key, entry] as const),
+      ]).values()],
+    } : loadedState);
     const requestedKey = request.nextUrl.searchParams.get('key')?.trim() || null;
     if (requestedKey && !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(requestedKey)) {
       return NextResponse.json({ success: false, error: 'Invalid environment variable key.' }, { status: 400 });
+    }
+    if (request.nextUrl.searchParams.get('metadataOnly') === '1') {
+      return NextResponse.json({
+        success: true,
+        data: {
+          entries: state.entries.filter(entry => !requestedKey || entry.key === requestedKey).map(entry => ({
+            key: entry.key,
+            configured: entry.readable !== false && Boolean(entry.value.trim()),
+            readable: entry.readable !== false,
+          })),
+        },
+      }, { headers: { 'Cache-Control': 'private, no-store' } });
     }
     return NextResponse.json({
       success: true,

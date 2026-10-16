@@ -7701,6 +7701,8 @@
       "scopeAgentEnvironment": "Agent Environment",
       "scopeIntegrations": "Integrations",
       "savedIndicator": "Saved",
+      "existingCredentials": "Credentials already saved in Secrets will be used. You do not need to enter them again.",
+      "openSecrets": "Open Secrets",
       "ollamaNotConfigured": "No API key configured. This is normal for local Ollama installations.",
       "requiredNotConfigured": "Required field not configured yet",
       "notConfigured": "Not configured yet",
