@@ -136,7 +136,7 @@ test.describe('native original Delete and Undo through the file browser', () => 
         await toast.getByRole('button', { name: 'Undo', exact: true }).click();
         expect((await undoResponse).ok()).toBe(true);
         await settleNativeFileBatch(context.request, workspaceId, deleted.operation, 'undone');
-        await expect(page.locator('[data-file-path]').filter({ hasText: path }).first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.locator(`[data-file-path="${path}"]`)).toBeVisible({ timeout: 30_000 });
         const restored = await readNativeFileSession(context.request, workspaceId, path);
         expect(restored).toMatchObject({ documentId: original.documentId,
           lifecycleGeneration: original.lifecycleGeneration + 2, documentSequence: original.documentSequence,
