@@ -28,7 +28,7 @@ async function readNativeFileRoom(workspaceId: string, path: string, session: Na
   const input = Buffer.from(JSON.stringify({ documentId: session.documentId, path,
     generation: session.lifecycleGeneration, expectedWorkspaceId: workspaceId })).toString('base64url');
   const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx',
-    'scripts/owned-yjs-restart-room-read.ts', input], { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 64 * 1024 });
+    'scripts/owned-yjs-native-file-room-read.ts', input], { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 64 * 1024 });
   return JSON.parse(result.stdout) as OwnedRestartRoomEvidence;
 }
 
