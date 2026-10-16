@@ -260,7 +260,8 @@ test.describe('native path operations through ordinary UI, durable jobs and orig
       await reopened.screenshot({ path: info.outputPath('native-move-rich-peer-preserved.png'), animations: 'disabled' });
       if (!mobile) {
         await reopened.locator(selector).getByRole('link', { name: 'Target', exact: true }).click({ modifiers: ['Control'] });
-        await expect(reopened).toHaveURL(url => url.searchParams.get('path') === destination && url.searchParams.get('workspaceId') === fixture.workspaceId);
+        await expect(reopened.getByTestId('document-header')).toContainText(destination);
+        await expect(reopened.locator(selector).getByRole('heading', { name: 'Moved native note', exact: true })).toBeVisible();
       } else await open(reopened, fixture, destination);
       await expect(reopened.locator(selector)).toHaveAttribute('contenteditable', 'true');
       const actualSource = await readNativeRichCandidate(reopened, selector); expect(actualSource.document).toEqual(expectedSource);
