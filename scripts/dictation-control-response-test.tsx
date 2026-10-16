@@ -65,11 +65,16 @@ async function main() {
     await record();
     assert.equal(view.getByRole('alert').textContent, messages.dictation.emptyTranscript);
 
+    response = () => Response.json({ success: false, error: 'No speech was recognized.', code: 'EMPTY_TRANSCRIPT' }, { status: 422 });
+    await record();
+    assert.equal(view.getByRole('alert').textContent, messages.dictation.emptyTranscript, 'no-speech responses explain microphone recovery in the UI language');
+    assert.deepEqual(transcripts, [], 'no-speech responses preserve the draft without inserting text');
+
     response = () => Response.json({ success: true, data: { text: '  Recovery transcript.  ' } });
     await record();
     assert.deepEqual(transcripts, ['Recovery transcript.']);
     assert.equal(view.queryByRole('alert'), null, 'a retry clears the earlier failure');
-    assert.equal(stoppedTracks, 5, 'every completed recording releases its microphone');
+    assert.equal(stoppedTracks, 6, 'every completed recording releases its microphone');
     console.log('dictation-control-response-test: HTML 502, structured provider errors, malformed responses and recording retry passed');
   } finally {
     cleanup();

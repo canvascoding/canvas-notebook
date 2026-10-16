@@ -2139,7 +2139,7 @@
     "stopRecording": "Stop dictation",
     "transcribing": "Transcribing dictation",
     "transcriptionError": "Could not transcribe dictation.",
-    "emptyTranscript": "No speech detected.",
+    "emptyTranscript": "No speech detected. Check your microphone and record again.",
     "emptyRecording": "The recording is empty.",
     "recordingError": "Recording was interrupted.",
     "unsupportedBrowser": "This browser does not support microphone recording.",

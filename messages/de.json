@@ -2138,7 +2138,7 @@
     "stopRecording": "Diktat beenden",
     "transcribing": "Diktat wird transkribiert",
     "transcriptionError": "Diktat konnte nicht transkribiert werden.",
-    "emptyTranscript": "Keine Sprache erkannt.",
+    "emptyTranscript": "Keine Sprache erkannt. Prüfe dein Mikrofon und nimm erneut auf.",
     "emptyRecording": "Die Aufnahme ist leer.",
     "recordingError": "Die Aufnahme wurde unterbrochen.",
     "unsupportedBrowser": "Dieser Browser unterstützt keine Mikrofonaufnahme.",

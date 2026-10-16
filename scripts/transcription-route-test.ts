@@ -143,7 +143,7 @@ async function main(): Promise<void> {
     ['AUDIO_TOO_LARGE', 413, 'Audio file is too large.'],
     ['TRANSCRIPTION_ABORTED', 499, 'Transcription was cancelled.'],
     ['TRANSCRIPTION_TIMEOUT', 504, 'Transcription timed out.'],
-    ['EMPTY_TRANSCRIPT', 502, 'Transcription completed without transcript text.'],
+    ['EMPTY_TRANSCRIPT', 422, 'No speech was recognized. Check your microphone and try recording again.'],
     ['INVALID_TRANSCRIPTION_RESPONSE', 502, 'OpenAI returned an invalid transcription response.'],
     ['TRANSCRIPTION_PROVIDER_ACCESS_DENIED', 502, 'OpenAI API access was denied.'],
     ['TRANSCRIPTION_QUOTA_EXCEEDED', 429, 'OpenAI API quota is exhausted.'],
