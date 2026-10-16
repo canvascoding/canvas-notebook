@@ -167,10 +167,13 @@ async function insertVirginNativeDocument(connection: SqlConnection, workspace: 
   });
 }
 
-/** Caller owns physical publication and retains the existing source/target lifecycle guards.
- * This capability commits fresh native identity and its private receipt atomically, never via Markdown. */
-export async function persistNativeWorkspaceCopies(input: NativeCopyRequest,
-  openConnection: () => Promise<SqlConnection> = openDb): Promise<NativeCopyReceipt> {
+export type NativeCopyPublicationRequest = {
+  workspace: WorkspaceContext; operationId: string; actorUserId: string; actorSessionId?: string | null;
+  requestFingerprint: string; publicationFingerprint: string;
+};
+
+type CapturedNativeCopy = { input: NativeCopyRequest; fingerprint: string };
+function captureNativeCopyRequest(input: NativeCopyRequest): CapturedNativeCopy {
   assertAccess(input);
   // Capture all binary input before asynchronous admission. No mutable caller state crosses the fence.
   const frozen = deserializeNativeRecoveryPayload(serializeNativeRecoveryPayload(input.copies.map(copy => copy.source)));
@@ -185,80 +188,216 @@ export async function persistNativeWorkspaceCopies(input: NativeCopyRequest,
       sourcePath: copy.source.state.path, sourceRepresentation: copy.source.state.representation, sourceSchemaVersion: copy.source.state.schemaVersion,
       sourceGeneration: copy.source.state.lifecycleGeneration, sourceSequence: copy.source.state.documentSequence,
       nativeHash: digest(copy.source.state.yjsState), newlineStyle: copy.source.state.newlineStyle, hasBom: copy.source.state.hasBom })) }));
+  return { input, fingerprint };
+}
+
+async function persistCapturedNativeWorkspaceCopiesOnConnection(connection: SqlConnection,
+  captured: CapturedNativeCopy): Promise<NativeCopyReceipt> {
+  const { input, fingerprint } = captured;
+  const existing = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
+  if (existing) return validateCommittedReceipt(connection, input, fingerprint, existing);
+  if (input.resumeOnly) unavailable();
+  const scopes = [{ workspaceId: input.targetWorkspace.workspaceId, paths: [...input.targetScopes] }];
+  if (input.kind === 'native_clone') scopes.push({ workspaceId: input.sourceWorkspace.workspaceId,
+    paths: input.copies.map(copy => copy.source.state.path) });
+  scopes.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
+  for (const scope of scopes) if (scope.paths.length) {
+    await assertWorkspaceFileLifecycleSqlAvailable(connection, scope.workspaceId, scope.paths);
+    await lockFileCollaborationPaths(connection, scope.workspaceId, scope.paths);
+  }
+  // Recheck after acquiring the shared scopes; a racing same operation may have committed while waiting.
+  const raced = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
+  if (raced) return validateCommittedReceipt(connection, input, fingerprint, raced);
+  await assertExpectedTargets(connection, input);
+  const sourceCatalogue = input.kind === 'native_clone' && input.copies.length
+    ? await readWorkspaceDocumentCatalogue(connection, input.sourceWorkspace, { paths: input.copies.map(copy => copy.source.state.path) }) : [];
+  if (input.kind === 'native_clone') for (const copy of input.copies) {
+    const sourceDocument = sourceCatalogue.find(document => document.id === copy.source.state.documentId);
+    const current = await loadCollaborationStateOnConnection(connection, copy.source.state.documentId);
+    const expected = authoritativeNativeCollaborationSnapshot(copy.source.state);
+    if (!sourceDocument || sourceDocument.authority !== 'initialized' || sourceDocument.lineage_id !== copy.source.lineageId
+      || !current || current.workspaceId !== expected.workspaceId || current.organizationId !== expected.organizationId
+      || current.path !== expected.path || current.lifecycleGeneration !== expected.lifecycleGeneration
+      || authoritativeNativeCollaborationSnapshot(current).version.stateProof !== expected.version.stateProof) unavailable();
+  }
+  const now = Date.now();
+  await initializeCopiedFileCollaborationPathScopes(connection, { workspace: input.targetWorkspace,
+    paths: [...input.targetScopes], nowMs: now, createLineageId: () => `file-lineage-${randomUUID()}` });
+  const receipts: NativeCopyDocumentReceipt[] = [];
+  for (const copy of input.copies) {
+    const source = authoritativeNativeCollaborationSnapshot(copy.source.state);
+    const cloned = cloneNativeCollaborationDocument(copy.source.state);
+    try {
+      const lineage = await ensureActiveFileLineage(connection, { id: `file-lineage-${randomUUID()}`,
+        workspace: input.targetWorkspace, path: copy.targetPath, nowMs: now });
+      const documentId = `collab-${randomUUID()}`;
+      const state: PersistedCollaborationState = { ...copy.source.state, documentId, workspaceId: input.targetWorkspace.workspaceId,
+        organizationId: input.targetWorkspace.organizationId ?? null, path: copy.targetPath, lifecycleGeneration: 1,
+        yjsState: Y.encodeStateAsUpdate(cloned.doc), stateVector: Y.encodeStateVector(cloned.doc), documentSequence: 0,
+        persistedAt: now, checkpointedAt: null, checkpointSequence: 0, canonicalHash: null, serializedHash: null,
+        degraded: false, status: 'active', projectionError: undefined, projectionFinalized: false };
+      const native = authoritativeNativeCollaborationSnapshot(state);
+      await insertVirginNativeDocument(connection, input.targetWorkspace, state, lineage.id);
+      receipts.push({ version: 1, source: { documentId: source.documentId, lifecycleGeneration: source.lifecycleGeneration,
+        stateProof: source.version.stateProof, documentSequence: source.version.documentSequence },
+      clone: { documentId, lineageId: lineage.id, path: copy.targetPath, lifecycleGeneration: 1,
+        stateProof: native.version.stateProof, initialSequence: 0 }, blockIdMapping: cloned.blockIdMapping });
+    } finally { cloned.doc.destroy(); }
+  }
+  const result: Omit<NativeCopyReceipt, 'publicationStatus'> = { version: 1, operationId: input.operationId,
+    workspaceId: input.targetWorkspace.workspaceId, requestFingerprint: fingerprint, documents: receipts };
+  const privateResult = JSON.stringify(result);
+  if (Buffer.byteLength(privateResult) > 8 * 1024 * 1024) unavailable();
+  await connection.run(`INSERT INTO collaboration_native_copy_receipts (workspace_id,operation_id,organization_id,
+    actor_user_id,actor_session_id,version,kind,request_fingerprint,scope_paths,private_result,created_at,publication_fingerprint)
+    VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8::jsonb,$9::jsonb,$10,$11)`,
+  [input.targetWorkspace.workspaceId, input.operationId, input.targetWorkspace.organizationId ?? null, input.actorUserId,
+    input.actorSessionId ?? null, input.kind, fingerprint, JSON.stringify(input.targetScopes), privateResult, now, input.publicationFingerprint ?? null]);
+  // Return the exact JSON shape persisted in jsonb, including ordinary mapping objects on retries.
+  return { ...JSON.parse(privateResult) as typeof result, publicationStatus: 'native_committed' as const };
+}
+
+function captureNativeCopyPublication(input: NativeCopyPublicationRequest): NativeCopyPublicationRequest {
+  input = { ...input, workspace: structuredClone(input.workspace) };
+  if (!input.workspace.permissions.canWrite || input.workspace.status !== undefined && input.workspace.status !== 'active'
+    || !validId(input.operationId) || !validId(input.actorUserId)
+    || input.actorSessionId != null && !validId(input.actorSessionId)
+    || !/^[a-f0-9]{64}$/u.test(input.requestFingerprint) || !/^[a-f0-9]{64}$/u.test(input.publicationFingerprint)) unavailable();
+  return input;
+}
+
+async function verifyNativeCopyPublicationOnConnection(connection: SqlConnection,
+  input: NativeCopyPublicationRequest, requirePublished = false): Promise<void> {
+  const row = await connection.get(`SELECT * FROM collaboration_native_copy_receipts
+    WHERE workspace_id=$1 AND operation_id=$2${requirePublished ? '' : ' FOR UPDATE'}`,
+  [input.workspace.workspaceId, input.operationId]) as LedgerRow | undefined;
+  if (!row || row.version !== 1 || row.organization_id !== (input.workspace.organizationId ?? null)
+    || row.actor_user_id !== input.actorUserId || row.actor_session_id !== (input.actorSessionId ?? null)
+    || row.request_fingerprint !== input.requestFingerprint || row.publication_fingerprint !== input.publicationFingerprint
+    || !Array.isArray(row.scope_paths) || !row.scope_paths.length || row.scope_paths.some(path => !isCanonicalAdmissionPath(path))
+    || requirePublished && row.publication_status !== 'published') unavailable();
+  if (!requirePublished) {
+    await assertWorkspaceFileLifecycleSqlAvailable(connection, input.workspace.workspaceId, row.scope_paths);
+    await lockFileCollaborationPaths(connection, input.workspace.workspaceId, row.scope_paths);
+  }
+  for (const receipt of row.private_result.documents) {
+    const current = await connection.get(`SELECT s.document_id FROM collaboration_yjs_states s
+      JOIN collaboration_documents d ON d.id=s.document_id JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+      WHERE s.document_id=$1 AND s.workspace_id=$2 AND s.organization_id IS NOT DISTINCT FROM $3 AND s.path=$4
+        AND s.lifecycle_generation=$5 AND s.status='active' AND d.status='active' AND d.path=s.path
+        AND d.workspace_id=s.workspace_id AND d.organization_id IS NOT DISTINCT FROM s.organization_id
+        AND l.id=$6 AND l.status='active' AND l.path=s.path AND l.workspace_id=s.workspace_id
+        AND l.organization_id IS NOT DISTINCT FROM s.organization_id`,
+    [receipt.clone.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null,
+      receipt.clone.path, receipt.clone.lifecycleGeneration, receipt.clone.lineageId]);
+    if (!current) unavailable();
+    const state = await loadCollaborationStateOnConnection(connection, receipt.clone.documentId);
+    if (!state) unavailable();
+    try { authoritativeNativeCollaborationSnapshot(state); }
+    catch { unavailable(); }
+  }
+}
+
+async function completeCapturedNativeCopyPublicationOnConnection(connection: SqlConnection,
+  input: NativeCopyPublicationRequest): Promise<void> {
+  await verifyNativeCopyPublicationOnConnection(connection, input);
+  await connection.run(`UPDATE collaboration_native_copy_receipts SET publication_status='published'
+    WHERE workspace_id=$1 AND operation_id=$2 AND request_fingerprint=$3 AND publication_fingerprint=$4`,
+  [input.workspace.workspaceId, input.operationId, input.requestFingerprint, input.publicationFingerprint]);
+}
+
+type NativeCopyBorrowedIdentity = Readonly<{
+  backend: number; start: string; database: string; schema: string; searchPath: string; transaction: string;
+}>;
+async function nativeCopyBorrowedIdentity(database: SqlConnection, assign: boolean): Promise<NativeCopyBorrowedIdentity> {
+  const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start,
+    (SELECT oid::text FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database,
+    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::text AS schema,
+    pg_catalog.current_setting('search_path') AS search_path,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,
+    pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication,
+    CASE WHEN pg_catalog.current_setting('transaction_isolation')='read committed'
+      AND pg_catalog.current_setting('transaction_read_only')='off'
+      THEN ${assign ? 'pg_catalog.pg_current_xact_id()' : 'pg_catalog.pg_current_xact_id_if_assigned()'}::text
+      ELSE NULL END AS transaction
+    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`) as Record<string, unknown> | undefined;
+  if (!row || !Number.isSafeInteger(row.backend) || Number(row.backend) < 1
+    || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
+    || typeof row.database !== 'string' || !/^[1-9][0-9]{0,9}$/u.test(row.database)
+    || typeof row.schema !== 'string' || !/^[1-9][0-9]{0,9}$/u.test(row.schema)
+    || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
+    || typeof row.transaction !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.transaction)
+    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') unavailable();
+  return Object.freeze({ backend: Number(row.backend), start: row.start, database: row.database,
+    schema: row.schema, searchPath: row.search_path, transaction: row.transaction });
+}
+
+// Local overlap detection only; this is not a capability, current principal,
+// owner lease or permission to retain/commit the caller's transaction.
+const borrowedNativeCopyConnections = new WeakMap<SqlConnection, { failure?: unknown }>();
+async function withBorrowedNativeCopyTransaction<T>(database: SqlConnection, operation: () => Promise<T>): Promise<T> {
+  if (!database || typeof database !== 'object' || !['get', 'all', 'run'].every(key => typeof Reflect.get(database, key) === 'function')) unavailable();
+  const sibling = borrowedNativeCopyConnections.get(database);
+  if (sibling) { sibling.failure ??= new NativeDocumentRecoveryError(); throw sibling.failure; }
+  const frame: { failure?: unknown } = {};
+  borrowedNativeCopyConnections.set(database, frame);
+  const assertFrame = () => { if (frame.failure !== undefined) throw frame.failure; };
+  try {
+    const pinned = await nativeCopyBorrowedIdentity(database, true); assertFrame();
+    const check = async () => {
+      const current = await nativeCopyBorrowedIdentity(database, false); assertFrame();
+      if (JSON.stringify(current) !== JSON.stringify(pinned)) unavailable();
+    };
+    await check(); assertFrame(); // Reject autocommit before any domain SQL.
+    const result = await operation(); assertFrame();
+    await check(); assertFrame();
+    return result;
+  } finally { if (borrowedNativeCopyConnections.get(database) === frame) borrowedNativeCopyConnections.delete(database); }
+}
+
+/** Borrowed mechanical clone phase on the caller's actual RC/RW connection/TX.
+ * Captures bytes and request primitives before awaiting. Never checks out,
+ * controls/ends a transaction, closes B, sets timeouts or publishes projections.
+ * Caller owns current rights, original request pins, statement/lock bounds,
+ * lifecycle/room fences, rollback on ANY error and confirmed COMMIT/recovery.
+ * The returned initial receipt is not proof that this transaction committed. */
+export async function persistNativeWorkspaceCopiesOnConnection(database: SqlConnection,
+  input: NativeCopyRequest): Promise<NativeCopyReceipt> {
+  const captured = captureNativeCopyRequest(input);
+  return withBorrowedNativeCopyTransaction(database, () => persistCapturedNativeWorkspaceCopiesOnConnection(database, captured));
+}
+
+/** Borrowed mechanical publication-receipt update, with the same original
+ * current-document checks. Caller verifies exact physical publication and owns
+ * the actual RC/RW B, fences, rollback and confirmed COMMIT/recovery. No returned
+ * value authorizes another write or proves the caller's future COMMIT. */
+export async function completeNativeCopyPublicationOnConnection(database: SqlConnection,
+  input: NativeCopyPublicationRequest): Promise<void> {
+  const captured = captureNativeCopyPublication(input);
+  return withBorrowedNativeCopyTransaction(database, () => completeCapturedNativeCopyPublicationOnConnection(database, captured));
+}
+
+/** Caller owns physical publication and retains the existing source/target lifecycle guards.
+ * This capability commits fresh native identity and its private receipt atomically, never via Markdown. */
+export async function persistNativeWorkspaceCopies(input: NativeCopyRequest,
+  openConnection: () => Promise<SqlConnection> = openDb): Promise<NativeCopyReceipt> {
+  const captured = captureNativeCopyRequest(input);
   return executeLifecycleTransaction({
     openConnection,
     execute: async connection => {
       await connection.run("SET LOCAL statement_timeout='5s'");
       await connection.run("SET LOCAL lock_timeout='4s'");
-      const existing = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
-      if (existing) return validateCommittedReceipt(connection, input, fingerprint, existing);
-      if (input.resumeOnly) unavailable();
-      const scopes = [{ workspaceId: input.targetWorkspace.workspaceId, paths: [...input.targetScopes] }];
-      if (input.kind === 'native_clone') scopes.push({ workspaceId: input.sourceWorkspace.workspaceId,
-        paths: input.copies.map(copy => copy.source.state.path) });
-      scopes.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
-      for (const scope of scopes) if (scope.paths.length) {
-        await assertWorkspaceFileLifecycleSqlAvailable(connection, scope.workspaceId, scope.paths);
-        await lockFileCollaborationPaths(connection, scope.workspaceId, scope.paths);
-      }
-      // Recheck after acquiring the shared scopes; a racing same operation may have committed while waiting.
-      const raced = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
-      if (raced) return validateCommittedReceipt(connection, input, fingerprint, raced);
-      await assertExpectedTargets(connection, input);
-      const sourceCatalogue = input.kind === 'native_clone' && input.copies.length
-        ? await readWorkspaceDocumentCatalogue(connection, input.sourceWorkspace, { paths: input.copies.map(copy => copy.source.state.path) }) : [];
-      if (input.kind === 'native_clone') for (const copy of input.copies) {
-        const sourceDocument = sourceCatalogue.find(document => document.id === copy.source.state.documentId);
-        const current = await loadCollaborationStateOnConnection(connection, copy.source.state.documentId);
-        const expected = authoritativeNativeCollaborationSnapshot(copy.source.state);
-        if (!sourceDocument || sourceDocument.authority !== 'initialized' || sourceDocument.lineage_id !== copy.source.lineageId
-          || !current || current.workspaceId !== expected.workspaceId || current.organizationId !== expected.organizationId
-          || current.path !== expected.path || current.lifecycleGeneration !== expected.lifecycleGeneration
-          || authoritativeNativeCollaborationSnapshot(current).version.stateProof !== expected.version.stateProof) unavailable();
-      }
-      const now = Date.now();
-      await initializeCopiedFileCollaborationPathScopes(connection, { workspace: input.targetWorkspace,
-        paths: [...input.targetScopes], nowMs: now, createLineageId: () => `file-lineage-${randomUUID()}` });
-      const receipts: NativeCopyDocumentReceipt[] = [];
-      for (const copy of input.copies) {
-        const source = authoritativeNativeCollaborationSnapshot(copy.source.state);
-        const cloned = cloneNativeCollaborationDocument(copy.source.state);
-        try {
-          const lineage = await ensureActiveFileLineage(connection, { id: `file-lineage-${randomUUID()}`,
-            workspace: input.targetWorkspace, path: copy.targetPath, nowMs: now });
-          const documentId = `collab-${randomUUID()}`;
-          const state: PersistedCollaborationState = { ...copy.source.state, documentId, workspaceId: input.targetWorkspace.workspaceId,
-            organizationId: input.targetWorkspace.organizationId ?? null, path: copy.targetPath, lifecycleGeneration: 1,
-            yjsState: Y.encodeStateAsUpdate(cloned.doc), stateVector: Y.encodeStateVector(cloned.doc), documentSequence: 0,
-            persistedAt: now, checkpointedAt: null, checkpointSequence: 0, canonicalHash: null, serializedHash: null,
-            degraded: false, status: 'active', projectionError: undefined, projectionFinalized: false };
-          const native = authoritativeNativeCollaborationSnapshot(state);
-          await insertVirginNativeDocument(connection, input.targetWorkspace, state, lineage.id);
-          receipts.push({ version: 1, source: { documentId: source.documentId, lifecycleGeneration: source.lifecycleGeneration,
-            stateProof: source.version.stateProof, documentSequence: source.version.documentSequence },
-          clone: { documentId, lineageId: lineage.id, path: copy.targetPath, lifecycleGeneration: 1,
-            stateProof: native.version.stateProof, initialSequence: 0 }, blockIdMapping: cloned.blockIdMapping });
-        } finally { cloned.doc.destroy(); }
-      }
-      const result: Omit<NativeCopyReceipt, 'publicationStatus'> = { version: 1, operationId: input.operationId,
-        workspaceId: input.targetWorkspace.workspaceId, requestFingerprint: fingerprint, documents: receipts };
-      const privateResult = JSON.stringify(result);
-      if (Buffer.byteLength(privateResult) > 8 * 1024 * 1024) unavailable();
-      await connection.run(`INSERT INTO collaboration_native_copy_receipts (workspace_id,operation_id,organization_id,
-        actor_user_id,actor_session_id,version,kind,request_fingerprint,scope_paths,private_result,created_at,publication_fingerprint)
-        VALUES ($1,$2,$3,$4,$5,1,$6,$7,$8::jsonb,$9::jsonb,$10,$11)`,
-      [input.targetWorkspace.workspaceId, input.operationId, input.targetWorkspace.organizationId ?? null, input.actorUserId,
-        input.actorSessionId ?? null, input.kind, fingerprint, JSON.stringify(input.targetScopes), privateResult, now, input.publicationFingerprint ?? null]);
-      // Return the exact JSON shape persisted in jsonb, including ordinary mapping objects on retries.
-      return { ...JSON.parse(privateResult) as typeof result, publicationStatus: 'native_committed' as const };
+      return persistCapturedNativeWorkspaceCopiesOnConnection(connection, captured);
     },
     recoverCommitted: async (_receipt, commitError) => {
       const connection = await openConnection();
       try {
-        assertAccess(input);
-        const committed = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
+        assertAccess(captured.input);
+        const committed = await ledger(connection, captured.input.targetWorkspace.workspaceId, captured.input.operationId);
         if (!committed) throw commitError;
-        return await validateCommittedReceipt(connection, input, fingerprint, committed);
+        return await validateCommittedReceipt(connection, captured.input, captured.fingerprint, committed);
       } finally { await connection.close(); }
     },
   });
@@ -266,53 +405,14 @@ export async function persistNativeWorkspaceCopies(input: NativeCopyRequest,
 
 /** Caller verifies the exact physical plan before completion and retains its lifecycle guard.
  * This journal update never republishes bytes or creates another native document. */
-export async function completeNativeCopyPublication(input: {
-  workspace: WorkspaceContext; operationId: string; actorUserId: string; actorSessionId?: string | null;
-  requestFingerprint: string; publicationFingerprint: string;
-}, openConnection: () => Promise<SqlConnection> = openDb): Promise<void> {
-  if (!input.workspace.permissions.canWrite || input.workspace.status !== undefined && input.workspace.status !== 'active'
-    || !validId(input.operationId) || !validId(input.actorUserId)
-    || input.actorSessionId != null && !validId(input.actorSessionId)
-    || !/^[a-f0-9]{64}$/u.test(input.requestFingerprint) || !/^[a-f0-9]{64}$/u.test(input.publicationFingerprint)) unavailable();
-  const verify = async (connection: SqlConnection, requirePublished = false) => {
-    const row = await connection.get(`SELECT * FROM collaboration_native_copy_receipts
-      WHERE workspace_id=$1 AND operation_id=$2${requirePublished ? '' : ' FOR UPDATE'}`,
-    [input.workspace.workspaceId, input.operationId]) as LedgerRow | undefined;
-    if (!row || row.version !== 1 || row.organization_id !== (input.workspace.organizationId ?? null)
-      || row.actor_user_id !== input.actorUserId || row.actor_session_id !== (input.actorSessionId ?? null)
-      || row.request_fingerprint !== input.requestFingerprint || row.publication_fingerprint !== input.publicationFingerprint
-      || !Array.isArray(row.scope_paths) || !row.scope_paths.length || row.scope_paths.some(path => !isCanonicalAdmissionPath(path))
-      || requirePublished && row.publication_status !== 'published') unavailable();
-    if (!requirePublished) {
-      await assertWorkspaceFileLifecycleSqlAvailable(connection, input.workspace.workspaceId, row.scope_paths);
-      await lockFileCollaborationPaths(connection, input.workspace.workspaceId, row.scope_paths);
-    }
-    for (const receipt of row.private_result.documents) {
-      const current = await connection.get(`SELECT s.document_id FROM collaboration_yjs_states s
-        JOIN collaboration_documents d ON d.id=s.document_id JOIN file_collaboration_lineages l ON l.id=d.lineage_id
-        WHERE s.document_id=$1 AND s.workspace_id=$2 AND s.organization_id IS NOT DISTINCT FROM $3 AND s.path=$4
-          AND s.lifecycle_generation=$5 AND s.status='active' AND d.status='active' AND d.path=s.path
-          AND d.workspace_id=s.workspace_id AND d.organization_id IS NOT DISTINCT FROM s.organization_id
-          AND l.id=$6 AND l.status='active' AND l.path=s.path AND l.workspace_id=s.workspace_id
-          AND l.organization_id IS NOT DISTINCT FROM s.organization_id`,
-      [receipt.clone.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null,
-        receipt.clone.path, receipt.clone.lifecycleGeneration, receipt.clone.lineageId]);
-      if (!current) unavailable();
-      const state = await loadCollaborationStateOnConnection(connection, receipt.clone.documentId);
-      if (!state) unavailable();
-      try { authoritativeNativeCollaborationSnapshot(state); }
-      catch { unavailable(); }
-    }
-  };
+export async function completeNativeCopyPublication(input: NativeCopyPublicationRequest,
+  openConnection: () => Promise<SqlConnection> = openDb): Promise<void> {
+  const captured = captureNativeCopyPublication(input);
   await executeLifecycleTransaction({ openConnection,
-    execute: async connection => {
-      await verify(connection);
-      await connection.run(`UPDATE collaboration_native_copy_receipts SET publication_status='published'
-        WHERE workspace_id=$1 AND operation_id=$2 AND request_fingerprint=$3 AND publication_fingerprint=$4`,
-      [input.workspace.workspaceId, input.operationId, input.requestFingerprint, input.publicationFingerprint]);
-    }, recoverCommitted: async (_value, error) => {
+    execute: connection => completeCapturedNativeCopyPublicationOnConnection(connection, captured),
+    recoverCommitted: async (_value, error) => {
       const connection = await openConnection();
-      try { await verify(connection, true); }
+      try { await verifyNativeCopyPublicationOnConnection(connection, captured, true); }
       catch { throw error; }
       finally { await connection.close(); }
     },
