@@ -1,3 +1,4 @@
+import { matchesWorkspaceFileLinkIdentity } from '@/app/lib/files/file-link-target';
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
@@ -398,6 +399,7 @@ interface FileStoreState {
     expectedDocumentId?: string,
     canApply?: () => boolean,
     updateExplorerSelection?: boolean,
+    expectedLineageId?: string,
   ) => Promise<FileLoadResult>;
   refreshCurrentFileContent: (path: string, options?: { allowDirty?: boolean }) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
@@ -757,6 +759,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     expectedDocumentId?: string,
     canApply?: () => boolean,
     updateExplorerSelection = true,
+    expectedLineageId?: string,
   ) => {
     const authScope = openedDocumentAuthScope();
     const workspaceId = requestedWorkspaceId === undefined
@@ -808,12 +811,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
 
       const latestEditor = useEditorStore.getState();
-      if (expectedDocumentId && data.collaboration?.document?.id !== expectedDocumentId) {
+      if (!matchesWorkspaceFileLinkIdentity(data, { expectedDocumentId, expectedLineageId })) {
         if (workspaceId) invalidateOpenedLiveDocument(workspaceId, { path, documentId: expectedDocumentId }, authScope);
         throw new Error('The document at this path changed. Please reopen the original document.');
       }
       if (latestEditor.isDirty && latestEditor.activePath && (latestEditor.activePath !== path
-        || (expectedDocumentId && get().currentFile?.collaboration?.document?.id !== expectedDocumentId))) {
+        || !matchesWorkspaceFileLinkIdentity(get().currentFile, { expectedDocumentId, expectedLineageId }))) {
         throw new Error('The current file changed while loading. Please save it and retry.');
       }
       const fileName = path.split('/').pop() || path;
@@ -1042,7 +1045,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const currentFile = get().currentFile;
     const needsFileLoad = currentFile?.path !== normalizedPath
       || get().currentFileWorkspaceId !== workspaceId
-      || Boolean(options.expectedDocumentId && currentFile?.collaboration?.document?.id !== options.expectedDocumentId);
+      || !matchesWorkspaceFileLinkIdentity(currentFile, options);
     const openRequestId = get().openFileRequestId + 1;
     // Even selecting the already open file cancels an older in-flight load.
     set((state) => ({
@@ -1072,8 +1075,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return superseded();
     }
 
-    if (get().currentFile?.path !== normalizedPath || (options.expectedDocumentId
-      && get().currentFile?.collaboration?.document?.id !== options.expectedDocumentId)) {
+    if (get().currentFile?.path !== normalizedPath || !matchesWorkspaceFileLinkIdentity(get().currentFile, options)) {
       try {
         await get().prepareCurrentFileForTransition();
       } catch (error) {
@@ -1128,7 +1130,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const alreadyOpen = (
       get().currentFile?.path === normalizedPath &&
       get().currentFileWorkspaceId === workspaceId &&
-      (!options.expectedDocumentId || get().currentFile?.collaboration?.document?.id === options.expectedDocumentId)
+      matchesWorkspaceFileLinkIdentity(get().currentFile, options)
     );
     const loadPromise: Promise<FileLoadResult> = alreadyOpen
       ? Promise.resolve({ status: 'loaded', path: normalizedPath, file: get().currentFile as CurrentFile })
@@ -1139,6 +1141,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           options.expectedDocumentId,
           isLatestOpen,
           shouldRevealInExplorer,
+          options.expectedLineageId,
         );
 
     const [loadResult, reveal] = await Promise.all([loadPromise, revealPromise]);

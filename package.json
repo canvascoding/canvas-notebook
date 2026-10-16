@@ -345,6 +345,7 @@
     "test:collaboration:location-client": "tsx scripts/collaboration-location-client-test.tsx",
     "test:collaboration:location-adoption": "tsx scripts/collaboration-location-adoption-test.ts",
     "test:notebook:open-identity": "tsx scripts/notebook-document-open-identity-test.ts",
+    "test:files:links": "tsx --test scripts/file-links-test.ts",
     "test:notebook:location-lifecycle": "tsx scripts/notebook-document-location-url-test.ts && tsx scripts/notebook-location-watcher-test.ts && tsx scripts/notebook-location-lifecycle-test.tsx",
     "test:collaboration:location": "tsx --conditions react-server scripts/collaboration-document-location-route-test.ts",
     "test:collaboration:location-integration": "tsx --conditions react-server scripts/collaboration-document-location-integration-test.ts",

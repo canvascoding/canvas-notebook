@@ -80,7 +80,7 @@ export function createDirectMcpServer(
     },
     {
       capabilities: { tools: {} },
-      instructions: instructions + browsingInstructions,
+      instructions: instructions + browsingInstructions + ' Return document_url (or documentUrl) from file results as the file link. It opens the exact file in Canvas after normal login; review_url separately addresses pending proposals.',
     },
   );
 
