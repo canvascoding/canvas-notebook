@@ -4,6 +4,7 @@ import { applyRateLimit, jsonError, jsonServerError, jsonSuccess } from '@/app/l
 import { enqueueWorkspaceOperationBatch, getWorkspaceOperationBatchReview } from '@/app/lib/files/workspace-operation-batch-service';
 import { WorkspaceOperationBatchError } from '@/app/lib/files/workspace-operation-batch-store';
 import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { WorkspaceFileUndoDisabledError } from '@/app/lib/files/workspace-file-undo-policy';
 
 type RouteContext = { params: Promise<{ batchId: string }> };
 
@@ -21,7 +22,9 @@ async function authorizedBatch(request: NextRequest, batchId: string, mutation: 
 }
 
 function errorResponse(error: unknown) {
-  if (error instanceof WorkspaceOperationBatchError) return jsonError(error.message, error.status, { code: error.code });
+  if (error instanceof WorkspaceOperationBatchError || error instanceof WorkspaceFileUndoDisabledError) {
+    return jsonError(error.message, error.status, { code: error.code });
+  }
   return jsonServerError('[API] Batch status/action failed:', error, 'Could not process file action batch');
 }
 

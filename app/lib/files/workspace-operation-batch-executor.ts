@@ -1,4 +1,5 @@
 import 'server-only';
+import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, promises as fs } from 'node:fs';
@@ -367,6 +368,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       () => withLock(scope, operation)) : withLock(scope, operation);
   };
   const assertUndoAvailable = async (input: { batchId: string; scope: WorkspaceOperationBatchScope }): Promise<void> => {
+    assertWorkspaceFileUndoEnabled();
     if (await nativeStatus(input.batchId, input.scope)) {
       if (!await assertWorkspaceOperationNativeDeleteUndoAvailable(input)) throw new Error('BATCH_UNDO_NOT_COMPLETE');
       return;
@@ -660,6 +662,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   });
 
   const undo = async (input: UndoInput): Promise<WorkspaceOperationBatchExecutionResult> => {
+    assertWorkspaceFileUndoEnabled();
     if (input.jobClaim) {
       const binding = readWorkspaceOperationBatchClaimBinding(input.jobClaim);
       if (binding.plan.version === 2) return executeNative(input, binding.plan, true);

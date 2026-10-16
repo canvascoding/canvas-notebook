@@ -19,6 +19,7 @@ import { useDocumentReviewAvailability } from '@/app/components/file-version-cen
 import { undoWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-client';
 import { useFileActionToastTarget } from './FileActionToastScope';
 import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { WORKSPACE_FILE_UNDO_ENABLED } from '@/app/lib/files/workspace-file-undo-policy';
 
 export function useTrashUndo(options: { toasterId?: string } = {}) {
   const t = useTranslations('notebook');
@@ -62,7 +63,7 @@ export function useTrashUndo(options: { toasterId?: string } = {}) {
     toast.success(t('movedToTrash', { count: trashEntries.length }), {
       ...toastTarget(),
       duration: 8000,
-      action: {
+      action: WORKSPACE_FILE_UNDO_ENABLED ? {
         label: t('undo'),
         onClick: () => {
           if (isRestoring) return;
@@ -95,7 +96,7 @@ export function useTrashUndo(options: { toasterId?: string } = {}) {
             }
           })();
         },
-      },
+      } : undefined,
     });
     if (partialError) throw partialError;
     return result;

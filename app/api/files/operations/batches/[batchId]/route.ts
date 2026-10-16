@@ -11,6 +11,7 @@ import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-p
 import type { WorkspaceOperationBatchScope } from '@/app/lib/files/workspace-operation-batch-contract';
 import { openDb } from '@/app/lib/db';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
+import { WORKSPACE_FILE_UNDO_ENABLED, WorkspaceFileUndoDisabledError } from '@/app/lib/files/workspace-file-undo-policy';
 
 type RouteContext = { params: Promise<{ batchId: string }> };
 
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     problemBatch = current ?? batch;
     return jsonSuccess(await workspacePathOperationResponse(current!, scope), { status: 202, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof WorkspaceFileUndoDisabledError) return jsonError(error.message, error.status, { code: error.code });
     await recordBatchProblem(problemBatch, problemScope, actorUserId, error);
     if (error instanceof WorkspaceOperationBatchError) return jsonError(error.message, error.status, { code: error.code });
     return jsonServerError('[API] File action recovery failed:', error, 'Could not safely recover the file action');
@@ -90,7 +92,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     const canMutate = scope.workspace.workspaceId === batch.workspaceId && scope.workspace.status === 'active'
       && scope.workspace.permissions.canRead && scope.workspace.permissions.canWrite && scope.workspace.permissions.canDelete;
     const initiatingUser = workspaceOperationBatchAuthorityUserId(batch) === session.user.id;
-    const recovery = { canResume: canMutate && initiatingUser && ['failed', 'needs_recovery'].includes(batch.status), canUndo: false };
+    const recovery = { canResume: canMutate && initiatingUser && ['failed', 'needs_recovery'].includes(batch.status)
+      && (batch.actionMode !== 'undo' || WORKSPACE_FILE_UNDO_ENABLED), canUndo: false };
     if (recovery.canResume && batch.actionMode === 'apply' && batch.authorization.mode === 'direct'
       && batch.authorization.actorType === 'agent') {
       recovery.canResume = false;
@@ -106,7 +109,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         finally { try { await db?.close(); } catch { recovery.canResume = false; } }
       }
     }
-    if (canMutate && batch.status === 'applied' && (batch.authorization.mode === 'review' || initiatingUser)) {
+    if (WORKSPACE_FILE_UNDO_ENABLED && canMutate && batch.status === 'applied' && (batch.authorization.mode === 'review' || initiatingUser)) {
       try { await assertWorkspaceOperationBatchUndoAvailable({ batchId: batch.batchId, scope }); recovery.canUndo = true; }
       catch { recovery.canUndo = false; }
     }

@@ -7,6 +7,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
+import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 
@@ -394,6 +395,7 @@ export class WorkspaceOperationBatchStore {
   async enqueue(input: { batchId: string; planId: string; userId: string; displayName: string;
     action?: 'accept' | 'resume' | 'undo' }): Promise<WorkspaceOperationBatchRecord> {
     const action = input.action ?? 'accept';
+    if (action === 'undo') assertWorkspaceFileUndoEnabled();
     return executeLifecycleTransaction({ openConnection: this.connect, execute: async (db) => {
       const row = await db.get('SELECT * FROM workspace_file_operation_batches WHERE batch_id = $1 FOR UPDATE', [input.batchId]);
       if (!row) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
@@ -409,6 +411,7 @@ export class WorkspaceOperationBatchStore {
         throw new WorkspaceOperationBatchError('BATCH_RESUME_REVIEWER_REQUIRED', 403,
           'Only the reviewer who approved this job can resume it. Their current workspace permissions are still required.');
       }
+      if (action === 'resume' && batch.actionMode === 'undo') assertWorkspaceFileUndoEnabled();
       if (['queued', 'applying'].includes(batch.status)) {
         const expectedMode = action === 'undo' ? 'undo' : action === 'accept' ? 'apply' : batch.actionMode;
         if (authorityUserId !== input.userId || expectedMode !== batch.actionMode) {

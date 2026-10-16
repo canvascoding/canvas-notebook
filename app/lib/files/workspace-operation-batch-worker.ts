@@ -9,6 +9,7 @@ import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-works
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { withWorkspaceOperationJobClaimScheduling } from './workspace-operation-job-phase-scheduling';
+import { WORKSPACE_FILE_UNDO_ENABLED, WorkspaceFileUndoDisabledError } from './workspace-file-undo-policy';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
   hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
@@ -106,6 +107,13 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
         if (!batch) return false;
         const currentBatch = batch;
         await store.withClaim(currentBatch, async (jobClaim) => {
+          if (!WORKSPACE_FILE_UNDO_ENABLED && currentBatch.actionMode === 'undo') {
+            // A saved Undo may already have changed files. Preserve that
+            // uncertainty and its receipts; never replay it while disabled.
+            await store.finishClaim(currentBatch, { status: 'needs_recovery', phase: 'recovery',
+              errorCode: new WorkspaceFileUndoDisabledError().code });
+            return;
+          }
           const startRenewals = () => {
             renewalsOpen = true;
             timer = setInterval(() => {
