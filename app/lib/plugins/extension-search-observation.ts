@@ -6,7 +6,7 @@ import { performance } from 'node:perf_hooks';
 // Only these static names cross the HTTP boundary. Never record search text,
 // actor/account identifiers, request bodies, provider errors or source paths.
 type Stage = 'context' | 'packages' | 'store' | 'composio' | 'mcp' | 'revalidate'
-  | 'projection' | 'recents' | 'preview' | 'catalog' | 'package_source' | 'icon';
+  | 'projection' | 'recents' | 'preview' | 'catalog' | 'package_source' | 'artifact_resolve' | 'icon';
 type Measurement = { calls: number; milliseconds: number; items: number };
 const observations = new AsyncLocalStorage<Map<Stage, Measurement>>();
 

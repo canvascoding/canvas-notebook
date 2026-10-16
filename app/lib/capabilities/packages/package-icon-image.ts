@@ -1,9 +1,11 @@
 import 'server-only';
+import { createPackageIconByteCache } from './package-icon-byte-cache';
 
 import { constants, promises as fs, type BigIntStats } from 'node:fs';
 import path from 'node:path';
 import { CapabilityPackageError } from './contracts';
 import { publicPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
+import type { ExactCapabilityPackageInventory } from './io';
 
 export const CAPABILITY_PACKAGE_ICON_MAX_BYTES = 2 * 1024 * 1024;
 export type CapabilityPackageIconImage = {bytes: Buffer; contentType: string};
@@ -141,6 +143,24 @@ export async function readFirstDeclaredCapabilityPackageImage(root: string, decl
     if (publicIcon) return {url: publicIcon.url};
     const image = await readDeclaredCapabilityPackageImage(root, declaration);
     if (image) return image;
+  }
+  return null;
+}
+
+/** Caller holds fresh package/parent Read and an exact checksum-verified capture.
+ * Both the declaration and returned image come from that same stable capture. */
+const capturedImageBytes = createPackageIconByteCache();
+export function readFirstCapturedCapabilityPackageImage(inventory: ExactCapabilityPackageInventory,
+  declarations: readonly unknown[]): CapabilityPackageDeclaredIcon | null {
+  for (const declaration of declarations) {
+    const publicIcon = publicPluginExtensionIcon(declaration, 'declared-image');
+    if (publicIcon) return { url: publicIcon.url };
+    const relative = localImagePath(declaration);
+    const file = relative ? inventory.files.find(file => file.relativePath === relative) : undefined;
+    if (!relative || !file?.bytes.byteLength || file.bytes.byteLength > CAPABILITY_PACKAGE_ICON_MAX_BYTES) continue;
+    const contentType = imageTypes[path.posix.extname(relative).toLowerCase()];
+    const bytes = capturedImageBytes(inventory.checksum, contentType, file.bytes, () => supportedImage(file.bytes, contentType));
+    if (bytes) return { bytes, contentType };
   }
   return null;
 }

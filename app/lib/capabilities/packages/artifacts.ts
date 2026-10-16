@@ -23,6 +23,7 @@ import { CapabilityPackageError, isCapabilityPackageError, type CapabilityPackag
   type CapabilityPackagePrivateLocation, type CapabilityPackagePreparedSnapshot, type AuthorizedCapabilityPackageResource } from './contracts';
 import { deriveCapabilityStoreOrigin, isIssuedCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabilityStoreOrigin, type CapabilityStoreOrigin } from './store-origin';
 import { isProtectedCoreCapabilityName, isCorePluginChildSkillName } from '@/app/lib/plugins/core-plugins';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
 
 export type ResolvedCapabilityPackageArtifact = {
   descriptor: CapabilityResourceDescriptor;
@@ -73,6 +74,7 @@ async function readExactPackagePlugin(actor: CapabilityResourceActor, candidate:
 }
 
 export async function resolveCapabilityPackageArtifact(actor: CapabilityResourceActor, resourceRef: string): Promise<ResolvedCapabilityPackageArtifact> {
+  return observeExtensionStage('artifact_resolve', async () => {
   const { inspectCapabilityResource } = await import('@/app/lib/capabilities/resources/actions');
   const { assertReadableCapabilityCandidate, loadCapabilityCandidatesForResourceActor } = await import('@/app/lib/capabilities/resources/read');
   const descriptor = await inspectCapabilityResource(actor, resourceRef);
@@ -171,6 +173,7 @@ export async function resolveCapabilityPackageArtifact(actor: CapabilityResource
       kind: candidate.ref.resourceType, name: candidate.ref.name },
     readOnly: candidate.ref.sourceType !== 'standalone' || candidate.ref.scopeType === 'system', defaultEnabled,
     ...(bundledReferences.length ? { bundledReferences } : {}) };
+  });
 }
 
 export async function assertCapabilityPackageArtifactCurrent(actor: CapabilityResourceActor, previous: ResolvedCapabilityPackageArtifact): Promise<void> {

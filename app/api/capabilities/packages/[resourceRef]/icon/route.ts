@@ -3,6 +3,7 @@ import { readCapabilityPackageIconAction } from '@/app/lib/capabilities/packages
 import type { CapabilityPackageDeclaredIcon } from '@/app/lib/capabilities/packages/package-icon-image';
 import { packageRequestActor, packageResponseError } from '../../http';
 import { capabilityPackageQuery } from '../../routes';
+import { withExtensionObservation } from '@/app/lib/plugins/extension-search-observation';
 
 export const dynamic = 'force-dynamic';
 function imageResponse(image: CapabilityPackageDeclaredIcon | null) {
@@ -17,6 +18,11 @@ function imageResponse(image: CapabilityPackageDeclaredIcon | null) {
   }});
 }
 export async function GET(request: Request, context: {params: Promise<{resourceRef: string}>}) {
+  const observed = await withExtensionObservation(() => readIcon(request, context));
+  observed.result.headers.set('Server-Timing', observed.serverTiming);
+  return observed.result;
+}
+async function readIcon(request: Request, context: {params: Promise<{resourceRef: string}>}) {
   try {
     const actor = await packageRequestActor(request);
     if (actor instanceof NextResponse) return actor;

@@ -12,7 +12,7 @@ import { withAuthorizedCapabilityPackageResource } from '../resources/store';
 import { validateCanvasPluginPackage, type CanvasPluginConnectorManifest, type CanvasPluginMcpConnector } from '@/app/lib/plugins/canvas-plugin-manifest';
 import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { normalizeComposioConnectors, normalizeEmailConnectors, normalizeMcpConnectors } from '@/app/lib/plugins/plugin-connection-readiness';
-import { isValidAgentSkillName, loadCanvasSkillInterface, parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { isValidAgentSkillName, parseSkillFile, validateStandaloneSkillWorkflow, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { validateWorkflowReferences, type GenericWorkflowManifestV1, type SkillWorkflowManifestV1 } from '../workflow-contracts';
 import { readSkillScriptManifest } from '@/app/lib/skills/script-runtime/manifest';
 import { isSkillScriptError } from '@/app/lib/skills/script-runtime/contracts';
@@ -31,7 +31,10 @@ import { CAPABILITY_PACKAGE_PRESENTATION_LIMITS as limits, capabilityPackageStor
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { projectCapabilityPackageMcpTemplateConfig } from './mcp-template-projection';
 import { installedPluginExtensionIcon, publicPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
-import { readFirstDeclaredCapabilityPackageImage, type CapabilityPackageDeclaredIcon } from './package-icon-image';
+import { readFirstCapturedCapabilityPackageImage, type CapabilityPackageDeclaredIcon } from './package-icon-image';
+import { assertCapturedCapabilityPackageChild, capturedCapabilityPackageIconDeclarations } from './package-icon-capture';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
+import { tryReadManagedCapabilityPackageIcon } from './package-icon-targeted';
 
 const changed = () => new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The package source changed. Inspect it again.', 409);
 const invalid = () => new CapabilityPackageError('PACKAGE_INVALID', 'The package presentation is unavailable.', 400);
@@ -250,9 +253,16 @@ export async function inspectCapabilityPackagePresentationAction(actorInput: Cap
 /** Only an exact currently readable declaration selects image bytes; browser input never supplies a path. */
 export async function readCapabilityPackageIconAction(actorInput: CapabilityResourceActor, reference: string,
   input: unknown): Promise<CapabilityPackageDeclaredIcon | null> {
+  return observeExtensionStage('icon', () => readCapturedCapabilityPackageIcon(actorInput, reference, input));
+}
+
+async function readCapturedCapabilityPackageIcon(actorInput: CapabilityResourceActor, reference: string,
+  input: unknown): Promise<CapabilityPackageDeclaredIcon | null> {
   const actor = actorSnapshot(actorInput), resourceRef = capabilityPackageReferenceSchema.parse(reference);
   const query = capabilityPackageIconQuerySchema.parse(structuredClone(input));
   await assertActor(actor);
+  const managed = await tryReadManagedCapabilityPackageIcon(actor, resourceRef, query);
+  if (managed.handled) return managed.image;
   const requested = await resolveCapabilityPackageArtifact(actor, resourceRef);
   if (query.revision !== undefined && query.revision !== requested.descriptor.artifact.revision) throw changed();
   let source = requested;
@@ -260,17 +270,10 @@ export async function readCapabilityPackageIconAction(actorInput: CapabilityReso
     if (requested.storage.resourceType !== 'plugin' || !isValidAgentSkillName(query.childName)) {
       throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The declared skill was not found.', 404);
     }
-    const declared = await withCapturedPresentation(requested, async root => {
-      const validated = await validateCanvasPluginPackage(root);
-      if (!validated.valid || !validated.manifest) throw invalid();
-      const parsed = await parsePluginSkillsFromManifest(validated.manifest, root, validated.skillsDir);
-      if (parsed.errors.length) throw invalid();
-      return parsed.skills.filter(skill => skill.name === query.childName).length === 1;
-    });
     const candidates = requested.candidates.filter(candidate => candidate.ref.resourceType === 'skill'
       && candidate.ref.sourceType === 'plugin' && candidate.ref.sourcePluginId === requested.storage.resourceId
       && candidate.ref.name === query.childName);
-    if (!declared || candidates.length !== 1 || !candidates[0].resourceMetadata?.resourceRef) {
+    if (candidates.length !== 1 || !candidates[0].resourceMetadata?.resourceRef) {
       throw new CapabilityPackageError('PACKAGE_NOT_FOUND', 'The declared skill was not found.', 404);
     }
     source = await resolveCapabilityPackageArtifact(actor, candidates[0].resourceMetadata.resourceRef);
@@ -281,25 +284,24 @@ export async function readCapabilityPackageIconAction(actorInput: CapabilityReso
     ? requested : await resolveCapabilityPackageArtifact(actor, source.sourceStamp.parentResourceRef || parentBinding.resourceId) : undefined;
   if (containing && (containing.storage.resourceId !== parentBinding?.resourceId || containing.storage.resourceType !== 'plugin'
     || containing.candidate.ref.revision !== source.candidates.find(candidate => candidate.ref.resourceId === parentBinding?.resourceId)?.ref.revision)) throw changed();
-  await assertCapabilityPackageArtifactCurrent(actor, requested);
-  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
-  await assertCapabilityPackageArtifactCurrent(actor, source);
+  const sources = [...new Map([requested, source, ...(containing ? [containing] : [])]
+    .map(artifact => [artifact.descriptor.metadata.resourceRef, artifact])).values()];
   const result = await withAuthorizedCapabilityPackageResource(actor, source.storage, 'read', {
     expectedMetadataRevision: source.descriptor.metadata.metadataRevision, expectedGrantsRevision: source.descriptor.metadata.grantsRevision,
-  }, async () => withCapturedPresentation(source, async root => {
-    if (source.storage.resourceType === 'plugin') {
-      const validated = await validateCanvasPluginPackage(root);
-      if (!validated.valid || !validated.manifest || validated.manifest.name !== source.storage.name) throw invalid();
-      return readFirstDeclaredCapabilityPackageImage(root, [validated.manifest.interface?.logo, validated.manifest.interface?.icon]);
+  }, async () => {
+    const captures = new Map<string, Awaited<ReturnType<typeof readExactPackageInventory>>>();
+    for (const artifact of sources) {
+      const capture = await readExactPackageInventory(artifact.packageRoot);
+      if (capture.checksum !== artifact.sourceStamp.checksum) throw changed();
+      captures.set(artifact.descriptor.metadata.resourceRef, capture);
     }
-    const skill = await parseSkillFile(path.join(root, 'SKILL.md'));
-    if (!skill || skill.name !== source.storage.name) throw invalid();
-    const iface = await loadCanvasSkillInterface(root);
-    return readFirstDeclaredCapabilityPackageImage(root, [iface?.iconSmall, iface?.iconLarge]);
-  }), {parentStorage: parentBinding});
-  if (containing) await assertCapabilityPackageArtifactCurrent(actor, containing);
-  await assertCapabilityPackageArtifactCurrent(actor, source);
-  await assertCapabilityPackageArtifactCurrent(actor, requested);
+    const capture = captures.get(source.descriptor.metadata.resourceRef)!;
+    if (containing) assertCapturedCapabilityPackageChild(containing, captures.get(containing.descriptor.metadata.resourceRef)!, source, capture);
+    return readFirstCapturedCapabilityPackageImage(capture, capturedCapabilityPackageIconDeclarations(source, capture));
+  }, {parentStorage: parentBinding});
+  // Re-resolve each exact identity once after reading. Repeatedly resolving the
+  // same requested/source root cannot add another authority or integrity proof.
+  for (const artifact of sources) await assertCapabilityPackageArtifactCurrent(actor, artifact);
   return result;
 }
 

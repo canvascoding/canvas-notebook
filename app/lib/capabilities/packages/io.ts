@@ -237,12 +237,16 @@ export async function readExactPackageInventory(rootPath: string,
   }
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   directories.sort((left, right) => left.localeCompare(right));
-  const captureParent = path.join(await fs.realpath(resolveCanvasDataRoot()), 'capability-packages', '.captures');
-  const captureRoot = path.join(captureParent, randomUUID());
-  let checksum: string;
-  try { checksum = await writeCapturedInventory({ files, directories, totalBytes }, captureRoot); }
-  finally { await fs.rm(captureRoot, { recursive: true, force: true }).catch(() => undefined); }
-  return { files, directories, totalBytes, checksum };
+  // These exact bytes have already passed no-follow handles, ancestry and
+  // after-read identity checks. Rewriting/fsyncing a second complete tree only
+  // to hash it adds no integrity proof. Match the legacy checksum's native path
+  // ordering and NUL framing directly, including its treatment of executable bits.
+  const checksum = createHash('sha256');
+  for (const file of [...files].sort((left, right) => left.relativePath.split('/').join(path.sep)
+    .localeCompare(right.relativePath.split('/').join(path.sep)))) {
+    checksum.update(file.relativePath.split('/').join(path.sep)).update('\0').update(file.bytes).update('\0');
+  }
+  return { files, directories, totalBytes, checksum: checksum.digest('hex') };
 }
 
 export async function copyExactPackage(sourceRoot: string, targetRoot: string): Promise<ExactCapabilityPackageInventory> {
