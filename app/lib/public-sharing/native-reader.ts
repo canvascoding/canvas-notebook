@@ -27,7 +27,7 @@ export class PublicShareNativeReadError extends Error {
 function unavailable(): never { throw new PublicShareNativeReadError(404); }
 
 /** Bind the actual namespace before native SQL; a TEMP table is never a source
- * of public authority. DDL locks and row locks last through the outer COMMIT. */
+ * of public authority. Relation-replacement and row locks last through COMMIT. */
 async function bindReadRelations(database: SqlConnection) {
   const schema = await database.get('SELECT current_schema() AS name') as {name?: unknown} | undefined;
   if (typeof schema?.name !== 'string' || !schema.name || Buffer.byteLength(schema.name) > 63
@@ -42,7 +42,10 @@ async function bindReadRelations(database: SqlConnection) {
       && Number(row.resolved) === Number(row.bound));
   const initial = await read(); if (!valid(initial)) unavailable();
   const expected = new Map(initial.map(row => [row.name, Number(row.bound)]));
-  await database.run(`LOCK TABLE ${relations.map(name => `${prefix}.${quote(name)}`).join(',')} IN ROW EXCLUSIVE MODE NOWAIT`);
+  // This is a reader of native/workspace relations. ROW SHARE keeps their
+  // identities stable and coexists with ordinary principal SHARE locks.
+  // Only a counted read later takes a DML lock on public_file_shares itself.
+  await database.run(`LOCK TABLE ${relations.map(name => `${prefix}.${quote(name)}`).join(',')} IN ROW SHARE MODE NOWAIT`);
   const assertCurrent = async () => {
     const current = await read();
     if (!valid(current) || current.some(row => expected.get(row.name) !== Number(row.bound))) unavailable();

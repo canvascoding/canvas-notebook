@@ -485,6 +485,32 @@ async function main(): Promise<void> {
       assert.equal(resolved.kind, 'physical'); assert.equal(await textReader.readPublicShareText(resolved), replacementText);
       assert.deepEqual(await row(physical.share.id), physicalAfter); assert.equal(await writeProof(), physicalWrites + BigInt(1));
     });
+    await check('native readonly and counted public reads coexist with actual workspace SHARE table lock', async () => {
+      const target = await nativeAt(), publication = await publish(target.filePath), before = await row(publication.share.id); assert(before);
+      const proof = await nativeProof(target), writes = await writeProof(), blocker = await ownClient();
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query(`LOCK TABLE "${schema}".canvas_workspaces IN SHARE MODE`);
+        const locks = (await blocker.query(`SELECT current_schema() AS schema,l.mode,l.granted FROM pg_locks l
+          WHERE l.pid=pg_backend_pid() AND l.locktype='relation' AND l.relation=$1::regclass AND l.mode='ShareLock'`,
+        [`"${schema}".canvas_workspaces`])).rows;
+        assert.equal(locks.length, 1); assert.equal(locks[0].schema, schema);
+        assert.equal(locks[0].mode, 'ShareLock'); assert.equal(locks[0].granted, true);
+        // The awaited real LOCK and pg_locks witness are the readiness gate.
+        // No timing assumption, fake lock, query result or authority is used.
+        await resolveNative(publication, target);
+        assert.deepEqual(await row(publication.share.id), before); assert.equal(await writeProof(), writes);
+        const counted = await resolveNative(publication, target, false, true), after = await row(publication.share.id); assert(after);
+        assert.equal(counted.row.accessCount, 1); assert.equal(Number(after.access_count), 1);
+        assert(Number(after.last_accessed_at) > 0); assert.equal(await writeProof(), writes + BigInt(1));
+        assert.deepEqual({ ...after, access_count: before.access_count, last_accessed_at: before.last_accessed_at }, before);
+        const readonly = await resolveNative(publication, target); assert.equal(readonly.row.accessCount, 1);
+        assert.deepEqual(await row(publication.share.id), after); assert.equal(await writeProof(), writes + BigInt(1));
+        assert.deepEqual(await nativeProof(target), proof); await noFile(target.fullPath);
+      } finally {
+        try { await blocker.query('ROLLBACK'); } finally { await endClient(blocker); }
+      }
+    });
     await check('native anonymous public authority survives creator session removal without reauthentication', async () => {
       const target = await nativeAt('tiptap_blocks'), publication = await publish(target.filePath);
       await admin.query('DELETE FROM "session" WHERE id=$1', ['native-read-session']);
@@ -495,7 +521,7 @@ async function main(): Promise<void> {
       assert.equal(resolved.workspace.permissions.canDelete, false); assert.equal(resolved.workspace.permissions.canCreatePublicLinks, false);
       const response = await fileRequest(publication); assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), target.expectedBytes);
     });
-    assert.equal(passed, 25);
+    assert.equal(passed, 26);
     for (const target of nativeTargets) await noFile(target.fullPath);
     assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), originalSourceHash);
     console.log('Public native read SQL assertions complete:', JSON.stringify({ passed, fetches, sourceSha256: originalSourceHash }));
