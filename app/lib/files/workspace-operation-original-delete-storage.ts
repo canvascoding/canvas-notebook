@@ -7,6 +7,7 @@ import { collaborationDocuments, collaborationFileProjections, fileCollaboration
 import { NATIVE_FILE_SIDE_EFFECT_ROW_SPECS } from '../db/native-file-operation-side-effects-migration';
 import { WORKSPACE_OPERATION_ORIGINAL_DELETE_TABLE_SPECS, WORKSPACE_OPERATION_ORIGINAL_DELETE_STATEMENTS,
   WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION } from '../db/workspace-operation-original-delete-migration';
+import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from '../db/native-link-mutation-migration';
 
 type Row = Record<string, unknown>;
 type Column = Readonly<{ name: string; type: string; notNull: boolean }>;
@@ -49,6 +50,12 @@ const nativeColumns: Readonly<Record<string, readonly Column[]>> = {
     ...typed('document_lifecycle_generation schema_version run_generation base_document_sequence cas_version trigger_depth created_at updated_at', 'bigint'),
     ...typed('cancel_requested_at applied_at persisted_at checkpointed_at expires_at applied_document_sequence', 'bigint', true),
   ],
+  collaboration_native_link_mutation_receipts: [
+    ...typed('operation_id document_id workspace_id path representation actor_user_id actor_id actor_type request_id request_hash authorized_prepared_proof before_state_proof after_state_proof', 'text'),
+    ...typed('organization_id actor_session_id', 'text', true),
+    ...typed('lifecycle_generation schema_version before_sequence after_sequence persisted_at', 'bigint'),
+    ...typed('before_state_vector after_state_vector after_state_snapshot', 'bytea'), ...typed('inverse_recipes', 'jsonb'),
+  ],
 };
 const drizzleColumns: Readonly<Record<string, readonly Column[]>> = {
   collaboration_documents: columnsOf(collaborationDocuments), file_collaboration_lineages: columnsOf(fileCollaborationLineages),
@@ -64,6 +71,9 @@ const normalizedColumns = (columns: readonly Column[]) => [...columns].sort((a, 
 const immutableStatement = WORKSPACE_OPERATION_ORIGINAL_DELETE_STATEMENTS.find(statement =>
   statement.startsWith(`CREATE OR REPLACE FUNCTION ${WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION}()`));
 const immutableSource = immutableStatement && /\$\$([\s\S]*)\$\$/u.exec(immutableStatement)?.[1];
+const nativeLinkScopeStatement = NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS.find(statement =>
+  statement.startsWith('CREATE OR REPLACE FUNCTION validate_native_link_mutation_receipt_scope()'));
+const nativeLinkScopeSource = nativeLinkScopeStatement && /\$\$([\s\S]*)\$\$/u.exec(nativeLinkScopeStatement)?.[1];
 const initializeSource = `
     BEGIN
       UPDATE collaboration_documents SET yjs_state_lifecycle = 'initialized'
@@ -147,7 +157,11 @@ const constraintsSql = `SELECT c.oid::bigint AS oid,child.relname AS table_name,
       WHERE t.tgconstraint=c.oid AND t.tgrelid=c.conrelid) AS fk_triggers
     FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class child ON child.oid=c.conrelid
       LEFT JOIN pg_catalog.pg_class parent ON parent.oid=c.confrelid LEFT JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
-    WHERE c.conrelid=ANY($1::oid[]) AND child.relnamespace=$2::oid ORDER BY c.oid LIMIT 257`;
+    WHERE c.conrelid=ANY($1::oid[]) AND child.relnamespace=$2::oid
+      AND child.relname <> 'collaboration_native_link_mutation_receipts' ORDER BY c.oid LIMIT 257`;
+// Keep the original sixteen-relation budget intact. The additive receipt
+// catalogue has its own fixed sentinel within the same statement snapshot.
+const nativeLinkConstraintsSql = constraintsSql.replace("child.relname <>", "child.relname =").replace('LIMIT 257', 'LIMIT 65');
 function assertConstraints(rows: Row[], source: Source): void {
   if (rows.length > 256) fail();
   const usable = (row: Row) => row.convalidated === true && row.conenforced === true
@@ -214,6 +228,35 @@ function assertTriggers(rows: Row[], source: Source): Row[] {
   return rows;
 }
 
+function assertNativeLinkReceiptConstraints(rows: Row[], source: Source): void {
+  if (rows.length > 64) fail();
+  const table = 'collaboration_native_link_mutation_receipts';
+  const required: Array<{ type: string; columns: string[]; target?: string }> = [
+    { type: 'p', columns: ['operation_id'] },
+    { type: 'u', columns: ['document_id', 'actor_user_id', 'actor_id', 'actor_type', 'actor_session_id', 'request_id'] },
+    { type: 'f', columns: ['document_id'], target: 'collaboration_documents' },
+  ];
+  for (const expected of required) {
+    const matching = rows.filter(row => row.table_name === table && row.contype === expected.type && key(row.columns) === key(expected.columns));
+    const row = matching[0];
+    if (matching.length !== 1 || row.convalidated !== true || row.conenforced !== true || row.condeferrable !== false
+      || row.condeferred !== false || row.indisvalid !== true || row.indisready !== true || row.indislive !== true
+      || (expected.type !== 'f' ? row.indimmediate !== true : row.target_table !== expected.target
+        || Number(row.target_schema) !== source.schemaOid || key(row.target_columns) !== key(['id']) || row.fk_triggers !== true)) fail();
+  }
+}
+const nativeLinkReceiptScope = (row: Row) => row.table_name === 'collaboration_native_link_mutation_receipts'
+  && row.tgname === 'native_link_mutation_receipt_scope';
+function assertNativeLinkReceiptScope(rows: Row[], source: Source): void {
+  const matching = rows.filter(nativeLinkReceiptScope), row = matching[0];
+  if (!nativeLinkScopeSource || matching.length !== 1 || !['O', 'A'].includes(String(row.tgenabled)) || row.tgisinternal !== false
+    || Number(row.function_schema) !== source.schemaOid || row.proname !== 'validate_native_link_mutation_receipt_scope'
+    || row.prosrc !== nativeLinkScopeSource || row.lanname !== 'plpgsql' || row.prosecdef !== false || row.proconfig !== null
+    || row.prokind !== 'f' || Number(row.pronargs) !== 0 || row.returns_trigger !== true || Number(row.tgtype) !== 31
+    || Number(row.tgnargs) !== 0 || row.qualification !== null || row.attributes !== '' || Number(row.constraint_oid) !== 0
+    || row.tgdeferrable !== false || row.tginitdeferred !== false) fail();
+}
+
 function boundedRows(value: unknown, limit: number): Row[] {
   if (!Array.isArray(value) || value.length > limit || value.some(row => !row || typeof row !== 'object'
     || Object.getPrototypeOf(row) !== Object.prototype)) fail();
@@ -235,7 +278,8 @@ async function inspectStorage(database: SqlConnection, source: Source, prefix: s
         FROM (SELECT a.attname AS name,pg_catalog.format_type(a.atttypid,a.atttypmod) AS type,a.attnotnull AS "notNull"
           FROM pg_catalog.pg_attribute a WHERE a.attrelid=r.oid AND a.attnum>0 AND NOT a.attisdropped
           ORDER BY a.attname COLLATE "C" LIMIT 129) a) cols
-  ), current_constraints AS MATERIALIZED (${constraintsSql}), current_triggers AS MATERIALIZED (${triggersSql}),
+  ), current_constraints AS MATERIALIZED (${constraintsSql}),
+  current_native_link_constraints AS MATERIALIZED (${nativeLinkConstraintsSql}), current_triggers AS MATERIALIZED (${triggersSql}),
   current_locks AS MATERIALIZED (
     SELECT DISTINCT relation::bigint AS oid FROM pg_catalog.pg_locks
       WHERE locktype='relation' AND pid=pg_catalog.pg_backend_pid() AND database=$3::oid AND relation=ANY($1::oid[])
@@ -246,6 +290,7 @@ async function inspectStorage(database: SqlConnection, source: Source, prefix: s
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM current_relations r) AS relations,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.relation_oid),'[]'::jsonb) FROM current_columns c) AS columns,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.oid),'[]'::jsonb) FROM current_constraints c) AS constraints,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.oid),'[]'::jsonb) FROM current_native_link_constraints c) AS native_link_constraints,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY t.oid),'[]'::jsonb) FROM current_triggers t) AS triggers,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(l) ORDER BY l.oid),'[]'::jsonb) FROM current_locks l) AS locks`,
   [relationOids, source.schemaOid, source.databaseOid, prefix, names]) as Row | undefined;
@@ -270,8 +315,12 @@ export async function bindWorkspaceOperationOriginalDeleteStorageOnConnection(da
     assertLocks(boundedRows(snapshot.locks, names.length), relationOids);
     assertColumns(boundedRows(snapshot.columns, names.length), current);
     const currentConstraints = boundedRows(snapshot.constraints, 257); assertConstraints(currentConstraints, original);
-    const currentTriggers = assertTriggers(boundedRows(snapshot.triggers, 257), original);
-    return key({ constraints: currentConstraints, triggers: currentTriggers });
+    const nativeLinkConstraints = boundedRows(snapshot.native_link_constraints, 65);
+    assertNativeLinkReceiptConstraints(nativeLinkConstraints, original);
+    const currentTriggers = boundedRows(snapshot.triggers, 257);
+    assertNativeLinkReceiptScope(currentTriggers, original);
+    assertTriggers(currentTriggers.filter(row => !nativeLinkReceiptScope(row)), original);
+    return key({ constraints: currentConstraints, nativeLinkConstraints, triggers: currentTriggers });
   };
   const expected = await inspect();
   return Object.freeze({ schema, prefix, assertCurrent: async () => { if (await inspect() !== expected) fail(); } });

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { isDeepStrictEqual } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
-import type { NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
+import type { NativeDocumentLinkInventory, NativeLinkMutationRecipe, NativeNamespaceEntry, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import { compileWorkspaceNativeMixedBatch, type NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
 import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
 import { createWorkspaceNativeFileOperationPlan } from '../markdown/workspace-native-file-operation-planner';
@@ -78,18 +78,110 @@ function action(input: readonly WorkspaceOperationBatchAction[]): WorkspaceOpera
     || Object.keys(selected.selections[0]).some(key => key !== 'sourcePath')) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
   return selected;
 }
-function validateGraph(graph: NativeMixedBatchPlan, workspaceId: string, sourcePath: string): void {
-  if (!graph || typeof graph !== 'object' || ['issues', 'cloneRequirements', 'steps', 'requests', 'snapshotProofs',
-    'documentEvidence', 'finalNamespace', 'finalEdges', 'requiredCoordinatorBindings'].some(key => !Array.isArray(graph[key as keyof NativeMixedBatchPlan]))) fail();
+const graphKeys = ['contractVersion', 'compilerVersion', 'planId', 'readiness', 'executionReady', 'requests', 'snapshotProofs',
+  'documentEvidence', 'steps', 'cloneRequirements', 'finalNamespace', 'finalEdges', 'finalGraphProof', 'issues', 'requiredCoordinatorBindings'];
+const coordinatorBindings: NativeMixedBatchPlan['requiredCoordinatorBindings'] = [
+  'actor-session-request-review-and-current-authority', 'complete-current-namespace-and-native-graph',
+  'kernel-lifecycle-fence-and-exact-registry-path-receipts', 'fresh-durable-native-states-and-targeted-inverse-receipts',
+  'fresh-copy-identities-block-id-map-and-link-rebinding',
+];
+const proofString = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
+function exactKeys(value: unknown, expected: readonly string[]): boolean {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && isDeepStrictEqual(Object.keys(value).sort(), [...expected].sort());
+}
+const entityKey = (entry: NativeNamespaceEntry) => nativeLinkJsonProof({ workspaceId: entry.workspaceId, identity: entry.identity });
+const evidenceKey = (document: NativeDocumentLinkInventory['document']) => nativeLinkJsonProof({ workspaceId: document.workspaceId,
+  documentId: document.documentId, lifecycleGeneration: document.lifecycleGeneration });
+function deleteLinkRecipes(nativeSnapshot: NativeWorkspaceLinkSnapshot, source: NativeNamespaceEntry): NativeLinkMutationRecipe[] {
+  const deletePlan = createWorkspaceNativeFileOperationPlan({ kind: 'delete', sourceWorkspaceId: nativeSnapshot.workspaceId,
+    destinationWorkspaceId: nativeSnapshot.workspaceId, selections: [{ sourcePath: source.path }], snapshots: [nativeSnapshot] });
+  if (deletePlan.readiness !== 'ready' || deletePlan.issues.length
+    || !isDeepStrictEqual(deletePlan.pathMappings, [{ source, destinationPath: '', destinationWorkspaceId: nativeSnapshot.workspaceId }])) {
+    fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
+  }
+  // A single file Delete may change only surviving, genuinely native sources.
+  // No copy rebinding, destination move or legacy Markdown span is admitted.
+  if (deletePlan.mutations.some(recipe => recipe.action !== 'unlink' || recipe.nextValue !== null || recipe.cloneSelection !== null
+    || recipe.source.workspaceId !== nativeSnapshot.workspaceId || recipe.destinationWorkspaceId !== nativeSnapshot.workspaceId
+    || recipe.source.path === source.path || recipe.sourcePathAfter !== recipe.source.path || recipe.expectedTargetIdentity !== source.identity
+    || !nativeSnapshot.documents.some(inventory => isDeepStrictEqual(inventory.document, recipe.source)
+      && isDeepStrictEqual(inventory.version, recipe.sourceVersion) && inventory.links.some(link => link.id === recipe.linkId
+        && isDeepStrictEqual(link.ref, recipe.reference))))) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
+  return deletePlan.mutations;
+}
+function finalMetadata(value: unknown, inventory: NativeDocumentLinkInventory, changed: boolean): boolean {
+  if (!changed) return isDeepStrictEqual(value, inventory.metadata);
+  if (!exactKeys(value, ['path', 'aliases', 'tags', 'title', 'hasExplicitTitle', 'headings', 'blockIds'])) return false;
+  const metadata = value as NativeDocumentLinkInventory['metadata'];
+  if (metadata.path !== inventory.document.path || typeof metadata.title !== 'string' || typeof metadata.hasExplicitTitle !== 'boolean'
+    || ![metadata.aliases, metadata.tags, metadata.blockIds].every(items => Array.isArray(items) && items.every(item => typeof item === 'string'))
+    || !Array.isArray(metadata.headings) || metadata.headings.some(heading => !exactKeys(heading, ['depth', 'text'])
+      || !Number.isSafeInteger(heading.depth) || heading.depth < 1 || heading.depth > 6 || typeof heading.text !== 'string')) return false;
+  // Rich unlink adapters edit the body only. Heading text/title can change when
+  // an embedded image disappears; frontmatter and block-ID metadata cannot.
+  return inventory.document.representation === 'plain_text' || ['aliases', 'tags', 'hasExplicitTitle', 'blockIds'].every(key =>
+    isDeepStrictEqual(Reflect.get(metadata, key), Reflect.get(inventory.metadata, key)))
+    && (!metadata.hasExplicitTitle || metadata.title === inventory.metadata.title);
+}
+function validateGraph(graph: NativeMixedBatchPlan, nativeSnapshot: NativeWorkspaceLinkSnapshot, source: NativeNamespaceEntry): void {
+  if (!exactKeys(graph, graphKeys) || ['issues', 'cloneRequirements', 'steps', 'requests', 'snapshotProofs', 'documentEvidence',
+    'finalNamespace', 'finalEdges', 'requiredCoordinatorBindings'].some(key => !Array.isArray(Reflect.get(graph, key)))) fail();
+  if (graph.steps.length === 1 && !exactKeys(graph.steps[0], ['requestIndex', 'request', 'beforeGraphProof', 'afterGraphProof', 'namespaceEffects', 'linkIntents'])) fail();
   const { planId, ...body } = graph;
   if (graph.contractVersion !== 2 || graph.compilerVersion !== 1 || graph.readiness !== 'ready' || graph.executionReady !== false
     || graph.issues.length || graph.cloneRequirements.length || graph.steps.length !== 1 || graph.requests.length !== 1
-    || graph.steps[0].linkIntents.length || graph.steps[0].namespaceEffects.length !== 1 || !graph.finalGraphProof
     || nativeLinkJsonProof(body) !== planId) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
-  const request = graph.requests[0], effect = graph.steps[0].namespaceEffects[0];
-  if (!isDeepStrictEqual(request, { kind: 'delete', sourceWorkspaceId: workspaceId, destinationWorkspaceId: workspaceId,
-    selections: [{ sourcePath }] }) || !isDeepStrictEqual(graph.steps[0].request, request)
-    || effect.sourceWorkspaceId !== workspaceId || effect.sourcePath !== sourcePath || effect.destinationPath !== null) fail();
+  const workspaceId = nativeSnapshot.workspaceId, sourcePath = source.path;
+  const request = { kind: 'delete' as const, sourceWorkspaceId: workspaceId, destinationWorkspaceId: workspaceId, selections: [{ sourcePath }] };
+  const step = graph.steps[0], targetEntityKey = entityKey(source);
+  if (!exactKeys(step, ['requestIndex', 'request', 'beforeGraphProof', 'afterGraphProof', 'namespaceEffects', 'linkIntents'])
+    || step.requestIndex !== 0 || !Array.isArray(step.linkIntents) || !proofString(step.beforeGraphProof)
+    || !isDeepStrictEqual(graph.requests, [request]) || !isDeepStrictEqual(step.request, request)
+    || !isDeepStrictEqual(step.namespaceEffects, [{ entityKey: targetEntityKey, sourceEntityKey: targetEntityKey,
+      sourceWorkspaceId: workspaceId, sourcePath, destinationWorkspaceId: workspaceId, destinationPath: null }])
+    || !isDeepStrictEqual(graph.requiredCoordinatorBindings, coordinatorBindings)
+    || !isDeepStrictEqual(graph.snapshotProofs, [{ workspaceId, proof: nativeSnapshot.snapshotProof }])
+    || !isDeepStrictEqual(graph.documentEvidence, nativeSnapshot.documents.map(inventory => ({ evidenceKey: evidenceKey(inventory.document), inventory }))
+      .sort((a, b) => a.evidenceKey.localeCompare(b.evidenceKey)))) fail();
+  const recipes = deleteLinkRecipes(nativeSnapshot, source);
+  const expectedIntents = recipes.map(recipe => {
+    const entry = nativeSnapshot.namespace.find(candidate => candidate.documentId === recipe.source.documentId)!;
+    const owner = entityKey(entry);
+    return { virtualLinkKey: nativeLinkJsonProof({ entityKey: owner, linkId: recipe.linkId }), entityKey: owner,
+      originEvidenceLinkId: recipe.linkId, action: 'unlink',
+      expectedValue: String(recipe.reference.kind === 'link-mark' ? recipe.reference.expected.href : recipe.reference.expected),
+      nextValue: null, expectedTargetEntityKey: targetEntityKey, targetEntityKeyAfter: null, adapterCheck: 'native-forward-and-targeted-inverse' };
+  }).sort((a, b) => a.virtualLinkKey.localeCompare(b.virtualLinkKey));
+  // Intent order is the compiler's sorted virtual-edge order, independently
+  // derived from actual source inventories rather than the submitted graph.
+  if (!isDeepStrictEqual(step.linkIntents, expectedIntents)) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
+  const survivors = nativeSnapshot.namespace.filter(entry => entry.path !== sourcePath).sort((a, b) => entityKey(a).localeCompare(entityKey(b)));
+  if (graph.finalNamespace.length !== survivors.length) fail();
+  for (const [index, entry] of survivors.entries()) {
+    const actual = graph.finalNamespace[index], inventory = nativeSnapshot.documents.find(value => value.document.path === entry.path);
+    if (!exactKeys(actual, ['entityKey', 'workspaceId', 'path', 'kind', 'binding', 'contentBasisProof', 'metadata'])
+      || actual.entityKey !== entityKey(entry) || actual.workspaceId !== workspaceId || actual.path !== entry.path || actual.kind !== entry.kind
+      || !isDeepStrictEqual(actual.binding, { kind: 'existing', namespaceEvidence: entry, documentEvidenceKey: inventory ? evidenceKey(inventory.document) : null })
+      || (inventory ? !proofString(actual.contentBasisProof) || !finalMetadata(actual.metadata, inventory,
+        recipes.some(recipe => recipe.source.documentId === inventory.document.documentId)) : actual.contentBasisProof !== null || actual.metadata !== null)) fail();
+  }
+  const finalSnapshot: NativeWorkspaceLinkSnapshot = { ...nativeSnapshot, namespace: survivors,
+    documents: nativeSnapshot.documents.filter(inventory => inventory.document.path !== sourcePath).map(inventory => ({ ...inventory,
+      links: inventory.links.filter(link => !recipes.some(recipe => recipe.source.documentId === inventory.document.documentId && recipe.linkId === link.id)) })) };
+  const finalEdges = buildWorkspaceNativeLinkGraph(finalSnapshot).edges.map(edge => {
+    const owner = entityKey(survivors.find(entry => entry.documentId === edge.source.documentId)!);
+    return { virtualLinkKey: nativeLinkJsonProof({ entityKey: owner, linkId: edge.id }), sourceEntityKey: owner,
+      originEvidenceLinkId: edge.id, literal: edge.literal, targetPathText: edge.targetPathText,
+      resolution: { status: edge.resolution.status, targetEntityKey: edge.resolution.target ? entityKey(edge.resolution.target) : null,
+        candidateEntityKeys: edge.resolution.candidates.map(entityKey).sort() } };
+  }).sort((a, b) => a.virtualLinkKey.localeCompare(b.virtualLinkKey));
+  if (!isDeepStrictEqual(graph.finalEdges, finalEdges) || !proofString(graph.finalGraphProof)
+    || graph.finalGraphProof !== nativeLinkJsonProof({ namespace: graph.finalNamespace, edges: finalEdges })
+    || step.afterGraphProof !== graph.finalGraphProof) fail();
+  // The historical DTO has no private bytes with which to derive native content
+  // hashes or changed heading metadata. Current validation below reruns the real
+  // compiler with proven current bytes and requires the complete original graph.
 }
 function compatibility(nativeSnapshot: NativeWorkspaceLinkSnapshot): Pick<WorkspaceOperationNativeDeleteBatchPlan, 'coverage' | 'linkAssessment'> {
   const graph = buildWorkspaceNativeLinkGraph(nativeSnapshot);
@@ -122,21 +214,10 @@ export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): W
     if (!isDeepStrictEqual(value.pathSteps, [{ reviewId: selected.reviewId, kind: 'delete', sourcePath: source.path }])
       || !isDeepStrictEqual(value.deletedPaths, [{ path: source.path, kind: 'file', identity: source.filesystemIdentity ?? `native:${binding.expected.stateProof}` }])
       || !isDeepStrictEqual(value.expectedPathState, [{ workspaceId: value.workspaceId, path: source.path, identity: source.filesystemIdentity, contentHash: null }])) fail();
-    validateGraph(value.nativeGraphPlan, value.workspaceId, source.path);
     const originalSnapshot = snapshot(evidence);
-    // Historical DTOs must prove their zero-link-effect claim independently of
-    // their supplied compiler self-hash. Reuse the actual native graph planner.
-    const deletePlan = createWorkspaceNativeFileOperationPlan({ kind: 'delete', sourceWorkspaceId: value.workspaceId,
-      destinationWorkspaceId: value.workspaceId, selections: [{ sourcePath: source.path }], snapshots: [originalSnapshot] });
-    if (deletePlan.readiness !== 'ready' || deletePlan.issues.length || deletePlan.mutations.length
-      || !isDeepStrictEqual(deletePlan.pathMappings, [{ source, destinationPath: '', destinationWorkspaceId: value.workspaceId }])) {
-      fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
-    }
+    validateGraph(value.nativeGraphPlan, originalSnapshot, source);
     const diagnostic = compatibility(originalSnapshot);
     if (!isDeepStrictEqual(value.coverage, diagnostic.coverage) || !isDeepStrictEqual(value.linkAssessment, diagnostic.linkAssessment)) fail();
-    if (!isDeepStrictEqual(value.nativeGraphPlan.snapshotProofs, [{ workspaceId: value.workspaceId, proof: originalSnapshot.snapshotProof }])
-      || !isDeepStrictEqual(value.nativeGraphPlan.documentEvidence.map(entry => entry.inventory).sort((a,b) => a.document.documentId.localeCompare(b.document.documentId)),
-        originalSnapshot.documents.toSorted((a,b) => a.document.documentId.localeCompare(b.document.documentId)))) fail();
     const { planId, ...body } = value;
     if (computeWorkspaceOperationNativeDeleteBatchPlanId(body) !== planId) fail();
     return freeze(value);
@@ -157,7 +238,7 @@ export function createWorkspaceOperationNativeDeleteBatchPlan(input: {
   const nativeGraphPlan = compileWorkspaceNativeMixedBatch({ snapshots: [nativeSnapshot], states: input.observation.privateNativeStates,
     requests: [{ kind: 'delete', sourceWorkspaceId: sourceEvidence.stage.workspaceId, destinationWorkspaceId: sourceEvidence.stage.workspaceId,
       selections: [{ sourcePath: source.path }] }] });
-  validateGraph(nativeGraphPlan, sourceEvidence.stage.workspaceId, source.path);
+  validateGraph(nativeGraphPlan, nativeSnapshot, source);
   const body: Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'> = { version: 2, kind: 'native-original-delete',
     workspaceId: input.scope.workspace.workspaceId, readiness: 'ready', actions: [selected], pathMappings: [],
     deletedPaths: [{ path: source.path, kind: 'file', identity: source.filesystemIdentity ?? `native:${binding.expected.stateProof}` }],
@@ -176,7 +257,22 @@ export function assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan: Works
   assertWorkspaceOperationNativeSourceEvidenceCurrent(original.sourceEvidence, observation, scopeSnapshot);
   const binding = observation.nativeBindings.find(item => item.expected.documentId === original.nativeTarget.documentId);
   if (!binding || !isDeepStrictEqual(binding.expected, original.nativeTarget)) fail('NATIVE_DELETE_PLAN_CHANGED');
-  const graph = compileWorkspaceNativeMixedBatch({ snapshots: [snapshot(observation)], states: observation.privateNativeStates,
+  // Current evidence permits replaceable projections and directory mtimes to
+  // differ. Replay the ORIGINAL namespace with the newly proven native bytes:
+  // every compiler field must still equal the historical genuine result.
+  const originalSnapshot = snapshot(original.sourceEvidence);
+  const graph = compileWorkspaceNativeMixedBatch({ snapshots: [originalSnapshot], states: observation.privateNativeStates,
     requests: original.nativeGraphPlan.requests });
-  validateGraph(graph, original.workspaceId, original.nativeTarget.path);
+  const source = originalSnapshot.namespace.find(entry => entry.path === original.nativeTarget.path)!;
+  validateGraph(graph, originalSnapshot, source);
+  if (!isDeepStrictEqual(graph, original.nativeGraphPlan)) fail('NATIVE_DELETE_PLAN_CHANGED');
+}
+
+/** Actual original-source recipes only. A decoded historical graph is evidence,
+ * never native mutation authority; callers must prove current rights/fences and
+ * prepare exact deltas from the matching private durable states separately. */
+export function getWorkspaceOperationNativeDeleteLinkRecipes(plan: WorkspaceOperationNativeDeleteBatchPlan): NativeLinkMutationRecipe[] {
+  const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan), originalSnapshot = snapshot(original.sourceEvidence);
+  const source = originalSnapshot.namespace.find(entry => entry.path === original.nativeTarget.path)!;
+  return structuredClone(deleteLinkRecipes(originalSnapshot, source));
 }

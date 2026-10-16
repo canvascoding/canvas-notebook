@@ -44,15 +44,16 @@ test('all six original semantic validator blocks retain their original AST', () 
 type Row = Record<string, unknown>;
 type Column = { name: string; type: string; notNull: boolean };
 type Module = typeof Storage & { fixtureFacts: { names: string[]; expectedColumns: Record<string, Column[]>;
-  immutableSource: string; initializeSource: string } };
+  immutableSource: string; initializeSource: string; nativeLinkScopeSource: string } };
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
 const native = createRequire(file), loaded = { exports: {} as Module };
 // The test VM exposes metadata solely to construct declared catalogue rows.
 // No production export, SQL result override or capability is added.
-new Function('require', 'module', 'exports', `${compiled}\nmodule.exports.fixtureFacts={names,expectedColumns,immutableSource,initializeSource};`)(
+new Function('require', 'module', 'exports', `${compiled}\nmodule.exports.fixtureFacts={names,expectedColumns,immutableSource,initializeSource,nativeLinkScopeSource};`)(
   (name: string) => name === 'server-only' ? {} : native(name), loaded, loaded.exports);
-const { names, expectedColumns, immutableSource, initializeSource } = loaded.exports.fixtureFacts;
+const { names, expectedColumns, immutableSource, initializeSource, nativeLinkScopeSource } = loaded.exports.fixtureFacts;
+const nativeLinkTable = 'collaboration_native_link_mutation_receipts';
 const realm = { schema_name: 'storage_fixture', schema_oid: '21', database_oid: '31' };
 const binding = { schemaName: realm.schema_name, schemaOid: 21, databaseOid: 31 };
 const relationOid = (name: string) => { const index = names.indexOf(name); assert(index >= 0); return 1000 + index; };
@@ -77,6 +78,9 @@ function facts(): Row {
   foreign('public_file_shares', ['created_by_user_id'], 'user', ['id']);
   foreign('file_guest_invitations', ['created_by_user_id'], 'user', ['id']);
   foreign('workspace_trash_entries', ['workspace_id'], 'canvas_workspaces', ['id']);
+  unique(nativeLinkTable, 'p', ['operation_id']);
+  unique(nativeLinkTable, 'u', ['document_id', 'actor_user_id', 'actor_id', 'actor_type', 'actor_session_id', 'request_id']);
+  foreign(nativeLinkTable, ['document_id'], 'collaboration_documents', ['id']);
   for (const spec of specs) {
     unique(spec.table, 'p', spec.primaryKey);
     for (const columns of spec.uniqueKeys) unique(spec.table, 'u', columns);
@@ -91,6 +95,11 @@ function facts(): Row {
       prosrc: spec.immutable ? immutableSource : initializeSource, prosecdef: false, proconfig: null,
       prokind: 'f', pronargs: 0, returns_trigger: true, lanname: 'plpgsql' });
   }
+  triggers.push({ oid: nextOid++, table_name: nativeLinkTable, tgname: 'native_link_mutation_receipt_scope', tgtype: 31,
+    tgenabled: 'O', tgisinternal: false, tgnargs: 0, qualification: null, attributes: '', tgdeferrable: false,
+    tginitdeferred: false, constraint_oid: 0, function_oid: 5002, function_schema: 21,
+    function_schema_name: realm.schema_name, proname: 'validate_native_link_mutation_receipt_scope',
+    prosrc: nativeLinkScopeSource, prosecdef: false, proconfig: null, prokind: 'f', pronargs: 0, returns_trigger: true, lanname: 'plpgsql' });
   return { ...realm, relations: names.map(name => ({ name, resolved: relationOid(name), oid: relationOid(name), schema_oid: 21,
     relkind: 'r', relpersistence: 'p', relrowsecurity: false, relforcerowsecurity: false })),
   columns: names.map(name => ({ relation_oid: relationOid(name), columns: expectedColumns[name].map(column =>
@@ -104,7 +113,12 @@ function harness(): Harness {
   const call = (method: string, sql: string, parameters: unknown[] = []) => result.calls.push({ method, sql, parameters });
   result.database = {
     get: async (sql, parameters = []) => { call('get', sql, parameters);
-      return structuredClone(sql.startsWith('WITH current_relations') ? result.snapshot : realm); },
+      if (!sql.startsWith('WITH current_relations')) return structuredClone(realm);
+      // Keep one complete catalogue model for every existing mutator, and
+      // project the two bounded result partitions exactly as the SQL does.
+      const snapshot = structuredClone(result.snapshot), constraints = snapshot.constraints as Row[];
+      return { ...snapshot, constraints: constraints.filter(row => row.table_name !== nativeLinkTable),
+        native_link_constraints: constraints.filter(row => row.table_name === nativeLinkTable) }; },
     all: async (sql, parameters = []) => { call('all', sql, parameters);
       assert(sql.includes('pg_catalog.unnest($2::text[])'));
       return (facts().relations as Row[]).map(row => ({ ...row, oid: String(row.oid), resolved: String(row.resolved), schema_oid: '21' })); },
@@ -115,7 +129,8 @@ function harness(): Harness {
 }
 test('initial binding uses four roundtrips and each fresh full inspection exactly one structured SELECT', async () => {
   const h = harness(), storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
-  assert.equal(names.length, 16); assert.equal(h.calls.length, 4);
+  assert.equal(names.filter(name => name !== nativeLinkTable).length, 16);
+  assert.equal(names.length, 17); assert.equal(names.filter(name => name === nativeLinkTable).length, 1); assert.equal(h.calls.length, 4);
   await storage.assertCurrent(); await storage.assertCurrent();
   assert.equal(h.calls.length, 6);
   const inspections = h.calls.filter(call => call.sql.startsWith('WITH current_relations'));
@@ -125,6 +140,8 @@ test('initial binding uses four roundtrips and each fresh full inspection exactl
     assert.deepEqual(call.parameters, [names.map(relationOid), 21, 31, '"storage_fixture"', names]);
     assert.match(call.sql, /CROSS JOIN LATERAL/u); assert.match(call.sql, /LIMIT 129/u);
     assert.equal((call.sql.match(/LIMIT 257/gu) ?? []).length, 2);
+    assert.equal((call.sql.match(/LIMIT 65/gu) ?? []).length, 1);
+    assert.match(call.sql, /AS native_link_constraints/u);
     assert.match(call.sql, /WHERE c\.conrelid=ANY\(\$1::oid\[\]\)/u);
     assert.match(call.sql, /WHERE t\.tgrelid=ANY\(\$1::oid\[\]\)/u);
     for (const gate of ['pg_catalog.pg_locks', 'pg_catalog.pg_attribute', 'pg_catalog.pg_constraint', 'pg_catalog.pg_trigger',
@@ -170,6 +187,120 @@ for (const [label, change] of mutate) test(`fresh one-statement inspection rejec
   change(h.snapshot);
   await assert.rejects(storage.assertCurrent(), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
   assert.equal(h.calls.length, 5, 'No hidden second query or successful cache hit.');
+});
+const nativeConstraint = (snapshot: Row, type: string) => rows(snapshot, 'constraints').find(row => row.table_name === nativeLinkTable && row.contype === type)!;
+function fillConstraintPartition(snapshot: Row, native: boolean, count: number): void {
+  const constraints = rows(snapshot, 'constraints'), current = constraints.filter(row => (row.table_name === nativeLinkTable) === native);
+  assert(current.length <= count);
+  for (let index = current.length; index < count; index++) constraints.push({ oid: (native ? 20_000 : 10_000) + index,
+    table_name: native ? nativeLinkTable : 'collaboration_documents', contype: 'c', convalidated: true, conenforced: true,
+    condeferrable: false, condeferred: false, definition: `declared-${native ? 'native' : 'original'}-check-${index}` });
+}
+test('original 256 and added native 64 constraint budgets are independent in one fresh inspection', async () => {
+  const h = harness();
+  fillConstraintPartition(h.snapshot, false, 256); fillConstraintPartition(h.snapshot, true, 64);
+  assert.equal(rows(h.snapshot, 'constraints').length, 320);
+  const storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
+  await storage.assertCurrent();
+  assert.equal(h.calls.length, 5, 'Both bounded partitions share the same fresh structured SELECT.');
+});
+for (const phase of ['initial', 'fresh'] as const) test(`${phase} inspection rejects 65 native constraints without raising the original budget`, async () => {
+  const h = harness();
+  if (phase === 'initial') {
+    fillConstraintPartition(h.snapshot, true, 65);
+    await assert.rejects(loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+    assert.equal(h.calls.length, 4);
+  } else {
+    const storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
+    fillConstraintPartition(h.snapshot, true, 65);
+    await assert.rejects(storage.assertCurrent(), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+    assert.equal(h.calls.length, 5);
+  }
+});
+for (const native of [false, true]) test(`fresh inspection independently pins the ${native ? 'native' : 'original'} constraint partition`, async () => {
+  const h = harness();
+  fillConstraintPartition(h.snapshot, false, 256); fillConstraintPartition(h.snapshot, true, 64);
+  const unchanged = JSON.stringify(rows(h.snapshot, 'constraints').filter(row => (row.table_name === nativeLinkTable) !== native));
+  const storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
+  rows(h.snapshot, 'constraints').find(row => (row.table_name === nativeLinkTable) === native && row.contype === 'c')!.definition = 'changed valid check';
+  assert.equal(JSON.stringify(rows(h.snapshot, 'constraints').filter(row => (row.table_name === nativeLinkTable) !== native)), unchanged);
+  await assert.rejects(storage.assertCurrent(), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+  assert.equal(h.calls.length, 5);
+});
+const nativeScope = (snapshot: Row) => rows(snapshot, 'triggers').find(row => row.table_name === nativeLinkTable && row.tgname === 'native_link_mutation_receipt_scope')!;
+const nativeForeignTrigger = (snapshot: Row) => rows(snapshot, 'triggers').find(row => row.table_name === nativeLinkTable && row.tgisinternal === true)!;
+const nativeMutate: Array<[string, (snapshot: Row) => void]> = [
+  ['missing native PK', s => { s.constraints = rows(s, 'constraints').filter(row => row !== nativeConstraint(s, 'p')); }],
+  ['duplicate native PK', s => { rows(s, 'constraints').push({ ...nativeConstraint(s, 'p'), oid: 9999 }); }],
+  ['wrong native PK columns', s => { nativeConstraint(s, 'p').columns = ['document_id']; }],
+  ['invalid native PK index', s => { nativeConstraint(s, 'p').indisvalid = false; }],
+  ['unready native PK index', s => { nativeConstraint(s, 'p').indisready = false; }],
+  ['nonlive native PK index', s => { nativeConstraint(s, 'p').indislive = false; }],
+  ['deferred native PK index', s => { nativeConstraint(s, 'p').indimmediate = false; }],
+  ['missing native request unique', s => { s.constraints = rows(s, 'constraints').filter(row => row !== nativeConstraint(s, 'u')); }],
+  ['duplicate native request unique', s => { rows(s, 'constraints').push({ ...nativeConstraint(s, 'u'), oid: 9999 }); }],
+  ['wrong native request unique columns', s => { nativeConstraint(s, 'u').columns = ['document_id', 'request_id']; }],
+  ['unvalidated native request unique', s => { nativeConstraint(s, 'u').convalidated = false; }],
+  ['unenforced native request unique', s => { nativeConstraint(s, 'u').conenforced = false; }],
+  ['deferrable native request unique', s => { nativeConstraint(s, 'u').condeferrable = true; }],
+  ['deferred native request unique', s => { nativeConstraint(s, 'u').condeferred = true; }],
+  ['nonimmediate native request unique', s => { nativeConstraint(s, 'u').indimmediate = false; }],
+  ['missing native FK', s => { s.constraints = rows(s, 'constraints').filter(row => row !== nativeConstraint(s, 'f')); }],
+  ['duplicate native FK', s => { rows(s, 'constraints').push({ ...nativeConstraint(s, 'f'), oid: 9999 }); }],
+  ['wrong native FK child columns', s => { nativeConstraint(s, 'f').columns = ['workspace_id']; }],
+  ['wrong native FK parent table', s => { nativeConstraint(s, 'f').target_table = 'file_collaboration_lineages'; }],
+  ['wrong native FK parent columns', s => { nativeConstraint(s, 'f').target_columns = ['lineage_id']; }],
+  ['foreign native FK parent schema', s => { nativeConstraint(s, 'f').target_schema = 22; }],
+  ['unvalidated native FK', s => { nativeConstraint(s, 'f').convalidated = false; }],
+  ['missing native FK triggers', s => { nativeConstraint(s, 'f').fk_triggers = false; }],
+  ['invalid native FK parent index', s => { nativeConstraint(s, 'f').indisvalid = false; }],
+  ['unknown internal native FK trigger function', s => { nativeForeignTrigger(s).proname = 'unapproved'; }],
+  ['disabled internal native FK trigger', s => { nativeForeignTrigger(s).tgenabled = 'D'; }],
+  ['foreign internal native FK trigger schema', s => { nativeForeignTrigger(s).child_schema = 22; }],
+  ['missing native scope trigger', s => { s.triggers = rows(s, 'triggers').filter(row => row !== nativeScope(s)); }],
+  ['duplicate native scope trigger', s => { rows(s, 'triggers').push({ ...nativeScope(s), oid: 9999 }); }],
+  ['disabled native scope trigger', s => { nativeScope(s).tgenabled = 'D'; }],
+  ['internal relabelled native scope trigger', s => { nativeScope(s).tgisinternal = true; }],
+  ['wrong native scope trigger name', s => { nativeScope(s).tgname = 'forged_scope'; }],
+  ['wrong native scope trigger table', s => { nativeScope(s).table_name = 'collaboration_documents'; }],
+  ['wrong native scope trigger events', s => { nativeScope(s).tgtype = 5; }],
+  ['native scope trigger arguments', s => { nativeScope(s).tgnargs = 1; }],
+  ['native scope trigger predicate', s => { nativeScope(s).qualification = 'true'; }],
+  ['native scope trigger attribute restriction', s => { nativeScope(s).attributes = '1'; }],
+  ['native scope trigger constraint', s => { nativeScope(s).constraint_oid = 9000; }],
+  ['deferrable native scope trigger', s => { nativeScope(s).tgdeferrable = true; }],
+  ['initially deferred native scope trigger', s => { nativeScope(s).tginitdeferred = true; }],
+  ['foreign native scope function schema', s => { nativeScope(s).function_schema = 22; }],
+  ['wrong native scope function name', s => { nativeScope(s).proname = 'other_function'; }],
+  ['changed native scope function body', s => { nativeScope(s).prosrc = 'BEGIN RETURN NEW; END'; }],
+  ['security-definer native scope function', s => { nativeScope(s).prosecdef = true; }],
+  ['native scope function settings', s => { nativeScope(s).proconfig = ['search_path=public']; }],
+  ['wrong native scope function kind', s => { nativeScope(s).prokind = 'p'; }],
+  ['native scope function arguments', s => { nativeScope(s).pronargs = 1; }],
+  ['wrong native scope function return type', s => { nativeScope(s).returns_trigger = false; }],
+  ['wrong native scope function language', s => { nativeScope(s).lanname = 'sql'; }],
+  ['unknown extra native user trigger', s => { rows(s, 'triggers').push({ ...nativeScope(s), oid: 9999, tgname: 'unapproved_extra_trigger' }); }],
+];
+for (const [label, change] of nativeMutate) for (const phase of ['initial', 'fresh'] as const) test(`${phase} bounded inspection rejects ${label}`, async () => {
+  const h = harness();
+  if (phase === 'initial') {
+    change(h.snapshot);
+    await assert.rejects(loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+    assert.equal(h.calls.length, 4, 'Initial native-receipt checks stay in the same bounded inspection.');
+  } else {
+    const storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
+    change(h.snapshot);
+    await assert.rejects(storage.assertCurrent(), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+    assert.equal(h.calls.length, 5, 'No hidden second query or successful cache hit.');
+  }
+});
+for (const [label, change] of [
+  ['native scope function OID', (s: Row) => { nativeScope(s).function_oid = 9999; }],
+  ['native unique definition', (s: Row) => { nativeConstraint(s, 'u').definition = 'changed but still individually usable'; }],
+] as const) test(`fresh inspection pins the original ${label} fingerprint`, async () => {
+  const h = harness(), storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);
+  change(h.snapshot); await assert.rejects(storage.assertCurrent(), { code: 'ORIGINAL_DELETE_STORAGE_CHANGED', status: 409 });
+  assert.equal(h.calls.length, 5);
 });
 test('SQL rejection preserves its original failure without a cached successful inspection', async () => {
   const h = harness(), storage = await loaded.exports.bindWorkspaceOperationOriginalDeleteStorageOnConnection(h.database, binding);

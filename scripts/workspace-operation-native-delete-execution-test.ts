@@ -13,11 +13,12 @@ const plan = { version: 2, kind: 'native-original-delete', workspaceId: 'project
   nativeTarget: { path: ' note .md', documentId: 'private-original-D1' },
   pathSteps: [{ kind: 'delete', sourcePath: ' note .md', reviewId: 'direct-delete' }],
   previewContents: [], linkEdits: [], pathMappings: [], sourceEvidence: { private: 'private-root-and-binary' },
+  nativeGraphPlan: { steps: [{ linkIntents: [] }], finalNamespace: [] },
 } as unknown as WorkspaceOperationNativeDeleteBatchPlan;
 const input = { plan, actionMode: 'apply' as const, status: 'applying', completedActions: 0, phase: 'preparing' as const };
 function facts(apply: WorkspaceOperationOriginalDeleteObservation['apply'], undo: WorkspaceOperationOriginalDeleteObservation['undo']):
 WorkspaceOperationOriginalDeleteObservation {
-  return { apply, undo, deleted: apply === 'complete' ? { trashEntryId: 'original-trash', private: 'private-delete' } : null,
+  return { apply, undo, deleted: apply === 'complete' ? { version: 1, trashEntryId: 'original-trash', private: 'private-delete' } : null,
     restored: undo === 'complete' ? { trashEntryId: 'original-trash', private: 'private-restore' } : null,
     deleteIntent: apply === 'absent' ? null : { private: 'private-intent' }, original: null,
     deleteReceipt: null, deleteTrashReceipt: null, restoreIntent: null, restoreReceipt: null, restoration: null,

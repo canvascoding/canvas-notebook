@@ -86,5 +86,5 @@ export type WorkspaceOperationBatchExecutionResult = {
   errorCode: string | null;
   stepResults?: Array<{ key: string; phase: 'path' | 'link'; state: 'intent' | 'applied';
     reviewId?: string; path: string; destinationPath?: string; sourceIdentity?: string;
-    mutationId?: string; trashEntryId?: string }>;
+    mutationId?: string; trashEntryId?: string; updatedLinks?: number }>;
 };

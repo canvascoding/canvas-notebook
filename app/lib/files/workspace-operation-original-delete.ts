@@ -6,7 +6,7 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { authoritativeCollaborationSnapshot } from '../collaboration/checkpoint';
 import { serializeCanonicalText } from '../collaboration/persistence';
-import { prepareNativeFileArchiveTransition, type NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
+import { prepareNativeFileArchiveTransition, type NativeFileArchiveExpected, type NativeFileArchiveTransition } from '../collaboration/native-file-archive-transition';
 import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-document-catalogue';
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import { withPreparedWorkspaceSingleFileTrash, withRecoveredWorkspaceSingleFileTrash,
@@ -18,6 +18,8 @@ import { withPreparedWorkspaceSingleFileRestore, withRecoveredWorkspaceSingleFil
   assertPreparedWorkspaceSingleFileRestoreCurrent, type PreparedWorkspaceSingleFileRestore } from '../filesystem/prepared-single-file-trash';
 import { computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan, assertWorkspaceOperationNativeDeleteBatchPlanCurrent } from './workspace-operation-native-delete-plan';
+import { prepareOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
+  assertOriginalDeleteNativeFinalGraph, assertOriginalDeleteNativeLinkCompletionBudget } from './workspace-operation-original-delete-links';
 import { assertWorkspaceOperationNativeDeleteUndoGraphCurrent } from './workspace-operation-native-delete-undo-graph';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim,
@@ -65,6 +67,7 @@ function selection(claim: WorkspaceOperationBatchClaim, actionMode: 'apply' | 'u
   if (plan.version === 2) {
     const native = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
     if (!equal(native.sourceEvidence.workspaceScope, authorization.jobScope)) fail('ORIGINAL_DELETE_UNSUPPORTED');
+    if (actionMode === 'undo' && native.nativeGraphPlan.steps.some(step => step.linkIntents.length)) fail('ORIGINAL_DELETE_UNSUPPORTED');
   }
   return binding;
 }
@@ -80,7 +83,11 @@ async function assertNoCompetingWriter(access: WorkspaceOperationJobLifecycleAcc
     AND status='active' AND expires_at>$3 FOR SHARE NOWAIT`, [access.workspace.workspaceId, source, Date.now()]);
   const guests = await access.database.all(`SELECT id FROM ${prefix}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
     AND status='active' FOR SHARE NOWAIT`, [access.workspace.workspaceId, source]);
-  if (locks.length || guests.length) fail('ORIGINAL_DELETE_BUSY');
+  const agents = await access.database.all(`SELECT o.operation_id FROM ${prefix}.collaboration_agent_operations o
+    JOIN ${prefix}.collaboration_documents d ON d.id=o.document_id WHERE d.workspace_id=$1 AND d.path=$2
+      AND o.status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') FOR SHARE OF o NOWAIT`,
+  [access.workspace.workspaceId, source]);
+  if (locks.length || guests.length || agents.length) fail('ORIGINAL_DELETE_BUSY');
 }
 async function assertStillPhysical(access: WorkspaceOperationJobLifecycleAccess, prefix: string, source: string): Promise<void> {
   // Reject a new native owner of these same projection bytes; never adopt that
@@ -117,12 +124,13 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
   physical: PreparedSingleFileTrashOriginalFacts): Promise<OriginalIntent> {
   const schema = binding.source.schemaName, prefix = quote(schema), source = physical.canonicalPath;
   await assertNoCompetingWriter(access, prefix, source);
-  if (binding.plan.version === 2) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
-    await readWorkspaceLinkSourceAuthorityOnConnection(access.database, access.workspace),
+  const observation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
+  if (binding.plan.version === 2 && observation) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan, observation,
     binding.authorization.mode === 'direct' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID'));
   const catalogue = await readWorkspaceDocumentCatalogue(access.database, access.workspace, { paths: [source], maxEntries: 2 });
   if (catalogue.some(entry => entry.path !== source) || catalogue.length > 1) fail('ORIGINAL_DELETE_UNSUPPORTED');
   let native: NativeFileArchiveExpected | null = null, nativeContentHash: string | null = null;
+  let nativeTransition: NativeFileArchiveTransition | null = null;
   if (catalogue.length) {
     const entry = catalogue[0];
     if (entry.authority !== 'initialized' || !entry.lineage_id) fail('ORIGINAL_DELETE_UNSUPPORTED');
@@ -136,15 +144,35 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
     if (requiresNativeContent) nativeContentHash = digest(serializeCanonicalText(
       authoritativeCollaborationSnapshot(original.state).canonicalContent, original.state));
     // Reject archive limits/quarantine before making the physical transition.
-    prepareNativeFileArchiveTransition(original.state, native, { trashEntryId: physical.trashEntryId, archivedAt: physical.deletedAtMs });
+    nativeTransition = prepareNativeFileArchiveTransition(original.state, native, { trashEntryId: physical.trashEntryId, archivedAt: physical.deletedAtMs });
   } else if (await access.database.get(`SELECT id FROM ${prefix}.file_collaboration_lineages WHERE workspace_id=$1
     AND path=$2 AND status='active' LIMIT 1 FOR SHARE NOWAIT`, [binding.workspaceId, source])) fail('ORIGINAL_DELETE_UNSUPPORTED');
   assertPlanSource(binding, physical, native, nativeContentHash);
   const publicShare = await captureOriginalDeletePublicShareOnConnection(access.database,
     { schema, workspace: access.workspace, path: source, ...(native ? { nativeExpected: native } : {}) });
   const auth = binding.authorization; if (auth.mode !== 'direct' || !auth.jobScope) fail('ORIGINAL_DELETE_INVALID');
-  return freeze({ version: 1, batchId: binding.batchId, planId: binding.planId, requestHash: auth.requestHash,
-    actor: actor(binding), jobScope: auth.jobScope, physical, native, publicShare });
+  const nativeLinks = binding.plan.version === 2 && observation ? prepareOriginalDeleteNativeLinks(binding.plan, observation,
+    { batchId: binding.batchId, workspaceId: binding.workspaceId, sourcePath: source, requestHash: auth.requestHash, actor: actor(binding) }) : [];
+  if (nativeLinks.length && !access.workspace.permissions.canWrite) {
+    throw Object.assign(new Error('Current workspace write permission is required to update incoming links.'), { status: 403 });
+  }
+  for (const item of nativeLinks) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
+  const value: OriginalIntent = { version: nativeLinks.length ? 2 : 1, batchId: binding.batchId, planId: binding.planId, requestHash: auth.requestHash,
+    actor: actor(binding), jobScope: auth.jobScope, physical, native, publicShare, ...(nativeLinks.length ? { nativeLinks } : {}) };
+  if (Buffer.byteLength(json(value)) > 1048576) fail('ORIGINAL_DELETE_UNSUPPORTED');
+  if (nativeLinks.length && observation) {
+    // The original facts and predicted native transition are exact. Every
+    // finite JSON numeric identity value is shorter than this 64-byte reserve;
+    // the fixed public result is bounded below 32 KiB by its existing codec.
+    const observationBudget = physical.source.kind === 'regular_file' ? { kind: 'moved', method: 'rename',
+      identity: Object.fromEntries(Object.keys(physical.source.identity).map(key => [key, 'N'.repeat(64)])), sha256: '0'.repeat(64) }
+      : { kind: 'projection_absent' };
+    const envelope = { version: 2, batchId: binding.batchId, intentDigest: '0'.repeat(64), trashEntryId: physical.trashEntryId,
+      physical: { version: 1, original: physical, observation: observationBudget }, native: nativeTransition,
+      publicShare: 'P'.repeat(32768), trashReceiptDigest: '0'.repeat(64), nativeLinks: [] };
+    assertOriginalDeleteNativeLinkCompletionBudget(nativeLinks, observation, Buffer.byteLength(json(envelope)));
+  }
+  return freeze(value);
 }
 
 function trashMetadata(intent: OriginalIntent, intentDigest: string): string {
@@ -195,7 +223,10 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
       const trash = await readWorkspaceOperationOriginalDeleteTrashReceiptOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
       if (!durable && (receipt || trash) || durable && !receipt && trash) fail('ORIGINAL_DELETE_UNPROVEN');
       const intent = durable ? parseIntent(durable, evidenceContext, access.workspace, resolveWorkspaceDataRoot()) : null;
-      if (intent && binding.plan.version === 2) assertPlanSource(binding, intent.physical, intent.native, null);
+      if (intent && binding.plan.version === 2) {
+        assertPlanSource(binding, intent.physical, intent.native, null);
+        assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks ?? []);
+      }
       return { workspace: access.workspace, durable, intent, result: receipt && durable && intent ? completed(receipt, trash, durable, intent) : null };
     });
     const observed = await observe();
@@ -220,9 +251,13 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
         const current = await readWorkspaceOperationOriginalDeleteIntentOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
         if (!current || !equal(current, originalDurable)) fail('ORIGINAL_DELETE_CHANGED');
         parseIntent(current, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
+        if (originalIntent.nativeLinks?.length && !access.workspace.permissions.canWrite) {
+          throw Object.assign(new Error('Current workspace write permission is required to update incoming links.'), { status: 403 });
+        }
         await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+        for (const item of originalIntent.nativeLinks ?? []) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
         if (binding.plan.version === 2) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
-          await readWorkspaceLinkSourceAuthorityOnConnection(access.database, access.workspace), originalIntent.jobScope);
+          await access.readOriginalNativeDeleteSources(), originalIntent.jobScope);
         if (originalIntent.native) {
           const native = await readOriginalNativeDeleteTargetOnConnection(access.database, { schema, workspace: access.workspace,
             documentId: originalIntent.native.documentId, lineageId: originalIntent.native.lineageId, path: originalIntent.native.path });
@@ -237,23 +272,28 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
         if (!current || !equal(current, originalDurable) || !equal(physical.original, originalIntent.physical)) fail('ORIGINAL_DELETE_CHANGED');
         parseIntent(current, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
         await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+        for (const item of originalIntent.nativeLinks ?? []) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
         if (binding.plan.version === 2) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
-          await readWorkspaceLinkSourceAuthorityOnConnection(access.database, access.workspace), originalIntent.jobScope);
+          await access.readOriginalNativeDeleteSources(), originalIntent.jobScope);
         if (!originalIntent.native) await assertStillPhysical(access, prefix, originalIntent.physical.canonicalPath);
         const prior = await readWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
         if (prior) fail('ORIGINAL_DELETE_UNPROVEN');
+        const nativeLinks = originalIntent.version === 2 ? await access.applyOriginalNativeDeleteLinks(current.intentDigest) : [];
         const native = originalIntent.native ? await archiveOriginalNativeDeleteTargetOnConnection(access.database,
           { schema, workspace: access.workspace, expected: originalIntent.native, trashEntryId: originalIntent.physical.trashEntryId,
             archivedAt: originalIntent.physical.deletedAtMs }) : null;
         const publicShare = await applyOriginalDeletePublicShareOnConnection(access.database,
           { schema, workspace: access.workspace, original: originalIntent.publicShare, nowMs: originalIntent.physical.deletedAtMs });
+        if (binding.plan.version === 2 && originalIntent.version === 2) assertOriginalDeleteNativeFinalGraph(binding.plan,
+          await access.readOriginalNativeDeleteSources());
         await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
         await insertTrash(access, prefix, originalIntent, current.intentDigest);
         const trash = await insertWorkspaceOperationOriginalDeleteTrashReceiptOnConnection(access.database,
           { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(physical) });
         if (trash.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
-        const value: Completion = freeze({ version: 1, batchId: binding.batchId, intentDigest: current.intentDigest,
-          trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest });
+        const value: Completion = freeze({ version: originalIntent.version, batchId: binding.batchId, intentDigest: current.intentDigest,
+          trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest,
+          ...(originalIntent.version === 2 ? { nativeLinks } : {}) });
         const receipt = await insertWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database,
           { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(value) });
         if (receipt.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');

@@ -10,16 +10,18 @@ import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-o
 import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions,
   validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
-import { inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
+import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
+import { prepareNativeLinkMutations } from '../app/lib/markdown/workspace-native-link-mutations';
 import { compileWorkspaceNativeMixedBatch } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
 import { captureWorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceError } from '../app/lib/files/workspace-operation-native-source-evidence';
 import { inspectOriginalPhysicalLinks, workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../app/lib/markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../app/lib/markdown/workspace-source-authority-stage';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { createWorkspaceOperationNativeDeleteBatchPlan, decodeWorkspaceOperationNativeDeleteBatchPlan,
-  assertWorkspaceOperationNativeDeleteBatchPlanCurrent, computeWorkspaceOperationNativeDeleteBatchPlanId } from '../app/lib/files/workspace-operation-native-delete-plan';
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent, computeWorkspaceOperationNativeDeleteBatchPlanId,
+  getWorkspaceOperationNativeDeleteLinkRecipes } from '../app/lib/files/workspace-operation-native-delete-plan';
 import { createWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId,
   buildWorkspaceOperationBatchPlan, workspaceOperationBatchPublicPreview } from '../app/lib/files/workspace-operation-batch-plan';
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
@@ -98,9 +100,57 @@ test('actual unexportable .md native content is ready without Markdown serializa
   const plan = build(observation([original])); assert.equal(plan.readiness, 'ready'); assert.equal(plan.expectedPathState[0].contentHash, null);
   assert.equal(plan.nativeTarget.binaryHash, sha(original.yjsState)); assert.equal(plan.sourceEvidence.stage.coverage.complete, true);
 });
-test('complete native graph with a real incoming link blocks the zero-link-effect runner', () => {
-  assert.throws(() => build(observation([state(), state('tiptap_blocks', '[Target](%20note%20.md)', 'incoming.md')])),
-    error => error instanceof Error && error.message === 'NATIVE_DELETE_PLAN_UNSUPPORTED');
+for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) test(`genuine incoming ${representation} links produce exact original-source unlink recipes and deterministic native graph`, () => {
+  const target = state(), incoming = state(representation,
+    '# [Target](%20note%20.md)\n\n[Keep](keep.md) [External](https://example.test)', 'incoming.md');
+  const observed = observation([target, incoming, state('tiptap_blocks', 'Keep', 'keep.md')]), plan = build(observed);
+  const recipes = getWorkspaceOperationNativeDeleteLinkRecipes(plan);
+  assert.equal(plan.version, 2); assert.equal(plan.readiness, 'ready'); assert.equal(plan.nativeGraphPlan.executionReady, false);
+  assert.equal(recipes.length, 1); assert.equal(plan.nativeGraphPlan.steps[0].linkIntents.length, 1);
+  assert.deepEqual(plan.linkEdits, []); assert.deepEqual(plan.previewContents, []); assert.deepEqual(plan.originalDocuments, []);
+  assert.equal(recipes[0].source.documentId, incoming.documentId); assert.equal(recipes[0].source.path, incoming.path);
+  assert.equal(recipes[0].action, 'unlink'); assert.equal(recipes[0].nextValue, null); assert.equal(recipes[0].cloneSelection, null);
+  assert.equal(recipes[0].sourcePathAfter, incoming.path); assert.equal(recipes[0].destinationWorkspaceId, incoming.workspaceId);
+  assert.equal(recipes[0].sourceVersion.stateProof, observed.nativeBindings[1].expected.stateProof);
+  assert.equal(recipes[0].expectedTargetIdentity, observed.stage.namespace[0].identity);
+  const original = structuredClone(recipes); recipes[0].action = 'rewrite';
+  assert.deepEqual(getWorkspaceOperationNativeDeleteLinkRecipes(plan), original, 'Every call derives fresh recipes from original source evidence.');
+  // Real native preparation on disposable Yjs bytes proves the recipe preserves
+  // the authored label and the unrelated links. This is not a durable write.
+  const prepared = prepareNativeLinkMutations({ state: incoming, recipes: original, operationId: 'native-delete-plan-forward-test' });
+  const doc = new Y.Doc();
+  try {
+    Y.applyUpdate(doc, incoming.yjsState); Y.applyUpdate(doc, prepared.update);
+    const after = { ...incoming, yjsState: Y.encodeStateAsUpdate(doc), stateVector: Y.encodeStateVector(doc) };
+    const links = inspectPersistedNativeCollaborationSnapshot(after, inspectNativeDocumentLinks).links;
+    assert.equal(links.some(link => link.targetPathText === ' note .md'), false);
+    assert.equal(links.some(link => link.targetPathText === 'keep.md'), true);
+    assert.match(JSON.stringify(authoritativeNativeCollaborationSnapshot(after).content), /Target/u);
+    assert.equal(prepared.inverseRecipes.length, 1);
+  } finally { doc.destroy(); }
+  assert.deepEqual(decodeWorkspaceOperationNativeDeleteBatchPlan(JSON.parse(JSON.stringify(plan))), plan);
+  assert.deepEqual(build(observed).nativeGraphPlan, plan.nativeGraphPlan, 'Two genuine compilations expose identical complete public compiler results.');
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observed, captureWorkspaceOperationJobScope(scope.workspace));
+});
+test('several incoming sources/links preserve the compiler intent order and retain all independent graph edges', () => {
+  const observed = observation([state(), state('tiptap_blocks', '[[/ note .md|Alias]] [Target](%20note%20.md)', 'a.md'),
+    state('plain_text', '[Second](%20note%20.md)\n[Keep](keep.md)', 'b.md'), state('tiptap_xml', 'Keep', 'keep.md')]);
+  const plan = build(observed), recipes = getWorkspaceOperationNativeDeleteLinkRecipes(plan);
+  assert.equal(recipes.length, 3); assert.equal(plan.nativeGraphPlan.steps[0].linkIntents.length, 3);
+  assert.equal(plan.nativeGraphPlan.finalEdges.length, 1); assert.equal(plan.nativeGraphPlan.finalEdges[0].targetPathText, 'keep.md');
+  assert.equal(plan.nativeGraphPlan.finalEdges[0].resolution.status, 'resolved');
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observed, captureWorkspaceOperationJobScope(scope.workspace));
+});
+test('links originating inside the deleted target require no surviving-source mutation', () => {
+  const observed = observation([state('tiptap_blocks', '[Self](%20note%20.md) [Keep](keep.md)'), state('tiptap_xml', 'Keep', 'keep.md')]);
+  const plan = build(observed); assert.deepEqual(getWorkspaceOperationNativeDeleteLinkRecipes(plan), []);
+  assert.deepEqual(plan.nativeGraphPlan.steps[0].linkIntents, []); assert.deepEqual(plan.nativeGraphPlan.finalEdges, []);
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observed, captureWorkspaceOperationJobScope(scope.workspace));
+});
+test('unsupported reference-style unlink remains blocked and physical Markdown never becomes a native recipe', () => {
+  assert.throws(() => build(observation([state(), state('plain_text', '[Target][ref]\n\n[ref]: %20note%20.md', 'incoming.md')])));
+  const observed = observation([state()]); observed.stage.sources.push({ kind: 'physical', inventory: {} as never });
+  assert.throws(() => build(observed));
 });
 test('historical decoder independently rejects real incoming links hidden by renewed mixed-graph and plan self-hashes', () => {
   const target = state(), observed = observation([target, state('tiptap_blocks', '[Target](%20note%20.md)', 'incoming.md')]);
@@ -118,6 +168,79 @@ test('historical decoder independently rejects real incoming links hidden by ren
   const forged = { ...body, planId: computeWorkspaceOperationNativeDeleteBatchPlanId(body) };
   assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(forged), error => error instanceof Error
     && error.message === 'NATIVE_DELETE_PLAN_UNSUPPORTED');
+});
+function resignGraphAndPlan(plan: ReturnType<typeof build>, finalGraph = true): ReturnType<typeof build> {
+  if (finalGraph) {
+    plan.nativeGraphPlan.finalGraphProof = nativeLinkJsonProof({ namespace: plan.nativeGraphPlan.finalNamespace, edges: plan.nativeGraphPlan.finalEdges });
+    plan.nativeGraphPlan.steps[0].afterGraphProof = plan.nativeGraphPlan.finalGraphProof;
+  }
+  const { planId: _graphId, ...graphBody } = plan.nativeGraphPlan;
+  plan.nativeGraphPlan.planId = nativeLinkJsonProof(graphBody);
+  plan.planId = computeWorkspaceOperationNativeDeleteBatchPlanId(plan); return plan;
+}
+test('renewed graph and envelope self-hashes cannot fabricate or hide incoming unlink intents, bindings or final edges', () => {
+  const observed = observation([state(), state('tiptap_blocks', '[Target](%20note%20.md) [Keep](keep.md)', 'incoming.md'), state('tiptap_xml', 'Keep', 'keep.md')]);
+  const plan = build(observed);
+  const attacks: Array<(value: ReturnType<typeof build>) => void> = [
+    value => { value.nativeGraphPlan.steps[0].linkIntents = []; },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].originEvidenceLinkId = 'forged-original-link'; },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].expectedValue = 'other.md'; },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].expectedTargetEntityKey = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].entityKey = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].action = 'rewrite'; },
+    value => { value.nativeGraphPlan.steps[0].linkIntents[0].targetEntityKeyAfter = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.steps[0].linkIntents.push(structuredClone(value.nativeGraphPlan.steps[0].linkIntents[0])); },
+    value => { value.nativeGraphPlan.steps[0].namespaceEffects[0].sourceEntityKey = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.steps[0].namespaceEffects[0].destinationWorkspaceId = 'foreign-workspace'; },
+    value => { value.nativeGraphPlan.steps[0].requestIndex = 1; },
+    value => { value.nativeGraphPlan.requests[0].kind = 'copy'; },
+    value => { value.nativeGraphPlan.documentEvidence[0].evidenceKey = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.snapshotProofs[0].proof = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.finalNamespace[0].binding = { kind: 'unbound-copy', sourceEntityKey: 'forged-copy', createdAtRequest: 0 }; },
+    value => { value.nativeGraphPlan.finalNamespace[0].path = 'forged-survivor.md'; },
+    value => { value.nativeGraphPlan.finalNamespace.push(structuredClone(value.nativeGraphPlan.finalNamespace[0])); },
+    value => { value.nativeGraphPlan.finalEdges = []; },
+    value => { value.nativeGraphPlan.finalEdges[0].resolution.targetEntityKey = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.finalEdges[0].originEvidenceLinkId = 'forged-retained-link'; },
+    value => { Reflect.set(value.nativeGraphPlan, 'requiredCoordinatorBindings', []); },
+    value => { Reflect.set(value.nativeGraphPlan, 'arbitraryAuthority', true); },
+  ];
+  for (const attack of attacks) {
+    const forged = structuredClone(plan); attack(forged); resignGraphAndPlan(forged);
+    assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(forged));
+    assert.throws(() => getWorkspaceOperationNativeDeleteLinkRecipes(forged));
+  }
+  const graphProof = structuredClone(plan); graphProof.nativeGraphPlan.finalGraphProof = '0'.repeat(64); resignGraphAndPlan(graphProof, false);
+  assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(graphProof));
+  const afterProof = structuredClone(plan); afterProof.nativeGraphPlan.steps[0].afterGraphProof = '0'.repeat(64); resignGraphAndPlan(afterProof, false);
+  assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(afterProof));
+});
+for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) test(`opaque ${representation} semantic/self-hash forgery is rejected by current actual compiler bytes`, () => {
+  const observed = observation([state(), state(representation, '# [Target](%20note%20.md)', 'incoming.md')]), plan = build(observed);
+  const attacks: Array<(value: ReturnType<typeof build>) => void> = [
+    value => { value.nativeGraphPlan.finalNamespace[0].contentBasisProof = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.steps[0].beforeGraphProof = '0'.repeat(64); },
+    value => { value.nativeGraphPlan.finalNamespace[0].metadata!.headings[0].text = 'Forged heading';
+      value.nativeGraphPlan.finalNamespace[0].metadata!.title = 'Forged heading'; },
+  ];
+  for (const attack of attacks) {
+    const forged = structuredClone(plan); attack(forged); resignGraphAndPlan(forged);
+    // A historical DTO cannot derive the native content hash or heading text
+    // without private states. It still yields only the same genuine recipes.
+    const decoded = decodeWorkspaceOperationNativeDeleteBatchPlan(forged);
+    assert.deepEqual(getWorkspaceOperationNativeDeleteLinkRecipes(decoded), getWorkspaceOperationNativeDeleteLinkRecipes(plan));
+    assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(decoded, observed, captureWorkspaceOperationJobScope(scope.workspace)), error =>
+      error instanceof Error && error.message === 'NATIVE_DELETE_PLAN_CHANGED');
+  }
+});
+test('incoming-link plans remain current across projection replacement but reject the incoming native peer state', () => {
+  const observed = observation([state(), state('tiptap_blocks', '[Target](%20note%20.md)', 'incoming.md')]), plan = build(observed);
+  const current = structuredClone(observed);
+  for (const [index, entry] of current.stage.namespace.entries()) entry.filesystemIdentity = `1:${index+2}:200:300:400`;
+  current.stage.stageProof = workspaceSourceAuthorityStageProof(current.stage);
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, current, captureWorkspaceOperationJobScope(scope.workspace));
+  const peer = observation([observed.privateNativeStates[0], state('tiptap_blocks', 'Peer changed [Target](%20note%20.md)', 'incoming.md')]);
+  assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, peer, captureWorkspaceOperationJobScope(scope.workspace)));
 });
 test('malformed native structure has a stable invalid code while source-import and size diagnostics survive', () => {
   const plan = build(observation([state()]));

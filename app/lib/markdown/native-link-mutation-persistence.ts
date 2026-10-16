@@ -47,6 +47,9 @@ export type NativeLinkMutationPersistenceResult = {
   /** A later observation is separate from the operation's committed sequence. */
   currentObservation: NativeMutationClock;
 };
+export type NativeLinkMutationOnConnectionResult = Omit<NativeLinkMutationPersistenceResult, 'disposition'> & {
+  disposition: 'applied' | 'already-applied';
+};
 
 export class NativeLinkPersistenceError extends Error {
   readonly status = 409;
@@ -191,6 +194,52 @@ async function confirmedRetry(database: SqlConnection, prepared: PreparedNativeL
   return { receipt, currentObservation: observeReceipt(await currentState(database, prepared.source), receipt) };
 }
 
+/** Mechanical write on the caller's actual connection and transaction. The
+ * genuine owner must already hold current rights and the actual admission,
+ * room-idle and path SQL fences. It retains transaction outcome and disposal.
+ * This acquires no lifecycle/path advisory fence, checks out no connection and
+ * grants no authority. An applied result remains provisional until the caller
+ * confirms its own COMMIT. */
+export async function persistPreparedNativeLinkMutationOnConnection(database: SqlConnection, input: {
+  workspace: WorkspaceContext;
+  prepared: PreparedNativeLinkUpdate;
+  binding: NativeLinkMutationBinding;
+  validateAuthority: () => Promise<void>;
+}): Promise<NativeLinkMutationOnConnectionResult> {
+  const { prepared, binding } = capture({ workspace: input.workspace, prepared: input.prepared, binding: input.binding });
+  const { validateAuthority } = input;
+  if (typeof validateAuthority !== 'function') return fail('NATIVE_LINK_INVALID_PREPARED');
+  const prior = await confirmedRetry(database, prepared, binding);
+  if (prior) return { disposition: 'already-applied' as const, ...prior };
+  const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations
+          WHERE document_id=$1 AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [prepared.source.documentId]);
+  if (active) return fail('NATIVE_LINK_MUTATION_BUSY');
+  await database.get('SELECT id FROM collaboration_documents WHERE id=$1 FOR UPDATE', [prepared.source.documentId]);
+  const state = await currentState(database, prepared.source);
+  const candidate = applyPrepared(state, prepared);
+  await validateAuthority();
+  const changed = await database.get(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,
+          document_sequence=document_sequence+1,persisted_at=$3
+          WHERE document_id=$4 AND workspace_id=$5 AND organization_id IS NOT DISTINCT FROM $6 AND path=$7
+            AND representation=$8 AND lifecycle_generation=$9 AND schema_version=$10 AND status='active' AND document_sequence=$11
+          RETURNING document_sequence,persisted_at`, [Buffer.from(candidate.update), Buffer.from(candidate.stateVector), Math.max(Date.now(), state.persistedAt),
+  prepared.source.documentId, prepared.source.workspaceId, prepared.source.organizationId, prepared.source.path,
+  prepared.source.representation, prepared.source.lifecycleGeneration, prepared.source.schemaVersion, prepared.before.documentSequence]) as ReceiptRow | undefined;
+  if (!changed) return fail('NATIVE_LINK_SOURCE_CHANGED');
+  const row = await database.get(`INSERT INTO collaboration_native_link_mutation_receipts(operation_id,document_id,workspace_id,organization_id,path,
+          representation,lifecycle_generation,schema_version,actor_user_id,actor_id,actor_type,actor_session_id,request_id,request_hash,authorized_prepared_proof,
+          before_sequence,before_state_proof,before_state_vector,after_sequence,after_state_proof,after_state_vector,after_state_snapshot,inverse_recipes,persisted_at)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24) RETURNING *`,
+  [prepared.operationId, prepared.source.documentId, prepared.source.workspaceId, prepared.source.organizationId, prepared.source.path,
+    prepared.source.representation, prepared.source.lifecycleGeneration, prepared.source.schemaVersion, binding.actorUserId, binding.actorId, binding.actorType,
+    binding.actorSessionId, binding.requestId, binding.requestHash, binding.authorizedPreparedProof, prepared.before.documentSequence,
+    prepared.before.stateProof, vector(prepared.before.stateVector), changed.document_sequence, prepared.after.stateProof,
+    Buffer.from(candidate.stateVector), Buffer.from(candidate.afterStateSnapshot), JSON.stringify(prepared.inverseRecipes), changed.persisted_at]) as ReceiptRow | undefined;
+  if (!row) return fail('NATIVE_LINK_COMMIT_UNCONFIRMED');
+  const receipt = receiptFrom(row);
+  return { disposition: 'applied' as const, receipt, currentObservation: { ...receipt.after } };
+}
+
 /**
  * Private coordinator seam, not a public edit API. The server must authorize
  * the exact reviewed graph effect and bind its private prepared intent before
@@ -214,35 +263,7 @@ export async function persistPreparedNativeLinkMutation(input: {
       execute: async database => {
         await assertWorkspaceFileLifecycleSqlAvailable(database, workspace.workspaceId, [prepared.source.path]);
         await lockFileCollaborationPaths(database, workspace.workspaceId, [prepared.source.path]);
-        const prior = await confirmedRetry(database, prepared, binding);
-        if (prior) return { disposition: 'already-applied' as const, ...prior };
-        const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations
-          WHERE document_id=$1 AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [prepared.source.documentId]);
-        if (active) return fail('NATIVE_LINK_MUTATION_BUSY');
-        await database.get('SELECT id FROM collaboration_documents WHERE id=$1 FOR UPDATE', [prepared.source.documentId]);
-        const state = await currentState(database, prepared.source);
-        const candidate = applyPrepared(state, prepared);
-        await validateAuthority();
-        const changed = await database.get(`UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2,
-          document_sequence=document_sequence+1,persisted_at=$3
-          WHERE document_id=$4 AND workspace_id=$5 AND organization_id IS NOT DISTINCT FROM $6 AND path=$7
-            AND representation=$8 AND lifecycle_generation=$9 AND schema_version=$10 AND status='active' AND document_sequence=$11
-          RETURNING document_sequence,persisted_at`, [Buffer.from(candidate.update), Buffer.from(candidate.stateVector), Math.max(Date.now(), state.persistedAt),
-        prepared.source.documentId, prepared.source.workspaceId, prepared.source.organizationId, prepared.source.path,
-        prepared.source.representation, prepared.source.lifecycleGeneration, prepared.source.schemaVersion, prepared.before.documentSequence]) as ReceiptRow | undefined;
-        if (!changed) return fail('NATIVE_LINK_SOURCE_CHANGED');
-        const row = await database.get(`INSERT INTO collaboration_native_link_mutation_receipts(operation_id,document_id,workspace_id,organization_id,path,
-          representation,lifecycle_generation,schema_version,actor_user_id,actor_id,actor_type,actor_session_id,request_id,request_hash,authorized_prepared_proof,
-          before_sequence,before_state_proof,before_state_vector,after_sequence,after_state_proof,after_state_vector,after_state_snapshot,inverse_recipes,persisted_at)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24) RETURNING *`,
-        [prepared.operationId, prepared.source.documentId, prepared.source.workspaceId, prepared.source.organizationId, prepared.source.path,
-          prepared.source.representation, prepared.source.lifecycleGeneration, prepared.source.schemaVersion, binding.actorUserId, binding.actorId, binding.actorType,
-          binding.actorSessionId, binding.requestId, binding.requestHash, binding.authorizedPreparedProof, prepared.before.documentSequence,
-          prepared.before.stateProof, vector(prepared.before.stateVector), changed.document_sequence, prepared.after.stateProof,
-          Buffer.from(candidate.stateVector), Buffer.from(candidate.afterStateSnapshot), JSON.stringify(prepared.inverseRecipes), changed.persisted_at]) as ReceiptRow | undefined;
-        if (!row) return fail('NATIVE_LINK_COMMIT_UNCONFIRMED');
-        const receipt = receiptFrom(row);
-        return { disposition: 'applied' as const, receipt, currentObservation: { ...receipt.after } };
+        return persistPreparedNativeLinkMutationOnConnection(database, { workspace, prepared, binding, validateAuthority });
       },
       recoverCommitted: async () => {
         const database = await dependencies.openConnection();

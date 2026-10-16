@@ -4,6 +4,8 @@ import type { WorkspaceOperationBatchMutationEvidence } from './workspace-operat
 import type { WorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-public';
 import type { WorkspaceOperationOriginalDeleteObservation } from './workspace-operation-original-delete-observation';
 import { groupWorkspaceLinkWrites } from '@/app/lib/markdown/workspace-link-write-groups';
+import { workspaceOperationNativeDeleteEffects, workspaceOperationNativeDeleteAppliedEffects,
+  type WorkspaceOperationNativeDeleteEffect } from './workspace-operation-native-delete-effects';
 
 type JournalStep = { key: string; state: 'intent' | 'applied'; receipt: Record<string, unknown> | null };
 export type WorkspaceOperationBatchPublicJournal = {
@@ -108,21 +110,35 @@ export function projectWorkspaceOperationNativeDeleteExecution(
   const mode = input.actionMode;
   const row = { key: 'path:0', phase: 'path' as const, kind: mode === 'undo' ? 'restore' as const : 'delete' as const,
     path: input.plan.nativeTarget.path, reviewId: input.plan.pathSteps[0]?.reviewId, state: 'pending' as const };
+  let effects: readonly WorkspaceOperationNativeDeleteEffect[] = [];
+  const rows = () => [row, ...effects.map((effect, index) => ({ key: `link:${index}`, phase: 'link' as const,
+    kind: 'link_update' as const, path: effect.path, state: 'pending' as const }))];
   const unavailable = (): WorkspaceOperationBatchExecutionPublic => ({ mode, receiptStatus: 'unavailable', finalization: 'pending',
-    steps: [{ ...row, state: 'needs_check' }] });
+    steps: rows().map(step => ({ ...step, state: 'needs_check' })) });
+  try { effects = workspaceOperationNativeDeleteEffects(input.plan); }
+  catch { return unavailable(); }
   if (!observation || input.plan.readiness !== 'ready' || input.plan.pathSteps.length !== 1
     || input.plan.pathSteps[0].kind !== 'delete' || input.plan.pathSteps[0].sourcePath !== row.path
     || input.plan.previewContents.length || input.plan.linkEdits.length || input.plan.pathMappings.length) return unavailable();
+  // File Undo remains disabled. Historical no-link presentations keep their
+  // original contract; no forward unlink receipt proves an inverse link write.
+  if (mode === 'undo' && effects.length) return unavailable();
   const complete = mode === 'undo' ? observation.undo === 'complete' && Boolean(observation.restored)
     : observation.apply === 'complete' && Boolean(observation.deleted);
-  if (complete) return { mode, receiptStatus: 'available', finalization: 'complete', steps: [{ ...row, state: 'applied' }] };
+  if (complete) {
+    if (!observation.deleted) return unavailable();
+    try { workspaceOperationNativeDeleteAppliedEffects(input.plan, observation.deleted); }
+    catch { return unavailable(); }
+    return { mode, receiptStatus: 'available', finalization: 'complete', steps: rows().map(step => ({ ...step, state: 'applied',
+      ...(step.phase === 'link' ? { openPath: step.path } : {}) })) };
+  }
   const claimedComplete = input.completedActions > 0 || input.phase === 'complete'
     || input.status === (mode === 'undo' ? 'undone' : 'applied');
   if (claimedComplete) return unavailable();
   const started = mode === 'undo' ? observation.undo === 'started' : observation.apply === 'started';
-  if (started) return { mode, receiptStatus: 'available', finalization: 'pending', steps: [{ ...row, state: 'needs_check' }] };
+  if (started) return { mode, receiptStatus: 'available', finalization: 'pending', steps: rows().map(step => ({ ...step, state: 'needs_check' })) };
   if (mode === 'undo' ? observation.undo !== 'pristine' : observation.apply !== 'absent') return unavailable();
-  return { mode, receiptStatus: 'not_started', finalization: 'pending', steps: [row] };
+  return { mode, receiptStatus: 'not_started', finalization: 'pending', steps: rows() };
 }
 
 export function workspaceOperationNativeDeleteMutationEvidence(observation: WorkspaceOperationOriginalDeleteObservation,
@@ -137,12 +153,18 @@ export function workspaceOperationNativeDeleteExecutionResult(plan: WorkspaceOpe
   const state = undo ? observation.undo : observation.apply;
   if (state === 'absent' || state === 'pristine') return null;
   if (state === 'unknown') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
+  const effects = workspaceOperationNativeDeleteEffects(plan);
+  if (undo && effects.length) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
   const complete = state === 'complete', receipt = undo ? observation.restored : observation.deleted;
   if (complete && (!receipt || !observation.deleted)) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
-  return { status: complete ? 'applied' : 'needs_recovery', completedActions: complete ? 1 : 0,
-    totalActions: 1, errorCode: complete ? null : 'BATCH_RECOVERY_REQUIRED',
+  const appliedEffects = complete ? workspaceOperationNativeDeleteAppliedEffects(plan, observation.deleted!) : [];
+  const totalActions = 1 + effects.length;
+  return { status: complete ? 'applied' : 'needs_recovery', completedActions: complete ? totalActions : 0,
+    totalActions, errorCode: complete ? null : 'BATCH_RECOVERY_REQUIRED',
     trashEntryIds: observation.deleted ? [observation.deleted.trashEntryId] : [],
     stepResults: [{ key: 'path:0', phase: 'path', state: complete ? 'applied' : 'intent',
       path: plan.nativeTarget.path, reviewId: plan.pathSteps[0].reviewId,
-      ...(observation.deleted ? { trashEntryId: observation.deleted.trashEntryId } : {}) }] };
+      ...(observation.deleted ? { trashEntryId: observation.deleted.trashEntryId } : {}) },
+    ...effects.map((effect, index) => ({ key: `link:${index}`, phase: 'link' as const, state: complete ? 'applied' as const : 'intent' as const,
+      path: effect.path, ...(complete ? { updatedLinks: appliedEffects[index].updatedLinks } : {}) }))] };
 }

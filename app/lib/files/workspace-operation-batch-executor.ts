@@ -38,6 +38,7 @@ import { buildWorkspaceLinkIndexFromDocuments } from '@/app/lib/markdown/workspa
 import { parseWorkspaceMarkdownHref } from '@/app/lib/markdown/workspace-local-link-parser';
 import { assessWorkspaceHtmlLink } from '@/app/lib/markdown/workspace-html-link-assessment';
 import { buildWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
+import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import { workspaceOperationBatchErrorCode, workspaceOperationBatchFailureStatus,
   type WorkspaceOperationBatchMutationEvidence } from './workspace-operation-batch-failure';
 import { projectWorkspaceOperationBatchExecution, projectWorkspaceOperationNativeDeleteExecution,
@@ -471,7 +472,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
       || (input.actorId ?? input.actorUserId) !== (undo ? auth.actorUserId : auth.actorId)
       || (input.actorType ?? 'user') !== (undo ? 'user' : auth.actorType)
       || input.actorSessionId !== (undo ? undefined : auth.actorSessionId)) throw new Error('BATCH_SCOPE_CHANGED');
-    await input.onProgress?.({ completedActions: 0, totalActions: 1, phase: 'preparing' });
+    await input.onProgress?.({ completedActions: 0, totalActions: workspaceOperationBatchTotalActions(original), phase: 'preparing' });
     // The original runner owns the outer lifecycle/kernel and all B phases.
     // In particular, no legacy path guard, manifest or independent Trash writer precedes it.
     if (undo) await undoWorkspaceOperationOriginalDelete(claim);
@@ -480,7 +481,7 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (!status) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
     const outcome = workspaceOperationNativeDeleteExecutionResult(original, status.observation, undo);
     if (!outcome || outcome.status !== 'applied') throw new Error('BATCH_JOURNAL_UNAVAILABLE');
-    await input.onProgress?.({ completedActions: 1, totalActions: 1, phase: 'complete' });
+    await input.onProgress?.({ completedActions: outcome.completedActions, totalActions: outcome.totalActions, phase: 'complete' });
     return outcome;
   };
 

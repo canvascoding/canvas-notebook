@@ -4,6 +4,7 @@ import { listWorkspaceTrashEntries } from '@/app/lib/filesystem/workspace-trash'
 import { getWorkspaceOperationBatchExecution, getWorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-executor';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
+import { workspaceOperationNativeDeleteEffects } from './workspace-operation-native-delete-effects';
 import { workspacePathOperationPublicIssues, type WorkspacePathOperationPublic, type WorkspacePathOperationResponse } from './workspace-path-operation-public';
 
 export function workspacePathOperationMetadata(batch: WorkspaceOperationBatchRecord): WorkspacePathOperationPublic {
@@ -48,14 +49,27 @@ export async function workspacePathOperationResponse(batch: WorkspaceOperationBa
   const steps = execution!.stepResults?.filter((step) => step.phase === 'path' && step.state === 'applied') ?? [];
   const links = execution!.stepResults?.filter((step) => step.phase === 'link' && step.state === 'applied') ?? [];
   const receipts = execution!.stepResults ?? [];
-  if (steps.length !== batch.plan.pathSteps.length || links.length !== batch.plan.previewContents.length
+  let nativeEffects: ReturnType<typeof workspaceOperationNativeDeleteEffects> | undefined;
+  try { if (batch.plan.version === 2) nativeEffects = workspaceOperationNativeDeleteEffects(batch.plan); }
+  catch { return unavailable(); }
+  const linkPaths = nativeEffects ? nativeEffects.map(effect => effect.path) : batch.plan.previewContents.map(document => document.path);
+  if (steps.length !== batch.plan.pathSteps.length || links.length !== linkPaths.length
     || receipts.length !== batch.totalActions || new Set(receipts.map((step) => step.key)).size !== receipts.length
     || batch.plan.pathSteps.some((step, index) => !steps.some((receipt) => receipt.key === `path:${index}`
       && receipt.path === step.sourcePath && receipt.destinationPath === step.destinationPath))
-    || batch.plan.previewContents.some((document) => links.filter((receipt) => receipt.path === document.path).length !== 1)) unavailable();
+    || linkPaths.some(path => links.filter(receipt => receipt.path === path).length !== 1)) unavailable();
+  if (nativeEffects && (batch.totalActions !== batch.plan.pathSteps.length + nativeEffects.length
+    || nativeEffects.some((effect, index) => {
+      const receipt = links.find(step => step.key === `link:${index}`);
+      return !receipt || receipt.path !== effect.path || !Number.isSafeInteger(receipt.updatedLinks)
+        || receipt.updatedLinks !== effect.updatedLinks;
+    }) || new Set(forward!.steps.map(step => step.key)).size !== receipts.length || forward!.steps.some(step => {
+      const receipt = receipts.find(actual => actual.key === step.key);
+      return !receipt || receipt.path !== step.path || receipt.phase !== step.phase;
+    }))) unavailable();
   const result: WorkspacePathOperationResponse = { operation, linkStatus: 'complete',
-    linkUpdates: { updatedFiles: batch.plan.previewContents.map((entry) => entry.path),
-      updatedLinks: batch.plan.linkEdits.length, warnings: [] } };
+    linkUpdates: { updatedFiles: linkPaths,
+      updatedLinks: nativeEffects ? links.reduce((count, receipt) => count + receipt.updatedLinks!, 0) : batch.plan.linkEdits.length, warnings: [] } };
   if (operation.kind !== 'delete') {
     const selection = operation.selections[0];
     const receipt = steps.find((step) => step.path === selection.sourcePath && step.destinationPath === selection.destinationPath);

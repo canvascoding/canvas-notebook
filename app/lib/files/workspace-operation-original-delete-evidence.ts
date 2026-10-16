@@ -8,6 +8,8 @@ import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationJobScope }
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import type { OriginalDeletePublicShare, OriginalDeletePublicShareResult } from './workspace-operation-original-delete-public';
 import type { WorkspaceOperationOriginalDeleteIntent, WorkspaceOperationOriginalDeleteReceipt } from './workspace-operation-original-delete-repository';
+import { decodeOriginalDeleteNativeLinkIntents, assertOriginalDeleteNativeLinkReceipts,
+  type OriginalDeleteNativeLinkIntent, type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 
 /** Factual original journal binding only. This is not a claim, current ACL,
  * owner-B identity, lifecycle lease or permission to perform a mutation. */
@@ -16,16 +18,20 @@ export type WorkspaceOperationOriginalDeleteEvidenceContext = Readonly<{
   authorization: WorkspaceOperationBatchAuthorization; sourcePath: string;
 }>;
 export type OriginalIntent = Readonly<{
-  version: 1; batchId: string; planId: string; requestHash: string;
+  version: 1 | 2; batchId: string; planId: string; requestHash: string;
   actor: Readonly<{ userId: string; actorId: string; actorType: 'user' | 'agent'; actorSessionId: string | null }>;
   jobScope: WorkspaceOperationJobScope;
   physical: PreparedSingleFileTrashOriginalFacts; native: NativeFileArchiveExpected | null;
   publicShare: OriginalDeletePublicShare | null;
+  /** Version 2 only: exact private prepared bytes captured once before physical work. */
+  nativeLinks?: OriginalDeleteNativeLinkIntent[];
 }>;
 export type Completion = Readonly<{
-  version: 1; batchId: string; intentDigest: string; trashEntryId: string;
+  version: 1 | 2; batchId: string; intentDigest: string; trashEntryId: string;
   physical: PreparedSingleFileTrashReceipt; native: NativeFileArchiveTransition | null;
   publicShare: OriginalDeletePublicShareResult; trashReceiptDigest: string;
+  /** Version 2 only: actual SQL receipts committed atomically with this completion. */
+  nativeLinks?: OriginalDeleteNativeLinkReceipt[];
 }>;
 export type WorkspaceOperationOriginalDeleteResult = Readonly<Completion & { receiptDigest: string }>;
 export type RestoreIntent = Readonly<{
@@ -69,8 +75,10 @@ function actor(context: WorkspaceOperationOriginalDeleteEvidenceContext): Origin
 export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context: WorkspaceOperationOriginalDeleteEvidenceContext,
   workspace: WorkspaceContext, dataRoot: string): OriginalIntent {
   const auth = context.authorization; if (auth.mode !== 'direct') fail('ORIGINAL_DELETE_INVALID');
-  const value = object(JSON.parse(row.intentText), ['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare']);
-  if (value.version !== 1 || row.batchId !== context.batchId || value.batchId !== context.batchId
+  const parsed = JSON.parse(row.intentText);
+  const value = object(parsed, ['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare',
+    ...(parsed?.version === 2 ? ['nativeLinks'] : [])]);
+  if (![1, 2].includes(value.version as number) || row.batchId !== context.batchId || value.batchId !== context.batchId
     || row.planId !== context.planId || value.planId !== context.planId || row.workspaceId !== context.workspaceId
     || row.requestHash !== auth.requestHash || value.requestHash !== auth.requestHash || !equal(value.actor, actor(context))
     || !equal(value.jobScope, auth.jobScope) || !workspaceOperationJobScopeMatches(value.jobScope, workspace)) fail('ORIGINAL_DELETE_UNPROVEN');
@@ -82,14 +90,21 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
   if (native !== null && (native.workspaceId !== workspace.workspaceId || native.organizationId !== (workspace.organizationId ?? null)
     || native.path !== physical.canonicalPath)) fail('ORIGINAL_DELETE_UNPROVEN');
   if (physical.source.kind === 'projection_absent' && native === null) fail('ORIGINAL_DELETE_UNPROVEN');
+  if (value.version === 2) {
+    if (!native) fail('ORIGINAL_DELETE_UNPROVEN');
+    const links = decodeOriginalDeleteNativeLinkIntents(value.nativeLinks, { batchId: context.batchId, workspaceId: context.workspaceId,
+      sourcePath: context.sourcePath, requestHash: auth.requestHash, actor: actor(context) });
+    if (links.some(link => link.prepared.source.organizationId !== (workspace.organizationId ?? null))) fail('ORIGINAL_DELETE_UNPROVEN');
+  }
   return freeze(value) as OriginalIntent;
 }
 export function completed(row: WorkspaceOperationOriginalDeleteReceipt, trash: WorkspaceOperationOriginalDeleteReceipt | null,
   durable: WorkspaceOperationOriginalDeleteIntent, intent: OriginalIntent): WorkspaceOperationOriginalDeleteResult {
-  const value = object(JSON.parse(row.receiptText), ['version', 'batchId', 'intentDigest', 'trashEntryId', 'physical', 'native', 'publicShare', 'trashReceiptDigest']);
+  const value = object(JSON.parse(row.receiptText), ['version', 'batchId', 'intentDigest', 'trashEntryId', 'physical', 'native', 'publicShare', 'trashReceiptDigest',
+    ...(intent.version === 2 ? ['nativeLinks'] : [])]);
   const physical = value.physical as PreparedSingleFileTrashReceipt;
   if (!trash || row.batchId !== durable.batchId || trash.batchId !== durable.batchId || row.intentDigest !== durable.intentDigest
-    || trash.intentDigest !== durable.intentDigest || value.version !== 1 || value.batchId !== durable.batchId
+    || trash.intentDigest !== durable.intentDigest || value.version !== intent.version || value.batchId !== durable.batchId
     || value.intentDigest !== durable.intentDigest || value.trashEntryId !== intent.physical.trashEntryId
     || !physical || physical.version !== 1 || !equal(physical.original, intent.physical)
     || trash.receiptText !== json(physical) || value.trashReceiptDigest !== trash.receiptDigest
@@ -97,6 +112,7 @@ export function completed(row: WorkspaceOperationOriginalDeleteReceipt, trash: W
     && (!value.native || (value.native as NativeFileArchiveTransition).before.identity.documentId !== intent.native.documentId
       || (value.native as NativeFileArchiveTransition).before.identity.lineageId !== intent.native.lineageId
       || (value.native as NativeFileArchiveTransition).before.clock.stateProof !== intent.native.stateProof)) fail('ORIGINAL_DELETE_UNPROVEN');
+  if (intent.version === 2) assertOriginalDeleteNativeLinkReceipts(value.nativeLinks, intent.nativeLinks ?? fail('ORIGINAL_DELETE_UNPROVEN'));
   return freeze({ ...value, receiptDigest: row.receiptDigest }) as WorkspaceOperationOriginalDeleteResult;
 }
 export function parseRestoreIntent(row: WorkspaceOperationOriginalDeleteIntent, context: WorkspaceOperationOriginalDeleteEvidenceContext,

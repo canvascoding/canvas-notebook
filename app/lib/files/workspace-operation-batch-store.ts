@@ -8,6 +8,7 @@ import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-t
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
+import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 
@@ -341,7 +342,7 @@ export class WorkspaceOperationBatchStore {
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING *`,
     [input.batchId, input.plan.planId, input.plan.workspaceId, JSON.stringify(input.reviewRefs.map((ref) => ref.reviewId)),
       JSON.stringify(input.reviewRefs), JSON.stringify(input.plan), input.plan.readiness === 'ready' ? 'preview' : 'blocked',
-      input.plan.pathSteps.length + input.plan.previewContents.length, this.now()]);
+      workspaceOperationBatchTotalActions(input.plan), this.now()]);
     return result!;
   }
 
@@ -362,7 +363,7 @@ export class WorkspaceOperationBatchStore {
     }
     const planId = plan.planId, planText = JSON.stringify(plan), authorizationText = JSON.stringify(selected);
     const status = plan.readiness === 'ready' ? 'queued' : 'blocked';
-    const totalActions = plan.pathSteps.length + plan.previewContents.length;
+    const totalActions = workspaceOperationBatchTotalActions(plan);
     const matchingExisting = (existing: WorkspaceOperationBatchRecord | null): WorkspaceOperationBatchRecord => {
       if (!existing || existing.workspaceId !== workspaceId || existing.authorization.mode !== 'direct'
         || existing.authorization.actorUserId !== selected.actorUserId

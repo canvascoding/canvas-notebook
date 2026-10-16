@@ -18,10 +18,23 @@ import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guar
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
+import { lockFileCollaborationPaths } from './collaboration-repository';
+import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
+import { readWorkspaceOperationOriginalDeleteIntentOnConnection } from './workspace-operation-original-delete-repository';
+import { parseIntent } from './workspace-operation-original-delete-evidence';
+import { applyOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
+  type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
+import { readWorkspaceLinkSourceAuthorityOnConnection,
+  type WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 
 declare const ownerBrand: unique symbol;
 export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true }>;
-export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJobPolicyAccess & { database: SqlConnection }>;
+export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJobPolicyAccess & {
+  database: SqlConnection;
+  /** Fixed claimed journal operation; never accepts SQL, prepared bytes or callbacks. */
+  applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => Promise<OriginalDeleteNativeLinkReceipt[]>;
+  readOriginalNativeDeleteSources: () => Promise<WorkspaceLinkSourceAuthorityObservation>;
+}>;
 type Identity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
 type Directory = { named: string; real: string; handle: FileHandle; stat: Stats };
 type Phase = { active: boolean; accepting: boolean; transaction: string; pending: Set<Promise<unknown>> };
@@ -243,6 +256,12 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
         // the actual B before exposing the deliberately restricted SQL facade.
         const { schemaName, schemaOid, databaseOid } = captured.binding.source;
         const storage = await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database, { schemaName, schemaOid, databaseOid });
+        // A fixed internal path set from the genuinely claimed native plan. Keep
+        // advisory SQL on the actual owner B, outside the restricted facade.
+        if (captured.binding.plan.version === 2) {
+          const sources = getWorkspaceOperationNativeDeleteLinkRecipes(captured.binding.plan).map(recipe => recipe.source.path);
+          if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
+        }
         const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
           await access.assertCurrent(); await storage.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
         const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>): Promise<R> => {
@@ -265,6 +284,32 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
           await check();
           let result: T | undefined;
           try { result = await operation(Object.freeze({ ...access, database: facade,
+            readOriginalNativeDeleteSources: () => dispatch(undefined, async () => {
+              if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
+              // Fixed read of this claimed workspace only. The ordinary SQL
+              // facade remains restricted and every method boundary is checked.
+              return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+            }),
+            applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => dispatch(undefined, async () => {
+              const { binding } = captured;
+              if (binding.actionMode !== 'apply' || binding.plan.version !== 2
+                || typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
+              // Read the actual immutable journal on this owner B. The caller's
+              // digest selects no actor, workspace, source, recipe or Yjs bytes.
+              const row = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
+                { schema: schemaName, batchId: binding.batchId, forShare: true });
+              if (!row || row.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
+              const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
+                workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
+              access.workspace, resolveWorkspaceDataRoot());
+              if (intent.version !== 2 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
+              // Keep current authority before every source (including receipt
+              // retries) and immediately before each CAS. This private check
+              // does not recursively enter the public dispatch queue.
+              const validate = async () => { checkPhase(captured, phase); await check(); checkPhase(captured, phase); };
+              return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate);
+            }),
             assertCurrent: () => dispatch(undefined, async () => undefined) })); }
           catch (error) { captured.failure ??= asError(error); }
           phase.accepting = false;
