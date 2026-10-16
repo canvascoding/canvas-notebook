@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
+import Module from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -7,7 +8,18 @@ import { runWithAgentExecutionContext } from '../app/lib/pi/agent-execution-cont
 
 test('the real native ls tool exposes the same bounded tree and continuation contract', async () => {
   const rootPath = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-tree-native-'));
+  const loader = Module as typeof Module & {
+    _load: (name: string, parent: NodeModule | null, main: boolean) => unknown;
+  };
+  const originalLoad = loader._load;
+  const actualEsm = new Map<string, unknown>();
   try {
+    // The SDK exposes ESM-only entry points; tsx loads application .ts files as CJS.
+    // Bridge the actual namespaces without mocking the native tool or its dependencies.
+    for (const name of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-ai/compat', '@earendil-works/pi-ai/oauth']) {
+      actualEsm.set(name, await import(name));
+    }
+    loader._load = (name, parent, isMain) => actualEsm.has(name) ? actualEsm.get(name) : originalLoad(name, parent, isMain);
     const { piTools } = await import('../app/lib/pi/core-tools');
     await fs.writeFile(path.join(rootPath, 'a.md'), '# A');
     await fs.writeFile(path.join(rootPath, 'b.md'), '# B');
@@ -28,5 +40,8 @@ test('the real native ls tool exposes the same bounded tree and continuation con
     assert.ok(second.content.some(part => part.type === 'text' && part.text.includes('b.md')));
     const outside = await run({ path: '..', max_depth: 0 });
     assert.ok((outside.details as { error?: string }).error);
-  } finally { await fs.rm(rootPath, { recursive: true, force: true }); }
+  } finally {
+    loader._load = originalLoad;
+    await fs.rm(rootPath, { recursive: true, force: true });
+  }
 });

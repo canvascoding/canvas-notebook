@@ -132,7 +132,11 @@ async function main() {
     assert.throws(() => attachAgentWorkflowRuntimeProjection({ actorUserId: alice.userId, organizationId, workspaceId: alice.workspaceId,
       agentId, sessionId: null, policyRevision: 'metadata-cannot-execute' }, result.projection));
     const json = JSON.stringify(result);
-    assert(!json.includes('https://provider-metadata.example.test')); assert(!json.includes('connectionId')); assert(!json.includes('backend'));
+    const privateProviderOrigin = new URL('https://provider-metadata.example.test/mcp').origin;
+    for (const [url] of json.matchAll(/https?:\/\/[^"\\\s]+/gu)) {
+      assert.notEqual(new URL(url).origin, privateProviderOrigin, 'Public metadata must not contain a private provider URL.');
+    }
+    assert(!json.includes('connectionId')); assert(!json.includes('backend'));
 
     stage = 'actual missing required package skips selected standalone metadata exactly like runtime';
     const plugins = await import('../app/lib/plugins/canvas-plugin-registry');

@@ -98,9 +98,9 @@ async function main() {
     const browserInputs = Object.keys(browserBundle.metafile!.inputs);
     assert(browserInputs.some(input => input.endsWith('app/lib/chat/chat-body-contracts.ts')));
     assert(!browserInputs.some(input => /(?:server-only|accepted-turn-selection|durable-message-contracts|app\/lib\/db\/)/u.test(input)));
-    const browserWorld = vm.createContext({ TextEncoder });
+    const browserWorld = vm.createContext({ TextEncoder, inputJson: JSON.stringify(body()) });
     vm.runInContext(browserBundle.outputFiles[0].text, browserWorld);
-    const browserResult = vm.runInContext(`(() => { const b=InlineBody.parseChatBody(JSON.parse(${JSON.stringify(JSON.stringify(body()))}));
+    const browserResult = vm.runInContext(`(() => { const b=InlineBody.parseChatBody(JSON.parse(inputJson));
       return JSON.stringify({text:InlineBody.projectChatBodyText(b),selection:InlineBody.deriveChatBodySelection(b),nodeGlobals:[typeof process,typeof require,typeof Buffer]}); })()`, browserWorld);
     check('browser bundle imports real schema and runs with no Node globals', () => {
       assert.deepEqual(JSON.parse(browserResult), { text: projectChatBodyText(body()), selection: deriveChatBodySelection(body()), nodeGlobals: ['undefined', 'undefined', 'undefined'] });

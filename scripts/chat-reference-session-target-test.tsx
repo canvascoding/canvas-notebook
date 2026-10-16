@@ -33,7 +33,7 @@ loader._load = (name, parent, isMain) => name.endsWith('/auth-client')
 const selection = { kind: 'mcp' as const, source: 'mcp' as const, target: { kind: 'personal' as const,
   connectionRef: 'mcp-personal:10000000-0000-4000-8000-000000000001' } };
 const initialBody: ChatBodyV1 = { version: 1, parts: [{ type: 'extension_reference', occurrenceId: 'saved-occurrence', bundleId: 'saved-bundle' },
-  { type: 'text', text: ' /' }], bundles: [{ id: 'saved-bundle', caption: 'Saved exact MCP',
+  { type: 'text', text: ' @' }], bundles: [{ id: 'saved-bundle', caption: 'Saved exact MCP',
   primary: { selection, requirement: 'optional', toolCap: null }, supporting: [], packageConnections: [] }] };
 const actualSession = { sessionId: 'stored-specialist-session', agentId: 'stored-specialist' };
 const exactTarget = { kind: 'turn', sessionId: actualSession.sessionId, expectedAgentId: actualSession.agentId, expectedWorkspaceId: 'workspace-a' };
@@ -50,7 +50,7 @@ async function main() {
   const { ChatExtensionReferenceDialog } = await import('../app/components/canvas-agent-chat/ChatExtensionReferenceDialog');
   loader._load = originalLoad;
   const originalFetch = globalThis.fetch;
-  let resolveAgentList!: (response: Response) => void, listReads = 0, holdDefaultMetadata = false, cases = 0;
+  let resolveAgentList!: (response: Response) => void, listReads = 0, fileReads = 0, holdDefaultMetadata = false, cases = 0;
   const agentList = new Promise<Response>(resolve => { resolveAgentList = resolve; });
   const requests: ChatExtensionOptionsRequest[] = [], held: Held[] = [];
   const runtimeRequests: Array<{ workspaceId: string | null; agentId: string | null; sessionId: string | null }> = [];
@@ -81,6 +81,13 @@ async function main() {
     const url = new URL(String(input), dom.window.location.href);
     if (url.pathname === '/api/agents') { listReads++; return agentList; }
     if (url.pathname === '/api/user-preferences') return Response.json({ success: true, data: { lastActiveAgentId: 'bradley' } });
+    if (url.pathname === '/api/files/list') {
+      fileReads++;
+      assert.equal(init?.method ?? 'GET', 'GET');
+      assert.equal(url.searchParams.get('workspaceId'), 'workspace-a');
+      assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), 'workspace-a');
+      return Response.json({ success: true, files: [], total: 0, nextCursor: null });
+    }
     if (url.pathname === '/api/agent-runtime/effective') {
       runtimeRequests.push({ workspaceId: url.searchParams.get('workspaceId'), agentId: url.searchParams.get('agentId'), sessionId: url.searchParams.get('sessionId') });
       return Response.json({ success: true, resolution: { catalogRevision: 1, policyRevision: 1, providers: [], issues: [],
@@ -119,11 +126,12 @@ async function main() {
     await waitFor(() => assert.equal(listReads, 1)); await search();
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
     assert.equal(current.selectedAgentId, 'bradley', 'The genuine pending agent list still projects the default list selection.');
-    assert.equal(current.controller.target, null); assert.equal(requests.length, 0); assert.equal(runtimeRequests.length, 0);
+    assert.equal(current.controller.target, null); assert.equal(requests.length, 0); assert.equal(runtimeRequests.length, 0); assert.equal(fileReads, 0);
     cases++; console.log('PASS unresolved stored session never substitutes the default agent or starts search/presentation/runtime reads');
 
     view.rerender(wrap(actualSession.sessionId, actualSession)); await search();
     await waitFor(() => assert(current.controller.referencePickerItems.some(item => item.id === 'exact-mcp-row')));
+    assert(fileReads > 0, 'The unified @ search includes files only after the stored session target is resolved.');
     await waitFor(() => assert.deepEqual(current.icons[chatInlineReferenceIconKey(selection)], publicIcon));
     await waitFor(() => assert.deepEqual(current.runtime.selection, runtimeSelection));
     assert.deepEqual(runtimeRequests, [{ workspaceId: 'workspace-a', agentId: actualSession.agentId, sessionId: actualSession.sessionId }]);
@@ -142,7 +150,7 @@ async function main() {
     cases++; console.log('PASS existing session uses its stored specialist for search, icons, chooser, preview and approved runtime while the actual agent list is pending');
 
     holdDefaultMetadata = true;
-    view.rerender(wrap(null, null)); await act(async () => { current.editor.current!.replaceText(' /'); }); await search();
+    view.rerender(wrap(null, null)); await act(async () => { current.editor.current!.replaceText(' @'); }); await search();
     await waitFor(() => assert(held.some(value => value.request.operation === 'search') && held.some(value => value.request.operation === 'presentation')));
     const oldController = current.controller;
     view.rerender(wrap(actualSession.sessionId, actualSession)); await search();
