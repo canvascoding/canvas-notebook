@@ -115,6 +115,7 @@ export function PromptHero({ onModeChange, compact = false, plainTextRequest }: 
     handleSelectionChange, handleReferenceSelect, referencePickerItems, selectedReferenceIndex,
     selectNextReference, selectPreviousReference, isLoadingReferenceItems, referencePickerError,
     openReferencePicker, referenceTypeFilter, setReferenceTypeFilter, pendingReference,
+    referenceSourceStatuses, retryReferenceSource, configureReference,
     closeReferenceDialog, acceptReference, prepareIntakeSelection } = useComposerReferences({
     agentId: effectiveSelectedAgentId, sessionId: null, inputBody: promptBody, workspaceId: activeWorkspaceId,
     resetInputHistoryNavigation, setInputBody: setPromptBody, editorRef,
@@ -361,10 +362,12 @@ export function PromptHero({ onModeChange, compact = false, plainTextRequest }: 
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    if (pendingReference && event.key === 'Escape') { event.preventDefault(); closeReferenceDialog(); return; }
+    if (pendingReference && (event.key === 'Enter' && !event.shiftKey || event.key === 'Tab')) { event.preventDefault(); return; }
     if (activeReferenceMatch && event.key === 'Escape') {
       event.preventDefault(); closeReferencePicker(); return;
     }
-    if (activeReferenceMatch && referencePickerItems.length) {
+    if (activeReferenceMatch) {
       if (event.key === 'ArrowDown') { event.preventDefault(); selectNextReference(); return; }
       if (event.key === 'ArrowUp') { event.preventDefault(); selectPreviousReference(); return; }
       if (event.key === 'Enter' || event.key === 'Tab') {
@@ -555,12 +558,18 @@ export function PromptHero({ onModeChange, compact = false, plainTextRequest }: 
           ) : null}
 
           {activeReferenceMatch ? <ComposerReferencePicker
+            locale={locale}
             header={isLoadingReferenceItems ? tChat('loadingReferences') : tChat('referencesFound', { count: referencePickerItems.length })}
             emptyState={referencePickerError ? tChat('referenceSearchFailed', { message: referencePickerError }) : tChat('noReferencesAvailable')}
             isLoading={isLoadingReferenceItems}
             items={referencePickerItems}
             selectedIndex={selectedReferenceIndex}
             onSelect={handleReferenceSelect}
+            onConfigure={configureReference}
+            canConfigure={item => { const payload = item.payload; const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+              return selection?.kind === 'plugin' || selection?.kind === 'skill'; }}
+            sourceStatuses={referenceSourceStatuses}
+            onRetrySource={retryReferenceSource}
             notice={referencePickerError}
             headerActions={<div className="mt-2 flex flex-wrap gap-1" aria-label={tChat('referenceTypeFilter')}>
               {(['all', 'plugin', 'skill', 'integration', 'mcp'] as const).map(type => <button key={type} type="button"
@@ -617,7 +626,7 @@ export function PromptHero({ onModeChange, compact = false, plainTextRequest }: 
           <button
             type="submit"
             className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
-            disabled={isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
+            disabled={Boolean(pendingReference) || isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
           >
             {isStudioMode ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}
             <span className="sr-only sm:not-sr-only">{isStudioMode ? tHome('focus.composer.studioSubmit') : tHome('hero.submit')}</span>

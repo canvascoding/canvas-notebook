@@ -26,12 +26,16 @@ async function main() {
     assert.equal(firstImage.getAttribute('alt'), '');
     assert.equal(firstImage.getAttribute('referrerpolicy'), 'no-referrer');
     assert.equal(screen.getByTestId('plugin-extension-avatar').getAttribute('aria-hidden'), 'true');
+    assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'CW', 'Slow images must show initials immediately.');
+    fireEvent.load(firstImage);
+    assert.equal(screen.queryByTestId('plugin-extension-avatar-initials'), null, 'A successfully loaded image replaces the initial fallback.');
     fireEvent.error(firstImage);
     assert.equal(screen.queryByTestId('plugin-extension-avatar-image'), null);
     assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'CW');
 
     rendered.rerender(<PluginExtensionAvatar name="Canva Workflow" identity="two:second" icon={firstIcon} />);
     const secondImage = screen.getByTestId('plugin-extension-avatar-image');
+    assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'CW', 'Another source displays initials while its image is pending.');
     assert.notEqual(secondImage, firstImage, 'Another exact resource/workspace gets independent image state even when the URL and name match.');
     fireEvent.error(firstImage);
     assert.equal(screen.getByTestId('plugin-extension-avatar-image'), secondImage, 'A detached old image cannot fail the current resource.');

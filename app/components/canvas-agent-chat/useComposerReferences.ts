@@ -25,6 +25,7 @@ type Params = { agentId: string | null; sessionId: string | null; inputBody: Cha
   resetInputHistoryNavigation: () => void; setInputBody: Dispatch<SetStateAction<ChatBodyV1>>;
   editorRef: RefObject<ChatInlineEditorHandle | null> };
 export type ChatReferenceTypeFilter = 'all' | PluginExtensionKind;
+export type ChatReferenceSourceStatus = { source: 'local' | 'remote' | 'files'; status: 'loading' | 'complete' | 'unavailable'; message?: string };
 
 export function useComposerReferences({ agentId, sessionId, inputBody, workspaceId, resetInputHistoryNavigation,
   setInputBody, editorRef }: Params) {
@@ -39,21 +40,26 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
   const receipts = useMemo(() => getTransientChatAccountSelections(receiptScope), [receiptScope]);
   const [matchState, setMatch] = useState<{ scope: string; value: ComposerReferenceMatch } | null>(null);
   const activeReferenceMatch = matchState?.scope === scope ? matchState.value : null;
-  const [itemsState, setItems] = useState<{ scope: string; items: ComposerReferencePickerItem<ChatReferencePickerValue>[] } | null>(null);
-  const referencePickerItems = useMemo(() => itemsState?.scope === scope ? itemsState.items : [], [itemsState, scope]);
-  const [selectedReferenceIndex, setSelectedIndex] = useState(0);
   const [referenceTypeFilter, setReferenceTypeFilter] = useState<ChatReferenceTypeFilter>('all');
-  const [isLoadingReferenceItems, setLoading] = useState(false), [referencePickerError, setError] = useState<string | null>(null);
+  const queryKey = JSON.stringify([scope, activeReferenceMatch?.kind, activeReferenceMatch?.query, referenceTypeFilter]);
+  const [itemsState, setItems] = useState<{ key: string; items: ComposerReferencePickerItem<ChatReferencePickerValue>[] } | null>(null);
+  const referencePickerItems = useMemo(() => itemsState?.key === queryKey ? itemsState.items : [], [itemsState, queryKey]);
+  const [focus, setFocus] = useState<{ key: string; id: string } | null>(null);
+  const selectedReferenceIndex = Math.max(0, focus?.key === queryKey ? referencePickerItems.findIndex(item => item.id === focus.id) : 0);
+  const [sourceState, setSources] = useState<{ key: string; statuses: ChatReferenceSourceStatus[] } | null>(null);
+  const referenceSourceStatuses = sourceState?.key === queryKey ? sourceState.statuses : [];
+  const sourceRetries = useRef(new Map<ChatReferenceSourceStatus['source'], () => void>());
+  const [loadingState, setLoading] = useState(false), [referencePickerError, setError] = useState<string | null>(null);
+  const isLoadingReferenceItems = Boolean(activeReferenceMatch && (sourceState?.key !== queryKey || loadingState));
   const [pendingState, setPendingReference] = useState<ChatReferenceDialogRequest | null>(null);
   const pendingReference = pendingState?.issuedScope === scope ? pendingState : null;
   const latest = useRef({ scope, target, pendingReference });
   useLayoutEffect(() => { latest.current = { scope, target, pendingReference }; epoch.current++; }, [scope, target, pendingReference]);
   useLayoutEffect(() => { bodyRef.current = inputBody; }, [inputBody]);
-  const closeReferencePicker = useCallback(() => { epoch.current++; setMatch(null); setItems(null); setSelectedIndex(0); setLoading(false); setError(null); }, []);
+  const closeReferencePicker = useCallback(() => { epoch.current++; setMatch(null); setItems(null); setFocus(null); setLoading(false); setError(null); }, [setMatch, setItems, setFocus, setLoading, setError]);
   useEffect(() => {
     const timer = setTimeout(() => {
       setMatch(current => current?.scope !== scope ? null : current);
-      setItems(current => current?.scope !== scope ? null : current);
       setPendingReference(current => current?.issuedScope !== scope ? null : current);
     }, 0);
     return () => clearTimeout(timer);
@@ -63,11 +69,14 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
     const match = findInlineComposerReference(bodyRef.current, range);
     setMatch(previous => JSON.stringify(previous) === JSON.stringify(match ? { scope, value: match } : null) ? previous : match ? { scope, value: match } : null);
     if (!match) closeReferencePicker();
-  }, [closeReferencePicker, scope]);
+  }, [closeReferencePicker, scope, setMatch]);
   const handleInputChange = useCallback((body: ChatBodyV1) => {
+    if (latest.current.pendingReference && JSON.stringify(body) !== JSON.stringify(latest.current.pendingReference.originalBody)) {
+      latest.current.pendingReference = null; setPendingReference(null);
+    }
     bodyRef.current = body; resetInputHistoryNavigation(); setInputBody(body);
     handleSelectionChange(editorRef.current?.getSelection() ?? { from: 0, to: 0 });
-  }, [editorRef, handleSelectionChange, resetInputHistoryNavigation, setInputBody]);
+  }, [editorRef, handleSelectionChange, resetInputHistoryNavigation, setInputBody, setPendingReference]);
   const openReferencePicker = useCallback(() => {
     const end = editorRef.current?.getSelection().to ?? 0;
     editorRef.current?.setSelection(end);
@@ -76,25 +85,44 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
     const trigger = preceding && !/\s|[([{"'`,;]/u.test(preceding) ? ' /' : '/';
     editorRef.current?.replaceText(trigger, { from: end, to: end });
     editorRef.current?.focus();
-  }, [editorRef]);
+  }, [editorRef, setReferenceTypeFilter]);
 
   useEffect(() => {
     if (!activeReferenceMatch || !target || !workspaceId) return;
     const controller = new AbortController(), version = ++epoch.current, match = activeReferenceMatch;
+    const current = () => !controller.signal.aborted && epoch.current === version && latest.current.scope === scope && isOpenedDocumentAuthCurrent(auth);
+    const results = new Map<ChatReferenceSourceStatus['source'], ComposerReferencePickerItem<ChatReferencePickerValue>[]>();
+    const statuses = new Map<ChatReferenceSourceStatus['source'], ChatReferenceSourceStatus>();
+    const publish = () => {
+      if (!current()) return;
+      const merged = new Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>(), exact = new Set<string>();
+      for (const source of ['local', 'remote', 'files'] as const) for (const item of results.get(source) ?? []) {
+        const payload = item.payload;
+        const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+        const identity = selection ? chatInlineReferenceIconKey(selection) : item.id;
+        if (exact.has(identity) && !merged.has(item.id)) continue;
+        exact.add(identity); merged.set(item.id, item);
+      }
+      setItems({ key: queryKey, items: [...merged.values()] });
+      const states = [...statuses.values()];
+      setSources({ key: queryKey, statuses: states }); setLoading(states.some(row => row.status === 'loading'));
+      setError(states.filter(row => row.status === 'unavailable').map(row => row.message ?? row.source).join(' · ') || null);
+    };
     const timer = setTimeout(() => {
-      setLoading(true); setError(null);
-      void (async () => {
-        const items: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [], errors: string[] = [];
-        const tasks = await Promise.allSettled([
-          match.kind === 'file' ? Promise.resolve(null) : requestChatExtensionOptions({ operation: 'search', target,
-            q: match.query, types: referenceTypeFilter === 'all' ? ['plugin', 'skill', 'integration', 'mcp'] : [referenceTypeFilter],
-            stock: 'all', source: 'all', scope: 'all', audience: null, teamId: null, cursor: null, selected: null, limit: 30 }, controller.signal),
-          match.kind === 'capability' || referenceTypeFilter !== 'all' ? Promise.resolve([]) : listWorkspaceFileReferences({
-            query: match.query, limit: 30, workspaceId, signal: controller.signal }),
-        ]);
-        const extensions = tasks[0];
-        if (extensions.status === 'fulfilled' && extensions.value) {
-          const result = extensions.value, recentKeys = new Set<string>();
+      const load = (source: ChatReferenceSourceStatus['source']) => {
+        if (!current()) return;
+        statuses.set(source, { source, status: 'loading' }); publish();
+        void (async () => {
+          const items: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [];
+          if (source === 'files') {
+            const files = await listWorkspaceFileReferences({ query: match.query, limit: 30, workspaceId, signal: controller.signal });
+            items.push(...files.map(file => ({ id: `file:${file.path}`, kind: 'file' as const, label: getFileDisplayPath(file.path),
+              secondaryLabel: 'File', payload: file, icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }) })));
+          } else {
+            const result = await requestChatExtensionOptions({ operation: 'search', target, phase: source,
+              q: match.query, types: referenceTypeFilter === 'all' ? ['plugin', 'skill', 'integration', 'mcp'] : [referenceTypeFilter],
+              stock: 'all', source: 'all', scope: 'all', audience: null, teamId: null, cursor: null, selected: null, limit: 30 }, controller.signal);
+            const recentKeys = new Set<string>();
           for (const recent of result.recents) {
             const selection = recent.bodyBundle.primary.selection, key = chatInlineReferenceIconKey(selection);
             recentKeys.add(key);
@@ -110,30 +138,35 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
               icon: createElement(PluginExtensionAvatar, { name: item.displayName, identity: `${scope}:${item.id}`, icon: item.icon, size: 'sm' }),
               payload: { type: 'extension', option } });
           }
-          errors.push(...result.coverage.filter(row => row.status === 'unavailable').map(row => row.error?.message ?? row.source));
-        } else if (extensions.status === 'rejected') errors.push(String(extensions.reason?.message ?? extensions.reason));
-        const files = tasks[1];
-        if (files.status === 'fulfilled') items.push(...files.value.map(file => ({ id: `file:${file.path}`, kind: 'file' as const,
-          label: getFileDisplayPath(file.path), secondaryLabel: 'File', payload: file,
-          icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }) })));
-        else errors.push(String(files.reason?.message ?? files.reason));
-        if (controller.signal.aborted || epoch.current !== version || latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth)) return;
-        setItems({ scope, items }); setSelectedIndex(0); setError(errors.join(' · ') || null); setLoading(false);
-      })().catch(error => { if (!controller.signal.aborted && epoch.current === version && latest.current.scope === scope) { setError(String(error.message ?? error)); setItems(null); setLoading(false); } });
+            const errors = result.coverage.filter(row => row.status === 'unavailable').map(row => row.error?.message ?? row.source);
+            statuses.set(source, errors.length ? { source, status: 'unavailable', message: errors.join(' · ') } : { source, status: 'complete' });
+          }
+          if (source === 'files') statuses.set(source, { source, status: 'complete' });
+          results.set(source, items); publish();
+        })().catch(reason => { if (current()) { statuses.set(source, { source, status: 'unavailable', message: String(reason.message ?? reason) }); publish(); } });
+      };
+      sourceRetries.current = new Map();
+      const sources: ChatReferenceSourceStatus['source'][] = match.kind === 'file' ? [] : ['local', 'remote'];
+      if (match.kind !== 'capability' && referenceTypeFilter === 'all') sources.push('files');
+      for (const source of sources) statuses.set(source, { source, status: 'loading' });
+      publish();
+      for (const source of sources) { sourceRetries.current.set(source, () => load(source)); load(source); }
     }, activeReferenceMatch.query ? 120 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [activeReferenceMatch, target, scope, workspaceId, referenceTypeFilter, t, auth]);
+  }, [activeReferenceMatch, target, scope, workspaceId, referenceTypeFilter, t, auth, queryKey]);
 
-  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ChatReferencePickerValue>) => {
+  const handleReferenceSelect = useCallback((item: ComposerReferencePickerItem<ChatReferencePickerValue>, configure = false) => {
     if (!activeReferenceMatch || !target || latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth) || !referencePickerItems.includes(item)) return;
     const range = { from: activeReferenceMatch.startIndex, to: activeReferenceMatch.endIndex }, payload = item.payload;
     closeReferencePicker();
     if (payload.type === 'file' || payload.type === 'directory') {
       editorRef.current?.replaceText(`@"${payload.path}" `, range); editorRef.current?.focus(); return;
     }
-    if (payload.type === 'extension') setPendingReference({ issuedScope: scope, target, originalBody: bodyRef.current, range, option: payload.option });
-    else if (payload.type === 'recent') setPendingReference({ issuedScope: scope, target, originalBody: bodyRef.current, range, recent: payload.recent });
-  }, [activeReferenceMatch, closeReferencePicker, editorRef, target, scope, auth, referencePickerItems]);
+    latest.current.pendingReference = null;
+    const accountSelections = Object.fromEntries([...receipts].filter(([, entry]) => entry.expiresAt > Date.now()));
+    if (payload.type === 'extension') setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target, originalBody: bodyRef.current, range, option: payload.option, configure, accountSelections });
+    else if (payload.type === 'recent') setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target, originalBody: bodyRef.current, range, recent: payload.recent, configure, accountSelections });
+  }, [activeReferenceMatch, closeReferencePicker, editorRef, target, scope, auth, referencePickerItems, receipts, setPendingReference]);
 
   const acceptReference = useCallback((bundle: ChatReferenceBundleV1, intake: ChatExtensionSelectionInput | null,
     receiptExpiries: Readonly<Record<string, number>> = {}) => {
@@ -155,25 +188,28 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
         { receipt: entry.accountSelectionRef, expiresAt: Math.min(expiresAt, Date.now() + 4 * 60_000) });
     }
     setPendingReference(null); editorRef.current?.focus();
-  }, [editorRef, pendingReference, receipts, scope, t, auth]);
+  }, [editorRef, pendingReference, receipts, scope, t, auth, setPendingReference]);
   const prepareIntakeSelection = useCallback(async (body: ChatBodyV1): Promise<ChatExtensionSelectionInput | null> => {
     if (latest.current.scope !== scope || !isOpenedDocumentAuthCurrent(auth)) throw new Error(t('referenceChatChanged'));
+    if (latest.current.pendingReference) throw new Error(t('loadingReferences'));
     const selection = deriveChatBodySelection(body);
     if (!selection) return null;
     return { ...selection, selections: selection.selections.map(entry => {
       if (entry.selection.kind !== 'composio' || entry.selection.target.kind !== 'personal' || entry.selection.target.accountBinding !== 'account') return entry;
       const current = receipts.get(chatInlineReferenceIconKey(entry.selection));
       if (!current || current.expiresAt <= Date.now()) {
-        if (latest.current.target) setPendingReference({ issuedScope: scope, target: latest.current.target, originalBody: bodyRef.current, range: null, confirmSelection: entry.selection });
+        if (latest.current.target) setPendingReference({ requestId: crypto.randomUUID(), issuedScope: scope, target: latest.current.target, originalBody: bodyRef.current, range: null, confirmSelection: entry.selection });
         throw new Error(t('referenceAccountConfirmationRequired'));
       }
       return { ...entry, accountSelectionRef: current.receipt };
     }) };
-  }, [receipts, t, scope, auth]);
+  }, [receipts, t, scope, auth, setPendingReference]);
   return { target, activeReferenceMatch, closeReferencePicker, handleInputChange, handleSelectionChange, handleReferenceSelect,
     isLoadingReferenceItems, referencePickerError, referencePickerItems, selectedReferenceIndex,
-    selectNextReference: () => setSelectedIndex(value => Math.min(referencePickerItems.length - 1, value + 1)),
-    selectPreviousReference: () => setSelectedIndex(value => Math.max(0, value - 1)),
+    selectNextReference: () => { const item = referencePickerItems[Math.min(referencePickerItems.length - 1, selectedReferenceIndex + 1)]; if (item) setFocus({ key: queryKey, id: item.id }); },
+    selectPreviousReference: () => { const item = referencePickerItems[Math.max(0, selectedReferenceIndex - 1)]; if (item) setFocus({ key: queryKey, id: item.id }); },
+    referenceSourceStatuses, retryReferenceSource: (source: ChatReferenceSourceStatus['source']) => sourceRetries.current.get(source)?.(),
+    configureReference: (item: ComposerReferencePickerItem<ChatReferencePickerValue>) => handleReferenceSelect(item, true),
     referenceTypeFilter, setReferenceTypeFilter, openReferencePicker, pendingReference,
-    closeReferenceDialog: () => { setPendingReference(null); editorRef.current?.focus(); }, acceptReference, prepareIntakeSelection };
+    closeReferenceDialog: () => { latest.current.pendingReference = null; setPendingReference(null); editorRef.current?.focus(); }, acceptReference, prepareIntakeSelection };
 }

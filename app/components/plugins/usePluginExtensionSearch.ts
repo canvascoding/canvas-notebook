@@ -5,6 +5,7 @@ import type { PluginNavigation } from '@/app/lib/plugins/plugin-navigation';
 import type { PluginExtensionItem, PluginExtensionSearchResponse } from '@/app/lib/plugins/plugin-extension-contracts';
 import { authClient } from '@/app/lib/auth-client';
 import { PackageWorkspaceRequestError, workspaceRequest, type PackageWorkspaceQuery } from './plugin-workspace-client';
+import { pluginExtensionSearchPhaseRequests, pluginExtensionSearchPhaseCursor, type ExtensionSearchPhase } from './plugin-extension-search-phases';
 
 /** A received metadata response and its actual request context, never runtime authority. */
 export type PluginExtensionSelectionMetadata = {
@@ -22,6 +23,7 @@ export type PluginExtensionSearchData = {
   retry: () => void;
 };
 type Loaded = Omit<PluginExtensionSearchData, 'updating' | 'retry'> & {
+  pending?: boolean;
   requestKey: string; contextKey: string; chainKey: string; requestedSelection: string | undefined; receivedResponse: PluginExtensionSearchResponse | null;
   rowResponses: ReadonlyMap<string, {row: PluginExtensionItem; response: PluginExtensionSearchResponse}>;
 };
@@ -60,41 +62,62 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
       return !controller.signal.aborted && generation.current === current && !currentSession.isPending && !currentSession.error
         && currentSession.data?.user.id === actorId && currentSession.data?.session.id === sessionId;
     };
-    void workspaceRequest<PluginExtensionSearchResponse>(purpose === 'authoring' ? '/api/plugins/authoring-search' : '/api/plugins/search', workspaceId, { signal: controller.signal }, query).then(response => {
+    const phases = pluginExtensionSearchPhaseRequests(cursor), responses = new Map<ExtensionSearchPhase, PluginExtensionSearchResponse>();
+    const failures = new Map<ExtensionSearchPhase, PackageWorkspaceRequestError>();
+    let remaining = phases.length;
+    const publish = (received: PluginExtensionSearchResponse | null) => {
       if (!isCurrent()) return;
-      if (response.schemaVersion !== 1 || !Array.isArray(response.items) || !Array.isArray(response.coverage) || !response.pagination
-        || !response.scopes || !Array.isArray(response.scopes.choices) || !Array.isArray(response.scopes.teams)) throw new PackageWorkspaceRequestError(502, 'PLUGIN_SEARCH_RESPONSE_INVALID');
+      const ordered = (['local', 'remote', 'all'] as const).flatMap(phase => responses.has(phase) ? [responses.get(phase)!] : []);
+      const latestResponse = received ?? ordered.at(-1);
       startTransition(() => setLoaded(previous => {
         if (!isCurrent()) return previous;
         const priorResponse = previous?.key === key && cursor ? previous.response : null;
         const prior = priorResponse ? previous!.items : [];
-        const items = [...new Map([...prior, ...response.items].map(item => [item.id, item])).values()];
+        if (!latestResponse) {
+          if (remaining) return previous;
+          const failure = [...failures.values()][0] ?? new PackageWorkspaceRequestError(0, 'PLUGIN_SEARCH_UNAVAILABLE');
+          return priorResponse ? { ...previous!, requestKey, contextKey, chainKey, requestedSelection, pending: false,
+            receivedResponse: null, rowResponses: new Map(), error: { code: failure.code }, selectedItem: null, selectionMetadata: null }
+            : { key, requestKey, contextKey, chainKey, requestedSelection, pending: false, receivedResponse: null, rowResponses: new Map(),
+              status: 'error', error: { code: failure.code }, response: null, items: [], selectedItem: null };
+        }
+        const items = [...new Map([...prior, ...ordered.flatMap(response => response.items)].map(item => [item.id, item])).values()];
         // Every visible row retains the actual response that supplied it. Only
         // an uninterrupted successful append chain may retain older provenance.
         const rowResponses = new Map(previous?.chainKey === chainKey && priorResponse && !previous.error ? previous.rowResponses : []);
-        for (const row of response.items) rowResponses.set(row.id, {row, response});
-        const coverage = [...new Map([...(priorResponse?.coverage ?? []), ...response.coverage].map(source => [source.source, source])).values()];
+        for (const response of ordered) for (const row of response.items) rowResponses.set(row.id, {row, response});
+        const failedCoverage = [...failures].flatMap(([phase, failure]) => (phase === 'local' ? ['packages', 'mcp'] as const : ['store', 'composio'] as const)
+          .map(source => ({ source, status: 'unavailable' as const, error: { code: failure.code, message: 'Some extension metadata could not be loaded.', retryable: true } })));
+        const coverage = [...new Map([...(priorResponse?.coverage ?? []), ...ordered.flatMap(response => response.coverage), ...failedCoverage].map(source => [source.source, source])).values()];
         // A continuation response can describe only its current upstream batch. Never
         // promote its batch total to a total for all the previously appended sources.
-        const totalItems = priorResponse ? priorResponse.pagination.totalItems !== undefined
-          && priorResponse.pagination.totalItems === response.pagination.totalItems ? response.pagination.totalItems : undefined : response.pagination.totalItems;
-        const pagination = { ...response.pagination, loadedItems: items.length, totalItems };
-        return { key, requestKey, contextKey, chainKey, requestedSelection, receivedResponse: response, rowResponses,
-          status: 'ready', error: null, response: { ...response, coverage, pagination }, items, selectedItem: response.selectedItem,
-          selectionMetadata: response.selectedItem ? { source: 'selected', response, actorId, sessionId, workspaceId } : null };
+        const totalItems = !cursor && !remaining && !failures.size && ordered.every(response => response.pagination.totalItems !== undefined && !response.pagination.nextCursor)
+          ? items.length : undefined;
+        const nextCursor = remaining ? null : pluginExtensionSearchPhaseCursor(responses);
+        const pagination = { nextCursor, hasNextPage: Boolean(nextCursor), loadedItems: items.length, totalItems };
+        const selectedResponse = ordered.findLast(response => response.selectedItem?.id === requestedSelection);
+        const selectedItem = selectedResponse?.selectedItem ?? null;
+        return { key, requestKey, contextKey, chainKey, requestedSelection, pending: remaining > 0, receivedResponse: latestResponse, rowResponses,
+          status: 'ready', error: null, response: { ...latestResponse, coverage, pagination }, items, selectedItem,
+          selectionMetadata: selectedItem && selectedResponse ? { source: 'selected', response: selectedResponse, actorId, sessionId, workspaceId } : null };
       }));
-    }).catch(error => {
-      if (!isCurrent()) return;
-      const failure = error instanceof PackageWorkspaceRequestError ? error : new PackageWorkspaceRequestError(0, 'PLUGIN_SEARCH_UNAVAILABLE');
-      startTransition(() => setLoaded(previous => {
-        if (!isCurrent()) return previous;
-        return previous?.key === key && cursor && previous.response && ![401, 403, 404].includes(failure.status)
-          ? { ...previous, requestKey, contextKey, chainKey, requestedSelection, receivedResponse: null, rowResponses: new Map(),
-            error: { code: failure.code }, selectedItem: null, selectionMetadata: null }
-          : { key, requestKey, contextKey, chainKey, requestedSelection, receivedResponse: null, rowResponses: new Map(),
-            status: 'error', error: { code: failure.code }, response: null, items: [], selectedItem: null };
-      }));
-    });
+    };
+    for (const phase of phases) void workspaceRequest<PluginExtensionSearchResponse>(purpose === 'authoring' ? '/api/plugins/authoring-search' : '/api/plugins/search', workspaceId,
+      { signal: controller.signal }, { ...query, phase: phase.phase, cursor: phase.cursor }).then(response => {
+        if (!isCurrent()) return;
+        if (response.schemaVersion !== 1 || !Array.isArray(response.items) || !Array.isArray(response.coverage) || !response.pagination
+          || !response.scopes || !Array.isArray(response.scopes.choices) || !Array.isArray(response.scopes.teams)) throw new PackageWorkspaceRequestError(502, 'PLUGIN_SEARCH_RESPONSE_INVALID');
+        responses.set(phase.phase, response); remaining--; publish(response);
+      }).catch(error => {
+        if (!isCurrent()) return;
+        const failure = error instanceof PackageWorkspaceRequestError ? error : new PackageWorkspaceRequestError(0, 'PLUGIN_SEARCH_UNAVAILABLE');
+        if ([401, 403, 404].includes(failure.status)) {
+          startTransition(() => setLoaded({ key, requestKey, contextKey, chainKey, requestedSelection, pending: false, receivedResponse: null, rowResponses: new Map(),
+            status: 'error', error: { code: failure.code }, response: null, items: [], selectedItem: null }));
+          controller.abort(); return;
+        }
+        failures.set(phase.phase, failure); remaining--; publish(null);
+      });
     return () => { generation.current += 1; controller.abort(); };
   }, [key, requestKey, contextKey, chainKey, query, workspaceId, cursor, requestedSelection, actorId, sessionId, purpose]);
   if (loaded?.key !== key) return { key, status: 'loading', updating: false, error: null, response: null, items: [], selectedItem: null, retry };
@@ -103,5 +126,5 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
   const selectionMetadata: PluginExtensionSelectionMetadata | null = selectedRow && currentResponse && actorId && sessionId && workspaceId
     ? {source: 'row', response: selectedRow.response, row: selectedRow.row, selectionId: selected!, actorId, sessionId, workspaceId}
     : selectedItem ? loaded.selectionMetadata ?? null : null;
-  return { ...loaded, retry, updating: loaded.requestKey !== requestKey, selectedItem, selectionMetadata };
+  return { ...loaded, retry, updating: loaded.requestKey !== requestKey || loaded.pending === true, selectedItem, selectionMetadata };
 }

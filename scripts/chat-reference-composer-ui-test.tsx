@@ -39,6 +39,14 @@ const integration: AgentExtensionSearchItem = { item: { ...commonItem, id: 'comp
   source: 'composio', toolkit: { slug: 'canva', noAuth: false }, connections: [] }, eligibility: { action: 'choose_connection' } };
 const plugin: AgentExtensionSearchItem = { item: { ...commonItem, id: pin.resourceRef, kind: 'plugin', name: 'design', displayName: 'Design plugin', source: 'local' },
   eligibility: { action: 'select' }, selection: { kind: 'plugin', package: pin, skillSelection: { kind: 'all' } } };
+const coreRows: AgentExtensionSearchItem[] = [
+  { item: { ...commonItem, id: 'core-skill', kind: 'skill', name: 'skill-creator', displayName: 'Skill Creator', source: 'local' },
+    eligibility: { action: 'select' }, selection: { kind: 'core_skill', coreSource: { resourceRef: 'canvas-capability:v1:skill:system:core:skill-creator', coreRevision: '1.0.0', checksum: 'b'.repeat(64) } } },
+  { item: { ...commonItem, id: 'core-plugin', kind: 'plugin', name: 'plugin-creator', displayName: 'Plugin Creator', source: 'local' },
+    eligibility: { action: 'select' }, selection: { kind: 'core_plugin', coreSource: { resourceRef: 'canvas-capability:v1:plugin:system:core:plugin-creator', coreRevision: '1.0.0', checksum: 'c'.repeat(64) } } },
+];
+const standaloneSkill: AgentExtensionSearchItem = { item: { ...commonItem, id: 'standalone-skill', kind: 'skill', name: 'root', displayName: 'Root skill', source: 'local' },
+  eligibility: { action: 'select' }, selection: { kind: 'skill', origin: 'standalone', relativeRoot: '', package: pin } };
 const packageMetadata: AgentExtensionPackageVersion = { pin, kind: 'plugin', name: 'design', displayName: 'Design plugin', version: '1.0.0', description: 'Exact held package',
   children: [{ name: 'root', title: 'Root skill', description: 'Required root', relativeRoot: '', origin: 'plugin_child', required: true },
     { name: 'child', title: 'Optional child', description: 'Own child declaration', relativeRoot: 'skills/child', origin: 'plugin_child', required: false }],
@@ -56,10 +64,16 @@ async function main() {
   const { useComposerReferences } = await import('../app/components/canvas-agent-chat/useComposerReferences');
   const { ChatInlineEditor } = await import('../app/components/canvas-agent-chat/ChatInlineEditor');
   const { ChatExtensionReferenceDialog } = await import('../app/components/canvas-agent-chat/ChatExtensionReferenceDialog');
+  const { ComposerReferencePicker } = await import('../app/components/canvas-agent-chat/ComposerReferencePicker');
   const originalFetch = globalThis.fetch, originalNow = Date.now;
   let now = originalNow(), scopeNumber = 0, cases = 0;
-  const rows = [mcpOption(1), mcpOption(2), metadataMcp, integration, plugin];
+  const blocked: AgentExtensionSearchItem = { item: { ...plugin.item, id: 'blocked-plugin' }, eligibility: { action: 'unavailable', reason: { code: 'USE_DENIED', message: 'Current use is required.' } } };
+  const missingSelection: AgentExtensionSearchItem = { item: { ...plugin.item, id: 'missing-selection' }, eligibility: { action: 'select' } };
+  const rows = [mcpOption(1), mcpOption(2), metadataMcp, integration, plugin, ...coreRows, standaloneSkill, blocked, missingSelection];
   let current: Frame | undefined, requests: ChatExtensionOptionsRequest[] = [], pending: Pending[] = [], holdPreview = false;
+  let servedMetadata = packageMetadata, holdRemote = false, failRemote = false;
+  let remotePending: Array<{ request: Extract<ChatExtensionOptionsRequest, { operation: 'search' }>; resolve: (response: Response) => void }> = [];
+  let recentBundles: import('../app/lib/chat/extension-options-contracts').ChatExtensionRecentItem[] = [];
   let expiry: string | undefined, receiptCounter = 0;
   Date.now = () => now;
   const frame = () => { assert(current); return current; };
@@ -74,11 +88,16 @@ async function main() {
     assert.equal(String(input), '/api/chat/extension-options', 'The actual chat metadata client never uses Agent configuration authority.');
     const request = chatExtensionOptionsRequestSchema.parse(JSON.parse(String(init?.body))); requests.push(request);
     const pagination = { nextCursor: null, hasNextPage: false, loadedItems: 1 };
-    if (request.operation === 'search') return Response.json({ success: true, data: { ...header(request), query: request,
-      items: rows.filter(row => request.types.includes(row.item.kind)), selectedItem: null, scopes: { choices: ['all'], teams: [] }, pagination, recents: [] } });
+    if (request.operation === 'search') {
+      if (request.phase === 'remote' && failRemote) throw new Error('Remote unavailable');
+      if (request.phase === 'remote' && holdRemote) return new Promise<Response>(resolve => remotePending.push({ request, resolve }));
+      return Response.json({ success: true, data: { ...header(request), query: request,
+        items: rows.filter(row => request.types.includes(row.item.kind)), selectedItem: null, scopes: { choices: ['all'], teams: [] }, pagination,
+        recents: request.phase === 'remote' ? [] : recentBundles } });
+    }
     if (request.operation === 'package_version') {
       assert.deepEqual({ resourceRef: request.resourceRef, publishedRevisionRef: request.publishedRevisionRef, checksum: request.checksum }, pin);
-      return Response.json({ success: true, data: { ...header(request), package: packageMetadata } });
+      return Response.json({ success: true, data: { ...header(request), package: servedMetadata } });
     }
     if (request.operation === 'preview') {
       if (holdPreview) return new Promise<Response>(resolve => pending.push({ request, resolve }));
@@ -103,25 +122,37 @@ async function main() {
     const controller = useComposerReferences({ agentId, sessionId, inputBody: body, workspaceId, setInputBody: setBody, editorRef: editor,
       resetInputHistoryNavigation: () => {} });
     current = { body, controller, editor, replace: setBody };
-    return <><ChatInlineEditor ref={editor} body={body} onBodyChange={controller.handleInputChange} onSelectionChange={controller.handleSelectionChange} />
-      <div>{controller.referencePickerItems.map(item => <button type="button" key={item.id} data-item-id={item.id} onClick={() => controller.handleReferenceSelect(item)}>{item.label}</button>)}</div>
+    return <><ChatInlineEditor ref={editor} body={body} onBodyChange={controller.handleInputChange} onSelectionChange={controller.handleSelectionChange}
+      onKeyDown={event => { if (!controller.activeReferenceMatch) return;
+        if (event.key === 'ArrowDown') { event.preventDefault(); controller.selectNextReference(); }
+        else if (event.key === 'ArrowUp') { event.preventDefault(); controller.selectPreviousReference(); }
+        else if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); const item = controller.referencePickerItems[controller.selectedReferenceIndex]; if (item) controller.handleReferenceSelect(item); }
+        else if (event.key === 'Escape') { event.preventDefault(); controller.closeReferencePicker(); }
+      }} />
+      {controller.activeReferenceMatch ? <ComposerReferencePicker header="References" emptyState="No results" items={controller.referencePickerItems}
+        selectedIndex={controller.selectedReferenceIndex} onSelect={controller.handleReferenceSelect} onConfigure={controller.configureReference}
+        isLoading={controller.isLoadingReferenceItems} sourceStatuses={controller.referenceSourceStatuses} onRetrySource={controller.retryReferenceSource} /> : null}
       {controller.pendingReference ? <ChatExtensionReferenceDialog request={controller.pendingReference} onClose={controller.closeReferenceDialog} onSelect={controller.acceptReference} /> : null}</>;
   }
   const wrap = (node: React.ReactNode) => <NextIntlClientProvider locale="en" timeZone="UTC" messages={en}>{node}</NextIntlClientProvider>;
-  const mount = async (initial = plain()) => {
+  const mount = async (initial = plain(), strict = false) => {
     cleanup(); requests = []; pending = []; holdPreview = false; receiptCounter = 0; expiry = new Date(now + 60_000).toISOString();
+    servedMetadata = packageMetadata; holdRemote = false; failRemote = false; remotePending = []; recentBundles = [];
     observeOpenedDocumentAuth({ data: { user: { id: `composer-user-${++scopeNumber}` }, session: { id: `auth-session-${scopeNumber}` } } });
-    const view = render(wrap(<Harness initial={initial} />));
+    const view = render(wrap(strict ? <React.StrictMode><Harness initial={initial} /></React.StrictMode> : <Harness initial={initial} />));
     await waitFor(() => assert(screen.getByRole('textbox')));
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); return view;
   };
-  const open = async (id: string) => {
+  const open = async (id: string, configure = true) => {
     await act(async () => { frame().editor.current!.focusEnd();
       frame().controller.openReferencePicker(); });
     await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === id), JSON.stringify({ id,
       body: frame().body, match: frame().controller.activeReferenceMatch, error: frame().controller.referencePickerError })));
-    await act(async () => { fireEvent.click(document.querySelector(`[data-item-id="${id}"]`)!); });
-    await screen.findByTestId('chat-extension-reference-dialog');
+    await act(async () => {
+      if (configure) frame().controller.configureReference(frame().controller.referencePickerItems.find(item => item.id === id)!);
+      else fireEvent.click([...document.querySelectorAll('[data-reference-id]')].find(element => element.getAttribute('data-reference-id') === id)!);
+    });
+    if (configure) await screen.findByTestId('chat-extension-reference-dialog');
   };
   const chooseMcp = async (index = 1) => {
     const label = await screen.findByText(`MCP account ${index}`), row = label.closest('.rounded-md')!;
@@ -139,6 +170,149 @@ async function main() {
   const resolvePreview = async (index = 0) => { await act(async () => pending[index].resolve(validPreview(pending[index].request))); };
   const check = (name: string) => { cases++; console.log(`PASS ${name}`); };
   try {
+    await mount(plain(), true); await open('core-skill', false);
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+    assert.equal(requests.filter(request => request.operation === 'preview').length, 1);
+    check('React StrictMode setup replay still inserts directly and starts exactly one preview');
+
+    for (const [id, key] of [['core-skill', 'Enter'], ['core-plugin', 'Tab']] as const) {
+      await mount();
+      await act(async () => frame().controller.openReferencePicker());
+      await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === id)));
+      while (frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex]?.id !== id)
+        await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowDown' }); });
+      await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key }); });
+      await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+      assert.equal(screen.queryByTestId('chat-extension-reference-dialog'), null);
+      assert.equal(requests.filter(request => request.operation === 'preview').length, 1);
+      assert(!requests.some(request => request.operation === 'package_version' || request.operation === 'connection_choices'));
+      assert(requests.every(request => request.target.kind === 'draft_turn'));
+      assert.equal(document.querySelectorAll('[data-type="extension-reference"]').length, 1);
+    }
+    check('actual editor ArrowDown plus Enter/Tab inserts a Core skill/plugin exactly once after one fresh preview without dialog, package reads, connection reads, send or Session');
+
+    await mount(); servedMetadata = { ...packageMetadata, declarations: [] };
+    await open(pin.resourceRef, false);
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+    assert.equal(screen.queryByTestId('chat-extension-reference-dialog'), null);
+    assert.equal(requests.filter(request => request.operation === 'package_version').length, 1);
+    assert.equal(requests.filter(request => request.operation === 'preview').length, 1);
+    assert.equal(frame().body.bundles[0].primary.selection.kind, 'plugin');
+    check('published plugin without open requirements uses its exact metadata pin and one fresh preview before direct insertion');
+
+    await mount(); servedMetadata = { ...packageMetadata, kind: 'skill', children: [{ ...packageMetadata.children[0], origin: 'standalone' }], declarations: [] };
+    await open('standalone-skill', false);
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+    assert.deepEqual(frame().body.bundles[0].primary.selection, standaloneSkill.selection);
+    assert.equal(screen.queryByTestId('chat-extension-reference-dialog'), null);
+    assert.equal(requests.filter(request => request.operation === 'preview').length, 1);
+    check('published standalone skill inserts directly with its exact root and immutable parent pin');
+
+    await mount(); servedMetadata = { ...packageMetadata, declarations: packageMetadata.declarations.map(declaration => ({ ...declaration,
+      workflow: { ...declaration.workflow, integrationCapabilities: declaration.workflow.integrationCapabilities.map(capability => ({ ...capability, required: false })) } })) };
+    await open(pin.resourceRef, false);
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+    assert.equal(frame().body.bundles[0].packageConnections.length, 0);
+    assert(!requests.some(request => request.operation === 'connection_choices'));
+    check('optional connections do not block direct selection or enumerate personal profiles in the background');
+
+    await mount(); await open(pin.resourceRef, false);
+    await screen.findByTestId('chat-extension-reference-dialog');
+    assert.equal(requests.some(request => request.operation === 'preview'), false);
+    assert.equal(screen.queryByRole('button', { name: 'Insert into text' }), null);
+    await chooseMcp(9); assert.equal(frame().body.bundles.length, 0);
+    await chooseAccount();
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1));
+    assert.equal(frame().body.bundles[0].packageConnections.length, 2);
+    assert.equal(requests.filter(request => request.operation === 'preview').length, 1);
+    check('a direct plugin opens only its genuine missing connection choices; the final explicit account choice inserts without another confirmation');
+
+    const completed = structuredClone(frame().body.bundles[0]);
+    const completeWithCaps = { ...completed, supporting: completed.supporting.map((entry, index) => index === 0 ? { ...entry, toolCap: ['bounded_tool'] } : entry) };
+    recentBundles = [{ bodyBundle: completeWithCaps, lastAcceptedAt: now, eligibility: { action: 'select' } }];
+    const beforeRecent = requests.length;
+    await act(async () => frame().replace(plain()));
+    await open(`recent:${chatInlineReferenceIconKey(completed.primary.selection)}`, false);
+    await waitFor(() => assert.equal(frame().body.bundles.length, 1, document.body.textContent ?? 'No DOM'));
+    const restored = frame().body.bundles[0];
+    assert.deepEqual(restored.packageConnections, completed.packageConnections);
+    assert.deepEqual(restored.supporting, completeWithCaps.supporting);
+    assert.equal(screen.queryByTestId('chat-extension-reference-dialog'), null);
+    assert(!requests.slice(beforeRecent).some(request => request.operation === 'connection_choices'));
+    assert.equal(requests.slice(beforeRecent).filter(request => request.operation === 'preview').length, 1);
+    assert((await frame().controller.prepareIntakeSelection(frame().body))?.selections.some(entry => entry.accountSelectionRef));
+    check('a fully bound Recent retains mappings, supporting selections and tool caps and uses its still valid tab-memory receipt without re-enumerating accounts');
+
+    await mount(); holdPreview = true; await open('core-skill', false);
+    await waitFor(() => assert.equal(pending.length, 1));
+    await screen.findByTestId('chat-reference-resolution');
+    await assert.rejects(frame().controller.prepareIntakeSelection(frame().body), /Loading/u, 'A repeated send cannot admit the unresolved slash query as plain text.');
+    await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' }); });
+    await resolvePreview(); assert.equal(frame().body.bundles.length, 0); assert.equal(frame().controller.pendingReference, null);
+    check('Escape cancels a real pending direct preview and a late response cannot insert');
+
+    await mount(); holdPreview = true; await open('core-skill', false);
+    await waitFor(() => assert.equal(pending.length, 1));
+    await act(async () => { frame().editor.current!.replaceText(' newer text'); });
+    const changedBody = structuredClone(frame().body);
+    await resolvePreview(); assert.deepEqual(frame().body, changedBody); assert.equal(frame().body.bundles.length, 0);
+    check('actual typing cancels an in-flight direct reference while preserving the newer draft');
+
+    await mount(); holdRemote = true;
+    await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill')));
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    assert(frame().controller.isLoadingReferenceItems);
+    assert.equal(screen.queryByText('No results'), null);
+    await act(async () => frame().controller.selectNextReference());
+    const focused = frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex].id;
+    const remoteRequest = remotePending[0].request;
+    await act(async () => remotePending[0].resolve(Response.json({ success: true, data: { ...header(remoteRequest), query: remoteRequest,
+      items: [{ ...coreRows[0], item: { ...coreRows[0].item, id: 'remote-skill', displayName: 'Remote skill' } }], recents: [], selectedItem: null,
+      scopes: {}, pagination: { hasNextPage: false, nextCursor: null, loadedItems: 1 } } })));
+    await waitFor(() => assert.equal(frame().controller.isLoadingReferenceItems, false));
+    assert.equal(frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex].id, focused);
+    check('local results stay usable while remote search waits; append preserves the exact keyboard focus and does not show a false empty state');
+
+    await mount(); holdRemote = true; await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert.equal(remotePending.length, 1));
+    await act(async () => { frame().editor.current!.replaceText('changed'); });
+    assert.equal(frame().controller.referencePickerItems.length, 0, 'A different query must immediately hide the previous selectable list.');
+    const stale = remotePending[0];
+    await act(async () => stale.resolve(Response.json({ success: true, data: { ...header(stale.request), query: stale.request, items: [coreRows[0]],
+      recents: [], selectedItem: null, scopes: {}, pagination: { hasNextPage: false, nextCursor: null, loadedItems: 1 } } })));
+    assert(!frame().controller.referencePickerItems.some(item => item.id === 'core-skill'));
+    check('new query immediately fences old visible rows and ignores an old remote reply');
+
+    await mount(); failRemote = true; await act(async () => frame().controller.openReferencePicker());
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.some(row => row.source === 'remote' && row.status === 'unavailable')));
+    assert(frame().controller.referencePickerItems.some(item => item.id === 'core-skill'));
+    assert.equal(requests.filter(request => request.operation === 'search' && request.phase === 'local').length, 1);
+    failRemote = false;
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Try again' })); });
+    await waitFor(() => assert(frame().controller.referenceSourceStatuses.every(row => row.status === 'complete')));
+    assert.equal(requests.filter(request => request.operation === 'search' && request.phase === 'local').length, 1);
+    assert.equal(requests.filter(request => request.operation === 'search' && request.phase === 'remote').length, 2);
+    check('a failed remote source leaves local rows usable and Retry reloads only that source');
+
+    for (const id of ['blocked-plugin', 'missing-selection']) {
+      await mount(plain('Keep this text ')); await open(id, false);
+      await screen.findByTestId('chat-extension-reference-dialog');
+      assert.equal(screen.queryByRole('button', { name: 'Insert into text' }), null);
+      const setup = screen.getByRole('link', { name: 'Open plugins' });
+      assert.equal(setup.getAttribute('target'), '_blank');
+      assert.equal(new URL(setup.getAttribute('href')!, 'https://fixture.invalid').searchParams.get('workspaceId'), 'workspace-a');
+      assert(projectChatBodyText(frame().body).startsWith('Keep this text '));
+      assert(!requests.some(request => request.operation === 'preview'));
+    }
+    check('blocked or malformed metadata offers an explained setup action in a separate tab and preserves text without a dead Insert button');
+
+    const directTransition = await mount(); holdPreview = true; await open('core-skill', false);
+    await waitFor(() => assert.equal(pending.length, 1));
+    directTransition.rerender(wrap(<Harness sessionId="newly-created-session" />));
+    await resolvePreview(); assert.equal(frame().body.bundles.length, 0); assert.equal(frame().controller.pendingReference, null);
+    check('a late draft_turn direct preview cannot insert after the actual draft-to-session target transition');
+
     await mount(plain('hello world'));
     await act(async () => { frame().editor.current!.setSelection(0, 5); frame().controller.openReferencePicker(); });
     assert.equal(projectChatBodyText(frame().body), 'hello / world', 'Opening after a marked word inserts at its end, without deleting it.');

@@ -41,12 +41,16 @@ function nameInitials(name: string): string {
 }
 
 function AvatarImage({ url, initials }: { url: string; initials: string }) {
-  const [failed, setFailed] = useState(false);
-  return failed ? <span data-testid="plugin-extension-avatar-initials">{initials}</span>
-    // Provider and package assets need their authenticated/source-bound URLs, without Next's public optimizer.
-    // eslint-disable-next-line @next/next/no-img-element
-    : <img src={url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
-      className="size-full object-contain p-1" data-testid="plugin-extension-avatar-image" onError={() => setFailed(true)} />;
+  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>('loading');
+  return <>
+    {state !== 'loaded' ? <span data-testid="plugin-extension-avatar-initials">{initials}</span> : null}
+    {state !== 'failed' ?
+      // Provider and package assets need their authenticated/source-bound URLs, without Next's public optimizer.
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={url} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
+        className={cn('absolute inset-0 size-full object-contain p-1', state !== 'loaded' && 'opacity-0')}
+        data-testid="plugin-extension-avatar-image" onLoad={() => setState('loaded')} onError={() => setState('failed')} /> : null}
+  </>;
 }
 
 /** Adjacent visible names provide the accessible label; the avatar is decorative. */
@@ -55,7 +59,7 @@ export function PluginExtensionAvatar({ name, identity, icon, size = 'md', class
   const initials = nameInitials(name);
   const binding = JSON.stringify([identity, icon?.sourceKey ?? '', url]);
   return <span aria-hidden="true" data-testid="plugin-extension-avatar" data-identity={identity} data-source-key={icon?.sourceKey}
-    className={cn('inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted/50 font-medium text-muted-foreground select-none',
+    className={cn('relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-lg border bg-muted/50 font-medium text-muted-foreground select-none',
       size === 'sm' ? 'size-8 text-xs' : size === 'lg' ? 'size-12 rounded-xl text-base' : 'size-10 text-sm', className)}>
     {url ? <AvatarImage key={binding} url={url} initials={initials} /> : <span data-testid="plugin-extension-avatar-initials">{initials}</span>}
   </span>;

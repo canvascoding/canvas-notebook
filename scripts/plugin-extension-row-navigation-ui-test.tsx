@@ -31,14 +31,16 @@ async function main() {
   const session = () => ({user: {id: actorId, name: actorId, email: `${actorId}@fixture.invalid`, role: 'admin', emailVerified: true, createdAt: new Date(0), updatedAt: new Date(0), banned: false},
     session: {id: sessionId, userId: actorId, token: 'CONTROLLED_UI_SESSION', expiresAt: new Date('2099-01-01'), createdAt: new Date(0), updatedAt: new Date(0)}});
   loader._load = (name, parent, isMain) => {
-    if (name === 'next/navigation') return {useSearchParams: () => {const search = useSyncExternalStore(subscribe, () => window.location.search); return useMemo(() => new URLSearchParams(search), [search]);}};
+    if (name === 'next/navigation') return {useSearchParams: () => {const search = useSyncExternalStore(subscribe, () => window.location.search); return useMemo(() => new URLSearchParams(search), [search]);},
+      useRouter: () => ({push: (url: string) => window.history.pushState(null, '', url), replace: (url: string) => window.history.replaceState(null, '', url)})};
     if (name === '@/app/store/workspace-store') return {useWorkspaceStore: (select: (state: unknown) => unknown) => select({workspaces: [{id: workspaceId, name: 'Current workspace'}]})};
-    if (name === '@/i18n/navigation') return {Link: React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(function FixtureLink(props, ref) {return <a {...props} ref={ref} />;})};
+    if (name === '@/i18n/navigation') return {Link: React.forwardRef<HTMLAnchorElement, React.AnchorHTMLAttributes<HTMLAnchorElement>>(function FixtureLink(props, ref) {return <a {...props} ref={ref} />;}),
+      useRouter: () => ({push: (url: string) => window.history.pushState(null, '', url), replace: (url: string) => window.history.replaceState(null, '', url)})};
     return originalLoad(name, parent, isMain);
   };
   const item: Extract<PluginExtensionItem, {kind: 'integration'}> = {id: 'composio:canva', kind: 'integration', name: 'canva', displayName: 'Canva', description: 'Original catalogue metadata', source: 'composio', stock: 'available',
     access: {canRead: true, canUse: false, canManage: false}, toolkit: {slug: 'canva', noAuth: false}, connections: []};
-  type Read = {url: URL; signal?: AbortSignal | null; resolve(response: Response): void};
+  type Read = {url: URL; signal?: AbortSignal | null; resolve(response: Response): void; replies: Array<(response: Response) => void>; replied?: boolean};
   const searches: Read[] = [], setups: string[] = [];
   let denySetup = false;
   globalThis.fetch = (input, init) => {
@@ -46,7 +48,17 @@ async function main() {
     if (url.pathname === '/api/auth/get-session') return Promise.resolve(Response.json(session()));
     assert.equal(init?.method ?? 'GET', 'GET', 'Browsing cannot connect accounts or change defaults.');
     assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), url.searchParams.get('workspaceId') ?? workspaceId);
-    if (url.pathname === '/api/plugins/search') return new Promise<Response>(resolve => searches.push({url, signal: init?.signal, resolve}));
+    if (url.pathname === '/api/plugins/search') {
+      url.searchParams.delete('phase');
+      return new Promise<Response>(resolve => {
+        const current = searches.findLast(read => !read.replied && !read.signal?.aborted && read.url.href === url.href);
+        if (current) { current.replies.push(resolve); return; }
+        const read: Read = {url, signal: init?.signal, replies: [resolve], resolve(response) {
+          read.replied = true; for (const reply of read.replies) reply(response.clone());
+        }};
+        searches.push(read);
+      });
+    }
     setups.push(url.pathname);
     if (url.pathname === '/api/integrations/shared-connections/setup') return Promise.resolve(denySetup ? Response.json({success: false, code: 'CONNECTION_ACCESS_DENIED'}, {status: 403})
       : Response.json({success: true, data: {scopes: [{ownership: {type: 'organization', organizationId: 'row-org'}, label: 'Organization'}]}}));
@@ -119,7 +131,7 @@ async function main() {
     assert.equal(searches.length, beforeAppend + 2, 'A visible older-page row retains its exact original response, without another full search.');
     assert(screen.getByText(item.description)); fireEvent.click(screen.getByTestId('plugin-extension-back'));
     await waitFor(() => assert.equal(screen.getAllByTestId('plugin-extension-row-open').length, 2));
-    assert.equal(searches.length, beforeAppend + 2); assert.equal(new URL(window.location.href).searchParams.get('extensionCursor'), 'bmV4dA'); cases++;
+    assert.equal(searches.length, beforeAppend + 2); assert(new URL(window.location.href).searchParams.get('extensionCursor'), 'The phase cursor envelope survives detail navigation and Back.'); cases++;
 
     fireEvent.click(screen.getByTestId('plugin-extension-more')); await count(beforeAppend + 3);
     await reply(searches.at(-1)!, Response.json({success: false, code: 'PLUGIN_SEARCH_UNAVAILABLE'}, {status: 503}));

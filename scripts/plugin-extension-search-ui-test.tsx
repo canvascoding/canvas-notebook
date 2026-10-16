@@ -17,7 +17,7 @@ async function main() {
   const originalFetch = globalThis.fetch;
   const { render, screen, cleanup, waitFor, act, fireEvent } = await import('@testing-library/react');
   const { PluginExtensionSearchResults } = await import('../app/components/plugins/PluginExtensionSearchResults');
-  type Pending = { url: URL; signal?: AbortSignal | null; resolve(response: Response): void };
+  type Pending = { url: URL; signal?: AbortSignal | null; resolve(response: Response): void; replies: Array<(response: Response) => void>; replied?: boolean };
   const pending: Pending[] = [];
   let actorId = 'search-actor-a', sessionId = 'search-session-a';
   const session = () => ({ user: { id: actorId, name: actorId, email: `${actorId}@fixture.invalid`, role: 'admin', emailVerified: true, createdAt: new Date(0), updatedAt: new Date(0), banned: false },
@@ -46,7 +46,18 @@ async function main() {
     const url = new URL(String(input), dom.window.location.origin);
     if (url.pathname === '/api/auth/get-session') return Promise.resolve(Response.json(session()));
     assert.equal(url.pathname, '/api/plugins/search'); assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), url.searchParams.get('workspaceId'));
-    assert(!init?.method || init.method === 'GET'); return new Promise<Response>(resolve => pending.push({ url, signal: init?.signal, resolve }));
+    assert(!init?.method || init.method === 'GET');
+    // These navigation cases control one logical query generation. The separate
+    // progressive-search test controls actual local/remote completion independently.
+    url.searchParams.delete('phase');
+    return new Promise<Response>(resolve => {
+      const current = pending.findLast(read => !read.replied && !read.signal?.aborted && read.url.href === url.href);
+      if (current) { current.replies.push(resolve); return; }
+      const read: Pending = { url, signal: init?.signal, replies: [resolve], resolve(response) {
+        read.replied = true; for (const reply of read.replies) reply(response.clone());
+      } };
+      pending.push(read);
+    });
   };
   const { usePluginExtensionSearch } = await import('../app/components/plugins/usePluginExtensionSearch');
   const { authClient } = await import('../app/lib/auth-client'), atom = authClient.$store.atoms.session, originalSession = atom.get();

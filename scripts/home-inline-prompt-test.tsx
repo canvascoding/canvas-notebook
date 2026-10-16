@@ -90,8 +90,6 @@ async function main() {
     fireEvent.click(screen.getByRole('button', { name: /Profile B/u }));
     await waitFor(() => assert(screen.getByRole('button', { name: 'Dieses Konto' })));
     fireEvent.click(screen.getByRole('button', { name: 'Dieses Konto' }));
-    await waitFor(() => assert.equal((screen.getByRole('button', { name: 'In Text einfügen' }) as HTMLButtonElement).disabled, false));
-    fireEvent.click(screen.getByRole('button', { name: 'In Text einfügen' }));
     await waitFor(() => assert.equal(Boolean(screen.queryByTestId('chat-extension-reference-dialog')), false));
     assert.equal(editor().getText(), 'Canva · Marketing');
     assert.equal(screen.getByRole('textbox', { name: de.home.start.aiPlaceholder }).querySelectorAll('[data-type="extension-reference"]').length, 1);

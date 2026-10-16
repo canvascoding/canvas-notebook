@@ -9,7 +9,7 @@ import {
   type RefObject,
 } from 'react';
 import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X, Slash } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { ChatModelSelector } from '@/app/components/canvas-agent-chat/ChatModelSelector';
@@ -24,7 +24,7 @@ import { ChatInlineEditor, type ChatInlineEditorHandle } from './ChatInlineEdito
 import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
 import type { ChatInlineReferenceIcons, ChatInlineTextRange } from '@/app/lib/chat/inline-editor';
 import type { ChatReferencePickerValue } from '@/app/lib/chat/composer-reference-types';
-import type { ChatReferenceTypeFilter } from './useComposerReferences';
+import type { ChatReferenceTypeFilter, ChatReferenceSourceStatus } from './useComposerReferences';
 import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
@@ -108,6 +108,10 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   referenceTypeFilter: ChatReferenceTypeFilter;
   onReferenceTypeFilterChange: (type: ChatReferenceTypeFilter) => void;
   referenceNotice?: string | null;
+  referenceSourceStatuses?: readonly ChatReferenceSourceStatus[];
+  onRetryReferenceSource?: (source: ChatReferenceSourceStatus['source']) => void;
+  onConfigureReference?: (item: ComposerReferencePickerItem<ReferencePickerValue>) => void;
+  isLoadingReferenceItems?: boolean;
   composerPlaceholderText: string;
   planningMode: boolean;
   showReferencePicker: boolean;
@@ -177,6 +181,10 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   referenceTypeFilter,
   onReferenceTypeFilterChange,
   referenceNotice,
+  referenceSourceStatuses,
+  onRetryReferenceSource,
+  onConfigureReference,
+  isLoadingReferenceItems,
   composerPlaceholderText,
   planningMode,
   showReferencePicker,
@@ -211,6 +219,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   showPromptSuggestions,
 }, ref) {
   const t = useTranslations('chat');
+  const locale = useLocale();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { isDraggingFiles, isDraggingWorkspaceFiles, dropHandlers } = useChatFileDrop({
     disabled: composerDisabled,
@@ -353,10 +362,17 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
 
           {showReferencePicker ? (
             <ComposerReferencePicker
+              locale={locale}
               emptyState={referencePickerEmptyState}
               header={referencePickerHeader}
               items={referencePickerItems}
               onSelect={onReferenceSelect}
+              onConfigure={onConfigureReference}
+              canConfigure={item => { const payload = item.payload; const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+                return selection?.kind === 'plugin' || selection?.kind === 'skill'; }}
+              sourceStatuses={referenceSourceStatuses}
+              onRetrySource={onRetryReferenceSource}
+              isLoading={isLoadingReferenceItems}
               selectedIndex={selectedReferenceIndex}
               notice={referenceNotice}
               headerActions={<div className="mt-2 flex flex-wrap gap-1" aria-label={t('referenceTypeFilter')}>

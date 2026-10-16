@@ -485,6 +485,9 @@ export default function CanvasAgentChat({
     handleInputChange,
     handleReferenceSelect,
     isLoadingReferenceItems,
+    referenceSourceStatuses,
+    retryReferenceSource,
+    configureReference,
     referencePickerError,
     referencePickerItems,
     selectedReferenceIndex,
@@ -946,6 +949,8 @@ export default function CanvasAgentChat({
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.nativeEvent.isComposing || e.key === 'Process') return;
+    if (pendingReference && e.key === 'Escape') { e.preventDefault(); closeReferenceDialog(); return; }
+    if (pendingReference && (e.key === 'Enter' && !e.shiftKey || e.key === 'Tab')) { e.preventDefault(); return; }
     if (e.shiftKey && e.key === 'Tab') {
       e.preventDefault();
       togglePlanningMode();
@@ -967,7 +972,7 @@ export default function CanvasAgentChat({
       }
     }
 
-    if (activeReferenceMatch && referencePickerItems.length > 0) {
+    if (activeReferenceMatch) {
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -1002,7 +1007,7 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, editorRef, handleReferenceSelect, handleSend, handleStop, input, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, closeReferenceDialog, pendingReference, editorRef, handleReferenceSelect, handleSend, handleStop, input, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
   const composePromptHandoff = useCallback((handoff: PromptHandoff) => {
     if (!activeWorkspaceId) throw new Error('Choose the original workspace to open this composer draft.');
@@ -1190,7 +1195,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured || queueRecovery.sendBlocked;
+    : Boolean(pendingReference) || isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured || queueRecovery.sendBlocked;
   const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
@@ -1613,6 +1618,10 @@ export default function CanvasAgentChat({
         referenceTypeFilter={referenceTypeFilter}
         onReferenceTypeFilterChange={setReferenceTypeFilter}
         referenceNotice={referencePickerError}
+        referenceSourceStatuses={referenceSourceStatuses}
+        onRetryReferenceSource={retryReferenceSource}
+        onConfigureReference={configureReference}
+        isLoadingReferenceItems={isLoadingReferenceItems}
         planningMode={planningMode}
         showReferencePicker={Boolean(activeReferenceMatch)}
         referencePickerEmptyState={referencePickerEmptyState}

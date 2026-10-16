@@ -130,7 +130,7 @@ async function main() {
     assert.equal(current.selectedAgentId, 'bradley', 'No list response was delivered to make this test pass.');
     assert(requests.length >= 2); assert(requests.every(request => JSON.stringify(request.target) === JSON.stringify(exactTarget)));
     const row = current.controller.referencePickerItems.find(item => item.id === 'exact-mcp-row')!;
-    await act(async () => { current.controller.handleReferenceSelect(row); });
+    await act(async () => { current.controller.configureReference(row); });
     assert.deepEqual(current.controller.pendingReference?.target, exactTarget);
     const label = await screen.findByText('Exact account');
     await act(async () => { fireEvent.click(within(label.closest('.rounded-md') as HTMLElement).getByRole('button', { name: 'Choose' })); });
