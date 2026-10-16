@@ -278,6 +278,10 @@ async function sharedChoice(context: ExtensionOptionsSourceContext, scope: Scope
     health: 'unknown', mappingRequired };
 }
 
+/** Reuse the chooser's exact template/definition/configured-mapping checks for
+ * Chat presentation. This neither chooses nor admits an account or source. */
+export { sharedChoice as projectExtensionSharedConnectionChoice };
+
 /** Fresh exact choices for one authorized configuration or Use-only slot; no provider discovery before explicit profile selection. */
 async function listExtensionConnectionChoices(context: ExtensionOptionsSourceContext,
   requestInput: AgentExtensionConnectionChoicesRequest | ChatExtensionConnectionChoicesRequest, signal?: AbortSignal) {

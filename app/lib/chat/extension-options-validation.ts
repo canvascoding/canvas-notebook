@@ -9,12 +9,14 @@ import { capabilityPackageMcpConfigCompatibility } from '@/app/lib/capabilities/
 import type { ExtensionSelectionInput, ExtensionPackageConnection } from '@/app/lib/capabilities/extensions/contracts';
 import { chatStandaloneEligibility, chatStandaloneToolCap, resolveChatConnectionScope, intersectChatCaps } from './extension-options-eligibility';
 import { authorizeChatExtensionSharedOption, revalidateChatExtensionOptionsContext, type ChatExtensionOptionsContext } from './extension-options-context';
+import type { ChatPackageScopeMetadataOptions } from './extension-options-eligibility';
 
 const fail = (message: string): never => { throw new AgentWorkflowError('CHAT_EXTENSION_SOURCE_UNAVAILABLE', message, 409); };
 /** Source/intent coherence only. No account enumeration, health check, discovery, or execution grant. */
 export async function validateChatConnectionMetadata(context: ChatExtensionOptionsContext,
   entry: Extract<ExtensionSelectionInput, { selection: unknown }>, signal: AbortSignal,
-  mapping?: ExtensionPackageConnection, requireReceipt = true): Promise<{ toolCap: string[] | null }> {
+  mapping?: ExtensionPackageConnection, requireReceipt = true,
+  options: ChatPackageScopeMetadataOptions = {}): Promise<{ toolCap: string[] | null }> {
   const selection = entry.selection;
   if (selection.kind !== 'mcp' && selection.kind !== 'composio') return fail('Choose one exact connection.');
   signal.throwIfAborted();
@@ -65,7 +67,7 @@ export async function validateChatConnectionMetadata(context: ChatExtensionOptio
     tools = intersectChatCaps(tools, chatStandaloneToolCap(context, selection, definitionId));
   } else {
     const scope = await resolveChatConnectionScope(context, { kind: 'package', package: mapping.package,
-      declarationPath: mapping.declarationPath, capabilityId: mapping.capabilityId, alternativeKey: mapping.alternativeKey });
+      declarationPath: mapping.declarationPath, capabilityId: mapping.capabilityId, alternativeKey: mapping.alternativeKey }, options);
     const exact = scope.allowed?.find(choice => JSON.stringify(choice.selection) === JSON.stringify(selection));
     if (scope.allowed && !exact && (selection.target.kind !== 'personal' || !scope.personal.length || scope.refreshOnly)) return fail('This exact source is outside the configured package choices.');
     if (!exact && selection.kind === 'mcp' && scope.definitionMappings

@@ -109,8 +109,9 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
       // A connected refresh supersedes its local snapshot, while still-ready
       // rows retain their position. Catalog arrivals never promote or reorder it.
       const local = new Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>();
+      const refreshedIds = new Set((results.get('connected') ?? []).map(item => item.id));
       for (const source of ['local', 'connected'] as const) for (const item of results.get(source) ?? []) {
-        if (source === 'local' && connectedResponded && (item.payload.type === 'recent' || item.kind === 'integration' || item.kind === 'mcp')) continue;
+        if (source === 'local' && (connectedResponded || refreshedIds.has(item.id))) continue;
         const identity = identityOf(item), existing = local.get(identity);
         if (existing?.payload.type === 'recent' && existing.section === 'ready' && item.section === 'ready') continue;
         if (!existing || source === 'connected' || existing.payload.type !== 'recent') local.set(identity, item);

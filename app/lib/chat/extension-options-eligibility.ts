@@ -158,8 +158,12 @@ export async function readChatPackageMcpTemplate(source: AgentExtensionPackageVe
     declaredBy: { kind: source.metadata.kind, name: source.metadata.name }, connector: { name: connectorName, ...(connector.oauth ? { oauth: true } : {}) },
     ...projectCapabilityPackageMcpTemplateConfig(file.config, connectorName) };
 }
+export type ChatPackageScopeMetadataOptions = { packageSource?: AgentExtensionPackageVersionSource;
+  packageMetadata?: Pick<AgentExtensionPackageVersionSource['metadata'], 'kind' | 'skillRoots' | 'declarations'>;
+  mcpTemplates?: Readonly<Record<string, CapabilityPackageMcpTemplate | null>> };
 export async function resolveChatConnectionScope(context: ChatExtensionOptionsContext,
-  selector: import('./extension-options-contracts').ChatExtensionConnectionChoicesRequest['selector']): Promise<ExtensionConnectionScope> {
+  selector: import('./extension-options-contracts').ChatExtensionConnectionChoicesRequest['selector'],
+  options: ChatPackageScopeMetadataOptions = {}): Promise<ExtensionConnectionScope> {
   if (selector.kind === 'standalone') {
     const alternative: ExtensionConnectionAlternative = selector.source === 'mcp' ? { source: 'mcp' } : { source: 'composio', toolkit: selector.toolkit };
     if (alternative.source === 'composio' && !isComposioIntegrationApplicationVisible(alternative.toolkit)) throw new AgentWorkflowError('CHAT_EXTENSION_ALTERNATIVE_INVALID', 'Use this app’s native tool.', 400);
@@ -180,14 +184,15 @@ export async function resolveChatConnectionScope(context: ChatExtensionOptionsCo
       definitionIds: selector.source === 'mcp' ? [...new Set(slots.flatMap(slot => slot.mode === 'selectable' && slot.personalPolicy?.source === 'mcp' ? slot.personalPolicy.serverDefinitionIds : []))] : undefined,
       toolCap: null, required: slots.some(slot => slot.mode === 'fixed' ? slot.entry.requirement === 'required' : slot.requirement === 'required'), package: false };
   }
-  const source = await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selector.package, { allowPersonalPackages: true });
+  const source = options.packageMetadata ? undefined : options.packageSource ?? await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selector.package, { allowPersonalPackages: true });
+  const metadata = options.packageMetadata ?? source!.metadata;
   const binding = chatPackageBinding(context, selector.package);
   if (context.snapshot.workflowVersion !== null && !binding?.configuration) throw new AgentWorkflowError('CHAT_EXTENSION_AGENT_SCOPE', 'This exact package pin is outside the agent configuration.', 403);
-  const capability = source.metadata.declarations.find(declaration => declaration.declarationPath === selector.declarationPath)?.workflow.integrationCapabilities.find(value => value.id === selector.capabilityId);
+  const capability = metadata.declarations.find(declaration => declaration.declarationPath === selector.declarationPath)?.workflow.integrationCapabilities.find(value => value.id === selector.capabilityId);
   const alternative = capability?.alternatives.find(value => key(value) === selector.alternativeKey);
   if (!alternative || alternative.source === 'composio' && !isComposioIntegrationApplicationVisible(alternative.toolkit)) throw new AgentWorkflowError('CHAT_EXTENSION_ALTERNATIVE_INVALID', 'Choose one exact published requirement alternative.', 400);
-  const effective = binding?.configuration ? projectPackageExtensionSelection({ source: binding.configuration, kind: source.metadata.kind,
-    inventory: source.metadata.skillRoots, selections: binding.extensionSelections }).configuration : undefined;
+  const effective = binding?.configuration ? projectPackageExtensionSelection({ source: binding.configuration, kind: metadata.kind,
+    inventory: metadata.skillRoots, selections: binding.extensionSelections }).configuration : undefined;
   const configured = effective?.declarations.find(declaration => declaration.declarationPath === selector.declarationPath)?.capabilities.find(value => value.capabilityId === selector.capabilityId);
   if (context.snapshot.workflowVersion !== null && !configured) throw new AgentWorkflowError('CHAT_EXTENSION_AGENT_SCOPE', 'This requirement is outside the configured package scope.', 403);
   const selection = configured?.selection;
@@ -198,7 +203,8 @@ export async function resolveChatConnectionScope(context: ChatExtensionOptionsCo
     && choice.target.kind === 'personal' && choice.target.ownerUserId === context.actor.userId && choice.target.personalBinding?.source === 'composio'
       ? [choice.target.personalBinding.profileId] : []) : [];
   const template = alternative.source === 'mcp' && context.snapshot.workflowVersion === null
-    ? await readChatPackageMcpTemplate(source, selector.package, alternative.connector) : null;
+    ? options.mcpTemplates && Object.hasOwn(options.mcpTemplates, alternative.connector) ? options.mcpTemplates[alternative.connector]
+      : source ? await readChatPackageMcpTemplate(source, selector.package, alternative.connector) : null : null;
   return { alternatives: [alternative], ...(choices ? { allowed: choices.filter(choice => choice.alternativeKey === selector.alternativeKey)
     .map(choice => ({ ...choice, selection: publicChatConnectionSelection(choice.target, alternative) })) } : {}),
     personal: personalPolicy || refreshProfiles.length ? [alternative] : [],
