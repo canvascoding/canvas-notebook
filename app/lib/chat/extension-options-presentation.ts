@@ -10,7 +10,7 @@ import { mcpPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons
 import type { PluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 import type { ExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
 import { authorizeChatExtensionSharedOption, revalidateChatExtensionOptionsContext, type ChatExtensionOptionsContext } from './extension-options-context';
-import { withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import { withAuthorizedCorePluginSource, withAuthorizedCoreSkillSource } from '@/app/lib/capabilities/extensions/core-source';
 import { installedPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 
 /** Historical presentation reads the exact identity; absence is initials, never a replacement selection. */
@@ -20,6 +20,10 @@ export async function presentChatExtensionIcon(context: ChatExtensionOptionsCont
   let icon: PluginExtensionIcon | undefined;
   if(selection.kind==='core_plugin') {
     icon=await withAuthorizedCorePluginSource(context.actor,selection.coreSource,async plugin=>installedPluginExtensionIcon(selection.coreSource.resourceRef,plugin.revision??1,context.actor.workspaceId));
+  } else if (selection.kind === 'core_skill') {
+    icon=await withAuthorizedCoreSkillSource(context.actor,selection.coreSource,async skill =>
+      skill.interface?.iconSmall || skill.interface?.iconLarge
+        ? installedPluginExtensionIcon(selection.coreSource.resourceRef,1,context.actor.workspaceId) : undefined);
   } else if (selection.kind === 'plugin' || selection.kind === 'skill') {
     const source = await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package, { allowPersonalPackages: true });
     if (selection.kind === 'plugin' && source.metadata.kind !== 'plugin' || selection.kind === 'skill'

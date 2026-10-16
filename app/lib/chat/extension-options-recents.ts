@@ -1,3 +1,4 @@
+import { isCoreExtensionSelection } from '@/app/lib/capabilities/extensions/core-source-contracts';
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { openDb } from '@/app/lib/db';
@@ -17,11 +18,11 @@ import type { ExtensionSelection } from '@/app/lib/capabilities/extensions/contr
 type Filters = Pick<ChatExtensionSearchRequest, 'types' | 'stock' | 'source' | 'scope' | 'audience' | 'teamId'>;
 async function matchesFilters(context: ChatExtensionOptionsContext, selection: ExtensionSelection, filters?: Filters): Promise<boolean> {
   if (!filters) return true;
-  const type = selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind;
+  const type = selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind;
   const source = selection.kind === 'mcp' ? 'mcp' : selection.kind === 'composio' ? 'composio' : 'local';
   if (!filters.types.includes(type) || filters.stock === 'available' || filters.source !== 'all' && filters.source !== source) return false;
   if (filters.scope === 'all') return true;
-  const owner: CapabilityResourceOwnerScope = selection.kind==='core_plugin'?{type:'system'}:selection.kind === 'plugin' || selection.kind === 'skill'
+  const owner: CapabilityResourceOwnerScope = isCoreExtensionSelection(selection)?{type:'system'}:selection.kind === 'plugin' || selection.kind === 'skill'
     ? (await inspectCapabilityResource({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package.resourceRef)).metadata.ownership
     : selection.target.kind === 'shared' ? (await authorizeChatExtensionSharedOption(context, selection.target.connectionRef)).resource.ownership
     : { type: 'user', ownerUserId: context.actor.userId, organizationId: context.organizationId };
@@ -82,7 +83,7 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
           const primary = entry.selection;
           const mappings = primary.kind === 'plugin' || primary.kind === 'skill' ? (selection.packageConnections ?? []).filter(mapping =>
             JSON.stringify(mapping.package) === JSON.stringify(primary.package)) : [];
-          return { id: `recent-${index}`, caption: primary.kind === 'core_plugin'?'Plugin Creator':primary.kind === 'composio' ? primary.toolkit : primary.kind === 'mcp' ? 'MCP' : primary.kind === 'plugin' ? 'Plugin' : 'Skill',
+          return { id: `recent-${index}`, caption: primary.kind === 'core_plugin'?'Plugin Creator':primary.kind === 'core_skill'?primary.coreSource.resourceRef.split(':').at(-1)!:primary.kind === 'composio' ? primary.toolkit : primary.kind === 'mcp' ? 'MCP' : primary.kind === 'plugin' ? 'Plugin' : 'Skill',
             primary: entry, supporting: selection.selections.filter(other => other.selection.kind === 'mcp' || other.selection.kind === 'composio')
               .filter(other => mappings.some(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(other.selection)))
               .map(other => ({ ...other, selection: other.selection as import('@/app/lib/capabilities/extensions/contracts').StandaloneExtensionSelection })), packageConnections: mappings };
@@ -97,10 +98,10 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
       stoppedAt = { at: Number(row.created_at), session: row.session_id, client: row.client_message_id, bundle: bundleIndex };
       if (seen.has(identity)) continue;
       try {
-        const eligibility = selection.kind==='core_plugin'?await chatCorePluginSelectionEligibility(context,selection):selection.kind === 'plugin' || selection.kind === 'skill' ? await chatPackageSelectionEligibility(context, selection)
+        const eligibility = isCoreExtensionSelection(selection)?await chatCorePluginSelectionEligibility(context,selection):selection.kind === 'plugin' || selection.kind === 'skill' ? await chatPackageSelectionEligibility(context, selection)
           : { action: 'select' as const };
         for (const entry of [bundle.primary, ...bundle.supporting]) {
-          if (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill'||entry.selection.kind==='core_plugin') continue;
+          if (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill'||isCoreExtensionSelection(entry.selection)) continue;
           const mappings = bundle.packageConnections.filter(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(entry.selection));
           if (mappings.length) for (const mapping of mappings) await validateChatConnectionMetadata(context, entry, signal, mapping, false);
           else await validateChatConnectionMetadata(context, entry, signal, undefined, false);
@@ -125,7 +126,7 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
   // Optional logo IO is complete: recheck all exact sources before returning metadata.
   for (let index = items.length - 1; index >= 0; index--) try {
     const item = items[index]!, primary = item.bodyBundle.primary.selection;
-    if(primary.kind==='core_plugin'&&(await chatCorePluginSelectionEligibility(context,primary)).action!=='select')throw new Error('changed');
+    if(isCoreExtensionSelection(primary)&&(await chatCorePluginSelectionEligibility(context,primary)).action!=='select')throw new Error('changed');
     if ((primary.kind === 'plugin' || primary.kind === 'skill') && (await chatPackageSelectionEligibility(context, primary)).action !== 'select') throw new Error('changed');
     for (const entry of [item.bodyBundle.primary, ...item.bodyBundle.supporting]) if (entry.selection.kind === 'mcp' || entry.selection.kind === 'composio') {
       const mappings = item.bodyBundle.packageConnections.filter(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(entry.selection));

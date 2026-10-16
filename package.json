@@ -778,7 +778,7 @@
     "test:capabilities:packages:store": "tsx --conditions react-server scripts/store-package-preparation-test.ts && tsx --conditions react-server scripts/capability-package-store-source-test.ts && tsx --conditions react-server scripts/capability-package-store-application-test.ts",
     "test:capabilities:packages:store-reads": "tsx --conditions react-server scripts/capability-package-scoped-store-test.ts && tsx --conditions react-server scripts/capability-package-scoped-store-authority-test.ts && tsx --conditions react-server scripts/capability-package-store-legacy-skill-read-test.ts && tsx --conditions react-server scripts/capability-package-presentation-test.ts && tsx --conditions react-server scripts/capability-package-store-install-options-test.ts",
     "test:capabilities:packages:store-reads:e2e": "E2E_EXTERNAL_SERVER=1 playwright test --config tests/playwright/playwright.capability-package-store-reads-local.config.ts",
-    "test:capabilities:packages:editor-ui": "tsx scripts/capability-package-editor-ui-test.tsx && tsx scripts/package-drafts-workspace-ui-test.tsx",
+    "test:capabilities:packages:editor-ui": "tsx scripts/capability-package-editor-ui-test.tsx && tsx scripts/package-drafts-workspace-ui-test.tsx && tsx scripts/package-detail-workspace-ui-test.tsx",
     "test:plugins:catalog": "tsx --conditions react-server scripts/plugin-workspace-catalog-test.ts && tsx --conditions react-server scripts/actor-skill-store-state-test.ts && tsx --conditions react-server scripts/plugin-workspace-catalog-authority-test.ts",
     "test:plugins:provenance": "tsx --conditions react-server scripts/capability-store-origin-test.ts && tsx --conditions react-server scripts/capability-package-origin-test.ts && tsx --conditions react-server scripts/capability-store-adoption-test.ts && tsx --conditions react-server scripts/store-origin-readers-test.ts && tsx --conditions react-server scripts/capability-package-public-metadata-test.ts && tsx --conditions react-server scripts/capability-package-store-provenance-test.ts",
     "test:plugins:navigation": "tsx scripts/plugin-navigation-test.ts && tsx scripts/plugin-navigation-guard-test.tsx",
@@ -889,7 +889,8 @@
     "test:dictation:e2e": "tsx scripts/local-dictation-browser-test.ts",
     "build:decision-models": "tsc -p packages/decision-models/tsconfig.json",
     "test:mobile:extension-context": "tsx --conditions react-server scripts/mobile-chat-inline-body-test.ts && tsx --conditions react-server scripts/mobile-extension-context-v2-test.ts",
-    "test:mobile:extension-context:native": "tsx --conditions react-server scripts/mobile-extension-context-v2-test.ts --native"
+    "test:mobile:extension-context:native": "tsx --conditions react-server scripts/mobile-extension-context-v2-test.ts --native",
+    "test:plugins:creator-ui-contracts": "tsx --conditions react-server scripts/creator-chat-api-test.ts && tsx scripts/plugin-creator-entry-test.tsx && tsx scripts/chat-prompt-handoff-test.ts && tsx scripts/chat-bootstrap-history-races-test.tsx && tsx scripts/creator-composer-lifecycle-test.tsx && tsx scripts/package-draft-preview-ui-test.tsx && tsx scripts/package-composition-ui-test.tsx && tsx --conditions react-server scripts/mobile-creator-drafts-test.ts && tsx --conditions react-server scripts/package-authoring-catalog-test.ts"
   },
   "dependencies": {
     "@better-auth/expo": "1.7.1",

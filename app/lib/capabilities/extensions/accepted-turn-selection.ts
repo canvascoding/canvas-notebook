@@ -1,3 +1,4 @@
+import { isCoreExtensionSelection } from './core-source-contracts';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -26,7 +27,7 @@ import {
   withRevalidatedStandaloneTurnSelectionOnConnection,
   type PreparedStandaloneExtensionSelection,
 } from './standalone-preparation';
-import { withAuthorizedCorePluginSource } from './core-source';
+import { withAuthorizedCoreExtensionSelection } from './core-source';
 
 type FixedBinding = Extract<StoredStandaloneExtensionBinding, { mode: 'fixed' }>;
 const fixedBindingSchema = storedStandaloneExtensionBindingSchema.transform((binding, context): FixedBinding => {
@@ -134,9 +135,9 @@ export async function prepareAcceptedTurnExtensionSelection(contextInput: AgentE
   // Recheck the complete batch after preparation; an earlier source may have
   // changed while a later explicit account receipt was being consumed.
   for (const proof of prepared) await revalidatePreparedStandaloneExtensionSelection(proof, actor);
-  for(const entry of input.selections) if(entry.selection.kind==='core_plugin') {
+  for(const entry of input.selections) if(isCoreExtensionSelection(entry.selection)) {
     if(entry.toolCap!==null) throw new AgentWorkflowError('AGENT_TURN_SELECTION_INVALID','Core instruction selections require a null tool capability field.',400);
-    await withAuthorizedCorePluginSource(actor,entry.selection.coreSource,async()=>undefined);
+    await withAuthorizedCoreExtensionSelection(actor,entry.selection,async()=>undefined);
   }
   if (actorKey(contextInput) !== namespace) {
     throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The agent turn changed during selection acceptance.', 403);
@@ -207,12 +208,12 @@ export async function withRevalidatedAcceptedTurnExtensionSelectionOnConnection<
   const hold = async (index: number): Promise<T> => {
     readAcceptedTurnExtensionSelection(handle, context);
     if (index === sources.length) {
-      const core=data.publicSelection.selections.filter(entry=>entry.selection.kind==='core_plugin');
+      const core=data.publicSelection.selections.filter(entry=>isCoreExtensionSelection(entry.selection));
       const holdCore=async(coreIndex:number):Promise<T>=>{
         const entry=core[coreIndex];
         if(!entry)return callback(data);
-        if(entry.selection.kind!=='core_plugin') throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED','The Core source changed.',403);
-        return withAuthorizedCorePluginSource(actor,entry.selection.coreSource,()=>holdCore(coreIndex+1),{database});
+        if(!isCoreExtensionSelection(entry.selection)) throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED','The Core source changed.',403);
+        return withAuthorizedCoreExtensionSelection(actor,entry.selection,()=>holdCore(coreIndex+1),{database});
       };
       const result = await holdCore(0);
       await verifyActor();

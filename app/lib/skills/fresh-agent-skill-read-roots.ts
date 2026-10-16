@@ -53,7 +53,9 @@ export async function resolveFreshAgentSkillReadRoots(executionContext: AgentExe
   const coreBindings = await getAuthorizedCorePluginSkillRuntimeBindings(captured, { selection: workflow });
   const coreRoots = new Set(coreBindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
   const coreDependencyRoots = new Set(snapshot.capabilities.filter(candidate => candidate.runtimePath
-    && corePluginDependencyParent(candidate, snapshot.capabilities)).map(candidate => path.dirname(path.resolve(candidate.runtimePath!))));
+    && (corePluginDependencyParent(candidate, snapshot.capabilities)
+      || workflow.corePlugins?.some(source => source.resourceRef === candidate.ref.resourceId)))
+    .map(candidate => path.dirname(path.resolve(candidate.runtimePath!))));
   const declaredManagedRoots = new Set((captured.skillPackageBindings ?? []).map(binding => path.dirname(path.resolve(binding.runtimePath))));
   const managedRoots = new Set(bindings.map(binding => path.dirname(path.resolve(binding.runtimePath))));
   return approved.filter(root => coreRoots.has(root) || managedRoots.has(root) || (!coreDependencyRoots.has(root) && !declaredManagedRoots.has(root)

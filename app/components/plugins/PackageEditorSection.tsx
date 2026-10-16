@@ -10,10 +10,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
-import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackageFileRead,
-  CapabilityPackageOwnedDraftStatus, CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry, CapabilityPackageValidation } from '@/app/lib/capabilities/packages/contracts';
+import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackageFileRead, CapabilityPackageOperationStatus,
+  CapabilityPackageOwnedDraftStatus, CapabilityPackagePublishedRevision, CapabilityPackageTreeEntry } from '@/app/lib/capabilities/packages/contracts';
+import type { CapabilityPackageDraftValidationReport } from '@/app/lib/capabilities/packages/validation-contracts';
+import { draftPluginExtensionIcon, installedPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
 import { PluginExtensionAvatar } from './PluginExtensionAvatar';
+import { PackageDraftPreview } from './PackageDraftPreview';
+import { PackageCompositionSection } from './PackageCompositionSection';
+import { PackageWorkspaceRequestError } from './plugin-workspace-client';
+import { PackageCreatorResumeButton } from './PackageCreatorResumeButton';
 
 type ScopeChoice = { type: 'user' | 'organization' | 'team'; workspaceId?: string; label: string };
 type VersionSummary = Pick<CapabilityPackagePublishedRevision, 'revisionRef' | 'version' | 'publishedAt'>;
@@ -22,12 +28,13 @@ type DraftView = { draft: CapabilityPackageDraft; target: { ownership: Capabilit
 type FileView = { file: CapabilityPackageFileRead; text: string | null };
 type OwnedDraftStatus = CapabilityPackageOwnedDraftStatus;
 type PackageEditorProps = {
-  resourceRef: string; workspaceId?: string | null; onUpdated?: () => void;
+  resourceRef?: string; workspaceId?: string | null; onUpdated?: () => void;
   initialDraftRef?: string; initiallyOpen?: boolean; initialFile?: string;
+  onDraftStarted?: (draft: CapabilityPackageDraft) => void;
 };
-type ApiPayload<T> = { success: boolean; data?: T; code?: string };
+type ApiPayload<T> = { success: boolean; data?: T; code?: string; validation?: CapabilityPackageDraftValidationReport };
 class PackageRequestError extends Error {
-  constructor(readonly status: number, readonly code: string) { super(code); }
+  constructor(readonly status: number, readonly code: string, readonly validation?: CapabilityPackageDraftValidationReport) { super(code); }
 }
 
 function toBase64(bytes: Uint8Array): string {
@@ -53,9 +60,9 @@ export function PackageEditorSection(props: PackageEditorProps) {
 }
 
 /** Each exact resource/workspace/draft selection owns its state and request generation. */
-function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false, initialFile }: PackageEditorProps) {
+function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraftRef, initiallyOpen = false, initialFile, onDraftStarted }: PackageEditorProps) {
   const t = useTranslations('skills.packageEditor');
-  const storageKey = `canvas-private-package-draft:${resourceRef}:${workspaceId || ''}`;
+  const storageKey = `canvas-private-package-draft:${resourceRef || initialDraftRef || ''}:${workspaceId || ''}`;
   const [descriptor, setDescriptor] = useState<CapabilityPackageDescriptor | null>(null);
   const [draftView, setDraftView] = useState<DraftView | null>(null);
   const [blockedDraft, setBlockedDraft] = useState<OwnedDraftStatus | null>(null);
@@ -70,7 +77,8 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
   const [filePath, setFilePath] = useState('');
   const [fileView, setFileView] = useState<FileView | null>(null);
   const [fileText, setFileText] = useState('');
-  const [validation, setValidation] = useState<{ revision: number; value: CapabilityPackageValidation } | null>(null);
+  const [validation, setValidation] = useState<{ revision: number; value: CapabilityPackageDraftValidationReport } | null>(null);
+  const [technicalOpen, setTechnicalOpen] = useState(Boolean(initialFile));
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +89,9 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
   const readController = useRef<AbortController | null>(null);
   const upload = useRef<HTMLInputElement | null>(null);
   const resumedDraft = useRef(initialDraftRef);
+  const recoveredPackage = useRef<string | undefined>(undefined);
+  const startedDraft = useRef<CapabilityPackageDraft | null>(null);
+  const [draftStartGeneration, setDraftStartGeneration] = useState(0);
   const dirty = fileView?.text !== null && fileView?.text !== undefined && fileText !== fileView.text;
   const requestedInitialFile = useRef(initialFile);
   const attemptedInitialFiles = useRef(new Set<string>());
@@ -91,6 +102,12 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
   }, [initialFile, dirty, pending, filePath]);
   const newFile = fileView?.file.checksum === '';
   usePluginEditorNavigationGuard({ dirty, pending });
+  useEffect(() => {
+    if (pending || !startedDraft.current) return;
+    const draft = startedDraft.current;
+    startedDraft.current = null;
+    onDraftStarted?.(draft);
+  }, [draftStartGeneration, onDraftStarted, pending]);
 
   const apiPath = useCallback((suffix: string, query?: Record<string, string | number>) => {
     const parameters = new URLSearchParams();
@@ -103,17 +120,17 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
     const response = await fetch(apiPath(suffix, query), { cache: 'no-store', ...options });
     const payload = await response.json() as ApiPayload<T>;
     if (current !== generation.current) throw new DOMException('The selected package changed.', 'AbortError');
-    if (!response.ok || !payload.success || !payload.data) throw new PackageRequestError(response.status, payload.code || 'PACKAGE_SNAPSHOT_UNAVAILABLE');
+    if (!response.ok || !payload.success || !payload.data) throw new PackageRequestError(response.status, payload.code || 'PACKAGE_SNAPSHOT_UNAVAILABLE', payload.validation);
     return payload.data;
   }, [apiPath]);
   const json = (body: unknown): RequestInit => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const rememberDraft = (reference: string | null) => {
+  const rememberDraft = useCallback((reference: string | null) => {
     resumedDraft.current = reference ?? undefined;
     if (reference) localStorage.setItem(storageKey, reference);
     else localStorage.removeItem(storageKey);
-  };
+  }, [storageKey]);
   const errorMessage = useCallback((failure: unknown) => failure instanceof PackageRequestError
-    ? t(failure.status === 409 ? 'conflict' : failure.status === 403 || failure.status === 404 ? 'accessError' : 'requestError')
+    ? t(failure.code === 'PACKAGE_NAMESPACE_CONFLICT' ? 'namespaceConflict' : failure.status === 409 ? 'conflict' : failure.status === 403 || failure.status === 404 ? 'accessError' : 'requestError')
     : t('requestError'), [t]);
 
   const loadDraft = useCallback(async (reference: string, signal?: AbortSignal, expected?: OwnedDraftStatus) => {
@@ -132,30 +149,48 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
     setLoading(true);
     let owned: OwnedDraftStatus | null = null;
     try {
-      const reference = encodeURIComponent(resourceRef);
+      let recoveredResourceRef = recoveredPackage.current;
       let saved = resumedDraft.current || localStorage.getItem(storageKey);
       const explicitResume = Boolean(initialDraftRef && saved === initialDraftRef);
       if (saved) {
         try {
           const status = (await request<{ status: OwnedDraftStatus }>(`/drafts/${encodeURIComponent(saved)}/status`, { signal: controller.signal })).status;
-          if (status.draftRef !== saved || !status.sourceResourceRef || explicitResume && status.sourceResourceRef !== resourceRef) {
+          if (status.draftRef !== saved || status.operation !== 'create' && !status.sourceResourceRef
+            || resourceRef && explicitResume && status.sourceResourceRef !== resourceRef && status.resourceRef !== resourceRef) {
             throw new PackageRequestError(403, 'PACKAGE_ACCESS_DENIED');
           }
           owned = status;
         }
         catch (failure) {
-          if (!explicitResume && failure instanceof PackageRequestError && failure.status === 404) { localStorage.removeItem(storageKey); saved = null; }
+          if (explicitResume && failure instanceof PackageRequestError && failure.status === 404) {
+            const recovered = await request<{ operation: CapabilityPackageOperationStatus }>('/operations', { signal: controller.signal }, { draftRef: saved });
+            if (recovered.operation.status === 'published') {
+              recoveredResourceRef = recovered.operation.resourceRef;
+              recoveredPackage.current = recoveredResourceRef;
+              setNotice(t('recoveredPublished'));
+            } else if (recovered.operation.status === 'discarded') setNotice(t('recoveredDiscarded'));
+            else throw failure;
+            rememberDraft(null); saved = null;
+          }
+          else if (!explicitResume && failure instanceof PackageRequestError && failure.status === 404) { localStorage.removeItem(storageKey); saved = null; }
           else throw failure;
         }
       }
+      if (!saved && !resourceRef && !recoveredResourceRef) {
+        setDescriptor(null); setVersions([]); setDraftView(null); setBlockedDraft(null); setTree([]); setError(null);
+        return;
+      }
       // Whole-package checks stay sequential so opening a large package does not allocate several inventories at once.
-      const packageData = await request<{ package: CapabilityPackageDescriptor }>(`/${reference}`, { signal: controller.signal });
-      if (owned && packageData.package.resource.resourceRef !== owned.sourceResourceRef) {
+      const sourceRef = recoveredResourceRef || resourceRef || owned?.sourceResourceRef;
+      const reference = encodeURIComponent(sourceRef || '');
+      const sourceFree = owned?.operation === 'create';
+      const packageData = sourceFree ? null : await request<{ package: CapabilityPackageDescriptor }>(`/${reference}`, { signal: controller.signal });
+      if (owned && packageData && packageData.package.resource.resourceRef !== owned.sourceResourceRef) {
         owned = null;
         throw new PackageRequestError(403, 'PACKAGE_ACCESS_DENIED');
       }
-      const scopeData = await request<{ scopes: ScopeChoice[] }>('/scopes', { signal: controller.signal });
-      const versionData = await request<{ versions: VersionSummary[] }>(`/${reference}/versions`, { signal: controller.signal });
+      const scopeData = sourceFree ? { scopes: [] } : await request<{ scopes: ScopeChoice[] }>('/scopes', { signal: controller.signal });
+      const versionData = sourceFree ? { versions: [] } : await request<{ versions: VersionSummary[] }>(`/${reference}/versions`, { signal: controller.signal });
       let draftData: (DraftView & { files: CapabilityPackageTreeEntry[] }) | null = null;
       if (saved) {
         try { draftData = await loadDraft(saved, controller.signal, owned ?? undefined); }
@@ -163,7 +198,7 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
           if (!(failure instanceof PackageRequestError && [403, 404].includes(failure.status) && owned)) throw failure;
         }
       }
-      const treeData = draftData || (owned ? { files: [] } : packageData.package.published
+      const treeData = draftData || (owned ? { files: [] } : packageData?.package.published
         ? { files: packageData.package.published.files.map(file => ({ ...file, type: 'file' as const })) }
         : await request<{ files: CapabilityPackageTreeEntry[] }>(`/${reference}/tree`, { signal: controller.signal }));
       if (current !== generation.current || revision !== loadRevision.current || controller.signal.aborted) return;
@@ -175,17 +210,18 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         const capturedFile = treeData.files.find(file => file.type === 'file' && file.path === initialPath);
         const selected = await request<{file: CapabilityPackageFileRead; draft?: CapabilityPackageDraft}>(draftData
           ? `/drafts/${encodeURIComponent(draftData.draft.draftRef)}/file` : `/${reference}/file`, {signal: controller.signal},
-        {path: initialPath, maxBytes: 1024 * 1024, ...(draftData || !packageData.package.published ? {} : {revisionRef: packageData.package.published.revisionRef})});
+        {path: initialPath, maxBytes: 1024 * 1024, ...(draftData || !packageData?.package.published ? {} : {revisionRef: packageData.package.published.revisionRef})});
         if (current !== generation.current || revision !== loadRevision.current || controller.signal.aborted) return;
         if (selected.file.path !== initialPath || capturedFile?.type !== 'file' || selected.file.checksum !== capturedFile.checksum
           || selected.file.size !== capturedFile.size || draftData && (selected.draft?.draftRef !== draftData.draft.draftRef
             || selected.draft?.draftRevision !== draftData.draft.draftRevision)) throw new PackageRequestError(409, 'PACKAGE_REVISION_CONFLICT');
         initialView = {file: selected.file, text: textContent(selected.file)};
       }
-      setDescriptor(packageData.package); setScopes(scopeData.scopes); setVersions(versionData.versions);
-      setSelectedVersion(packageData.package.published?.revisionRef || '');
+      setDescriptor(packageData?.package ?? null); setScopes(scopeData.scopes); setVersions(versionData.versions);
+      setSelectedVersion(packageData?.package.published?.revisionRef || '');
       setDraftView(draftData); setBlockedDraft(draftData ? null : owned); setTree(treeData.files); setError(null); setValidation(null);
       if (initialView && !currentEditor.current.dirty && !currentEditor.current.pending && !currentEditor.current.filePath) {
+        setTechnicalOpen(true);
         setFilePath(initialView.file.path); setFileView(initialView); setFileText(initialView.text || '');
       } else if (!draftData) { setFilePath(''); setFileView(null); setFileText(''); }
     } catch (failure) {
@@ -199,7 +235,7 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
     } finally {
       if (current === generation.current && revision === loadRevision.current && !controller.signal.aborted) setLoading(false);
     }
-  }, [errorMessage, initialDraftRef, loadDraft, request, resourceRef, storageKey]);
+  }, [errorMessage, initialDraftRef, loadDraft, rememberDraft, request, resourceRef, storageKey, t]);
 
   useEffect(() => {
     startTransition(() => {
@@ -216,7 +252,10 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
     try { await operation(); }
     catch (failure) {
       if (current === generation.current) {
-        setError(errorMessage(failure));
+        const report = failure instanceof PackageRequestError ? failure.validation : undefined;
+        if (report && draftView && report.draftRevision === draftView.draft.draftRevision) {
+          setValidation({ revision: report.draftRevision, value: report }); setError(null);
+        } else setError(errorMessage(failure));
         if (draftView && failure instanceof PackageRequestError && (failure.status === 403 || failure.status === 404)) await load();
       }
     }
@@ -239,12 +278,16 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         expectedSourceMetadataRevision: resource.metadataRevision, expectedSourceGrantsRevision: resource.grantsRevision,
         expectedSourcePackageRevision: head?.packageRevision || 0, expectedSourcePublishedRevisionRef: head?.currentPublishedRevisionRef || null };
     const result = await request<{ draft: CapabilityPackageDraft }>('/drafts', { method: 'POST', ...json(input) });
+    // The ACK defines the new canonical location, even if a subsequent refresh
+    // fails. Navigate only after perform() has released its pending guard.
+    startedDraft.current = result.draft;
+    setDraftStartGeneration(value => value + 1);
     rememberDraft(result.draft.draftRef); await refreshDraft(result.draft.draftRef);
     setFilePath(''); setFileView(null); setFileText(''); setPublishedVariant(null);
     setNotice(t('draftCreated'));
   };
   const fileSuffix = (reference?: string) => reference ? `/drafts/${encodeURIComponent(reference)}/file`
-    : `/${encodeURIComponent(resourceRef)}/file`;
+    : `/${encodeURIComponent(resourceRef || descriptor?.resource.resourceRef || '')}/file`;
   const openFile = async (selected: string) => {
     const result = await request<{ file: CapabilityPackageFileRead }>(fileSuffix(draftView?.draft.draftRef), undefined,
       { path: selected, maxBytes: 1024 * 1024, ...(draftView || !selectedVersion ? {} : { revisionRef: selectedVersion }) });
@@ -308,7 +351,7 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         expectedPackageRevision: draft.basePackageRevision, expectedPublishedRevisionRef: draft.basePublishedRevisionRef,
         expectedMetadataRevision: draftView.target.expectedMetadataRevision, expectedGrantsRevision: draftView.target.expectedGrantsRevision }) });
     rememberDraft(null); setDraftView(null); setValidation(null); setFilePath(''); setFileView(null); setFileText('');
-    if (draft.operation === 'fork') setPublishedVariant({ name: draft.name, kind: draft.kind,
+    if (draft.operation !== 'edit') setPublishedVariant({ name: draft.name, kind: draft.kind,
       scope: draftView.target.ownership.type === 'user' ? 'user' : 'organization' });
     await load(); setNotice(t('published', { name: draft.name, version: result.published.version })); onUpdated?.();
   };
@@ -333,16 +376,29 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex min-w-0 items-start gap-3">
           {draftView || blockedDraft || descriptor ? <PluginExtensionAvatar name={draftView?.draft.name || blockedDraft?.name || descriptor?.resource.displayName || descriptor?.sourceStamp.name || ''}
+            icon={draftView ? draftPluginExtensionIcon(draftView.draft.draftRef, draftView.draft.draftRevision, workspaceId)
+              : descriptor ? installedPluginExtensionIcon(descriptor.resource.resourceRef, descriptor.sourceStamp.artifactRevision ?? 0, workspaceId) : undefined}
             identity={JSON.stringify([draftView?.draft.draftRef || blockedDraft?.draftRef || resourceRef, workspaceId ?? '', draftView?.draft.draftRevision || blockedDraft?.draftRevision || descriptor?.sourceStamp.artifactRevision])} size="sm" /> : null}
           <div className="min-w-0 text-sm"><p className="font-medium">{draftView || blockedDraft
             ? t('draftName', { name: draftView?.draft.name || blockedDraft!.name }) : t('publishedPackage')}</p>
             <p className="text-xs text-muted-foreground">{scopeLabel}{draftView ? ` · ${t('privateDraft')}` : ''}</p></div>
           </div>
+          <div className="flex flex-wrap gap-2">{draftView ? <PackageCreatorResumeButton draftRef={draftView.draft.draftRef} workspaceId={workspaceId} disabled={dirty || pending || loading} /> : null}
           <Button variant="outline" size="sm" disabled={pending || loading} data-testid="package-reload"
             onClick={() => void perform(reloadDraftEditor)}>
             <RefreshCw className="h-4 w-4" />{t('reload')}
-          </Button>
+          </Button></div>
         </div>
+        {draftView ? <PackageDraftPreview draftRef={draftView.draft.draftRef} revision={draftView.draft.draftRevision} workspaceId={workspaceId} /> : null}
+        {draftView?.draft.kind === 'plugin' ? <PackageCompositionSection draftRef={draftView.draft.draftRef} revision={draftView.draft.draftRevision}
+          workspaceId={workspaceId} disabled={dirty || pending || loading} onMutation={operation => perform(async () => {
+            try { await operation(); }
+            catch (failure) {
+              if (failure instanceof PackageWorkspaceRequestError) throw new PackageRequestError(failure.status, failure.code);
+              throw failure;
+            }
+            await refreshDraft(draftView.draft.draftRef);
+          })} /> : null}
         {descriptor?.readOnly ? <p className="text-sm text-muted-foreground">{t('readOnly')}</p> : null}
         {!draftView && !blockedDraft && descriptor?.state?.currentPublishedRevisionRef && descriptor.access.canManage && !descriptor.readOnly
           ? <div className="space-y-2 rounded-md border p-3">
@@ -351,7 +407,7 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
               <Switch id={`package-activation-${resourceRef}`} checked={descriptor.defaultEnabled} disabled={pending || loading}
                 data-testid="package-default-activation" onCheckedChange={enabled => void perform(async () => {
                   const head = descriptor.state!;
-                  await request(`/${encodeURIComponent(resourceRef)}/activation`, { method: 'PATCH', ...json({ enabled,
+                  await request(`/${encodeURIComponent(resourceRef || descriptor.resource.resourceRef)}/activation`, { method: 'PATCH', ...json({ enabled,
                     expectedDefaultEnabled: descriptor.defaultEnabled, expectedPackageRevision: head.packageRevision,
                     expectedPublishedRevisionRef: head.currentPublishedRevisionRef, expectedMetadataRevision: descriptor.resource.metadataRevision,
                     expectedGrantsRevision: descriptor.resource.grantsRevision }) });
@@ -388,7 +444,7 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
             className="h-9 w-full rounded-md border bg-background px-3 text-sm" onChange={event => {
               const selected = event.target.value;
               void perform(async () => {
-                const result = await request<{ files: CapabilityPackageTreeEntry[] }>(`/${encodeURIComponent(resourceRef)}/tree`, undefined, { revisionRef: selected });
+                const result = await request<{ files: CapabilityPackageTreeEntry[] }>(`/${encodeURIComponent(resourceRef || descriptor?.resource.resourceRef || '')}/tree`, undefined, { revisionRef: selected });
                 setSelectedVersion(selected); setTree(result.files); setFilePath(''); setFileView(null); setFileText('');
               });
             }}>
@@ -396,6 +452,9 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
               {version.version} · {new Date(version.publishedAt).toLocaleString()}
             </option>)}
           </select></div> : null}
+        <details className="rounded-lg border p-3" open={technicalOpen} onToggle={event => setTechnicalOpen(event.currentTarget.open)} data-testid="package-technical-details">
+          <summary className="cursor-pointer text-sm font-medium">{t('technicalFiles')}</summary>
+          <div className="mt-3 space-y-4">
         {files.length ? <div className="space-y-3">
           <div className="space-y-1"><Label htmlFor={`package-file-${resourceRef}`}>{t('files', { count: files.length })}</Label>
             <select id={`package-file-${resourceRef}`} value={filePath} disabled={pending || dirty} data-testid="package-file-picker"
@@ -451,14 +510,25 @@ function PackageEditorSession({ resourceRef, workspaceId, onUpdated, initialDraf
               }}>{t('newTextFile')}</Button>
           </div>
           <p className="text-xs text-muted-foreground">{t('versionHint')}</p>
+        </div> : null}
+          </div>
+        </details>
+        {draftView ? <div className="space-y-3 border-t pt-3">
           {dirty ? <p className="text-xs text-muted-foreground">{t('unsaved')}</p> : null}
           {validation ? <InlineNotice variant={validation.value.valid ? 'default' : 'destructive'} size="compact" role="status">
             {validation.value.valid ? t('valid', { version: validation.value.version || '', count: validation.value.files.length })
               : validation.value.errors.join(' ')}
           </InlineNotice> : null}
+          {validation && !validation.value.valid && validation.value.issues?.length ? <details className="rounded-md border p-3">
+            <summary className="cursor-pointer text-sm font-medium">{t('validationDetails')}</summary>
+            <ul className="mt-3 space-y-3 text-xs">{validation.value.issues.map((issue, index) => <li key={`${issue.code}:${issue.file}:${issue.field}:${index}`}>
+              <p className="break-all font-mono">{issue.file} · {issue.field}</p><p className="mt-1">{issue.message}</p>
+              <p className="mt-1 text-muted-foreground">{issue.repair}</p>
+            </li>)}</ul>
+          </details> : null}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" disabled={pending || dirty} data-testid="package-validate" onClick={() => void perform(async () => {
-              const result = await request<DraftView & { validation: CapabilityPackageValidation }>(`/drafts/${encodeURIComponent(draftView.draft.draftRef)}/validate`, { method: 'POST' });
+              const result = await request<DraftView & { validation: CapabilityPackageDraftValidationReport }>(`/drafts/${encodeURIComponent(draftView.draft.draftRef)}/validate`, { method: 'POST' });
               setDraftView(result); setValidation({ revision: result.draft.draftRevision, value: result.validation });
             })}>{t('validate')}</Button>
             <Button size="sm" disabled={pending || dirty || !validation?.value.valid || validation.revision !== draftView.draft.draftRevision}

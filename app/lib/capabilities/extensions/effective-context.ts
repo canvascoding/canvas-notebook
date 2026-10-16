@@ -1,3 +1,4 @@
+import { isCoreExtensionSelection } from './core-source-contracts';
 import 'server-only';
 
 import { createHash } from 'node:crypto';
@@ -21,7 +22,7 @@ import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { hasIssuedTurnExtensionSource, type HeldAcceptedTurnRuntimeSelection } from './turn-runtime';
 import type { HeldDelegatedExtensionSource } from './delegation-source';
-import type { CorePluginContextMetadata } from '../packages/core-context-metadata';
+import type { CoreInstructionContextMetadata } from '../packages/core-context-metadata';
 
 /** Only this small opaque handle may travel with server context copies. */
 export type HeldEffectiveExtensionContext = Readonly<{ kind: 'effective_extension_context'; fingerprint: string }>;
@@ -30,7 +31,7 @@ export type EffectiveExtensionContextData = Readonly<{
   mode: 'general' | 'legacy_specialized' | 'fixed';
   packageSelection: AuthorizedAgentWorkflowPackageSelections;
   packages: readonly AuthorizedAgentWorkflowPackageMetadata[];
-  corePackages?: readonly CorePluginContextMetadata[];
+  corePackages?: readonly CoreInstructionContextMetadata[];
   skills: readonly AuthorizedAgentWorkflowSkillMetadata[];
   workflowProjection: AgentWorkflowRuntimeProjection | null;
 }>;
@@ -111,13 +112,13 @@ export function isIssuedScopedIntegrationTurn(context: AgentExecutionContext): b
     throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'An issued exact connection turn is required.', 403);
   }
   const selected = context.turnExtensions?.selections.filter(entry => entry.selection.kind === 'plugin' || entry.selection.kind === 'skill'
-    || entry.selection.kind === 'core_plugin') ?? [];
+    || isCoreExtensionSelection(entry.selection)) ?? [];
   if (!selected.length) return false;
   const data = readEffectiveExtensionContext(context);
   if (!data || !isAuthorizedAgentWorkflowPackageSelections(data.packageSelection, context)
     || selected.some(entry => {
-      if (entry.selection.kind === 'core_plugin') return !data.corePackages?.some(pkg =>
-        JSON.stringify(pkg.coreSource) === JSON.stringify(entry.selection.kind === 'core_plugin' ? entry.selection.coreSource : null));
+      if (isCoreExtensionSelection(entry.selection)) return !data.corePackages?.some(pkg =>
+        JSON.stringify(pkg.coreSource) === JSON.stringify(isCoreExtensionSelection(entry.selection) ? entry.selection.coreSource : null));
       const pin = entry.selection.kind === 'plugin' || entry.selection.kind === 'skill' ? entry.selection.package : null;
       return !pin || !data.packages.some(pkg => pkg.resourceRef === pin.resourceRef
         && pkg.publishedRevisionRef === pin.publishedRevisionRef && pkg.checksum === pin.checksum);

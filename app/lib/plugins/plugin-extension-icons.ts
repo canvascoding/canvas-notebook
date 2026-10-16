@@ -1,6 +1,14 @@
 /** Public image metadata only. Never include credential-bearing query strings. */
 export type PluginExtensionIcon = { url: string; sourceKey: string };
 
+/** Private draft bytes remain actor- and revision-bound at the image endpoint. */
+export function draftPluginExtensionIcon(draftRef: string, draftRevision: number, workspaceId?: string | null): PluginExtensionIcon {
+  const query = new URLSearchParams({ expectedDraftRevision: String(draftRevision) });
+  if (workspaceId) query.set('workspaceId', workspaceId);
+  return { url: `/api/capabilities/packages/drafts/${encodeURIComponent(draftRef)}/image?${query}`,
+    sourceKey: `${workspaceId ?? ''}:${draftRef}:${draftRevision}` };
+}
+
 export function publicPluginExtensionIcon(value: unknown, sourceKey: string): PluginExtensionIcon | undefined {
   if (typeof value !== 'string' || value.length > 4096 || /[\p{Cc}\p{Cf}]/u.test(value)) return undefined;
   try {

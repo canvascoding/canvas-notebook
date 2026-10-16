@@ -7,10 +7,12 @@ import type { CapabilityCandidate } from '../types';
 import { CapabilityPackageError } from './contracts';
 import { readExactPackageInventory } from './io';
 import { corePluginDependencyParent } from './core-runtime-selection';
+import { loadCoreSkillSource } from '../extensions/core-source';
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
 
 /** Exact source receipt for bundled Core content; it is deliberately not a published SQL package pin. */
 export type HeldCorePluginSkillRuntimeBinding = Readonly<{
-  kind: 'core_plugin_skill'; resourceId: string; skillName: string; runtimePath: string; checksum: string;
+  kind: 'core_plugin_skill' | 'core_skill'; resourceId: string; skillName: string; runtimePath: string; checksum: string;
   parentResourceId: string; parentChecksum: string;
 }>;
 type Proof = { actorKey: string };
@@ -24,6 +26,15 @@ function actorKey(context: AgentExecutionContext): string {
 }
 
 async function currentSource(candidate: CapabilityCandidate, candidates: readonly CapabilityCandidate[]): Promise<HeldCorePluginSkillRuntimeBinding | null> {
+  if (candidate.ref.resourceType === 'skill' && candidate.ref.scopeType === 'system' && candidate.ref.sourceType === 'core'
+    && isCoreSkillName(candidate.ref.name)) {
+    const {source, skill} = await loadCoreSkillSource(candidate.ref.name);
+    if (candidate.ref.resourceId !== source.resourceRef || candidate.runtimePath !== skill.path) {
+      throw new CapabilityPackageError('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The exact Core skill source is unavailable.', 409);
+    }
+    return {kind:'core_skill',resourceId:source.resourceRef,skillName:skill.name,runtimePath:skill.path,checksum:source.checksum,
+      parentResourceId:source.resourceRef,parentChecksum:source.checksum};
+  }
   const parent = corePluginDependencyParent(candidate, candidates);
   if (!parent || !candidate.runtimePath) return null;
   const plugin = await loadCoreCanvasPlugin(parent.ref.name);
@@ -42,9 +53,10 @@ async function currentSource(candidate: CapabilityCandidate, candidates: readonl
 }
 
 export async function captureCorePluginSkillRuntimeBindings(context: AgentExecutionContext, candidates: readonly CapabilityCandidate[],
-  selected: readonly CapabilityCandidate[]): Promise<HeldCorePluginSkillRuntimeBinding[]> {
+  selected: readonly CapabilityCandidate[], explicitCoreSkillRefs: readonly string[] = []): Promise<HeldCorePluginSkillRuntimeBinding[]> {
   const result: HeldCorePluginSkillRuntimeBinding[] = [];
   for (const candidate of selected) {
+    if (candidate.ref.sourceType === 'core' && !explicitCoreSkillRefs.includes(candidate.ref.resourceId)) continue;
     const source = await currentSource(candidate, candidates);
     if (!source) continue;
     const binding = Object.freeze(source);

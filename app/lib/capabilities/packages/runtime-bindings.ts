@@ -43,9 +43,9 @@ import { captureCorePluginSkillRuntimeBindings, revalidateCorePluginSkillRuntime
   type HeldCorePluginSkillRuntimeBinding } from './core-runtime-bindings';
 import { corePluginDependencyParent } from './core-runtime-selection';
 import { loadCoreCanvasPlugin } from '@/app/lib/plugins/core-plugin-loader';
-import { corePluginSource, withAuthorizedCorePluginSource } from '../extensions/core-source';
-import type { CorePluginSource } from '../extensions/core-source-contracts';
-import { readCorePluginContextMetadata, type CorePluginContextMetadata } from './core-context-metadata';
+import { corePluginSource, withAuthorizedCorePluginSource, withAuthorizedCoreSkillSource, withAuthorizedCoreExtensionSelection } from '../extensions/core-source';
+import { isCoreExtensionSelection, coreExtensionSelectionForSource, type CoreInstructionSource, type CorePluginSource } from '../extensions/core-source-contracts';
+import { readCorePluginContextMetadata, readCoreSkillContextMetadata, type CoreInstructionContextMetadata } from './core-context-metadata';
 
 /** Server-only receipt. Its strings are not authority; the private issued proof is required. */
 export type HeldCapabilityPackageRuntimeBinding = Readonly<{
@@ -77,7 +77,7 @@ export type AuthorizedAgentWorkflowPackageSelections = Readonly<{
   workflowVersion: AgentWorkflowVersion;
   workflowRevision: number;
   packages: readonly StoredAgentWorkflowPackage[];
-  corePlugins?: readonly CorePluginSource[];
+  corePlugins?: readonly CoreInstructionSource[];
   fingerprint: string;
   snapshot: AgentWorkflowInternalSnapshot;
 }>;
@@ -86,7 +86,7 @@ type PinnedPackage = { configuration: StoredAgentWorkflowPackage; sourceConfigur
   published: CapabilityPackagePublishedRevision; skills: CapabilityCandidate[]; metadata: PackageExtensionSourceMetadata;
   extensionSelections?: readonly StoredPackageExtensionSelectionEntry[]; turnSelections: readonly ExtensionSelectionEntry[] };
 type WorkflowSelectionProof = { actorKey: string; effective: EffectiveCapabilitySnapshot; pinned: PinnedPackage[];
-  corePlugins: readonly CorePluginContextMetadata[];
+  corePlugins: readonly CoreInstructionContextMetadata[];
   delegatedSource?: HeldDelegatedExtensionSource; admissionStamp?: string };
 const workflowRegistryKey = Symbol.for('canvas.capability.workflow-package-selections.v1');
 const workflowGlobal = globalThis as typeof globalThis & { [workflowRegistryKey]?: WeakMap<object, WorkflowSelectionProof> };
@@ -114,6 +114,10 @@ function requireWorkflowProof(selection: AuthorizedAgentWorkflowPackageSelection
     throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'The issued package selection is unavailable for this context.', 403);
   }
   return proof;
+}
+function requiresExactCoreSkill(candidate: CapabilityCandidate, proof: WorkflowSelectionProof): boolean {
+  return Boolean(corePluginDependencyParent(candidate, proof.effective.capabilities)
+    || proof.corePlugins.some(source => source.kind === 'core_skill' && source.coreSource.resourceRef === candidate.ref.resourceId));
 }
 function frozenSkillMetadata(candidate: CapabilityCandidate, skill: CanvasSkill, proof: WorkflowSelectionProof,
   binding?: HeldCapabilityPackageRuntimeBinding, coreBinding?: HeldCorePluginSkillRuntimeBinding): AuthorizedAgentWorkflowSkillMetadata {
@@ -176,7 +180,7 @@ export async function getAuthorizedAgentWorkflowSkillMetadata(selection: Authori
     ...(options.coreBindings ? { corePluginSkillBindings: options.coreBindings } : {}) }, { selection });
   for (const candidate of selectedRuntimeSkills(proof.effective, context.agentId, selection.snapshot.agent.relevantSkills, selection)) {
     const coreBinding = coreBindings.find(binding => binding.resourceId === candidate.ref.resourceId);
-    if (corePluginDependencyParent(candidate, proof.effective.capabilities) && !coreBinding) continue;
+    if (requiresExactCoreSkill(candidate, proof) && !coreBinding) continue;
     const held = proof.pinned.find(entry => entry.skills.some(value => value.ref.resourceId === candidate.ref.resourceId));
     const binding = captured.find(value => value.resourceId === candidate.ref.resourceId && isHeldCapabilityPackageRuntimeBinding(value, context)
       && (!held || value.resourceRef === held.published.resourceRef && value.publishedRevisionRef === held.published.revisionRef
@@ -206,7 +210,7 @@ export function getAuthorizedAgentWorkflowPackageMetadata(selection: AuthorizedA
 
 /** Bundled definitions retain an exact Core source contract rather than a fabricated publication identity. */
 export function getAuthorizedCorePluginContextMetadata(selection: AuthorizedAgentWorkflowPackageSelections,
-  context: AgentExecutionContext): readonly CorePluginContextMetadata[] {
+  context: AgentExecutionContext): readonly CoreInstructionContextMetadata[] {
   return requireWorkflowProof(selection, context).corePlugins;
 }
 
@@ -446,16 +450,16 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
     }
   }
   const configuredCoreEntries = snapshot.bindings.flatMap(binding => binding.coreConfiguration ? [binding.coreConfiguration.entry] : []);
-  const coreTurns = turnSelections.filter(entry => entry.selection.kind === 'core_plugin');
-  if (isExplicitAgentWorkflowVersion(snapshot.workflowVersion) && coreTurns.some(entry => entry.selection.kind === 'core_plugin'
-    && !configuredCoreEntries.some(configured => JSON.stringify(configured.selection.coreSource) === JSON.stringify(entry.selection.kind === 'core_plugin'
+  const coreTurns = turnSelections.filter(entry => isCoreExtensionSelection(entry.selection));
+  if (isExplicitAgentWorkflowVersion(snapshot.workflowVersion) && coreTurns.some(entry => isCoreExtensionSelection(entry.selection)
+    && !configuredCoreEntries.some(configured => JSON.stringify(configured.selection.coreSource) === JSON.stringify(isCoreExtensionSelection(entry.selection)
       ? entry.selection.coreSource : null)))) {
     throw new CapabilityPackageError('PACKAGE_ACCESS_DENIED', 'A turn cannot add a Core plugin outside this Agent configuration.', 403);
   }
   const coreEntries = [...configuredCoreEntries, ...coreTurns];
-  const coreRequests = new Map<string, { source: CorePluginSource; requirement: 'optional' | 'required' }>();
+  const coreRequests = new Map<string, { source: CoreInstructionSource; requirement: 'optional' | 'required' }>();
   for (const entry of coreEntries) {
-    if (entry.selection.kind !== 'core_plugin') continue;
+    if (!isCoreExtensionSelection(entry.selection)) continue;
     const source = entry.selection.coreSource, previous = coreRequests.get(source.resourceRef);
     if (previous && JSON.stringify(previous.source) !== JSON.stringify(source)) {
       throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'Conflicting exact Core plugin sources were selected.', 409);
@@ -472,10 +476,13 @@ export async function getAuthorizedAgentWorkflowPackageSelections(
     coreRequests.set(metadata.coreSource.resourceRef, { source: metadata.coreSource,
       requirement: previous?.requirement === 'required' ? 'required' : metadata.requirement });
   }
-  const corePlugins: CorePluginContextMetadata[] = [];
+  const corePlugins: CoreInstructionContextMetadata[] = [];
   for (const request of coreRequests.values()) {
-    corePlugins.push(await withAuthorizedCorePluginSource({ userId: context.userId, workspaceId: context.workspaceId }, request.source,
-      plugin => readCorePluginContextMetadata(plugin, projected.capabilities, { requirement: request.requirement })));
+    const selection = coreExtensionSelectionForSource(request.source);
+    const actor = {userId:context.userId,workspaceId:context.workspaceId};
+    corePlugins.push(selection.kind === 'core_plugin'
+      ? await withAuthorizedCorePluginSource(actor,selection.coreSource, plugin => readCorePluginContextMetadata(plugin,projected.capabilities,{requirement:request.requirement}))
+      : await withAuthorizedCoreSkillSource(actor,selection.coreSource, async skill => readCoreSkillContextMetadata(selection.coreSource,skill,projected.capabilities,{requirement:request.requirement})));
   }
   const result: AuthorizedAgentWorkflowPackageSelections = Object.freeze({ workflowVersion: snapshot.workflowVersion,
     workflowRevision: snapshot.workflowRevision, packages: Object.freeze(pinned.map(entry => entry.configuration)),
@@ -635,7 +642,7 @@ export async function withRevalidatedAgentWorkflowPackageSelectionOnConnection<T
       await verify();
       return result;
     }
-    return withAuthorizedCorePluginSource({ userId: context.userId, workspaceId: context.workspaceId }, core.coreSource,
+    return withAuthorizedCoreExtensionSelection({ userId: context.userId, workspaceId: context.workspaceId }, coreExtensionSelectionForSource(core.coreSource),
       () => holdCore(index + 1), { database });
   };
   const hold = async (index: number): Promise<T> => {
@@ -803,7 +810,8 @@ export async function captureCapabilityPackageRuntimeBindings(context: AgentExec
   const proof = workflowRegistry.get(workflow)!;
   const snapshot = proof.effective;
   const selected = selectedRuntimeSkills(snapshot, context.agentId, workflow.snapshot.agent.relevantSkills, workflow);
-  const corePluginSkillBindings = await captureCorePluginSkillRuntimeBindings(context, snapshot.capabilities, selected);
+  const corePluginSkillBindings = await captureCorePluginSkillRuntimeBindings(context, snapshot.capabilities, selected,
+    proof.corePlugins.filter(source => source.kind === 'core_skill').map(source => source.coreSource.resourceRef));
   const verified = new Set<string>();
   const skillReadRoots: string[] = [], skillPackageBindings: HeldCapabilityPackageRuntimeBinding[] = [];
   for (const candidate of selected) {
@@ -939,7 +947,7 @@ export async function loadCapabilityPackageRuntimeSkills(context: AgentExecution
   if (options.selection) {
     const proof = requireWorkflowProof(options.selection, context), skills: CanvasSkill[] = [];
     for (const candidate of selectedRuntimeSkills(proof.effective, context.agentId, options.selection.snapshot.agent.relevantSkills, options.selection)) {
-      if (corePluginDependencyParent(candidate, proof.effective.capabilities)
+      if (requiresExactCoreSkill(candidate, proof)
         && !coreBindings.some(binding => binding.resourceId === candidate.ref.resourceId)) continue;
       const held = proof.pinned.find(entry => entry.skills.some(value => value.ref.resourceId === candidate.ref.resourceId));
       const skill = held?.metadata.skills.find(child => child.skill.name === candidate.ref.name)?.skill ?? await parseSkillFile(candidate.runtimePath!);
@@ -954,7 +962,7 @@ export async function loadCapabilityPackageRuntimeSkills(context: AgentExecution
   for (const binding of context.skillPackageBindings ?? []) legacyRoots.delete(path.dirname(path.resolve(binding.runtimePath)));
   const candidates = selectedRuntimeSkills(snapshot, context.agentId, profile?.relevantSkills, workflow);
   const paths = [...bindings.map(binding => binding.runtimePath), ...candidates.filter(candidate =>
-    legacyRoots.has(path.dirname(path.resolve(candidate.runtimePath!))) && (!corePluginDependencyParent(candidate, snapshot.capabilities)
+    legacyRoots.has(path.dirname(path.resolve(candidate.runtimePath!))) && (!requiresExactCoreSkill(candidate, workflowRegistry.get(workflow)!)
       || coreBindings.some(binding => binding.resourceId === candidate.ref.resourceId))).map(candidate => candidate.runtimePath!)];
   const skills: CanvasSkill[] = [];
   for (const skillPath of [...new Set(paths)]) {

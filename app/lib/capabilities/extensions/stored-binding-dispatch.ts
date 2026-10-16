@@ -4,13 +4,13 @@ import { EXTENSION_SELECTION_LIMITS } from './contracts';
 import { parseStoredStandaloneExtensionBinding, type StoredStandaloneExtensionBinding } from './stored-contracts';
 import { parseStoredPackageExtensionBinding, type StoredPackageExtensionSelectionEntry } from './stored-package-contracts';
 import { createStandaloneExtensionSlotRef } from './standalone-reference';
-import { parseStoredCorePluginExtensionBinding, type StoredCorePluginExtensionBinding } from './stored-core-contracts';
+import { parseStoredCoreExtensionBinding, type StoredCoreExtensionBinding } from './stored-core-contracts';
 
 export type DecodedAgentExtensionBinding = {
   configuration: StoredAgentWorkflowPackage | null;
   extensionSelections?: StoredPackageExtensionSelectionEntry[];
   standaloneConfiguration?: StoredStandaloneExtensionBinding;
-  coreConfiguration?: StoredCorePluginExtensionBinding;
+  coreConfiguration?: StoredCoreExtensionBinding;
   /** Aggregate format, independent of the nested V1 package/connection codec. */
   extensionFormatVersion: 1 | 2 | null;
 };
@@ -27,9 +27,10 @@ export function decodeStoredAgentExtensionBinding(resourceType: unknown, encoded
   let value: unknown;
   try { value = JSON.parse(encoded); } catch { return corrupt(); }
   if (!value || typeof value !== 'object' || Array.isArray(value)) return corrupt();
-  if (Reflect.get(value, 'kind') === 'core_plugin') {
-    if (resourceType !== 'plugin') return corrupt();
-    return { configuration: null, coreConfiguration: parseStoredCorePluginExtensionBinding(value), extensionFormatVersion: 2 };
+  if (Reflect.get(value, 'kind') === 'core_plugin' || Reflect.get(value, 'kind') === 'core_skill') {
+    const coreConfiguration = parseStoredCoreExtensionBinding(value);
+    if (resourceType !== (coreConfiguration.kind === 'core_plugin' ? 'plugin' : 'skill')) return corrupt();
+    return { configuration: null, coreConfiguration, extensionFormatVersion: 2 };
   }
   if (resourceType === 'connection') {
     const standaloneConfiguration = parseStoredStandaloneExtensionBinding(value);
@@ -68,7 +69,8 @@ export function assertStoredAgentExtensionBindingsMatchHeader(version: AgentWork
         slots.add(standalone.configurationId);
       } else if (binding.coreConfiguration) {
         const source = binding.coreConfiguration.entry.selection.coreSource;
-        if (binding.resourceType !== 'plugin' || binding.resourceId !== source.resourceRef || packageRefs.has(source.resourceRef)) return corrupt();
+        if (binding.resourceType !== (binding.coreConfiguration.kind === 'core_plugin' ? 'plugin' : 'skill')
+          || binding.resourceId !== source.resourceRef || packageRefs.has(source.resourceRef)) return corrupt();
         packageRefs.add(source.resourceRef);
       } else if (!binding.configuration || !binding.extensionSelections) return corrupt();
     } else return corrupt();

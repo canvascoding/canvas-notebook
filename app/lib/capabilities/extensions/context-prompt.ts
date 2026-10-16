@@ -189,7 +189,7 @@ export function renderEffectiveExtensionContext(data: ExtensionContextPresentati
       })))}`);
     }
   }
-  corePackages.forEach((pkg, index) => lines.push(`Core plugin K${index + 1} ${JSON.stringify({ name: pkg.name, coreSource: pkg.coreSource,
+  corePackages.forEach((pkg, index) => lines.push(`Core ${pkg.kind === 'core_plugin' ? 'plugin' : 'skill'} K${index + 1} ${JSON.stringify({ name: pkg.name, coreSource: pkg.coreSource,
     requirement: pkg.requirement, skills: pkg.skills.flatMap(skill => { const id = skillIds.get(skillKey(skill)); return id ? [id] : []; }) })}`));
   skills.forEach(({ skill, key, explicit: isExplicit }, index) => {
     const pkg = skill.package && packageIds.get(packageKey(skill.package));

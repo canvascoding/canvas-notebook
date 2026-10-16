@@ -31,9 +31,12 @@ export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { 
           <ArrowLeft className="h-4 w-4" />{navigation.draftRef ? t('backToDrafts') : t('backToInstalled')}
         </Button>
       </header>
-      {navigation.draftRef && navigation.resourceRef ? (
+      {navigation.draftRef ? (
         <PackageEditorSection resourceRef={navigation.resourceRef} initialDraftRef={navigation.draftRef}
-          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} />
+          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} onDraftStarted={draft => navigate({
+            area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts', resourceRef: draft.sourceResourceRef ?? undefined,
+            draftRef: draft.draftRef, task: 'content', file: undefined,
+          })} />
       ) : <PackageDraftsSection workspaceId={workspaceId} onOpenDraft={open} showHeader={false} />}
     </section>
   );

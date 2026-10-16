@@ -192,7 +192,9 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
                 identity={JSON.stringify([resource.metadata.resourceRef, workspaceId, resource.artifact.revision])} /></div></details> : null}
             </TabsContent> : null}
             {task === 'sharing' ? <TabsContent value="sharing"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></TabsContent> : null}
-            {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh} /></TabsContent> : null}
+            {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh}
+              onDraftStarted={draft => onNavigate({ area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
+                resourceRef: draft.sourceResourceRef ?? undefined, draftRef: draft.draftRef, task: 'content', file: undefined })} /></TabsContent> : null}
             {task === 'versions' ? <TabsContent value="versions"><PackageDetailVersions resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} /></TabsContent> : null}
             {task === 'advanced' ? <TabsContent value="advanced" className="space-y-4" data-testid="package-detail-advanced"><h2 className="text-lg font-semibold">{t('advancedTitle')}</h2><p className="text-sm text-muted-foreground">{t('advancedHint')}</p>
               <dl className="space-y-4 rounded-xl border p-4">{[[t('resourceRef'),resource.metadata.resourceRef],[t('version'),resource.artifact.version],[t('checksum'),resource.artifact.checksum]].map(([label,value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-mono text-xs [overflow-wrap:anywhere]">{value}</dd></div>)}</dl>

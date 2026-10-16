@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import Module from 'node:module';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 import { NextIntlClientProvider } from 'next-intl';
@@ -39,6 +40,11 @@ function fixture(reference: string, source = sourceRef, target = sourceRef) {
 }
 
 async function main() {
+  const loader = Module as typeof Module & { _load(name: string, parent: NodeModule | null, main: boolean): unknown };
+  const originalLoad = loader._load;
+  loader._load = (name, parent, isMain) => name === '@/i18n/navigation'
+    ? { useRouter: () => ({ push: () => { throw new Error('This editor test does not navigate to chat.'); } }) }
+    : originalLoad(name, parent, isMain);
   const { render, screen, fireEvent, cleanup, waitFor, act } = await import('@testing-library/react');
   const { PackageEditorSection } = await import('../app/components/plugins/PackageEditorSection');
   const { confirmPluginNavigation } = await import('../app/components/plugins/plugin-navigation-guard');
@@ -47,15 +53,28 @@ async function main() {
   const fixtures = new Map<string, ReturnType<typeof fixture>>();
   const heldStatuses = new Map<string, Promise<void>>();
   let unavailablePackage = false, deniedTree = false, failedFileRead = false, confirmations = 0, holdWrite: Promise<void> | undefined;
+  let recoveredPublished: string | null = null;
+  let holdCreate: Promise<void> | undefined;
   window.confirm = () => { confirmations += 1; return false; };
   const body = (value: unknown, status = 200) => Response.json({ success: status === 200, ...(status === 200 ? { data: value } : { code: 'PACKAGE_ACCESS_DENIED' }) }, { status });
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'http://canvas.test'), prefix = '/api/capabilities/packages';
     assert(url.pathname.startsWith(prefix));
     const suffix = url.pathname.slice(prefix.length), method = init?.method || 'GET';
+    // This transport-focused harness leaves the independently tested structured preview unavailable.
+    if (suffix.endsWith('/presentation')) return body({}, 503);
     requests.push({ suffix, method, workspace: url.searchParams.get('workspaceId') });
     const segments = suffix.split('/').filter(Boolean).map(decodeURIComponent);
+    if (segments[0] === 'operations') return recoveredPublished === url.searchParams.get('draftRef')
+      ? body({ operation: { status: 'published', resourceRef: targetRef } }) : body({}, 404);
     if (segments[0] === 'drafts') {
+      if (method === 'POST' && segments.length === 1) {
+        await holdCreate;
+        const input = JSON.parse(String(init?.body));
+        const created = fixture(draftRef('d'), input.resourceRef, input.operation === 'fork' ? otherRef : input.resourceRef);
+        fixtures.set(created.draft.draftRef, created);
+        return body({ draft: created.draft });
+      }
       const reference = segments[1], value = fixtures.get(reference);
       if (segments[2] === 'status') {
         await heldStatuses.get(reference);
@@ -78,18 +97,20 @@ async function main() {
       throw new Error(`Unexpected draft request ${method}:${segments[2]}`);
     }
     if (segments[0] === 'scopes') return body({ scopes: [{ type: 'user', label: 'Personal' }] });
-    if (segments[0] === sourceRef || segments[0] === legacyRef) {
+    if (segments[0] === sourceRef || segments[0] === legacyRef || segments[0] === targetRef) {
       if (unavailablePackage) return body({}, 403);
       if (segments[1] === 'versions') return body({ versions: [] });
       if (segments[1] === 'tree') return body({ files: [] });
-      return body({ package: descriptor() });
+      const value = descriptor();
+      if (segments[0] === targetRef) value.resource.resourceRef = targetRef;
+      return body({ package: value });
     }
     throw new Error('The editor requested an unrelated package.');
   };
   const form = (props: React.ComponentProps<typeof PackageEditorSection>) => <NextIntlClientProvider locale="en" messages={messages} timeZone="UTC">
     <PackageEditorSection {...props} />
   </NextIntlClientProvider>;
-  const reset = () => { cleanup(); requests.length = 0; fixtures.clear(); localStorage.clear(); heldStatuses.clear(); unavailablePackage = false; deniedTree = false; failedFileRead = false; holdWrite = undefined; confirmations = 0; };
+  const reset = () => { cleanup(); requests.length = 0; fixtures.clear(); localStorage.clear(); heldStatuses.clear(); unavailablePackage = false; deniedTree = false; failedFileRead = false; holdWrite = undefined; holdCreate = undefined; confirmations = 0; recoveredPublished = null; };
   try {
     const first = draftRef('a'); fixtures.set(first, fixture(first));
     render(form({ resourceRef: sourceRef, initialDraftRef: first }));
@@ -127,7 +148,9 @@ async function main() {
     assert.equal(requests.length, 1, 'Explicit wrong-source draft must never trigger package or tree reads.');
     assert.equal(Boolean(screen.queryByTestId('package-discard')), false); assert.equal(Boolean(screen.queryByTestId('package-file-picker')), false);
     reset(); render(form({ resourceRef: sourceRef, initialDraftRef: draftRef('f'), initiallyOpen: true }));
-    await screen.findByText(messages.skills.packageEditor.accessError); assert.equal(requests.length, 1, 'A foreign/missing creator status may not fall back to a package.');
+    await screen.findByText(messages.skills.packageEditor.accessError);
+    assert.deepEqual(requests.map(value => value.suffix), [`/drafts/${encodeURIComponent(draftRef('f'))}/status`, '/operations'],
+      'A foreign/missing draft only checks its actor-private receipt; it never reads a package.');
     reset(); fixtures.set(fork, fixture(fork, otherRef, targetRef)); localStorage.setItem(`canvas-private-package-draft:${legacyRef}:`, fork);
     render(form({ resourceRef: legacyRef, initiallyOpen: true })); await screen.findByText(messages.skills.packageEditor.accessError);
     assert.equal(requests.length, 2, 'Legacy aliases are matched only through the fresh descriptor, before any draft tree reads.');
@@ -153,7 +176,46 @@ async function main() {
     fixtures.delete(first); requests.length = 0; fireEvent.click(screen.getByTestId('package-reload'));
     await screen.findByText(messages.skills.packageEditor.accessError);
     assert.equal(Boolean(screen.queryByTestId('package-file-content')), false); assert.equal(Boolean(screen.queryByTestId('package-publish')), false);
-    assert.equal(requests.length, 2, 'A disappeared explicit draft must stop after tree404/status404, with no source fallback.');
+    assert.equal(requests.length, 3, 'A disappeared explicit draft stops after tree404/status404 and private receipt404, with no source fallback.');
+
+    reset(); recoveredPublished = draftRef('e');
+    render(form({ initialDraftRef: recoveredPublished, initiallyOpen: true, workspaceId: 'team-one' }));
+    await screen.findByText(messages.skills.packageEditor.recoveredPublished);
+    await screen.findByTestId('package-create-edit');
+    fireEvent.click(screen.getByTestId('package-reload'));
+    await waitFor(() => assert.equal(requests.filter(value => value.suffix === `/${encodeURIComponent(targetRef)}`).length, 2));
+    await waitFor(() => assert.equal((screen.getByTestId('package-reload') as HTMLButtonElement).disabled, false));
+    assert(screen.getByTestId('package-create-edit'), 'Repeated reload retains the recovered source-free published package.');
+    assert.equal(requests.filter(value => value.suffix === '/operations').length, 1, 'The recovered reference is reauthorized directly without replaying publication.');
+    unavailablePackage = true; fireEvent.click(screen.getByTestId('package-reload'));
+    await screen.findByText(messages.skills.packageEditor.accessError);
+    unavailablePackage = false; fireEvent.click(screen.getByTestId('package-reload'));
+    await screen.findByTestId('package-create-edit');
+    assert.equal(requests.filter(value => value.suffix === `/${encodeURIComponent(targetRef)}`).length, 4, 'A denied read does not forget the recovered identity or prevent a later authorized retry.');
+
+    reset(); const started: CapabilityPackageDraft[] = [];
+    render(form({ resourceRef: sourceRef, initiallyOpen: true, onDraftStarted: draft => {
+      assert.equal(confirmPluginNavigation(), true, 'Canonical draft navigation waits until the pending guard is released.'); started.push(draft);
+    } }));
+    await screen.findByTestId('package-create-edit');
+    let releaseCreate!: () => void; holdCreate = new Promise<void>(resolve => { releaseCreate = resolve; });
+    fireEvent.click(screen.getByTestId('package-create-edit'));
+    await waitFor(() => assert.equal(confirmPluginNavigation(), false)); assert.equal(started.length, 0);
+    await act(async () => { releaseCreate(); });
+    await waitFor(() => assert.equal(started.length, 1)); assert.equal(started[0].draftRef, draftRef('d'));
+    assert.equal(started[0].sourceResourceRef, sourceRef);
+    await act(async () => {}); assert.equal(started.length, 1, 'The acknowledged new draft emits one navigation intent.');
+
+    reset(); const forkStarted: CapabilityPackageDraft[] = [];
+    render(form({ resourceRef: sourceRef, initiallyOpen: true, onDraftStarted: draft => {
+      assert.equal(confirmPluginNavigation(), true); forkStarted.push(draft);
+    } }));
+    await screen.findByTestId('package-create-edit');
+    fireEvent.change(screen.getByTestId('package-variant-name'), { target: { value: 'new-variant' } });
+    fireEvent.click(screen.getByTestId('package-create-fork'));
+    await waitFor(() => assert.equal(forkStarted.length, 1));
+    assert.equal(forkStarted[0].operation, 'fork'); assert.equal(forkStarted[0].sourceResourceRef, sourceRef);
+    assert.equal(forkStarted[0].resourceRef, otherRef, 'Fork navigation receives separate exact source and target identities.');
 
     reset(); const second = draftRef('b'), third = draftRef('c');
     for (const reference of [first, second, third]) fixtures.set(reference, fixture(reference));
@@ -171,6 +233,6 @@ async function main() {
     assert.equal(requests.filter(request => request.workspace === 'team-one').length, 2, 'Stale status completions must not start source reads or restore old draft/CAS.');
     assert(!requests.some(request => request.suffix.includes(encodeURIComponent(first)) && request.suffix.endsWith('/tree')));
     console.log('PASS package editor UI: lazy canonical resume, safe status/source match, legacy alias fork, creator denial, revoke/discard, dirty+pending guard and A→B→C workspace/ref races.');
-  } finally { cleanup(); globalThis.fetch = originalFetch; window.confirm = originalConfirm; dom.window.close(); }
+  } finally { cleanup(); loader._load = originalLoad; globalThis.fetch = originalFetch; window.confirm = originalConfirm; dom.window.close(); }
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

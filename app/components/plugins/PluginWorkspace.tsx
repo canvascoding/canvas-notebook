@@ -26,6 +26,7 @@ import { StorePackageWizard } from './StorePackageWizard';
 import { PackageDraftsWorkspace } from './PackageDraftsWorkspace';
 import { SharedConnectionsSection } from './SharedConnectionsSection';
 import { PluginExtensionWorkspace } from './PluginExtensionWorkspace';
+import { PluginCreatorMenu } from './PluginCreatorMenu';
 
 const clearDetail = { plugin: undefined, skill: undefined, source: undefined, resourceId: undefined, resourceRef: undefined,
   draftRef: undefined, task: undefined, file: undefined, storeRegistryId: undefined, storeVersion: undefined, storeChecksum: undefined } satisfies Partial<PluginNavigation>;
@@ -109,11 +110,11 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
 
   return <section className="min-w-0 space-y-6" data-testid="plugin-workspace">
     <header className="space-y-5 border-b pb-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0"><h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
           <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{t('description')}</p>
           {workspaceLabel ? <p className="mt-2 truncate text-xs text-muted-foreground">{t('workspace', { name: workspaceLabel })}</p> : null}</div>
-        <Button variant="ghost" size="icon" onClick={() => { if (confirmPluginNavigation()) refresh(); }} aria-label={t('refresh')} disabled={data.status === 'loading'}><RefreshCw className="size-4" /></Button>
+        <div className="flex shrink-0 items-center gap-1"><PluginCreatorMenu workspaceId={workspaceId} /><Button variant="ghost" size="icon" onClick={() => { if (confirmPluginNavigation()) refresh(); }} aria-label={t('refresh')} disabled={data.status === 'loading'}><RefreshCw className="size-4" /></Button></div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex max-w-full flex-wrap gap-1 rounded-lg bg-muted/60 p-1" aria-label={t('scope')}>

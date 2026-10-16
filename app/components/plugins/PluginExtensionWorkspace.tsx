@@ -22,6 +22,7 @@ import { PackageDetailWorkspace } from './PackageDetailWorkspace';
 import { StorePackageWizard } from './StorePackageWizard';
 import { PluginIntegrationDetail } from './PluginIntegrationDetail';
 import { PluginMcpSetup } from './PluginMcpSetup';
+import { PluginCreatorMenu } from './PluginCreatorMenu';
 
 const clearDetail = { plugin: undefined, skill: undefined, source: undefined, resourceId: undefined, resourceRef: undefined,
   draftRef: undefined, task: undefined, file: undefined, storeRegistryId: undefined, storeVersion: undefined, storeChecksum: undefined,
@@ -114,10 +115,10 @@ export function PluginExtensionWorkspace({ workspaceId }: { workspaceId: string 
 
   return <section ref={root} className="min-w-0 space-y-5" data-testid="plugin-workspace">
     <header className="space-y-4 border-b pb-5">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0"><h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1><p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{t('description')}</p>
           {workspaceLabel ? <p className="mt-2 truncate text-xs text-muted-foreground">{shell('workspace', { name: workspaceLabel })}</p> : null}</div>
-        <div className="flex shrink-0 gap-1"><Button variant="ghost" size="icon" onClick={refresh} aria-label={t('refresh')} disabled={data.status === 'loading' || data.updating}><RefreshCw className="size-4" aria-hidden="true" /></Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1"><PluginCreatorMenu workspaceId={workspaceId} /><Button variant="ghost" size="icon" onClick={refresh} aria-label={t('refresh')} disabled={data.status === 'loading' || data.updating}><RefreshCw className="size-4" aria-hidden="true" /></Button>
           <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm">{t('manage')}<ChevronDown className="size-3.5" aria-hidden="true" /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end">{(['updates', 'drafts', 'advanced'] as const).map(view => <DropdownMenuItem key={view} onSelect={() => navigate({ ...clearDetail, area: 'plugins', view })}>{shell(view === 'advanced' ? 'advanced' : `view_${view}`)}</DropdownMenuItem>)}</DropdownMenuContent>
           </DropdownMenu></div>

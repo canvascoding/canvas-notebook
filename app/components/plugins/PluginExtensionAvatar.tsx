@@ -19,6 +19,7 @@ function safeIconUrl(value: string): string | null {
     const url = new URL(value, 'https://canvas.invalid');
     if (url.hash || url.origin !== 'https://canvas.invalid') return null;
     return /^\/api\/capabilities\/packages\/[^/]+\/icon$/u.test(url.pathname)
+      || /^\/api\/capabilities\/packages\/drafts\/[^/]+\/image$/u.test(url.pathname)
       || /^\/api\/plugins\/store\/icon$/u.test(url.pathname)
       || /^\/api\/skills\/store\/icon$/u.test(url.pathname)
       || /^\/api\/integrations\/mcp-icon\/[^/]+$/u.test(url.pathname)

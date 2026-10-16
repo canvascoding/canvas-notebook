@@ -428,8 +428,8 @@ function extensionBindingInputs(packages: readonly PreparedPackage[], extensions
       requirement: selections.some(selection => selection.requirement === 'required')
         || entry.stored.declarations.some(declaration => declaration.capabilities.some(capability => capability.required)) ? 'required' as const : 'optional' as const,
       extensionConfiguration: parseStoredPackageExtensionBinding({ version: 2, kind: 'package', workflow: entry.stored, selections }) };
-  }), ...corePlugins.map(({ stored }) => ({ resourceType: 'plugin' as const, scopeType: 'system' as const,
-    resourceId: stored.entry.selection.coreSource.resourceRef, name: 'plugin-creator',
+  }), ...corePlugins.map(({ stored }) => ({ resourceType: stored.kind === 'core_plugin' ? 'plugin' as const : 'skill' as const, scopeType: 'system' as const,
+    resourceId: stored.entry.selection.coreSource.resourceRef, name: stored.entry.selection.coreSource.resourceRef.split(':').at(-1)!,
     version: stored.entry.selection.coreSource.coreRevision, requirement: stored.entry.requirement, extensionConfiguration: stored })),
   ...standalone.map(configuration => {
     const source = configuration.mode === 'fixed' ? configuration.entry.selection.source : configuration.source;
@@ -483,7 +483,7 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
       await validateAgentDefaultOnConnection(database, { organizationId: verified.organizationId, selection: model,
         expectedCatalogRevision: parseAgentDefaultCatalogRevision(captured.expectedCatalogRevision, true) });
     }
-    const agent = await withAgentCorePluginSources(database, actor!, corePlugins.map(entry => entry.stored), () => withPackages(database, actor!, packages, async () => {
+    const agent = await withPackages(database, actor!, packages, () => withAgentCorePluginSources(database, actor!, corePlugins.map(entry => entry.stored), async () => {
       let profile = await createAgentProfile({ name: captured.name, agentId: captured.agentId, iconId: normalizeAgentIconId(captured.iconId),
         enabledTools: captured.enabledTools ?? null, relevantSkills: extensions.mode === 'fixed'
           ? [...new Set([...packages.flatMap(entry => entry.stored.selectedSkills.map(skill => skill.name)), ...corePlugins.flatMap(entry => entry.skillNames)])] : null,
@@ -513,7 +513,7 @@ export async function createManagedAgentExtensionConfiguration(actorInput: Agent
       }
       await initializeFiles(profile);
       return profile;
-    }, extensions.mode === 'fixed'));
+    }), extensions.mode === 'fixed');
     commitAttempted = true;
     await database.run('COMMIT');
     return agent;
@@ -612,7 +612,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
       [...references(packages), ...contextReferences, ...(standalone ? getPreparedAgentStandaloneSharedReferences(standalone, actor!) : [])]);
     await revalidateTargets(prepared, database);
     if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
-    agent = await withAgentCorePluginSources(database, actor!, contextCorePlugins, () => withPackages(database, actor!, contextPackages, async () => {
+    agent = await withPackages(database, actor!, contextPackages, () => withAgentCorePluginSources(database, actor!, contextCorePlugins, async () => {
       if (changesDefault) {
         if (!verified.organizationId || !['owner', 'admin'].includes(verified.organizationRole ?? '') || before!.agent.organizationId && before!.agent.organizationId !== verified.organizationId) fail('AGENT_ORGANIZATION_ADMIN_REQUIRED', 'Organization administration is required for model defaults.', 403);
         await validateAgentDefaultOnConnection(database, { organizationId: verified.organizationId, selection: model,
@@ -661,7 +661,7 @@ export async function updateManagedAgentConfiguration(input: UpdateManagedAgentC
         if (standalone) await revalidatePreparedAgentStandalonePersonalConfigurations(standalone, actor!, { database });
       }
       return next;
-    }, changesContext && (extensions ? extensions.mode === 'fixed' : !changesWorkflow && before!.workflowVersion === 2)));
+    }), changesContext && (extensions ? extensions.mode === 'fixed' : !changesWorkflow && before!.workflowVersion === 2));
     await database.run('COMMIT');
   } catch (error) { try { await database.run('ROLLBACK'); } catch { /* Preserve the authoritative failure. */ } throw error; }
   finally { await database.close(); }

@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { authClient } from '@/app/lib/auth-client';
-import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
+import { isPromptHandoffForNavigation, type PromptHandoff } from '@/app/lib/chat/prompt-handoff';
+import { persistComposePromptHandoff, readNewChatComposerDraft } from '@/app/lib/chat/composer-handoff';
 import { toast } from 'sonner';
 import {
   Loader2,
@@ -1003,7 +1004,23 @@ export default function CanvasAgentChat({
     }
   }, [activeReferenceMatch, closeReferencePicker, editorRef, handleReferenceSelect, handleSend, handleStop, input, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
 
+  const composePromptHandoff = useCallback((handoff: PromptHandoff) => {
+    if (!activeWorkspaceId) throw new Error('Choose the original workspace to open this composer draft.');
+    const body = persistComposePromptHandoff(handoff, activeWorkspaceId);
+    startNewChat(handoff.agentId ?? CHAT_AGENT_ID);
+    setInputBody(body);
+    setAttachments(handoff.attachments);
+  }, [activeWorkspaceId, setAttachments, startNewChat]);
+
+  const restoreNewChatDraft = useCallback(() => {
+    if (!activeWorkspaceId) return;
+    const body = readNewChatComposerDraft(activeWorkspaceId);
+    if (body) setInputBody(current => projectChatBodyText(current) ? current : body);
+  }, [activeWorkspaceId]);
+
   const { initialSessionError, retryInitialSession } = useChatSessionBootstrap({
+    onComposeHandoff: composePromptHandoff,
+    onRestoreNewChatDraft: restoreNewChatDraft,
     addSessionToHistory,
     appendSystemMessage,
     clearSessionParamFromUrl,

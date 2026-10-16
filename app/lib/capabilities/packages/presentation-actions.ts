@@ -39,6 +39,14 @@ const boundedText = (value: string | undefined, max: number): string | undefined
   ? Array.from(value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u202a-\u202e\u2066-\u2069]/gu, '').trim()).slice(0, max).join('') || undefined : undefined;
 const envKey = /^[A-Za-z_][A-Za-z0-9_]{0,255}$/u;
 
+/** Metadata projection for a currently held private draft, without an installed-source identity. */
+export async function projectCapabilityPackageDraftContents(kind: 'plugin' | 'skill', root: string) {
+  const projected = await projectPresentation(kind, root, '', undefined, { verifiedStoreStaging: true });
+  return { title: projected.title, description: projected.description, version: projected.version,
+    contents: { children: projected.children, capabilities: projected.capabilities, requirements: projected.requirements,
+      scripts: projected.scripts, compatibility: projected.compatibility, requiredEnv: projected.requiredEnv } };
+}
+
 function actorSnapshot(input: CapabilityResourceActor): CapabilityResourceActor {
   if (!input || typeof input.userId !== 'string' || !input.userId || input.userId.length > 256
     || input.userId !== input.userId.trim() || /[\u0000-\u001f\u007f]/u.test(input.userId)

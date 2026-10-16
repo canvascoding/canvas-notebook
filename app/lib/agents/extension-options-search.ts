@@ -8,7 +8,7 @@ import type { PluginExtensionItem, PluginExtensionQuery } from '@/app/lib/plugin
 import { AgentWorkflowError } from './workflow-contracts';
 import { isIntegrationConnectionError } from '@/app/lib/integration-tools/connections/contracts';
 import { EXTENSION_SELECTION_LIMITS } from '@/app/lib/capabilities/extensions/contracts';
-import { corePluginSource, withAuthorizedCorePluginSource } from '@/app/lib/capabilities/extensions/core-source';
+import { corePluginSource, withAuthorizedCorePluginSource, loadCoreSkillSource, withAuthorizedCoreSkillSource } from '@/app/lib/capabilities/extensions/core-source';
 import { loadCoreCanvasPlugin } from '@/app/lib/plugins/core-plugin-loader';
 import type { AgentExtensionOptionsResponse, AgentExtensionSearchItem, AgentExtensionSearchRequest } from './extension-options-contracts';
 import { authorizeExtensionSharedOption as authorizeAgentExtensionSharedOption, revalidateExtensionOptionsSourceContext as revalidateAgentExtensionOptionsContext, type ExtensionOptionsSourceContext } from './extension-options-source-context';
@@ -97,6 +97,12 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
       const source=corePluginSource(plugin);
       await withAuthorizedCorePluginSource(resourceActor,source,async()=>undefined);
       return {item,selection:{kind:'core_plugin',coreSource:source},eligibility:{action:'select'}};
+    }
+    if (resource.artifact.resourceType === 'skill' && resource.artifact.sourceType === 'core' && resource.artifact.scopeType === 'system') {
+      const { source } = await loadCoreSkillSource(resource.artifact.name);
+      if (source.resourceRef !== resource.artifact.resourceId) throw new AgentWorkflowError('AGENT_EXTENSION_PACKAGE_UNAVAILABLE', 'The exact Core skill source changed.', 409);
+      await withAuthorizedCoreSkillSource(resourceActor, source, async () => undefined);
+      return { item, selection: { kind: 'core_skill', coreSource: source }, eligibility: { action: 'select' } };
     }
     // Plugin children are selected from the actual held parent's child inventory.
     // A child display row is never treated as an independent package pin.

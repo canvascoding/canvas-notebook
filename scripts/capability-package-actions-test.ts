@@ -10,6 +10,7 @@ import { verifyCapabilityPackageCreation } from './helpers/capability-package-cr
 import { verifyCapabilityPackageComposition } from './helpers/capability-package-composition-cases';
 import { verifyCapabilityPackageCompositionConcurrency } from './helpers/capability-package-composition-concurrency';
 import { verifyCapabilityPackageCreatorValidation } from './helpers/capability-package-creator-validation-cases';
+import { verifyCapabilityPackageDraftPresentation } from './helpers/capability-package-draft-presentation-cases';
 
 async function main() {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'canvas-package-actions-'));
@@ -88,6 +89,10 @@ async function main() {
       await verifyCapabilityPackageCreatorValidation({packages,raw,owner,other:editor,request,legacyRef:ref});
       return;
     }
+    if(process.argv.includes('--draft-presentation')) {
+      await verifyCapabilityPackageDraftPresentation({packages,raw,owner,other:editor,request});
+      return;
+    }
     if(process.argv.includes('--composition-cases')) {
       await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
       return;
@@ -95,6 +100,7 @@ async function main() {
     await verifyCapabilityPackageCreation({packages,raw,owner,other:editor,request,native:database.native});
     await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
     await verifyCapabilityPackageCreatorValidation({packages,raw,owner,other:editor,request,legacyRef:ref});
+    await verifyCapabilityPackageDraftPresentation({packages,raw,owner,other:editor,request});
     if(database.native) await verifyCapabilityPackageCompositionConcurrency({packages,raw,owner,pool:database.getPostgresRuntimeQueryable()});
     assert.equal((await inspectRoute.GET(request(null),context({resourceRef:ref}))).status,401);
     const inspected=await responseData<{package:CapabilityPackageDescriptor}>(await inspectRoute.GET(request('editor'),context({resourceRef:ref})));

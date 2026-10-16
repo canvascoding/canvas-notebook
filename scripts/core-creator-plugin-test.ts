@@ -244,6 +244,7 @@ async function main(): Promise<void> {
     await assert.rejects(runtime.getAuthorizedAgentWorkflowPackageSelections({ ...emptyContext, agentTurnId: randomUUID(),
       turnExtensions: acceptedApi.readAcceptedTurnExtensionSelection(malicious, emptyIntake).publicSelection }),
     error => [403, 409].includes((error as { status?: number }).status ?? 0), 'Accepted syntax and Core Use cannot expand an empty fixed Agent selection.');
+    await (await import('./helpers/core-skill-selection-cases')).runCoreSkillSelectionCases({ raw, ownerContext, emptyContext, read });
     const ownerGateway = progressive.createProgressiveGatewayTool(definition,
       [...scoped.createUserScopedTools('owner', storage.DEFAULT_MANAGED_AGENT_ID, 'creator-owner'),
         createExtensionDiscoveryTool('owner', storage.DEFAULT_MANAGED_AGENT_ID, 'creator-owner')]);

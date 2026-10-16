@@ -191,7 +191,7 @@ Das vollständige Manifest benötigt die dazu passenden `connectors`-Deklaration
 
 ## 5. Umsetzung in abgeschlossenen Schritten
 
-Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 und P2 sind als Backend-/API-Grundlage abgeschlossen; P3 ist implementiert und über die echten Serverpfade geprüft. P4 ist über die tatsächlichen Server-/Datei-/SQL-Wege abgenommen. P5 bis P7 sowie der natürliche Creator-/UI-Nachweis bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
+Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 und P2 sind als Backend-/API-Grundlage abgeschlossen; P3 ist implementiert und über die echten Serverpfade geprüft. P4 ist über die tatsächlichen Server-/Datei-/SQL-Wege abgenommen. P5 ist über Web, native Clientkomponenten und tatsächliche Serverwege abgenommen. P6 und P7 sowie der natürliche Creator-/Verwendungsnachweis bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
 
 ### P1 — Gemeinsamen Entwurf um echte Neuanlage und Wiederaufnahme erweitern
 
@@ -246,12 +246,12 @@ Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahme
 
 ### P5 — Progressive Oberfläche im Web und passenden Mobile-Einstieg anschließen
 
-- [ ] Auf der aktiven Plugin-Seite „Erstellen → Skill / Plugin“ anbieten; denselben Creator-Chat verwenden.
-- [ ] Paketeditor und Entwurfsnavigation ohne vorausgesetzte Quellressource öffnen. Neu/übernommen, Herkunft und Versionsänderungen verständlich zusammenfassen.
-- [ ] Zweck-SVG, Name, Organisation, Nutzungsadressat, Skills, Anforderungen und Status zuerst; gerenderte Skill-Vorschau, Validierungsdetails und technische Dateien unter Details. Keine neue ausgewählte-Ressourcen-Leiste und keine öffentliche Veröffentlichungsaktion.
-- [ ] Neue Skills, vorhandene Skills, Custom-MCPs und Composio über den gemeinsamen Katalog auswählen. Composio-Logos, Paketbilder und bestehende MCP-Domainbilder nutzen; Initialen als Fallback.
-- [ ] Das generierte SVG über die bestehenden geschützten Bild-/Paketpräsentationsdienste in Karten, Details und Inline-Referenzen anzeigen. Zugänglichen Host-Alttext beziehungsweise ein semantisches Äquivalent bereitstellen; im kleinen Inline-Kontext neben bereits sichtbarem Namen keine redundante Ansage. Lesbarkeit bei kleinen Größen, Skalierung, Kontrast, hell/dunkel, Reload und Versionswechsel prüfen. Initialen bleiben ein Lade-/Legacyfallback, kein erfolgreicher Abschluss einer neuen fehlerhaften Grafik.
-- [ ] Native Creator-Einstiege verwenden dieselbe Inline-Referenz und serverseitige Autorität. Entwurfsvorschau/-fortsetzung über klar unterstützte Mobile-Verträge bereitstellen; ältere Clients zeigen verständlich fehlende Fähigkeit an.
+- [x] Auf der aktiven Plugin-Seite „Erstellen → Skill / Plugin“ anbieten; denselben Creator-Chat verwenden.
+- [x] Paketeditor und Entwurfsnavigation ohne vorausgesetzte Quellressource öffnen. Neu/übernommen, Herkunft und Versionsänderungen verständlich zusammenfassen.
+- [x] Zweck-SVG, Name, Organisation, Nutzungsadressat, Skills, Anforderungen und Status zuerst; gerenderte Skill-Vorschau, Validierungsdetails und technische Dateien unter Details. Keine neue ausgewählte-Ressourcen-Leiste und keine öffentliche Veröffentlichungsaktion.
+- [x] Neue Skills, vorhandene Skills, Custom-MCPs und Composio über den gemeinsamen Katalog auswählen. Composio-Logos, Paketbilder und bestehende MCP-Domainbilder nutzen; Initialen als Fallback.
+- [x] Das generierte SVG über die bestehenden geschützten Bild-/Paketpräsentationsdienste in Karten, Details und Inline-Referenzen anzeigen. Zugänglichen Host-Alttext beziehungsweise ein semantisches Äquivalent bereitstellen; im kleinen Inline-Kontext neben bereits sichtbarem Namen keine redundante Ansage. Lesbarkeit bei kleinen Größen, Skalierung, Kontrast, hell/dunkel, Reload und Versionswechsel prüfen. Initialen bleiben ein Lade-/Legacyfallback, kein erfolgreicher Abschluss einer neuen fehlerhaften Grafik.
+- [x] Native Creator-Einstiege verwenden dieselbe Inline-Referenz und serverseitige Autorität. Entwurfsvorschau/-fortsetzung über klar unterstützte Mobile-Verträge bereitstellen; ältere Clients zeigen verständlich fehlende Fähigkeit an.
 
 **Hauptdateien:** `PluginExtensionWorkspace.tsx`, `PluginWorkspace.tsx`, `PackageDraftsWorkspace.tsx`, `PackageEditorSection.tsx`, Plugin-Navigation und Chatstartadapter; Mobile-Erweiterungshub, Chat-/Entwurfsnavigation und API-Adapter.
 

@@ -41,6 +41,8 @@ type UseChatSessionBootstrapParams = {
   initialPrompt?: string | null;
   initialPromptConsumedRef: MutableRefObject<boolean>;
   initialPromptStorageKey?: string;
+  onComposeHandoff?: (handoff: PromptHandoff) => void;
+  onRestoreNewChatDraft?: () => void;
   isLoadingHistory: boolean;
   isAuthReady?: boolean;
   isResolvingInitialChatState: boolean;
@@ -83,6 +85,8 @@ export function useChatSessionBootstrap({
   initialPrompt,
   initialPromptConsumedRef,
   initialPromptStorageKey,
+  onComposeHandoff,
+  onRestoreNewChatDraft,
   isLoadingHistory,
   isAuthReady = true,
   isResolvingInitialChatState,
@@ -199,6 +203,12 @@ export function useChatSessionBootstrap({
       setInitialSessionFailure(null);
       let detached = false;
       try {
+        if (handoff.mode === 'compose') {
+          if (!onComposeHandoff) throw new Error('This chat cannot open the saved composer draft.');
+          onComposeHandoff(handoff);
+          if (storageKey) consumePromptHandoff(window.sessionStorage, storageKey, handoff.handoffId);
+          return;
+        }
         await handleControlAction('send', { text: handoff.prompt, attachments: handoff.attachments,
           handoffId: handoff.handoffId, workspaceId: handoff.workspaceId,
           ...(handoff.body === undefined ? {} : { body: handoff.body }) });
@@ -216,7 +226,7 @@ export function useChatSessionBootstrap({
     })();
   }, [activeWorkspaceId, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey,
     isAuthReady, isRuntimeSelectionLoading, isWorkspaceNavigationPending, resolvedRequestedSessionId, retryVersion,
-    selectedAgentId, sessionAgentIdRef, sessionIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState,
+    selectedAgentId, sessionAgentIdRef, sessionIdRef, onComposeHandoff, setHistoryAgentFilter, setIsResolvingInitialChatState,
     setSelectedAgentId, userStartedNewChatRef]);
 
   useEffect(() => {
@@ -309,6 +319,9 @@ export function useChatSessionBootstrap({
 
     const storedSessionId = readCanvasChatActiveSessionStorage(activeWorkspaceId);
     if (!storedSessionId) {
+      // A consumed compose handoff survives reload as an ordinary scoped new-chat
+      // draft. It has no session to bootstrap and must never be submitted here.
+      if (isAuthReady) onRestoreNewChatDraft?.();
       setIsResolvingInitialChatState(false);
       return;
     }
@@ -353,7 +366,9 @@ export function useChatSessionBootstrap({
     initialPrompt,
     initialPromptConsumedRef,
     initialPromptStorageKey,
+    isAuthReady,
     isWorkspaceNavigationPending,
+    onRestoreNewChatDraft,
     resolvedRequestedSessionId,
     retryVersion,
     sessionIdRef,

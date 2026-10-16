@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 import { NextIntlClientProvider } from 'next-intl';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import messages from '../messages/en.json';
 import type { CapabilityResourceDescriptor } from '../app/lib/capabilities/resources/contracts';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft, CapabilityPackagePublishedSummary } from '../app/lib/capabilities/packages/contracts';
@@ -56,9 +57,9 @@ function storeList(value:CapabilityResourceDescriptor):CapabilityPackageStoreLis
 
 async function main() {
   const {render,screen,fireEvent,cleanup,waitFor,act}=await import('@testing-library/react');
-  const {PackageEditorSection}=await import('../app/components/plugins/PackageEditorSection');
   const {confirmPluginNavigation}=await import('../app/components/plugins/plugin-navigation-guard');
-  const intl=(content:React.ReactNode)=><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>{content}</NextIntlClientProvider>;
+  const router={push:()=>{},replace:()=>{},prefetch:()=>{},refresh:()=>{},back:()=>{},forward:()=>{},hmrRefresh:()=>{},bfcacheId:'detail-test'};
+  const intl=(content:React.ReactNode)=><AppRouterContext.Provider value={router}><NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>{content}</NextIntlClientProvider></AppRouterContext.Provider>;
   const originalFetch=globalThis.fetch,originalConfirm=window.confirm;
   const requests:Array<{path:string;workspace:string|null;method:string;query:URLSearchParams}>=[];
   const authRequests:Array<{path:string;method:string}>=[];
@@ -96,6 +97,7 @@ async function main() {
     ]});
     if(url.pathname.endsWith('/versions')) return body({versions:[history(selected)]});
     if(url.pathname.endsWith('/scopes')) return body({scopes:[{type:'user',label:'Personal'}]});
+    if(url.pathname==='/api/capabilities/packages/drafts'&&method==='POST') return body({draft});
     if(url.pathname.includes('/drafts/')) {
       if(url.pathname.endsWith('/status')) return body({status:{draftRef,resourceRef,sourceResourceRef:resourceRef,kind:'plugin',name:'design-package',draftRevision:1,operation:'edit',createdAt:1,updatedAt:1,targetOwnership:resource.metadata.ownership}});
       if(url.pathname.endsWith('/tree')) return body({...draftData(),files:[{type:'file',path:'README.md',size:10,checksum},{type:'file',path:'notes.md',size:5,checksum:otherChecksum}]});
@@ -110,6 +112,7 @@ async function main() {
   const {authClient}=await import('../app/lib/auth-client');
   const sessionAtom=authClient.$store.atoms.session,originalSession=sessionAtom.get();
   sessionAtom.set({...sessionAtom.get(),data:uiSession,error:null,isPending:false,isRefetching:false});
+  const {PackageEditorSection}=await import('../app/components/plugins/PackageEditorSection');
   const {PackageDetailWorkspace}=await import('../app/components/plugins/PackageDetailWorkspace');
   function Detail({reference=resourceRef,workspace='team-design',initialTask='overview',selectedFile}:{reference?:string;workspace?:string;initialTask?:React.ComponentProps<typeof PackageDetailWorkspace>['task'];selectedFile?:string}) {
     const [task,setTask]=React.useState(initialTask);
@@ -208,6 +211,13 @@ async function main() {
     fireEvent.mouseDown(screen.getByTestId('package-detail-tab-versions'),{button:0});assert.equal(navigation.length,0);assert.equal(dirtyDetail.value,'Keep this draft text');
     const beforeDirtyReload=requests.length;fireEvent.click(screen.getByTestId('package-detail-reload'));assert.equal(requests.length,beforeDirtyReload);assert.equal(dirtyDetail.value,'Keep this draft text');
     assert(!requests.some(request=>request.method!=='GET'),'cancelled navigation cannot discard or publish a dirty draft');
+
+    reset();resource.access.canEdit=true;packageDescriptor=packageView(resource);window.confirm=()=>false;
+    render(<Detail initialTask="content" />);await screen.findByTestId('package-create-edit');
+    fireEvent.click(screen.getByTestId('package-create-edit'));
+    await waitFor(()=>assert.equal(navigation.length,1));
+    assert.deepEqual(navigation[0],{area:'plugins',view:'drafts',resourceRef,draftRef,task:'content',file:undefined},
+      'The detail surface navigates to the exact acknowledged draft instead of leaving its URL on the published package.');
 
     // Actual Editor mounts exercise the additive deep link after current descriptor/tree, with no implicit draft or write.
     reset();render(intl(<PackageEditorSection resourceRef={resourceRef} workspaceId="team-design" initiallyOpen initialFile="README.md" />));

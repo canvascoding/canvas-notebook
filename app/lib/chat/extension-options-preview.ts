@@ -1,3 +1,4 @@
+import { isCoreExtensionSelection } from '@/app/lib/capabilities/extensions/core-source-contracts';
 import 'server-only';
 import { assertChatBodySelection, deriveChatBodySelection } from './chat-body-contracts';
 import { chatCorePluginSelectionEligibility, chatPackageSelectionEligibility, intersectChatCaps } from './extension-options-eligibility';
@@ -23,7 +24,7 @@ export async function previewChatExtensionSelection(context: ChatExtensionOption
     signal.throwIfAborted();
     const current = entry.selection, path = extensionSelectionIdentity(current);
     try {
-      if(current.kind==='core_plugin') {
+      if(isCoreExtensionSelection(current)) {
         const eligibility=await chatCorePluginSelectionEligibility(context,current);
         if(eligibility.action!=='select')throw new Error(eligibility.reason?.message);
         if(entry.toolCap!==null)throw new Error('Core instruction selections require a null tool capability field.');
