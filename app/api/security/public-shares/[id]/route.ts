@@ -8,6 +8,7 @@ import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPublicRequestOrigin } from '@/app/lib/utils/request-origin';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import { publicShareWriterFailure } from '@/app/lib/public-sharing/writer';
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canCreatePublicLinks' });
@@ -64,9 +65,8 @@ export async function DELETE(
   try {
     const share = await revokePublicFileShare({
       id,
-      userId: session.user.id,
-      workspace,
-      isAdmin,
+      request,
+      workspaceId: workspace.workspaceId,
       baseUrl: getPublicRequestOrigin(request),
     });
 
@@ -97,10 +97,11 @@ export async function DELETE(
 
     return NextResponse.json({ success: true, share });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to revoke public share.';
+    const failure = publicShareWriterFailure(error);
     return NextResponse.json(
-      { success: false, error: message },
-      { status: message === 'Forbidden' ? 403 : 400 }
+      { success: false, error: failure?.message ?? 'The public link action could not be confirmed.',
+        ...(failure ? {code:failure.code} : {}) },
+      { status: failure?.status ?? 503 }
     );
   }
 }

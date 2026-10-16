@@ -359,8 +359,6 @@ function createPublicShareTool(userId?: string, agentId?: string | null, session
           if (!p.shareId) throw new Error('shareId is required for revoke.');
           const share = await revokePublicFileShare({
             id: p.shareId,
-            userId: scopedUserId,
-            isAdmin: false,
             baseUrl: process.env.BETTER_AUTH_BASE_URL || process.env.BASE_URL || null,
           });
           if (!share) throw new Error(`Public share not found: ${p.shareId}`);

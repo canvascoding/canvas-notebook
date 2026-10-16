@@ -48,7 +48,7 @@ function isModelOverrideConfigured(agent: AgentProfile): boolean {
   return Boolean(agent.defaultProvider?.trim() && agent.defaultModel?.trim());
 }
 
-function resolveEffectiveProviderConfig(
+export function resolveEffectiveProviderConfig(
   mainPiConfig: PiRuntimeConfig,
   agent: AgentProfile,
 ): {

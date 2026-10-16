@@ -27,6 +27,8 @@ import {
 import { resolveWorkspacePath } from '@/app/lib/workspaces/path-guard';
 import { workspaceAbsoluteRoot } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
+import type { NextRequest } from 'next/server';
+import { revokePublicShareForRequest, revokePublicShareForAgent } from './writer';
 
 export type PublicShareStatus = 'active' | 'revoked' | 'missing' | 'stale' | 'expired';
 export type PublicShareSource = 'ui' | 'agent';
@@ -891,23 +893,21 @@ export async function createPublicFileShares(params: {
 
 export async function revokePublicFileShare(params: {
   id: string;
-  userId: string;
+  request?: NextRequest;
+  workspaceId?: string;
+  /** Historical selectors are retained for trusted caller compatibility only.
+   * Their actor/permissions never replace the genuine request or invocation. */
+  userId?: string;
   workspace?: WorkspaceContext | null;
   isAdmin?: boolean;
   baseUrl?: string | null;
 }): Promise<PublicShareDto | null> {
-  const [row] = await db.select().from(publicFileShares).where(eq(publicFileShares.id, params.id)).limit(1);
-  if (!row) return null;
-  const workspace = resolveOperationWorkspace(params.workspace);
-  if (workspace && !workspaceMatches(row, workspace)) return null;
-  const canManageWorkspaceShare = canManageOtherWorkspaceShare(row, workspace);
-  if (!params.isAdmin && row.createdByUserId !== params.userId && !canManageWorkspaceShare) {
-    throw new Error('Forbidden');
-  }
-
-  const updated = await updateShare(row, { status: 'revoked', revokedAt: new Date(), revokedReason: 'manual' });
-  const workspaceNames = await workspaceNamesById([updated]);
-  return toDto(updated, params.baseUrl, workspaceNameForRow(updated, workspaceNames));
+  const workspaceId = params.workspaceId ?? params.workspace?.workspaceId;
+  const selected = {id:params.id,...(workspaceId === undefined ? {} : {workspaceId})};
+  const result = params.request
+    ? await revokePublicShareForRequest(params.request,selected)
+    : await revokePublicShareForAgent(selected);
+  return result ? toDto(result.row,params.baseUrl,result.workspace.displayName ?? null) : null;
 }
 
 function matchesTypeFilter(row: PublicShareRow, type: PublicShareTypeFilter): boolean {
