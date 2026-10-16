@@ -123,6 +123,43 @@ async function main() {
     assert.equal(data.items.length, 3); assert.equal(document.activeElement, retainedLocal);
     check('a partial local failure can retry while the original remote request is pending; valid rows, focus and the remote request survive');
 
+    for (const lateRemote of [false, true]) {
+      await mount();
+      await act(async () => {
+        pending[0].resolve(response(pending[0], [local], [complete('packages'), complete('mcp')], 'bG9jYWwtMg'));
+        pending[1].resolve(response(pending[1], [], [complete('store'), complete('composio')], lateRemote ? 'cmVtb3RlLTI' : null));
+      });
+      await waitFor(() => assert.equal(data.updating, false));
+      const pageOneButton = screen.getByTestId('plugin-extension-row-open'); pageOneButton.focus();
+      await act(async () => fireEvent.click(screen.getByTestId('plugin-extension-more')));
+      await waitFor(() => assert.equal(pending.length, lateRemote ? 4 : 3));
+      const pageTwoLocal = pending[2], pageTwoRemote = lateRemote ? pending[3] : undefined;
+      await act(async () => pageTwoLocal.resolve(response(pageTwoLocal, [mcp], [complete('packages'), unavailable('mcp')])));
+      await waitFor(() => assert(screen.getByText('Own MCP')));
+      const retryIndex: number = pending.length;
+      await act(async () => fireEvent.click(sourceButton('mcp')));
+      await waitFor(() => assert.equal(pending.length, retryIndex + 1));
+      const retriedLocal: Pending = pending[retryIndex];
+      assert.equal(retriedLocal.url.searchParams.get('phase'), 'local');
+      assert.equal(retriedLocal.url.searchParams.get('cursor'), 'bG9jYWwtMg');
+      await act(async () => retriedLocal.resolve(response(retriedLocal, [], [complete('packages'), complete('mcp')])));
+      await waitFor(() => assert.equal(Boolean(screen.queryByText('Own MCP')), false, 'Retry must remove the withdrawn current-page MCP row.'));
+      assert.deepEqual(data.items.map(row => row.id), [local.id]);
+      assert.equal(screen.getByText('Local plugin').closest('button'), pageOneButton);
+      assert.equal(document.activeElement, pageOneButton);
+      if (pageTwoRemote) {
+        assert.equal(pageTwoRemote.signal?.aborted, false); assert(data.updating);
+        await act(async () => pageTwoRemote.resolve(response(pageTwoRemote, [remote], [complete('store'), complete('composio')])));
+        await waitFor(() => assert.equal(data.updating, false));
+        assert.deepEqual(data.items.map(row => row.id), [local.id, remote.id]);
+        assert.equal(Boolean(screen.queryByText('Own MCP')), false);
+        assert.equal(document.activeElement, pageOneButton);
+      } else assert.equal(data.updating, false);
+      check(lateRemote
+        ? 'a late independent remote page merges after local cursor retry without restoring a withdrawn current-page row'
+        : 'retry replaces current cursor-page rows while retaining earlier-page rows and their focus');
+    }
+
     await mount();
     await act(async () => pending[0].resolve(response(pending[0], [local], [complete('packages'), unavailable('mcp')])));
     await waitFor(() => assert.equal(data.status, 'ready'));

@@ -14,7 +14,9 @@ const noStore = { 'Cache-Control': 'private, no-store' };
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401, headers: noStore });
-  const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'chat-extension-options-post' });
+  // One logical search now has independent local and remote requests. Preserve
+  // the former 60-search/minute budget while keeping this authenticated route bounded.
+  const limited = rateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'chat-extension-options-post' });
   if (!limited.ok) { limited.response.headers.set('Cache-Control', noStore['Cache-Control']); return limited.response; }
   try {
     for (const key of request.nextUrl.searchParams.keys()) if (!['organizationId', 'workspaceId', 'projectId'].includes(key)

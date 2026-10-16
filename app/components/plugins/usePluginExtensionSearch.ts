@@ -74,6 +74,9 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
     const phases = pluginExtensionSearchPhaseRequests(cursor), responses = new Map<ExtensionSearchPhase, PluginExtensionSearchResponse>();
     const failures = new Map<ExtensionSearchPhase, PackageWorkspaceRequestError>();
     const pendingPhases = new Set(phases.map(phase => phase.phase));
+    // Freeze only the earlier cursor pages. Current phase responses are replaced
+    // on retry, so withdrawn rows and their provenance must not become the base.
+    let appendBaseline: Loaded | null | undefined;
     let remaining = phases.length;
     const phaseForSource = (source: PluginExtensionCoverage['source']): ExtensionSearchPhaseRequest => {
       // Composio's local inventory and remote catalogue share one public source label.
@@ -89,8 +92,9 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
       const latestResponse = received ?? ordered.at(-1);
       startTransition(() => setLoaded(previous => {
         if (!isCurrent()) return previous;
-        const priorResponse = previous?.key === key && cursor ? previous.response : null;
-        const prior = priorResponse ? previous!.items : [];
+        if (appendBaseline === undefined) appendBaseline = previous?.key === key && cursor ? previous : null;
+        const priorResponse = appendBaseline?.response ?? null;
+        const prior = priorResponse ? appendBaseline!.items : [];
         if (!latestResponse) {
           if (remaining) return previous?.key === key ? { ...previous, pending: true,
             pendingSources: (previous.response?.coverage ?? []).filter(source => pendingPhases.has(phaseForSource(source.source).phase)).map(source => source.source) } : previous;
@@ -103,7 +107,7 @@ export function usePluginExtensionSearch({ navigation, workspaceId, epoch, purpo
         const items = [...new Map([...prior, ...ordered.flatMap(response => response.items)].map(item => [item.id, item])).values()];
         // Every visible row retains the actual response that supplied it. Only
         // an uninterrupted successful append chain may retain older provenance.
-        const rowResponses = new Map(previous?.chainKey === chainKey && priorResponse && !previous.error ? previous.rowResponses : []);
+        const rowResponses = new Map(appendBaseline?.chainKey === chainKey && priorResponse && !appendBaseline.error ? appendBaseline.rowResponses : []);
         for (const response of ordered) for (const row of response.items) rowResponses.set(row.id, {row, response});
         const failedCoverage = [...failures].flatMap(([phase, failure]) => (phase === 'local' ? ['packages', 'mcp'] as const : ['store', 'composio'] as const)
           .map(source => ({ source, status: 'unavailable' as const, error: { code: failure.code, message: 'Some extension metadata could not be loaded.', retryable: true } })));
