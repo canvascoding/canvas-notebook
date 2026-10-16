@@ -318,11 +318,15 @@ export async function searchPluginExtensions(actorInput: CapabilityResourceActor
     || selected.startsWith('composio:') || selectedShared;
   const mcpRequested = !laterBatch && (query.source === 'all' || query.source === 'mcp') && query.types.includes('mcp')
     || selected.startsWith('mcp-') || selectedShared;
+  // System packages cannot have verified Store origins; their installed rows
+  // come from the local catalogue. Exact Store selections/cursors still load.
+  const installedSystemOnly = query.source === 'all' && query.stock === 'installed' && query.scope === 'system'
+    && !selected.startsWith('store:') && cursorState.sources.store === undefined;
   const loads = [];
   if (packagesRequested) {
     loads.push(load('packages', async () => { const result = await dependencies.packages(actor); scopes = result.scopes; return result; }));
   }
-  if (packagesRequested || cursorState.sources.store !== undefined) loads.push(load('store', () => dependencies.store(actor, { search: query.q, continuation: cursorState.sources.store, selected: query.selected })));
+  if (packagesRequested && !installedSystemOnly || cursorState.sources.store !== undefined) loads.push(load('store', () => dependencies.store(actor, { search: query.q, continuation: cursorState.sources.store, selected: query.selected })));
   if (composioRequested) loads.push(load('composio', signal => dependencies.composio(actor, signal, { search: query.q, continuation: cursorState.sources.composio,
     selectedSlug: selected.startsWith('composio:') ? selected.slice('composio:'.length) : undefined })));
   if (mcpRequested) loads.push(load('mcp', () => dependencies.mcp(actor)));
