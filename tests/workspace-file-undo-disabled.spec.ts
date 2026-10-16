@@ -42,7 +42,7 @@ test.describe('file-action Undo is explicitly disabled while Delete remains avai
         }, { id: workspaceId, narrow: mobile });
         const page = await context.newPage();
         await page.goto(`/en/notebook?workspaceId=${workspaceId}`);
-        if (mobile) await page.getByRole('button', { name: 'Files', exact: true }).click();
+        if (mobile) await page.getByRole('button', { name: 'Open file explorer', exact: true }).click();
         else {
           const toggle = page.getByRole('button', { name: 'Show sidebar', exact: true });
           if (await toggle.isVisible()) await toggle.click();
