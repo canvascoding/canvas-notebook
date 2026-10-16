@@ -19,7 +19,9 @@ import { initializeCopiedFileCollaborationPaths } from './collaboration-policy';
 import { observeWorkspaceOperation, type WorkspaceOperationMetricPhase } from './workspace-operation-observability';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { createWorkspaceFileOperationExecutor, type WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
-import { WorkspaceOperationJournal, type WorkspaceOperationRecord, type WorkspaceOperationRequest } from './workspace-operation-journal';
+import { serializeWorkspaceOperationRequest, WorkspaceOperationJournal, type WorkspaceOperationRecord,
+  type WorkspaceOperationRequest } from './workspace-operation-journal';
+import { assertWorkspaceOperationCopyOriginCurrent, captureWorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
 import { probeWorkspacePathOperation, probeWorkspacePathSelectionOperation } from './workspace-operation-path-probe';
 import { WorkspaceOperationStaging, type WorkspaceOperationStage } from './workspace-operation-staging';
 import { renameWorkspacePath, type WorkspacePathRenameResult } from './rename-service';
@@ -120,11 +122,39 @@ function observeExecutionStatus(kind: WorkspaceFileOperationServiceInput['kind']
   }
 }
 
+function captureCopyInput(input: WorkspaceFileOperationServiceInput): WorkspaceFileOperationServiceInput {
+  const scope = (value: Scope): Scope => {
+    const workspace: WorkspaceContext = Object.freeze({ ...value.workspace,
+      permissions: Object.freeze({ ...value.workspace.permissions }),
+      ...(value.workspace.actor ? { actor: Object.freeze({ ...value.workspace.actor }) } : {}),
+    });
+    return Object.freeze({ workspace, fileOptions: Object.freeze({ ...value.fileOptions, workspace }) });
+  };
+  // The options' real filesystem roots must describe the same declared scopes.
+  // Bind absent workspace options explicitly, before any asynchronous work.
+  const actor = { type: input.actorType ?? 'user', userId: input.actorUserId,
+    actorId: input.actorId, sessionId: input.actorSessionId ?? null } as const;
+  assertWorkspaceOperationCopyOriginCurrent(captureWorkspaceOperationCopyOrigin({ actor,
+    sourceWorkspace: input.source.workspace, destinationWorkspace: input.destination.workspace,
+  }), captureWorkspaceOperationCopyOrigin({ actor,
+    sourceWorkspace: input.source.fileOptions.workspace ?? input.source.workspace,
+    destinationWorkspace: input.destination.fileOptions.workspace ?? input.destination.workspace,
+  }));
+  return { ...input, source: scope(input.source), destination: scope(input.destination),
+    selections: Object.freeze(input.selections.map(selection => Object.freeze({ ...selection }))) };
+}
+
 /** Browser/mobile and in-workspace agent operations enter through the same fenced executor. */
 export async function executeWorkspaceFileOperationService(
   input: WorkspaceFileOperationServiceInput,
 ): Promise<WorkspaceFileOperationServiceResult> {
   assertScopes(input);
+  if (input.kind === 'copy') input = captureCopyInput(input);
+  const currentCopyContext = input.kind === 'copy' ? captureWorkspaceOperationCopyOrigin({
+    actor: { type: input.actorType ?? 'user', userId: input.actorUserId,
+      actorId: input.actorId, sessionId: input.actorSessionId ?? null },
+    sourceWorkspace: input.source.workspace, destinationWorkspace: input.destination.workspace,
+  }) : null;
   const operationId = operationIdFor(input);
   const sourceWorkspaceId = input.source.workspace.workspaceId;
   const destinationWorkspaceId = input.destination.workspace.workspaceId;
@@ -137,6 +167,14 @@ export async function executeWorkspaceFileOperationService(
         throw Object.assign(new Error('Operation ID belongs to another workspace request.'), { status: 409 });
       }
       const request = JSON.parse(record.requestJson) as WorkspaceOperationRequest;
+      if (Object.hasOwn(request, 'origin')) {
+        const bound = serializeWorkspaceOperationRequest(request);
+        if (!currentCopyContext || bound.requestJson !== record.requestJson || bound.requestHash !== record.requestHash
+          || request.origin?.actor.type !== record.actor.type || request.origin.actor.userId !== record.actor.id) {
+          throw Object.assign(new Error('Original Copy request binding differs from the journal.'), { status: 409 });
+        }
+        assertWorkspaceOperationCopyOriginCurrent(request.origin, currentCopyContext);
+      }
       if (!sameRequestedSelections(input, request)) {
         throw Object.assign(new Error('Operation parameters differ from the reviewed plan.'), { status: 409 });
       }
@@ -185,7 +223,8 @@ export async function executeWorkspaceFileOperationService(
       else if (plan.readiness !== 'ready' || !isWorkspaceFileOperationLinkSafe(plan)) {
         throw new WorkspacePreviewBlockedError();
       }
-      request = { kind: input.kind, selections: selectedFinalPaths(plan, input.selections) };
+      request = { kind: input.kind, selections: selectedFinalPaths(plan, input.selections),
+        ...(currentCopyContext ? { origin: currentCopyContext } : {}) };
     }
     // Replanning and rereading the journal happen under both canonical
     // workspace guards. Never apply a target that changed during acquisition.
@@ -239,8 +278,9 @@ export async function executeWorkspaceFileOperationService(
             const result = await copyFileBetweenWorkspaces(selection.sourcePath, directory,
               false, chooseCollisionName,
               { source: input.source.fileOptions, target: { ...input.destination.fileOptions,
-                mutationOperationId: stage.identity.operationId, mutationActorUserId: input.actorUserId,
-                mutationActorSessionId: input.actorSessionId } });
+                mutationOperationId: stage.identity.operationId,
+                mutationActorUserId: request.origin?.actor.userId ?? input.actorUserId,
+                mutationActorSessionId: request.origin ? request.origin.actor.sessionId ?? undefined : input.actorSessionId } });
             if (result.skipped || result.copied !== selection.destinationPath) {
               throw new Error(`Copy destination changed: ${selection.destinationPath}`);
             }

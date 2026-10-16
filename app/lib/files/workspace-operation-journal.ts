@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { decodeWorkspaceOperationCopyOrigin, type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
 
 export type WorkspaceOperationActor = { type: 'user' | 'agent' | 'system'; id: string };
 export type WorkspaceOperationStatus = 'prepared' | 'running' | 'completed' | 'failed' | 'recovery_required';
@@ -12,6 +13,8 @@ export type WorkspaceOperationStepPhase = 'path' | 'link';
 export type WorkspaceOperationRequest = {
   kind: 'rename' | 'move' | 'copy';
   selections: ReadonlyArray<{ sourcePath: string; destinationPath: string }>;
+  /** Private original request data; never synthesize this for legacy rows. */
+  origin?: WorkspaceOperationCopyOrigin;
 };
 
 export type WorkspaceOperationRecord = {
@@ -123,7 +126,7 @@ function checkedText(value: string, label: string, maxLength: number, minLength 
 
 function checkedRequest(request: WorkspaceOperationRequest): WorkspaceOperationRequest {
   if (!request || typeof request !== 'object' || Array.isArray(request)
-    || Object.keys(request).sort().join(',') !== 'kind,selections'
+    || !['kind,selections', 'kind,origin,selections'].includes(Object.keys(request).sort().join(','))
     || !['rename', 'move', 'copy'].includes(request.kind)
     || !Array.isArray(request.selections) || request.selections.length < 1 || request.selections.length > 1000) {
     throw new Error('Operation request must contain only kind and one or more path selections.');
@@ -144,7 +147,23 @@ function checkedRequest(request: WorkspaceOperationRequest): WorkspaceOperationR
       }
     }
   }
+  if (Object.hasOwn(request, 'origin')) {
+    if (request.kind !== 'copy') throw new Error('Only Copy requests may contain an original context.');
+    const descriptor = Object.getOwnPropertyDescriptor(request, 'origin');
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) throw new Error('Copy origin must be data.');
+    return { kind: request.kind, selections: request.selections,
+      origin: decodeWorkspaceOperationCopyOrigin(descriptor.value) };
+  }
   return request;
+}
+
+/** Same exact serialization for preparation and existing-request comparison. */
+export function serializeWorkspaceOperationRequest(request: WorkspaceOperationRequest): Readonly<{
+  requestJson: string; requestHash: string;
+}> {
+  const requestJson = canonicalJson(checkedRequest(request));
+  checkedText(requestJson, 'request', 65536, 2);
+  return { requestJson, requestHash: createHash('sha256').update(requestJson).digest('hex') };
 }
 
 function readOperation(row: OperationRow): WorkspaceOperationRecord {
@@ -281,10 +300,17 @@ export class WorkspaceOperationJournal {
     if (!Number.isInteger(input.expectedStepCount) || input.expectedStepCount < 1 || input.expectedStepCount > 10000) {
       throw new Error('expectedStepCount must be between 1 and 10000.');
     }
-    const requestJson = canonicalJson(checkedRequest(input.request));
-    checkedText(requestJson, 'request', 65536, 2);
-    const requestHash = createHash('sha256').update(requestJson).digest('hex');
-    const expected = { ...input, requestJson, requestHash };
+    const { requestJson, requestHash } = serializeWorkspaceOperationRequest(input.request);
+    const original = (JSON.parse(requestJson) as WorkspaceOperationRequest).origin;
+    if (original && (original.actor.userId !== input.actor.id || original.actor.type !== input.actor.type
+      || original.sourceScope.workspaceId !== input.sourceWorkspaceId
+      || original.destinationScope.workspaceId !== input.destinationWorkspaceId)) {
+      throw new WorkspaceOperationJournalConflictError('Copy origin differs from the durable operation identity.');
+    }
+    const expected = Object.freeze({ operationId: input.operationId, planId: input.planId,
+      requestJson, requestHash, actor: Object.freeze({ type: input.actor.type, id: input.actor.id }),
+      sourceWorkspaceId: input.sourceWorkspaceId, destinationWorkspaceId: input.destinationWorkspaceId,
+      expectedStepCount: input.expectedStepCount });
     return this.mutate(async (database) => {
       const now = Date.now();
       await database.run(`
@@ -294,11 +320,11 @@ export class WorkspaceOperationJournal {
           status, phase, revision, created_at, updated_at
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'prepared','prepared',1,$10,$10)
         ON CONFLICT (operation_id) DO NOTHING
-      `, [input.operationId, input.planId, requestHash, requestJson, input.actor.type, input.actor.id,
-        input.sourceWorkspaceId, input.destinationWorkspaceId, input.expectedStepCount, now]);
-      return assertSameOperation(await operationRow(database, input.operationId, true), expected);
+      `, [expected.operationId, expected.planId, requestHash, requestJson, expected.actor.type, expected.actor.id,
+        expected.sourceWorkspaceId, expected.destinationWorkspaceId, expected.expectedStepCount, now]);
+      return assertSameOperation(await operationRow(database, expected.operationId, true), expected);
     }, async () => {
-      const actual = await this.read((database) => operationRow(database, input.operationId));
+      const actual = await this.read((database) => operationRow(database, expected.operationId));
       return actual ? assertSameOperation(actual, expected) : null;
     });
   }

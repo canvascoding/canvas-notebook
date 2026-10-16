@@ -14,6 +14,7 @@ import type {
   WorkspaceOperationWithSteps,
 } from './workspace-operation-journal';
 import type { WorkspaceOperationStage, WorkspaceOperationStaging } from './workspace-operation-staging';
+import { serializeWorkspaceOperationRequest } from './workspace-operation-journal';
 
 export type WorkspaceOperationProbe = 'before' | 'after' | 'unknown';
 export type WorkspaceOperationExecutionStatus = 'complete' | 'needs_recovery' | 'failed';
@@ -169,6 +170,17 @@ function isSameRequest(actual: WorkspaceOperationWithSteps, input: ExecuteWorksp
     durableRequest = JSON.parse(actual.requestJson) as WorkspaceOperationRequest;
   } catch {
     return false;
+  }
+  if (Object.hasOwn(durableRequest, 'origin') || Object.hasOwn(input.request, 'origin')) {
+    try {
+      const durable = serializeWorkspaceOperationRequest(durableRequest), requested = serializeWorkspaceOperationRequest(input.request);
+      if (durable.requestJson !== actual.requestJson || durable.requestHash !== actual.requestHash
+        || requested.requestJson !== durable.requestJson || requested.requestHash !== durable.requestHash) return false;
+      const origin = durableRequest.origin;
+      if (!origin || origin.actor.userId !== actual.actor.id || origin.actor.type !== actual.actor.type
+        || origin.sourceScope.workspaceId !== actual.sourceWorkspaceId
+        || origin.destinationScope.workspaceId !== actual.destinationWorkspaceId) return false;
+    } catch { return false; }
   }
   return actual.planId === input.preview.planId
     && actual.sourceWorkspaceId === input.sourceWorkspaceId

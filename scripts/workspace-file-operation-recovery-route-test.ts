@@ -11,6 +11,7 @@ async function main() {
   let authenticated = true;
   let authorized = true;
   let owner = 'user';
+  let actorType: 'user' | 'agent' = 'user';
   let recoveryCalls = 0;
   let received: Record<string, unknown> | null = null;
   const record = {
@@ -24,7 +25,7 @@ async function main() {
   const jsonError = (error: string, status: number, details: Record<string, unknown> = {}) =>
     Response.json({ success: false, error, ...details }, { status });
   mock.module('@/app/lib/auth', { exports: { auth: { api: { getSession: async () =>
-    authenticated ? { user: { id: 'user', name: 'User' } } : null } } } });
+    authenticated ? { user: { id: 'user', name: 'User' }, session: { id: 'current-browser-session' } } : null } } } });
   mock.module('@/app/lib/api/route-helpers', { exports: {
     applyRateLimit: () => null, jsonError,
     jsonServerError: (_prefix: string, error: unknown) => jsonError(String(error), 500),
@@ -35,7 +36,7 @@ async function main() {
     workspaceFileOptions: () => ({ workspace }),
   } });
   mock.module('@/app/lib/files/workspace-operation-journal', { exports: {
-    WorkspaceOperationJournal: class { async get() { return { ...record, actor: { type: 'user', id: owner } }; } },
+    WorkspaceOperationJournal: class { async get() { return { ...record, actor: { type: actorType, id: owner } }; } },
   } });
   mock.module('@/app/lib/files/workspace-file-operation-service', { exports: {
     executeWorkspaceFileOperationService: async (input: Record<string, unknown>) => {
@@ -75,6 +76,30 @@ async function main() {
     assert.equal(recoveryInput.operationId, operationId);
     assert.equal(recoveryInput.expectedPlanId, planId);
     assert.equal(recoveryInput.kind, 'rename');
+    assert.equal(recoveryInput.actorType, 'user');
+    assert.equal(recoveryInput.actorSessionId, 'current-browser-session');
+    // A historical agent actor cannot turn this authenticated browser into an
+    // agent principal. The real service separately rejects a bound mismatch.
+    actorType = 'agent';
+    const privateOrigin = { version: 1, actor: { type: 'agent', userId: 'user',
+      actorId: 'original-agent', sessionId: 'original-private-pi-session' },
+      sourceScope: { workspaceId: 'ws' }, destinationScope: { workspaceId: 'ws' } };
+    // Declared private data for response filtering only; the service is mocked.
+    record.requestJson = JSON.stringify({ kind: 'copy', selections: [
+      { sourcePath: 'a.md', destinationPath: 'Copies/a.md' },
+    ], origin: privateOrigin });
+    const copyStatus = await route.GET(request('GET'), context);
+    const copyBody = JSON.stringify(await copyStatus!.json());
+    for (const value of ['origin', 'original-agent', 'original-private-pi-session', 'sourceScope', 'requestJson']) {
+      assert.equal(copyBody.includes(value), false, `private ${value} must not escape status`);
+    }
+    assert.equal((await route.POST(request('POST'), context))!.status, 200);
+    const actualBrowser = received as Record<string, unknown> | null;
+    assert.ok(actualBrowser);
+    assert.equal(actualBrowser.actorType, 'user');
+    assert.equal(actualBrowser.actorId, 'user');
+    assert.equal(actualBrowser.actorSessionId, 'current-browser-session');
+    assert.equal(Object.hasOwn(actualBrowser, 'origin'), false);
     console.log('workspace-file-operation-recovery-route-test: ok');
   } finally {
     mock.reset();

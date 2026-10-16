@@ -61,6 +61,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const authorized = await authorizedOperation(request, operationId);
     if ('response' in authorized) return authorized.response;
     const { session, record, durableRequest, source, destination } = authorized;
+    const actorSessionId = (session.session as { id?: string } | undefined)?.id;
     const execution = await executeWorkspaceFileOperationService({
       operationId, kind: durableRequest.kind, selections: durableRequest.selections,
       expectedPlanId: record.planId,
@@ -68,9 +69,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
       destination: { workspace: destination, fileOptions: {
         ...workspaceFileOptions(destination), mutationActorUserId: session.user.id,
       } },
-      actorUserId: session.user.id, actorId: session.user.id,
+      actorUserId: session.user.id, actorId: session.user.id, actorSessionId,
       actorDisplayName: session.user.name ?? 'Workspace user',
-      actorType: record.actor.type === 'agent' ? 'agent' : 'user',
+      actorType: 'user',
     });
     return jsonSuccess({ operation: execution.execution,
       linkStatus: execution.execution.status === 'complete' ? 'complete' : 'partial' });
