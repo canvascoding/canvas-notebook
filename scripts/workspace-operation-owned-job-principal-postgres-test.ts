@@ -468,6 +468,27 @@ async function main(): Promise<void> {
       assert.equal(await count('final-revocation'), 0);
       assert.equal(Number((await admin.query('SELECT banned FROM "user" WHERE id=\'member\'')).rows[0].banned), 0);
     });
+    await check('later operation cleanup failure preserves the poisoned SQL failure and uncertain disposal status', async () => {
+      const job = await freshJob(), tracked = openTracked();
+      const primary = Object.assign(new Error('Owned fixture primary SQL phase failure.'), { code: 'FIXTURE_PRIMARY_FAILURE' });
+      const cleanup = new Error('Owned fixture later resource cleanup acknowledgement lost.');
+      await assert.rejects(store.withClaim(job.claimed, claim => withOwner(claim, async owner => {
+        await assert.rejects(transaction(owner, async access => { await effect(access, 'cleanup-failure'); throw primary; }), error => error === primary);
+        throw Object.assign(new AggregateError([primary, cleanup], 'Owned fixture resource disposal remains uncertain.'),
+          { code: 'FIXTURE_DISPOSAL_UNCONFIRMED', status: 503 });
+      }, tracked.open)), error => {
+        assert(error instanceof AggregateError); assert.equal(Reflect.get(error, 'code'), 'FIXTURE_DISPOSAL_UNCONFIRMED');
+        assert.equal(Reflect.get(error, 'status'), 503);
+        const observed = new Set<unknown>();
+        const visit = (value: unknown): void => {
+          if (!(value instanceof Error) || observed.has(value)) return; observed.add(value);
+          if (value instanceof AggregateError) for (const child of value.errors) visit(child);
+          visit(value.cause);
+        };
+        visit(error); assert(observed.has(primary)); assert(observed.has(cleanup)); return true;
+      });
+      assert.equal(await count('cleanup-failure'), 0); assert.equal(tracked.state.closes, 1);
+    });
     for (const mode of ['archive', 'delete', 'agent reassignment', 'grant revoke'] as const) await check(`stored Agent ${mode} after Claim rejects current authority`, async () => {
       const job = await freshJob('agent'); let callbacks = 0;
       try {
@@ -489,7 +510,7 @@ async function main(): Promise<void> {
     });
     assert.deepEqual(await readFile(fullPath), originalBytes);
     const afterFile = await stat(fullPath); for (const field of ['dev', 'ino', 'size', 'mtimeMs', 'ctimeMs'] as const) assert.equal(afterFile[field], fileIdentity[field]);
-    assert.equal(passed, 29); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
+    assert.equal(passed, 30); assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), pinned);
     console.log('Owned job SQL assertions finished:', JSON.stringify({ passed, fetches, sourceSha256: pinned }));
   } catch (error) { failures.push(error); }
   finally {
@@ -515,9 +536,11 @@ async function main(): Promise<void> {
   }
   if (failures.length) {
     const error = failures[0], code = error && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
-    const frame = error instanceof Error ? error.stack?.split('\n').find(line => line.includes(`${sourcePath}:`)) : undefined;
-    const location = frame ? /:(\d+):(\d+)\)?$/u.exec(frame) : null;
-    throw new Error(`Owned job fixture failed: ${stage}; name=${error instanceof Error ? error.name : 'unknown'}; code=${typeof code === 'string' && /^[A-Z0-9_]{1,128}$/u.test(code) ? code : 'unclassified'}; source=${location ? `${location[1]}:${location[2]}` : 'unavailable'}; failures=${failures.length}`);
+    const locations = error instanceof Error ? error.stack?.split('\n').flatMap(line => {
+      const match = /\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);
+      return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
+    }).slice(0, 4) : undefined;
+    throw new Error(`Owned job fixture failed: ${stage}; name=${error instanceof Error ? error.name : 'unknown'}; code=${typeof code === 'string' && /^[A-Z0-9_]{1,128}$/u.test(code) ? code : 'unclassified'}; source=${locations?.join(',') || 'unavailable'}; failures=${failures.length}`);
   }
   assert(schemaRemoved); assert(dataRemoved);
 }

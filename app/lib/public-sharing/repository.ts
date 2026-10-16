@@ -211,10 +211,10 @@ export async function assignPublicShareShortCodeOnConnection(database: SqlConnec
  * fill them from a current path. A CAS miss is not a successful mutation. */
 export async function revokePublicShareOnConnection(database: SqlConnection, input: {
   table: string; expected: PublicShareRow; nowMs: number;
-  reason: 'manual' | 'republished_expired' | 'republished_stale' | 'republished_missing';
+  reason: 'manual' | 'republished_expired' | 'republished_stale' | 'republished_missing' | 'target_deleted';
 }): Promise<PublicShareRow | null> {
   const table = relation(input.table), row = input.expected, now = integer(input.nowMs);
-  if (!['manual','republished_expired','republished_stale','republished_missing'].includes(input.reason)) throw new TypeError('Invalid public share revocation reason.');
+  if (!['manual','republished_expired','republished_stale','republished_missing','target_deleted'].includes(input.reason)) throw new TypeError('Invalid public share revocation reason.');
   if (!['active', 'missing', 'stale', 'expired'].includes(row.status)) return null;
   const revision = integer(row.policyRevision, 1);
   if (revision === Number.MAX_SAFE_INTEGER) throw new TypeError('Public share revision exhausted.');

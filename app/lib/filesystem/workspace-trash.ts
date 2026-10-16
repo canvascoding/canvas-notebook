@@ -14,8 +14,9 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { withWorkspaceFileLifecycleGuard } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { assertNoActiveOfficeLeases } from '@/app/lib/files/collaboration-policy';
-
-export const DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS = 30;
+import { retentionDays, expiresAtFrom, trashRelativePathFor,
+  trashRootForWorkspace as layoutTrashRoot, absoluteDataPath as layoutDataPath } from './workspace-trash-layout';
+export { DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS } from './workspace-trash-layout';
 
 export type WorkspaceTrashStatus = 'trashed' | 'restored' | 'purged';
 export type WorkspaceTrashItemType = 'file' | 'directory' | 'other';
@@ -66,27 +67,12 @@ interface NormalizedTrashPaths {
   failed: { path: string; error: string }[];
 }
 
-function retentionDays(): number {
-  const configured = Number.parseInt(process.env.WORKSPACE_TRASH_RETENTION_DAYS || '', 10);
-  if (Number.isFinite(configured) && configured > 0 && configured <= 3650) return configured;
-  return DEFAULT_WORKSPACE_TRASH_RETENTION_DAYS;
-}
-
-function expiresAtFrom(deletedAt: Date, days = retentionDays()): Date {
-  return new Date(deletedAt.getTime() + days * 24 * 60 * 60 * 1000);
-}
-
 function normalizeOriginalPath(workspace: WorkspaceContext, userPath: string): string {
   const relativePath = resolveWorkspacePath(workspace, userPath).relativePath;
   if (relativePath === '.') {
     throw new Error('Workspace root cannot be moved to trash.');
   }
   return relativePath;
-}
-
-function safeTrashSegment(value: string | null | undefined, fallback: string): string {
-  const normalized = (value || '').trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
-  return normalized || fallback;
 }
 
 function isSameOrDescendantPath(candidate: string, parentPath: string): boolean {
@@ -128,37 +114,11 @@ function dedupeNestedPaths(workspace: WorkspaceContext, paths: string[]): Normal
 }
 
 function trashRootForWorkspace(workspace: WorkspaceContext): string {
-  const scope = workspace.workspaceType === 'personal' ? 'personal' : workspace.workspaceType;
-  return path.join(
-    resolveWorkspaceDataRoot(),
-    '.trash',
-    'workspaces',
-    safeTrashSegment(scope, 'workspace'),
-    safeTrashSegment(workspace.organizationId, 'no-org'),
-    safeTrashSegment(workspace.workspaceId, 'legacy'),
-  );
-}
-
-function trashRelativePathFor(workspace: WorkspaceContext, entryId: string, originalPath: string): string {
-  const scope = workspace.workspaceType === 'personal' ? 'personal' : workspace.workspaceType;
-  return path.posix.join(
-    '.trash',
-    'workspaces',
-    safeTrashSegment(scope, 'workspace'),
-    safeTrashSegment(workspace.organizationId, 'no-org'),
-    safeTrashSegment(workspace.workspaceId, 'legacy'),
-    entryId,
-    path.posix.basename(originalPath),
-  );
+  return layoutTrashRoot(workspace, resolveWorkspaceDataRoot());
 }
 
 function absoluteDataPath(relativePath: string): string {
-  const dataRoot = path.resolve(resolveWorkspaceDataRoot());
-  const target = path.resolve(dataRoot, relativePath);
-  if (target !== dataRoot && !target.startsWith(`${dataRoot}${path.sep}`)) {
-    throw new Error('Trash path resolves outside data root.');
-  }
-  return target;
+  return layoutDataPath(relativePath, resolveWorkspaceDataRoot());
 }
 
 async function pathExists(targetPath: string): Promise<boolean> {

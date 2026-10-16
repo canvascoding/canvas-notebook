@@ -16,6 +16,7 @@ import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchCl
   type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 
 declare const ownerBrand: unique symbol;
 export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true }>;
@@ -151,14 +152,32 @@ export async function withWorkspaceOperationJobLifecycleOwner<T>(claim: Workspac
           await checkIdle(captured);
           // A real current job policy is required before the caller can do physical work.
           await withWorkspaceOperationJobLifecycleTransaction(owner, async () => undefined);
-          let result: T | undefined;
-          try { result = await operation(owner); } catch (error) { captured.failure ??= asError(error); }
+          let result: T | undefined, operationFailure: Error | undefined;
+          try { result = await operation(owner); } catch (error) {
+            operationFailure = asError(error); captured.failure ??= operationFailure;
+          }
           captured.accepting = false;
           if (captured.pending.size) {
             captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
             await Promise.allSettled([...captured.pending]);
           }
-          if (captured.failure) throw captured.failure;
+          if (captured.failure) {
+            if (operationFailure && operationFailure !== captured.failure) {
+              const failures = new AggregateError([captured.failure, operationFailure], 'Job operation and its cleanup failed.');
+              if (captured.failure instanceof WorkspaceOperationJobLifecycleError
+                && captured.failure.code === 'JOB_LIFECYCLE_COMMIT_UNCONFIRMED') {
+                throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_COMMIT_UNCONFIRMED', { cause: failures });
+              }
+              // Keep a later cleanup error and its public status/code as well as
+              // the already-poisoned SQL failure. Never hide uncertain disposal.
+              throw Object.assign(failures, {
+                code: Object.getOwnPropertyDescriptor(operationFailure, 'code')?.value
+                  ?? Object.getOwnPropertyDescriptor(captured.failure, 'code')?.value,
+                status: Object.getOwnPropertyDescriptor(operationFailure, 'status')?.value
+                  ?? Object.getOwnPropertyDescriptor(captured.failure, 'status')?.value });
+            }
+            throw captured.failure;
+          }
           await checkIdle(captured);
           if (captured.failure) throw captured.failure;
           return result as T;
@@ -214,8 +233,12 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
       const started = await identity(database, true);
       if (!started.transaction) fail('JOB_LIFECYCLE_CHANGED'); phase.transaction = started.transaction;
       const result = await withWorkspaceOperationJobPolicyOnConnection(database, { claim: captured.claim, policy }, async access => {
+        // Every owner is an original direct Delete. Bind its fixed storage on
+        // the actual B before exposing the deliberately restricted SQL facade.
+        const { schemaName, schemaOid, databaseOid } = captured.binding.source;
+        const storage = await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database, { schemaName, schemaOid, databaseOid });
         const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
-          await access.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
+          await access.assertCurrent(); await storage.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
         const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>): Promise<R> => {
           try {
             checkPhase(captured, phase);
