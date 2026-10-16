@@ -1,10 +1,23 @@
-import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { WorkspaceContext, WorkspaceType } from '@/app/lib/workspaces/types';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLinkCoverageV1,
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
+/** Literal namespace snapshot only; this grants no authority or filesystem identity. */
+export type WorkspaceOperationJobScope = Readonly<{
+  version: 1;
+  workspaceId: string;
+  workspaceType: WorkspaceType;
+  organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
+  ownerUserId: string | null;
+  rootPath: string;
+  rootRelativePath: string | null;
+  legacy: boolean;
+}>;
 /** Direct authorization is an actual mutation request, never an accepted review. */
 export type WorkspaceOperationDirectAuthorization = {
   mode: 'direct';
@@ -14,6 +27,8 @@ export type WorkspaceOperationDirectAuthorization = {
   actorType: 'user' | 'agent';
   actorSessionId?: string;
   requestHash: string;
+  /** Older stored jobs remain readable without inventing their original scope. */
+  jobScope?: WorkspaceOperationJobScope;
 };
 export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization;
 export type WorkspaceOperationBatchAction = {

@@ -6,6 +6,7 @@ import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-fil
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
+import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
   type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope,
@@ -87,13 +88,14 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
   }
   const selections = input.selections.map((selection) => ({ sourcePath: selection.sourcePath,
     ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) }));
+  const jobScope = captureWorkspaceOperationJobScope(workspace);
   const requestHash = hash(['workspace-path-operation-v1', workspace.workspaceId, input.kind, selections,
     Boolean(input.overwrite), Boolean(input.ignoreMissing), input.expectedPlanId ?? null, input.actorUserId, input.actorType, input.actorId,
     input.actorSessionId ?? null]);
   const batchId = batchIdFor(input);
   const authorization: WorkspaceOperationDirectAuthorization = { mode: 'direct', actorUserId: input.actorUserId,
     actorId: input.actorId, actorDisplayName: input.actorDisplayName, actorType: input.actorType,
-    ...(input.actorSessionId ? { actorSessionId: input.actorSessionId } : {}), requestHash };
+    ...(input.actorSessionId ? { actorSessionId: input.actorSessionId } : {}), requestHash, jobScope };
   const store = dependencies.store ?? new WorkspaceOperationBatchStore();
   return (dependencies.lock ?? withWorkspaceMutationLock)(workspace.workspaceId, async () => {
     // An acknowledged retry must return the original outcome, even if its source has moved already.

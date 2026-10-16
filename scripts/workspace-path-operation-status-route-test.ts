@@ -17,6 +17,7 @@ import type * as ResponseService from '../app/lib/files/workspace-path-operation
 import type * as Route from '../app/api/files/operations/batches/[batchId]/route';
 import type { WorkspacePathOperationProblemInput } from '../app/lib/files/workspace-path-operation-problems';
 import { workspacePathOperationPublicIssues } from '../app/lib/files/workspace-path-operation-public';
+import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 
 const requireNative = createRequire(path.resolve('package.json'));
 
@@ -50,6 +51,12 @@ async function main(): Promise<void> {
     organizationId: null, ownerUserId: 'initiator', status: 'active', legacy: false,
     permissions: { canRead: true, canWrite: true, canDelete: true, canRunAgent: true,
       canManageWorkspace: false, canCreatePublicLinks: false },
+  };
+  const jobScope = captureWorkspaceOperationJobScope(workspace);
+  const assertPrivateScopeNotSerialized = (body: unknown) => {
+    const serialized = JSON.stringify(body);
+    assert.equal(serialized.includes('"jobScope"'), false);
+    assert.equal(serialized.includes(workspace.rootPath), false);
   };
   const plan: WorkspaceOperationBatchPlan = {
     version: 1, workspaceId: workspace.workspaceId, planId, readiness: 'ready',
@@ -111,7 +118,12 @@ async function main(): Promise<void> {
     for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pg.exec(statement);
     await store.createDirect({ batchId, plan, authorization: { mode: 'direct', actorUserId: 'initiator',
       actorId: 'canvas-agent', actorDisplayName: 'Agent', actorType: 'agent', actorSessionId: 'original-agent-session',
-      requestHash: 'c'.repeat(64) } });
+      requestHash: 'c'.repeat(64), jobScope } });
+    const seeded = (await store.get(batchId))!;
+    assert.equal(seeded.authorization.mode, 'direct');
+    if (seeded.authorization.mode !== 'direct') throw new Error('The direct fixture authorization was not persisted.');
+    assert.deepEqual(seeded.authorization.jobScope, jobScope);
+    assert.equal(seeded.authorization.jobScope?.rootPath, workspace.rootPath);
     const service = await compile<typeof BatchService>('app/lib/files/workspace-operation-batch-service.ts', {
       '@/app/lib/document-review-availability': { readDocumentReviewAvailability: () => ({ documentReviewEnabled: false, updatedAt: null }) },
       '@/app/lib/db': { openDb: async () => { throw new Error('No unowned database access'); } },
@@ -198,6 +210,7 @@ async function main(): Promise<void> {
     const pending = await invoke('GET');
     assert.equal(pending.status, 200); assert.equal(pending.headers.get('Cache-Control'), 'no-store');
     const pendingBody = await pending.json();
+    assertPrivateScopeNotSerialized(pendingBody);
     assert.equal(pendingBody.operation.status, 'queued');
     assert.deepEqual(Object.keys(pendingBody).sort(), ['operation', 'recovery', 'success']);
     assert.deepEqual(pendingBody.recovery, { canResume: false, canUndo: false });
@@ -225,6 +238,7 @@ async function main(): Promise<void> {
     agentSessionAvailable = true;
     await settle('applied');
     const appliedBody = await (await invoke('GET')).json();
+    assertPrivateScopeNotSerialized(appliedBody);
     assert.equal(appliedBody.operation.batchId, batchId);
     assert.equal(appliedBody.mutation.operationId, 'actual-filesystem-receipt');
     assert.equal(appliedBody.linkStatus, 'complete');
@@ -280,6 +294,7 @@ async function main(): Promise<void> {
     const resumed = await invoke('POST');
     assert.equal(resumed.status, 202); assert.equal(resumed.headers.get('Cache-Control'), 'no-store');
     const resumedBody = await resumed.json();
+    assertPrivateScopeNotSerialized(resumedBody);
     assert.equal(resumedBody.operation.batchId, batchId); assert.equal(resumedBody.operation.planId, planId);
     assert.equal(resumedBody.operation.status, 'queued'); assert.equal(resumedBody.mutation, undefined);
     const resumedRecord = (await store.get(batchId))!;
@@ -296,6 +311,7 @@ async function main(): Promise<void> {
     undoAvailable = true;
     const queuedUndo = await invoke('POST', { action: 'undo', planId });
     const undoBody = await queuedUndo.json();
+    assertPrivateScopeNotSerialized(undoBody);
     assert.equal(queuedUndo.status, 202); assert.equal(undoBody.operation.status, 'queued');
     assert.deepEqual(Object.keys(undoBody).sort(), ['operation', 'success']);
     const undoRecord = (await store.get(batchId))!;

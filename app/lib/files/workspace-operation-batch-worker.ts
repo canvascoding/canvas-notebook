@@ -7,6 +7,7 @@ import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-workspace-context';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
   hasWorkspaceOperationBatchExecution, undoWorkspaceOperationBatch } from './workspace-operation-batch-executor';
@@ -105,10 +106,19 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
         }, 20_000);
         timer.unref?.();
         await lock(batch.workspaceId, async () => {
+          const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
+          const jobScope = direct?.jobScope;
+          const assertJobScope = (scope: WorkspaceOperationBatchScope) => {
+            if (direct && (!jobScope || !workspaceOperationJobScopeMatches(jobScope, scope.workspace))) {
+              throw new Error('BATCH_SCOPE_CHANGED');
+            }
+          };
           const scope = await resolveScope(currentBatch);
+          assertJobScope(scope);
           const gate = async (progress?: WorkspaceOperationBatchProgress) => {
             if (leaseLost || !await store.heartbeat(currentBatch.batchId, owner, progress)) throw new Error('BATCH_LEASE_LOST');
             const fresh = await resolveScope(currentBatch);
+            assertJobScope(fresh);
             if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
           };
           await gate();
@@ -127,7 +137,6 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               return;
             }
           }
-          const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
           const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
           const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
             : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';

@@ -277,6 +277,22 @@ async function main(): Promise<void> {
   }), hasCode('PREVIEW_STALE', 409));
   assert.equal(htmlChecks, 1);
   assert.equal(changedHtml.creates.length, 0, 'a changed live HTML proof never queues a path mutation');
+  const scopeCapture = harness();
+  const scopeInput = request();
+  const captured = await submitDirectWorkspacePathOperation(scopeInput, {
+    ...scopeCapture.dependencies,
+    lock: async (workspaceId, action) => {
+      scopeInput.scope.workspace.rootPath = '/isolated/reused-root';
+      scopeInput.scope.workspace.organizationId = 'changed-organization';
+      return scopeCapture.dependencies.lock!(workspaceId, action);
+    },
+  });
+  assert.equal(captured.authorization.mode, 'direct');
+  if (captured.authorization.mode !== 'direct') throw new Error('The direct job lost its original authorization.');
+  assert.deepEqual(captured.authorization.jobScope, { version: 1, workspaceId: 'workspace', workspaceType: 'personal',
+    organizationId: null, customerId: null, projectId: null, ownerUserId: 'initiator',
+    rootPath: '/isolated/workspace', rootRelativePath: null, legacy: false });
+  assert.equal(Object.isFrozen(captured.authorization.jobScope), true);
   const invalid = harness();
   for (const input of [request({ selections: [] }), request({ idempotencyKey: '' }),
     request({ kind: 'delete', overwrite: true, selections: [{ sourcePath: 'source.md' }] })]) {

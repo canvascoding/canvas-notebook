@@ -2,6 +2,7 @@ import 'server-only';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 
@@ -36,7 +37,52 @@ function authorization(value: unknown): WorkspaceOperationBatchAuthorization {
     || parsed.actorType === 'agent' && (typeof parsed.actorSessionId !== 'string' || !parsed.actorSessionId.trim())) {
     throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action authorization is unavailable.');
   }
+  if (Object.prototype.hasOwnProperty.call(parsed, 'jobScope')) {
+    try { parsed.jobScope = parseWorkspaceOperationJobScope(parsed.jobScope); }
+    catch { throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action job scope is unavailable.'); }
+  }
   return parsed;
+}
+
+function directInputData(input: unknown, key: string, optional = false): unknown {
+  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype) {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action data is required.');
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(input, key);
+  if (!descriptor && optional) return undefined;
+  if (!descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value')) {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action data is required.');
+  }
+  return descriptor.value;
+}
+
+/** Copy primitive authorization and its exact scope before any database await. */
+function captureDirectAuthorization(input: unknown): WorkspaceOperationDirectAuthorization {
+  const required = ['mode', 'actorUserId', 'actorId', 'actorDisplayName', 'actorType', 'requestHash'];
+  const optional = ['actorSessionId', 'jobScope'];
+  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype
+    || Reflect.ownKeys(input).some(key => typeof key !== 'string' || ![...required, ...optional].includes(key))) {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action authorization is required.');
+  }
+  const captured = Object.fromEntries(required.map(key => [key, directInputData(input, key)]));
+  for (const key of optional) {
+    if (!Object.prototype.hasOwnProperty.call(input, key)) continue;
+    const value = directInputData(input, key);
+    if (key === 'jobScope') {
+      try { captured.jobScope = parseWorkspaceOperationJobScope(value); }
+      catch { throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action job scope is unavailable.'); }
+    } else if (value !== undefined && typeof value !== 'string') {
+      throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action session is invalid.');
+    } else captured[key] = value;
+  }
+  if (required.some(key => typeof captured[key] !== 'string')) {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action authorization is required.');
+  }
+  const parsed = authorization(JSON.stringify(captured));
+  if (parsed.mode !== 'direct') {
+    throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action authorization is required.');
+  }
+  return Object.freeze(parsed);
 }
 
 export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperationBatchRecord): string | null {
@@ -85,31 +131,46 @@ export class WorkspaceOperationBatchStore {
 
   async createDirect(input: { batchId: string; plan: WorkspaceOperationBatchPlan;
     authorization: WorkspaceOperationDirectAuthorization }): Promise<WorkspaceOperationBatchRecord> {
-    if (authorization(JSON.stringify(input.authorization)).mode !== 'direct') {
-      throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Direct file action authorization is required.');
+    const selected = captureDirectAuthorization(directInputData(input, 'authorization'));
+    const batchId = directInputData(input, 'batchId');
+    const plan = directInputData(input, 'plan') as WorkspaceOperationBatchPlan;
+    const workspaceId = directInputData(plan, 'workspaceId');
+    if (typeof workspaceId !== 'string' || selected.jobScope && selected.jobScope.workspaceId !== workspaceId) {
+      throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action job scope does not match the plan.');
     }
-    if (!/^[A-Za-z0-9_-]{16,128}$/u.test(input.batchId)) {
+    if (typeof batchId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(batchId)) {
       throw new WorkspaceOperationBatchError('BATCH_INVALID_ID', 422, 'Invalid file action identity.');
+    }
+    const planId = plan.planId, planText = JSON.stringify(plan), authorizationText = JSON.stringify(selected);
+    const status = plan.readiness === 'ready' ? 'queued' : 'blocked';
+    const totalActions = plan.pathSteps.length + plan.previewContents.length;
+    const matchingExisting = (existing: WorkspaceOperationBatchRecord | null): WorkspaceOperationBatchRecord => {
+      if (!existing || existing.workspaceId !== workspaceId || existing.authorization.mode !== 'direct'
+        || existing.authorization.actorUserId !== selected.actorUserId
+        || existing.authorization.actorId !== selected.actorId
+        || existing.authorization.actorType !== selected.actorType
+        || existing.authorization.actorSessionId !== selected.actorSessionId
+        || existing.authorization.requestHash !== selected.requestHash
+        || existing.authorization.jobScope !== undefined
+          && JSON.stringify(existing.authorization.jobScope) !== JSON.stringify(selected.jobScope ?? null)) {
+        throw new WorkspaceOperationBatchError('BATCH_IDEMPOTENCY_CONFLICT', 409, 'This file action identity belongs to another request.');
+      }
+      return existing;
+    };
+    if (!selected.jobScope) {
+      const existing = await this.get(batchId);
+      if (!existing) throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'A new direct file action requires its original job scope.');
+      return matchingExisting(existing);
     }
     const result = await this.query(`INSERT INTO workspace_file_operation_batches
       (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,
        status,error_code,total_actions,created_at,updated_at)
       VALUES ($1,$2,$3,'[]','[]',$4,$5,$6,$7,$8,$9,$9)
       ON CONFLICT (batch_id) DO NOTHING RETURNING *`,
-    [input.batchId, input.plan.planId, input.plan.workspaceId, JSON.stringify(input.plan), JSON.stringify(input.authorization),
-      input.plan.readiness === 'ready' ? 'queued' : 'blocked', input.plan.readiness === 'ready' ? null : 'PREVIEW_BLOCKED',
-      input.plan.pathSteps.length + input.plan.previewContents.length, this.now()]);
+    [batchId, planId, workspaceId, planText, authorizationText,
+      status, status === 'queued' ? null : 'PREVIEW_BLOCKED', totalActions, this.now()]);
     if (result) return result;
-    const existing = await this.get(input.batchId);
-    if (!existing || existing.workspaceId !== input.plan.workspaceId || existing.authorization.mode !== 'direct'
-      || existing.authorization.actorUserId !== input.authorization.actorUserId
-      || existing.authorization.actorId !== input.authorization.actorId
-      || existing.authorization.actorType !== input.authorization.actorType
-      || existing.authorization.actorSessionId !== input.authorization.actorSessionId
-      || existing.authorization.requestHash !== input.authorization.requestHash) {
-      throw new WorkspaceOperationBatchError('BATCH_IDEMPOTENCY_CONFLICT', 409, 'This file action identity belongs to another request.');
-    }
-    return existing;
+    return matchingExisting(await this.get(batchId));
   }
 
   async enqueue(input: { batchId: string; planId: string; userId: string; displayName: string;
