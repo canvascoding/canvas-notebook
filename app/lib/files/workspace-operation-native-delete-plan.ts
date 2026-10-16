@@ -11,10 +11,10 @@ import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/worksp
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent, captureWorkspaceOperationNativeSourceEvidence,
   decodeWorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
+import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope, WorkspaceOperationJobScope,
   WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 
-const MAX_PLAN_BYTES = 16 * 1024 * 1024;
 const keys = ['version', 'kind', 'workspaceId', 'planId', 'readiness', 'actions', 'pathMappings', 'deletedPaths', 'pathSteps',
   'linkEdits', 'originalDocuments', 'deletedDocuments', 'previewContents', 'expectedPathState', 'coverage', 'linkAssessment',
   'issues', 'sourceEvidence', 'nativeTarget', 'nativeGraphPlan'];
@@ -27,45 +27,15 @@ function fail(code: WorkspaceOperationNativeDeletePlanError['code'] = 'NATIVE_DE
   throw new WorkspaceOperationNativeDeletePlanError(code);
 }
 function capture(input: unknown): unknown {
-  let nodes = 0, bytes = 0;
-  const visit = (value: unknown, depth: number): unknown => {
-    if (++nodes > 400_000 || depth > 40) fail('NATIVE_DELETE_PLAN_TOO_LARGE');
-    if (value === null || typeof value === 'boolean') return value;
-    if (typeof value === 'number') { if (!Number.isFinite(value)) fail(); return value; }
-    if (typeof value === 'string') { bytes += Buffer.byteLength(value); if (bytes > MAX_PLAN_BYTES) fail('NATIVE_DELETE_PLAN_TOO_LARGE'); return value; }
-    if (!value || typeof value !== 'object' || !Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype) fail();
-    if (Array.isArray(value)) {
-      if (value.length > 100_000 || Reflect.ownKeys(value).length !== value.length + 1) fail();
-      return Array.from({ length: value.length }, (_, index) => {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail();
-        return visit(descriptor.value, depth + 1);
-      });
-    }
-    const result: Record<string, unknown> = {};
-    for (const key of Reflect.ownKeys(value)) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (typeof key !== 'string' || key.length > 256 || ['__proto__', 'constructor', 'prototype'].includes(key)
-        || !descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail();
-      bytes += Buffer.byteLength(key); if (bytes > MAX_PLAN_BYTES) fail('NATIVE_DELETE_PLAN_TOO_LARGE');
-      result[key] = visit(descriptor.value, depth + 1);
-    }
-    return result;
-  };
-  const value = visit(input, 0);
-  if (Buffer.byteLength(JSON.stringify(value)) > MAX_PLAN_BYTES) fail('NATIVE_DELETE_PLAN_TOO_LARGE');
-  return value;
+  return captureWorkspaceOperationNativePlanData(input, reason => fail(reason === 'too-large'
+    ? 'NATIVE_DELETE_PLAN_TOO_LARGE' : 'NATIVE_DELETE_PLAN_INVALID'));
 }
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
   return value;
 }
 function snapshot(observation: Pick<WorkspaceLinkSourceAuthorityObservation, 'stage'>): NativeWorkspaceLinkSnapshot {
-  const { stage } = observation;
-  if (!stage.coverage.complete || stage.coverage.gaps.length || stage.sources.some(source => source.kind !== 'native')) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
-  const body = { contractVersion: 2 as const, workspaceId: stage.workspaceId, namespace: stage.namespace,
-    documents: stage.sources.flatMap(source => source.kind === 'native' ? [source.inventory] : []), coverage: { complete: true, gaps: [] } };
-  return { ...body, snapshotProof: nativeLinkJsonProof(body) };
+  return workspaceOperationNativePlanSnapshot(observation, () => fail('NATIVE_DELETE_PLAN_UNSUPPORTED'));
 }
 function action(input: readonly WorkspaceOperationBatchAction[]): WorkspaceOperationBatchAction {
   if (input.length !== 1) fail('NATIVE_DELETE_PLAN_UNSUPPORTED');
