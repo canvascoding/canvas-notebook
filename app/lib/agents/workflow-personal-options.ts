@@ -48,14 +48,22 @@ function slot(snapshot: AgentWorkflowInternalSnapshot, key: string) {
 }
 async function permitted(actor: AgentManagementActor, request: AgentWorkflowPersonalOptionsRequest) {
   const snapshot = await readManagedAgentWorkflow(actor, request.agentId);
-  if (!snapshot.access.canUse || snapshot.workflowVersion !== 1) fail('AGENT_ACCESS_DENIED', 'Current agent use is required to discover your workflow connections.');
+  if (!snapshot.access.canUse || snapshot.workflowVersion !== 1 && snapshot.workflowVersion !== 2) fail('AGENT_ACCESS_DENIED', 'Current agent use is required to discover your workflow connections.');
   if (request.expectedWorkflowRevision !== undefined && request.expectedWorkflowRevision !== snapshot.workflowRevision) {
     fail('AGENT_WORKFLOW_REVISION_CONFLICT', 'The workflow configuration changed. Reload its choices.', 409);
   }
   const selected = slot(snapshot, request.capabilityKey), selection = selected.capability.selection;
   if (selection.mode !== 'selectable' || !selection.personalPolicy) fail('AGENT_WORKFLOW_CHOICE_DENIED', 'This capability does not allow personal connections.');
   const policy = selection.personalPolicy;
-  const alternatives = selected.capability.alternatives.filter(alternative => {
+  const effective = snapshot.workflowVersion === 2 ? await (async () => {
+    const { resolveAgentExtensionOptionsContext } = await import('./extension-options-context');
+    const { readAgentWorkflowPersonalPackageScope } = await import('./extension-options-connections');
+    const context = await resolveAgentExtensionOptionsContext(actor, { kind: 'user_choice', agentId: request.agentId,
+      capabilityKey: request.capabilityKey, expectedWorkflowRevision: snapshot.workflowRevision,
+      expectedPreferenceRevision: snapshot.preferenceRevision });
+    return readAgentWorkflowPersonalPackageScope(context, request.alternativeKey);
+  })() : null;
+  const alternatives = (effective?.alternatives ?? selected.capability.alternatives).filter(alternative => {
     const key = `${alternative.source}:${alternative.source === 'mcp' ? alternative.connector : alternative.toolkit}`;
     return policy.sources.includes(alternative.source) && policy.alternativeKeys.includes(key)
       && (alternative.source !== 'composio' || isComposioIntegrationApplicationVisible(alternative.toolkit));

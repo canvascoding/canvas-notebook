@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
 import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
 import { readPersonalComposioAccountReference } from '@/app/lib/composio/composio-shared-account-reference';
 import { createIntegrationProviderRef } from '@/app/lib/integration-tools/references';
@@ -184,6 +185,28 @@ function permittedTools(tools: readonly string[] | null, cap: readonly string[] 
   const allowedToolNames = intersectPackageExtensionToolCaps(tools, cap);
   return { allowedToolNames, eligibility: (alternative.requiredTools ?? []).some(name => allowedToolNames !== null && !allowedToolNames.includes(name))
     ? { action: 'unavailable', reason: { code: 'AGENT_WORKFLOW_REQUIRED_TOOLS', message: 'This connection does not grant every required tool.' } } : { action: 'select' } };
+}
+
+/** Compatibility picker reads the same effective V2 package slot as the current options UI. */
+export async function readAgentWorkflowPersonalPackageScope(context: AgentExtensionOptionsContext,
+  selectedAlternative?: string): Promise<{ alternatives: WorkflowIntegrationAlternative[];
+    mcpDefinitionMappings?: Scope['definitionMappings'] }> {
+  await revalidateAgentExtensionOptionsContext(context);
+  if (context.target.kind !== 'user_choice') fail('AGENT_WORKFLOW_CHOICE_DENIED', 'Choose your own current package capability.', 403);
+  const request = agentExtensionOptionsRequestSchema.parse({ operation: 'connection_choices', target: context.target,
+    selector: { kind: 'slot', ...(selectedAlternative ? { alternativeKey: selectedAlternative } : {}) } });
+  if (request.operation !== 'connection_choices') fail('AGENT_WORKFLOW_CHOICE_INVALID', 'Choose a current package capability.', 400);
+  const scope = await selectionScope(context, request);
+  const alternatives: WorkflowIntegrationAlternative[] = [];
+  if (scope.package) for (const alternative of scope.personal) {
+    if (permittedTools(null, scope.toolCap, alternative).eligibility.action !== 'select') continue;
+    const requiredTools = alternative.requiredTools ? [...alternative.requiredTools] : undefined;
+    if (alternative.source === 'composio') alternatives.push({ source: 'composio', toolkit: alternative.toolkit, requiredTools });
+    else if (alternative.connector) alternatives.push({ source: 'mcp', connector: alternative.connector, requiredTools });
+  }
+  if (!alternatives.length) fail('AGENT_WORKFLOW_CHOICE_DENIED', 'This active capability does not permit a personal connection within its current tool limit.', 403);
+  await revalidateAgentExtensionOptionsContext(context);
+  return { alternatives, mcpDefinitionMappings: scope.definitionMappings };
 }
 
 async function setupAlternatives(context: ExtensionOptionsSourceContext, scope: Scope): Promise<AgentExtensionSetupAlternative[]> {

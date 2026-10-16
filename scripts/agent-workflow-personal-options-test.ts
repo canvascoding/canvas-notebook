@@ -9,6 +9,7 @@ import { createComposioProviderFixture } from './helpers/composio-provider-fixtu
 import { startIntegrationToolBrowserProvider, BROWSER_MCP_TOOL } from './fixtures/integration-tool-browser-provider';
 import type { IntegrationToolPage, IntegrationToolSchema } from '../app/lib/integration-tools/contracts';
 import type { AgentWorkflowPackageConfiguration } from '../app/lib/agents/workflow-contracts';
+import type { AgentExtensionConfigurationInput } from '../app/lib/capabilities/extensions/contracts';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workflow-options-'));
@@ -80,6 +81,12 @@ async function main() {
     await fs.mkdir(path.join(pluginRoot, '.canvas-plugin'), { recursive: true });
     await fs.mkdir(path.join(pluginRoot, 'skills', 'workflow-choice'), { recursive: true });
     await fs.writeFile(path.join(pluginRoot, 'skills', 'workflow-choice', 'SKILL.md'), '---\nname: workflow-choice\ndescription: Use the permitted personal design connection.\nmetadata:\n  version: "1.0.0"\n---\n\nUse the configured workflow.\n');
+    const hiddenRoot = 'skills/workflow-hidden', hiddenDeclaration = `${hiddenRoot}/agents/canvas.yaml`;
+    await fs.mkdir(path.join(pluginRoot, hiddenRoot, 'agents'), { recursive: true });
+    await fs.writeFile(path.join(pluginRoot, hiddenRoot, 'SKILL.md'), '---\nname: workflow-hidden\ndescription: Read only when this exact child is selected.\nmetadata:\n  version: "1.0.0"\n---\n\nUse the permitted child connection.\n');
+    await fs.writeFile(path.join(pluginRoot, hiddenDeclaration), JSON.stringify({ workflow: { version: 1, integrationCapabilities: [
+      { id: 'hidden', application: 'canva', required: false, alternatives: [{ source: 'composio', toolkit: 'canva', requiredTools: ['ASSET_LOOKUP'] }] },
+    ] } }));
     await fs.writeFile(path.join(pluginRoot, '.canvas-plugin/plugin.json'), JSON.stringify({ name: 'workflow-options', version: '1.0.0', description: 'Controlled user choices',
       connectors: { mcp: [{ name: 'design', required: false }] }, workflow: { version: 1, integrationCapabilities: [
         { id: 'assets', application: 'canva', required: false, alternatives: [{ source: 'composio', toolkit: 'canva', requiredTools: ['ASSET_LOOKUP'] }, { source: 'mcp', connector: 'design', requiredTools: [BROWSER_MCP_TOOL] }] },
@@ -101,11 +108,6 @@ async function main() {
       expectedMetadataRevision: inspected.resource.metadataRevision, expectedGrantsRevision: inspected.resource.grantsRevision,
       expectedPackageRevision: 0, expectedPublishedRevisionRef: null });
     const agentActions = await import('../app/lib/agents/management-actions'), agents = await import('../app/lib/agents/registry');
-    await agentActions.createManagedAgent(owner, { agentId: 'workflow-options-agent', name: 'Workflow options agent', scopeType: 'organization',
-      enabledTools: ['mcp', 'COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute'] });
-    let profile = (await agents.getAgentProfile('workflow-options-agent'))!;
-    await agentActions.setManagedAgentGrant({ actor: owner, agentId: profile.agentId, expectedRevision: profile.revision, targetType: 'user', targetId: 'alice', canUse: true, canEdit: false, canManage: false });
-    profile = (await agents.getAgentProfile(profile.agentId))!;
     const workflow = await import('../app/lib/agents/workflow-configuration');
     const configuredPackage: AgentWorkflowPackageConfiguration = { resourceRef: ref, publishedRevisionRef: published.published.revisionRef, checksum: published.published.checksum,
       skillSelection: { kind: 'plugin' }, declarations: [{ declarationPath: '.canvas-plugin/plugin.json', capabilities: [
@@ -113,72 +115,115 @@ async function main() {
           alternativeKeys: ['composio:canva', 'mcp:design'], toolCap: ['ASSET_LOOKUP', BROWSER_MCP_TOOL], mcpDefinitionMappings: [{ connector: 'design', serverDefinitionIds: [allowedDefinition.id] }] } } },
         { capabilityId: 'fixed', selection: { mode: 'fixed', alternativeKey: 'mcp:design', toolCap: [BROWSER_MCP_TOOL],
           target: { kind: 'shared', source: 'mcp', connectionRef: shared.resource.connectionRef, bindingRevision: shared.resource.bindingRevision, mcpMapping: { kind: 'manager_confirmation' } } } },
-      ] }] };
-    await workflow.updateManagedAgentConfiguration({ actor: owner, agentId: profile.agentId, expectedRevision: profile.revision, expectedWorkflowRevision: 0,
-      workflow: { version: 1, packages: [configuredPackage] } });
-    const { agentWorkflowCapabilityKey } = await import('../app/lib/agents/workflow-contracts');
-    const capabilityKey = agentWorkflowCapabilityKey(ref, '.canvas-plugin/plugin.json', 'assets'), fixedKey = agentWorkflowCapabilityKey(ref, '.canvas-plugin/plugin.json', 'fixed');
-    const options = await import('../app/lib/agents/workflow-personal-options');
-    const request = { agentId: profile.agentId, capabilityKey };
-    const counts = () => [provider.calls.length, mcp.calls().requests];
-    const beforeMetadata = counts(), metadata = await options.listAgentWorkflowPersonalOptions(alice, request);
-    assert.deepEqual(counts(), beforeMetadata, 'Metadata discovery performs no SDK or MCP request.');
-    const canvaProviders = metadata.alternatives.find(alternative => alternative.alternativeKey === 'composio:canva')!.providers;
-    const alphaOption = canvaProviders.find(option => option.profileLabel === alpha.name)!, betaOption = canvaProviders.find(option => option.profileLabel === beta.name)!;
-    assert(alphaOption && betaOption && alphaOption.providerRef !== betaOption.providerRef);
-    const mcpOptions = metadata.alternatives.find(alternative => alternative.alternativeKey === 'mcp:design')!.providers;
-    assert.equal(mcpOptions.length, 1); assert.equal(mcpOptions[0].label, 'Alice approved design');
-    for (const secret of [alpha.id, beta.id, foreign.id, alpha.composioUserId, foreign.composioUserId, ownMcp.connectionId, allowedDefinition.id, mcp.mcpUrl, 'inert-options-key']) assert(!JSON.stringify(metadata).includes(secret));
-    const denied = [{ ...request, alternativeKey: 'composio:slack' }, { ...request, alternativeKey: 'composio:github' },
-      { ...request, capabilityKey: fixedKey }, { ...request, capabilityKey: 'unknown' }, { ...request, expectedWorkflowRevision: metadata.workflowRevision + 1 },
-      { ...request, alternativeKey: 'composio:canva', providerRef: 'composio:v1:foreign' }];
-    const beforeDenied = counts();
-    for (const input of denied) await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, input));
-    await assert.rejects(() => options.listAgentWorkflowPersonalOptions({ userId: 'bob', workspaceId: 'personal-bob' }, request), { code: 'AGENT_ACCESS_DENIED' });
-    assert.deepEqual(counts(), beforeDenied, 'Capability/source/policy/fixed/foreign/stale discovery denies before provider I/O.');
-    const selectedRequest = { ...request, alternativeKey: 'composio:canva', providerRef: alphaOption.providerRef, expectedWorkflowRevision: metadata.workflowRevision };
-    const beforeSelected = provider.calls.length, selected = await options.listAgentWorkflowPersonalOptions(alice, selectedRequest);
-    const accountOption = selected.alternatives[0].providers[0];
-    assert.equal(accountOption.accounts?.length, 3); assert.equal(accountOption.accounts.filter(account => account.selectable).length, 2);
-    const selectedCalls = provider.calls.slice(beforeSelected);
-    assert.equal(selectedCalls.filter(call => call.path === '/api/v3.1/toolkits').length, 1);
-    assert(selectedCalls.filter(call => call.path === '/api/v3.1/connected_accounts').every(call => call.userId === alpha.composioUserId && call.toolkitSlugs === 'canva'));
-    assert(selectedCalls.every(call => ['/api/v3.1/toolkits', '/api/v3.1/connected_accounts'].includes(call.path)));
-    for (const value of ['ALPHA_A', 'ALPHA_B', 'ALPHA_PENDING', 'UNDECLARED_SLACK', 'FOREIGN_A', alpha.id, alpha.composioUserId, 'inert-options-key']) assert(!JSON.stringify(selected).includes(value));
-    const chosenAccount = accountOption.accounts.filter(account => account.selectable)[1].accountSelectionRef;
-    const beforeSet = provider.calls.length;
-    const saved = await workflow.setManagedAgentWorkflowChoice({ actor: alice, ...request, expectedWorkflowRevision: metadata.workflowRevision,
-      expectedPreferenceRevision: metadata.preferenceRevision, personalSelection: { alternativeKey: 'composio:canva', target: { kind: 'personal', source: 'composio', ownerUserId: 'alice',
-        providerRef: alphaOption.providerRef, accountSelectionRef: chosenAccount } } });
-    assert.equal(saved.preferenceRevision, metadata.preferenceRevision + 1);
-    assert(provider.calls.slice(beforeSet).filter(call => call.path === '/api/v3.1/connected_accounts').every(call => call.userId === alpha.composioUserId && call.toolkitSlugs === 'canva'), 'Saving stays on the declared profile/app.');
-    const { piSessions } = await import('../app/lib/db/schema');
-    await database.db.insert(piSessions).values({ sessionId: 'workflow-options-session', userId: 'alice', agentId: profile.agentId, workspaceId: 'personal-alice', workspaceType: 'personal',
-      organizationId, provider: 'fixture', model: 'fixture', createdAt: new Date(), updatedAt: new Date() });
-    const execution = await (await import('../app/lib/pi/session-workspace-context')).resolveAgentExecutionContextForStoredSession({ userId: 'alice', sessionId: 'workflow-options-session', agentId: profile.agentId });
-    const { UNRESTRICTED_INTEGRATION_POLICY } = await import('../app/lib/integration-tools/policy');
-    const policy = await (await import('../app/lib/integration-tools/runtime-policy')).resolveIntegrationRuntimePolicy({ executionContext: execution, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
-    const context = { actorUserId: 'alice', organizationId, workspaceId: execution.workspaceId, agentId: execution.agentId, sessionId: execution.sessionId, policyRevision: policy.policyRevision };
-    (await import('../app/lib/agents/workflow-runtime')).attachAgentWorkflowRuntimeProjection(context, policy.workflowProjection);
-    const dispatcher = new (await import('../app/lib/integration-tools/dispatcher')).IntegrationDispatcher();
-    const bound = policy.policy.providerToolRules!.find(rule => rule.source === 'composio')!.providerRef;
-    const run = (input: unknown) => dispatcher.execute({ context, policy: policy.policy, request: input, toolCallId: 'actual-own-choice' });
-    const tools = await run({ action: 'list', target: 'tools', providerRef: bound }) as IntegrationToolPage;
-    const schema = await run({ action: 'describe', toolRef: tools.tools[0].toolRef }) as IntegrationToolSchema;
-    await run({ action: 'call', toolRef: schema.toolRef, schemaRef: schema.schemaRef, arguments: { folder_id: 'Chosen account assets' } });
-    assert.equal(provider.calls.filter(call => call.path.includes('/tools/execute/')).at(-1)!.body.connected_account_id, 'ALPHA_B');
-    provider.rotateOnEndpoint('/api/v3.1/connected_accounts', async () => { await renameComposioProfile({ ownerUserId: 'alice', profileId: alpha.id, name: 'Renamed during discovery' }); });
-    await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, selectedRequest), error => Boolean(error && typeof error === 'object' && ['AGENT_WORKFLOW_REVISION_CONFLICT', 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE'].includes(Reflect.get(error, 'code'))));
-    provider.rotateOnEndpoint('/api/v3.1/connected_accounts', async () => {
-      const current = (await agents.getAgentProfile(profile.agentId))!;
-      await agentActions.setManagedAgentGrant({ actor: owner, agentId: profile.agentId, expectedRevision: current.revision, targetType: 'user', targetId: 'alice', canUse: false, canEdit: false, canManage: false });
-    });
-    await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, { ...request, alternativeKey: 'composio:canva', providerRef: betaOption.providerRef }), { code: 'AGENT_ACCESS_DENIED' });
-    const afterRevoke = counts();
-    await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, request), { code: 'AGENT_ACCESS_DENIED' });
-    assert.deepEqual(counts(), afterRevoke, 'Fresh revoked use denies even metadata discovery before SDK.');
+      ] }, { declarationPath: hiddenDeclaration, capabilities: [{ capabilityId: 'hidden', selection: { mode: 'selectable', allowedChoices: [],
+        personalPolicy: { sources: ['composio'], alternativeKeys: ['composio:canva'], toolCap: ['ASSET_LOOKUP'] } } }] }] };
+    const extensions: AgentExtensionConfigurationInput = { version: 1, origin: 'agent_configuration', mode: 'fixed',
+      selections: [{ selection: { kind: 'plugin', package: { resourceRef: configuredPackage.resourceRef,
+        publishedRevisionRef: configuredPackage.publishedRevisionRef, checksum: configuredPackage.checksum }, skillSelection: { kind: 'all' } },
+        requirement: 'optional', toolCap: null }], workflow: { version: 1, packages: [configuredPackage] }, standalone: [] };
+    for (const workflowVersion of [2, 1] as const) {
+      const agentId = `workflow-options-agent-v${workflowVersion}`;
+      await agentActions.createManagedAgent(owner, { agentId, name: `Workflow options V${workflowVersion}`, scopeType: 'organization',
+        enabledTools: ['read', 'mcp', 'COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute'],
+        extensions: workflowVersion === 2 ? extensions : { version: 1, origin: 'agent_configuration', mode: 'legacy_inherit' } });
+      let profile = (await agents.getAgentProfile(agentId))!;
+      await agentActions.setManagedAgentGrant({ actor: owner, agentId, expectedRevision: profile.revision, targetType: 'user', targetId: 'alice',
+        canUse: true, canEdit: false, canManage: false });
+      profile = (await agents.getAgentProfile(agentId))!;
+      // Explicit inheritance plus the retained writer reconstructs a historical V1 fixture.
+      if (workflowVersion === 1) await workflow.updateManagedAgentConfiguration({ actor: owner, agentId, expectedRevision: profile.revision,
+        expectedWorkflowRevision: 0, workflow: { version: 1, packages: [configuredPackage] } });
+      assert.equal((await workflow.readManagedAgentWorkflow(alice, agentId)).workflowVersion, workflowVersion,
+        'Exercise the actual stored legacy and complete-extension encodings.');
+      const { agentWorkflowCapabilityKey } = await import('../app/lib/agents/workflow-contracts');
+      const capabilityKey = agentWorkflowCapabilityKey(ref, '.canvas-plugin/plugin.json', 'assets'), fixedKey = agentWorkflowCapabilityKey(ref, '.canvas-plugin/plugin.json', 'fixed');
+      const options = await import('../app/lib/agents/workflow-personal-options');
+      const request = { agentId: profile.agentId, capabilityKey };
+      const counts = () => [provider.calls.length, mcp.calls().requests];
+      if (workflowVersion === 2) {
+        const row = await sql.get('SELECT id,configuration_json FROM agent_capability_bindings WHERE agent_id=$1 AND resource_type=\'plugin\'', [agentId]) as
+          { id: string; configuration_json: string };
+        assert(row?.configuration_json, 'Use the actual persisted complete package binding.');
+        const hiddenKey = agentWorkflowCapabilityKey(ref, hiddenDeclaration, 'hidden');
+        assert((await options.listAgentWorkflowPersonalOptions(alice, { agentId, capabilityKey: hiddenKey })).alternatives.length);
+        const beforeNarrowed = counts();
+        try {
+          // The private V2 codec retains the source declarations; current masks and ceilings decide visibility.
+          const masked = JSON.parse(row.configuration_json);
+          masked.selections[0].selection.skillSelection = { kind: 'subset', relativeRoots: ['skills/workflow-choice'] };
+          await sql.run('UPDATE agent_capability_bindings SET configuration_json=$1 WHERE id=$2', [JSON.stringify(masked), row.id]);
+          await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, { agentId, capabilityKey: hiddenKey }),
+            { code: 'AGENT_WORKFLOW_CHOICE_INVALID' }, 'A retained child declaration is not a currently selected child.');
+          const capped = JSON.parse(row.configuration_json);
+          capped.selections[0].toolCap = [];
+          await sql.run('UPDATE agent_capability_bindings SET configuration_json=$1 WHERE id=$2', [JSON.stringify(capped), row.id]);
+          await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, request), { code: 'AGENT_WORKFLOW_CHOICE_DENIED' },
+            'An empty current package ceiling cannot admit any required integration tool.');
+          assert.deepEqual(counts(), beforeNarrowed, 'Excluded V2 children/tool ceilings deny before provider requests.');
+        } finally {
+          await sql.run('UPDATE agent_capability_bindings SET configuration_json=$1 WHERE id=$2', [row.configuration_json, row.id]);
+        }
+      }
+      const beforeMetadata = counts(), metadata = await options.listAgentWorkflowPersonalOptions(alice, request);
+      assert.deepEqual(counts(), beforeMetadata, 'Metadata discovery performs no SDK or MCP request.');
+      const canvaProviders = metadata.alternatives.find(alternative => alternative.alternativeKey === 'composio:canva')!.providers;
+      const alphaOption = canvaProviders.find(option => option.profileLabel === alpha.name)!, betaOption = canvaProviders.find(option => option.profileLabel === beta.name)!;
+      assert(alphaOption && betaOption && alphaOption.providerRef !== betaOption.providerRef);
+      const mcpOptions = metadata.alternatives.find(alternative => alternative.alternativeKey === 'mcp:design')!.providers;
+      assert.equal(mcpOptions.length, 1); assert.equal(mcpOptions[0].label, 'Alice approved design');
+      for (const secret of [alpha.id, beta.id, foreign.id, alpha.composioUserId, foreign.composioUserId, ownMcp.connectionId, allowedDefinition.id, mcp.mcpUrl, 'inert-options-key']) assert(!JSON.stringify(metadata).includes(secret));
+      const denied = [{ ...request, alternativeKey: 'composio:slack' }, { ...request, alternativeKey: 'composio:github' },
+        { ...request, capabilityKey: fixedKey }, { ...request, capabilityKey: 'unknown' }, { ...request, expectedWorkflowRevision: metadata.workflowRevision + 1 },
+        { ...request, alternativeKey: 'composio:canva', providerRef: 'composio:v1:foreign' }];
+      const beforeDenied = counts();
+      for (const input of denied) await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, input));
+      await assert.rejects(() => options.listAgentWorkflowPersonalOptions({ userId: 'bob', workspaceId: 'personal-bob' }, request), { code: 'AGENT_ACCESS_DENIED' });
+      assert.deepEqual(counts(), beforeDenied, 'Capability/source/policy/fixed/foreign/stale discovery denies before provider I/O.');
+      const selectedRequest = { ...request, alternativeKey: 'composio:canva', providerRef: alphaOption.providerRef, expectedWorkflowRevision: metadata.workflowRevision };
+      const beforeSelected = provider.calls.length, selected = await options.listAgentWorkflowPersonalOptions(alice, selectedRequest);
+      const accountOption = selected.alternatives[0].providers[0];
+      assert.equal(accountOption.accounts?.length, 3); assert.equal(accountOption.accounts.filter(account => account.selectable).length, 2);
+      const selectedCalls = provider.calls.slice(beforeSelected);
+      assert.equal(selectedCalls.filter(call => call.path === '/api/v3.1/toolkits').length, 1);
+      assert(selectedCalls.filter(call => call.path === '/api/v3.1/connected_accounts').every(call => call.userId === alpha.composioUserId && call.toolkitSlugs === 'canva'));
+      assert(selectedCalls.every(call => ['/api/v3.1/toolkits', '/api/v3.1/connected_accounts'].includes(call.path)));
+      for (const value of ['ALPHA_A', 'ALPHA_B', 'ALPHA_PENDING', 'UNDECLARED_SLACK', 'FOREIGN_A', alpha.id, alpha.composioUserId, 'inert-options-key']) assert(!JSON.stringify(selected).includes(value));
+      const chosenAccount = accountOption.accounts.filter(account => account.selectable)[1].accountSelectionRef;
+      const beforeSet = provider.calls.length;
+      const saved = await workflow.setManagedAgentWorkflowChoice({ actor: alice, ...request, expectedWorkflowRevision: metadata.workflowRevision,
+        expectedPreferenceRevision: metadata.preferenceRevision, personalSelection: { alternativeKey: 'composio:canva', target: { kind: 'personal', source: 'composio', ownerUserId: 'alice',
+          providerRef: alphaOption.providerRef, accountSelectionRef: chosenAccount } } });
+      assert.equal(saved.preferenceRevision, metadata.preferenceRevision + 1);
+      assert(provider.calls.slice(beforeSet).filter(call => call.path === '/api/v3.1/connected_accounts').every(call => call.userId === alpha.composioUserId && call.toolkitSlugs === 'canva'), 'Saving stays on the declared profile/app.');
+      const { piSessions } = await import('../app/lib/db/schema');
+      await database.db.insert(piSessions).values({ sessionId: `workflow-options-session-v${workflowVersion}`, userId: 'alice', agentId: profile.agentId, workspaceId: 'personal-alice', workspaceType: 'personal',
+        organizationId, provider: 'fixture', model: 'fixture', createdAt: new Date(), updatedAt: new Date() });
+      const execution = await (await import('../app/lib/pi/session-workspace-context')).resolveAgentExecutionContextForStoredSession({ userId: 'alice', sessionId: `workflow-options-session-v${workflowVersion}`, agentId: profile.agentId });
+      const { UNRESTRICTED_INTEGRATION_POLICY } = await import('../app/lib/integration-tools/policy');
+      const policy = await (await import('../app/lib/integration-tools/runtime-policy')).resolveIntegrationRuntimePolicy({ executionContext: execution, ceiling: UNRESTRICTED_INTEGRATION_POLICY });
+      const context = { actorUserId: 'alice', organizationId, workspaceId: execution.workspaceId, agentId: execution.agentId, sessionId: execution.sessionId, policyRevision: policy.policyRevision };
+      (await import('../app/lib/agents/workflow-runtime')).attachAgentWorkflowRuntimeProjection(context, policy.workflowProjection);
+      const dispatcher = new (await import('../app/lib/integration-tools/dispatcher')).IntegrationDispatcher();
+      const bound = policy.policy.providerToolRules!.find(rule => rule.source === 'composio')!.providerRef;
+      const run = (input: unknown) => dispatcher.execute({ context, policy: policy.policy, request: input, toolCallId: 'actual-own-choice' });
+      const tools = await run({ action: 'list', target: 'tools', providerRef: bound }) as IntegrationToolPage;
+      const schema = await run({ action: 'describe', toolRef: tools.tools[0].toolRef }) as IntegrationToolSchema;
+      await run({ action: 'call', toolRef: schema.toolRef, schemaRef: schema.schemaRef, arguments: { folder_id: 'Chosen account assets' } });
+      assert.equal(provider.calls.filter(call => call.path.includes('/tools/execute/')).at(-1)!.body.connected_account_id, 'ALPHA_B');
+      provider.rotateOnEndpoint('/api/v3.1/connected_accounts', async () => { await renameComposioProfile({ ownerUserId: 'alice', profileId: alpha.id, name: 'Renamed during discovery' }); });
+      await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, selectedRequest), error => Boolean(error && typeof error === 'object' && ['AGENT_WORKFLOW_REVISION_CONFLICT', 'AGENT_WORKFLOW_OPTIONS_UNAVAILABLE'].includes(Reflect.get(error, 'code'))));
+      provider.rotateOnEndpoint('/api/v3.1/connected_accounts', async () => {
+        const current = (await agents.getAgentProfile(profile.agentId))!;
+        await agentActions.setManagedAgentGrant({ actor: owner, agentId: profile.agentId, expectedRevision: current.revision, targetType: 'user', targetId: 'alice', canUse: false, canEdit: false, canManage: false });
+      });
+      await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, { ...request, alternativeKey: 'composio:canva', providerRef: betaOption.providerRef }), { code: 'AGENT_ACCESS_DENIED' });
+      await renameComposioProfile({ ownerUserId: 'alice', profileId: alpha.id, name: alpha.name });
+      const afterRevoke = counts();
+      await assert.rejects(() => options.listAgentWorkflowPersonalOptions(alice, request), { code: 'AGENT_ACCESS_DENIED' });
+      assert.deepEqual(counts(), afterRevoke, 'Fresh revoked use denies even metadata discovery before SDK.');
+    }
     await (await import('../app/lib/auth')).ensureAuthReady();
-    console.log('agent-workflow-personal-options-test: PASS (actual licensed PGlite actor/grants + published package/config; 0-I/O policy-first discovery; approved own MCP mapping; exact own profile/app sealed multi-account choices; actual setter/dispatcher SDK binding; post-await profile/rights revoke)');
+    console.log('agent-workflow-personal-options-test: PASS (actual licensed PGlite V1 + V2 actor/grants + published package/config; 0-I/O policy-first discovery; approved own MCP mapping; exact own profile/app sealed multi-account choices; actual setter/dispatcher SDK binding; post-await profile/rights revoke)');
   } finally {
     await closeMcp?.(); loader._load = original; await provider.close(); await mcp.close(); await database.close();
     async function writable(directory: string): Promise<void> {
