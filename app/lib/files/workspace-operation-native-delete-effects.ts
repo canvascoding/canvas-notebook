@@ -51,8 +51,10 @@ export function workspaceOperationNativeDeleteEffects(plan: WorkspaceOperationNa
 
 /** V1 retains its original count; native source documents are real link steps. */
 export function workspaceOperationBatchTotalActions(plan: WorkspaceOperationBatchPlan): number {
-  return plan.version === 2 ? 1 + workspaceOperationNativeDeleteEffects(plan).length
-    : plan.pathSteps.length + plan.previewContents.length;
+  if (plan.version === 2) return 1 + workspaceOperationNativeDeleteEffects(plan).length;
+  if (plan.version === 3) return plan.pathSteps.length
+    + new Set(plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)).size;
+  return plan.pathSteps.length + plan.previewContents.length;
 }
 
 /** Checked SQL completion supplies applied rows. A graph intent alone cannot

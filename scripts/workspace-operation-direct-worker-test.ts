@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from '../app/lib/db/workspace-operation-review-migration';
-import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope, WorkspaceOperationDirectAuthorization } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationLegacyBatchPlan as WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope, WorkspaceOperationDirectAuthorization } from '../app/lib/files/workspace-operation-batch-contract';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { createWorkspaceOperationBatchWorker } from '../app/lib/files/workspace-operation-batch-worker';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';

@@ -18,6 +18,8 @@ import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/worksp
 import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-lifecycle-guard';
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
+import { computeWorkspaceOperationNativeMoveBatchPlanId, createWorkspaceOperationNativeMoveBatchPlan,
+  WorkspaceOperationNativeMovePlanError, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 
 const sha = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const within = (child: string, parent: string) => child === parent || child.startsWith(`${parent}/`);
@@ -90,8 +92,10 @@ function originalOffset(cleanedOffset: number, replacements: Replacement[]): num
 }
 
 /** Mutation identity excludes unrelated diagnostic noise; full safety is still re-evaluated on every first apply. */
-export function computeWorkspaceOperationBatchPlanId(plan: Omit<WorkspaceOperationBatchPlan, 'planId' | 'linkPlan'>): string {
+export function computeWorkspaceOperationBatchPlanId(plan: Omit<WorkspaceOperationLegacyBatchPlan, 'planId' | 'linkPlan'>
+  | Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'> | Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>): string {
   if (plan.version === 2) return computeWorkspaceOperationNativeDeleteBatchPlanId(plan as Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'>);
+  if (plan.version === 3) return computeWorkspaceOperationNativeMoveBatchPlanId(plan as Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>);
   return sha(JSON.stringify({ version: plan.version, workspaceId: plan.workspaceId, actions: plan.actions,
     pathMappings: plan.pathMappings, deletedPaths: plan.deletedPaths, pathSteps: plan.pathSteps,
     linkEdits: plan.linkEdits, originalDocuments: plan.originalDocuments, previewContents: plan.previewContents,
@@ -198,8 +202,8 @@ export function createWorkspaceOperationBatchPlan(input: {
     } catch (error) { issue('unsupported-overlap', edit.sourcePathBefore, error instanceof Error ? error.message : 'Link edits overlap.'); }
   }
   linkEdits.sort((a, b) => a.sourcePathBefore.localeCompare(b.sourcePathBefore) || a.targetRange.startUtf16 - b.targetRange.startUtf16);
-  const originalDocuments: WorkspaceOperationBatchPlan['originalDocuments'] = [];
-  const previewContents: WorkspaceOperationBatchPlan['previewContents'] = [];
+  const originalDocuments: WorkspaceOperationLegacyBatchPlan['originalDocuments'] = [];
+  const previewContents: WorkspaceOperationLegacyBatchPlan['previewContents'] = [];
   for (const sourcePath of new Set(linkEdits.map((edit) => edit.sourcePathBefore))) {
     const original = snapshot.entries.find((entry) => entry.path === sourcePath)!.markdownContent!;
     const edits = linkEdits.filter((edit) => edit.sourcePathBefore === sourcePath).sort((a, b) => b.targetRange.startUtf16 - a.targetRange.startUtf16);
@@ -303,7 +307,19 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   if (!dependencies.buildSnapshot) {
     const observation = await readWorkspaceFileLifecycleSourceAuthority(input.scope.workspace)
       ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace);
-    if (!observation.stage.coverage.complete) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
+    if (!observation.stage.coverage.complete) {
+      if (input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
+        throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_UNSUPPORTED');
+      }
+      throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
+    }
+    // A moved asset can have incoming native links even when no selected
+    // source is itself a notebook. Classify the whole original workspace.
+    if (observation.nativeBindings.length && input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
+      // Unsupported mixed/overwrite actions fail in the strict V3 constructor;
+      // they must never fall back to a disk-only view of native backlinks.
+      return createWorkspaceOperationNativeMoveBatchPlan({ ...input, observation });
+    }
     const hasNativeSelection = input.actions.some(action => action.selections.some(selection => observation.nativeBindings.some(entry =>
       within(entry.expected.path, selection.sourcePath))));
     if (hasNativeSelection) return createWorkspaceOperationNativeDeleteBatchPlan({ ...input, observation });
@@ -314,8 +330,9 @@ export async function buildWorkspaceOperationBatchPlan(input: {
 }
 
 export function workspaceOperationBatchPublicPreview(plan: WorkspaceOperationBatchPlan): WorkspaceOperationBatchPreviewPublic {
-  if (plan.version === 2) return { version: plan.version, kind: plan.kind, workspaceId: plan.workspaceId, planId: plan.planId,
-    readiness: plan.readiness, actions: plan.actions, pathMappings: plan.pathMappings,
+  if (plan.version !== 1) return { version: plan.version, kind: plan.kind, workspaceId: plan.workspaceId, planId: plan.planId,
+    readiness: plan.readiness, actions: plan.actions, pathMappings: plan.pathMappings.map(entry => plan.version === 2 ? entry
+      : { ...entry, sourceIdentity: `native-preview:${sha(JSON.stringify([plan.planId, entry.sourcePath]))}` }),
     // UI deduplication only: never expose the private native state proof as an identity.
     deletedPaths: plan.deletedPaths.map(entry => ({ ...entry, identity: `native-preview:${sha(JSON.stringify([plan.planId, entry.path]))}` })),
     pathSteps: plan.pathSteps, linkEdits: plan.linkEdits, expectedPathState: [], coverage: plan.coverage,

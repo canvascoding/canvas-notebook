@@ -7,12 +7,14 @@ import { isDeepStrictEqual } from 'node:util';
 import { getFdDirectoryInventoryBackend, getFdPathMoveBackend, getFdPublicationBackend,
   type FdDirectoryInventoryBackend, type FdPathMoveBackend, type FdPublicationBackend } from '../files/fd-publication';
 import { capturePathMoveRequest, capturePathMoveScope, capturePreparedWorkspacePathMoveParents,
+  captureRecoveredWorkspacePathMoves,
   decodePreparedWorkspacePathMoveOriginal, freezePathMoveData, pathMoveCanonicalPath, pathMoveDataProperty,
   preparedWorkspacePathMoveProof, PreparedWorkspacePathMoveError,
   type PreparedPathMoveDirectory, type PreparedPathMoveEntry, type PreparedPathMoveErrorCode, type PreparedPathMoveIdentity,
   type PreparedPathMoveParents, type PreparedPathMoveSource, type PreparedWorkspacePathMoveInput,
   type PreparedWorkspacePathMoveOriginal, type PreparedWorkspacePathMoveParentReceipt,
-  type PreparedWorkspacePathMoveReceipt, type RecoveredWorkspacePathMoveInput } from './prepared-workspace-path-move-contract';
+  type PreparedWorkspacePathMoveReceipt, type RecoveredWorkspacePathMoveInput,
+  type RecoveredWorkspacePathMovesInput } from './prepared-workspace-path-move-contract';
 
 export * from './prepared-workspace-path-move-contract';
 declare const preparedBrand: unique symbol;
@@ -25,11 +27,16 @@ type Stage = {
   phase: 'preparing' | 'callback' | 'draining' | 'closed'; failure: Error | null; fds: Set<number>; closeFailures: unknown[];
   root?: Pin; resolvedRoot?: string; anchors: Map<string, Pin>; sourceFd?: number;
   facts?: PreparedWorkspacePathMoveOriginal; createdParents: PreparedWorkspacePathMoveParentReceipt[];
+  sharedParents?: PreparedWorkspacePathMoveParentReceipt[];
   disposition: 'pending' | 'already_moved' | 'projection_absent'; pending: Promise<unknown> | null;
   started: boolean; mutationAttempted: boolean; receipt?: PreparedWorkspacePathMoveReceipt;
+  pendingParent?: PreparedWorkspacePathMoveParentReceipt;
 };
 const stages = new WeakMap<PreparedWorkspacePathMove, Stage>();
 const activeStage = new AsyncLocalStorage<Stage>();
+// A dedicated batch frame is explicit. Ordinary single callbacks still cannot
+// nest, inherit another callback's cap, or create a batch from an ALS/DTO value.
+const activeBatch = new AsyncLocalStorage<ReadonlySet<Stage>>();
 const chunkBytes = 256 * 1024;
 const parentPath = (value: string) => value.includes('/') ? value.slice(0, value.lastIndexOf('/')) : '';
 const leaf = (value: string) => value.slice(value.lastIndexOf('/') + 1);
@@ -43,6 +50,7 @@ function poison(stage: Stage | undefined, error: unknown): Error {
   const normalized = error instanceof Error ? error : failure(stage, 'move-unconfirmed');
   if (stage && !stage.failure) stage.failure = normalized;
   const active = activeStage.getStore(); if (active && active !== stage && !active.failure) active.failure = normalized;
+  for (const member of activeBatch.getStore() ?? []) if (!member.failure) member.failure = normalized;
   return normalized;
 }
 function internal(stage: Stage): void {
@@ -51,9 +59,10 @@ function internal(stage: Stage): void {
 }
 function current(cap: PreparedWorkspacePathMove): Stage {
   const stage = stages.get(cap);
-  if (!stage || activeStage.getStore() !== stage || stage.phase !== 'callback') throw poison(stage, failure(stage, 'invalid-lifetime'));
+  const batch = activeBatch.getStore();
+  if (!stage || activeStage.getStore() !== stage && !batch?.has(stage) || stage.phase !== 'callback') throw poison(stage, failure(stage, 'invalid-lifetime'));
   internal(stage);
-  if (stage.pending) throw poison(stage, failure(stage, 'reentrant-operation'));
+  if (stage.pending || batch && [...batch].some(member => member.pending)) throw poison(stage, failure(stage, 'reentrant-operation'));
   return stage;
 }
 function identity(info: BigIntStats): PreparedPathMoveIdentity {
@@ -242,15 +251,21 @@ function leafEntry(stage: Stage, pathname: string): Entry | null {
 function exactLeaf(stage: Stage, pathname: string): boolean {
   const pin = stage.anchors.get(parentPath(pathname)); return !!pin && stage.io.hasExactNameAt(pin.fd, leaf(pathname));
 }
+function expectedDestinationParents(stage: Stage): PreparedPathMoveParents {
+  const facts = stage.facts!, known = [...stage.createdParents, ...stage.sharedParents ?? []]
+    .sort((a, b) => a.relativePath.split('/').length - b.relativePath.split('/').length);
+  const directories = [...facts.filesystem.destinationParents.directories,
+    ...known.map(item => ({ relativePath: item.relativePath, identity: item.identity }))];
+  const components = facts.destinationPath.split('/').slice(0, -1);
+  if (directories.length > components.length || directories.some((entry, index) => entry.relativePath !== components.slice(0, index + 1).join('/'))) {
+    throw failure(stage, 'recovery-conflict');
+  }
+  return { directories, missingPrefix: directories.length < components.length ? components.slice(0, directories.length + 1).join('/') : null };
+}
 function verifyVacancy(stage: Stage): void {
   const facts = stage.facts!;
-  if (facts.source.kind === 'projection_absent') { assertAbsent(stage, facts.destinationPath, facts.filesystem.destinationParents, 'destination-occupied'); return; }
   const targetParents = parents(stage, facts.destinationPath);
-  const directories = [...facts.filesystem.destinationParents.directories,
-    ...stage.createdParents.map(item => ({ relativePath: item.relativePath, identity: item.identity }))];
-  const components = facts.destinationPath.split('/').slice(0, -1);
-  assertParentFacts(stage, targetParents, { directories,
-    missingPrefix: directories.length < components.length ? components.slice(0, directories.length + 1).join('/') : null });
+  assertParentFacts(stage, targetParents, expectedDestinationParents(stage));
   if (targetParents.missingPrefix) { assertAbsent(stage, facts.destinationPath, targetParents, 'destination-occupied'); return; }
   const exact = exactLeaf(stage, facts.destinationPath), entry = leafEntry(stage, facts.destinationPath);
   try {
@@ -346,7 +361,9 @@ async function createParents(stage: Stage, onParentCreated?: (receipt: PreparedW
       stage.anchors.set(relativePath, pin);
       await sync(stage, fd); await sync(stage, parent.fd);
       const receipt = freezePathMoveData({ version: 1 as const, originalProof: preparedWorkspacePathMoveProof(stage.facts!), relativePath, identity: pin.identity });
-      await onParentCreated(receipt); internal(stage); stage.createdParents.push(receipt); parent = pin;
+      stage.pendingParent = receipt;
+      try { await onParentCreated(receipt); internal(stage); stage.createdParents.push(receipt); parent = pin; }
+      finally { stage.pendingParent = undefined; }
     } catch (error) {
       throw new PreparedWorkspacePathMoveError('parent-create-unconfirmed', true, { cause: error });
     }
@@ -357,9 +374,7 @@ async function recover(stage: Stage, original: PreparedWorkspacePathMoveOriginal
   if (stage.resolvedRoot !== original.filesystem.root.resolvedPath || !sameNode(stage.root!.identity, original.filesystem.root.identity)) throw failure(stage, 'recovery-conflict');
   const sourceParents = parents(stage, original.sourcePath), destinationParents = parents(stage, original.destinationPath);
   assertParentFacts(stage, sourceParents, original.filesystem.sourceParents);
-  const directories = [...original.filesystem.destinationParents.directories, ...created.map(item => ({ relativePath: item.relativePath, identity: item.identity }))];
-  const components = original.destinationPath.split('/').slice(0, -1);
-  assertParentFacts(stage, destinationParents, { directories, missingPrefix: directories.length < components.length ? components.slice(0, directories.length + 1).join('/') : null });
+  assertParentFacts(stage, destinationParents, expectedDestinationParents(stage));
   if (original.source.kind === 'projection_absent') {
     if (created.length) throw failure(stage, 'recovery-conflict');
     stage.disposition = 'projection_absent'; await verifyCurrent(stage); return;
@@ -392,6 +407,29 @@ function operation<T>(cap: PreparedWorkspacePathMove, run: (stage: Stage) => Pro
 export function readPreparedWorkspacePathMove(cap: PreparedWorkspacePathMove): PreparedWorkspacePathMoveOriginal { return current(cap).facts!; }
 export function readPreparedWorkspacePathMoveDisposition(cap: PreparedWorkspacePathMove): Stage['disposition'] { return current(cap).disposition; }
 export function assertPreparedWorkspacePathMoveCurrent(cap: PreparedWorkspacePathMove): Promise<void> { return operation(cap, verifyCurrent); }
+/** Fixed synchronous birth observation for the durable ACK callback. It does
+ * not reenter a pending FS operation or authorize the journal transaction. */
+export function assertPreparedWorkspacePathMoveParentReceipt(cap: PreparedWorkspacePathMove,
+  receipt: PreparedWorkspacePathMoveParentReceipt): void {
+  const stage = stages.get(cap);
+  if (arguments.length !== 2 || !stage || stage.phase !== 'callback'
+    || activeStage.getStore() !== stage && !activeBatch.getStore()?.has(stage)) throw poison(stage, failure(stage, 'invalid-lifetime'));
+  internal(stage);
+  if (stage.pendingParent !== receipt && !stage.createdParents.includes(receipt)
+    || receipt.originalProof !== preparedWorkspacePathMoveProof(stage.facts!)) throw poison(stage, failure(stage, 'recovery-conflict'));
+}
+/** Exact actual receipt and active cap only. This adds the stronger source-name
+ * vacancy needed by a source collector; ordinary recovery deliberately permits D2. */
+export function assertPreparedWorkspacePathMoveReceiptCurrent(cap: PreparedWorkspacePathMove,
+  receipt: PreparedWorkspacePathMoveReceipt): Promise<void> {
+  if (arguments.length !== 2) return Promise.reject(poison(stages.get(cap), failure(stages.get(cap), 'invalid-input')));
+  return operation(cap, async stage => {
+    if (!stage.receipt || stage.receipt !== receipt) throw failure(stage, 'recovery-conflict');
+    await verifyCurrent(stage);
+    if (exactLeaf(stage, stage.facts!.sourcePath)) throw failure(stage, 'recovery-conflict');
+    internal(stage);
+  });
+}
 /** The caller MUST durably commit the original intent before invoking this.
  * Parent receipts must be durably acknowledged by onParentCreated before the
  * next publication. Lost/unacknowledged parent births are recovery conflicts. */
@@ -429,7 +467,7 @@ export function movePreparedWorkspacePath(cap: PreparedWorkspacePathMove,
   });
 }
 async function run<T>(request: Request, initializeStage: (stage: Stage) => Promise<void>, callback: (cap: PreparedWorkspacePathMove) => Promise<T>): Promise<T> {
-  const active = activeStage.getStore(); if (active) throw poison(active, failure(active, 'reentrant-operation'));
+  const active = activeStage.getStore(); if (active || activeBatch.getStore()) throw poison(active, failure(active, 'reentrant-operation'));
   if (typeof callback !== 'function') throw failure(undefined, 'invalid-input');
   const stage: Stage = { request, io: getFdPublicationBackend(), inventory: getFdDirectoryInventoryBackend(), move: getFdPathMoveBackend(),
     phase: 'preparing', failure: null, fds: new Set(), closeFailures: [], anchors: new Map(), createdParents: [], disposition: 'pending', pending: null, started: false, mutationAttempted: false };
@@ -469,4 +507,88 @@ export async function withRecoveredWorkspacePathMove<T>(input: RecoveredWorkspac
       sourcePath: original.sourcePath, destinationPath: original.destinationPath, sourceKind: original.source.kind, budget: original.budget });
     return await run(request, stage => recover(stage, original, created), callback);
   } catch (error) { throw poison(activeStage.getStore(), error); }
+}
+
+/** Consume an unchanged producer birth only after its durable journal ACK and
+ * producer operation have finished. This proves FS mechanics, never membership
+ * in a caller's journal or actor/claim authorization. */
+export function bindPreparedWorkspacePathMoveSharedParent(consumerCap: PreparedWorkspacePathMove,
+  producerCap: PreparedWorkspacePathMove, receipt: PreparedWorkspacePathMoveParentReceipt): Promise<void> {
+  let consumer: Stage, producer: Stage;
+  try {
+    if (arguments.length !== 3) throw failure(undefined, 'invalid-input');
+    consumer = current(consumerCap); producer = current(producerCap);
+    const batch = activeBatch.getStore();
+    if (!batch?.has(consumer) || !batch.has(producer) || consumer === producer || consumer.started
+      || !producer.createdParents.includes(receipt) || receipt.originalProof !== preparedWorkspacePathMoveProof(producer.facts!)
+      || !consumer.facts!.destinationPath.startsWith(receipt.relativePath + '/')
+      || !consumer.facts!.filesystem.destinationParents.missingPrefix
+      || ![receipt.relativePath, consumer.facts!.filesystem.destinationParents.missingPrefix].every(Boolean)
+      || !(receipt.relativePath === consumer.facts!.filesystem.destinationParents.missingPrefix
+        || receipt.relativePath.startsWith(consumer.facts!.filesystem.destinationParents.missingPrefix + '/'))
+      || [...consumer.createdParents, ...consumer.sharedParents ?? []].some(parent => parent.relativePath === receipt.relativePath)) {
+      throw failure(consumer, 'recovery-conflict');
+    }
+  } catch (error) { return Promise.reject(poison(stages.get(consumerCap), error)); }
+  return operation(consumerCap, async stage => {
+    internal(producer); stage.sharedParents ??= []; stage.sharedParents.push(receipt);
+    await verifyCurrent(stage); internal(producer);
+  });
+}
+
+export type PreparedWorkspacePathMoves = readonly Readonly<{ stepKey: string; cap: PreparedWorkspacePathMove }>[];
+/** All inputs and the aggregate entry/hash budget are captured before any FD is
+ * opened. The private frame admits exactly this bounded set for one callback;
+ * every pending operation is drained and every held descriptor is closed. */
+export async function withRecoveredWorkspacePathMoves<T>(input: RecoveredWorkspacePathMovesInput,
+  callback: (prepared: PreparedWorkspacePathMoves) => Promise<T>): Promise<T> {
+  const inherited = activeStage.getStore();
+  if (inherited || activeBatch.getStore()) throw poison(inherited, failure(inherited, 'reentrant-operation'));
+  const captured = captureRecoveredWorkspacePathMoves(input);
+  if (typeof callback !== 'function') throw failure(undefined, 'invalid-input');
+  const members: Stage[] = [], prepared: Array<{ stepKey: string; cap: PreparedWorkspacePathMove }> = [];
+  let value: T | undefined, primary: Error | undefined;
+  try {
+    for (const move of captured.moves) {
+      const original = move.original;
+      const request = capturePathMoveRequest({ workspace: captured.workspace as PreparedWorkspacePathMoveInput['workspace'],
+        sourcePath: original.sourcePath, destinationPath: original.destinationPath, sourceKind: original.source.kind, budget: original.budget });
+      const stage: Stage = { request, io: getFdPublicationBackend(), inventory: getFdDirectoryInventoryBackend(), move: getFdPathMoveBackend(),
+        phase: 'preparing', failure: null, fds: new Set(), closeFailures: [], anchors: new Map(), createdParents: [],
+        sharedParents: captured.parents.filter(parent => parent.producerStep !== move.stepKey
+          && parent.consumers.some(consumer => consumer.stepKey === move.stepKey)).map(parent => parent.receipt),
+        disposition: 'pending', pending: null, started: false, mutationAttempted: false };
+      members.push(stage);
+      const created = captured.parents.filter(parent => parent.producerStep === move.stepKey).map(parent => parent.receipt)
+        .sort((a, b) => a.relativePath.split('/').length - b.relativePath.split('/').length);
+      await recover(stage, original, created);
+      const cap = Object.freeze({}) as PreparedWorkspacePathMove; stages.set(cap, stage);
+      prepared.push({ stepKey: move.stepKey, cap });
+    }
+    for (const member of members) member.phase = 'callback';
+    await activeBatch.run(new Set(members), async () => {
+      try { value = await callback(freezePathMoveData(prepared)); }
+      catch (error) { primary = poison(members[0], error); }
+      finally {
+        for (const member of members) member.phase = 'draining';
+        const pending = members.flatMap(member => member.pending ? [member.pending] : []);
+        if (pending.length) { primary ??= poison(members[0], failure(members[0], 'unawaited-operation')); await Promise.allSettled(pending); }
+      }
+    });
+    for (const member of members) if (member.failure) throw member.failure;
+    if (primary) throw primary;
+    return value as T;
+  } catch (error) {
+    primary = error instanceof Error ? error : failure(undefined, 'move-unconfirmed');
+    for (const member of members) member.failure ??= primary;
+    throw primary;
+  } finally {
+    for (const member of members) {
+      member.phase = 'closed';
+      for (const fd of [...member.fds].reverse()) try { close(member, fd); } catch { /* Retain every close ACK failure below. */ }
+    }
+    const closes = members.flatMap(member => member.closeFailures);
+    if (closes.length) throw new PreparedWorkspacePathMoveError('disposal-unconfirmed', members.some(member => member.mutationAttempted),
+      { cause: new AggregateError([...(primary ? [primary] : []), ...closes], 'Batch descriptor disposal could not be confirmed.') });
+  }
 }

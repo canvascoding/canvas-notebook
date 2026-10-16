@@ -14,7 +14,7 @@ import { admissionScopeContains, captureCollaborationAdmissionRequest, collabora
   isCanonicalAdmissionPath, type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { claimCollaborationAdmissionMutation, requireCollaborationAdmissionMutationRequest,
   withCollaborationAdmissionMutation } from '../collaboration/room-admission-handoff';
-import { readCollaborationAdmissionOutcome } from '../collaboration/room-admission-outcome';
+import { readCollaborationAdmissionOutcome, readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { inspectCollaborationAdmissionQuiescence } from '../collaboration/room-admission-quiescence';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeLinkDocumentIdentity } from './workspace-link-contract-v2';
@@ -408,14 +408,16 @@ export function readAppliedNativeFileOperationReceiptBindingsOnConnection(databa
 /** Fresh dedicated coordinator read after uncertain COMMIT. Historical receipt
  * and current observation are separate; later peer edits never replay intent.
  * This does not prove current link effect, authorize access, or complete a route. */
-export async function readCommittedNativeFileOperationReceiptOnConnection(database: SqlConnection, input: {
+async function readValidatedNativeFileOperationReceipt(database: SqlConnection, input: {
   request: CollaborationAdmissionRequest; operationId: string; mutationId: string;
-}) {
+}, historical = false, readOnly = false) {
   const captured = captureCollaborationAdmissionRequest(structuredClone(input.request));
-  const row = await database.get(`SELECT r.*,i.intent_text,q.request_digest,q.status AS request_status,q.outcome_text
+  const row = await database.get(`SELECT ${historical
+    ? "r.receipt_text,r.receipt_digest,r.request_id,r.changes_bundle_proof,r.after_state_snapshot,i.intent_text,CASE WHEN octet_length(q.request_digest)=64 THEN q.request_digest END AS request_digest,CASE WHEN octet_length(q.status)<=32 THEN q.status END AS request_status"
+    : 'r.*,i.intent_text,q.request_digest,q.status AS request_status,q.outcome_text'}
     FROM collaboration_native_file_operation_receipts r JOIN collaboration_native_file_operation_intents i USING(operation_id)
     JOIN collaboration_admission_requests q ON q.request_id=r.request_id
-    WHERE r.operation_id=$1 AND r.mutation_id=$2`, [input.operationId, input.mutationId]) as Row | undefined;
+    WHERE r.operation_id=$1 AND r.mutation_id=$2${historical ? ' AND r.request_id=$3 AND octet_length(r.changes_bundle_proof)=64 AND octet_length(r.receipt_digest)=64 AND octet_length(r.receipt_text)<=6291456 AND octet_length(i.intent_text)<=67108864 AND octet_length(r.after_state_snapshot)<=4194304' : ''}`, historical ? [input.operationId,input.mutationId,captured.request.requestId] : [input.operationId, input.mutationId]) as Row | undefined;
   if (!row) return null;
   const bound = decodeBundle(row.intent_text);
   if (row.request_id !== captured.request.requestId || row.request_digest !== captured.requestDigest || row.request_status !== 'committed'
@@ -423,9 +425,10 @@ export async function readCommittedNativeFileOperationReceiptOnConnection(databa
     || bound.bundle.actor.actorId !== captured.request.actorId || row.changes_bundle_proof !== bound.changesBundleProof
     || typeof row.receipt_text !== 'string' || row.receipt_digest !== hash(row.receipt_text)
     || !(row.after_state_snapshot instanceof Uint8Array)) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
-  const outcome = await readCollaborationAdmissionOutcome(database, captured);
-  const receiptSet = await database.all(`SELECT mutation_id,receipt_digest FROM collaboration_native_file_operation_receipts
-    WHERE operation_id=$1 ORDER BY mutation_id COLLATE "C"`, [input.operationId]) as Row[];
+  const outcome = historical ? await readHistoricalCollaborationAdmissionOutcomeOnConnection(database,captured,readOnly?{readOnly:true}:undefined)
+    : await readCollaborationAdmissionOutcome(database, captured);
+  const receiptSet = await database.all(`SELECT ${historical ? "CASE WHEN octet_length(mutation_id)<=256 THEN mutation_id END AS mutation_id,CASE WHEN octet_length(receipt_digest)=64 THEN receipt_digest END AS receipt_digest" : 'mutation_id,receipt_digest'} FROM collaboration_native_file_operation_receipts
+    WHERE operation_id=$1 ORDER BY mutation_id COLLATE "C"${historical ? ' LIMIT 1025' : ''}`, [input.operationId]) as Row[];
   if (!outcome || receiptSet.length !== bound.bundle.mutations.length || receiptSet.some((entry, index) => entry.mutation_id !== bound.bundle.mutations[index].mutationId)
     || outcome.result.nativeFileReceiptSetProof !== hash('canvas.native-file-receipt-set.v1\n' + receiptSet.map((entry) => `${entry.mutation_id}\t${entry.receipt_digest}`).join('\n'))) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
   const receipt = decodeNativeFileOperationReceipt(row.receipt_text);
@@ -449,15 +452,41 @@ export async function readCommittedNativeFileOperationReceiptOnConnection(databa
     || !validHash(receipt.after.clock.binaryHash) || receipt.projection.status !== 'pending' || receipt.projection.filesystemComplete !== false
     || receipt.projection.path !== expectedIdentity.path || nativeLinkJsonProof(receipt.inverseRecipes) !== nativeLinkJsonProof(mutation.prepared?.inverseRecipes ?? [])
     || receipt.after.clock.stateProof !== `yjs-snapshot-sha256-v1:${hash(row.after_state_snapshot)}`) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
+  return {receipt,receiptDigest:row.receipt_digest as string,afterStateSnapshot:row.after_state_snapshot};
+}
+
+/** Existing coordinator read keeps its current-Yjs inclusion observation. */
+export async function readCommittedNativeFileOperationReceiptOnConnection(database: SqlConnection, input: {
+  request: CollaborationAdmissionRequest; operationId: string; mutationId: string;
+}) {
+  const checked=await readValidatedNativeFileOperationReceipt(database,input);if(!checked)return null;
+  const {receipt}=checked;
   const current = await loadCollaborationStateOnConnection(database, receipt.source.documentId, true);
   if (!current || current.documentId !== receipt.source.documentId || current.workspaceId !== receipt.source.workspaceId
     || current.organizationId !== receipt.source.organizationId || current.representation !== receipt.source.representation
     || current.schemaVersion !== receipt.source.schemaVersion || current.lifecycleGeneration < receipt.after.identity.lifecycleGeneration
     || current.documentSequence < receipt.after.clock.documentSequence
-    || !persistedUpdateIncludesAgentSnapshot(current.yjsState, row.after_state_snapshot, Y)) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
+    || !persistedUpdateIncludesAgentSnapshot(current.yjsState, checked.afterStateSnapshot, Y)) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
   const observed = authoritativeNativeCollaborationSnapshot({ ...current, status: 'active' });
-  return { receipt, receiptDigest: row.receipt_digest as string, executionReady: false as const,
+  return { receipt, receiptDigest: checked.receiptDigest, executionReady: false as const,
     currentObservation: { identity: { documentId: current.documentId, workspaceId: current.workspaceId, organizationId: current.organizationId,
       path: current.path, representation: current.representation, lifecycleGeneration: current.lifecycleGeneration, schemaVersion: current.schemaVersion },
     status: current.status, clock: { ...observed.version, binaryHash: hash(current.yjsState) } } };
+}
+
+/** Exact immutable original receipt/outcome facts; no current document or
+ * projection is read and no principal, claim or mutation authority is created. */
+export async function readHistoricalNativeFileOperationReceiptOnConnection(database:SqlConnection,input:{
+  request:CollaborationAdmissionRequest;operationId:string;mutationId:string;readOnly?:true;
+}) {
+  if(!input||Object.getPrototypeOf(input)!==Object.prototype||Reflect.ownKeys(input).some(key=>typeof key!=='string'||!['request','operationId','mutationId','readOnly'].includes(key)))fail('NATIVE_FILE_INVALID_INTENT');
+  const fields=['request','operationId','mutationId'].map(name=>{const property=Object.getOwnPropertyDescriptor(input,name);
+    if(!property?.enumerable||!Object.hasOwn(property,'value'))fail('NATIVE_FILE_INVALID_INTENT');return property!.value;});
+  if(!validId(fields[1])||!validId(fields[2]))fail('NATIVE_FILE_INVALID_INTENT');
+  const option=Object.getOwnPropertyDescriptor(input,'readOnly');
+  if(option&&(!option.enumerable||!Object.hasOwn(option,'value')||option.value!==true))fail('NATIVE_FILE_INVALID_INTENT');
+  const captured=captureCollaborationAdmissionRequest(fields[0]);
+  const checked=await readValidatedNativeFileOperationReceipt(database,{request:captured.request,operationId:fields[1],mutationId:fields[2]},true,!!option);
+  if(!checked)return null;
+  return {receipt:checked.receipt,receiptDigest:checked.receiptDigest,executionReady:false as const};
 }

@@ -28,6 +28,14 @@ export function projectWorkspaceOperationBatchFileViews(input: {
   invalidate?: typeof invalidateWorkspaceFileViews;
 }): void {
   if (input.undo && input.result.status !== 'applied') return;
+  // Registry-only notebook moves have no filesystem watcher event. Publish
+  // the two visible paths only after the original SQL completion is proven.
+  if (input.plan.version === 3 && !input.undo && input.result.status === 'applied') {
+    (input.invalidate ?? invalidateWorkspaceFileViews)({ fileOptions: input.scope.fileOptions, fullTree: true,
+      mutations: input.plan.pathSteps.flatMap(step => [{ path: step.sourcePath, type: 'unlink' as const },
+        { path: step.destinationPath!, type: 'add' as const }]) });
+    return;
+  }
   const receipts = input.result.stepResults?.filter((step) => step.phase === 'path' && step.state === 'applied') ?? [];
   const deleted = input.plan.pathSteps.filter((step) => step.kind === 'delete'
     && (input.result.status === 'applied' || receipts.some((receipt) => receipt.path === step.sourcePath)));
@@ -156,7 +164,7 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
                 await finish({ status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
                 return;
               }
-              // Native V2 retains its original identity-bound plan. Its genuine
+              // Native plans retain their original identity-bound plan. Their genuine
               // Owner rechecks complete source semantics and the original target
               // projection pin on B before any intent, without a Markdown export.
               if (currentBatch.actionMode === 'apply' && !started && currentBatch.plan.version === 1) {
@@ -203,7 +211,7 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
       } catch (error) {
         if (batch && !leaseLost) {
           const currentBatch = batch;
-          const evidence = await (currentBatch.plan.version === 2
+          const evidence = await (currentBatch.plan.version !== 1
             ? resolveScope(currentBatch).then(scope => mutationEvidence(currentBatch.batchId, currentBatch.workspaceId,
               currentBatch.actionMode === 'undo', scope))
             : mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo')).catch(() => null);

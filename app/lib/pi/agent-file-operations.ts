@@ -2697,7 +2697,8 @@ export async function restoreAgentFileSnapshot(params: { snapshotId: string }): 
           changed: false, overwritten: false, bytes: 0, files: 0, directories: 0, truncated: true };
         const removal = await agentDirectWorkspacePathResult({ operation: 'delete_path', entries: [entry] },
           await waitForWorkspacePathOperation(known), deletionWorkspace);
-        const original = known.plan.deletedDocuments?.find((document) => document.path === workspacePath)?.content;
+        const original = known.plan.version === 3 ? undefined
+          : known.plan.deletedDocuments?.find((document) => document.path === workspacePath)?.content;
         return snapshotDeletionResult({ snapshot, fullPath, workspacePath, removal, historical: true,
           beforeSha256: known.plan.expectedPathState?.find((state) => state.path === workspacePath)?.contentHash ?? null,
           beforeBuffer: original === undefined ? null : Buffer.from(original) });

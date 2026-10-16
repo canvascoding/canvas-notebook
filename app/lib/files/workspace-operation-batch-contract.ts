@@ -72,7 +72,8 @@ export type WorkspaceOperationNativeDeleteBatchPlan = Omit<WorkspaceOperationLeg
   nativeGraphPlan: NativeMixedBatchPlan;
   linkPlan?: never;
 };
-export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
+export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan
+  | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {
   completedActions: number;
   totalActions: number;

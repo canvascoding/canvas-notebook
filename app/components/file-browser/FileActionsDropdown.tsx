@@ -975,7 +975,7 @@ export function FileActionsDropdown({
                 ))}
                 {renamePreview.plan.pathMappings.length > 5 && <p>+{renamePreview.plan.pathMappings.length - 5}</p>}
                 {renamePreview.plan.linkEdits.slice(0, 5).map((edit, index) => (
-                  <p key={`${edit.sourcePathBefore}-${edit.targetRange.startUtf16}-${index}`}>
+                  <p key={`${edit.sourcePathBefore}-${index}`}>
                     {edit.sourcePathBefore}: {edit.previousTargetLiteral} → {edit.nextTargetLiteral}
                   </p>
                 ))}
@@ -1126,7 +1126,7 @@ export function FileActionsDropdown({
               ))}
               {copyPreview.plan.pathMappings.length > 5 && <p>+{copyPreview.plan.pathMappings.length - 5}</p>}
               {copyPreview.plan.linkEdits.slice(0, 5).map((edit, index) => (
-                <p key={`${edit.sourcePathBefore}-${edit.targetRange.startUtf16}-${index}`}>
+                  <p key={`${edit.sourcePathBefore}-${index}`}>
                   {edit.sourcePathBefore}: {edit.previousTargetLiteral} → {edit.nextTargetLiteral}
                 </p>
               ))}

@@ -1,6 +1,6 @@
 import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialog';
 import type { WorkspacePathRenameMutation } from './file-events';
-import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace-file-operation-planner';
+import type { WorkspacePathOperationPreviewPublic } from './workspace-path-operation-preview';
 import type { WorkspaceUploadCommit } from './upload-result';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
 import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError } from './workspace-path-operation-client';
@@ -561,7 +561,7 @@ export interface WorkspaceRenameResult {
 export type WorkspaceFileOperationDryRun = {
   dryRun: true;
   requiresRevalidation: true;
-  plan: Omit<WorkspaceFileOperationPreview, 'previewContents'>;
+  plan: WorkspacePathOperationPreviewPublic;
 };
 
 export async function previewWorkspaceRename(

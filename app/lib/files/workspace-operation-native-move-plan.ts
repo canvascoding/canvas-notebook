@@ -5,20 +5,24 @@ import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contra
 import type { NativeLinkMutationRecipe, NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { createWorkspaceNativeFileOperationPlan } from '../markdown/workspace-native-file-operation-planner';
+import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
 import { compileWorkspaceNativeMixedBatch, type NativeMixedBatchPlan, type NativeMixedBatchRequest } from '../markdown/workspace-native-mixed-batch-compiler';
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
-import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope, WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope, WorkspaceOperationJobScope,
+  WorkspaceOperationLegacyBatchPlan } from './workspace-operation-batch-contract';
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent, captureWorkspaceOperationNativeSourceEvidence,
   decodeWorkspaceOperationNativeSourceEvidence, type WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 
 type MoveAction = WorkspaceOperationBatchAction & { kind: 'move' | 'rename' };
-/** Private planning data, intentionally separate from the executable V1/V2 job
- * union. Neither this envelope nor its hashes confer claim/room/SQL authority.
+type Compatibility = Pick<WorkspaceOperationLegacyBatchPlan, 'pathMappings' | 'deletedPaths' | 'pathSteps' | 'linkEdits'
+  | 'expectedPathState' | 'coverage' | 'linkAssessment' | 'issues'>;
+/** Private native planning data with strictly derived batch presentation fields.
+ * Neither this envelope nor its hashes confer claim/room/SQL authority.
  * Compiler bodies/bytes are not duplicated in persisted JSON. Before execution
  * the current gate MUST reproduce both proofs using actual proven native bytes. */
-export type WorkspaceOperationNativeMoveBatchPlan = Readonly<{
+export type WorkspaceOperationNativeMoveBatchPlan = Readonly<Compatibility & {
   version: 3;
   kind: 'native-path-change';
   workspaceId: string;
@@ -32,7 +36,8 @@ export type WorkspaceOperationNativeMoveBatchPlan = Readonly<{
   finalGraphProof: string;
 }>;
 const keys = ['version', 'kind', 'workspaceId', 'planId', 'readiness', 'executionReady', 'actions',
-  'sourceEvidence', 'nativePathPlan', 'compilerPlanProof', 'finalGraphProof'];
+  'sourceEvidence', 'nativePathPlan', 'compilerPlanProof', 'finalGraphProof', 'pathMappings', 'deletedPaths', 'pathSteps',
+  'linkEdits', 'expectedPathState', 'coverage', 'linkAssessment', 'issues'];
 type Code = 'NATIVE_MOVE_PLAN_INVALID' | 'NATIVE_MOVE_PLAN_TOO_LARGE' | 'NATIVE_MOVE_PLAN_UNSUPPORTED' | 'NATIVE_MOVE_PLAN_CHANGED';
 export class WorkspaceOperationNativeMovePlanError extends Error {
   readonly status = 409;
@@ -96,6 +101,25 @@ function compile(snapshot: NativeWorkspaceLinkSnapshot, selected: MoveAction,
   }
   return compiled;
 }
+/** These fields support the existing job/presentation envelope. Native bytes,
+ * original namespace and recipes remain in their native contracts; no legacy
+ * Markdown spans or mutable projection bytes become execution evidence. */
+function compatibility(snapshot: NativeWorkspaceLinkSnapshot, selected: MoveAction,
+  nativePathPlan: NativeWorkspaceFileOperationPlan): Compatibility {
+  const graph = buildWorkspaceNativeLinkGraph(snapshot);
+  return {
+    pathMappings: nativePathPlan.pathMappings.map(mapping => ({ sourceWorkspaceId: snapshot.workspaceId,
+      sourcePath: mapping.source.path, destinationWorkspaceId: snapshot.workspaceId, destinationPath: mapping.destinationPath,
+      sourceIdentity: mapping.source.identity, sourceKind: mapping.source.kind })),
+    deletedPaths: [], pathSteps: selected.selections.map(selection => ({ reviewId: selected.reviewId, kind: selected.kind,
+      sourcePath: selection.sourcePath, destinationPath: selection.destinationPath })),
+    linkEdits: [], expectedPathState: [],
+    coverage: { complete: true, omittedSources: [], unresolvedLinks: graph.edges.filter(edge => edge.resolution.status !== 'resolved')
+      .map(edge => ({ sourcePath: edge.source.path, targetLiteral: edge.literal,
+        status: edge.resolution.status as Exclude<typeof edge.resolution.status, 'resolved'> })) },
+    linkAssessment: { version: 1, complete: true, warnings: [], blockers: [] }, issues: [],
+  };
+}
 export function computeWorkspaceOperationNativeMoveBatchPlanId(plan: Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>): string {
   const { planId: _historical, ...body } = plan as WorkspaceOperationNativeMoveBatchPlan;
   return nativeLinkJsonProof(body);
@@ -113,7 +137,11 @@ export function decodeWorkspaceOperationNativeMoveBatchPlan(input: unknown): Wor
   const scope = parseWorkspaceOperationJobScope(sourceEvidence.workspaceScope), selected = action(value.actions);
   if (scope.legacy || value.workspaceId !== scope.workspaceId || value.workspaceId !== sourceEvidence.stage.workspaceId) fail();
   const snapshot = workspaceOperationNativePlanSnapshot(sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
-  if (!isDeepStrictEqual(value.nativePathPlan, pathPlan(snapshot, selected))) fail();
+  const nativePathPlan = pathPlan(snapshot, selected);
+  if (!isDeepStrictEqual(value.nativePathPlan, nativePathPlan)) fail();
+  for (const [name, expected] of Object.entries(compatibility(snapshot, selected, nativePathPlan))) {
+    if (!isDeepStrictEqual(Reflect.get(value, name), expected)) fail();
+  }
   if (computeWorkspaceOperationNativeMoveBatchPlanId(value) !== value.planId) fail();
   return freeze(value);
 }
@@ -128,7 +156,8 @@ export function createWorkspaceOperationNativeMoveBatchPlan(input: {
   const nativePathPlan = pathPlan(snapshot, selected), compiled = compile(snapshot, selected, observation);
   const body: Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'> = { version: 3, kind: 'native-path-change',
     workspaceId: snapshot.workspaceId, readiness: 'ready', executionReady: false, actions: [selected],
-    sourceEvidence, nativePathPlan, compilerPlanProof: compiled.planId, finalGraphProof: compiled.finalGraphProof! };
+    sourceEvidence, nativePathPlan, compilerPlanProof: compiled.planId, finalGraphProof: compiled.finalGraphProof!,
+    ...compatibility(snapshot, selected, nativePathPlan) };
   return decodeWorkspaceOperationNativeMoveBatchPlan({ ...body, planId: computeWorkspaceOperationNativeMoveBatchPlanId(body) });
 }
 /** Requires the caller's genuine current authority/fence. Replaceable native

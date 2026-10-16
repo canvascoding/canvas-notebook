@@ -53,6 +53,7 @@ function freeze<T>(value: T): T {
 
 function selection(claim: WorkspaceOperationBatchClaim, actionMode: 'apply' | 'undo' = 'apply'): WorkspaceOperationBatchClaimBinding {
   const binding = readWorkspaceOperationBatchClaimBinding(claim), { plan, authorization } = binding;
+  if (plan.version === 3) fail('ORIGINAL_DELETE_UNSUPPORTED');
   const step = plan.pathSteps[0], action = plan.actions[0], deleted = plan.deletedPaths[0];
   if (binding.actionMode !== actionMode || authorization.mode !== 'direct' || !authorization.jobScope
     || authorization.jobScope.legacy || ![1, 2].includes(plan.version) || plan.readiness !== 'ready' || plan.issues.length

@@ -105,7 +105,11 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
     if (input.expectedPlanId && input.expectedPlanId !== plan.planId) {
       throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
     }
-    if (plan.readiness === 'ready') await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
+    // V3 replays the complete native source/HTML coverage under the original
+    // genuine owner before Intent. It never enters the legacy span fence.
+    if (plan.readiness === 'ready' && plan.version !== 3) {
+      await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
+    }
     return store.createDirect({ batchId, plan, authorization });
   });
 }

@@ -6,7 +6,7 @@ import type { WorkspaceContext } from '../workspaces/types';
 import { NATIVE_FILE_SIDE_EFFECT_ROW_SPECS } from '../db/native-file-operation-side-effects-migration';
 import { captureCollaborationAdmissionRequest, type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { requireCollaborationAdmissionMutationRequest, withCollaborationAdmissionMutation } from '../collaboration/room-admission-handoff';
-import { readCollaborationAdmissionOutcome } from '../collaboration/room-admission-outcome';
+import { readCollaborationAdmissionOutcome, readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { readAppliedNativeFileOperationReceiptBindingsOnConnection,
   readStagedNativeFileOperationBindingOnConnection } from './native-file-operation-handoff';
 
@@ -109,7 +109,9 @@ async function checkIntentBudget(database: SqlConnection, schema: string, operat
 }
 
 async function rowsFor(database: SqlConnection, schema: string, workspaceId: string, paths: string[], expectedAfter?: Rows,
-  budget = { rows: 0, bytes: 0 }): Promise<Rows> {
+  budget = { rows: 0, bytes: 0 }, knownDescendantPaths: readonly string[] = []): Promise<Rows> {
+  if (knownDescendantPaths.length > 20_000 || knownDescendantPaths.some(path => typeof path !== 'string'
+    || Buffer.byteLength(path) > 4096)) fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
   // Old unscoped public links cannot be attributed safely to a native workspace.
   // Their controlled migration is a separate activation gate, never a global revoke.
   if (await database.get(`SELECT 1 AS found FROM ${table(schema, 'public_file_shares')}
@@ -137,12 +139,18 @@ async function rowsFor(database: SqlConnection, schema: string, workspaceId: str
     if (result.length > MAX_ROWS || result.some(row => !row.row_json || typeof row.row_json !== 'object')) fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
     rows[spec.key] = result.map(row => row.row_json!);
     const child = await database.get(`SELECT 1 AS found FROM ${table(schema, spec.table)} WHERE workspace_id=$1 ${spec.active ? `AND ${spec.active}` : ''}
-      AND EXISTS(SELECT 1 FROM unnest($2::text[]) scope WHERE left(${spec.path},length(scope)+1)=scope||'/') LIMIT 1`, [workspaceId, paths]);
+      AND EXISTS(SELECT 1 FROM unnest($2::text[]) scope WHERE left(${spec.path},length(scope)+1)=scope||'/')
+      AND NOT ${spec.path}=ANY($3::text[]) LIMIT 1`, [workspaceId, paths, knownDescendantPaths]);
     if (child) fail('NATIVE_FILE_SIDE_EFFECTS_SCOPE_CHANGED');
   }
   boundedText(canonical(rows), MAX_STAGE_BYTES);
   return rows;
 }
+
+/** Shared bounded read mechanics only. The coordinator supplies the genuinely
+ * original namespace, current policy and retained writer fence. This read
+ * grants no path, native-mutation or public-share authority. */
+export { rowsFor as readWorkspacePathSideEffectRowsOnConnection };
 
 function pathsFor(effect: Effect): string[] { return [effect.source.path, ...(effect.destinationPath ? [effect.destinationPath] : [])]; }
 
@@ -336,17 +344,19 @@ export async function applyNativeFileOperationSideEffectsOnConnection(database: 
 
 /** Trusted coordinator recovery read after fresh authorization. Certifies the
  * initial entire SQL commit; it exposes no rows and never replays side effects. */
-export async function readCommittedNativeFileOperationSideEffectsOnConnection(database: SqlConnection, input: {
+async function readValidatedNativeFileOperationSideEffects(database: SqlConnection, input: {
   request: CollaborationAdmissionRequest; operationId: string; actor: Binding['actor'];
-}): Promise<{ version: 1; nativeFileSideEffectSetProof: string; executionReady: false } | null> {
+}, historical = false, readOnly = false
+): Promise<{ version: 1; nativeFileSideEffectSetProof: string; executionReady: false } | null> {
   if (!validId(input.operationId)) fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
   const captured = captureCollaborationAdmissionRequest(input.request);
-  const identity = await connectionIdentity(database);
+  const readIdentity=()=>historical&&readOnly?historicalSideEffectIdentity(database):connectionIdentity(database);
+  const identity = await readIdentity();
   await checkSchema(database, identity.schema);
   const row = await database.get(`SELECT r.receipt_text,r.receipt_digest,r.stage_digest,r.native_receipt_set_proof,s.stage_text,s.stage_digest AS actual_stage_digest
     FROM ${table(identity.schema, 'collaboration_native_file_operation_side_effect_receipts')} r
     JOIN ${table(identity.schema, 'collaboration_native_file_operation_side_effect_stages')} s USING(operation_id)
-    WHERE r.operation_id=$1 AND r.request_id=$2 AND octet_length(r.receipt_text)<=2097152 AND octet_length(s.stage_text)<=1048576`, [input.operationId, captured.request.requestId]) as Row | undefined;
+    WHERE r.operation_id=$1 AND r.request_id=$2 AND octet_length(r.receipt_text)<=2097152 AND octet_length(s.stage_text)<=1048576${historical ? ' AND octet_length(r.receipt_digest)=64 AND octet_length(r.stage_digest)=64 AND octet_length(r.native_receipt_set_proof)=64 AND octet_length(s.stage_digest)=64' : ''}`, [input.operationId, captured.request.requestId]) as Row | undefined;
   if (!row) return null;
   boundedText(row.receipt_text, 2 * MAX_STAGE_BYTES); boundedText(row.stage_text, MAX_STAGE_BYTES);
   if (hash(row.receipt_text) !== row.receipt_digest || hash(row.stage_text) !== row.stage_digest || row.stage_digest !== row.actual_stage_digest) fail('NATIVE_FILE_SIDE_EFFECTS_UNCONFIRMED');
@@ -369,14 +379,45 @@ export async function readCommittedNativeFileOperationSideEffectsOnConnection(da
       || effect.lineageId !== original.lineageId || canonical(effect.beforeRows) !== canonical(original.beforeRows)
       || canonical(effect.afterRows) !== canonical(afterRowsFor(original, createdAt))) fail('NATIVE_FILE_SIDE_EFFECTS_UNCONFIRMED');
   }
-  const outcome = await readCollaborationAdmissionOutcome(database, captured);
+  const outcome = historical ? await readHistoricalCollaborationAdmissionOutcomeOnConnection(database,captured,readOnly?{readOnly:true}:undefined)
+    : await readCollaborationAdmissionOutcome(database, captured);
   if (!outcome || outcome.result.nativeFileSideEffectSetProof !== proofFor(String(row.receipt_digest))
     || outcome.result.nativeFileReceiptSetProof !== row.native_receipt_set_proof || receipt.nativeReceiptSetProof !== row.native_receipt_set_proof) fail('NATIVE_FILE_SIDE_EFFECTS_UNCONFIRMED');
-  const nativeRows = await database.all(`SELECT mutation_id,receipt_digest FROM ${table(identity.schema, 'collaboration_native_file_operation_receipts')}
+  const nativeRows = await database.all(`SELECT ${historical ? "CASE WHEN octet_length(mutation_id)<=256 THEN mutation_id END AS mutation_id,CASE WHEN octet_length(receipt_digest)=64 THEN receipt_digest END AS receipt_digest" : 'mutation_id,receipt_digest'} FROM ${table(identity.schema, 'collaboration_native_file_operation_receipts')}
     WHERE operation_id=$1 ORDER BY mutation_id COLLATE "C" LIMIT ${MAX_MUTATIONS + 1}`, [input.operationId]) as Row[];
   if (nativeRows.length !== stage.mutationIds.length || nativeRows.some((native,index) => native.mutation_id !== stage.mutationIds[index])
     || receiptEffects.some(effect => nativeRows.find(native => native.mutation_id === effect.mutationId)?.receipt_digest !== effect.nativeReceiptDigest)
     || hash('canvas.native-file-receipt-set.v1\n' + nativeRows.map(native => `${native.mutation_id}\t${native.receipt_digest}`).join('\n')) !== row.native_receipt_set_proof
-    || canonical(await connectionIdentity(database)) !== canonical(identity)) fail('NATIVE_FILE_SIDE_EFFECTS_UNCONFIRMED');
+    || canonical(await readIdentity()) !== canonical(identity)) fail('NATIVE_FILE_SIDE_EFFECTS_UNCONFIRMED');
   return { version: 1, nativeFileSideEffectSetProof: proofFor(String(row.receipt_digest)), executionReady: false };
+}
+
+
+/** Existing recovery consumers keep the original XID/locking behavior. */
+export function readCommittedNativeFileOperationSideEffectsOnConnection(database:SqlConnection,input:{
+  request:CollaborationAdmissionRequest;operationId:string;actor:Binding['actor'];
+}):Promise<{version:1;nativeFileSideEffectSetProof:string;executionReady:false}|null> {
+  return readValidatedNativeFileOperationSideEffects(database,input);
+}
+async function historicalSideEffectIdentity(database:SqlConnection) {
+  const row=await database.get(`SELECT pg_catalog.current_schema() AS schema_name,pg_catalog.pg_backend_pid() AS backend_pid,
+    pg_catalog.pg_current_xact_id_if_assigned()::text AS transaction_id`) as Row|undefined;
+  if(!row||typeof row.schema_name!=='string'||row.schema_name.length>63||/[\u0000-\u001f\u007f]/u.test(row.schema_name)
+    ||!Number.isSafeInteger(row.backend_pid)||Number(row.backend_pid)<1
+    ||row.transaction_id!==null&&(typeof row.transaction_id!=='string'||!/^[0-9]{1,32}$/u.test(row.transaction_id)))fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
+  return {schema:row.schema_name as string,backend:row.backend_pid as number,transaction:row.transaction_id as string|null};
+}
+/** Immutable historical side-effect/Admission facts only. readOnly avoids XID
+ * allocation and row locks; current ACL and snapshot lifetime stay with caller. */
+export function readHistoricalNativeFileOperationSideEffectsOnConnection(database:SqlConnection,input:{
+  request:CollaborationAdmissionRequest;operationId:string;actor:Binding['actor'];readOnly?:true;
+}):Promise<{version:1;nativeFileSideEffectSetProof:string;executionReady:false}|null> {
+  if(!input||Object.getPrototypeOf(input)!==Object.prototype||Reflect.ownKeys(input).some(key=>typeof key!=='string'||!['request','operationId','actor','readOnly'].includes(key)))fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
+  const fields=['request','operationId','actor'].map(name=>{const property=Object.getOwnPropertyDescriptor(input,name);
+    if(!property?.enumerable||!Object.hasOwn(property,'value'))fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');return property.value;});
+  if(!validId(fields[1]))fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
+  const option=Object.getOwnPropertyDescriptor(input,'readOnly');
+  if(option&&(!option.enumerable||!Object.hasOwn(option,'value')||option.value!==true))fail('NATIVE_FILE_SIDE_EFFECTS_INVALID');
+  const captured=captureCollaborationAdmissionRequest(fields[0]),actor=structuredClone(fields[2]);
+  return readValidatedNativeFileOperationSideEffects(database,{request:captured.request,operationId:fields[1],actor},true,!!option);
 }

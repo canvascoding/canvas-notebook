@@ -1,5 +1,6 @@
 import type { WorkspaceOperationLegacyBatchPlan, WorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchStatus } from './workspace-operation-batch-store';
+import type { WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 
 export type WorkspaceOperationBatchExecutionPublic = {
   mode: 'apply' | 'undo';
@@ -13,7 +14,7 @@ export type WorkspaceOperationBatchExecutionPublic = {
 /** Explicit V2 whitelist: native binary/anchors/graph/identity proofs stay private. */
 export type WorkspaceOperationBatchPreviewPublic = Omit<WorkspaceOperationLegacyBatchPlan,
   'originalDocuments' | 'deletedDocuments' | 'previewContents' | 'linkPlan'>
-  | Pick<WorkspaceOperationNativeDeleteBatchPlan, 'version' | 'kind' | 'workspaceId' | 'planId' | 'readiness' | 'actions'
+  | Pick<WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan, 'version' | 'kind' | 'workspaceId' | 'planId' | 'readiness' | 'actions'
     | 'pathMappings' | 'deletedPaths' | 'pathSteps' | 'linkEdits' | 'expectedPathState' | 'coverage' | 'linkAssessment' | 'issues'>;
 
 export type WorkspaceOperationBatchPublic = {

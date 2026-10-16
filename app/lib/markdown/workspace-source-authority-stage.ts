@@ -15,6 +15,7 @@ import type { NativeFileArchiveExpected } from '../collaboration/native-file-arc
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
+import { readOriginalMoveCollectorOverlay } from '../files/workspace-operation-original-move-sources';
 import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
   type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
 import { filesystemFileVersion } from '../filesystem/file-version';
@@ -207,6 +208,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   dependencies: CollectorDependencies = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
   workspace = structuredClone(workspace);
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
+  const originalMove = readOriginalMoveCollectorOverlay(connection, workspace);
   const limits = { ...DEFAULT_LIMITS, ...dependencies.limits };
   if (Object.entries(limits).some(([key, value]) => !Number.isSafeInteger(value) || value < 1 || value > DEFAULT_LIMITS[key as keyof Limits])) throw new Error('Invalid physical source staging limit.');
   const sources: WorkspaceSourceAuthorityStage['sources'] = []; const namespace = new Map<string, NativeNamespaceEntry>();
@@ -244,8 +246,15 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         const stat = await fs.lstat(path.join(realRoot, relativePath));
         if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) { gap('unsafe-physical-source', relativePath); continue; }
         const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); entries.set(relativePath, item);
-        namespace.set(relativePath, { workspaceId: workspace.workspaceId, path: relativePath, kind: stat.isDirectory() ? 'directory' : 'file',
-          identity: item.identity, filesystemIdentity: item.identity, documentId: null, lifecycleGeneration: null });
+        const physicalEntry: NativeNamespaceEntry = { workspaceId: workspace.workspaceId, path: relativePath, kind: stat.isDirectory() ? 'directory' : 'file',
+          identity: item.identity, filesystemIdentity: item.identity, documentId: null, lifecycleGeneration: null };
+        // Only the fixed owner can install this private active read frame. All
+        // FS observations/rechecks above and below retain their actual paths.
+        const logicalEntry = originalMove ? originalMove.physicalEntry(physicalEntry) : physicalEntry;
+        if (logicalEntry) {
+          if (namespace.has(logicalEntry.path)) fail('identity-conflict', relativePath);
+          namespace.set(logicalEntry.path, logicalEntry);
+        }
         if (stat.isDirectory()) {
           if (directory.depth + 1 > limits.maxDepth) fail('source-depth-limit', relativePath);
           pending.push({ relativePath, depth: directory.depth + 1 });
@@ -302,7 +311,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     for (const item of observed) {
       if (!item.stat.isFile()) continue;
-      const document = registered.get(item.relativePath);
+      const document = registered.get(originalMove?.logicalPath(item.relativePath) ?? item.relativePath);
       if (document && document.authority !== 'pristine') continue;
       if (!/\.(?:md|markdown|html?)$/iu.test(item.relativePath)) {
         if (/\.mdx$/iu.test(item.relativePath)) gap('unsupported-mdx-source', item.relativePath);

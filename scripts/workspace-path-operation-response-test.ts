@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { createWorkspaceOperationBatchPlan } from '../app/lib/files/workspace-operation-batch-plan';
 import { workspacePathOperationMetadata, workspacePathOperationResponse as readResponse } from '../app/lib/files/workspace-path-operation-response';
-import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
-import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord as AnyWorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import type { WorkspaceOperationBatchExecutionResult, WorkspaceOperationLegacyBatchPlan as WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceTrashEntry } from '../app/lib/filesystem/workspace-trash';
 import type { WorkspaceOperationBatchExecutionPublic } from '../app/lib/files/workspace-operation-batch-public';
+
+type WorkspaceOperationBatchRecord = Omit<AnyWorkspaceOperationBatchRecord, 'plan'> & { plan: WorkspaceOperationBatchPlan };
 
 const scope: WorkspaceOperationBatchScope = {
   workspace: { workspaceId: 'response-workspace', rootPath: '/private/response-test', workspaceType: 'personal',

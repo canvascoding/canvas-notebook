@@ -99,7 +99,10 @@ function command(file: string, args: string[], cwd: string): string {
  * The complete original guard in the Parent and supervisor pre/post gates remain
  * mandatory. All environment and wire values are captured before awaiting IO. */
 export async function requireOwnedNativeFileRoomTarget(input: unknown,
-  env: NodeJS.ProcessEnv = process.env): Promise<OwnedNativeFileRoomTarget> {
+  env: NodeJS.ProcessEnv = process.env,
+  expectedSpec: 'tests/workspace-operation-native-delete-links.spec.ts' | 'tests/workspace-operation-native-move.spec.ts'
+    = 'tests/workspace-operation-native-delete-links.spec.ts'): Promise<OwnedNativeFileRoomTarget> {
+  assert(expectedSpec === 'tests/workspace-operation-native-delete-links.spec.ts' || expectedSpec === 'tests/workspace-operation-native-move.spec.ts');
   const { input: captured, expectedVectorSha256 } = captureInput(input), cwd = process.cwd();
   const environment: Record<string, string | undefined> = {};
   for (const key of environmentKeys) environment[key] = env[key];
@@ -110,7 +113,7 @@ export async function requireOwnedNativeFileRoomTarget(input: unknown,
   const receipt = JSON.parse((await privateBytes(receiptPath)).toString()) as OwnedYjsReceipt;
   assert.equal(receiptPath, path.join(receipt.fixtureRoot, 'recovery.json')); await assertOwnedRoot(receipt);
   assert.equal(receipt.phase, 'browser'); assert.equal(receipt.uncertain, false);
-  assert.equal(receipt.activeSpec, 'tests/workspace-operation-native-delete-links.spec.ts');
+  assert.equal(receipt.activeSpec, expectedSpec);
   assert.equal(ownedNativeFileRoomReceiptIdentity(receipt), captured.target.receiptIdentity);
   for (const key of ['nonce', 'repo', 'head', 'sourceFingerprint', 'buildFingerprint', 'buildId'] as const) {
     assert.equal(receipt[key], captured.target[key]);

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 
-import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchAction, WorkspaceOperationLegacyBatchPlan as WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord, type WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { buildWorkspacePathOperationPlan, submitDirectWorkspacePathOperation, type WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
 
 const planId = 'a'.repeat(64);
-type StoreCreateInput = Parameters<WorkspaceOperationBatchStore['createDirect']>[0];
+type StoreCreateInput = Omit<Parameters<WorkspaceOperationBatchStore['createDirect']>[0], 'plan'> & { plan: WorkspaceOperationBatchPlan };
 type Dependencies = NonNullable<Parameters<typeof submitDirectWorkspacePathOperation>[1]>;
 
 function workspaceScope(): WorkspaceOperationBatchScope {

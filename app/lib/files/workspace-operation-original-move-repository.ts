@@ -20,7 +20,9 @@ export type WorkspaceOperationOriginalMoveParentReceipt = WorkspaceOperationOrig
 export type WorkspaceOperationOriginalMovePathReceipt = WorkspaceOperationOriginalMoveReceipt & Readonly<{ stepKey: string }>;
 export type WorkspaceOperationOriginalMoveInsertResult<T> = Readonly<{ kind: 'created' | 'existing'; row: T }>
   | Readonly<{ kind: 'conflict' }>;
-type ReadInput = Readonly<{ schema: string; batchId: string; forShare?: true; forUpdate?: true }>;
+// readOnly disables row-lock acquisition for a caller-owned consistent read
+// transaction. It grants neither write authority nor a completion assumption.
+type ReadInput = Readonly<{ schema: string; batchId: string; forShare?: true; forUpdate?: true; readOnly?: true }>;
 type OriginalInput = ReadInput & Readonly<{ intentDigest: string }>;
 type ParentRead = OriginalInput & Readonly<{ parentPath: string }>;
 type PathRead = OriginalInput & Readonly<{ stepKey: string }>;
@@ -106,12 +108,13 @@ function selection(input: unknown, extra: readonly string[] = [], list = false, 
   schema: string; batchId: string; intentDigest: string | undefined; lock: string; maxRows?: number; maxTotalBytes?: number;
 } {
   const captured = data(input, ['schema', 'batchId', ...(original ? ['intentDigest'] : []), ...extra],
-    ['forShare', 'forUpdate', ...(list ? ['maxRows', 'maxTotalBytes'] : [])]);
+    ['forShare', 'forUpdate', 'readOnly', ...(list ? ['maxRows', 'maxTotalBytes'] : [])]);
   if (captured.forShare !== undefined && captured.forShare !== true || captured.forUpdate !== undefined && captured.forUpdate !== true
-    || captured.forShare && captured.forUpdate) fail();
+    || captured.readOnly !== undefined && captured.readOnly !== true
+    || [captured.forShare, captured.forUpdate, captured.readOnly].filter(Boolean).length > 1) fail();
   return { ...captured, schema: schema(captured.schema), batchId: id(captured.batchId, 16, 128),
     intentDigest: original ? digest(captured.intentDigest) : undefined,
-    lock: captured.forUpdate ? ' FOR UPDATE NOWAIT' : ' FOR SHARE NOWAIT',
+    lock: captured.readOnly ? '' : captured.forUpdate ? ' FOR UPDATE NOWAIT' : ' FOR SHARE NOWAIT',
     ...(list ? { maxRows: captured.maxRows === undefined ? limits.listRows : integer(captured.maxRows, 1, limits.listRows),
       maxTotalBytes: captured.maxTotalBytes === undefined ? limits.listBytes : integer(captured.maxTotalBytes, 1, limits.listBytes) } : {}) };
 }

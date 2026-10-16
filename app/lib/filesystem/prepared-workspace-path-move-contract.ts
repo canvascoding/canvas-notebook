@@ -39,6 +39,13 @@ export type PreparedWorkspacePathMoveInput = Readonly<{ workspace: WorkspaceCont
   sourceKind: PreparedPathMoveSource['kind']; budget?: PreparedPathMoveBudget }>;
 export type RecoveredWorkspacePathMoveInput = Readonly<{ workspace: WorkspaceContext; original: PreparedWorkspacePathMoveOriginal;
   createdParents?: readonly PreparedWorkspacePathMoveParentReceipt[] }>;
+/** Mechanical batch observations. Actual journal provenance, consumer membership
+ * and current actor/claim authority remain the fixed owner's responsibility. */
+export type RecoveredWorkspacePathMovesInput = Readonly<{ workspace: WorkspaceContext;
+  moves: readonly Readonly<{ stepKey: string; original: PreparedWorkspacePathMoveOriginal }>[];
+  parents?: readonly Readonly<{ producerStep: string;
+    consumers: readonly Readonly<{ stepKey: string; sourceKind: PreparedPathMoveSource['kind'] }>[];
+    receipt: PreparedWorkspacePathMoveParentReceipt }>[] }>;
 export type PreparedPathMoveErrorCode = 'invalid-input' | 'invalid-lifetime' | 'reentrant-operation' | 'already-moved'
   | 'scope-changed' | 'unsafe-path' | 'source-changed' | 'destination-occupied' | 'budget-exceeded'
   | 'parent-journal-required' | 'parent-create-unconfirmed' | 'unawaited-operation' | 'cross-device-move'
@@ -230,4 +237,58 @@ export function capturePreparedWorkspacePathMoveParents(input: unknown, original
       || item.relativePath !== components.slice(0, offset + index + 1).join('/')) pathMoveFailure('invalid-input');
   }
   return freezePathMoveData(data);
+}
+
+export function captureRecoveredWorkspacePathMoves(input: RecoveredWorkspacePathMovesInput) {
+  const supplied = record(input, Object.hasOwn(input ?? {}, 'parents') ? ['workspace', 'moves', 'parents'] : ['workspace', 'moves']);
+  const workspace = capturePathMoveScope(supplied.workspace);
+  const captured = plainCopy({ moves: supplied.moves, parents: supplied.parents ?? [] }) as {
+    moves: Array<{ stepKey: string; original: PreparedWorkspacePathMoveOriginal }>;
+    parents: Array<{ producerStep: string; consumers: Array<{ stepKey: string; sourceKind: PreparedPathMoveSource['kind'] }>;
+      receipt: PreparedWorkspacePathMoveParentReceipt }>;
+  };
+  if (!Array.isArray(captured.moves) || !captured.moves.length || captured.moves.length > 1000
+    || !Array.isArray(captured.parents) || captured.parents.length > 1000) pathMoveFailure('invalid-input');
+  const moves = new Map<string, PreparedWorkspacePathMoveOriginal>();
+  let entries = 0, bytes = BigInt(0);
+  for (const move of captured.moves) {
+    record(move, ['stepKey', 'original']); text(move.stepKey);
+    if (moves.has(move.stepKey)) pathMoveFailure('invalid-input');
+    move.original = decodePreparedWorkspacePathMoveOriginal(move.original);
+    if (Object.keys(workspace).some(key => Reflect.get(workspace, key) !== Reflect.get(move.original.workspace, key))) pathMoveFailure('scope-changed');
+    const source = move.original.source;
+    entries += source.kind === 'projection_absent' ? 0 : source.kind === 'regular_file' ? 1 : source.entries.length;
+    bytes += source.kind === 'projection_absent' ? BigInt(0) : source.kind === 'regular_file' ? BigInt(source.identity.size)
+      : source.entries.reduce((total, entry) => total + (entry.kind === 'regular_file' ? BigInt(entry.identity.size) : BigInt(0)), BigInt(0));
+    if (entries > PREPARED_PATH_MOVE_LIMITS.maxEntries || bytes > BigInt(PREPARED_PATH_MOVE_LIMITS.maxHashBytes)) pathMoveFailure('budget-exceeded');
+    moves.set(move.stepKey, move.original);
+  }
+  const seenParents = new Set<string>();
+  for (const parent of captured.parents) {
+    record(parent, ['producerStep', 'consumers', 'receipt']); text(parent.producerStep);
+    const producer = moves.get(parent.producerStep);
+    if (!producer || producer.source.kind === 'projection_absent') pathMoveFailure('invalid-input');
+    record(parent.receipt, ['version', 'originalProof', 'relativePath', 'identity']); identity(parent.receipt.identity);
+    const pathname = pathMoveCanonicalPath(parent.receipt.relativePath);
+    if (seenParents.has(pathname) || parent.receipt.version !== 1
+      || parent.receipt.originalProof !== preparedWorkspacePathMoveProof(producer)
+      || !producer.destinationPath.startsWith(pathname + '/')
+      || !producer.filesystem.destinationParents.missingPrefix
+      || !(pathname === producer.filesystem.destinationParents.missingPrefix
+        || pathname.startsWith(producer.filesystem.destinationParents.missingPrefix + '/'))
+      || !Array.isArray(parent.consumers) || !parent.consumers.length || parent.consumers.length > 1000) pathMoveFailure('invalid-input');
+    seenParents.add(pathname);
+    const consumers = new Set<string>();
+    for (const consumer of parent.consumers) {
+      record(consumer, ['stepKey', 'sourceKind']); text(consumer.stepKey);
+      const original = moves.get(consumer.stepKey);
+      if (!original || consumers.has(consumer.stepKey) || consumer.sourceKind !== original.source.kind
+        || !original.destinationPath.startsWith(pathname + '/') || !original.filesystem.destinationParents.missingPrefix
+        || !(pathname === original.filesystem.destinationParents.missingPrefix
+          || pathname.startsWith(original.filesystem.destinationParents.missingPrefix + '/'))) pathMoveFailure('invalid-input');
+      consumers.add(consumer.stepKey);
+    }
+    if (!consumers.has(parent.producerStep)) pathMoveFailure('invalid-input');
+  }
+  return freezePathMoveData({ workspace, moves: captured.moves, parents: captured.parents });
 }

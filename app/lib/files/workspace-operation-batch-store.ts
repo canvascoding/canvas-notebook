@@ -7,6 +7,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
+import { decodeWorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
@@ -267,8 +268,10 @@ export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperation
 function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
   const version = directInputData(input, 'version');
   if (version === 2) return decodeWorkspaceOperationNativeDeleteBatchPlan(input);
+  if (version === 3) return decodeWorkspaceOperationNativeMoveBatchPlan(input);
   // Never reinterpret a downgraded/unknown native envelope as historical V1.
-  if (version !== 1 || ['kind', 'sourceEvidence', 'nativeTarget', 'nativeGraphPlan'].some(key => Object.hasOwn(input as object, key))) {
+  if (version !== 1 || ['kind', 'sourceEvidence', 'nativeTarget', 'nativeGraphPlan', 'nativePathPlan', 'compilerPlanProof',
+    'finalGraphProof', 'executionReady'].some(key => Object.hasOwn(input as object, key))) {
     throw claimError('BATCH_INVALID_PLAN');
   }
   try {
@@ -300,8 +303,8 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   if (Buffer.byteLength(planText) > 256 * 1024 * 1024) throw claimError('BATCH_INVALID_PLAN');
   const plan = decodeStoredPlan(JSON.parse(planText));
   const parsedAuthorization = authorization(row.authorization_json);
-  if (plan?.version === 2 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
-  if (plan?.version === 2 && parsedAuthorization.mode === 'direct'
+  if (plan?.version !== 1 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
+  if (plan?.version !== 1 && parsedAuthorization.mode === 'direct'
     && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
   return {
     batchId: String(row.batch_id), planId: String(row.plan_id), workspaceId: String(row.workspace_id),
@@ -355,7 +358,7 @@ export class WorkspaceOperationBatchStore {
     if (typeof workspaceId !== 'string' || selected.jobScope && selected.jobScope.workspaceId !== workspaceId) {
       throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'File action job scope does not match the plan.');
     }
-    if (plan.version === 2 && selected.jobScope && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, selected.jobScope)) {
+    if (plan.version !== 1 && selected.jobScope && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, selected.jobScope)) {
       throw new WorkspaceOperationBatchError('BATCH_INVALID_AUTHORIZATION', 409, 'Native file action evidence does not match its original job scope.');
     }
     if (typeof batchId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(batchId)) {

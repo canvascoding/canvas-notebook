@@ -12,7 +12,7 @@ import { WorkspacePreviewBlockedError, WorkspacePreviewStaleError,
 import { applyRateLimit, invalidateWorkspaceFileViews, jsonError, jsonServerError,
   jsonSuccess, readJsonBody } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-import type { WorkspaceOperationLegacyBatchPlan } from '@/app/lib/files/workspace-operation-batch-contract';
+import { workspacePathOperationPreview } from '@/app/lib/files/workspace-path-operation-preview';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -78,9 +78,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       const input = { scope, kind: 'rename' as const, selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite };
       if (dryRun) {
         const plan = await buildWorkspacePathOperationPlan(input);
-        const { previewContents: _privateContents, ...publicPlan } = (plan as WorkspaceOperationLegacyBatchPlan).linkPlan;
         return { mode: 'response' as const, response: jsonSuccess({ dryRun: true, requiresRevalidation: true,
-          plan: { ...publicPlan, planId: plan.planId, readiness: plan.readiness } }) };
+          plan: workspacePathOperationPreview(plan) }) };
       }
       const batch = await submitDirectWorkspacePathOperation({ ...input, expectedPlanId: planId, idempotencyKey,
         actorUserId: fresh.session.user.id, actorId: fresh.session.user.id,

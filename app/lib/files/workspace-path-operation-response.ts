@@ -5,6 +5,7 @@ import { getWorkspaceOperationBatchExecution, getWorkspaceOperationBatchExecutio
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from './workspace-operation-batch-contract';
 import { workspaceOperationNativeDeleteEffects } from './workspace-operation-native-delete-effects';
+import { workspaceOperationNativeMoveEffects } from './workspace-operation-native-move-execution-public';
 import { workspacePathOperationPublicIssues, type WorkspacePathOperationPublic, type WorkspacePathOperationResponse } from './workspace-path-operation-public';
 
 export function workspacePathOperationMetadata(batch: WorkspaceOperationBatchRecord): WorkspacePathOperationPublic {
@@ -50,9 +51,13 @@ export async function workspacePathOperationResponse(batch: WorkspaceOperationBa
   const links = execution!.stepResults?.filter((step) => step.phase === 'link' && step.state === 'applied') ?? [];
   const receipts = execution!.stepResults ?? [];
   let nativeEffects: ReturnType<typeof workspaceOperationNativeDeleteEffects> | undefined;
-  try { if (batch.plan.version === 2) nativeEffects = workspaceOperationNativeDeleteEffects(batch.plan); }
+  try {
+    if (batch.plan.version === 2) nativeEffects = workspaceOperationNativeDeleteEffects(batch.plan);
+    if (batch.plan.version === 3) nativeEffects = workspaceOperationNativeMoveEffects(batch.plan);
+  }
   catch { return unavailable(); }
-  const linkPaths = nativeEffects ? nativeEffects.map(effect => effect.path) : batch.plan.previewContents.map(document => document.path);
+  const linkPaths = nativeEffects ? nativeEffects.map(effect => effect.path)
+    : batch.plan.version === 1 ? batch.plan.previewContents.map(document => document.path) : unavailable();
   if (steps.length !== batch.plan.pathSteps.length || links.length !== linkPaths.length
     || receipts.length !== batch.totalActions || new Set(receipts.map((step) => step.key)).size !== receipts.length
     || batch.plan.pathSteps.some((step, index) => !steps.some((receipt) => receipt.key === `path:${index}`
