@@ -79,6 +79,8 @@ Ein gemeinsamer Linkgraph erfasst unterstützte Markdown-, Wiki-, Bild-, Referen
 
 Verbindliche Grenzen: Groß-/Kleinschreibung, Unicode/URL-Escapes, Leerzeichen, Pipe-Zeichen, Ordnerbäume, Alias-/Ankertitel, gleichnamige Wiederanlage, offene/geschlossene Dokumente und fehlende/veraltete Projektionen. Cross-Workspace-Operationen prüfen beide Scopes und bleiben auf ausdrücklich unterstützte Semantik beschränkt. Keine neue Cross-Workspace-Fähigkeit wird durch einen SDK-Wrapper vorgetäuscht.
 
+Dateiaktions-Undo war für normale Dateien, Ordner und Notebook-Markdown vorgesehen. Die aktuelle Lieferung lässt es für alle Dateitypen ausdrücklich abgeschaltet; seine Reparatur ist kein Gate für Move/Copy/Delete oder die Dokument-API. Editor-Text-Undo bleibt getrennt. Eine spätere Freigabe benötigt einen eigenen Auftrag und eine vollständige Abnahme.
+
 Der Koordinator meldet Dateiaktionen erst nach den vorgeschriebenen Pfad-, Link- und dauerhaften Inhaltsbelegen als abgeschlossen. Nutzer- und Agentenedits im inzwischen geänderten Dokument werden erhalten. Exportprobleme bleiben gesondert sichtbar; sie legitimieren weder stillen Linkverlust noch eine Rohdateiänderung.
 
 ## 4. Versionierte API und erstes Python-SDK
@@ -209,7 +211,7 @@ Die anschließende [native macOS-Abnahme](./yjs-owned-agent-transport-evidence.m
 | Paket | Voraussetzung und konkreter Abschluss |
 | --- | --- |
 | U-01 zuerst | Die Undo-/Verlassenfälle aus Hauptplan §0 unterscheiden; kausaler letzter Apply-/Persistenzbeleg und unveränderte Sicherheitsguards. Keine pauschale Verlängerung von Sleeps/Timeouts. |
-| YD-03 bis YD-07 | Copy/Sicherung, vollständiger Linkgraph, gezielte Mutationen, zentraler Dateiaktionsabschluss und Undo/Restore zusammen gemäß Hauptplan abnehmen. |
+| YD-03 bis YD-07 | Copy/Sicherung, vollständiger Linkgraph, gezielte Mutationen und zentralen Move-/Copy-/Delete-Abschluss gemäß Hauptplan abnehmen. Dateiaktions-Undo bleibt ausdrücklich aus und ist keine Voraussetzung; seine Reparatur/Freigabe ist vertagt. |
 | YD-08S | Launcher-/Writerinventar und OS-Gegenproben; alle direkten Mutationsversuche abgewiesen, Scratch nutzbar, zentrale autorisierte Bearbeitung erfolgreich. |
 | YD-08P | Tatsächliches `pdf_to_markdown` gegen Text-, Tabellen-, Unicode-, Link-, Scan-/Warnungs- und Fehlerfälle; Quell-/Zielraces, Retry, native Erstpersistenz und Wiederöffnung. Vorhandenes Ziel zusätzlich mit gebundener Identität/Generation, offenem Peer und Versionskonflikt prüfen. |
 | YD-13 einschließlich YD-13S | API-Vertrag nach Kernabnahme; tatsächliches Python-SDK mit denselben Datei-/Text-/Linkfällen gegen die echte Schnittstelle. Standard-Skill aus versionierter Marketplacequelle auch auf bestehenden Installationen verfügbar; unabhängiger Agent lädt Anleitung, Schema und Dokumentkontext bedarfsgerecht und nutzt den echten deklarierten bzw. neu verfassten Python-Skriptweg. Externer HTTP-SDK-Client getrennt geprüft; keine Abnahme allein durch SDK-Mocks oder Skilltext. |
