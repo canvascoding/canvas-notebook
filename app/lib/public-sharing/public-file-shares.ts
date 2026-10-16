@@ -911,18 +911,32 @@ export async function syncPublicSharesAfterWrite(paths: string[], workspace?: Wo
     .where(and(
       workspaceScopePredicate(resolvedWorkspace),
       eq(publicFileShares.status, 'active'),
+      isNull(publicFileShares.documentId),
+      isNull(publicFileShares.lineageId),
+      isNull(publicFileShares.lifecycleGeneration),
       inArray(publicFileShares.workspacePath, uniquePaths),
     ));
   await Promise.all(rows.filter((row) => workspaceMatches(row, resolvedWorkspace)).map(async (row) => {
     const details = await getWorkspaceFileDetails(row.workspacePath, resolvedWorkspace);
-    // Only an authorized write hook may rebind an atomic file replacement.
-    await updateShare(row, {
+    // A projection never rebinds native document authority. Repeat the all-null
+    // boundary on the write so a delayed physical hook cannot cross it either.
+    await db.update(publicFileShares).set({
       fileIdentity: details.fileIdentity,
       lastKnownRevision: details.lastKnownRevision,
       sizeBytes: details.sizeBytes,
       mimeType: details.mimeType,
       fileName: details.fileName,
-    });
+      updatedAt: new Date(),
+    }).where(and(
+      eq(publicFileShares.id, row.id),
+      workspaceScopePredicate(resolvedWorkspace),
+      eq(publicFileShares.status, 'active'),
+      eq(publicFileShares.policyRevision, row.policyRevision),
+      eq(publicFileShares.fileIdentity, row.fileIdentity),
+      isNull(publicFileShares.documentId),
+      isNull(publicFileShares.lineageId),
+      isNull(publicFileShares.lifecycleGeneration),
+    ));
   }));
 }
 

@@ -95,18 +95,23 @@ export async function readNativePublicShare(initial: PublicShareRow, recordAcces
   const expected = structuredClone(initial);
   assertPublicRow(expected, expected);
   let prepared = false;
+  let phase = 'kernel';
   try {
     return await withWorkspaceMutationLock(expected.workspaceId!, () => executeLifecycleTransaction({
       openConnection: openDb,
       execute: async database => {
+        phase = 'relations';
         await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE');
         const bound = await bindReadRelations(database);
+        phase = 'share-row';
         const selected = await readPublicShareOnConnection(database, {table: bound.table, workspaceId: expected.workspaceId!, id: expected.id,
           ...(recordAccess ? {forUpdate: true as const} : {forShare: true as const})});
         if (!selected) unavailable();
         let row: PublicShareRow = selected;
         assertPublicRow(row, expected);
+        phase = 'workspace-row';
         const workspace = await readPublicWorkspace(database, bound.prefix, row);
+        phase = 'state-selector';
         const state = await database.get(`SELECT representation,schema_version FROM ${bound.prefix}.collaboration_yjs_states
           WHERE document_id=$1 AND workspace_id=$2 AND lifecycle_generation=$3 AND status='active'`,
         [row.documentId, row.workspaceId, row.lifecycleGeneration]) as {representation: WorkspaceSideEffectWriterTarget['representation']; schema_version: number} | undefined;
@@ -115,9 +120,12 @@ export async function readNativePublicShare(initial: PublicShareRow, recordAcces
         const target: WorkspaceSideEffectWriterTarget = {kind: 'native_file', documentId: row.documentId!, lineageId: row.lineageId!,
           workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null, path: row.workspacePath,
           lifecycleGeneration: row.lifecycleGeneration!, representation: state.representation, schemaVersion: Number(state.schema_version)};
+        phase = 'fence';
         const result = await withWorkspaceSideEffectWriterFenceOnConnection(database, {workspace, targets: [target]}, async () => {
+          phase = 'snapshot';
           const native = await readPublicShareNativeTargetOnConnection(database, {workspace, target, prefix: bound.prefix});
           if (recordAccess) {
+            phase = 'counter';
             if (row!.accessCount >= Number.MAX_SAFE_INTEGER) unavailable();
             const now = Date.now();
             const updated = await database.get(`UPDATE ${bound.table} SET access_count=access_count+1,last_accessed_at=$1
@@ -130,11 +138,13 @@ export async function readNativePublicShare(initial: PublicShareRow, recordAcces
             const counted = {...row!, accessCount: row!.accessCount + 1, lastAccessedAt: new Date(now)};
             if (!stored) unavailable(); assertPublicRow(stored, counted, true); row = stored;
           }
+          phase = 'final-row';
           await bound.assertCurrent();
           const current = await readPublicShareOnConnection(database, {table: bound.table, workspaceId: expected.workspaceId!, id: expected.id});
           if (!current) unavailable(); assertPublicRow(current, row!, true);
           // This return is still inside the shared SQL fence and outer kernel;
           // neither bytes nor an access success escape before COMMIT/cleanup.
+          phase = 'fence-completion';
           return {row: current, workspace, ...native};
         });
         assertPublicRow(result.row, result.row, true);
@@ -144,6 +154,9 @@ export async function readNativePublicShare(initial: PublicShareRow, recordAcces
       recoverCommitted: async () => { throw new PublicShareNativeReadError(503, 'Public read completion could not be confirmed.'); },
     }));
   } catch (error) {
+    if (error && typeof error === 'object' && ['55P03', '40P01'].includes(String(Reflect.get(error, 'code')))) {
+      console.warn('[public-sharing] Native read lock rejected.', {phase, code: String(Reflect.get(error, 'code'))});
+    }
     if (prepared) throw new PublicShareNativeReadError(503, 'Public read completion could not be confirmed.');
     throw error;
   }

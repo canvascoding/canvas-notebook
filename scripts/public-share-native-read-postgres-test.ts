@@ -444,6 +444,47 @@ async function main(): Promise<void> {
       assert.equal(current.row.accessCount, 1); assert.deepEqual(await row(publication.share.id), persisted);
       assert.equal(await writeProof(), afterFaultWrites); assert.deepEqual(await nativeProof(target), proof); await noFile(target.fullPath);
     });
+    await check('actual afterWrite preserves native share authority and still refreshes all-null physical metadata', async () => {
+      const target = await nativeAt(), publication = await publish(target.filePath), before = await row(publication.share.id); assert(before);
+      const proof = await nativeProof(target), writes = await writeProof();
+      await writeFile(target.fullPath, target.expectedBytes, { flag: 'wx', mode: 0o600 });
+      const projection = await stat(target.fullPath);
+      try {
+        await sharing.syncPublicSharesAfterWrite([target.filePath], workspace);
+        assert.deepEqual(await row(publication.share.id), before);
+        assert.equal(await writeProof(), writes);
+        const resolved = await resolveNative(publication, target);
+        assert.equal(await textReader.readPublicShareText(resolved), target.canonical);
+        assert.deepEqual(await nativeProof(target), proof);
+        assert.deepEqual(await row(publication.share.id), before); assert.equal(await writeProof(), writes);
+      } finally {
+        const current = await stat(target.fullPath);
+        assert(current.isFile()); assert.equal(current.nlink, 1); assert.equal(current.uid, rootIdentity.uid);
+        assert.equal(current.dev, projection.dev); assert.equal(current.ino, projection.ino);
+        assert.equal(await realpath(target.fullPath), target.fullPath);
+        await unlink(target.fullPath);
+      }
+      await noFile(target.fullPath);
+      const filePath = `physical-refresh-${crypto.randomUUID()}.txt`, fullPath = path.join(workspace.rootPath, filePath);
+      await writeFile(fullPath, 'Original physical share.\n', { flag: 'wx', mode: 0o600 });
+      const physical = await publish(filePath), physicalBefore = await row(physical.share.id); assert(physicalBefore);
+      for (const key of ['document_id', 'lineage_id', 'lifecycle_generation']) assert.equal(physicalBefore[key], null);
+      const replacementText = 'The real physical share now has a different content length and revision.\n';
+      await writeFile(fullPath, replacementText); const current = await stat(fullPath), physicalWrites = await writeProof();
+      await sharing.syncPublicSharesAfterWrite([filePath], workspace);
+      const physicalAfter = await row(physical.share.id); assert(physicalAfter);
+      const identity = `${current.dev}:${current.ino}:${current.birthtimeMs}`;
+      const revision = `${Math.trunc(current.mtimeMs)}:${current.size}:${identity}`;
+      assert.notEqual(revision, physicalBefore.last_known_revision);
+      assert(Number(physicalAfter.updated_at) >= Number(physicalBefore.updated_at));
+      assert.deepEqual({ ...physicalAfter, updated_at: physicalBefore.updated_at }, { ...physicalBefore,
+        file_identity: identity, last_known_revision: revision, size_bytes: current.size,
+        mime_type: 'text/plain; charset=utf-8', file_name: filePath });
+      assert.equal(await writeProof(), physicalWrites + BigInt(1));
+      const resolved = await sharing.resolvePublicShareToken(physical.token, { recordAccess: false }); assert(resolved.ok);
+      assert.equal(resolved.kind, 'physical'); assert.equal(await textReader.readPublicShareText(resolved), replacementText);
+      assert.deepEqual(await row(physical.share.id), physicalAfter); assert.equal(await writeProof(), physicalWrites + BigInt(1));
+    });
     await check('native anonymous public authority survives creator session removal without reauthentication', async () => {
       const target = await nativeAt('tiptap_blocks'), publication = await publish(target.filePath);
       await admin.query('DELETE FROM "session" WHERE id=$1', ['native-read-session']);
@@ -454,7 +495,7 @@ async function main(): Promise<void> {
       assert.equal(resolved.workspace.permissions.canDelete, false); assert.equal(resolved.workspace.permissions.canCreatePublicLinks, false);
       const response = await fileRequest(publication); assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), target.expectedBytes);
     });
-    assert.equal(passed, 24);
+    assert.equal(passed, 25);
     for (const target of nativeTargets) await noFile(target.fullPath);
     assert.equal(fetches, 0); await own(); assert.equal(await sourceHash(), originalSourceHash);
     console.log('Public native read SQL assertions complete:', JSON.stringify({ passed, fetches, sourceSha256: originalSourceHash }));
