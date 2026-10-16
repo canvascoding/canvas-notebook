@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { Pool } from 'pg';
+import { installPglitePoolHarness, runPgliteFixture } from './helpers/pglite-pool-harness';
 import { NextRequest } from 'next/server';
 
 async function main() {
@@ -14,17 +14,8 @@ async function main() {
   process.env.BETTER_AUTH_BASE_URL = 'http://localhost';
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
   const postgres = new PGlite();
-  // Exercise the normal Drizzle and openDb paths against the embedded Postgres
-  // adapter, with no network connection or container required.
-  const query = async (input: string | { text: string; rowMode?: string }, values?: unknown[]) => {
-    const result = await postgres.query<Record<string, unknown>>(typeof input === 'string' ? input : input.text, values);
-    return { ...result, rowCount: result.affectedRows ?? result.rows.length,
-      rows: typeof input !== 'string' && input.rowMode === 'array'
-        ? result.rows.map((row) => result.fields.map((field) => row[field.name])) : result.rows };
-  };
-  const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
-  Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
-  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
+  // Exercise the normal Drizzle and openDb paths against embedded SQL only.
+  const harness = installPglitePoolHarness(postgres);
   let uninstall: (() => void) | undefined;
   try {
     const { runPostgresMigrations } = await import('../app/lib/db/postgres');
@@ -90,13 +81,13 @@ async function main() {
     });
     await assert.rejects(readPublicShareText(resolved), /no longer available/);
     live.destroy();
-    console.log('public-share-snapshot-test: persisted state, live state, downloads, assets, export and concurrent revocation ok');
   } finally {
     uninstall?.();
-    Object.assign(Pool.prototype, original);
+    harness.restore();
     await postgres.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-main().catch((error) => { console.error(error); process.exitCode = 1; });
+void runPgliteFixture({ label: 'public-share-snapshot-test', operation: main,
+  successMessage: 'public-share-snapshot-test: persisted state, live state, downloads, assets, export and concurrent revocation ok' });

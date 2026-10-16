@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { Pool } from 'pg';
+import { installPglitePoolHarness, runPgliteFixture } from './helpers/pglite-pool-harness';
 import { NextRequest } from 'next/server';
 
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -48,19 +48,7 @@ async function main() {
   process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
 
   const postgres = new PGlite();
-  const query = async (input: string | { text: string; rowMode?: string }, values?: unknown[]) => {
-    const result = await postgres.query<Record<string, unknown>>(typeof input === 'string' ? input : input.text, values);
-    return {
-      ...result,
-      rowCount: result.affectedRows ?? result.rows.length,
-      rows: typeof input !== 'string' && input.rowMode === 'array'
-        ? result.rows.map((row) => result.fields.map((field) => row[field.name]))
-        : result.rows,
-    };
-  };
-  const original = { query: Pool.prototype.query, connect: Pool.prototype.connect };
-  Object.defineProperty(Pool.prototype, 'query', { configurable: true, writable: true, value: query });
-  Object.defineProperty(Pool.prototype, 'connect', { configurable: true, writable: true, value: async () => ({ query, release() {} }) });
+  const harness = installPglitePoolHarness(postgres);
 
   try {
     const { runPostgresMigrations } = await import('../app/lib/db/postgres');
@@ -175,15 +163,12 @@ async function main() {
       }),
     }), /permission/i);
 
-    console.log('public-share-workspace-scope-test: PostgreSQL workspace isolation, routes, permissions and lifecycle ok');
   } finally {
-    Object.assign(Pool.prototype, original);
+    harness.restore();
     await postgres.close();
     await rm(tempRoot, { recursive: true, force: true });
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+void runPgliteFixture({ label: 'public-share-workspace-scope-test', operation: main,
+  successMessage: 'public-share-workspace-scope-test: PostgreSQL workspace isolation, routes, permissions and lifecycle ok' });
