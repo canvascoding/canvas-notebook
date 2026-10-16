@@ -7,7 +7,7 @@ Grundlage ist der [bestätigte Org-Creator-Plan](creator-authoring-marketplace-p
 | Schritt | Status | Nachweis |
 | --- | --- | --- |
 | P1 Neuanlage und Wiederaufnahme | Backend-/API-Grundlage abgeschlossen | Sourcefreier Org-Create, aktorprivate Liste/Status, dauerhafte Operationsbelege; native PostgreSQL-, API-, Gateway- und Regressionsprüfungen bestanden. Erstellungsoberfläche und Chat-E2E folgen P5/P7. |
-| P2 Vollständige Skill-/Integrationskomposition | Offen | Noch keine Abnahme. |
+| P2 Vollständige Skill-/Integrationskomposition | Backend-/API-Grundlage abgeschlossen | Vollständige gemeinsame Komposition, private Quellen, explizite Legacyimporte und Gateway; erweiterte native PostgreSQL-, Parallelitäts- und Paketregressionen bestanden. |
 | P3 Creator und SVG-Teilskill | Offen | Noch keine Abnahme. |
 | P4 Schema-/Paket-/SVG-Validierung | Offen | Noch keine Abnahme. |
 | P5 Oberfläche | Offen | Noch keine Abnahme. |
@@ -56,3 +56,22 @@ Bereits abgeschlossene Prüfungen:
 | Fokussierter TypeScript-Lauf aller geänderten TS-/TSX-Dateien samt Abhängigkeiten und Projektdeklarationen | PASS mit 12-GiB-Heap. |
 
 Die breite TypeScript-Prüfung umfasst auch ältere Scriptfixtures. Ein unabhängiger CompilerHost-Lauf über die unveränderten HEAD-Quellen `fbf20b981` mit denselben Abhängigkeiten bestätigt 58 bestehende Scriptdiagnosen. P1-Typfolgen wurden behoben; der abschließende fokussierte Lauf ist sauber. Daraus wird kein grüner Gesamt-Typecheck behauptet. Neue Erstellungsoberfläche, Creator-Inhalt und durchgängiger Browser-/Agentenlauf sind hiermit ausdrücklich noch nicht abgenommen.
+
+## P2: Kontrollierte vollständige Komposition
+
+`compose_canvas_package_skills` und der entsprechende REST-Weg übernehmen einen begrenzten Batch vollständig in genau eine Entwurfsrevision. Die Auswahl bindet Quelle, genaue Veröffentlichung, Checksumme und gegebenenfalls den deklarierten Parent-Unterordner. Parent- und Geschwisterressourcen bleiben aufgelöst; strukturierte Bild-, Markdown-, Connector- und Workflowreferenzen werden gezielt angepasst. Standalone-MCP-Deklarationen wandern zum Elternplugin. Geänderte Skills erhalten eine konsistente unabhängige Ableitungsversion. Gemeinsame Anforderungen vereinigen die ausgewählten Skillzuordnungen; unterschiedliche Deklarationen oder Dateiinhalte führen zum atomaren Konflikt.
+
+Quellbytes werden vor dem Parsen vollständig erfasst. Aggregierte Datei-/Bytebudgets, wiederverwendete Parentcaptures, begrenzte Strukturprüfung und vollständige MCP-Konfigurationsprüfung gelten auch für Legacyimporte. Private Accounts, Zugangswerte oder lokale Verbindungen werden nicht übernommen. Lizenz-/Autoren-/Quellangaben bleiben erhalten. Die private Herkunft wird in derselben SQL-Transaktion wie der Entwurf gespeichert; aktuelle Quellleserechte werden bis zum ersten Publish erneut geprüft. Eine sortierte gemeinsame Ressourcenlock-Menge schließt gegenseitige A/B-Kompositionen ein.
+
+Alte verwaltete Workspaceentwürfe lassen sich ausdrücklich anhand ihrer serverseitig aufgelösten Identität prüfen und in einen leeren gemeinsamen Entwurf importieren. Es gibt keine frei übergebbaren Serverpfade, automatische Installation oder Löschung der alten Quelle. Umbenennungen passen Workflowreferenzen und Versionen an. Inspector und Versionsliste sind im Planningmodus lesbar; Komposition und Import bleiben dort gesperrt.
+
+Abgeschlossene Prüfungen:
+
+- `npm run test:capabilities:packages` besteht vollständig: IO, SQL-Store, Migration, erweiterte Actions, tatsächlicher Agentgateway, exakte Runtime und sichere Bereinigung.
+- Der gesamte `capability-package-actions-test.ts` besteht auf nativem PostgreSQL einschließlich HTTP, vollständiger Komposition, exakter historischer Dateien, gemischter neuer/vorhandener Skills, Querreferenzen nach Umbenennung, gemeinsamer Capabilities, privater MCP-Konfigurationen, frischem Quellrechteentzug und Plugin-/Skill-Legacyimport. Der danach ergänzte Legacy-MCP-Kompatibilitätsfall besteht zusätzlich über denselben fokussierten nativen Actionsweg: Deklaration und Config bleiben zusammen erhalten; keine geratenen Servernamen.
+- Der native Parallelitätstest beobachtet zwei tatsächlich gleichzeitig wartende PostgreSQL-Aktionen. Beide enden ohne Retry erfolgreich, erzeugen jeweils genau eine SQL-/COW-Generation und verändern weder vorherige Entwurfsdateien noch veröffentlichte Quellen. Datenbankname und expliziter Fixture-Pool werden vor Mutationen auf dieselbe eigene Nonce-Datenbank geprüft. Ein ursprünglich zu enges Beobachtungsfenster wurde auf ein begrenztes realitätsnahes Budget angepasst; es wurde kein Produktdeadlock durch Retry verdeckt.
+- `capability-package-native-test.ts` besteht mit acht PostgreSQL-Clients: CAS, wartender Publisher nach Rechteentzug, Registry-/SQL-Rollback, unveränderlicher Head und Namenskonkurrenz.
+- Gateway und `planning-progressive-runtime-test.ts` bestehen mit tatsächlichem Agent-SDK und SQL. Versions-/Legacyreads bleiben lesbar, Komposition und Import werden vor Ausführung aus dem Planninggateway entfernt.
+- Produkt-TypeScript, fokussierte geänderte TypeScript-Abhängigkeiten und ESLint bestehen. Die in P1 belegten unabhängigen alten Scriptdiagnosen werden dadurch nicht als behoben ausgegeben.
+
+P2 weist die Backend-/API-Komposition nach. Creatorinhalt, Oberfläche und vollständige UI-/Agentabnahme bleiben P3–P7.

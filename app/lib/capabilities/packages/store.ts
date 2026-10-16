@@ -20,6 +20,7 @@ import { deriveCapabilityStoreOrigin, normalizeCapabilityStoreOrigin, sameCapabi
 import { assertPreparedCapabilityStorePackage, getPreparedCapabilityStorePackage, type PreparedCapabilityStorePackage } from './store-source';
 import type { CapabilityPackageStoreUpdateRequest } from './store-contracts';
 import { readHeldLegacyCapabilityStoreHistory, type PreparedLegacyCapabilityStoreHistory } from './legacy-store-source';
+import { readCapabilityPackageDraftCaptures, withCapabilityPackageCaptureRead, type CapabilityPackageSourceCapture } from './source-captures';
 
 type Row = Record<string, unknown>;
 export type CapabilityPackageDraftRecord = { draft: CapabilityPackageDraft; targetStorage: CapabilityResourceStorageBinding;
@@ -437,16 +438,37 @@ export async function withCapabilityPackageDraftRead<T>(actorInput:CapabilityRes
 }
 
 async function withDraftAuthorization<T>(actor: CapabilityResourceActor, stored: PrivateDraft,
-  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>): Promise<T> {
+  callback: (authorization: AuthorizedCapabilityPackageResource, database: SqlConnection) => Promise<T>,
+  additionalCaptures: readonly CapabilityPackageSourceCapture[] = []): Promise<T> {
   const { draft } = stored;
   if (actor.userId !== draft.actorUserId) fail('PACKAGE_NOT_FOUND', 'The package draft was not found.', 404);
-  if (draft.operation === 'edit') return withAuthorizedCapabilityPackageResource(actor, stored.targetStorage, 'edit', undefined, callback);
-  if (draft.operation === 'create') return withAuthorizedCapabilityPackageTarget(actor, stored.targetStorage, stored.targetOwnership, callback);
-  if (!stored.sourceStorage) fail('PACKAGE_SNAPSHOT_UNAVAILABLE', 'The draft source is unavailable.', 503);
-  const sourceStorage = stored.sourceStorage;
-  return withAuthorizedCapabilityPackageTarget(actor, stored.targetStorage, stored.targetOwnership, async (target, database) =>
-    withAuthorizedCapabilityPackageResource(actor, sourceStorage, 'read', undefined, async () => callback(target, database),
-      { parentStorage: stored.sourceParentStorage, database }));
+  const database=await openDb();
+  try {
+    await database.run('BEGIN');
+    await authority(database,actor,true);
+    // Freeze the capture set before acquiring any resource locks. Every draft operation uses
+    // this order, including reads, so a concurrent composition cannot add an unheld source.
+    await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`capability-package-draft:${draft.draftRef}`]);
+    const captures=[...await readCapabilityPackageDraftCaptures(actor,draft.draftRef,database),...additionalCaptures];
+    const bindings=[stored.targetStorage,stored.sourceStorage,stored.sourceParentStorage,
+      ...captures.flatMap(source=>source.source==='package'?[source.storage,source.parentStorage]:[])];
+    for(const resourceId of [...new Set(bindings.filter((binding):binding is CapabilityResourceStorageBinding=>Boolean(binding)).map(binding=>binding.resourceId))].sort()) {
+      await database.get('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[`capability-resource:${resourceId}`]);
+    }
+    const guarded=(authorization:AuthorizedCapabilityPackageResource)=>withCapabilityPackageCaptureRead(actor,captures,database,()=>callback(authorization,database));
+    let result:T;
+    if(draft.operation==='edit') result=await withAuthorizedCapabilityPackageResource(actor,stored.targetStorage,'edit',undefined,guarded,{database});
+    else if(draft.operation==='create') result=await withAuthorizedCapabilityPackageTarget(actor,stored.targetStorage,stored.targetOwnership,guarded,{database});
+    else {
+      if(!stored.sourceStorage) fail('PACKAGE_SNAPSHOT_UNAVAILABLE','The draft source is unavailable.',503);
+      const sourceStorage=stored.sourceStorage;
+      result=await withAuthorizedCapabilityPackageTarget(actor,stored.targetStorage,stored.targetOwnership,async target=>
+        withAuthorizedCapabilityPackageResource(actor,sourceStorage,'read',undefined,async()=>guarded(target),{parentStorage:stored.sourceParentStorage,database}),{database});
+    }
+    await database.run('COMMIT');
+    return result;
+  } catch(error) {try{await database.run('ROLLBACK');}catch{/* Preserve the original failure. */}throw error;}
+  finally{await database.close();}
 }
 
 export async function beginCapabilityPackageDraft(actorInput: CapabilityResourceActor, input: CapabilityPackageSourceDraftCreation,
@@ -500,7 +522,8 @@ export async function beginCapabilityPackageDraft(actorInput: CapabilityResource
 }
 
 export async function mutateCapabilityPackageDraft<T>(actorInput: CapabilityResourceActor, draftRef: string, expectedDraftRevision: number,
-  callback: (draft: CapabilityPackageDraft, database: SqlConnection) => Promise<T>): Promise<{ draft: CapabilityPackageDraft; result: T }> {
+  callback: (draft: CapabilityPackageDraft, database: SqlConnection) => Promise<T>,
+  options: {sourceCaptures?:readonly CapabilityPackageSourceCapture[]} = {}): Promise<{ draft: CapabilityPackageDraft; result: T }> {
   const actor = actorSnapshot(actorInput), ref = text(draftRef, 'Draft reference'), expected = revision(expectedDraftRevision);
   const row = await usingDatabase(undefined, async db => db.get('SELECT * FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2', [ref, actor.userId])) as Row | undefined;
   if (!row) fail('PACKAGE_NOT_FOUND', 'The package draft was not found.', 404);
@@ -515,7 +538,7 @@ export async function mutateCapabilityPackageDraft<T>(actorInput: CapabilityReso
     const changed = await database.run('UPDATE capability_package_drafts SET draft_revision=$1,updated_at=$2 WHERE draft_ref=$3 AND actor_user_id=$4 AND draft_revision=$5', [next.draftRevision,next.updatedAt,ref,actor.userId,expected]) as { changes?: number };
     if (changed.changes !== 1) fail('PACKAGE_DRAFT_CONFLICT', 'The package draft changed during editing.', 409);
     return { draft: next, result };
-  });
+  },options.sourceCaptures);
 }
 
 export async function discardCapabilityPackageDraft(actorInput: CapabilityResourceActor, draftRef: string, expectedDraftRevision: number,
@@ -532,6 +555,7 @@ export async function discardCapabilityPackageDraft(actorInput: CapabilityResour
     const draft = mapDraft(row).draft;
     if (draft.draftRevision !== expected) fail('PACKAGE_DRAFT_CONFLICT', 'The package draft changed. Reload before discarding it.', 409);
     await callback(Object.freeze(structuredClone(draft)),database);
+    await database.run('DELETE FROM capability_package_source_captures WHERE actor_user_id=$1 AND draft_ref=$2 AND published_revision_ref IS NULL',[actor.userId,ref]);
     const stored = mapDraft(row);
     await recordPackageOperation(database,actor,{requestHash:operationRequestHash(['discard',ref,expected]),operation:'discard',status:'discarded',draft,targetStorage:stored.targetStorage});
     await database.run("UPDATE capability_package_operations SET status='discarded',draft_revision=$1,updated_at=$2 WHERE actor_user_id=$3 AND draft_ref=$4 AND operation='create'", [draft.draftRevision,Date.now(),actor.userId,ref]);
@@ -655,6 +679,7 @@ export async function publishCapabilityPackageDraft(actorInput: CapabilityResour
         draft.operation === 'create' ? null : { resourceRef: draft.sourceResourceRef, revisionRef: draft.sourcePublishedRevisionRef, stamp: draft.baseSourceStamp });
       await recordPackageOperation(database,actor,{requestId:request.requestId,requestHash,operation:'publish',status:'published',draft,
         targetStorage:stored.targetStorage,publishedRevisionRef:revisionRef,result});
+      await database.run('UPDATE capability_package_source_captures SET published_revision_ref=$1 WHERE actor_user_id=$2 AND draft_ref=$3 AND published_revision_ref IS NULL',[revisionRef,actor.userId,draft.draftRef]);
       await database.run("UPDATE capability_package_operations SET status='published',draft_revision=$1,published_revision_ref=$2,updated_at=$3 WHERE actor_user_id=$4 AND draft_ref=$5 AND operation='create'", [draft.draftRevision,revisionRef,Date.now(),actor.userId,draft.draftRef]);
       await database.run('DELETE FROM capability_package_drafts WHERE draft_ref=$1 AND actor_user_id=$2',[draft.draftRef,actor.userId]);
       return result;

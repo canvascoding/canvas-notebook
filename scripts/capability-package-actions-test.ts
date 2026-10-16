@@ -7,6 +7,8 @@ import path from 'node:path';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft } from '../app/lib/capabilities/packages/contracts';
 import { createSharedConnectionTestDatabase } from './helpers/shared-connection-test-database';
 import { verifyCapabilityPackageCreation } from './helpers/capability-package-creation-cases';
+import { verifyCapabilityPackageComposition } from './helpers/capability-package-composition-cases';
+import { verifyCapabilityPackageCompositionConcurrency } from './helpers/capability-package-composition-concurrency';
 
 async function main() {
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'canvas-package-actions-'));
@@ -55,6 +57,11 @@ async function main() {
     const publishRoute=await import('../app/api/capabilities/packages/drafts/[draftRef]/publish/route');
     const owner={userId:'owner',workspaceId:'personal-owner'},editor={userId:'editor',workspaceId:'personal-editor'},manager={userId:'manager',workspaceId:'team-packages'};
     const scope={scopeType:'organization' as const,organizationId:'org-packages'};
+    if(process.argv.includes('--composition-concurrency')) {
+      assert(database.native,'The focused concurrency entry requires the isolated native PostgreSQL fixture.');
+      await verifyCapabilityPackageCompositionConcurrency({packages,raw,owner,pool:database.getPostgresRuntimeQueryable()});
+      return;
+    }
     const makePlugin=async(name:string)=>{
       const childName=name==='package-actions'?'package-context':`${name}-context`;
       const directory=path.join(root,'fixtures',name);
@@ -76,7 +83,13 @@ async function main() {
       headers:{...(userId?{'x-fixture-user':userId}:{}),'Content-Type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
     const context=(params:Record<string,string>={})=>({params:Promise.resolve(params)});
     const responseData=async<T>(response:Response,status=200):Promise<T>=>{assert.equal(response.status,status,await response.clone().text());return (await response.json() as {data:T}).data;};
+    if(process.argv.includes('--composition-cases')) {
+      await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
+      return;
+    }
     await verifyCapabilityPackageCreation({packages,raw,owner,other:editor,request,native:database.native});
+    await verifyCapabilityPackageComposition({packages,raw,owner,other:editor,request,root});
+    if(database.native) await verifyCapabilityPackageCompositionConcurrency({packages,raw,owner,pool:database.getPostgresRuntimeQueryable()});
     assert.equal((await inspectRoute.GET(request(null),context({resourceRef:ref}))).status,401);
     const inspected=await responseData<{package:CapabilityPackageDescriptor}>(await inspectRoute.GET(request('editor'),context({resourceRef:ref})));
     assert.equal(inspected.package.access.canEdit,true);assert.equal(inspected.package.access.canUse,false);assert.equal(inspected.package.access.canManage,false);

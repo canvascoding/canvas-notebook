@@ -1,6 +1,6 @@
 # Skill- und Plugin-Erstellung: konkreter Umsetzungsplan
 
-Stand: 16. Oktober 2026. **Planung; keine Produktimplementierung dieses Ausbaus.**
+Stand: 16. Oktober 2026. **Bestätigter Umsetzungsplan; Fortschritt und Prüfbelege stehen im separaten Abnahmejournal.**
 
 Ziel: Nutzer beschreiben einen wiederkehrenden Ablauf. Canvas erstellt daraus in der laufenden App einen eigenständigen Skill oder ein Plugin aus vollständigen Skills und deklarierten Integrationsanforderungen. Die erzeugten Pakete werden zunächst ausschließlich für die Organisation verwaltet. Erstellung, Bearbeitung, Wiederaufnahme, Validierung und interne Bereitstellung verwenden denselben Paketlebenszyklus.
 
@@ -191,7 +191,7 @@ Das vollständige Manifest benötigt die dazu passenden `connectors`-Deklaration
 
 ## 5. Umsetzung in abgeschlossenen Schritten
 
-Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 ist als Backend-/API-Grundlage abgeschlossen; die weiteren Integrationsschritte bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
+Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahmejournal](creator-authoring-implementation.md). P1 und P2 sind als Backend-/API-Grundlage abgeschlossen; P3 bis P7 bleiben offen. Jeder Schritt erhält seine Abnahme vor dem nächsten Integrationsschritt. Der durchgängige UI-/Creator-Nachweis wird in P7 erbracht.
 
 ### P1 — Gemeinsamen Entwurf um echte Neuanlage und Wiederaufnahme erweitern
 
@@ -208,12 +208,12 @@ Der laufende Status und die konkreten Prüfbelege stehen im [Umsetzungs-/Abnahme
 
 ### P2 — Skills und Integrationsanforderungen kontrolliert zusammenstellen
 
-- [ ] Kleine gemeinsame Capture-/Composition-Aktion für vorhandene Skills ergänzen: Zielentwurf und erwartete Draftrevision, genaue autorisierte Quelle, Skill-Unterordner und gewünschter Zielpfad.
-- [ ] Vollständige Dateien über vorhandene Inventar-, Snapshot- und Pfadschutzfunktionen übernehmen; die eigentliche Quelle bleibt unverändert. Auch Legacyquellen autorisiert auflösen und exakt erfassen; keine vorherige Adoption oder Verwaltungsrechte verlangen, wo aktuelles Leserecht für eine Ableitung genügt.
-- [ ] Bei übernommenen Plugin-Kindern auch benötigte Parent-Assets, Configs und Anforderungen innerhalb der autorisierten Quellpaketgrenze erfassen. Pfade und Referenzen gezielt materialisieren/anpassen; keine stillen Abhängigkeiten auf die Installation des Quellplugins oder zufällig gleich benannte Zieldateien.
-- [ ] MCP-Deklarationen eigenständiger Skills zum Parent überführen; Konflikte, Configpfade, Child-Workflowreferenzen, Herkunft und abgeleitete Versionen nachvollziehbar verarbeiten.
-- [ ] Connectoren und `workflow.integrationCapabilities` gemeinsam erzeugen/validieren. Neue Autoren schreiben die kanonischen Felder; bestehende Aliase werden nur beim Lesen normalisiert.
-- [ ] Vorhandene Workspaceentwürfe ausdrücklich in einen neuen privaten Paketentwurf importieren können. Erfolgreichen Import quittieren; alte Ordner weder automatisch installieren noch löschen.
+- [x] Kleine gemeinsame Capture-/Composition-Aktion für vorhandene Skills ergänzen: Zielentwurf und erwartete Draftrevision, genaue autorisierte Quelle, Skill-Unterordner und gewünschter Zielpfad.
+- [x] Vollständige Dateien über vorhandene Inventar-, Snapshot- und Pfadschutzfunktionen übernehmen; die eigentliche Quelle bleibt unverändert. Auch Legacyquellen autorisiert auflösen und exakt erfassen; keine vorherige Adoption oder Verwaltungsrechte verlangen, wo aktuelles Leserecht für eine Ableitung genügt.
+- [x] Bei übernommenen Plugin-Kindern auch benötigte Parent-Assets, Configs und Anforderungen innerhalb der autorisierten Quellpaketgrenze erfassen. Pfade und Referenzen gezielt materialisieren/anpassen; keine stillen Abhängigkeiten auf die Installation des Quellplugins oder zufällig gleich benannte Zieldateien.
+- [x] MCP-Deklarationen eigenständiger Skills zum Parent überführen; Konflikte, Configpfade, Child-Workflowreferenzen, Herkunft und abgeleitete Versionen nachvollziehbar verarbeiten.
+- [x] Connectoren und `workflow.integrationCapabilities` gemeinsam erzeugen/validieren. Neue Autoren schreiben die kanonischen Felder; bestehende Aliase werden nur beim Lesen normalisiert.
+- [x] Vorhandene Workspaceentwürfe ausdrücklich in einen neuen privaten Paketentwurf importieren können. Erfolgreichen Import quittieren; alte Ordner weder automatisch installieren noch löschen.
 
 **Hauptdateien:** neue eng begrenzte Composition-Aktion unter `capabilities/packages`, vorhandene `artifacts.ts`, `io.ts`, Manifest-/Workflowparser, API und Gateway-Adapter.
 

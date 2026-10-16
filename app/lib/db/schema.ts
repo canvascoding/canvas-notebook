@@ -1337,6 +1337,18 @@ export const capabilityPackageOperations = pgTable('capability_package_operation
   statusCheck: check('capability_package_operations_status_check', sql`${table.status} IN ('draft','published','discarded')`),
 }));
 
+/** Private authoring lineage; published rows are informative and never extend runtime ACLs. */
+export const capabilityPackageSourceCaptures = pgTable('capability_package_source_captures', {
+  captureRef: text('capture_ref').primaryKey(),
+  actorUserId: text('actor_user_id').notNull().references(() => user.id, { onDelete: 'cascade' }),
+  draftRef: text('draft_ref').notNull(), targetResourceRef: text('target_resource_ref').notNull(),
+  publishedRevisionRef: text('published_revision_ref'), captureJson: text('capture_json').notNull(),
+  createdAt: pgTimestamp('created_at').notNull(),
+}, table => ({
+  draftIdx: index('idx_capability_package_source_captures_draft').on(table.actorUserId, table.draftRef),
+  publishedIdx: index('idx_capability_package_source_captures_published').on(table.targetResourceRef, table.publishedRevisionRef),
+}));
+
 // Shared provider bindings have their own lifecycle; package grants do not grant accounts.
 export const integrationConnectionResources = pgTable("integration_connection_resources", {
   connectionRef: text("connection_ref").primaryKey(),

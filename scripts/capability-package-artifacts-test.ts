@@ -118,6 +118,34 @@ async function main() {
     const ownerContext = { ...context, userId: 'owner', sessionId: 'owner-session', workspaceId: 'personal-owner', workspaceName: 'Owner' };
     const ownerCall = (operation: string, args: Record<string, unknown>) => execution.runWithAgentExecutionContext(ownerContext,
       () => ownerGateway.execute('owner-fixture', { action: 'call', operation, arguments: args }));
+    const { resolveAgentSessionWorkspaceForUser } = await import('../app/lib/pi/session-workspace-context');
+    const ownerWorkspace = await resolveAgentSessionWorkspaceForUser({ userId: 'owner', workspaceId: 'personal-owner' });
+    await fs.mkdir(ownerWorkspace.rootPath, { recursive: true });
+    const { createCanvasSkillDraft } = await import('../app/lib/skills/agent-skill-workspace');
+    const legacyDraft = await createCanvasSkillDraft({ workspaceRoot: ownerWorkspace.rootPath,
+      scope: { userId: 'owner', organizationId: 'org-artifacts' }, skillName: 'artifact-legacy-context',
+      description: 'LEGACY_WORKSPACE_PRIVATE_BODY', draftId: 'existing-legacy-source', version: '1.0.0' });
+    const legacySelector = { kind: 'skill', workspaceDraftId: legacyDraft.draftId, packageName: legacyDraft.skillName };
+    const { readExactPackageInventory } = await import('../app/lib/capabilities/packages/io');
+    const legacyInventory = await readExactPackageInventory(path.join(ownerWorkspace.rootPath, legacyDraft.packagePath));
+    const workspaceInspection = result<{ source: { kind: string; name: string; version: string; checksum: string; fileCount: number; totalBytes: number } }>(
+      await ownerCall('inspect_canvas_package_workspace_draft', legacySelector));
+    assert.deepEqual(workspaceInspection.source, { kind: 'skill', name: legacyDraft.skillName, version: '1.0.0',
+      checksum: legacyInventory.checksum, fileCount: legacyInventory.files.length, totalBytes: legacyInventory.totalBytes });
+    assert.deepEqual(Object.keys(workspaceInspection), ['source'], 'Legacy discovery returns a bounded selector receipt rather than filesystem authority.');
+    assert.doesNotMatch(JSON.stringify(workspaceInspection), /LEGACY_WORKSPACE_PRIVATE_BODY|workspaceRoot|rootPath|allowedRoots|"files"|"content"/u);
+    assert(!JSON.stringify(workspaceInspection).includes(ownerWorkspace.rootPath));
+    const workspaceSchema = await ownerGateway.execute('workspace-source-schema', { action: 'describe', operation: 'inspect_canvas_package_workspace_draft' });
+    assert(!JSON.stringify(workspaceSchema).includes('workspaceRoot'), 'The source workspace is derived from the actual actor, not a callable root parameter.');
+    const unauthenticatedWorkspace = await ownerGateway.execute('workspace-source-no-actor', {
+      action: 'call', operation: 'inspect_canvas_package_workspace_draft', arguments: legacySelector });
+    assert.equal((unauthenticatedWorkspace.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED');
+    const foreignWorkspace = await execution.runWithAgentExecutionContext({ ...context, workspaceId: 'personal-owner' },
+      () => gateway.execute('workspace-source-foreign', { action: 'call', operation: 'inspect_canvas_package_workspace_draft', arguments: legacySelector }));
+    assert.equal((foreignWorkspace.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED', 'Holding a legacy draft selector cannot cross current workspace Read authority.');
+    const injectedRoot = await ownerCall('inspect_canvas_package_workspace_draft', { ...legacySelector, workspaceRoot: ownerWorkspace.rootPath });
+    assert.match(String((injectedRoot.details as { error?: string }).error), /^Invalid arguments for inspect_canvas_package_workspace_draft:/u);
+    assert.equal((injectedRoot.details as { capabilityPackage?: unknown }).capabilityPackage, undefined);
     const creationKey = randomUUID();
     const created = result<import('../app/lib/capabilities/packages/contracts').CapabilityPackageDraft>(await ownerCall('create_canvas_package_draft', {
       operation: 'create', kind: 'skill', targetName: 'artifact-created-context', requestId: creationKey,
@@ -179,6 +207,17 @@ async function main() {
     const recoveredPublication = result<{ operation: { status: string; publishedRevisionRef: string } }>(await call('inspect_canvas_package_operation', { requestId: publishKey }));
     assert.equal(recoveredPublication.operation.status, 'published');
     assert.equal(recoveredPublication.operation.publishedRevisionRef, published.published.revisionRef);
+    const versions = result<{ versions: Array<{ revisionRef: string; checksum: string }> }>(await call('list_canvas_package_versions', {
+      resourceRef: configured.metadata.resourceRef,
+    }));
+    assert.equal(versions.versions.length, 1);
+    assert.equal(versions.versions[0].revisionRef, published.published.revisionRef, 'The gateway exposes the persisted immutable revision for an exact source selection.');
+    assert.match(versions.versions[0].checksum, /^[a-f0-9]{64}$/u);
+    assert(!JSON.stringify(versions).includes(root));
+    assert.doesNotMatch(JSON.stringify(versions), /rootPath|sourceStorage|sourceParentStorage|"files"|"content"/u);
+    const unauthenticatedVersions = await gateway.execute('versions-no-actor', { action: 'call', operation: 'list_canvas_package_versions',
+      arguments: { resourceRef: configured.metadata.resourceRef } });
+    assert.equal((unauthenticatedVersions.details as { code?: string }).code, 'PACKAGE_ACCESS_DENIED');
     const scope = { scopeType: 'organization' as const, organizationId: 'org-artifacts' };
     const pointer = (await registry.readCanvasPluginRegistry(scope)).plugins[manifest.name];
     assert.equal(pointer.publishedRevisionRef, published.published.revisionRef);
