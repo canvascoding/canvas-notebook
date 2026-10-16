@@ -15,6 +15,7 @@ import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import type { WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { preflightWorkspaceLinkWrites, applyWorkspaceLinkWriteGroup, probeWorkspaceLinkWriteGroup,
   type WorkspaceLinkWriteExecutorInput, type WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-link-write-executor';
 import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/lib/markdown/workspace-link-write-groups';
@@ -57,6 +58,8 @@ type Manifest = {
 type ExecuteInput = { batchId: string; plan: WorkspaceOperationBatchPlan; scope: WorkspaceOperationBatchScope;
   actorUserId: string; actorDisplayName: string;
   actorId?: string; actorType?: 'user' | 'agent'; actorSessionId?: string;
+  /** Private live worker provenance; never serialized into a recovery manifest. */
+  jobClaim?: WorkspaceOperationBatchClaim;
   onProgress?: (progress: WorkspaceOperationBatchProgress) => void | Promise<void> };
 type UndoInput = Omit<ExecuteInput, 'plan'>;
 

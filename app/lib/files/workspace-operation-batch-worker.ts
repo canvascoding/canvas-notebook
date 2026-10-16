@@ -93,71 +93,87 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
       let timer: ReturnType<typeof setInterval> | undefined;
       let batch: WorkspaceOperationBatchRecord | null = null;
       let leaseLost = false;
-      let renewing = false;
+      let renewal: Promise<void> | undefined;
+      let renewalsOpen = false;
+      const stopRenewals = async () => {
+        renewalsOpen = false;
+        if (timer) { clearInterval(timer); timer = undefined; }
+        await renewal;
+      };
       try {
         batch = await store.claim(owner);
         if (!batch) return false;
         const currentBatch = batch;
-        timer = setInterval(() => {
-          if (renewing) return;
-          renewing = true;
-          void store.heartbeat(currentBatch.batchId, owner).then((owned) => { if (!owned) leaseLost = true; })
-            .catch(() => { leaseLost = true; }).finally(() => { renewing = false; });
-        }, 20_000);
-        timer.unref?.();
-        await lock(batch.workspaceId, async () => {
-          const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
-          const jobScope = direct?.jobScope;
-          const assertJobScope = (scope: WorkspaceOperationBatchScope) => {
-            if (direct && (!jobScope || !workspaceOperationJobScopeMatches(jobScope, scope.workspace))) {
-              throw new Error('BATCH_SCOPE_CHANGED');
-            }
+        await store.withClaim(currentBatch, async (jobClaim) => {
+          renewalsOpen = true;
+          timer = setInterval(() => {
+            if (!renewalsOpen || renewal) return;
+            const pending = store.heartbeatClaim(currentBatch).then((owned) => { if (!owned) leaseLost = true; })
+              .catch(() => { leaseLost = true; }).finally(() => { if (renewal === pending) renewal = undefined; });
+            renewal = pending;
+          }, 20_000);
+          timer.unref?.();
+          const finish = async (input: Parameters<WorkspaceOperationBatchStore['finishClaim']>[1]) => {
+            await stopRenewals();
+            if (leaseLost) throw new Error('BATCH_LEASE_LOST');
+            return store.finishClaim(currentBatch, input);
           };
-          const scope = await resolveScope(currentBatch);
-          assertJobScope(scope);
-          const gate = async (progress?: WorkspaceOperationBatchProgress) => {
-            if (leaseLost || !await store.heartbeat(currentBatch.batchId, owner, progress)) throw new Error('BATCH_LEASE_LOST');
-            const fresh = await resolveScope(currentBatch);
-            assertJobScope(fresh);
-            if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
-          };
-          await gate();
-          const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId);
-          const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo');
-          if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
-            || evidence === 'absent' && (currentBatch.actionMode === 'undo'
-              || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
-            await store.finish(currentBatch.batchId, owner, { status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
-            return;
-          }
-          if (currentBatch.actionMode === 'apply' && !started) {
-            const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
-            if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
-              await store.finish(currentBatch.batchId, owner, { status: 'needs_review', errorCode: 'PREVIEW_STALE' });
-              return;
-            }
-          }
-          const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
-          const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
-            : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
-          const result = currentBatch.actionMode === 'undo'
-            ? await undo({ batchId: currentBatch.batchId, scope, actorUserId,
-              actorDisplayName, actorId: actorUserId, actorType: 'user', onProgress: gate })
-            : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
-              actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
-              actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
-              onProgress: gate });
-          const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
-            && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
-          const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
-            : refusedUndo ? 'applied' : result.status;
-          projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
-          if (result.status === 'applied') await dependentReviews({ scope, plan: currentBatch.plan,
-            excludedReviewIds: currentBatch.reviewIds, undo: currentBatch.actionMode === 'undo' });
-          await store.finish(currentBatch.batchId, owner, { status,
-            errorCode: result.errorCode, trashEntryIds: result.trashEntryIds,
-            completedActions: result.completedActions, phase: status === 'applied' || status === 'undone' ? 'complete'
-              : result.status === 'needs_recovery' ? 'recovery' : 'preparing' });
+          try {
+            await lock(currentBatch.workspaceId, async () => {
+              const direct = currentBatch.authorization?.mode === 'direct' ? currentBatch.authorization : null;
+              const jobScope = direct?.jobScope;
+              const assertJobScope = (scope: WorkspaceOperationBatchScope) => {
+                if (direct && (!jobScope || !workspaceOperationJobScopeMatches(jobScope, scope.workspace))) {
+                  throw new Error('BATCH_SCOPE_CHANGED');
+                }
+              };
+              const scope = await resolveScope(currentBatch);
+              assertJobScope(scope);
+              const gate = async (progress?: WorkspaceOperationBatchProgress) => {
+                if (leaseLost || !await store.heartbeatClaim(currentBatch, progress)) throw new Error('BATCH_LEASE_LOST');
+                const fresh = await resolveScope(currentBatch);
+                assertJobScope(fresh);
+                if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
+              };
+              await gate();
+              const started = await hasExecution(currentBatch.batchId, currentBatch.workspaceId);
+              const evidence = await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, currentBatch.actionMode === 'undo');
+              if (currentBatch.completedActions > 0 && (evidence === 'absent' || evidence === 'pristine')
+                || evidence === 'absent' && (currentBatch.actionMode === 'undo'
+                  || ['paths', 'links', 'recovery'].includes(currentBatch.phase))) {
+                await finish({ status: 'needs_recovery', errorCode: 'BATCH_JOURNAL_UNAVAILABLE', phase: 'recovery' });
+                return;
+              }
+              if (currentBatch.actionMode === 'apply' && !started) {
+                const fresh = await buildPlan({ scope, actions: currentBatch.plan.actions });
+                if (fresh.readiness !== 'ready' || fresh.planId !== currentBatch.planId) {
+                  await finish({ status: 'needs_review', errorCode: 'PREVIEW_STALE' });
+                  return;
+                }
+              }
+              const actorUserId = workspaceOperationBatchAuthorityUserId(currentBatch)!;
+              const actorDisplayName = direct && currentBatch.actionMode === 'undo' ? 'Workspace user'
+                : direct?.actorDisplayName ?? currentBatch.reviewerDisplayName ?? 'Workspace user';
+              const result = currentBatch.actionMode === 'undo'
+                ? await undo({ batchId: currentBatch.batchId, scope, actorUserId,
+                  actorDisplayName, actorId: actorUserId, actorType: 'user', jobClaim, onProgress: gate })
+                : await execute({ batchId: currentBatch.batchId, plan: currentBatch.plan, scope,
+                  actorUserId, actorDisplayName, actorId: direct?.actorId ?? actorUserId,
+                  actorType: direct?.actorType ?? 'user', actorSessionId: direct?.actorSessionId,
+                  jobClaim, onProgress: gate });
+              const refusedUndo = currentBatch.actionMode === 'undo' && result.status === 'failed'
+                && await mutationEvidence(currentBatch.batchId, currentBatch.workspaceId, true) === 'pristine';
+              const status = currentBatch.actionMode === 'undo' && result.status === 'applied' ? 'undone'
+                : refusedUndo ? 'applied' : result.status;
+              projectFileViews({ scope, plan: currentBatch.plan, result, undo: currentBatch.actionMode === 'undo' });
+              if (result.status === 'applied') await dependentReviews({ scope, plan: currentBatch.plan,
+                excludedReviewIds: currentBatch.reviewIds, undo: currentBatch.actionMode === 'undo' });
+              await finish({ status,
+                errorCode: result.errorCode, trashEntryIds: result.trashEntryIds,
+                completedActions: result.completedActions, phase: status === 'applied' || status === 'undone' ? 'complete'
+                  : result.status === 'needs_recovery' ? 'recovery' : 'preparing' });
+            });
+          } finally { await stopRenewals(); }
         });
         return true;
       } catch (error) {
@@ -170,12 +186,12 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
             || prior.completedActions > 0 || ['paths', 'links', 'recovery'].includes(prior.phase));
           const code = workspaceOperationBatchErrorCode(error);
           const status = workspaceOperationBatchFailureStatus(code, unknown || evidence === 'started' || evidence === 'complete');
-          await store.finish(batch.batchId, owner, { status, errorCode: code,
+          await store.finishClaim(batch, { status, errorCode: code,
             phase: status === 'needs_recovery' ? 'recovery' : 'preparing' });
         }
         return Boolean(batch);
       } finally {
-        if (timer) clearInterval(timer);
+        await stopRenewals();
         busy = false;
       }
     },

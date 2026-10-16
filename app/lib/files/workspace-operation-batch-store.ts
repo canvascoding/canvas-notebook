@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { randomUUID } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
@@ -24,6 +26,162 @@ export class WorkspaceOperationBatchError extends Error {
   constructor(readonly code: string, readonly status: number, message: string) {
     super(message); this.name = 'WorkspaceOperationBatchError';
   }
+}
+
+declare const claimBrand: unique symbol;
+/** Private claim provenance only; this grants no actor, SQL-owner or file authority. */
+export type WorkspaceOperationBatchClaim = Readonly<{ [claimBrand]: true }>;
+export type WorkspaceOperationBatchClaimBinding = Readonly<{
+  batchId: string; planId: string; workspaceId: string; plan: WorkspaceOperationBatchPlan;
+  authorization: WorkspaceOperationBatchAuthorization; actionMode: 'apply' | 'undo';
+  totalActions: number; createdAt: number; reviewIds: string[]; reviewRefs: WorkspaceOperationBatchReviewRef[];
+  reviewerUserId: string | null; reviewerDisplayName: string | null;
+  source: Readonly<{ databaseOid: number; schemaOid: number; schemaName: string; tableOid: number; searchPath: string }>;
+}>;
+type Runtime = { connect: () => Promise<SqlConnection>; now: () => number };
+type ClaimCapture = {
+  store: WorkspaceOperationBatchStore; runtime: Runtime; original: WorkspaceOperationBatchRecord;
+  binding: WorkspaceOperationBatchClaimBinding; originalFingerprint: string;
+  planBytes: string; authorizationBytes: string; reviewIdsBytes: string; reviewRefsBytes: string;
+  leaseOwner: string; leaseToken: string; expiresAt: number;
+  state: 'claimed' | 'active' | 'closed'; accepting: boolean; failure: unknown;
+  pending: Set<Promise<unknown>>; capability?: WorkspaceOperationBatchClaim; finished: boolean;
+};
+const runtimes = new WeakMap<WorkspaceOperationBatchStore, Runtime>();
+const claimedRows = new WeakMap<object, ClaimCapture>();
+const claims = new WeakMap<object, ClaimCapture>();
+const claimContext = new AsyncLocalStorage<ClaimCapture>();
+const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+const relation = (binding: WorkspaceOperationBatchClaimBinding) => `${quote(binding.source.schemaName)}.workspace_file_operation_batches`;
+function claimError(code: string, status = 409): WorkspaceOperationBatchError {
+  return new WorkspaceOperationBatchError(code, status, 'The original file action claim is unavailable.');
+}
+function claimFailure(error: unknown): Error { return error instanceof Error ? error : claimError('BATCH_CLAIM_FAILED'); }
+function poisonClaim(captured: ClaimCapture, error: unknown): never {
+  const failure = claimFailure(error);
+  captured.failure ??= failure;
+  const active = claimContext.getStore();
+  if (active && active !== captured) active.failure ??= failure;
+  throw failure;
+}
+function frozen<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) frozen(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+function fingerprint(batch: WorkspaceOperationBatchRecord): string {
+  return JSON.stringify([batch.batchId, batch.planId, batch.workspaceId, batch.plan, batch.authorization,
+    batch.actionMode, batch.totalActions, batch.createdAt, batch.leaseOwner,
+    batch.reviewIds, batch.reviewRefs, batch.reviewerUserId, batch.reviewerDisplayName]);
+}
+function claimCurrent(captured: ClaimCapture, finalizing = false): void {
+  try {
+    if (runtimes.get(captured.store) !== captured.runtime || claimedRows.get(captured.original) !== captured
+      || !finalizing && (captured.state !== 'active' || !captured.accepting || claimContext.getStore() !== captured)) {
+      throw claimError('BATCH_CLAIM_REQUIRED');
+    }
+    if (!finalizing && captured.failure !== undefined) throw captured.failure;
+    if (fingerprint(captured.original) !== captured.originalFingerprint) throw claimError('BATCH_CLAIM_CHANGED');
+    if (!Number.isSafeInteger(captured.runtime.now()) || captured.runtime.now() >= captured.expiresAt) throw claimError('BATCH_CLAIM_EXPIRED');
+  } catch (error) { poisonClaim(captured, error); }
+}
+function originalClaim(store: WorkspaceOperationBatchStore, original: WorkspaceOperationBatchRecord): ClaimCapture {
+  const captured = original && typeof original === 'object' ? claimedRows.get(original) : undefined;
+  if (!captured || captured.store !== store || runtimes.get(store) !== captured.runtime) {
+    const error = claimError('BATCH_CLAIM_REQUIRED'), active = claimContext.getStore();
+    if (active) poisonClaim(active, error);
+    throw error;
+  }
+  return captured;
+}
+function trackedClaim<T>(captured: ClaimCapture, operation: () => Promise<T>): Promise<T> {
+  const pending = (async () => {
+    try { return await operation(); } catch (error) { poisonClaim(captured, error); }
+  })();
+  captured.pending.add(pending);
+  void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending));
+  return pending;
+}
+async function readClaimSource(database: SqlConnection, tableOid: unknown): Promise<WorkspaceOperationBatchClaimBinding['source']> {
+  const oid = Number(tableOid);
+  if (!Number.isSafeInteger(oid) || oid < 1) throw claimError('BATCH_CLAIM_CHANGED');
+  const row = await database.get(`SELECT c.oid::bigint AS table_oid,n.oid::bigint AS schema_oid,n.nspname AS schema_name,
+    c.relname,c.relkind,c.relpersistence,pg_catalog.current_setting('search_path') AS search_path,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.oid=$1::pg_catalog.oid`, [oid]) as Record<string, unknown> | undefined;
+  if (!row || Number(row.table_oid) !== oid || !Number.isSafeInteger(Number(row.schema_oid)) || Number(row.schema_oid) < 1
+    || typeof row.schema_name !== 'string' || !row.schema_name || row.schema_name.length > 63 || /[\u0000-\u001f\u007f]/u.test(row.schema_name)
+    || row.schema_name.startsWith('pg_') || row.relname !== 'workspace_file_operation_batches' || row.relkind !== 'r' || row.relpersistence !== 'p'
+    || typeof row.search_path !== 'string' || !row.search_path || row.search_path.length > 4096
+    || !Number.isSafeInteger(Number(row.database_oid)) || Number(row.database_oid) < 1) throw claimError('BATCH_CLAIM_CHANGED');
+  return Object.freeze({ databaseOid: Number(row.database_oid), schemaOid: Number(row.schema_oid), schemaName: row.schema_name,
+    tableOid: oid, searchPath: row.search_path });
+}
+async function assertClaimSource(database: SqlConnection, captured: Pick<ClaimCapture, 'binding'>): Promise<void> {
+  const current = await readClaimSource(database, captured.binding.source.tableOid), expected = captured.binding.source;
+  if (Object.keys(expected).some(key => current[key as keyof typeof current] !== expected[key as keyof typeof expected])) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  const resolved = await database.get(`SELECT pg_catalog.to_regclass('workspace_file_operation_batches')::oid::bigint AS table_oid,
+    pg_catalog.to_regclass($1)::oid::bigint AS qualified_oid`, [relation(captured.binding)]) as Record<string, unknown> | undefined;
+  if (Number(resolved?.table_oid) !== expected.tableOid || Number(resolved?.qualified_oid) !== expected.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+}
+const claimPredicates = `batch_id=$1 AND lease_owner=$2 AND lease_token=$3 AND status='applying'
+  AND lease_expires_at>$4 AND plan_id=$5 AND workspace_id=$6 AND plan_json=$7 AND authorization_json=$8
+  AND action_mode=$9 AND total_actions=$10 AND created_at=$11 AND tableoid=$12::pg_catalog.oid
+  AND review_ids_json=$13 AND review_refs_json=$14 AND reviewer_user_id IS NOT DISTINCT FROM $15
+  AND reviewer_display_name IS NOT DISTINCT FROM $16`;
+function claimParameters(captured: ClaimCapture): unknown[] {
+  const binding = captured.binding;
+  return [binding.batchId, captured.leaseOwner, captured.leaseToken, captured.runtime.now(), binding.planId,
+    binding.workspaceId, captured.planBytes, captured.authorizationBytes, binding.actionMode, binding.totalActions, binding.createdAt,
+    binding.source.tableOid, captured.reviewIdsBytes, captured.reviewRefsBytes, binding.reviewerUserId, binding.reviewerDisplayName];
+}
+
+async function claimConnection<T>(captured: Pick<ClaimCapture, 'runtime'>, operation: (database: SqlConnection) => Promise<T>): Promise<T> {
+  const database = await captured.runtime.connect();
+  let value: T | undefined, failure: unknown;
+  try { value = await operation(database); } catch (error) { failure = claimFailure(error); }
+  try { await database.close(); }
+  catch (error) { failure = failure === undefined ? claimFailure(error) : new AggregateError([failure, claimFailure(error)], 'File action claim checkout cleanup failed.'); }
+  if (failure !== undefined) throw failure;
+  return value as T;
+}
+
+/** Borrowed short transaction only. Never opens/closes/commits B, and grants no actor or lifecycle-owner authority. */
+export function assertWorkspaceOperationBatchClaimOnConnection(database: SqlConnection,
+  claim: WorkspaceOperationBatchClaim): Promise<WorkspaceOperationBatchClaimBinding> {
+  const captured = claim && typeof claim === 'object' ? claims.get(claim) : undefined;
+  if (!captured) {
+    const error = claimError('BATCH_CLAIM_REQUIRED'), active = claimContext.getStore();
+    if (active) { try { poisonClaim(active, error); } catch { /* The same failure is returned below. */ } }
+    return Promise.reject(error);
+  }
+  return trackedClaim(captured, async () => {
+    claimCurrent(captured);
+    if (captured.binding.authorization.mode === 'direct' && (!captured.binding.authorization.jobScope
+      || captured.binding.authorization.jobScope.workspaceId !== captured.binding.workspaceId)) throw claimError('BATCH_CLAIM_CHANGED');
+    const first = await database.get(`SELECT pg_catalog.pg_current_xact_id()::text AS transaction_id,
+      pg_catalog.current_setting('transaction_isolation') AS isolation,
+      pg_catalog.current_setting('transaction_read_only') AS read_only`) as { transaction_id?: unknown; isolation?: unknown; read_only?: unknown } | undefined;
+    if (first?.isolation !== 'read committed' || first.read_only !== 'off') throw claimError('BATCH_CLAIM_CHANGED');
+    claimCurrent(captured); await assertClaimSource(database, captured);
+    const row = await database.get(`SELECT tableoid::oid::bigint AS table_oid FROM ${relation(captured.binding)}
+      WHERE ${claimPredicates}
+        AND lease_expires_at>floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint
+      FOR SHARE NOWAIT`, claimParameters(captured)) as { table_oid?: unknown } | undefined;
+    claimCurrent(captured);
+    if (!row || Number(row.table_oid) !== captured.binding.source.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+    const last = await database.get(`SELECT pg_catalog.pg_current_xact_id_if_assigned()::text AS transaction_id,
+      floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint AS server_now`) as { transaction_id?: unknown; server_now?: unknown } | undefined;
+    claimCurrent(captured);
+    if (!first || typeof first.transaction_id !== 'string' || !/^[0-9]{1,32}$/u.test(first.transaction_id)
+      || last?.transaction_id !== first.transaction_id) throw claimError('BATCH_CLAIM_CHANGED');
+    if (!Number.isSafeInteger(Number(last.server_now)) || Number(last.server_now) >= captured.expiresAt) throw claimError('BATCH_CLAIM_EXPIRED');
+    return captured.binding;
+  });
 }
 
 function authorization(value: unknown): WorkspaceOperationBatchAuthorization {
@@ -106,7 +264,11 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
 
 /** SQL leases select work; the executor additionally owns the kernel workspace mutation lock. */
 export class WorkspaceOperationBatchStore {
-  constructor(private readonly connect: () => Promise<SqlConnection> = openDb, private readonly now = Date.now) {}
+  constructor(private readonly connect: () => Promise<SqlConnection> = openDb, private readonly now = Date.now) {
+    // Constructor DI is trusted persistence configuration. Retain its original
+    // closures privately; changing public/TS-private properties cannot rebind a claim.
+    runtimes.set(this, Object.freeze({ connect, now }));
+  }
 
   private async query(sql: string, params: unknown[]): Promise<WorkspaceOperationBatchRecord | null> {
     const db = await this.connect();
@@ -235,9 +397,17 @@ export class WorkspaceOperationBatchStore {
   }
 
   async claim(owner: string, leaseMs = 90_000): Promise<WorkspaceOperationBatchRecord | null> {
-    const now = this.now();
-    const batch = await this.query(`UPDATE workspace_file_operation_batches AS batch SET status = 'applying',
-      lease_owner = $1, lease_expires_at = $2, updated_at = $3 FROM (
+    const runtime = runtimes.get(this);
+    if (!runtime) throw claimError('BATCH_CLAIM_REQUIRED');
+    const now = runtime.now(), token = randomUUID();
+    if (typeof owner !== 'string' || !owner || owner.length > 256 || /[\u0000-\u001f\u007f]/u.test(owner)
+      || !Number.isSafeInteger(now) || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || !Number.isSafeInteger(now + leaseMs)) throw claimError('BATCH_CLAIM_INVALID');
+    const database = await runtime.connect();
+    let batch: WorkspaceOperationBatchRecord | null = null, source: WorkspaceOperationBatchClaimBinding['source'] | undefined;
+    let planBytes = '', authorizationBytes = '', reviewIdsBytes = '', reviewRefsBytes = '', failure: unknown;
+    try {
+      const row = await database.get(`UPDATE workspace_file_operation_batches AS batch SET status = 'applying',
+      lease_owner = $1, lease_expires_at = $2, updated_at = $3, lease_token = $4 FROM (
         SELECT candidate.batch_id FROM workspace_file_operation_batches candidate
         WHERE (candidate.status = 'queued' OR candidate.status = 'applying' AND candidate.lease_expires_at <= $3)
           AND NOT EXISTS (SELECT 1 FROM workspace_file_operation_batches earlier
@@ -245,17 +415,122 @@ export class WorkspaceOperationBatchStore {
               AND (earlier.status = 'applying' OR earlier.status = 'queued'
                 AND (earlier.created_at,earlier.batch_id) < (candidate.created_at,candidate.batch_id)))
         ORDER BY candidate.created_at,candidate.batch_id FOR UPDATE SKIP LOCKED LIMIT 1
-      ) AS candidate WHERE batch.batch_id = candidate.batch_id RETURNING batch.*`, [owner, now + leaseMs, now]);
+      ) AS candidate WHERE batch.batch_id = candidate.batch_id RETURNING batch.*,batch.tableoid::oid::bigint AS claim_table_oid`,
+      [owner, now + leaseMs, now, token]) as Record<string, unknown> | undefined;
+      if (row) {
+        if (typeof row.plan_json !== 'string' || typeof row.authorization_json !== 'string'
+          || typeof row.review_ids_json !== 'string' || typeof row.review_refs_json !== 'string' || row.lease_token !== token
+          || row.lease_owner !== owner || Number(row.lease_expires_at) !== now + leaseMs) throw claimError('BATCH_CLAIM_CHANGED');
+        source = await readClaimSource(database, row.claim_table_oid);
+        planBytes = row.plan_json; authorizationBytes = row.authorization_json;
+        reviewIdsBytes = row.review_ids_json; reviewRefsBytes = row.review_refs_json; batch = record(row);
+      }
+    } catch (error) { failure = claimFailure(error); }
+    try { await database.close(); }
+    catch (error) { failure = failure === undefined ? claimFailure(error) : new AggregateError([failure, claimFailure(error)], 'File action claim checkout cleanup failed.'); }
+    if (failure !== undefined) throw failure;
     if (batch) {
-      const db = await this.connect();
-      try {
-        await db.run(`UPDATE workspace_file_operation_reviews SET status = 'applying',
+      const binding = frozen({ batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
+        plan: JSON.parse(planBytes) as WorkspaceOperationBatchPlan, authorization: authorization(authorizationBytes),
+        actionMode: batch.actionMode, totalActions: batch.totalActions, createdAt: batch.createdAt,
+        reviewIds: JSON.parse(reviewIdsBytes) as string[], reviewRefs: JSON.parse(reviewRefsBytes) as WorkspaceOperationBatchReviewRef[],
+        reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source: source! });
+      await claimConnection({ runtime }, async db => {
+        await assertClaimSource(db, { binding });
+        await db.run(`UPDATE ${quote(source!.schemaName)}.workspace_file_operation_reviews SET status = 'applying',
           revision = revision + 1, updated_at = $3 WHERE batch_id = $1 AND status = 'queued'
-          AND EXISTS (SELECT 1 FROM workspace_file_operation_batches WHERE batch_id = $1 AND lease_owner = $2 AND status = 'applying')`,
-        [batch.batchId, owner, now]);
-      } finally { await db.close(); }
+          AND EXISTS (SELECT 1 FROM ${quote(source!.schemaName)}.workspace_file_operation_batches
+            WHERE batch_id = $1 AND lease_owner = $2 AND lease_token=$4 AND status = 'applying')`,
+        [batch.batchId, owner, now, token]);
+      });
+      claimedRows.set(batch, { store: this, runtime, original: batch, binding, originalFingerprint: fingerprint(batch),
+        planBytes, authorizationBytes, reviewIdsBytes, reviewRefsBytes, leaseOwner: owner, leaseToken: token, expiresAt: now + leaseMs,
+        state: 'claimed', accepting: false, failure: undefined, pending: new Set(), finished: false });
     }
     return batch;
+  }
+
+  async withClaim<T>(originalBatch: WorkspaceOperationBatchRecord,
+    operation: (claim: WorkspaceOperationBatchClaim) => Promise<T>): Promise<T> {
+    const captured = originalClaim(this, originalBatch), previous = claimContext.getStore();
+    if (previous || captured.state !== 'claimed' || captured.failure !== undefined || typeof operation !== 'function') {
+      const error = claimError(previous ? 'BATCH_CLAIM_REENTRANT' : 'BATCH_CLAIM_REQUIRED');
+      if (previous) { try { poisonClaim(previous, error); } catch { /* Both invocations fail closed. */ } }
+      poisonClaim(captured, error);
+    }
+    const capability = Object.freeze(Object.create(null)) as WorkspaceOperationBatchClaim;
+    captured.capability = capability; captured.state = 'active'; captured.accepting = true; claims.set(capability, captured);
+    return claimContext.run(captured, async () => {
+      let value: T | undefined, operationFailure: unknown;
+      try {
+        claimCurrent(captured);
+        try { value = await operation(capability); }
+        catch (error) { operationFailure = claimFailure(error); captured.failure ??= operationFailure; }
+        captured.accepting = false;
+        if (captured.pending.size) {
+          captured.failure ??= claimError('BATCH_CLAIM_DETACHED');
+          await Promise.allSettled([...captured.pending]);
+        }
+        if (operationFailure !== undefined) throw operationFailure;
+        if (captured.failure !== undefined) throw captured.failure;
+        claimCurrent(captured, true);
+        if (captured.failure !== undefined) throw captured.failure;
+        return value as T;
+      } finally { captured.accepting = false; captured.state = 'closed'; }
+    });
+  }
+
+  heartbeatClaim(originalBatch: WorkspaceOperationBatchRecord, progress?: WorkspaceOperationBatchProgress): Promise<boolean> {
+    let captured: ClaimCapture;
+    try { captured = originalClaim(this, originalBatch); } catch (error) { return Promise.reject(error); }
+    return trackedClaim(captured, async () => {
+      claimCurrent(captured);
+      if (captured.finished) throw claimError('BATCH_CLAIM_CHANGED');
+      const now = captured.runtime.now(), expiresAt = now + 90_000;
+      const completedActions = progress?.completedActions ?? null, phase = progress?.phase ?? null;
+      const row = await claimConnection(captured, async database => {
+        await assertClaimSource(database, captured); claimCurrent(captured);
+        return database.get(`UPDATE ${relation(captured.binding)} SET lease_expires_at=$17,updated_at=$18,
+          completed_actions=COALESCE($19,completed_actions),phase=COALESCE($20,phase)
+          WHERE ${claimPredicates} RETURNING tableoid::oid::bigint AS table_oid,lease_expires_at`,
+        [...claimParameters(captured), expiresAt, now, completedActions, phase]) as Promise<Record<string, unknown> | undefined>;
+      });
+      claimCurrent(captured);
+      if (!row || Number(row.table_oid) !== captured.binding.source.tableOid || Number(row.lease_expires_at) !== expiresAt) throw claimError('BATCH_CLAIM_CHANGED');
+      captured.expiresAt = expiresAt; return true;
+    });
+  }
+
+  finishClaim(originalBatch: WorkspaceOperationBatchRecord, input: { status: WorkspaceOperationBatchStatus;
+    errorCode?: string | null; trashEntryIds?: string[]; completedActions?: number; phase?: string }): Promise<WorkspaceOperationBatchRecord | null> {
+    let captured: ClaimCapture;
+    try { captured = originalClaim(this, originalBatch); } catch (error) { return Promise.reject(error); }
+    const errorFinalization = ['failed', 'needs_recovery', 'needs_review'].includes(input.status);
+    return trackedClaim(captured, async () => {
+      claimCurrent(captured, errorFinalization);
+      if (captured.finished) throw claimError('BATCH_CLAIM_CHANGED');
+      const selected = { status: input.status, errorCode: input.errorCode ?? null,
+        trashEntryIds: input.trashEntryIds ? JSON.stringify(input.trashEntryIds) : null,
+        completedActions: input.completedActions ?? null, phase: input.phase ?? null };
+      const value = await executeLifecycleTransaction({ openConnection: captured.runtime.connect, execute: async database => {
+        await assertClaimSource(database, captured); claimCurrent(captured, errorFinalization);
+        const row = await database.get(`UPDATE ${relation(captured.binding)} SET status=$17,error_code=$18,
+          trash_entry_ids_json=COALESCE($19,trash_entry_ids_json),completed_actions=COALESCE($20,completed_actions),
+          phase=COALESCE($21,phase),lease_owner=NULL,lease_expires_at=NULL,lease_token=NULL,updated_at=$22
+          WHERE ${claimPredicates} RETURNING *,tableoid::oid::bigint AS claim_table_oid`,
+        [...claimParameters(captured), selected.status, selected.errorCode, selected.trashEntryIds,
+          selected.completedActions, selected.phase, captured.runtime.now()]) as Record<string, unknown> | undefined;
+        if (!row || Number(row.claim_table_oid) !== captured.binding.source.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+        const batch = record(row), reviewStatus = batch.status === 'needs_review' ? 'stale' : batch.status === 'undone' ? 'applied' : batch.status;
+        await database.run(`UPDATE ${quote(captured.binding.source.schemaName)}.workspace_file_operation_reviews SET status=$2,error_code=$3,
+          trash_entry_ids_json=$4,revision=revision+1,updated_at=$5,
+          batch_id=CASE WHEN $2='stale' THEN NULL ELSE batch_id END,operation_id=CASE WHEN $2='stale' THEN NULL ELSE operation_id END
+          WHERE batch_id=$1 AND status IN ('queued','applying','applied','needs_recovery','failed')`,
+        [batch.batchId, reviewStatus, batch.status === 'undone' ? 'BATCH_UNDONE' : batch.errorCode, JSON.stringify(batch.trashEntryIds), captured.runtime.now()]);
+        await assertClaimSource(database, captured); claimCurrent(captured, errorFinalization); return batch;
+      }, recoverCommitted: async () => { throw claimError('BATCH_CLAIM_COMMIT_UNCONFIRMED', 503); } });
+      captured.finished = true; return value;
+    });
   }
 
   async heartbeat(batchId: string, owner: string, progress?: WorkspaceOperationBatchProgress): Promise<boolean> {
