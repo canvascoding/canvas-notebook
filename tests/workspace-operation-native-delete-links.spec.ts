@@ -143,13 +143,22 @@ test.describe('native Delete atomically removes incoming link marks and preserve
         await page.goto(`/en/notebook?workspaceId=${workspaceId}&path=${encodeURIComponent(sourcePath)}`);
         const editor = page.locator(selector);
         await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45_000 }); await expect(editor).toHaveText('');
-        await page.getByTestId('markdown-toolbar-insert').click();
-        await page.getByRole('menuitem', { name: importTitle, exact: true }).click();
+        if (mobile) {
+          // Use the real mobile toolbar. Chromium does not open an OS keyboard;
+          // model its reduced viewport as in the existing Markdown insertion spec.
+          await editor.tap();
+          await page.setViewportSize({ width: 390, height: 544 });
+          await page.getByRole('button', { name: importTitle, exact: true }).filter({ visible: true }).tap();
+        } else {
+          await page.getByTestId('markdown-toolbar-insert').click();
+          await page.getByRole('menuitem', { name: importTitle, exact: true }).click();
+        }
         const insertion = page.getByRole('dialog', { name: importTitle, exact: true }); await expect(insertion).toBeVisible();
         const markdownInput = insertion.getByRole('textbox', { name: 'Markdown', exact: true });
         await markdownInput.focus(); await page.evaluate(value => navigator.clipboard.writeText(value), markdown);
         await page.keyboard.press('ControlOrMeta+v'); await expect(markdownInput).toHaveValue(markdown);
         await insertion.getByRole('button', { name: 'Insert', exact: true }).click(); await expect(insertion).toHaveCount(0);
+        if (mobile) await page.setViewportSize(viewport);
         await expect(editor.getByRole('heading', { name: heading, exact: true })).toBeVisible();
         await expect(editor.locator('table')).toContainText('Alpha'); await expect(editor.locator('table')).toContainText('Beta');
         await expect(editor.locator(`a[href="${targetPath}"]`)).toHaveText(targetLabel);
@@ -220,7 +229,7 @@ test.describe('native Delete atomically removes incoming link marks and preserve
         await fresh.screenshot({ path: info.outputPath('native-delete-incoming-link-source.png'), animations: 'disabled' });
         const freshReleased = await closeAndRelease(fresh, owned, workspaceId, sourcePath, persisted);
         expect(freshReleased.version).toEqual(freshHeld.version);
-        info.annotations.push({ type: 'acceptance-scope', description: 'Real Chromium clipboard/Markdown insertion, desktop/mobile-web Delete, receipt-derived native unlink and fresh native PM equality; no native-device clipboard or file Undo claim.' });
+        info.annotations.push({ type: 'acceptance-scope', description: 'Real Chromium clipboard/Markdown insertion, desktop/mobile-web Delete, receipt-derived native unlink and fresh native PM equality; the mobile keyboard viewport is emulated, with no native-device clipboard, OS keyboard/IME or file Undo claim.' });
       } catch (error) { failed = true; primaryError = error; }
       finally {
         const errors: unknown[] = [];

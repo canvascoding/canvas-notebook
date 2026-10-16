@@ -4,7 +4,7 @@ Stand: 16. Oktober 2026. Der Nutzer hat die Reparatur von Dateiaktions-Undo zur�
 
 ## Geltungsbereich
 
-Dateiaktions-Undo war grundsätzlich dateitypunabhängig vorgesehen. Der bestehende Einzeloperationsdienst unterstützt Rename/Move; Batch V1 und der physische Papierkorb behandeln normale Dateien beziehungsweise Verzeichnisse. Bei Notebook-Markdown sind zusätzlich Yjs-Zustand, ursprüngliche Identität, Generation und Linkwirkungen zu erhalten. Der neuere native V2-Anschluss ist enger: ein einzelner nativer Delete ohne Linkänderungen anderer Quellen. Das ist keine vollständige Undo-Freigabe für alle Operationen und Dateitypen.
+Dateiaktions-Undo war grundsätzlich dateitypunabhängig vorgesehen. Der bestehende Einzeloperationsdienst unterstützt Rename/Move; Batch V1 und der physische Papierkorb behandeln normale Dateien beziehungsweise Verzeichnisse. Bei Notebook-Markdown sind zusätzlich Yjs-Zustand, ursprüngliche Identität, Generation und Linkwirkungen zu erhalten. Der bisherige native Undo-Ansatz war enger: ein einzelner nativer Delete ohne Linkänderungen anderer Quellen. Der inzwischen ergänzte native Delete mit Linkreceipts erweitert ausschließlich Apply; gespeicherte Inversrezepte schalten Undo nicht frei. Das ist keine vollständige Undo-Freigabe für alle Operationen und Dateitypen.
 
 Die aktuelle feste Policy `WORKSPACE_FILE_UNDO_ENABLED = false` gilt für alle Deployments und Dateitypen. Es gibt keinen automatisch aktivierten QA- oder Produktionsschalter. Editor-Textgeschichte (Strg/Cmd+Z), eigenständige Dokumentversions-/Backupsicherung und `restore_file_snapshot` sind hiervon getrennt. Die Sperre repariert keine bereits teilweise ausgeführte Wiederherstellung und verwirft keine historischen Belege.
 

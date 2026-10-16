@@ -80,3 +80,27 @@ Der Owner protokolliert bei einem tatsächlichen Phasenfehler vor Rollback und w
 Die tatsächliche ursprüngliche Owner-/Principalfolge besteht mit 30/30 Familien und vollständigem eigenen Ressourcenabschluss (`owned-job-principal-v2.log`, SHA256 `44bdf97c1bec8d0a70f6aae2c6c0482088e47b0b0b120e6ce387d622b649eefa`); die 12 Filter-/Neverthrow-Prüfungen bestehen ebenfalls (`pure-diagnostics-v2.log`, SHA256 `8c19e82e4ec0e1d9a826df5fae7bda008f0a3ffcb73990438987e9de18f7eccc`). Beide Protokolle liegen im privaten Verzeichnis `canvas-file-delete-phase-diagnostic-xmmun3ly`. Nach der PG-Folge wurde ausschließlich die Logausgabe auf vollständiges JSON umgestellt, damit tiefe Cause-Codes nicht durch Node-Inspect gekürzt werden. Cachefreie vollständige Typprüfung, Scoped ESLint und unabhängiger Quellreview bestehen.
 
 Eine zuvor irrtümlich ausgewählte historische kombinierte Delete-/Undo-Scheduling-Folge endet wegen der ausdrücklich ausgeschalteten Undo-Funktion mit `FILE_OPERATION_UNDO_DISABLED`, ohne bestandene Familie. Sie bleibt unverändert und wird nicht durch Aktivieren von Undo oder veränderte Erwartungen passend gemacht. Dieses Ergebnis ist kein fehlgeschlagener Owner-Sicherheitsnachweis. Frischer Build und Browserdiagnose des neuen Anschlusses sind als nächster Schritt erforderlich.
+
+## Zweiter tatsächlicher Browserlauf: Desktop-Link-Delete bestanden, mobiler Testweg offen
+
+Der frische Originalbuild auf Root `d291e6c7e815bcf8bb65e08a47d32a3a547cb216` / QA `965751433fd3e25eaeaf57eee20adca31e3a9ef2` endet mit Exit 0. Source-Fingerprint `bc57ff500b361c0d79d5ef54fa17df8d256a6007907ba7aaa0483bc19342672c`, Build-Fingerprint `ad4e4e8fbba5ef87b6dcc53599e38919390d7a9454ad881b6c6193d02e26efc9`, Proof-SHA256 `a893c8848ab44eb8ae68ccfac1877581ff8c13588b338e76848baaa957915708`. Der unveränderte Supervisor beendet die tatsächliche Folge mit Exit 1: **sechs von sieben Fällen bestanden**, ein Fehler, keine Testtimeouts, Skips oder Unterbrechungen.
+
+| Browserfamilie | Tatsächliches Ergebnis |
+| --- | --- |
+| Datei-Undo ausdrücklich aus, Desktop/Mobile | 2/2 bestanden |
+| Sofort editierbare Starterdokumente, Desktop/Mobile | 2/2 bestanden |
+| Editorfokus/Breite/Tabelle einschließlich abschließendem Delete | 1/1 bestanden |
+| Neuer nativer Delete mit eingehenden Links, Desktop | 1/1 bestanden; echter Markdownimport, Raumfreigabe, UI-Delete, Linkreceipt, Erhalt unabhängiger Links und vollständiger nativer Richvergleich nach frischem Wiederöffnen |
+| Derselbe neue Fall, Mobile Web | Vor Einfügen und Delete fehlgeschlagen: Desktop-Insert-Button bei 390 px absichtlich unsichtbar |
+
+Die unabhängige Nachprüfung bestätigt unveränderte Originalhelfer, Adapter, drei bisherige Specs, die beiden neuen engen Adapter und den tatsächlichen Build. Originalreports und Recoverybelege der eigenen Fixture `canvas-yjs-authority-JnoNkm` bleiben unverändert (`preserved`, `passed:false`, `uncertain:true`). Parentlog-SHA256 `0076c43ebf6441196f0b8b272259cb15c305a27b2b6127bc2a9b6907e66615ab`, Postruntime-Audit `67e55e31649ff32743df64d902a63eee9f00098ddf4cc792411933ef455a65c1`. Dieser Lauf belegt weder einen mobilen Link-Delete noch eine vollständige Abnahme.
+
+Der mobile Trace bestätigt erfolgreichen Editor-Readiness- und Leerinhaltcheck unmittelbar vor dem falschen Desktop-Klick. Die Spec wird ausschließlich an den bereits vorhandenen mobilen Markdown-Einfügetest angeglichen: Editor antippen, den Tastaturbereich durch 390×544 emulieren, den sichtbaren direkten Button antippen und danach 390×844 wiederherstellen. Produktcode, fachliche Assertions, Zeitgrenzen und Originalhelfer bleiben unverändert. Die Tastatur-/IME-Funktion eines echten Mobilgeräts wird damit nicht behauptet.
+
+Der vorherige Focus-Delete-Timeout tritt diesmal nicht auf; im Hostprotokoll entsteht kein neuer Owner-Phasenfehler. Die zusätzliche Diagnose ist deshalb noch kein Beleg für die genaue ursprüngliche Ursache oder deren Behebung. Es wird keine vorsorgliche weitere Archiv-/Timeoutänderung vorgenommen.
+
+Die eigene fehlgeschlagene Fixture `canvas-yjs-authority-JnoNkm` ist anschließend ebenfalls separat geschlossen (tatsächlicher Exit 0, Abschluss-SHA256 `61084ed9d40275e67045a711c9381aff15140dd1d89323d73dcbffe2113de18f`). Frische exakte Besitzprüfungen, null Sessions, geschlossene Prozesse/Gruppen/Ports und freier Runlock gehen der Entfernung ausschließlich eigener Datenbanken und DATA/tmp voraus. Kein FORCE und keine Veränderung der ursprünglichen fehlgeschlagenen Receipts; die drei verwalteten HTTP-Healthchecks bestätigen danach 200. Der korrigierte mobile Testweg ist zu diesem Zeitpunkt noch nicht erneut ausgeführt.
+
+## Separater Ressourcenabschluss des ersten fehlgeschlagenen Laufs
+
+Die oben historisch als aufbewahrt beschriebene Fixture `canvas-yjs-authority-PTHBRx` wurde inzwischen nach einer privaten, an ihre tatsächlichen Datenbankidentitäten gebundenen Read-only-Sicherung separat geschlossen. Snapshot-SHA256 `cbcfb8fe95bddbac95e3bc766a2ce9e106357be68bb55dec5d1ca34f9f21d23d`; Abschluss-SHA256 `1a1204c4cf5464fd3bcc72877d70728eb67e748d67af9cc987bd056c8ea32902`. Vor jedem DROP wurden exakter Datenbankname/OID, Owner, Besitzmarker und null Sessions frisch geprüft; kein FORCE und kein Beenden fremder Verbindungen. Eigene Prozesse/Gruppen, drei Ports und Runlock waren geschlossen; ausschließlich eigene DATA/tmp wurden entfernt. Originale fehlgeschlagene Receipts und Reports bleiben bytegleich. Die drei verwalteten HTTP-Healthchecks bestätigen danach weiterhin 200.
