@@ -3,7 +3,8 @@ import { expect, test, type APIRequestContext, type BrowserContext, type Page } 
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 import type { OwnedRestartRoomEvidence } from '../scripts/lib/owned-yjs-restart-room-read';
-import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
+import { requireOwnedYjsQaTarget, type OwnedYjsReceipt } from '../scripts/lib/owned-yjs-authority-qa';
+import { ownedNativeFileRoomReceiptIdentity } from '../scripts/lib/owned-yjs-native-file-room-target';
 import { assertCompletedWorkspaceMarkdownCreate, createAuthenticatedContext } from './helpers/managed-test-context';
 import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
@@ -24,9 +25,17 @@ async function readNativeFileSession(request: APIRequestContext, workspaceId: st
   return value;
 }
 
-async function readNativeFileRoom(workspaceId: string, path: string, session: NativeSession): Promise<OwnedRestartRoomEvidence> {
-  const input = Buffer.from(JSON.stringify({ documentId: session.documentId, path,
-    generation: session.lifecycleGeneration, expectedWorkspaceId: workspaceId })).toString('base64url');
+async function readNativeFileRoom(owned: OwnedYjsReceipt, workspaceId: string, path: string,
+  session: NativeSession): Promise<OwnedRestartRoomEvidence> {
+  // `owned` comes from the full original guard at the start of this case. Each
+  // poll freshly proves its private target and actual read-only DB identity;
+  // the supervisor and independent audits retain the full artifact checks.
+  const input = Buffer.from(JSON.stringify({ version: 1,
+    target: { nonce: owned.nonce, repo: owned.repo, head: owned.head, sourceFingerprint: owned.sourceFingerprint,
+      buildFingerprint: owned.buildFingerprint, buildId: owned.buildId, receiptIdentity: ownedNativeFileRoomReceiptIdentity(owned) },
+    room: { documentId: session.documentId, path, generation: session.lifecycleGeneration, expectedWorkspaceId: workspaceId },
+    expectedSession: { documentSequence: session.documentSequence, stateProof: session.stateProof, stateVector: session.stateVector },
+  })).toString('base64url');
   const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx',
     'scripts/owned-yjs-native-file-room-read.ts', input], { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 64 * 1024 });
   return JSON.parse(result.stdout) as OwnedRestartRoomEvidence;
@@ -95,13 +104,13 @@ test.describe('native original Delete and Undo through the file browser', () => 
         }, { timeout: 40_000 }).toEqual({ stateProof: candidate.stateProof, stateVector: candidate.stateVector });
         const original = await readNativeFileSession(context.request, workspaceId, path);
         expect(original.documentSequence).toBeGreaterThan(0);
-        const held = await readNativeFileRoom(workspaceId, path, original);
+        const held = await readNativeFileRoom(owned, workspaceId, path, original);
         expect(held).toMatchObject({ ownerTupleCleared: false, ownerTupleComplete: true, advisoryLockHeld: true, released: false });
         await page.getByRole('button', { name: 'Close preview', exact: true }).click();
         await expect(editor).toHaveCount(0);
-        await expect.poll(async () => (await readNativeFileRoom(workspaceId!, path, original)).released,
+        await expect.poll(async () => (await readNativeFileRoom(owned, workspaceId!, path, original)).released,
           { timeout: 40_000, intervals: [500, 1_000, 2_000] }).toBe(true);
-        const released = await readNativeFileRoom(workspaceId, path, original);
+        const released = await readNativeFileRoom(owned, workspaceId, path, original);
         expect(released.version).toEqual(held.version);
         if (mobile) await page.getByRole('button', { name: 'Open file explorer', exact: true }).click();
         else {
@@ -147,7 +156,7 @@ test.describe('native original Delete and Undo through the file browser', () => 
         await fresh.screenshot({ path: info.outputPath('native-restored-document.png'), animations: 'disabled' });
         await fresh.getByRole('button', { name: 'Close preview', exact: true }).click();
         await expect(fresh.locator(selector)).toHaveCount(0);
-        await expect.poll(async () => (await readNativeFileRoom(workspaceId!, path, restored)).released,
+        await expect.poll(async () => (await readNativeFileRoom(owned, workspaceId!, path, restored)).released,
           { timeout: 40_000, intervals: [500, 1_000, 2_000] }).toBe(true);
       } catch (error) {
         failed = true; primaryError = error;

@@ -1,6 +1,6 @@
 # Native Delete-/Undo-Jobs: erster Anschluss und offene Browserabnahme
 
-Stand: 16. Oktober 2026. Produktanschluss Root `7dccf9d2e7a05ca0d867731ce7c75b1de6a10e84`, QA `d790f95cbe20d3f94aaae5dd05ce93760f744217`. Die zusätzliche reine Testdiagnose liegt auf Root `38f0d2c0c6f355a4c1e2c46d719f081d65cdc171`, QA `f2aba57bbf40e2e2bac21e8b1edd23b35b28bccf`.
+Stand: 16. Oktober 2026. Produktanschluss Root `7dccf9d2e7a05ca0d867731ce7c75b1de6a10e84`, QA `d790f95cbe20d3f94aaae5dd05ce93760f744217`. Die erste zusätzliche reine Testdiagnose liegt auf Root `38f0d2c0c6f355a4c1e2c46d719f081d65cdc171`, QA `f2aba57bbf40e2e2bac21e8b1edd23b35b28bccf`.
 
 **Status:** Der echte Producer-/Store-/Worker-/Original-Delete-Anschluss besteht die unten getrennten PostgreSQL-Prüfungen. Die neue Browserabnahme ist noch offen: Beide ersten Fälle scheitern vor der Dateiaktion in einem zusätzlichen Beobachterprozess. Der nächste Lauf endet bereits vor dem Fixtureaufbau; eine Voraussetzung der gemeinsamen Testumgebung ist nachweislich nicht erfüllt. Der generische Laufabbruch benennt seine auslösende Assertion nicht. Allgemeine native Aktivierung bleibt aus.
 
@@ -55,6 +55,16 @@ Die fehlgeschlagene erste Fixture ist nach eigener Namens-/OID-/Owner-/Markerpr�
 Der nächste originale Runtime-Aufruf endet bereits vor dem Fixtureaufbau. Aktuell laufen die drei verwalteten PG-/Control-Plane-Container, während `canvas-local-prod-notebook` seit `2026-10-16T10:27:03.971238389Z` gestoppt ist. Der Originalsupervisor verlangt auch diesen laufenden verwalteten Container. Es wurde dafür kein alter Container eigenmächtig gestartet, kein neuer gebaut und kein Guard entfernt. Die Klärung der gemeinsamen Umgebung und der tatsächliche Folgelauf stehen aus.
 
 Private Quellenbelege: `/tmp/canvas-native-integration-source-freeze-validated.json` (55 Dateien, SHA256 `886c7a5eac74c04394d16b88a54cc11f16449de5cbbc274ae1bda4451fa60b72`) und `/tmp/canvas-native-observation-source-freeze.json` (56 Dateien, SHA256 `d6884f508dab5a9eabcd1b53081f31df6a5c6b243650c90585ec9539c60c864e`). Unabhängige Vor-/Nach- und Originalreportbelege liegen im privaten Verzeichnis `canvas-native-source-build-audit-S1JuZD`. Das ersetzt keinen noch fehlenden Browserabschluss.
+
+## Fortsetzung: gebundene Read-only-Beobachtung
+
+Der anschließend überarbeitete Testadapter behält den vollständigen ursprünglichen `requireOwnedYjsQaTarget()` zu Beginn jedes Browserfalls. Ein gemeinsamer Digest bindet die folgenden Beobachtungen an genau dessen ursprüngliche Root-/DATA-/Datenbank-/Hostidentität; private Marker und ENV-Werte werden nicht in CLI-Argumente kopiert. Jeder Poll prüft Receipt, physische Root, Runtimekonfiguration, Proofmetadaten, tatsächlichen Git-HEAD sowie Prozessstart, CWD und Listener frisch. Er wiederholt dabei ausdrücklich keinen vollständigen Quellen-/Buildbytewalk. Dieser bleibt vor und nach dem eingefrorenen Lauf, auch nach einem Fehler, verpflichtend.
+
+Der [neue Targetguard](../scripts/lib/owned-yjs-native-file-room-target.ts) prüft Datenbankname, OID, Owner, Rolle und Marker innerhalb genau derselben frischen READ-ONLY-/REPEATABLE-READ-Verbindung, die danach den unveränderten Original-Raumreader verwendet. Erwartete Sequenz, State-Proof und Vectorhash werden zusätzlich an die echte vorherige Sessionantwort gebunden. Rollback und `end()` werden unabhängig abgewartet; Ausgabe entsteht erst nach bestätigtem Cleanup. Fachliche Assertions und 30-Sekunden-Kindprozessgrenze bleiben erhalten. Ein Metadatenread oder erfolgreicher Raumread erteilt keine spätere Mutationsautorität.
+
+Tatsächlich bestanden: 27 reine Metadaten-/FS-/Prozessfälle mit eigenem Toylistener, acht echte PG18-Identitätsfamilien einschließlich tatsächlichem Rollenwechsel und Drop/Recreate unter gleichem Namen, sowie unverändert alle 13 Original-Raumreader-PG18-Gruppen. Toylistener/CWD/temporäre Root und beide eigenen Datenbankinstanzen samt Sessions sind geschlossen beziehungsweise entfernt. Die reine Fixture deklariert ausdrücklich nur Proofmetadaten; sie behauptet weder echten Appbuild noch ursprünglichen Parentguard oder Browserabnahme. Die vollständige cachefreie Typprüfung und Scoped-Lint der fünf Testdateien bestehen ebenfalls auf dem finalen Stand. Diese getrennten Nachweise ersetzen den noch offenen echten UI-Folgelauf und erklären den ursprünglichen Timeout nicht rückwirkend.
+
+Privater eingefrorener Quellen-/Prüfbeleg: `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-native-room-adapter-evidence-1tz595fy/manifest.json`, SHA256 `08edd1c3a1f7ecd4a7b1158b474b2dab4cb7511b799079bdcc00fd516182fac4`. Die 59 erfassten Quellen bestätigen unveränderten Produktcode und zwölf unveränderte Originalhelfer; gegenüber der ursprünglichen 55-Dateien-Produktprüfung unterscheidet sich ausschließlich die neue Browser-Testdatei. Dieser Snapshot wurde vor einem weiteren Build erstellt und enthält keinen neuen Build-/Browserpass.
 
 ## Nächste Anschlüsse
 
