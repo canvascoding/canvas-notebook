@@ -34,7 +34,9 @@ import {
   wouldRemoveLastWorkspaceManager,
 } from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
-import { seedWorkspaceStarterDocument } from './starter-document';
+import { seedWorkspaceStarterDocument, withObservedWorkspaceStarterDocument } from './starter-document';
+import { recordWorkspaceStarterInitializationIntent } from './starter-document-initialization-store';
+import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { importLegacyWorkspaceForOwner } from './legacy-recovery';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
@@ -658,6 +660,7 @@ async function reserveWorkspaceRootRelativePath(
 }
 
 async function insertWorkspaceRecord(database: RuntimeDb, input: {
+  actorUserId: string;
   organizationId: string;
   type: WorkspaceType;
   ownerUserId: string | null;
@@ -694,10 +697,13 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
     ],
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
-  seedWorkspaceStarterDocument({
-    rootPath: workspaceAbsoluteRoot(input.rootRelativePath),
-    workspaceType: input.type,
-  });
+  const starter = { rootPath: workspaceAbsoluteRoot(input.rootRelativePath), workspaceType: input.type };
+  if (authenticatedNativeTextSessionEnabled()) {
+    await withObservedWorkspaceStarterDocument(starter, observation => recordWorkspaceStarterInitializationIntent(database, {
+      workspaceId: id, actorUserId: input.actorUserId, organizationId: input.organizationId, workspaceType: input.type,
+      projectId: input.projectId ?? null, rootRelativePath: input.rootRelativePath, observation,
+    }));
+  } else seedWorkspaceStarterDocument(starter);
   const record = await getWorkspaceById(database, id);
   if (!record) throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace insert failed.', 500);
   return record;
@@ -1585,6 +1591,7 @@ export async function createPostgresWorkspaceForActor(
           )
         : projectWorkspaceRootRelativePath(project?.id ?? '');
     const record = await insertWorkspaceRecord(database, {
+      actorUserId: actor.userId,
       organizationId: status.organizationId,
       type: input.type,
       ownerUserId: input.type === 'personal' ? actor.userId : null,

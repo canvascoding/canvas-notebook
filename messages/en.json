@@ -6648,9 +6648,18 @@
           "cancel": "Cancel",
           "accessTitle": "Set access for {name}",
           "accessDescription": "The workspace has been created. Add users and adjust their access roles now.",
-          "createdTitle": "{name} is ready",
+          "createdTitle": "{name} has been created",
           "createdDescription": "The workspace has been created and already uses its color as the Canvas accent.",
           "done": "Done"
+        },
+        "starterInitialization": {
+          "pendingTitle": "Starter document not yet confirmed",
+          "pendingDescription": "The workspace has been created. Setup of “Erste Schritte.md” is not yet confirmed. Check its status or resume setup here.",
+          "blockedTitle": "Starter document setup is blocked",
+          "blockedDescription": "The workspace has been created. Setup of “Erste Schritte.md” is blocked. Check its status and try again after resolving the problem.",
+          "requestFailed": "The status could not be confirmed. Your workspace is retained. You can try checking again.",
+          "check": "Check status",
+          "resume": "Resume setup"
         },
         "editDialog": {
           "title": "Edit workspace",
@@ -6700,6 +6709,7 @@
           }
         },
         "errors": {
+          "createdRefreshFailed": "The workspace was created. The workspace list could not be refreshed. Reload it before creating another workspace.",
           "nameRequired": "Name is required.",
           "nameTooLong": "Name must be 80 characters or fewer.",
           "descriptionTooLong": "The short description must be {max} characters or fewer.",

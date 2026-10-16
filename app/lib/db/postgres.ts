@@ -32,6 +32,7 @@ import { resolvePostgresRuntimeOptions } from './postgres-runtime-options';
 import { postgresFailureCode } from './postgres-diagnostics';
 import { migrateSharedComposioProfiles } from './composio-shared-profile-migration';
 import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
+import { WORKSPACE_STARTER_INITIALIZATION_STATEMENTS } from '../workspaces/starter-document-initialization-store';
 
 const LEGACY_EPOCH_TIMESTAMP_MIGRATION_KEY = 'epoch-seconds-to-milliseconds-v2';
 const LEGACY_EPOCH_TIMESTAMP_UNIT_ENV = 'CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT';
@@ -1384,6 +1385,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of PUBLIC_FILE_SHARE_TARGET_BINDING_STATEMENTS) await pool.query(statement);
   for (const statement of NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS) await pool.query(statement);
   for (const statement of NATIVE_FILE_RESTORE_STATEMENTS) await pool.query(statement);
+  for (const statement of WORKSPACE_STARTER_INITIALIZATION_STATEMENTS) await pool.query(statement);
   await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');

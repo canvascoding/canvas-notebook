@@ -20,6 +20,7 @@ import {
 } from '@/app/lib/workspaces/postgres-runtime';
 import { WorkspaceOperationError } from '@/app/lib/workspaces/contracts';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
+import { initializeCreatedWorkspaceStarter } from '@/app/lib/workspaces/starter-document-initialization-api';
 
 async function requireTeamRuntimeIfEnabled(status: { teamFeaturesEnabled: boolean }) {
   if (!status.teamFeaturesEnabled) return null;
@@ -114,7 +115,9 @@ export async function POST(request: Request) {
           projectFeaturesEnabled: areProjectFeaturesEnabled(),
           projectId,
         });
-        return NextResponse.json({ success: true, workspace: serializeWorkspaceContext(workspace) }, { status: 201 });
+        const starterDocumentInitialization = await initializeCreatedWorkspaceStarter(request, workspace.workspaceId);
+        return NextResponse.json({ success: true, workspace: serializeWorkspaceContext(workspace), starterDocumentInitialization },
+          { status: 201, headers: { 'Cache-Control': 'no-store, max-age=0', Vary: 'Cookie' } });
     } catch (error) {
         if (error instanceof WorkspaceOperationError) {
           return workspaceOperationErrorResponse(error);

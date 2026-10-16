@@ -6647,9 +6647,18 @@
           "cancel": "Abbrechen",
           "accessTitle": "Zugriff für {name} festlegen",
           "accessDescription": "Der Workspace ist erstellt. Füge jetzt Nutzer hinzu und passe ihre Zugriffsrollen an.",
-          "createdTitle": "{name} ist bereit",
+          "createdTitle": "{name} wurde erstellt",
           "createdDescription": "Der Workspace wurde erstellt und verwendet seine Farbe bereits als Canvas-Akzent.",
           "done": "Fertig"
+        },
+        "starterInitialization": {
+          "pendingTitle": "Starterdokument noch nicht bestätigt",
+          "pendingDescription": "Der Workspace wurde erstellt. Die Einrichtung von „Erste Schritte.md“ ist noch nicht bestätigt. Prüfe den Status oder setze die Einrichtung hier fort.",
+          "blockedTitle": "Starterdokument konnte nicht eingerichtet werden",
+          "blockedDescription": "Der Workspace wurde erstellt. Die Einrichtung von „Erste Schritte.md“ ist blockiert. Prüfe den Status und versuche es nach Beheben des Problems erneut.",
+          "requestFailed": "Der Status konnte nicht bestätigt werden. Der Workspace bleibt erhalten. Du kannst die Prüfung erneut versuchen.",
+          "check": "Status prüfen",
+          "resume": "Einrichtung fortsetzen"
         },
         "editDialog": {
           "title": "Workspace bearbeiten",
@@ -6699,6 +6708,7 @@
           }
         },
         "errors": {
+          "createdRefreshFailed": "Der Workspace wurde erstellt. Die Workspace-Liste konnte nicht aktualisiert werden. Lade sie erneut, bevor du einen weiteren Workspace anlegst.",
           "nameRequired": "Name ist erforderlich.",
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
           "descriptionTooLong": "Die Kurzbeschreibung darf höchstens {max} Zeichen lang sein.",

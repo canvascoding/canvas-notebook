@@ -1,5 +1,8 @@
 # Workspace-Startdokument: fehlender nativer Anlegepfad
 
+**Starter-Anschluss implementiert:** Die [gemeinsame Web-/Mobile-Initialisierung](./yjs-workspace-starter-initialization-evidence.md) erhält den wirklichen Workspace-Teilabschluss und nimmt denselben gespeicherten Originalimport wieder auf. Elf neue tatsächliche Personal-/Team-/Auth-/PG18-Familien und die 29 bestehenden Original-Bootstrap-Familien bestehen. Der davor dokumentierte 409-Browserlauf bleibt ein historischer Fehlversuch; frischer Build, neue Starter-UI-Spec und unveränderter native Delete-/Undo-Folgelauf stehen für diesen Anschluss noch aus. Keine allgemeine Aktivierung und kein Gesamtabschluss.
+
+
 Stand: 16. Oktober 2026. Beobachteter Produktstand Root `49dfd9beee380c43bbc96b114c758af48c39ef67`, QA `bae26a9716b0ac70427eb1427e39fe71428d68d7`. Der folgende Befund ist ein fehlgeschlagener echter Browserlauf und keine abgeschlossene Dateiaktionsabnahme.
 
 ## Tatsächlicher Folgelauf
