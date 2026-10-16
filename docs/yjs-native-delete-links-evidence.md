@@ -1,6 +1,6 @@
 # Nativer Einzel-Delete mit eingehenden Linkänderungen
 
-Stand: 16. Oktober 2026. Diese Etappe erweitert den bestehenden nativen Original-Delete um eingehende Unlinks in anderen nativen Quelldokumenten. Acht erfolgreiche PG18-Familien belegen den internen Claim-/Owner-Ablauf; sie sind noch keine Abnahme der regulären UI-, API-, MCP- oder Agent-Dateiaktionen. Maßgeblich sind die unten referenzierten eingefrorenen Produktquellen, nicht allein der vorausgehende Commit `d2cc98fb0`.
+Stand: 16. Oktober 2026. Diese Etappe erweitert den bestehenden nativen Original-Delete um eingehende Unlinks in anderen nativen Quelldokumenten. Acht erfolgreiche PG18-Familien belegen den internen Claim-/Owner-Ablauf. Der abschließende frische Build und die reguläre Desktop-/Mobile-Web-Browserfolge bestehen mit 7/7 Fällen einschließlich beider neuen Link-Delete-Fälle. MCP-/Agentadapter und breitere Dateioperationen sind damit noch nicht abgenommen. Maßgeblich sind die nachfolgend jeweils gebundenen Produktquellen und tatsächlichen Laufbelege.
 
 ## Enger Ausführungsvertrag
 
@@ -104,3 +104,24 @@ Die eigene fehlgeschlagene Fixture `canvas-yjs-authority-JnoNkm` ist anschließe
 ## Separater Ressourcenabschluss des ersten fehlgeschlagenen Laufs
 
 Die oben historisch als aufbewahrt beschriebene Fixture `canvas-yjs-authority-PTHBRx` wurde inzwischen nach einer privaten, an ihre tatsächlichen Datenbankidentitäten gebundenen Read-only-Sicherung separat geschlossen. Snapshot-SHA256 `cbcfb8fe95bddbac95e3bc766a2ce9e106357be68bb55dec5d1ca34f9f21d23d`; Abschluss-SHA256 `1a1204c4cf5464fd3bcc72877d70728eb67e748d67af9cc987bd056c8ea32902`. Vor jedem DROP wurden exakter Datenbankname/OID, Owner, Besitzmarker und null Sessions frisch geprüft; kein FORCE und kein Beenden fremder Verbindungen. Eigene Prozesse/Gruppen, drei Ports und Runlock waren geschlossen; ausschließlich eigene DATA/tmp wurden entfernt. Originale fehlgeschlagene Receipts und Reports bleiben bytegleich. Die drei verwalteten HTTP-Healthchecks bestätigen danach weiterhin 200.
+
+
+## Abschließender frischer lokaler Build und Browserpass
+
+Der frische Originalproduktionsbuild auf Root `516f9245c66b70fc8252041ec18c20acd26fd1f6` / QA `5b0f23451998b1e2c83d9dd94308ca7243ed0f9e` endet mit tatsächlichem Exit 0. Der einzige neue ausführbare Unterschied zum vorherigen Lauf ist der mobile Bedienweg der neuen Spec; sämtliche Produktdateien, Originalhelfer, fünf bisherigen Adapter, drei bisherigen Specs und beide neuen engen Raumadapter bleiben bytegleich. Neue Spec-SHA256 `723da17f34bbb57fa53c64eacc2a5f2fbe712ca17c6888f00aab53be960d1c2a`. Die beiden Heads enthalten zusätzlich die dokumentierte Entfernung von Datei-Undo aus den Liefergates.
+
+- Source-Fingerprint: `aaa3b1e23636155a8faac4eb3ff09b90aa3d46312693e140b043668beaa5522d`.
+- Build-Fingerprint: `77078dfe4cf387e80ee6ba3e03844a31131fa3be23177c706df3e9d260e094fe`.
+- Build-Proof-SHA256: `9180ac93690a420c182d5c9c6bbb9edc798fa0013eab2e033f6575d9c0a2a9c2`.
+- Build-Parentlog: `f58a6f0583ab6f142cd38a399a8347a331664a2bbda106e1e7d227c0980d0bce`.
+- Runtime-Parentlog: `4a77586f3346bcfa76762c6b7296120c592ccfbe932ab0fe2bd42f1517ec8e4a`.
+
+Der unveränderte Originalsupervisor endet mit tatsächlichem Exit 0: vier Specs, **7/7 bestanden**, null Fehler, Skips, Testtimeouts und Unterbrechungen. Undo-Abschaltung und Starter bestehen jeweils 2/2, Editorfokus/Breite/Tabelle einschließlich abschließendem Delete 1/1, neuer nativer Link-Delete Desktop/Mobile 2/2. Beide neuen Fälle verwenden echte Zwischenablage/Markdown-Insertion, tatsächliche Raumfreigabe, den regulären UI-/API-/Worker-Delete und einen frischen Browserkontext. Das gelöschte Ziel ist per Read 404, der Linkreceipt meldet exakt eine Änderung, das andere Ziel bleibt unverändert. Der vollständige native ProseMirror-Baum entspricht dem ursprünglichen Baum abzüglich ausschließlich des Ziellinkmarks; Beschriftung, Fettdruck, Heading, Tabelle, übriger Link und Attribute bleiben erhalten. Die beiden tatsächlichen Screenshots wurden zusätzlich visuell geprüft. Mobile Tastaturgeometrie ist emuliert; kein nativer OS-/IME-Nachweis.
+
+Unabhängiger tatsächlicher Postbuild-/Preruntime-Audit-SHA256 `1db9d2af76223f22862c66ed105273d7b841d9529ad0ba68437cb07cdeb3396b`, unabhängiger Postruntime-Audit `8bd6ea7a694db663b85f0a33af9c9904993fa4d5837a807d50c57c8ad80332c9`. Jeweils originaler Buildguard und separate Quell-/Build-Fingerprints; beide Reportsätze, Quellenpins, saubere Heads und die drei bekannten Root-/QA-Abweichungen sind bestätigt. Der Postruntime-Audit prüft zusätzlich den Originalreportguard auf allen vier wirklichen Reports. Die früheren fehlgeschlagenen Läufe bleiben unverändert RED.
+
+Eigene Fixture `canvas-yjs-authority-g3vsmo`: Originalreceipt `cleaned`, `passed:true`, `uncertain:false`, alle vier Specs abgeschlossen, beide eigenen Datenbanken und DATA entfernt. Eine danach tatsächlich ausgeführte frische rein lesende Ressourcenprüfung endet mit Exit 0 (SHA256 `253d1e6fae2ea17547a92f9d2e746b2efb6606a3611de6b72e2901547a9a561e`): eigene PIDs/Gruppen und drei Ports fehlen, Runlock ist frei, beide exakten Datenbanknamen/OIDs und zugehörige Backends fehlen, eigene DATA/tmp fehlen und die Prüfverbindung ist geschlossen. Alle drei verwalteten Healthchecks liefern 200. Originalreceipts und Reports bleiben unverändert; die Prüfung führt keine Cleanupmutation aus.
+
+Die cachefreie vollständige Typprüfung mit 8-GiB-Node-Heap und Scoped ESLint bestehen. Der erste zusätzliche Typprüfversuch mit dem Node-Standardheap brach mit Exit 134 wegen Speichermangel ab; die vollständige Wiederholung endete ohne Typfehler mit Exit 0. Es gab keine Lockerung fachlicher Assertions, Zeitgrenzen oder Produktguards.
+
+Diese Abnahme schließt ausschließlich den beschriebenen lokalen Einzel-Delete-Anschluss. Move/Copy, mehrere Ziele, gemischte/noch nicht importierte Quellen, vollständige Syntax-/Offene-Raum-Matrix, MCP-/Agentadapter, SDK/Skill/Suche/PDF und Gesamtintegration bleiben gemäß zentralem Plan offen. Datei-Undo und Review Center bleiben aus. Der ältere Delete-Timeout ist in beiden Folgeläufen nicht aufgetreten; seine genaue ursprüngliche Ursache bleibt ungeklärt. Kein Produktionsrollout.
