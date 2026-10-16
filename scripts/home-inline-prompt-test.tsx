@@ -49,6 +49,12 @@ globalThis.fetch = async (input, init) => {
   const url = new URL(String(input), dom.window.location.href);
   if (url.pathname === '/api/agents') return Response.json({ success: true, data: { agents: [{ agentId: DEFAULT_AGENT_ID, name: 'Bradley', iconId: 'bot', type: 'main', removable: false }] } });
   if (url.pathname === '/api/user-preferences') return Response.json({ success: true, data: { lastActiveAgentId: DEFAULT_AGENT_ID } });
+  if (url.pathname === '/api/files/list') {
+    assert.equal(init?.method ?? 'GET', 'GET');
+    assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), 'one');
+    assert.equal(url.searchParams.get('workspaceId'), 'one');
+    return Response.json({ success: true, files: [{ name: 'canva-plan.md', path: 'notes/canva-plan.md', type: 'file', isImage: false }], total: 1 });
+  }
   if (url.pathname !== '/api/chat/extension-options') throw new Error(`Unexpected UI fetch ${url.pathname}`);
   const request = JSON.parse(String(init?.body)) as Record<string, unknown>; requests.push(request);
   assert.deepEqual(request.target, { kind: 'draft_turn', agentId: DEFAULT_AGENT_ID, workspaceId: 'one' });
@@ -83,8 +89,9 @@ async function main() {
   try {
     render(wrap(<PromptHero compact />));
     await waitFor(() => assert(editor()));
-    await act(async () => { editor().commands.insertContent('/Can'); });
+    await act(async () => { editor().commands.insertContent('@Can'); });
     await waitFor(() => assert(screen.getByRole('button', { name: /Canva.*Design toolkit/u })));
+    await waitFor(() => assert(screen.getByTestId('chat-reference-picker').querySelector('[data-reference-id="file:notes/canva-plan.md"]')));
     fireEvent.click(screen.getByRole('button', { name: /Canva.*Design toolkit/u }));
     await waitFor(() => assert(screen.getByRole('button', { name: /Profile B/u })));
     fireEvent.click(screen.getByRole('button', { name: /Profile B/u }));
@@ -102,15 +109,15 @@ async function main() {
     assert.deepEqual(navigations[0], { pathname: '/notebook', query: { workspaceId: 'one', chat: 'open', handoff: handoff.handoffId } });
     assert.doesNotMatch(JSON.stringify({ local: { ...window.localStorage }, session: { ...window.sessionStorage } }), /accountSelectionRef|cmp_personal_account_/u);
     assert.equal(requests.filter(value => value.operation === 'preview').length, 1);
-    console.log('PASS actual Home → shared slash picker → profile/account B → inline atom → exact receipt-free structured handoff');
+    console.log('PASS actual Home → shared @ picker → profile/account B → inline atom → exact receipt-free structured handoff');
     cleanup(); window.sessionStorage.clear(); navigations.length = 0;
 
-    const quick = render(wrap(<PromptHero compact plainTextRequest={{ id: 'first', workspaceId: 'one', text: '🙂 Plain /Canva' }} />));
-    await waitFor(() => assert.equal(editor().getText(), '🙂 Plain /Canva'));
+    const quick = render(wrap(<PromptHero compact plainTextRequest={{ id: 'first', workspaceId: 'one', text: '🙂 Plain @Canva' }} />));
+    await waitFor(() => assert.equal(editor().getText(), '🙂 Plain @Canva'));
     assert.equal(screen.getByRole('textbox').querySelector('[data-type="extension-reference"]'), null, 'Quick actions are explicit plain text, never reconstructed references.');
     quick.rerender(wrap(<PromptHero compact plainTextRequest={{ id: 'wrong', workspaceId: 'two', text: 'Wrong workspace' }} />));
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
-    assert.equal(editor().getText(), '🙂 Plain /Canva');
+    assert.equal(editor().getText(), '🙂 Plain @Canva');
     quick.rerender(wrap(<PromptHero compact plainTextRequest={{ id: 'second', workspaceId: 'one', text: 'Second prompt' }} />));
     await waitFor(() => assert.equal(editor().getText(), 'Second prompt'));
     fireEvent.click(screen.getByRole('button', { name: de.home.hero.submit }));

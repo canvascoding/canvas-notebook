@@ -92,6 +92,13 @@ async function main() {
       runtimeReadiness: 'not_checked', providerHealth: 'unknown', finalSendValidationRequired: true, budget: null,
       issues: [], requirements: [], effectiveToolCaps: [], toolConflicts: [] } } });
   globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input), dom.window.location.href);
+    if (url.pathname === '/api/files/list') {
+      assert.equal(init?.method ?? 'GET', 'GET');
+      assert.equal(new Headers(init?.headers).get('x-canvas-workspace-id'), url.searchParams.get('workspaceId'));
+      assert.equal(url.searchParams.get('limit'), '30');
+      return Response.json({ success: true, files: [{ name: 'canva-notes.md', path: 'notes/canva-notes.md', type: 'file', isImage: false }], total: 1 });
+    }
     assert.equal(String(input), '/api/chat/extension-options', 'The actual chat metadata client never uses Agent configuration authority.');
     const request = chatExtensionOptionsRequestSchema.parse(JSON.parse(String(init?.body))); requests.push(request);
     const pagination = { nextCursor: null, hasNextPage: false, loadedItems: 1 };
@@ -153,6 +160,8 @@ async function main() {
   const open = async (id: string, configure = true) => {
     await act(async () => { frame().editor.current!.focusEnd();
       frame().controller.openReferencePicker(); });
+    assert.equal(frame().controller.activeReferenceMatch?.trigger, '@');
+    assert.equal(frame().controller.activeReferenceMatch?.kind, 'all');
     await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === id), JSON.stringify({ id,
       body: frame().body, match: frame().controller.activeReferenceMatch, error: frame().controller.referencePickerError })));
     await act(async () => {
@@ -184,8 +193,11 @@ async function main() {
 
     for (const [id, key] of [['core-skill', 'Enter'], ['core-plugin', 'Tab']] as const) {
       await mount();
-      await act(async () => frame().controller.openReferencePicker());
+      await act(async () => { frame().editor.current!.focusEnd(); frame().editor.current!.replaceText('@'); });
+      assert.equal(frame().controller.activeReferenceMatch?.trigger, '@');
+      assert.equal(frame().controller.activeReferenceMatch?.kind, 'all');
       await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === id)));
+      await waitFor(() => assert(frame().controller.referencePickerItems.some(item => item.id === 'file:notes/canva-notes.md')));
       while (frame().controller.referencePickerItems[frame().controller.selectedReferenceIndex]?.id !== id)
         await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'ArrowDown' }); });
       await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key }); });
@@ -253,7 +265,7 @@ async function main() {
     await mount(); holdPreview = true; await open('core-skill', false);
     await waitFor(() => assert.equal(pending.length, 1));
     await screen.findByTestId('chat-reference-resolution');
-    await assert.rejects(frame().controller.prepareIntakeSelection(frame().body), /Loading/u, 'A repeated send cannot admit the unresolved slash query as plain text.');
+    await assert.rejects(frame().controller.prepareIntakeSelection(frame().body), /Loading/u, 'A repeated send cannot admit the unresolved @ query as plain text.');
     await act(async () => { fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Escape' }); });
     await resolvePreview(); assert.equal(frame().body.bundles.length, 0); assert.equal(frame().controller.pendingReference, null);
     check('Escape cancels a real pending direct preview and a late response cannot insert');
@@ -330,12 +342,12 @@ async function main() {
 
     await mount(plain('hello world'));
     await act(async () => { frame().editor.current!.setSelection(0, 5); frame().controller.openReferencePicker(); });
-    assert.equal(projectChatBodyText(frame().body), 'hello / world', 'Opening after a marked word inserts at its end, without deleting it.');
+    assert.equal(projectChatBodyText(frame().body), 'hello @ world', 'Opening after a marked word inserts at its end, without deleting it.');
     await waitFor(() => assert(frame().controller.referencePickerItems.length));
     await act(async () => { frame().editor.current!.replaceText('can'); });
     await waitFor(() => assert(requests.some(request => request.operation === 'search' && request.q === 'can')));
     assert.equal(frame().controller.activeReferenceMatch?.query, 'can');
-    check('manual toolbar opening preserves marked text and subsequent actual editor typing filters the same slash search');
+    check('manual toolbar opening preserves marked text and subsequent actual editor typing filters the same @ search');
 
     await mount(); await open('mcp-metadata-row');
     await screen.findByTestId('agent-extension-connection-chooser');

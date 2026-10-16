@@ -2839,11 +2839,11 @@
     "groupLast30Days": "Last 30 days",
     "groupOlder": "Older",
     "composerPlaceholderMobile": "Ask about campaigns, files, or extensions...",
-    "composerPlaceholderCompact": "Ask about a project or files. Use @ for files and / for plugins, skills, and connections.",
-    "composerPlaceholderDefault": "Ask about your project or workspace. Use @ for files and / for plugins, skills, and connections.",
+    "composerPlaceholderCompact": "Ask about a project or files. Use @ for files, plugins, skills, and connections.",
+    "composerPlaceholderDefault": "Ask about your project or workspace. Use @ for files, plugins, skills, and connections.",
     "composerHintBusyMobile": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
     "composerHintBusyDesktop": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
-    "composerHintIdle": "Type @ for files or / for plugins, skills, integrations, and MCP servers.",
+    "composerHintIdle": "Type @ for files, plugins, skills, integrations, and MCP servers.",
     "promptSuggestions": {
       "campaign": "Develop a campaign for …",
       "creative": "Create ad creatives for …",
@@ -3363,7 +3363,7 @@
       "latestSessionQuicklink": "Quick link to latest session: {title}",
       "templatesTitle": "Productive prompt templates",
       "templateBadge": "Template",
-      "placeholder": "Start with a business use case or adapt a template. Enter sends, @ references files.",
+      "placeholder": "Start with a business use case or adapt a template. Enter sends, @ finds files and extensions.",
       "directoryBadge": "(folder)",
       "attachmentsHint": "Attach images via upload or paste.",
       "openCanvasChat": "Open in Canvas Chat"

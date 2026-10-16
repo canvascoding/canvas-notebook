@@ -3,7 +3,7 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo, useLayoutEffect } from 'react';
 import { getPathname, useRouter } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload, Slash } from 'lucide-react';
+import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload, AtSign } from 'lucide-react';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { createPromptHandoff, persistPromptHandoff } from '@/app/lib/chat/prompt-handoff';
 import { captureChatSendValue } from '@/app/lib/chat/send-transaction';
@@ -597,7 +597,7 @@ export function PromptHero({ onModeChange, compact = false, plainTextRequest }: 
               <button type="button" onClick={openReferencePicker} disabled={isSubmitting || !referenceTarget}
                 title={tChat('openReferences')} aria-label={tChat('openReferences')}
                 className="flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-accent disabled:opacity-50">
-                <Slash className="h-4 w-4" />
+                <AtSign className="h-4 w-4" />
               </button>
               <input
                 type="file"

@@ -2838,11 +2838,11 @@
     "groupLast30Days": "Letzte 30 Tage",
     "groupOlder": "Ältere",
     "composerPlaceholderMobile": "Frag nach Kampagnen, Dateien oder Erweiterungen...",
-    "composerPlaceholderCompact": "Frag nach Projekt oder Dateien. Mit @ findest du Dateien und mit / Plugins, Skills und Verbindungen.",
-    "composerPlaceholderDefault": "Frag nach deinem Projekt oder Workspace. Mit @ findest du Dateien und mit / Plugins, Skills und Verbindungen.",
+    "composerPlaceholderCompact": "Frag nach Projekt oder Dateien. Mit @ findest du Dateien, Plugins, Skills und Verbindungen.",
+    "composerPlaceholderDefault": "Frag nach deinem Projekt oder Workspace. Mit @ findest du Dateien, Plugins, Skills und Verbindungen.",
     "composerHintBusyMobile": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
     "composerHintBusyDesktop": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
-    "composerHintIdle": "Tippe @ für Dateien oder / für Plugins, Skills, Integrationen und MCP-Server.",
+    "composerHintIdle": "Tippe @ für Dateien, Plugins, Skills, Integrationen und MCP-Server.",
     "promptSuggestions": {
       "campaign": "Entwickle eine Kampagne für …",
       "creative": "Erstelle Creatives für …",
@@ -3362,7 +3362,7 @@
       "latestSessionQuicklink": "Quicklink zur letzten Session: {title}",
       "templatesTitle": "Produktive Prompt-Vorlagen",
       "templateBadge": "Vorlage",
-      "placeholder": "Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ referenziert Dateien.",
+      "placeholder": "Starte mit einem Business-Use-Case oder passe eine Vorlage an. Enter sendet, @ findet Dateien und Erweiterungen.",
       "directoryBadge": "(Ordner)",
       "attachmentsHint": "Bilder per Upload oder Paste anhängen.",
       "openCanvasChat": "In Canvas Chat öffnen"

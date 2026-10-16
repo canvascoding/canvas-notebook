@@ -2,6 +2,8 @@
 
 Stand: 16.10.2026. Umsetzung des [Zuverlässigkeitsplans](extension-search-reference-reliability-plan.md). **Funktionale Umsetzung und lokale Abnahme abgeschlossen; warmes Such-p95-Ziel weiterhin offen.** Finaler Produktstand: `f688a77df`. Kein Nachweis für eine Produktionsbereitstellung oder die Einhaltung aller vorgeschlagenen Laufzeitziele.
 
+Nachtrag zum UI-Einstieg: Auf Nutzerwunsch öffnet jetzt `@` die gemeinsame Suche nach Dateien, Plugins, Skills, Integrationen und MCPs. Die Home-/Chat-Schaltflächen zeigen `@`; deutsche und englische Hinweise sind angepasst. `/` öffnet diese Referenzsuche nicht mehr. Parserprüfung, 27 Composer- und 3 Home-Komponentenfälle, fokussiertes TypeScript und ESLint bestehen. Im Browser sind getipptes `@skill-creator` → Enter → genau eine Inline-Referenz, die `@`-Schaltfläche mit Dateitreffern sowie normale `/`-Texte und E-Mail-Adressen ohne Popup geprüft. [Browserbild](evidence/screenshots/extension-search-2026-10-16/home-at-reference-picker.png). Der Hostserver auf Port 3000 läuft für diesen Nachtrag im Entwicklungsmodus mit dem aktuellen Quellstand; die folgenden vollständigen Produktbuild- und p95-Nachweise beziehen sich weiterhin auf ihre ausdrücklich genannten Produktionsstände.
+
 ## Implementierter Stand
 
 - Gemeinsame Suchverträge unterstützen `local` und `remote`; ältere Clients können weiterhin `all` verwenden. Dieselben kanonischen IDs, Filter und getrennten phasengebundenen Cursor gelten auf Pluginseite und im Chat. Externe Quellen ergänzen lokale Treffer unabhängig.

@@ -82,7 +82,7 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
     editorRef.current?.setSelection(end);
     setReferenceTypeFilter('all');
     const preceding = projectChatBodyText(bodyRef.current)[end - 1];
-    const trigger = preceding && !/\s|[([{"'`,;]/u.test(preceding) ? ' /' : '/';
+    const trigger = preceding && !/\s|[([{"'`,;]/u.test(preceding) ? ' @' : '@';
     editorRef.current?.replaceText(trigger, { from: end, to: end });
     editorRef.current?.focus();
   }, [editorRef, setReferenceTypeFilter]);

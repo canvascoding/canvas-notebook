@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react';
-import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X, Slash } from 'lucide-react';
+import { CircleHelp, FileText, Loader2, Paperclip, Settings, Square, Upload, X, AtSign } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -416,7 +416,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
         <div className="flex flex-col items-start gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" size="icon-xs" variant="ghost" disabled={composerDisabled} onClick={onOpenReferences}
-              title={t('openReferences')} aria-label={t('openReferences')}><Slash className="size-3.5" /></Button>
+              title={t('openReferences')} aria-label={t('openReferences')}><AtSign className="size-3.5" /></Button>
             <ChatModelSelector
               agentId={selectedAgentId}
               sessionId={sessionId}

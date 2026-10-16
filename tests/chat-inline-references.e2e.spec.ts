@@ -199,7 +199,7 @@ test.afterAll(async () => {
   await owner?.close();
 });
 
-test('Home has one four-type slash picker and atomic inline references with icons, Delete/Undo and actual plain-text paste', async () => {
+test('Home has one four-type @ picker and atomic inline references with icons, Delete/Undo and actual plain-text paste', async () => {
   await page.goto(`/en?${new URLSearchParams({ workspaceId })}`, { waitUntil: 'domcontentloaded' });
   const input = homeEditor(); await expect(input).toBeVisible(); await input.fill('Before ');
   const selector = page.getByTestId('home-agent-id'); await expect(selector).toBeEnabled(); await selector.click();
@@ -213,7 +213,7 @@ test('Home has one four-type slash picker and atomic inline references with icon
     expect(await placeholder.evaluate(node => getComputedStyle(node, '::before').content)).toMatch(/^(?:none|normal|""|'')$/u);
     const filename = 'chat-inline-empty-composer.png'; shots.push(filename); await emptyChat.screenshot({ path: path.join(fixture.root, filename) });
   } finally { await emptyChat.close(); }
-  await expect(input).toHaveText('Before'); await focusEnd(input); await page.keyboard.type('/');
+  await expect(input).toHaveText('Before'); await focusEnd(input); await page.keyboard.type('@');
   const picker = page.getByTestId('chat-reference-picker'); await expect(picker).toBeVisible();
   for (const [label, type] of [['Plugins', 'plugin'], ['Skills', 'skill'], ['Composio', 'integration'], ['MCP', 'mcp']] as const) {
     const response = optionsResponse('search', body => Array.isArray(body.types) && body.types.length === 1 && body.types[0] === type);
@@ -277,7 +277,7 @@ test('Home handoff sends exact inline body once, persists highlighted History an
   const input = editor(); await expect(input).toBeVisible(); await input.fill(''); await focusEnd(input);
   const recentResponse = optionsResponse('search', request => request.q === ''
     && (request.target as { sessionId?: string } | undefined)?.sessionId === sessionId);
-  await page.keyboard.type('/');
+  await page.keyboard.type('@');
   const picker = page.getByTestId('chat-reference-picker'); const recent = picker.locator('[data-reference-kind="plugin"]').filter({ hasText: pluginName });
   await expect(picker).toBeVisible();
   const searchResponse = await recentResponse;
