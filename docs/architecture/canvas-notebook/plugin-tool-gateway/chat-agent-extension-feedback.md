@@ -4,6 +4,8 @@ Besprechungsstand: 15. Oktober 2026. Feedback und Plan wurden auf ausdrückliche
 
 Dies ist die kurze Produktansicht. Weiterführend: [technischer Gesamtplan](chat-extension-reference-plan.md), [Umsetzungs-/Abnahmejournal](chat-agent-extension-implementation.md), [synthetischer Chat-Wireframe](wireframes/chat-extension-picker.html).
 
+**Anschlussplanung vom 16. Oktober 2026:** Der [konkrete Skill-/Plugin-Creator- und Marketplace-Plan](creator-authoring-marketplace-plan.md) ergänzt die gemeinsame Suche um Neuanlage, vollständige Skill-Komposition, Custom-MCP-/Composio-Anforderungen, einen gemeinsamen Entwurfsweg und getrennte private beziehungsweise öffentliche Veröffentlichung. Grundlage ist die zusätzliche Prüfung des separaten Marketplace-Repositories; diese Creator-Arbeiten sind geplant, nicht als umgesetzt markiert.
+
 **Aktuelle UI-Präzisierung:** Auswahl direkt im Nachrichtentext als hervorgehobene Referenz mit Icon, keine zusätzliche Chat-Auswahlleiste. Löschen im Text entfernt die zusätzliche Referenz; nach dem Senden bleibt sie inline sichtbar. Kontext und genaue Zuordnung werden im Hintergrund übergeben. Der [konkrete Inline-Anschlussplan](chat-inline-reference-plan.md) ersetzt die frühere Chipdarstellung. Dropdown und gemeinsame `/`-Suche bleiben erhalten.
 
 ## Einschätzung
