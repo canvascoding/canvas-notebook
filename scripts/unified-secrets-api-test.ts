@@ -352,6 +352,10 @@ async function main() {
     assert.equal(unreadable.data.readable, false);
     assert.equal(unreadable.data.readinessCode, 'master_key_missing', 'safe diagnostics remain available after protected entries are filtered');
     assert.equal('masterKeySource' in unreadable.data, false);
+    const unreadableMetadata = await (await route.GET(request('http://canvas.test/api/integrations/env?scope=all&metadataOnly=1', 'member-a'))).json();
+    assert.ok(unreadableMetadata.data.entries.some((entry: { readable: boolean }) => entry.readable === false));
+    assert.ok(unreadableMetadata.data.entries.every((entry: { readable: boolean; configured: boolean }) => entry.readable || !entry.configured));
+    assert.equal(JSON.stringify(unreadableMetadata).includes('"value"'), false, 'unreadable metadata never exposes values');
     const blockedWrite = await route.PATCH(request('http://canvas.test/api/integrations/env', 'member-a', json('PATCH', { scope: 'all', patches: [{ key: 'MUST_NOT_REPLACE', value: 'fixture' }] })));
     assert.equal(blockedWrite.status, 503);
     const blockedBody = await blockedWrite.json();
