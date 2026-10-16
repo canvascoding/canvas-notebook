@@ -6,6 +6,8 @@ U-01 aus [§0 des Hauptplans](./yjs-document-authority-consolidation-plan.md#0-z
 
 Die [erweiterte lokale Web-/Guest-Abnahme V9](./yjs-guest-writer-binding-evidence.md#neunter-gesamtlauf-vollständige-lokale-40-fall-abnahme) ist inzwischen auf Root `c4bbc0c23` / QA `4578b0185` mit40/40 Fällen und beiden tatsächlichen Hostneustarts abgeschlossen. Frischer Build, identische Vor-/Nachbelege und eigener Ressourcenabschluss bestehen. Dies ergänzt den Editor-/Importnachweis; Public-/Lockwriter und die vollständige native Datei-/Linkkoordination bleiben Voraussetzungen der weiteren SDK-/Skill-/PDF-Anschlüsse. Allgemeine Aktivierung und Produktion bleiben unverändert offen.
 
+Der [manuelle Public-Widerruf](./yjs-public-share-revocation-evidence.md) ist auf Root `2f223a008` / QA `411c23407` separat geschlossen: echte Web-/Agentautorität und aktuelle Toolkonfiguration, ursprünglicher Dispatcher-Gegenbeweis, final 57 PG18-Gruppen plus zwölf Leseregressionen, stabiles TypeScript/Lint und Cleanup. Dies ist ein Teil der zentralen Writeranschlüsse. Die übrigen Publicoperationen, Lock- und Datei-/Linkkoordination bleiben Voraussetzung für SDK/Standard-Skill/PDF und die abschließende integrierte E2E-Abnahme.
+
 ## 1. Gemeinsamer Zielvertrag
 
 UI, Agententools, kontrollierte Parser/Importe und programmatische Clients rufen dieselben serverseitigen Fähigkeiten auf. Der Server prüft Actor, aktuelle Rechte, Workspace, Dokumentidentität, Lifecycle-Generation und die jeweils nötigen Versions-/Zielvorbedingungen. Der zuständige Yjs-Raum verarbeitet Inhaltsänderungen; PostgreSQL bestätigt sie dauerhaft. Der Projector führt die Markdown-Dateiausgabe nach. Eine SDK-Bibliothek, ein Parser oder ein Agentenskript führt diese Schritte nicht selbst nachgebaut aus.
