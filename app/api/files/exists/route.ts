@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
       }
       // A missing projection never means a missing native document. Only an
       // explicitly pristine/unregistered path may use physical existence.
-      if (filePath !== filePath.trim()) throw new WorkspacePathAliasError();
+      if (normalizeWorkspaceRelativePath(filePath) !== filePath) throw new WorkspacePathAliasError();
       await assertWorkspacePathHasNoAliases(workspaceResult.workspace, filePath, { readOnly: true });
       const stats = await getFileStats(filePath, fileOptions);
       return NextResponse.json({

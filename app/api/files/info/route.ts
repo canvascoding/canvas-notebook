@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
       } else {
         // An alias must not expose an initialized document's old projection
         // through a different catalogue path. Native-only files need no disk.
-        if (filePath !== filePath.trim()) throw new WorkspacePathAliasError();
+        if (normalizeWorkspaceRelativePath(filePath) !== filePath) throw new WorkspacePathAliasError();
         await assertWorkspacePathHasNoAliases(workspaceResult.workspace, filePath, { readOnly: true });
         const stats = await getFileStats(filePath, workspaceFileOptions(workspaceResult.workspace));
         if (filePath === '.' && !stats.isDirectory) throw new Error('The workspace root is not a directory.');

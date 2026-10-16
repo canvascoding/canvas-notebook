@@ -170,6 +170,38 @@ test('canonical native registry paths retain meaningful filename spaces', async 
     path: ' native note.md ', documentId: h.controls.state!.documentId, lifecycleGeneration: h.controls.state!.lifecycleGeneration });
 });
 
+test('an exact leading-space Markdown physical target never rebinds its native trimmed neighbor', async () => {
+  const h = await harness(), before = structuredClone(h.controls.state!);
+  const normalPath = path.join(h.controls.workspace.rootPath, 'note.md'), exactPath = path.join(h.controls.workspace.rootPath, ' note.md');
+  const normalStats = await stat(normalPath), normalBytes = await readFile(normalPath);
+  h.controls.path = ' note.md';
+  let response = await h.info(); assert.equal(response.status, 404);
+  assert.equal(h.calls.fences, 1); assert.equal(h.calls.states, 0); assert.equal(h.calls.enrichment, 0);
+  assert.equal(h.calls.commands.at(-1), 'ROLLBACK'); assert.equal(h.calls.active, false);
+  assert.deepEqual(h.controls.state, before); assert.equal(h.controls.cataloguePath, 'note.md');
+  const content = Buffer.from('Distinct exact physical leading-space Markdown bytes.');
+  await writeFile(exactPath, content, { flag: 'wx', mode: 0o600 }); const exactStats = await stat(exactPath);
+  assert.notEqual(exactStats.ino, normalStats.ino);
+  response = await h.info(); assert.equal(response.status, 200); const physical = (await response.json()).data;
+  assert.equal(physical.path, ' note.md'); assert.equal(physical.size, content.byteLength);
+  assert.deepEqual(physical.metadataTarget, { version: 1, kind: 'filesystem', workspaceId: h.controls.workspace.workspaceId,
+    path: ' note.md', fileVersion: filesystemFileVersion(exactStats), entryType: 'file' });
+  assert.equal(h.calls.states, 0); assert.equal(h.calls.commands.at(-1), 'COMMIT'); assert.equal(h.calls.active, false);
+  assert.deepEqual(await readFile(exactPath), content); assert.deepEqual(h.controls.state, before);
+  await rm(exactPath);
+  response = await h.info(); assert.equal(response.status, 404); assert.equal(h.calls.states, 0);
+  assert.equal(h.calls.commands.at(-1), 'ROLLBACK'); assert.equal(h.calls.active, false);
+  h.controls.path = 'note.md';
+  response = await h.info(); assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data.metadataTarget, { version: 1, kind: 'native_file',
+    workspaceId: h.controls.workspace.workspaceId, path: 'note.md', documentId: before.documentId,
+    lifecycleGeneration: before.lifecycleGeneration });
+  assert.equal(h.calls.states, 1); assert.equal(h.calls.fences, 4); assert.equal(h.calls.diskStats, 3);
+  assert.equal(h.calls.commands.at(-1), 'COMMIT'); assert.equal(h.calls.active, false);
+  assert.deepEqual(h.controls.state, before); assert.equal(h.controls.cataloguePath, 'note.md');
+  assert.deepEqual(await readFile(normalPath), normalBytes); assert.equal(filesystemFileVersion(await stat(normalPath)), filesystemFileVersion(normalStats));
+});
+
 test('pristine files and physical folders retain actual filesystem metadata under the same read fence', async () => {
   const h = await harness(); h.controls.authority = 'pristine'; h.controls.state = null;
   await writeFile(path.join(h.controls.workspace.rootPath, 'note.md'), 'Known physical bytes');

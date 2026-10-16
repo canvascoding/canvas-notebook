@@ -141,13 +141,17 @@ test(`owned imported native Markdown shares actual rich content and images anony
 
     const downloadLink = reader.getByRole('link', { name: 'Download', exact: true }); await expect(downloadLink).toBeVisible();
     expect(new URL((await downloadLink.getAttribute('href'))!, BASE_URL).href).toBe(downloadUrl.href);
-    const downloading = reader.waitForEvent('download'); await downloadLink.click(); const download = await downloading;
-    expect(download.suggestedFilename()).toBe(filePath); expect(await download.failure()).toBeNull();
-    const downloadedPath = await download.path(); expect(downloadedPath).not.toBeNull();
-    const expectedBytes = Buffer.from(markdown, 'utf8'); expect(await readFile(downloadedPath!)).toEqual(expectedBytes);
+    const expectedBytes = Buffer.from(markdown, 'utf8');
     const head = await anonymous.request.head(downloadUrl.href); expect(head.status()).toBe(200);
     expect(head.headers()['content-type']).toBe('text/markdown; charset=utf-8'); expect(Number(head.headers()['content-length'])).toBe(expectedBytes.length);
+    // Verify the literal HTTP filename independently of Chromium's local name.
+    expect(head.headers()['content-disposition']).toBe(`attachment; filename="${filePath}"; filename*=UTF-8''${encodeURIComponent(filePath)}`);
     expect((await head.body()).length).toBe(0);
+    const downloading = reader.waitForEvent('download'); await downloadLink.click(); const download = await downloading;
+    // This Chromium project reports a leading filename space as an underscore.
+    expect(download.suggestedFilename()).toBe(filePath.replace(/^ /u, '_')); expect(await download.failure()).toBeNull();
+    const downloadedPath = await download.path(); expect(downloadedPath).not.toBeNull();
+    expect(await readFile(downloadedPath!)).toEqual(expectedBytes);
     const range = await anonymous.request.get(downloadUrl.href, { headers: { Range: 'bytes=2-18' } }); expect(range.status()).toBe(206);
     expect(range.headers()['content-range']).toBe(`bytes 2-18/${expectedBytes.length}`); expect(await range.body()).toEqual(expectedBytes.subarray(2, 19));
     expect(await anonymous.cookies()).toEqual([]);

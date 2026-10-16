@@ -132,6 +132,35 @@ test('physical absence remains false while an outer-space alias cannot select th
   assert.equal(f.calls.physical, physicalBefore); assert.equal(f.calls.aliases, aliasesBefore);
 });
 
+test('exact leading-space Markdown physical existence never selects an occupied trimmed neighbor', async () => {
+  const f = await fixture(); f.controls.unregistered = true; f.controls.state = null; f.controls.path = ' note.md';
+  const neighbor = path.join(f.controls.workspace.rootPath, 'note.md');
+  const exact = path.join(f.controls.workspace.rootPath, f.controls.path);
+  const neighborBytes = Buffer.from('The trimmed neighbor must remain unchanged.\n');
+  const exactBytes = Buffer.from('Exact leading-space Markdown bytes.\n');
+  await writeFile(neighbor, neighborBytes);
+
+  let response = await f.exists(); assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data, { exists: false });
+  assert.deepEqual(await readFile(neighbor), neighborBytes);
+
+  await writeFile(exact, exactBytes);
+  response = await f.exists(); assert.equal(response.status, 200);
+  const { data } = await response.json();
+  assert.equal(data.exists, true); assert.equal(data.path, f.controls.path);
+  assert.equal(data.type, 'file'); assert.equal(data.isFile, true); assert.equal(data.isDirectory, false);
+  const stats = await getFileStats(f.controls.path, { workspace: f.controls.workspace });
+  assert.equal(data.stats.size, exactBytes.length); assert.equal(data.stats.size, stats.size);
+  assert.equal(data.stats.modified, stats.modified); assert.equal(data.stats.permissions, stats.permissions);
+  assert.deepEqual(await readFile(exact), exactBytes); assert.deepEqual(await readFile(neighbor), neighborBytes);
+
+  await rm(exact);
+  response = await f.exists(); assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).data, { exists: false });
+  assert.deepEqual(await readFile(neighbor), neighborBytes);
+  assert.equal(f.calls.closes, 3); assert.equal(f.calls.commands.at(-1), 'ROLLBACK');
+});
+
 test('physical folders and the actual root preserve their directory existence contract', async () => {
   const f = await fixture(); f.controls.unregistered = true; f.controls.state = null; f.controls.path = 'folder';
   await mkdir(path.join(f.controls.workspace.rootPath, 'folder'));
