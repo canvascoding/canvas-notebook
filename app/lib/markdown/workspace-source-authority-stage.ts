@@ -255,6 +255,12 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     for (const document of catalogue) {
       const projection = namespace.get(document.path);
       if (projection?.kind === 'directory') { gap('identity-conflict', document.path); continue; }
+      // A registered file becomes native only after initialization. Until then
+      // its actual filesystem identity remains authoritative for every type.
+      if (document.authority === 'pristine') {
+        if (!projection?.filesystemIdentity) gap('missing-physical-source', document.path);
+        continue;
+      }
       namespace.set(document.path, { workspaceId: workspace.workspaceId, path: document.path, kind: 'file',
         identity: `registry:${document.id}:${document.lifecycle_generation ?? document.yjs_state_lifecycle}`,
         documentId: document.id, lifecycleGeneration: document.lifecycle_generation, filesystemIdentity: projection?.filesystemIdentity ?? null });
@@ -272,7 +278,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     // A registry-only document proves its namespace ancestors, not physical
     // directories. Preserve actual directory fingerprints where present and
     // never give an implied directory a filesystem or document identity.
-    for (const document of catalogue) {
+    for (const document of catalogue.filter(document => document.authority !== 'pristine')) {
       let parentPath = path.posix.dirname(document.path);
       while (parentPath !== '.' && parentPath !== '/') {
         const prior = namespace.get(parentPath);
@@ -316,7 +322,6 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         sources.push({ kind: 'physical', inventory }); gaps.push(...inventory.coverage.gaps);
       } catch (error) { if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('unreadable-physical-source', item.relativePath); }
     }
-    for (const document of catalogue) if (document.authority === 'pristine' && /\.(?:md|markdown|html?|mdx)$/iu.test(document.path) && !namespace.get(document.path)?.filesystemIdentity) gap('missing-physical-source', document.path);
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
     if (nativeLinkJsonProof(await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths })) !== catalogueProof) fail('source-authority-changed', '');
