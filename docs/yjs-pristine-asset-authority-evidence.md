@@ -41,3 +41,5 @@ Die TXT-Abweisung passt zum separaten Quellenbefund im V1-Pfad: Der Executor bau
 3. Danach dieselbe unveränderte Browser-Spec mit beiden Dateitypen wiederholen; erst ihr Erfolg lässt die nachfolgenden Editorprüfungen starten. Datei-Undo bleibt ausgeschaltet.
 
 Die zwölf ursprünglichen QA-/Build-/Room-Helfer und fünf Adapter bleiben unverändert. Die neue Korrektur ist keine allgemeine Aktivierung, kein Produktionsrollout und kein Abschluss der noch offenen Move-/Copy-/Link-/SDK-/MCP-/Such-/PDF-Arbeit.
+
+Der anschließend [implementierte V1-Planeranschluss](./yjs-legacy-planner-owner-evidence.md) beseitigt den auf PG18 nachgewiesenen zweiten Shared-Checkout unter dem eigenen exklusiven Guard. Die lokale positive Gegenprobe und die Owner-Negativen bestehen; ein frischer integrierter Nachweis bleibt erforderlich. Datei-Undo bleibt ausgeschaltet.

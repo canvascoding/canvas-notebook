@@ -15,6 +15,7 @@ import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchPlan, Worksp
   WorkspaceOperationLegacyBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchPreviewPublic } from './workspace-operation-batch-public';
 import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
+import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-lifecycle-guard';
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 
@@ -300,7 +301,8 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   // An injected legacy snapshot retains its existing V1 contract. Production
   // classifies actual registry authority before any Markdown/disk planner.
   if (!dependencies.buildSnapshot) {
-    const observation = await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace);
+    const observation = await readWorkspaceFileLifecycleSourceAuthority(input.scope.workspace)
+      ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace);
     if (!observation.stage.coverage.complete) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
     const hasNativeSelection = input.actions.some(action => action.selections.some(selection => observation.nativeBindings.some(entry =>
       within(entry.expected.path, selection.sourcePath))));

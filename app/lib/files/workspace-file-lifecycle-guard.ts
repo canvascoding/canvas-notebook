@@ -1,12 +1,223 @@
 import 'server-only';
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '@/app/lib/collaboration/room-admission-contract';
 import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases,
   type WorkspaceFileLifecycleLease } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { lockIdentity } from '@/app/lib/collaboration/room-owner';
 import { getCollaborationRoomConnectionCount } from '@/app/lib/collaboration/runtime-state';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { WorkspaceLinkSourceAuthorityObservation } from '@/app/lib/markdown/workspace-source-authority-stage';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
+
+type SourceIdentity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
+type SourceCapture = {
+  workspaceId: string; database: SqlConnection; lease: WorkspaceFileLifecycleLease;
+  active: boolean; accepting: boolean; reading: boolean; identity?: SourceIdentity; scope?: string; failure?: Error;
+  pending: Set<Promise<unknown>>;
+};
+const sourceOwners = new WeakMap<WorkspaceFileLifecycleLease, SourceCapture>();
+// Multiple ordered workspace guards may coexist during a copy. Public lease
+// ALS alone cannot grant this private, fixed observation capability.
+const sourceContext = new AsyncLocalStorage<ReadonlyMap<WorkspaceFileLifecycleLease, SourceCapture>>();
+
+export class WorkspaceFileLifecycleSourceError extends Error {
+  readonly status: number;
+  constructor(readonly code: 'FILE_LIFECYCLE_SOURCE_INVALID' | 'FILE_LIFECYCLE_SOURCE_DETACHED'
+    | 'FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED', options?: ErrorOptions) {
+    super(code, options); this.name = 'WorkspaceFileLifecycleSourceError';
+    this.status = code === 'FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED' ? 503 : 409;
+  }
+}
+
+function sourceFailure(captured: SourceCapture, error: unknown): Error {
+  const failure = error instanceof Error ? error : new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  // An uncertain transaction end remains visible even if an earlier concurrent
+  // or detached call already invalidated the observation.
+  if (!captured.failure || failure instanceof WorkspaceFileLifecycleSourceError
+    && failure.code === 'FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED') captured.failure = failure;
+  captured.lease.active = false;
+  return captured.failure;
+}
+
+function currentSource(captured: SourceCapture): void {
+  if (captured.failure) throw captured.failure;
+  if (!captured.active || !captured.accepting || !captured.lease.active
+    || sourceOwners.get(captured.lease) !== captured || sourceContext.getStore()?.get(captured.lease) !== captured
+    || getWorkspaceFileLifecycleLeases()?.get(captured.workspaceId) !== captured.lease) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+}
+
+async function sourceIdentity(database: SqlConnection, assign: boolean, readOnly: boolean): Promise<{
+  identity: SourceIdentity; transaction: string | null; virtual: string;
+}> {
+  const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database,
+    pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema,
+    pg_catalog.current_setting('search_path') AS search_path,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,
+    pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication,
+    ${assign ? 'pg_catalog.pg_current_xact_id()' : 'pg_catalog.pg_current_xact_id_if_assigned()'}::text AS transaction,
+    (SELECT virtualtransaction FROM pg_catalog.pg_locks WHERE locktype='virtualxid'
+      AND pid=pg_catalog.pg_backend_pid() AND granted LIMIT 1) AS virtual
+    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`) as Record<string, unknown> | undefined;
+  if (!row || !Number.isSafeInteger(row.backend) || Number(row.backend) < 1 || typeof row.start !== 'string'
+    || !/^[0-9]+\.[0-9]+$/u.test(row.start) || !Number.isSafeInteger(Number(row.database)) || Number(row.database) < 1
+    || !Number.isSafeInteger(Number(row.schema)) || Number(row.schema) < 1 || typeof row.search_path !== 'string'
+    || row.isolation !== 'read committed' || row.read_only !== (readOnly ? 'on' : 'off') || row.replication !== 'origin'
+    || row.transaction !== null && (typeof row.transaction !== 'string' || !/^[0-9]{1,32}$/u.test(row.transaction))
+    || typeof row.virtual !== 'string' || !/^[0-9]+\/[0-9]+$/u.test(row.virtual)) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+  return { identity: Object.freeze({ backend: Number(row.backend), start: row.start, database: Number(row.database),
+    schema: Number(row.schema), searchPath: row.search_path }), transaction: row.transaction as string | null, virtual: row.virtual };
+}
+
+const sameSourceIdentity = (left: SourceIdentity, right: SourceIdentity) =>
+  Object.keys(left).every(key => Reflect.get(left, key) === Reflect.get(right, key));
+
+async function sourceFence(captured: SourceCapture, phase?: string): Promise<void> {
+  currentSource(captured);
+  const now = await sourceIdentity(captured.database, false, phase !== undefined);
+  currentSource(captured);
+  if (!captured.identity || !sameSourceIdentity(captured.identity, now.identity)
+    || phase === undefined && now.transaction !== null || phase !== undefined && now.virtual !== phase) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(captured.workspaceId)));
+  const rows = await captured.database.all(`SELECT mode FROM pg_catalog.pg_locks WHERE locktype='advisory' AND granted
+    AND pid=pg_catalog.pg_backend_pid() AND database=$1::oid AND classid::bigint=$2 AND objid::bigint=$3 AND objsubid=1`,
+  [now.identity.database, Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff'))]) as Array<{ mode: string }>;
+  if (!rows.some(row => row.mode === 'ExclusiveLock') || rows.some(row => !['ExclusiveLock', 'ShareLock'].includes(row.mode))
+    || rows.some(row => row.mode === 'ShareLock') !== (phase !== undefined) || !await captured.lease.verify()) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+  currentSource(captured);
+}
+
+async function sourceIdle(captured: SourceCapture): Promise<void> {
+  currentSource(captured);
+  // The first assigned XID must disappear in the next statement. This rejects
+  // an already open transaction even when it had not yet assigned an XID.
+  const first = await sourceIdentity(captured.database, true, false);
+  currentSource(captured);
+  captured.identity ??= first.identity; // First read pins the actual private B, not historical guard-entry metadata.
+  if (first.transaction === null || !sameSourceIdentity(captured.identity, first.identity)) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+  await sourceFence(captured);
+}
+
+async function collectLifecycleSource(captured: SourceCapture, workspace: WorkspaceContext): Promise<WorkspaceLinkSourceAuthorityObservation> {
+  let transaction = false;
+  try {
+    currentSource(captured);
+    if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
+      throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+    }
+    await sourceIdle(captured);
+    await captured.database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY'); transaction = true;
+    await captured.database.run("SET LOCAL statement_timeout='5s'");
+    await captured.database.run("SET LOCAL lock_timeout='4s'");
+    await captured.database.get('SELECT pg_advisory_xact_lock_shared($1::bigint)', [collaborationAdmissionLockKey(captured.workspaceId)]);
+    const phase = await sourceIdentity(captured.database, false, true);
+    await sourceFence(captured, phase.virtual);
+    const { readWorkspaceLinkSourceAuthorityOnConnection } = await import('@/app/lib/markdown/workspace-source-authority-stage');
+    currentSource(captured);
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(captured.database, workspace);
+    await sourceFence(captured, phase.virtual);
+    // Incomplete facts grant no readiness, just as in the standalone stage.
+    try { await captured.database.run(observation.stage.coverage.complete ? 'COMMIT' : 'ROLLBACK'); transaction = false; }
+    catch (error) { throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED', { cause: error }); }
+    await sourceIdle(captured);
+    return observation;
+  } catch (error) {
+    let failure = error;
+    if (transaction) try { await captured.database.run('ROLLBACK'); }
+    catch (cleanup) {
+      failure = new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED', {
+        cause: new AggregateError([error, cleanup], 'Source observation and rollback failed.'),
+      });
+    }
+    throw sourceFailure(captured, failure);
+  }
+}
+
+/** Fixed facts-only read. No principal, writer authority, raw B or free callback
+ * is created. Current caller rights remain required by the existing flow.
+ * Undefined permits standalone staging only outside every owned lease. */
+export async function readWorkspaceFileLifecycleSourceAuthority(workspace: WorkspaceContext): Promise<WorkspaceLinkSourceAuthorityObservation | undefined> {
+  const lease = getWorkspaceFileLifecycleLeases()?.get(workspace.workspaceId);
+  const local = [...(sourceContext.getStore()?.values() ?? [])].find(owner => owner.workspaceId === workspace.workspaceId);
+  if (!lease && !local) return undefined;
+  if (local && (!local.active || !local.accepting)) {
+    throw sourceFailure(local, new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_DETACHED'));
+  }
+  const captured = lease && sourceOwners.get(lease);
+  if (!captured || captured !== local) {
+    const error = new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+    throw local ? sourceFailure(local, error) : error;
+  }
+  try { currentSource(captured); }
+  catch (error) { throw sourceFailure(captured, error); }
+  if (captured.reading) throw sourceFailure(captured, new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID'));
+  let selected: WorkspaceContext;
+  try {
+    selected = structuredClone(workspace);
+    // Consistency of the caller's locator, never a current DB principal or ACL.
+    const scope = JSON.stringify([selected.workspaceId, selected.workspaceType, selected.rootPath, selected.rootRelativePath ?? null,
+      selected.organizationId ?? null, selected.customerId ?? null, selected.projectId ?? null, selected.ownerUserId ?? null,
+      selected.legacy, selected.actor?.userId ?? null]);
+    if (captured.scope !== undefined && captured.scope !== scope) throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+    captured.scope ??= scope;
+  } catch (error) { throw sourceFailure(captured, new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID', { cause: error })); }
+  captured.reading = true;
+  const work = collectLifecycleSource(captured, selected).finally(() => { captured.reading = false; });
+  captured.pending.add(work);
+  void work.then(() => captured.pending.delete(work), () => captured.pending.delete(work));
+  return work;
+}
+
+async function withLifecycleSourceOwner<T>(workspaceId: string, database: SqlConnection,
+  lease: WorkspaceFileLifecycleLease, operation: () => Promise<T>): Promise<T> {
+  const captured: SourceCapture = { workspaceId, database, lease, active: true, accepting: true, reading: false, pending: new Set() };
+  sourceOwners.set(lease, captured);
+  // A retained async context may legitimately acquire a new guard after its
+  // old one closed. Replace only that workspace's stale private association.
+  const owners = new Map([...(sourceContext.getStore() ?? [])].filter(([, owner]) => owner.workspaceId !== workspaceId));
+  owners.set(lease, captured);
+  try {
+    return await sourceContext.run(owners, async () => {
+      let value: T | undefined, failed = false, failure: unknown;
+      try { value = await operation(); } catch (error) { failed = true; failure = error; }
+      captured.accepting = false;
+      if (captured.pending.size) {
+        sourceFailure(captured, new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_DETACHED'));
+        await Promise.allSettled([...captured.pending]);
+      }
+      if (captured.failure) {
+        if (failed && failure !== captured.failure) {
+          const aggregate = new AggregateError([captured.failure, failure], 'Source observation and operation cleanup failed.');
+          const operationStatus = failure && typeof failure === 'object' ? Object.getOwnPropertyDescriptor(failure, 'status')?.value : undefined;
+          const sourceUnconfirmed = captured.failure instanceof WorkspaceFileLifecycleSourceError
+            && captured.failure.code === 'FILE_LIFECYCLE_SOURCE_TRANSACTION_UNCONFIRMED';
+          const priority = !sourceUnconfirmed && operationStatus === 503 ? failure : captured.failure;
+          throw Object.assign(aggregate, {
+            status: Object.getOwnPropertyDescriptor(priority, 'status')?.value ?? 409,
+            code: Object.getOwnPropertyDescriptor(priority, 'code')?.value ?? 'FILE_LIFECYCLE_SOURCE_INVALID',
+          });
+        }
+        throw captured.failure;
+      }
+      if (failed) throw failure;
+      return value as T;
+    });
+  } finally { captured.accepting = false; captured.active = false; sourceOwners.delete(lease); }
+}
 
 export class WorkspaceFileLifecycleBusyError extends Error {
   readonly code = 'COLLABORATION_FILE_LIFECYCLE_BUSY';
@@ -123,7 +334,7 @@ export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: s
         // A lost PG session during physical work therefore cannot admit either;
         // metadata reacquires its own transaction guard if this lease expires.
         if (!await lease.verify()) throw new WorkspaceFileLifecycleBusyError();
-        return operation();
+        return alreadyHeld ? operation() : withLifecycleSourceOwner(input.workspaceId, database, lease, operation);
       });
     } finally {
       // Always destroy this dedicated checkout. An uncertain unlock/rollback
