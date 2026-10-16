@@ -1,0 +1,60 @@
+# Vorbereitete Datei- und Ordnerbewegung mit Originalbelegen
+
+Stand: 16. Oktober 2026. Getesteter Code: Root `78709aed31b7c9a5dd1337277c19fa0a4fa4ce03`, QA `12d5979dfb675170ac376a374af4edcdad1dd007`. Dieser Baustein ergänzt die [atomare Move-Grundlage](./yjs-native-path-move-backend-evidence.md) und den [nativen Pfadplan V3](./yjs-native-move-plan-evidence.md). Er schaltet noch keinen regulären nativen Move-Job frei. Dateiaktions-Undo und Review Center bleiben ausgeschaltet; kein Imagebau, Push oder Produktionsrollout.
+
+## Verhalten
+
+`prepared-workspace-path-move.ts` bereitet eine einzelne physische Datei- oder Ordnerbewegung vor, hält deren Deskriptoren während des Callbacks und stellt begrenzte Originalbeobachtungen für ein späteres dauerhaftes Journal bereit. `prepared-workspace-path-move-contract.ts` prüft und kopiert die JSON-Daten vor dem ersten Await. Die opake Capability gilt ausschließlich im eigenen Callback; Missbrauch, gefangene Fehler und noch laufende Arbeit verhindern einen scheinbaren Erfolg. Ausstehende IO wird vor dem Deskriptorabschluss abgewartet; verlorene Close-Bestätigungen bleiben erhalten und werden nicht durch blindes erneutes Close verschleiert.
+
+- Root und bestehende Eltern werden über ihre tatsächlichen Deskriptoren und vollständige Geräte-/Inode-/Profilbindung geprüft. Große Identitätswerte bleiben dezimale Strings ohne Number-Präzisionsverlust.
+- Reguläre Dateien erhalten einen Hash der tatsächlich geöffneten Datei. Ordner erfassen alle Dateien und Unterordner einschließlich leerer Verzeichnisse; Namen, Metadaten und Inhaltsbelege werden vor und nach der Bewegung geprüft. PDF-, Bild- und andere gewöhnliche Dateibytes bleiben unverändert. Symlinks, FIFOs, unsichere Profile und reguläre Quellen mit zusätzlichen Hardlinks werden verweigert.
+- Die explizite Variante `projection_absent` erfindet weder Dateiidentität noch Hash und erzeugt keine Zielordner. Dass dahinter ein gültiges natives Dokument steht, muss der spätere autorisierte Owner belegen.
+- Harte Obergrenzen sind 32 relative Ebenen, 10.000 Einträge einschließlich Ordnerwurzel und 4 GiB Inhalts-Hashbudget pro Bestandsaufnahme. Aufrufer dürfen diese Grenzen verkleinern. Das Restbudget wird am tatsächlichen Hash-Stat geprüft und anhand der tatsächlich gehashten Identität verbraucht; ein vorher gewachsenes Objekt wird vor dessen Inhalts-IO abgewiesen. Die zusätzliche begrenzte EOF-Prüfung dient der Änderungserkennung.
+- Vorbereitung bleibt lesend. Fehlende Zielordner entstehen erst während Apply. Nach jedem beobachteten neuen Ordner werden dieser und sein Elternverzeichnis synchronisiert; erst nach bestätigtem Journal-Callback folgt der nächste Schritt. Eine inzwischen unabhängig angelegte leere, gefüllte oder verlinkte Zielhierarchie wird nicht übernommen.
+- Die Bewegung verwendet ausschließlich die vorhandene No-replace-Primitive relativ zu den gehaltenen Eltern. Ein belegtes anderes Ziel und `EXDEV` werden verweigert. Anschließend werden Original am Ziel, dessen Inhalt, das Verlassen der Quelle und die tatsächlichen Eltern-Fsyncs geprüft. Ein unklarer Ausgang wird weder als Erfolg ausgegeben noch durch Rückverschieben verdeckt.
+- Recovery unterscheidet Original noch an der Quelle, Original bereits am Ziel und tatsächlich fehlende Projektion. Nach einem verlorenen Fsync-ACK wird das bestätigte Original erneut geprüft und synchronisiert. Eine neue fremde Datei am alten Pfad bleibt erhalten; fremde Ziele und nicht dauerhaft aufgezeichnete Eltern bleiben Konflikte.
+
+Dies sind mechanische Beobachtungen und Lebensdauerprüfungen. Das Modul erteilt keine Berechtigung und implementiert weder einen SQL-Owner noch eine atomare Source-Inode-CAS. Der Aufrufer muss echte Schreibfences halten, das ursprüngliche Intent **vor** der ersten Mutation dauerhaft bestätigen und die Parentreceipts dauerhaft speichern. Ein beliebiger Callback oder nachträglich rekonstruierte Fakten ersetzen diese Autorität nicht. Die erlaubte Ctime-Abweichung betrifft ausschließlich das verschobene Wurzelobjekt; Nachkommen bleiben streng gebunden.
+
+## Descriptor-Inventur und Build
+
+Die neue getrennte Facade `getFdDirectoryInventoryBackend().listDirectoryAt(fd)` liefert eine vollständige, eingefrorene Namensbeobachtung relativ zum tatsächlichen Ordner-FD. Die native Implementierung verwendet einen eigenen Verzeichniscursor, begrenzt auf 100.000 Einträge, und verweigert ungültige UTF-8-Namen statt sie verlustbehaftet umzudeuten. Sie ist für sich allein kein unveränderlicher Unterbaum-Snapshot.
+
+Die Raw-Schnittstelle ist jetzt API3 mit acht Methoden und zwölf unveränderlichen Exportfeldern. Die bisherigen öffentlichen Publication- und Move-Facades bleiben API1 mit unveränderter Form. Build, Verify und der vollständige QA-Artefaktfingerprint prüfen das API3-Manifest sowie tatsächliche C-/Quellkopie-/Binärbytes. Zur Laufzeit gibt es keinen Compiler oder alternativen Move-Backend-Fallback.
+
+## Tatsächliche Prüfung
+
+| Prüfung | Ergebnis und Grenze |
+|---|---|
+| Vorbereiteter Move, macOS arm64, Node 26 | Unveränderte finale 28/28 Gruppen bestanden, keine Fehler oder Skips. Tatsächliche Dateien/Ordner, Hash- und Tiefengrenzen, Quellen-/Elternaustausch, neue Ziele, Parentjournal, Recovery, Fsync-/Close-ACK-Fehler, Lebensdauer und reale IO-Barrieren. Der FD-Census bindet auch zuvor beobachtete, später unlinkte Originale. |
+| Derselbe vorbereitete Move, Linux arm64, Orb Node 22 | Unveränderte 28/28 Gruppen mit denselben finalen Quellpins und bereits geprüftem ABI3-ELF bestanden. Tatsächliches Linux-tmpfs, kein gemeinsam eingehängtes macOS-Dateisystem. Das prüft reale IO-/Fsync-ACKs, keine Stromausfallbeständigkeit. Eigene Prozesse und Runtime-Fixture sind frisch als geschlossen bestätigt. |
+| Neue Verzeichnisprimitive | Facade und frischer Raw-Prozess mit je sieben Familien auf macOS sowie Linux Node 22 und mit demselben Linux-ELF im bestehenden Notebook-Dienst Node 24 bestanden. Tatsächliche 100.000/100.001-Eintragsgrenze und unveränderte FD-Zahlen; Linux erzeugt und verweigert ungültige UTF-8-Dateinamen, APFS verweigert deren Anlage selbst. |
+| Bestehende Publication-/Move-Regression | Originale macOS-Läufe bestanden. Der tatsächliche case-only Rename erhält auf dem geprüften APFS Original-Inode und Bytes; Facade und Raw bestätigen denselben Kernelbefund. |
+| QA-Bindung | 58 echte Artefakt-Fingerprintgruppen und unveränderte QA-Guard-/Serialmatrix bestanden. Synthetische Fingerprint-Binärbytes werden dabei nicht ausgeführt. |
+| Typprüfung und Lint | Vollständiges cachefreies TypeScript mit 8-GiB-Node-Heap, Scoped ESLint ohne Warnungen und Diffprüfung bestanden. Keine Lockerung der Projektkonfiguration. |
+
+Der neue Wachstumstest vergrößert reale Dateien zwischen gesonderter Budgetbeobachtung und Hashbeobachtung: sowohl eine Einzeldatei als auch eine Datei innerhalb des verbleibenden Ordnerbudgets. Er misst tatsächliche Readbytes und bestätigt null Inhalts-IO am zu groß gewordenen Objekt, `budget-exceeded`, keinen Move und geschlossene eigene FDs. Außerdem wurde ein real aufgetretener roher `ENOTDIR` bei ausgetauschtem Elternpfad in den vorgesehenen `scope-changed`-Vertrag eingeordnet; die Verweigerung bleibt erhalten.
+
+Finale Pins: Main `e595e494029909f2e41c9bda7f66c309eda15b871eb1036cb040f23c33064936`, Vertrag `2c13bb8e8f8164fd77cf09bab5d4e45e75458cad19db00b36fc86b4e4ec67478`, Test `cdf98946f219a3344ac2e60c33d138b549f4440c66617907ed0a3b8cc54de82f`, C `73826d8a428dd1aacb9259b409da2fe3e85f87a397eaedc4abecca98bc1dcfed`. Darwin-Testlog `stable-budget-run.log`: `d9fd687629702c7b3a520512ba4e4a66f5effeac3069d7ca7a826535dc98e822`. Linux-TAP unter `~/.local/state/canvas-prepared-path-move-linux-fcptvnw3`: `077e0c5375ab876f4578f9e638e5c7692e876c076e760285164dbbac2049b96e`; frischer Linux-Abschluss `e170f4e8df4f5874ee6f26bcbbc5c3799b6f57d14050e243472a8687e9c4b485`. x64 und privilegierte Fremd-UID-Fälle sind nicht ausgeführt.
+
+## Frischer Produktionsbuild und Browserregression
+
+Der unveränderte Originalsupervisor beendet Build und Runtime jeweils mit tatsächlichem Exit 0. QA-Head ist `12d5979dfb675170ac376a374af4edcdad1dd007`, Sourcefingerprint `e74a7d40a0259ebbee3f20724f4d9cf110e2c085fc99da13b03dc233a2f54cce`, Buildfingerprint `9a493e2648f562ba52e594f3650fa9f34bee8bfbb8202df54cc86f36de140e16`, Proof-SHA256 `f0b98e3d0b14b0a6af9b1c1885dd13a118657aae0fdc6da6b8b9b8b7cc45a96e`. Buildbelege liegen privat unter `canvas-yjs-build-VGWWMl`; Runtimebelege unter `canvas-yjs-authority-1bTpmb`.
+
+Die unveränderte Browserauswahl besteht **4/4**: Undo-Abschaltung 2/2 auf Desktop/Mobile für Markdown und TXT samt verweigerten historischen API-Zugängen; Starterdokumentanlage 2/2. Beide Originalreportguards bestätigen null Fehler, Skips, Testtimeouts und Unterbrechungen. Das ist eine Regression der bestehenden Produktwege, keine Abnahme neuer Move-Jobs.
+
+Derselbe unabhängige Auditor prüft vor Integration, nach Build und nach Runtime alle elf Codefiles, neun Originalsupervisor-/Browser-/Guard-/Serial-/Releasefiles, vollständigen aktuellen Build-Proof sowie separate Source-/Buildfingerprints. Exakt die drei bekannten Root↔QA-Differenzen bleiben erhalten, Patch-SHA256 `b3c69c58e362e44bd5945415de80ec45537f5b67c41949020f78107cfc6997d4`. Privater Nachaudit unter `canvas-prepared-move-qa-audit-yakwhgyg/postruntime.json`: `79cb4ea86344ceacb957da116013861e3f28f063bf49512b52e766c06cd3ddea`. Originalreceipt ist `cleaned/passed`, ohne Ungewissheit; SHA256 `01ffd8733fdffbdc3b3421654436d61a83b4befb8e493f8558a7026790df7708`.
+
+Eine zusätzliche frische Read-only-Abnahme bindet die während dieses Laufs beobachteten ursprünglichen Identitäten: Beide eigenen Datenbanken fehlen nach Namen und OIDs, es bestehen keine zugehörigen Sessions und der Prüfpool ist geschlossen. Fünf erfasste eigene PIDs und Gruppen, drei eigene Ports, Runlock sowie DATA/tmp fehlen; drei verwaltete HTTP-Dienste antworten 200. Originalreceipts und Browserberichte bleiben bytegleich. Bericht `canvas-prepared-move-closure-audit-ctxvwy0w/successful-closure-verification.json`: `db267180d9e8d9dd9b6c8ae314f8362f326ca3aa8d1a2ac75bcb1cc604017a9f`. Keine fremden Dienste beendet, keine zusätzlichen Datenbanken entfernt und keine Images gebaut.
+
+## Nächster notwendiger Anschluss
+
+V3 bleibt `executionReady: false`. Für einen regulären Move-/Rename-Job fehlen weiterhin:
+
+1. Ein eigenes dauerhaftes Move-Intent/Schrittjournal und dessen Repository; JSON-Fakten und Parent-Callbacks allein sind kein Journal.
+2. Der echte DA04-Owner über Vorbereitung, bestätigtes Intent, physische Schritte und SQL-Abschluss; eine Delete-Facade oder ein Freigabeboolean ersetzen die echte Verbindungsbindung nicht.
+3. Die originalgebundene Quellenprüfung nach dem physischen Schritt, bevor eigene verschobene Projektionen als vermeintlich fremde Importe klassifiziert werden. Neue unabhängige Quellen/Ziele bleiben Konflikte.
+4. Gemeinsamer atomarer Abschluss von nativen Pfaden, eingehenden/ausgehenden Links, Asset-/Ordner-/Registry-Nebenwirkungen und tatsächlichem finalem Graph. Pro Dokument ist genau eine passende gebundene Mutation zu verwenden.
+5. Regulärer Producer/Executor und Statusadapter, gefolgt von tatsächlichen Datei-/Ordner-/Asset- und Abbruchfällen im Browser. Copy sowie die gemeinsame API-/MCP-/SDK-/Such-/PDF-Gesamtabnahme bleiben Teil des Hauptplans.
+
+Dateiaktions-Undo wird dabei weder repariert noch aktiviert. Es war grundsätzlich für alle Dateitypen und Ordner vorgesehen; der bisherige native Ansatz war auf einzelne Notebook-Löschungen begrenzt. Die feste Abschaltung gilt weiter für alle Dateitypen, einschließlich alter API-/Workerzugänge. Normales Text-Undo im Editor bleibt getrennt erhalten. Die Änderungen sind lokal; ein Produktionsrollout ist nicht erfolgt.
