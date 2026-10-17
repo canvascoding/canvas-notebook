@@ -12,6 +12,7 @@ import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensio
   validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
+import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { prepareNativeLinkMutations } from '../app/lib/markdown/workspace-native-link-mutations';
 import { compileWorkspaceNativeMixedBatch } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
@@ -21,10 +22,13 @@ import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBind
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { createWorkspaceOperationNativeDeleteBatchPlan, decodeWorkspaceOperationNativeDeleteBatchPlan,
   assertWorkspaceOperationNativeDeleteBatchPlanCurrent, computeWorkspaceOperationNativeDeleteBatchPlanId,
-  getWorkspaceOperationNativeDeleteLinkRecipes } from '../app/lib/files/workspace-operation-native-delete-plan';
+  getWorkspaceOperationNativeDeleteLinkRecipes, createWorkspaceOperationNativeDeleteBatchPlanLegacy,
+  createWorkspaceOperationNativeDeleteBatchPlanV2, computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof,
+  captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness } from '../app/lib/files/workspace-operation-native-delete-plan';
 import { createWorkspaceOperationBatchPlan, computeWorkspaceOperationBatchPlanId,
   buildWorkspaceOperationBatchPlan, workspaceOperationBatchPublicPreview } from '../app/lib/files/workspace-operation-batch-plan';
 import type { WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
+import type { WorkspaceOperationNativeDeleteBatchPlanLegacy, WorkspaceOperationNativeDeleteBatchPlanV2 } from '../app/lib/files/workspace-operation-batch-contract';
 import { WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 
 // Pure producer/codec/compiler fixtures using real Yjs. Registry/L1 facts below
@@ -410,4 +414,195 @@ test('embedded store strictly decodes V2 before minting a claim and captures its
     await assert.rejects(store.claim('native-store-worker'), error => error instanceof Error && error.message === 'NATIVE_DELETE_PLAN_INVALID');
     assert.equal(opens, closes, 'every actual embedded SQL checkout is released, including invalid claim decoding');
   } finally { await sql.close(); }
+});
+
+type DeleteV2Observation = WorkspaceLinkSourceAuthorityObservation & { privateCatalogue: WorkspaceDocumentCatalogueEntry[] };
+function deleteV2Catalogue(observed: WorkspaceLinkSourceAuthorityObservation): DeleteV2Observation {
+  const captured = structuredClone(observed);
+  const nativeBindings = captured.nativeBindings.map(binding => ({ ...binding,
+    expected: { ...binding.expected, registryStateVersion: 6 }, registry: { ...binding.registry, stateVersion: 6 } }));
+  const privateCatalogue: WorkspaceDocumentCatalogueEntry[] = nativeBindings.map(({ expected }) => ({
+    id: expected.documentId, lineage_id: expected.lineageId, path: expected.path, workspace_id: expected.workspaceId,
+    organization_id: expected.organizationId, status: 'active', state_version: expected.registryStateVersion,
+    yjs_state_lifecycle: 'initialized', has_persisted_state: true, has_state_history: true,
+    lifecycle_generation: expected.lifecycleGeneration, authority: 'initialized', state_status: 'active',
+    state_path: expected.path, state_workspace_id: expected.workspaceId, state_organization_id: expected.organizationId,
+  }));
+  const result = { ...captured, nativeBindings, privateCatalogue };
+  result.stage.namespace.push({ workspaceId: scope.workspace.workspaceId, path: 'assets', kind: 'directory',
+    identity: '1:30:0:100:100', filesystemIdentity: '1:30:0:100:100', documentId: null, lifecycleGeneration: null },
+  { workspaceId: scope.workspace.workspaceId, path: 'assets/report.pdf', kind: 'file',
+    identity: '1:31:3:100:100', filesystemIdentity: '1:31:3:100:100', documentId: null, lifecycleGeneration: null });
+  refreshDeleteV2(result); return result;
+}
+function refreshDeleteV2(observed: DeleteV2Observation): void {
+  observed.stage.catalogueProof = nativeLinkJsonProof(observed.privateCatalogue);
+  observed.stage.stageProof = workspaceSourceAuthorityStageProof(observed.stage);
+}
+function deleteV2Fixture(representation: PersistedCollaborationState['representation'] = 'tiptap_blocks'): DeleteV2Observation {
+  return deleteV2Catalogue(observation([state(representation, '# Target'),
+    state(representation, '# [Target](%20note%20.md)\n\n[Keep](keep.md) [External](https://example.test)', 'incoming.md'),
+    state(representation, 'Keep', 'keep.md')], '1:7:10:100:100'));
+}
+function checkpointDeleteV2(observed: DeleteV2Observation, projection: string | null = '2:8:20:200:200'): DeleteV2Observation {
+  const captured = structuredClone(observed), ids = new Set(captured.nativeBindings.map(binding => binding.expected.documentId));
+  const result = { ...captured,
+    nativeBindings: captured.nativeBindings.map(binding => ({ ...binding,
+      expected: { ...binding.expected, registryStateVersion: 7 }, registry: { ...binding.registry, stateVersion: 7 } })),
+    privateCatalogue: captured.privateCatalogue.map(row => ids.has(row.id) ? { ...row, state_version: 7 } : row),
+    privateNativeStates: captured.privateNativeStates.map(value => ({ ...value, checkpointSequence: 7, checkpointedAt: 200,
+      canonicalHash: 'a'.repeat(64), serializedHash: 'b'.repeat(64) })),
+  };
+  result.stage.namespace = result.stage.namespace.map(entry => entry.documentId !== null ? { ...entry, filesystemIdentity: projection }
+    : entry.path === 'assets' ? { ...entry, identity: '1:30:100:200:200', filesystemIdentity: '1:30:100:200:200' } : entry);
+  refreshDeleteV2(result); return result;
+}
+function buildDeleteV2(observed: DeleteV2Observation): WorkspaceOperationNativeDeleteBatchPlanV2 {
+  return createWorkspaceOperationNativeDeleteBatchPlanV2({ scope, actions, observation: observed });
+}
+function resignDeleteV2(plan: WorkspaceOperationNativeDeleteBatchPlanV2): void {
+  plan.planId = computeWorkspaceOperationNativeDeleteBatchPlanId(plan);
+  plan.integrityProof = computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof(plan);
+}
+
+for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`native Delete identity V2 ${representation}: semantic preview survives coherent checkpoint and repeated Current while raw facts remain bound`, () => {
+    const original = deleteV2Fixture(representation), projected = checkpointDeleteV2(original);
+    const beforeOriginal = structuredClone(original), beforeProjected = structuredClone(projected);
+    const first = buildDeleteV2(original), second = buildDeleteV2(projected);
+    assert.equal(first.version, 2); assert.equal(first.planIdentityVersion, 2); assert.equal(first.sourceEvidence.evidenceVersion, 2);
+    assert.equal(first.planId, second.planId); assert.notEqual(first.integrityProof, second.integrityProof);
+    assert.notEqual(first.sourceEvidence.evidenceProof, second.sourceEvidence.evidenceProof);
+    assert.notEqual(first.nativeGraphPlan.planId, second.nativeGraphPlan.planId);
+    assert.equal(first.nativeTarget.registryStateVersion, 6); assert.equal(second.nativeTarget.registryStateVersion, 7);
+    const { integrityProof, ...raw } = first;
+    assert.equal(integrityProof, nativeLinkJsonProof({ integrityVersion: 2, plan: raw }));
+    assert.deepEqual(decodeWorkspaceOperationNativeDeleteBatchPlan(JSON.parse(JSON.stringify(first))), first);
+    assert.deepEqual(createWorkspaceOperationNativeDeleteBatchPlan({ scope, actions, observation: original }), first);
+    const witness = captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(first, projected, captureWorkspaceOperationJobScope(scope.workspace));
+    assert.deepEqual(witness, second.sourceEvidence);
+    assert.equal(witness.nativeBindings[0].expected.registryStateVersion, 7);
+    assert(Object.isFrozen(witness)); assert(Object.isFrozen(witness.nativeBindings[0].expected));
+    for (const projection of [null, '3:9:30:300:300', null]) {
+      const later = checkpointDeleteV2(projected, projection);
+      assertWorkspaceOperationNativeDeleteBatchPlanCurrent(first, later, captureWorkspaceOperationJobScope(scope.workspace));
+      assert.deepEqual(captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(first, later,
+        captureWorkspaceOperationJobScope(scope.workspace)), buildDeleteV2(later).sourceEvidence);
+    }
+    assert.deepEqual(getWorkspaceOperationNativeDeleteLinkRecipes(first), getWorkspaceOperationNativeDeleteLinkRecipes(second));
+    assert.deepEqual(original, beforeOriginal); assert.deepEqual(projected, beforeProjected);
+    assert.deepEqual(original.privateNativeStates.map(value => [value.yjsState, value.stateVector]),
+      projected.privateNativeStates.map(value => [value.yjsState, value.stateVector]));
+  });
+}
+
+test('native Delete identity V2: legacy exact shape and complete raw-hash formula remain unchanged including historical Evidence V2', () => {
+  const original = deleteV2Fixture(), projected = checkpointDeleteV2(original);
+  const legacy = createWorkspaceOperationNativeDeleteBatchPlanLegacy({ scope, actions, observation: original });
+  assert.equal(Object.hasOwn(legacy, 'planIdentityVersion'), false); assert.equal(Object.hasOwn(legacy, 'integrityProof'), false);
+  const { planId, ...body } = legacy; assert.equal(planId, nativeLinkJsonProof(body));
+  assert.deepEqual(decodeWorkspaceOperationNativeDeleteBatchPlan(JSON.parse(JSON.stringify(legacy))), legacy);
+  assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(legacy, projected, captureWorkspaceOperationJobScope(scope.workspace)));
+  const modern = buildDeleteV2(original);
+  const { planIdentityVersion: _version, integrityProof: _integrity, ...historicalBody } = structuredClone(modern);
+  historicalBody.planId = computeWorkspaceOperationNativeDeleteBatchPlanId(historicalBody);
+  const historical = decodeWorkspaceOperationNativeDeleteBatchPlan(historicalBody) as WorkspaceOperationNativeDeleteBatchPlanLegacy;
+  const { planId: historicalId, ...historicalRaw } = historical;
+  assert.equal(historical.sourceEvidence.evidenceVersion, 2); assert.equal(historicalId, nativeLinkJsonProof(historicalRaw));
+  assertWorkspaceOperationNativeDeleteBatchPlanCurrent(historical, original, captureWorkspaceOperationJobScope(scope.workspace));
+  assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(historical, projected,
+    captureWorkspaceOperationJobScope(scope.workspace)), /NATIVE_DELETE_PLAN_CHANGED/u);
+  const legacyObservation = observation([state()]);
+  assert.deepEqual(build(legacyObservation), createWorkspaceOperationNativeDeleteBatchPlanLegacy({ scope, actions, observation: legacyObservation }));
+});
+
+test('native Delete identity V2: new codec branches are exact and never downgrade malformed envelopes or Evidence V1', () => {
+  const original = deleteV2Fixture(), plan = buildDeleteV2(original);
+  for (const altered of [{ ...plan, planIdentityVersion: 1 }, { ...plan, planIdentityVersion: undefined },
+    { ...plan, integrityProof: undefined }, { ...plan, integrityProof: '0'.repeat(64) }, { ...plan, extra: true },
+    (({ integrityProof: _proof, ...rest }) => rest)(plan), (({ planIdentityVersion: _version, ...rest }) => rest)(plan)]) {
+    assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(altered));
+  }
+  const legacy = createWorkspaceOperationNativeDeleteBatchPlanLegacy({ scope, actions, observation: original });
+  const wrongEvidence = { ...structuredClone(plan), sourceEvidence: legacy.sourceEvidence } as WorkspaceOperationNativeDeleteBatchPlanV2;
+  resignDeleteV2(wrongEvidence); assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(wrongEvidence));
+  const changedRaw = structuredClone(plan);
+  changedRaw.nativeTarget = { ...changedRaw.nativeTarget, registryStateVersion: changedRaw.nativeTarget.registryStateVersion + 1 };
+  assert.equal(computeWorkspaceOperationNativeDeleteBatchPlanId(changedRaw), plan.planId);
+  assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(changedRaw));
+  assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(legacy as never, original,
+    captureWorkspaceOperationJobScope(scope.workspace)));
+});
+
+test('native Delete identity V2: complete genuine witness is mandatory for create and every Current, including identical raw historical replay', () => {
+  const original = deleteV2Fixture(), plan = buildDeleteV2(original);
+  const { privateCatalogue: _catalogue, ...absent } = original;
+  for (const invalid of [absent, { ...original, privateCatalogue: undefined }, { ...original, privateCatalogue: [] },
+    { ...original, privateCatalogue: [...original.privateCatalogue].reverse() },
+    { ...original, privateCatalogue: original.privateCatalogue.slice(1) }]) {
+    assert.throws(() => createWorkspaceOperationNativeDeleteBatchPlanV2({ scope, actions, observation: invalid }));
+    assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, invalid,
+      captureWorkspaceOperationJobScope(scope.workspace)));
+    assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, invalid,
+      captureWorkspaceOperationJobScope(scope.workspace)));
+    if (Object.hasOwn(invalid, 'privateCatalogue')) {
+      assert.throws(() => createWorkspaceOperationNativeDeleteBatchPlan({ scope, actions, observation: invalid }));
+    }
+  }
+});
+
+test('native Delete identity V2: freshly inspected native bytes, sequence, scope, assets and namespace remain semantic conflicts', () => {
+  const original = deleteV2Fixture(), plan = buildDeleteV2(original), namespace = captureWorkspaceOperationJobScope(scope.workspace);
+  const states = original.privateNativeStates;
+  const content = deleteV2Catalogue(observation([states[0], state('tiptap_blocks', 'Peer changed [Target](%20note%20.md)', 'incoming.md'), states[2]]));
+  const sequence = deleteV2Catalogue(observation(states.map((value, index) => index === 2
+    ? { ...value, documentSequence: 8, persistedAt: 101 } : value)));
+  const generation = deleteV2Catalogue(observation(states.map((value, index) => index === 0 ? { ...value, lifecycleGeneration: 2 } : value)));
+  const asset = checkpointDeleteV2(original); asset.stage.namespace.find(entry => entry.path === 'assets/report.pdf')!.identity = '1:40:3:100:100';
+  asset.stage.namespace.find(entry => entry.path === 'assets/report.pdf')!.filesystemIdentity = '1:40:3:100:100'; refreshDeleteV2(asset);
+  const directory = checkpointDeleteV2(original); directory.stage.namespace.find(entry => entry.path === 'assets')!.identity = '1:41:0:100:100';
+  directory.stage.namespace.find(entry => entry.path === 'assets')!.filesystemIdentity = '1:41:0:100:100'; refreshDeleteV2(directory);
+  const added = checkpointDeleteV2(original); added.stage.namespace.push({ workspaceId: scope.workspace.workspaceId,
+    path: 'extra.bin', kind: 'file', identity: '1:42:0:100:100', filesystemIdentity: '1:42:0:100:100', documentId: null, lifecycleGeneration: null }); refreshDeleteV2(added);
+  for (const changed of [content, sequence, generation, asset, directory, added]) {
+    assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, changed, namespace));
+    assert.notEqual(buildDeleteV2(changed).planId, plan.planId);
+  }
+  assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, original, { ...namespace, rootPath: '/other' }));
+});
+
+test('native Delete identity V2: renewed historical graph and integrity claims still require the complete actual original compiler result', () => {
+  const original = deleteV2Fixture(), plan = buildDeleteV2(original);
+  for (const attack of [
+    (value: WorkspaceOperationNativeDeleteBatchPlanV2) => { value.nativeGraphPlan.steps[0].beforeGraphProof = '0'.repeat(64); },
+    (value: WorkspaceOperationNativeDeleteBatchPlanV2) => { value.nativeGraphPlan.finalNamespace.find(entry => entry.metadata)!.contentBasisProof = '0'.repeat(64); },
+  ]) {
+    const forged = structuredClone(plan); attack(forged);
+    forged.nativeGraphPlan.finalGraphProof = nativeLinkJsonProof({ namespace: forged.nativeGraphPlan.finalNamespace,
+      edges: forged.nativeGraphPlan.finalEdges });
+    forged.nativeGraphPlan.steps[0].afterGraphProof = forged.nativeGraphPlan.finalGraphProof;
+    const { planId: _id, ...graphBody } = forged.nativeGraphPlan;
+    forged.nativeGraphPlan.planId = nativeLinkJsonProof(graphBody); resignDeleteV2(forged);
+    const decoded = decodeWorkspaceOperationNativeDeleteBatchPlan(forged) as WorkspaceOperationNativeDeleteBatchPlanV2;
+    assert.equal(decoded.planId, plan.planId);
+    assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(decoded, original,
+      captureWorkspaceOperationJobScope(scope.workspace)), /NATIVE_DELETE_PLAN_CHANGED/u);
+  }
+});
+
+test('native Delete identity V2: accessors and observation proxies do not execute, and public preview omits private new-arm fields', () => {
+  const original = deleteV2Fixture(), plan = buildDeleteV2(original); let traps = 0;
+  const accessor = { ...original }; Object.defineProperty(accessor, 'privateCatalogue', { enumerable: true, get() { traps++; return original.privateCatalogue; } });
+  const proxy = new Proxy(original, { getOwnPropertyDescriptor() { traps++; throw new Error('unexpected descriptor'); },
+    ownKeys() { traps++; throw new Error('unexpected keys'); }, get() { traps++; throw new Error('unexpected read'); } });
+  for (const observation of [accessor, proxy]) {
+    assert.throws(() => createWorkspaceOperationNativeDeleteBatchPlan({ scope, actions, observation }));
+    assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation,
+      captureWorkspaceOperationJobScope(scope.workspace)));
+  }
+  const envelope = { ...plan }; Object.defineProperty(envelope, 'planIdentityVersion', { enumerable: true, get() { traps++; return 2; } });
+  assert.throws(() => decodeWorkspaceOperationNativeDeleteBatchPlan(envelope)); assert.equal(traps, 0);
+  const preview = JSON.stringify(workspaceOperationBatchPublicPreview(plan));
+  for (const secret of ['planIdentityVersion', 'integrityProof', plan.integrityProof, 'sourceEvidence', 'nativeTarget',
+    plan.nativeTarget.binaryHash, plan.nativeTarget.stateProof, 'privateCatalogue', 'privateNativeStates']) assert(!preview.includes(secret));
 });

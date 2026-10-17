@@ -28,6 +28,7 @@ import { Y } from './server-runtime';
 import { beginCollaborationProjectionAttempt, finalizeCollaborationProjectionReceipt, loadCollaborationProjectionReceipt, recordCollaborationProjectionPending } from './projection-repository';
 import { assertCurrentCollaborationProjectionIdentity, CollaborationProjectionIdentityError } from './projection-identity';
 import { inCollaborationProjectionPhase } from './projection-errors';
+import { withCollaborationProjectionPublicationGuard } from './projection-publication-guard';
 
 export class CollaborationCheckpointSupersededError extends Error {
   constructor(readonly documentId: string, readonly sequence: number) {
@@ -272,7 +273,7 @@ export async function materializeCollaborationCheckpoint(input: {
     || input.state.organizationId !== (input.workspace.organizationId ?? null)) {
     throw new CollaborationProjectionIdentityError();
   }
-  return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
+  return withCollaborationProjectionPublicationGuard(input.state, async assertPublicationCurrent => {
     const fenced = await inCollaborationProjectionPhase('checkpoint_confirm', () => withCollaborationCheckpointFence<CollaborationCheckpointFileWrite>({
       documentId: input.state.documentId,
       workspaceId: input.state.workspaceId,
@@ -283,10 +284,12 @@ export async function materializeCollaborationCheckpoint(input: {
       sequence: input.state.documentSequence,
       stateVector: input.state.stateVector,
       confirmProjection: async (transaction, state, result) => {
+        await assertPublicationCurrent();
         await recordCollaborationProjectionPending(transaction, state, result);
         await input.confirmProjection?.(transaction, state, result);
       },
       materialize: async (lockedState) => {
+        await assertPublicationCurrent();
         const snapshot = await inCollaborationProjectionPhase('snapshot_validate', async () => authoritativeCollaborationSnapshot(lockedState));
         // A committed receipt and verified file may need only metadata/share
         // finalization. Preserve its inode, revision and original attempt.
@@ -323,11 +326,13 @@ export async function materializeCollaborationCheckpoint(input: {
         input.state.documentSequence,
       );
     }
+    await assertPublicationCurrent();
     await inCollaborationProjectionPhase('projection_finalize', () => finalizeCollaborationCheckpointProjection({
       state: fenced.state,
       workspace: input.workspace,
       revisionId: fenced.result.revisionId,
     }));
+    await assertPublicationCurrent();
     await inCollaborationProjectionPhase('receipt_finalize', () => finalizeCollaborationProjectionReceipt(fenced.state, fenced.result.revisionId));
     const { projectionError: _completedError, ...projectedState } = fenced.state;
     return {

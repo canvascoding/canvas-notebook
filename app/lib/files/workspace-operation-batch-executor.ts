@@ -489,6 +489,10 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
   };
   const executeNative = async (input: UndoInput, plan: WorkspaceOperationNativeDeleteBatchPlan,
     undo: boolean): Promise<WorkspaceOperationBatchExecutionResult> => {
+    // Reject missing/foreign capabilities before inspecting private plan data.
+    // Full plan, scope and actor validation still follows before any work.
+    if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
+    readWorkspaceOperationBatchClaimBinding(input.jobClaim);
     const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
     const { claim, binding } = checkedNativeExecution(input, original, undo);
     await input.onProgress?.({ completedActions: 0, totalActions: workspaceOperationBatchTotalActions(original), phase: 'preparing' });
@@ -504,6 +508,8 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     return outcome;
   };
   const executeMove = async (input: ExecuteInput & { plan: WorkspaceOperationNativeMoveBatchPlan }): Promise<WorkspaceOperationBatchExecutionResult> => {
+    if (!input.jobClaim) throw new Error('BATCH_CLAIM_REQUIRED');
+    readWorkspaceOperationBatchClaimBinding(input.jobClaim);
     const original = decodeWorkspaceOperationNativeMoveBatchPlan(input.plan);
     const { claim, binding } = checkedNativeExecution(input, original, false);
     const totalActions = workspaceOperationBatchTotalActions(original);

@@ -78,7 +78,8 @@ function build(observed: WorkspaceLinkSourceAuthorityObservation, selected = act
   return createWorkspaceOperationNativeMoveBatchPlan({ scope, actions: [selected], observation: observed });
 }
 type Plan = ReturnType<typeof build>;
-type MutablePlan = { -readonly [Key in keyof Plan]: Plan[Key] };
+type Mutable<T> = T extends unknown ? { -readonly [Key in keyof T]: T[Key] } : never;
+type MutablePlan = Mutable<Plan>;
 function resign(plan: MutablePlan): Plan {
   const { planId: _id, ...body } = plan;
   plan.planId = computeWorkspaceOperationNativeMoveBatchPlanId(body); return plan;

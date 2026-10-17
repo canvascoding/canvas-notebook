@@ -5,7 +5,7 @@ import { readFileCollaborationState } from '@/app/lib/files/collaboration-policy
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 import { loadCollaborationState } from '@/app/lib/collaboration/persistence';
 import { materializeCollaborationCheckpoint, CollaborationCheckpointSupersededError } from '@/app/lib/collaboration/checkpoint';
-import { CollaborationCopyPublicationPendingError } from '@/app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError } from '@/app/lib/collaboration/checkpoint-errors';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { classifyCollaborationProjectionError } from '@/app/lib/collaboration/projection-errors';
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       ...(!exact ? { code: 'checkpoint_not_finalized', error: 'The exact file checkpoint is not finalized yet.' } : {}) },
     { status: exact ? 200 : 409, headers: { 'Cache-Control': 'no-store, private' } });
   } catch (error) {
-    if (error instanceof CollaborationCopyPublicationPendingError) {
+    if (error instanceof CollaborationCopyPublicationPendingError || error instanceof CollaborationFileOperationProjectionPendingError) {
       return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
     }
     const failure = classifyCollaborationProjectionError(error);

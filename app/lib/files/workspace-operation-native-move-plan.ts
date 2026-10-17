@@ -1,7 +1,8 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
+import type { PersistedCollaborationState } from '../collaboration/persistence';
 import type { NativeLinkMutationRecipe, NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { createWorkspaceNativeFileOperationPlan } from '../markdown/workspace-native-file-operation-planner';
@@ -13,7 +14,10 @@ import type { WorkspaceOperationBatchAction, WorkspaceOperationBatchScope, Works
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent, captureWorkspaceOperationNativeSourceEvidence,
-  decodeWorkspaceOperationNativeSourceEvidence, type WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+  captureWorkspaceOperationNativeSourceEvidenceV2, decodeWorkspaceOperationNativeSourceEvidence,
+  WorkspaceOperationNativeSourceEvidenceError, type WorkspaceOperationNativeSourceEvidence,
+  type WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
 
 type MoveAction = WorkspaceOperationBatchAction & { kind: 'move' | 'rename' };
 type Compatibility = Pick<WorkspaceOperationLegacyBatchPlan, 'pathMappings' | 'deletedPaths' | 'pathSteps' | 'linkEdits'
@@ -22,7 +26,7 @@ type Compatibility = Pick<WorkspaceOperationLegacyBatchPlan, 'pathMappings' | 'd
  * Neither this envelope nor its hashes confer claim/room/SQL authority.
  * Compiler bodies/bytes are not duplicated in persisted JSON. Before execution
  * the current gate MUST reproduce both proofs using actual proven native bytes. */
-export type WorkspaceOperationNativeMoveBatchPlan = Readonly<Compatibility & {
+type NativeMovePlanFields = Readonly<Compatibility & {
   version: 3;
   kind: 'native-path-change';
   workspaceId: string;
@@ -30,11 +34,23 @@ export type WorkspaceOperationNativeMoveBatchPlan = Readonly<Compatibility & {
   readiness: 'ready';
   executionReady: false;
   actions: [MoveAction];
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
   nativePathPlan: NativeWorkspaceFileOperationPlan;
   compilerPlanProof: string;
   finalGraphProof: string;
 }>;
+/** The historical outer-V3 arm also accepted EvidenceV2. Its raw identity and
+ * exact persisted shape stay unchanged; evidenceVersion is not an ID switch. */
+export type WorkspaceOperationNativeMoveBatchPlanV1 = NativeMovePlanFields & Readonly<{
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
+  planIdentityVersion?: never;
+  integrityProof?: never;
+}>;
+export type WorkspaceOperationNativeMoveBatchPlanV2 = NativeMovePlanFields & Readonly<{
+  planIdentityVersion: 2;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+  integrityProof: string;
+}>;
+export type WorkspaceOperationNativeMoveBatchPlan = WorkspaceOperationNativeMoveBatchPlanV1 | WorkspaceOperationNativeMoveBatchPlanV2;
 const keys = ['version', 'kind', 'workspaceId', 'planId', 'readiness', 'executionReady', 'actions',
   'sourceEvidence', 'nativePathPlan', 'compilerPlanProof', 'finalGraphProof', 'pathMappings', 'deletedPaths', 'pathSteps',
   'linkEdits', 'expectedPathState', 'coverage', 'linkAssessment', 'issues'];
@@ -50,7 +66,7 @@ function capture(input: unknown): unknown {
     ? 'NATIVE_MOVE_PLAN_TOO_LARGE' : 'NATIVE_MOVE_PLAN_INVALID'));
 }
 function field(input: unknown, key: string): unknown {
-  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype) fail();
+  if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype) fail();
   const descriptor = Object.getOwnPropertyDescriptor(input, key);
   if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail();
   return descriptor.value;
@@ -58,6 +74,36 @@ function field(input: unknown, key: string): unknown {
 function freeze<T>(value: T): T {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
   return value;
+}
+function guarded<T>(callback: () => T): T {
+  try { return callback(); } catch (error) {
+    if (error instanceof WorkspaceOperationNativeMovePlanError) throw error;
+    if (error instanceof WorkspaceOperationNativeSourceEvidenceError) {
+      if (error.code === 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE') fail('NATIVE_MOVE_PLAN_TOO_LARGE');
+      if (error.code === 'NATIVE_SOURCE_EVIDENCE_CHANGED') fail('NATIVE_MOVE_PLAN_CHANGED');
+      if (error.code === 'NATIVE_SOURCE_IMPORT_REQUIRED') fail('NATIVE_MOVE_PLAN_UNSUPPORTED');
+    }
+    return fail();
+  }
+}
+function observed(scope: WorkspaceOperationJobScope, observation: WorkspaceLinkSourceAuthorityObservation,
+  evidenceVersion: 1 | 2, requireWitness = false): {
+    evidence: WorkspaceOperationNativeSourceEvidence; observation: WorkspaceLinkSourceAuthorityObservation;
+  } {
+  if (!observation || typeof observation !== 'object' || types.isProxy(observation)) fail();
+  const withCatalogue = evidenceVersion === 2 && Object.hasOwn(observation, 'privateCatalogue');
+  const evidence = requireWitness || withCatalogue ? captureWorkspaceOperationNativeSourceEvidenceV2(scope, observation)
+    : captureWorkspaceOperationNativeSourceEvidence(scope, observation);
+  // Capture validates every private state descriptor before these bytes are
+  // detached. The compiler must never reread caller-owned native state.
+  const states = structuredClone(field(observation, 'privateNativeStates')) as PersistedCollaborationState[];
+  const replay = { stage: evidence.stage, nativeBindings: evidence.nativeBindings, privateNativeStates: states };
+  const detached: WorkspaceLinkSourceAuthorityObservation = requireWitness || withCatalogue ? { ...replay,
+    privateCatalogue: captureWorkspaceOperationNativeCatalogueWitness(field(observation, 'privateCatalogue'), evidence.workspaceScope,
+      evidence.stage.catalogueProof!, evidence.nativeBindings, reason => fail(reason === 'too-large'
+        ? 'NATIVE_MOVE_PLAN_TOO_LARGE' : 'NATIVE_MOVE_PLAN_INVALID')).entries } : replay;
+  captureWorkspaceOperationNativeSourceEvidence(scope, replay);
+  return { evidence, observation: detached };
 }
 function action(input: unknown): MoveAction {
   if (!Array.isArray(input) || input.length !== 1) fail('NATIVE_MOVE_PLAN_UNSUPPORTED');
@@ -121,44 +167,92 @@ function compatibility(snapshot: NativeWorkspaceLinkSnapshot, selected: MoveActi
   };
 }
 export function computeWorkspaceOperationNativeMoveBatchPlanId(plan: Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>): string {
-  const { planId: _historical, ...body } = plan as WorkspaceOperationNativeMoveBatchPlan;
+  const { planId: _historical, ...body } = capture(plan) as WorkspaceOperationNativeMoveBatchPlan;
+  if (body.planIdentityVersion === 2) return nativeLinkJsonProof({ version: 3, planIdentityVersion: 2,
+    kind: body.kind, workspaceId: body.workspaceId, readiness: body.readiness, executionReady: body.executionReady,
+    actions: body.actions, workspaceScope: body.sourceEvidence.workspaceScope, sourceSemanticProof: body.sourceEvidence.semanticProof });
   return nativeLinkJsonProof(body);
+}
+/** Separate historical integrity binds every raw field, including the semantic
+ * public ID and compiler assertions. Neither proof grants execution authority. */
+export function computeWorkspaceOperationNativeMoveBatchPlanIntegrityProof(
+  plan: Omit<WorkspaceOperationNativeMoveBatchPlanV2, 'integrityProof'>): string {
+  const { integrityProof: _historical, ...body } = capture(plan) as WorkspaceOperationNativeMoveBatchPlanV2;
+  return nativeLinkJsonProof({ integrityVersion: 2, plan: body });
 }
 /** Historical JSON integrity only. Path mappings and all recipes are rederived
  * independently. Opaque compiler hashes are syntax/integrity data until the
  * current-byte replay below; a forged hash can never authorize execution. */
 export function decodeWorkspaceOperationNativeMoveBatchPlan(input: unknown): WorkspaceOperationNativeMoveBatchPlan {
-  const value = capture(input) as WorkspaceOperationNativeMoveBatchPlan;
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length
-    || Object.keys(value).some(key => !keys.includes(key)) || value.version !== 3 || value.kind !== 'native-path-change'
-    || value.readiness !== 'ready' || value.executionReady !== false || !proof(value.compilerPlanProof)
-    || !proof(value.finalGraphProof) || !proof(value.planId)) fail();
-  const sourceEvidence = decodeWorkspaceOperationNativeSourceEvidence(value.sourceEvidence);
-  const scope = parseWorkspaceOperationJobScope(sourceEvidence.workspaceScope), selected = action(value.actions);
-  if (scope.legacy || value.workspaceId !== scope.workspaceId || value.workspaceId !== sourceEvidence.stage.workspaceId) fail();
-  const snapshot = workspaceOperationNativePlanSnapshot(sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
-  const nativePathPlan = pathPlan(snapshot, selected);
-  if (!isDeepStrictEqual(value.nativePathPlan, nativePathPlan)) fail();
-  for (const [name, expected] of Object.entries(compatibility(snapshot, selected, nativePathPlan))) {
-    if (!isDeepStrictEqual(Reflect.get(value, name), expected)) fail();
-  }
-  if (computeWorkspaceOperationNativeMoveBatchPlanId(value) !== value.planId) fail();
-  return freeze(value);
+  return guarded(() => {
+    const value = capture(input) as WorkspaceOperationNativeMoveBatchPlan;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) fail();
+    const expectedKeys = value.planIdentityVersion === 2 ? [...keys, 'planIdentityVersion', 'integrityProof'] : keys;
+    if (Object.keys(value).length !== expectedKeys.length
+      || Object.keys(value).some(key => !expectedKeys.includes(key)) || value.version !== 3 || value.kind !== 'native-path-change'
+      || value.readiness !== 'ready' || value.executionReady !== false || !proof(value.compilerPlanProof)
+      || !proof(value.finalGraphProof) || !proof(value.planId)) fail();
+    if (value.planIdentityVersion === 2 && (!proof(value.integrityProof)
+      || computeWorkspaceOperationNativeMoveBatchPlanIntegrityProof(value) !== value.integrityProof)) fail();
+    const sourceEvidence = decodeWorkspaceOperationNativeSourceEvidence(value.sourceEvidence);
+    if (value.planIdentityVersion === 2 && sourceEvidence.evidenceVersion !== 2) fail();
+    const scope = parseWorkspaceOperationJobScope(sourceEvidence.workspaceScope), selected = action(value.actions);
+    if (scope.legacy || value.workspaceId !== scope.workspaceId || value.workspaceId !== sourceEvidence.stage.workspaceId) fail();
+    const snapshot = workspaceOperationNativePlanSnapshot(sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
+    const nativePathPlan = pathPlan(snapshot, selected);
+    if (!isDeepStrictEqual(value.nativePathPlan, nativePathPlan)) fail();
+    for (const [name, expected] of Object.entries(compatibility(snapshot, selected, nativePathPlan))) {
+      if (!isDeepStrictEqual(Reflect.get(value, name), expected)) fail();
+    }
+    if (computeWorkspaceOperationNativeMoveBatchPlanId(value) !== value.planId) fail();
+    return freeze(value);
+  });
 }
-export function createWorkspaceOperationNativeMoveBatchPlan(input: {
+type NativeMovePlanInput = {
   scope: WorkspaceOperationBatchScope; actions: WorkspaceOperationBatchAction[]; observation: WorkspaceLinkSourceAuthorityObservation;
-}): WorkspaceOperationNativeMoveBatchPlan {
-  const selected = action(capture(field(input, 'actions')));
-  const workspace = field(field(input, 'scope'), 'workspace') as WorkspaceOperationBatchScope['workspace'];
-  const observation = field(input, 'observation') as WorkspaceLinkSourceAuthorityObservation;
-  const sourceEvidence = captureWorkspaceOperationNativeSourceEvidence(captureWorkspaceOperationJobScope(workspace), observation);
-  const snapshot = workspaceOperationNativePlanSnapshot(sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
-  const nativePathPlan = pathPlan(snapshot, selected), compiled = compile(snapshot, selected, observation);
-  const body: Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'> = { version: 3, kind: 'native-path-change',
-    workspaceId: snapshot.workspaceId, readiness: 'ready', executionReady: false, actions: [selected],
-    sourceEvidence, nativePathPlan, compilerPlanProof: compiled.planId, finalGraphProof: compiled.finalGraphProof!,
-    ...compatibility(snapshot, selected, nativePathPlan) };
-  return decodeWorkspaceOperationNativeMoveBatchPlan({ ...body, planId: computeWorkspaceOperationNativeMoveBatchPlanId(body) });
+};
+function createPlan(input: NativeMovePlanInput, identityVersion: 1 | 2): WorkspaceOperationNativeMoveBatchPlan {
+  return guarded(() => {
+    const selected = action(capture(field(input, 'actions')));
+    const workspace = field(field(input, 'scope'), 'workspace') as WorkspaceOperationBatchScope['workspace'];
+    const observation = field(input, 'observation') as WorkspaceLinkSourceAuthorityObservation;
+    if (types.isProxy(workspace)) fail();
+    const current = observed(captureWorkspaceOperationJobScope(workspace), observation, identityVersion, identityVersion === 2);
+    const sourceEvidence = current.evidence;
+    const snapshot = workspaceOperationNativePlanSnapshot(sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
+    const nativePathPlan = pathPlan(snapshot, selected), compiled = compile(snapshot, selected, current.observation);
+    const body = { version: 3 as const, kind: 'native-path-change' as const,
+      workspaceId: snapshot.workspaceId, readiness: 'ready', executionReady: false, actions: [selected],
+      sourceEvidence, nativePathPlan, compilerPlanProof: compiled.planId, finalGraphProof: compiled.finalGraphProof!,
+      ...compatibility(snapshot, selected, nativePathPlan), ...(identityVersion === 2 ? { planIdentityVersion: 2 as const } : {})
+    } as Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>;
+    const planned = { ...body, planId: computeWorkspaceOperationNativeMoveBatchPlanId(body) };
+    return decodeWorkspaceOperationNativeMoveBatchPlan(identityVersion === 1 ? planned : { ...planned,
+      integrityProof: computeWorkspaceOperationNativeMoveBatchPlanIntegrityProof(planned as Omit<WorkspaceOperationNativeMoveBatchPlanV2, 'integrityProof'>) });
+  });
+}
+/** An own catalogue field chooses V2, including malformed fields which must
+ * fail the full witness contract instead of falling back to historical V1. */
+export function createWorkspaceOperationNativeMoveBatchPlan(input: NativeMovePlanInput): WorkspaceOperationNativeMoveBatchPlan {
+  return guarded(() => {
+    const observation = field(input, 'observation');
+    if (!observation || typeof observation !== 'object' || types.isProxy(observation)) fail();
+    return createPlan(input, Object.hasOwn(observation, 'privateCatalogue') ? 2 : 1);
+  });
+}
+export function createWorkspaceOperationNativeMoveBatchPlanV1(input: NativeMovePlanInput): WorkspaceOperationNativeMoveBatchPlanV1 {
+  return createPlan(input, 1) as WorkspaceOperationNativeMoveBatchPlanV1;
+}
+export function createWorkspaceOperationNativeMoveBatchPlanV2(input: NativeMovePlanInput): WorkspaceOperationNativeMoveBatchPlanV2 {
+  return createPlan(input, 2) as WorkspaceOperationNativeMoveBatchPlanV2;
+}
+function replayCurrent(original: WorkspaceOperationNativeMoveBatchPlan, observation: WorkspaceLinkSourceAuthorityObservation,
+  scope: WorkspaceOperationJobScope): NativeMixedBatchPlan {
+  assertWorkspaceOperationNativeSourceEvidenceCurrent(original.sourceEvidence, observation, scope);
+  const snapshot = workspaceOperationNativePlanSnapshot(original.sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
+  const compiled = compile(snapshot, original.actions[0], observation);
+  if (compiled.planId !== original.compilerPlanProof || compiled.finalGraphProof !== original.finalGraphProof) fail('NATIVE_MOVE_PLAN_CHANGED');
+  return freeze(compiled);
 }
 /** Requires the caller's genuine current authority/fence. Replaceable native
  * projections and directory mtimes may differ. Replay the ORIGINAL namespace
@@ -166,12 +260,25 @@ export function createWorkspaceOperationNativeMoveBatchPlan(input: {
  * the original request meant. Returned compiler data is still not authority. */
 export function assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan: WorkspaceOperationNativeMoveBatchPlan,
   observation: WorkspaceLinkSourceAuthorityObservation, scopeSnapshot: WorkspaceOperationJobScope): NativeMixedBatchPlan {
-  const original = decodeWorkspaceOperationNativeMoveBatchPlan(plan);
-  assertWorkspaceOperationNativeSourceEvidenceCurrent(original.sourceEvidence, observation, scopeSnapshot);
-  const snapshot = workspaceOperationNativePlanSnapshot(original.sourceEvidence, () => fail('NATIVE_MOVE_PLAN_UNSUPPORTED'));
-  const compiled = compile(snapshot, original.actions[0], observation);
-  if (compiled.planId !== original.compilerPlanProof || compiled.finalGraphProof !== original.finalGraphProof) fail('NATIVE_MOVE_PLAN_CHANGED');
-  return freeze(compiled);
+  return guarded(() => {
+    const original = decodeWorkspaceOperationNativeMoveBatchPlan(plan);
+    const current = observed(scopeSnapshot, observation, original.sourceEvidence.evidenceVersion);
+    return replayCurrent(original, current.observation, scopeSnapshot);
+  });
+}
+/** Strict fresh B1 data for the caller's genuine owner/fence. Unlike historical
+ * Current replay, this never accepts an absent catalogue witness. The frozen
+ * evidence is data only, not a principal, lock, connection or mutation token. */
+export function captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan: WorkspaceOperationNativeMoveBatchPlanV2,
+  observation: WorkspaceLinkSourceAuthorityObservation, scopeSnapshot: WorkspaceOperationJobScope): WorkspaceOperationNativeSourceEvidenceV2 {
+  return guarded(() => {
+    const original = decodeWorkspaceOperationNativeMoveBatchPlan(plan);
+    if (original.planIdentityVersion !== 2) fail();
+    const current = observed(scopeSnapshot, observation, 2, true);
+    replayCurrent(original, current.observation, scopeSnapshot);
+    if (current.evidence.evidenceVersion !== 2) fail();
+    return freeze(current.evidence);
+  });
 }
 /** Fresh recipes bound to original document IDs, generations and references;
  * not clone anchors, Markdown spans, prepared updates or mutation permission. */

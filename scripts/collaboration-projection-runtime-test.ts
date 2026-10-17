@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { test, type TestContext } from 'node:test';
 import ts from 'typescript';
-import { CollaborationCopyPublicationPendingError, CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 import { createCollaborationProjectionScheduler, type CollaborationProjectionRequest } from '../app/lib/collaboration/projection-scheduler';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type * as Runtime from '../app/lib/collaboration/projection-runtime';
@@ -109,7 +109,7 @@ async function setup(t: TestContext, options: {
         return result;
       },
     },
-    './checkpoint-errors': { CollaborationCopyPublicationPendingError, CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES },
+    './checkpoint-errors': { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, CollaborationCheckpointValidationError, COLLABORATION_CHECKPOINT_ERROR_CODES },
     './projection-errors': { classifyCollaborationProjectionError },
     './diagnostics': { logCollaborationDiagnostic: (level: string, data: Record<string, unknown>) => diagnostics.push({ level, data }) },
     './persistence': {
@@ -414,4 +414,22 @@ test('pending Copy publication stays untouched until the next recovery scan and 
   assert.deepEqual(h.recordedFailures, []);
   assert.deepEqual(h.degraded, []);
   assert.equal(h.diagnostics.some((entry) => entry.data.event === 'projection_failed'), false);
+});
+
+test('pending Original file operation defers without failure or acknowledgement and the unchanged recovery scan resumes it', async (t) => {
+  const original = state(); let complete = false;
+  const h = await setup(t, { states: [original], project: async snapshot => {
+    if (!complete) throw new CollaborationFileOperationProjectionPendingError();
+    return { state: { ...snapshot, checkpointSequence: snapshot.documentSequence }, content: 'completed operation', revisionId: 'operation-revision' };
+  } });
+  await h.clock.advanceTo(2_000);
+  assert.deepEqual(h.attempted, [original]); assert.equal(h.states.get(original.documentId), original);
+  assert.deepEqual([...h.projected], []); assert.deepEqual(h.failures, []); assert.deepEqual(h.recordedFailures, []);
+  assert.deepEqual(h.degraded, []); assert.deepEqual(h.guestVersions, []); assert.deepEqual([...h.diagnostics], []);
+  await h.clock.advanceTo(29_999); assert.deepEqual(h.attempted, [original]);
+  complete = true; await h.clock.advanceTo(30_000); await h.clock.advanceTo(32_000);
+  assert.deepEqual(h.attempted, [original, original]); assert.equal(h.projected.length, 1);
+  assert.equal(h.projected[0].revisionId, 'operation-revision'); assert.deepEqual(h.recordedFailures, []);
+  assert.deepEqual(h.failures, []); assert.deepEqual(h.degraded, []);
+  assert.equal(h.diagnostics.some(entry => entry.data.event === 'projection_failed'), false);
 });

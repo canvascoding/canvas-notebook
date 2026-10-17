@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ts from 'typescript';
 import * as Y from 'yjs';
 
-import { CollaborationCopyPublicationPendingError, CollaborationCheckpointValidationError, CollaborationCheckpointQuarantinedError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, CollaborationCheckpointValidationError, CollaborationCheckpointQuarantinedError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { FileGuestCheckpointRequestError } from '../app/lib/file-guests/checkpoint-error';
@@ -139,6 +139,20 @@ function assertSnapshot(body: Record<string, unknown>, state: PersistedCollabora
 }
 
 for (const channel of ['account', 'guest'] as const) {
+  test(`${channel}: pending Original operation is a 409 without false checkpoint ACK or projection failure`, async () => {
+    const { controls, request, state, proof, doc } = await requestHarness(channel);
+    const before = { ...state, yjsState: new Uint8Array(state.yjsState), stateVector: new Uint8Array(state.stateVector) };
+    controls.materializeError = new CollaborationFileOperationProjectionPendingError();
+    try {
+      const response = await request(), body = await response.json();
+      assert.equal(response.status, 409); assert.equal(body.success, false);
+      assert.equal(body.code, 'COLLABORATION_FILE_OPERATION_PROJECTION_PENDING'); assert.equal(controls.materialized, 1);
+      assert.equal(controls.recordedFailures, 0); assert.deepEqual(controls.diagnostics, []); assert.deepEqual(state, before);
+      assertSafe(body, controls.diagnostics);
+      if (channel === 'guest') { assert.equal(body.projectionFinalized, false); assertSnapshot(body, state, proof); }
+    } finally { doc.destroy(); }
+  });
+
   test(`${channel}: pending Copy publication is a transient conflict without projection failure mutation`, async () => {
     const { controls, request, state, proof, doc } = await requestHarness(channel);
     const before = { ...state, yjsState: new Uint8Array(state.yjsState), stateVector: new Uint8Array(state.stateVector) };

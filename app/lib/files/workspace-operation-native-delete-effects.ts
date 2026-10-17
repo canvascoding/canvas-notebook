@@ -5,7 +5,7 @@ export type WorkspaceOperationNativeDeleteEffect = Readonly<{
   documentId: string; path: string; updatedLinks: number;
 }>;
 type ExpectedEffect = WorkspaceOperationNativeDeleteEffect & { linkIds: string[] };
-type Completion = Readonly<{ version: 1 | 2; nativeLinks?: readonly OriginalDeleteNativeLinkReceipt[] }>;
+type Completion = Readonly<{ version: 1 | 2 | 3; nativeLinks?: readonly OriginalDeleteNativeLinkReceipt[] }>;
 const unavailable = (): never => { throw new Error('BATCH_JOURNAL_UNAVAILABLE'); };
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const canonicalPath = (value: unknown): value is string => typeof value === 'string' && value.length > 0
@@ -62,11 +62,12 @@ export function workspaceOperationBatchTotalActions(plan: WorkspaceOperationBatc
 export function workspaceOperationNativeDeleteAppliedEffects(plan: WorkspaceOperationNativeDeleteBatchPlan,
   completion: Completion): readonly WorkspaceOperationNativeDeleteEffect[] {
   const expected = expectedEffects(plan);
+  if ((plan.planIdentityVersion === 2) !== (completion.version === 3)) return unavailable();
   if (completion.version === 1) {
     if (expected.length || completion.nativeLinks !== undefined) return unavailable();
     return [];
   }
-  if (completion.version !== 2 || !Array.isArray(completion.nativeLinks)
+  if (completion.version !== 2 && completion.version !== 3 || !Array.isArray(completion.nativeLinks)
     || completion.nativeLinks.length !== expected.length) return unavailable();
   const receipts = new Map<string, OriginalDeleteNativeLinkReceipt>(), paths = new Set<string>(), operations = new Set<string>();
   for (const receipt of completion.nativeLinks) {

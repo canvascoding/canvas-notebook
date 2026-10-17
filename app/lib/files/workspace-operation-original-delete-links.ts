@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
-import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
+import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
+import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { captureAgentStateSnapshot } from '../collaboration/agent-durability';
 import { Y } from '../collaboration/server-runtime';
 import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
@@ -16,6 +17,9 @@ import type { NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-con
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
+import { captureWorkspaceOperationNativeSourceEvidenceV2,
+  type WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import { decodeWorkspaceOperationNativeOriginalSourceWitness } from './workspace-operation-native-original-source';
 
 /** Private immutable journal data, never an actor permission or a SQL capability. */
 export type OriginalDeleteNativeLinkIntent = {
@@ -24,6 +28,11 @@ export type OriginalDeleteNativeLinkIntent = {
 };
 export type OriginalDeleteNativeLinkReceipt = Omit<NativeLinkMutationReceipt, 'afterStateSnapshot'> & {
   afterStateSnapshotBase64: string;
+  /** V3 original completion only: separate full-update evidence. A snapshot
+   * contains clocks/deletions and cannot stand in for a content binary hash. */
+  resultEvidenceVersion?: 3;
+  afterBinaryHash?: string;
+  afterVectorHash?: string;
 };
 export type OriginalDeleteNativeLinkContext = {
   batchId: string; workspaceId: string; sourcePath: string; requestHash: string;
@@ -52,8 +61,8 @@ function bindingFor(context: OriginalDeleteNativeLinkContext, prepared: Prepared
     requestHash: context.requestHash, authorizedPreparedProof: nativeLinkPreparedIntentProof(prepared) };
 }
 export function decodeOriginalDeleteNativeLinkIntents(value: unknown,
-  context: OriginalDeleteNativeLinkContext): OriginalDeleteNativeLinkIntent[] {
-  if (!Array.isArray(value) || !value.length || value.length > 256 || Buffer.byteLength(JSON.stringify(value)) > 900_000) fail();
+  context: OriginalDeleteNativeLinkContext, allowEmpty = false): OriginalDeleteNativeLinkIntent[] {
+  if (!Array.isArray(value) || !allowEmpty && !value.length || value.length > 256 || Buffer.byteLength(JSON.stringify(value)) > 900_000) fail();
   const documents = new Set<string>();
   for (const item of value) {
     keys(item, ['prepared', 'binding']);
@@ -110,7 +119,7 @@ export function prepareOriginalDeleteNativeLinks(plan: WorkspaceOperationNativeD
 /** Compute exact proposed containment bytes before the physical stage. The
  * caller supplies a conservative bound for the remaining fixed completion envelope. */
 export function assertOriginalDeleteNativeLinkCompletionBudget(intents: readonly OriginalDeleteNativeLinkIntent[],
-  observation: WorkspaceLinkSourceAuthorityObservation, envelopeBytes: number): void {
+  observation: WorkspaceLinkSourceAuthorityObservation, envelopeBytes: number, resultEvidenceVersion?: 3): void {
   const receipts: OriginalDeleteNativeLinkReceipt[] = [];
   for (const item of intents) {
     const { prepared, binding } = item, state = observation.privateNativeStates.find(value => value.documentId === prepared.source.documentId);
@@ -122,31 +131,66 @@ export function assertOriginalDeleteNativeLinkCompletionBudget(intents: readonly
       if (!snapshot || snapshot.byteLength > 4 * 1024 * 1024 || `yjs-snapshot-sha256-v1:${hash(snapshot)}` !== prepared.after.stateProof) fail();
       receipts.push({ contractVersion: 2, operationId: prepared.operationId, source: prepared.source, binding, before: prepared.before,
         after: { ...prepared.after, documentSequence: prepared.before.documentSequence + 1, persistedAt: Number.MAX_SAFE_INTEGER },
-        inverseRecipes: prepared.inverseRecipes, afterStateSnapshotBase64: Buffer.from(snapshot).toString('base64') });
+        inverseRecipes: prepared.inverseRecipes, afterStateSnapshotBase64: Buffer.from(snapshot).toString('base64'),
+        ...(resultEvidenceVersion === 3 ? { resultEvidenceVersion: 3, afterBinaryHash: '0'.repeat(64), afterVectorHash: '0'.repeat(64) } : {}) });
     } finally { candidate.destroy(); }
   }
   if (!Number.isSafeInteger(envelopeBytes) || envelopeBytes < 0
     || envelopeBytes + Buffer.byteLength(JSON.stringify(receipts)) > 2097152) fail('ORIGINAL_DELETE_UNSUPPORTED');
 }
+
+/** Replay the exact immutable delta over the verified original full state.
+ * This allocates no new CRDT content or identities. */
+function originalDeleteLinkCandidateHash(state: PersistedCollaborationState, intent: OriginalDeleteNativeLinkIntent): string {
+  return inspectPersistedNativeCollaborationSnapshot(state, (before, snapshot) => {
+    if (snapshot.version.stateProof !== intent.prepared.before.stateProof
+      || snapshot.version.stateVector !== intent.prepared.before.stateVector
+      || snapshot.version.documentSequence !== intent.prepared.before.documentSequence) fail('ORIGINAL_DELETE_CHANGED');
+    const candidate = new Y.Doc();
+    try {
+      Y.applyUpdate(candidate, Y.encodeStateAsUpdate(before));
+      Y.applyUpdate(candidate, binary(intent.prepared.updateBase64, 16 * 1024 * 1024));
+      return hash(Y.encodeStateAsUpdate(candidate));
+    } finally { candidate.destroy(); }
+  });
+}
 export async function applyOriginalDeleteNativeLinks(database: SqlConnection, workspace: WorkspaceContext,
-  intents: readonly OriginalDeleteNativeLinkIntent[], validateAuthority: () => Promise<void>): Promise<OriginalDeleteNativeLinkReceipt[]> {
+  intents: readonly OriginalDeleteNativeLinkIntent[], validateAuthority: () => Promise<void>,
+  originalEvidence?: WorkspaceOperationNativeSourceEvidenceV2): Promise<OriginalDeleteNativeLinkReceipt[]> {
   const result: OriginalDeleteNativeLinkReceipt[] = [];
   for (const item of intents) {
     const { updateBase64, ...body } = item.prepared;
     await validateAuthority();
+    let expectedBinaryHash: string | undefined;
+    if (originalEvidence) {
+      const expected = originalEvidence.nativeBindings.find(binding => binding.expected.documentId === body.source.documentId)?.expected;
+      const state = await loadCollaborationStateOnConnection(database, body.source.documentId, true);
+      if (!expected || !state || hash(state.yjsState) !== expected.binaryHash || hash(state.stateVector) !== expected.vectorHash
+        || state.documentSequence !== expected.documentSequence || state.persistedAt !== expected.persistedAt) fail('ORIGINAL_DELETE_CHANGED');
+      expectedBinaryHash = originalDeleteLinkCandidateHash(state, item);
+    }
     const applied = await persistPreparedNativeLinkMutationOnConnection(database, { workspace,
       prepared: { ...body, update: binary(updateBase64, 16 * 1024 * 1024) }, binding: item.binding, validateAuthority });
     // This transaction has not committed yet. Only the original Owner may acknowledge completion.
     const { afterStateSnapshot, ...receipt } = applied.receipt;
-    result.push({ ...receipt, afterStateSnapshotBase64: Buffer.from(afterStateSnapshot).toString('base64') });
+    let resultEvidence: Pick<OriginalDeleteNativeLinkReceipt, 'resultEvidenceVersion' | 'afterBinaryHash' | 'afterVectorHash'> = {};
+    if (originalEvidence) {
+      const state = await loadCollaborationStateOnConnection(database, body.source.documentId, true);
+      if (!state || hash(state.yjsState) !== expectedBinaryHash || state.documentSequence !== receipt.after.documentSequence
+        || state.persistedAt !== receipt.after.persistedAt || Buffer.from(state.stateVector).toString('base64') !== receipt.after.stateVector
+        || authoritativeNativeCollaborationSnapshot(state).version.stateProof !== receipt.after.stateProof) fail('ORIGINAL_DELETE_POSTCONDITION');
+      resultEvidence = { resultEvidenceVersion: 3, afterBinaryHash: expectedBinaryHash, afterVectorHash: hash(state.stateVector) };
+    }
+    result.push({ ...receipt, afterStateSnapshotBase64: Buffer.from(afterStateSnapshot).toString('base64'), ...resultEvidence });
   }
   return result;
 }
-export function assertOriginalDeleteNativeLinkReceipts(value: unknown, intents: readonly OriginalDeleteNativeLinkIntent[]):
+export function assertOriginalDeleteNativeLinkReceipts(value: unknown, intents: readonly OriginalDeleteNativeLinkIntent[], resultEvidenceVersion?: 3):
 asserts value is OriginalDeleteNativeLinkReceipt[] {
   if (!Array.isArray(value) || value.length !== intents.length) fail();
   for (const [index, item] of value.entries()) {
-    keys(item, ['contractVersion', 'operationId', 'source', 'binding', 'before', 'after', 'afterStateSnapshotBase64', 'inverseRecipes']);
+    keys(item, ['contractVersion', 'operationId', 'source', 'binding', 'before', 'after', 'afterStateSnapshotBase64', 'inverseRecipes',
+      ...(resultEvidenceVersion === 3 ? ['resultEvidenceVersion', 'afterBinaryHash', 'afterVectorHash'] : [])]);
     const expected = intents[index], prepared = expected.prepared, receipt = item as OriginalDeleteNativeLinkReceipt;
     keys(receipt.after, ['stateProof', 'stateVector', 'documentSequence', 'persistedAt']);
     if (receipt.contractVersion !== 2 || receipt.operationId !== prepared.operationId || !equal(receipt.source, prepared.source)
@@ -155,13 +199,22 @@ asserts value is OriginalDeleteNativeLinkReceipt[] {
       || receipt.after.stateVector !== prepared.after.stateVector || receipt.after.documentSequence !== prepared.before.documentSequence + 1
       || !Number.isSafeInteger(receipt.after.persistedAt) || receipt.after.persistedAt < 0
       || `yjs-snapshot-sha256-v1:${hash(binary(receipt.afterStateSnapshotBase64, 4 * 1024 * 1024))}` !== receipt.after.stateProof) fail();
+    if (resultEvidenceVersion === 3 && (receipt.resultEvidenceVersion !== 3
+      || typeof receipt.afterBinaryHash !== 'string' || !/^[a-f0-9]{64}$/u.test(receipt.afterBinaryHash)
+      || receipt.afterVectorHash !== hash(binary(receipt.after.stateVector, 4 * 1024 * 1024)))) fail();
   }
 }
 
 /** Fresh native semantic state, not projection bytes, proves the complete final graph.
  * Original logical keys survive link-anchor changes; surviving links are matched in inventory order. */
 export function assertOriginalDeleteNativeFinalGraph(plan: WorkspaceOperationNativeDeleteBatchPlan,
-  observation: WorkspaceLinkSourceAuthorityObservation): void {
+  observation: WorkspaceLinkSourceAuthorityObservation,
+  original?: Readonly<{ sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+    nativeLinks: readonly OriginalDeleteNativeLinkReceipt[] }>): void {
+  if (plan.planIdentityVersion === 2) {
+    if (!original) fail('ORIGINAL_DELETE_POSTCONDITION');
+    assertOriginalDeleteNativeFinalBindings(plan, observation, original);
+  }
   const { stage, privateNativeStates } = observation, expected = plan.nativeGraphPlan;
   const inferredDirectory = (entity: typeof expected.finalNamespace[number]) => entity.kind === 'directory'
     && entity.binding.kind === 'existing' && entity.binding.namespaceEvidence.filesystemIdentity === null
@@ -212,4 +265,41 @@ export function assertOriginalDeleteNativeFinalGraph(plan: WorkspaceOperationNat
     }
   }
   if (graph.edges.length !== expected.finalEdges.length) fail('ORIGINAL_DELETE_POSTCONDITION');
+}
+
+function assertOriginalDeleteNativeFinalBindings(plan: WorkspaceOperationNativeDeleteBatchPlan,
+  observation: WorkspaceLinkSourceAuthorityObservation,
+  original: Readonly<{ sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+    nativeLinks: readonly OriginalDeleteNativeLinkReceipt[] }>): void {
+  if (plan.planIdentityVersion !== 2) fail('ORIGINAL_DELETE_POSTCONDITION');
+  const before = decodeWorkspaceOperationNativeOriginalSourceWitness(plan.sourceEvidence, original.sourceEvidence);
+  const actual = captureWorkspaceOperationNativeSourceEvidenceV2(before.workspaceScope, observation);
+  const survivors = before.nativeBindings.filter(binding => binding.expected.documentId !== plan.nativeTarget.documentId);
+  if (actual.nativeBindings.length !== survivors.length) fail('ORIGINAL_DELETE_POSTCONDITION');
+  const changed = new Set(getWorkspaceOperationNativeDeleteLinkRecipes(plan).map(recipe => recipe.source.documentId));
+  const receipts = new Map(original.nativeLinks.map(receipt => [receipt.source.documentId, receipt]));
+  if (receipts.size !== original.nativeLinks.length || receipts.size !== changed.size
+    || [...receipts.keys()].some(id => !changed.has(id))) fail('ORIGINAL_DELETE_POSTCONDITION');
+  for (const binding of survivors) {
+    const id = binding.expected.documentId, observed = actual.nativeBindings.find(item => item.expected.documentId === id);
+    const receipt = receipts.get(id);
+    if (!receipt) {
+      if (!equal(observed, binding)) fail('ORIGINAL_DELETE_POSTCONDITION');
+      continue;
+    }
+    const inventory = actual.stage.sources.find(item => item.inventory.document.documentId === id)?.inventory;
+    const priorInventory = before.stage.sources.find(item => item.inventory.document.documentId === id)?.inventory;
+    if (!observed || !inventory || !priorInventory || receipt.resultEvidenceVersion !== 3
+      || typeof receipt.afterBinaryHash !== 'string' || !/^[a-f0-9]{64}$/u.test(receipt.afterBinaryHash)
+      || receipt.afterVectorHash !== hash(binary(receipt.after.stateVector, 4 * 1024 * 1024))
+      || !equal(receipt.source, priorInventory.document)
+      || !equal(receipt.before, { stateProof: binding.expected.stateProof, documentSequence: binding.expected.documentSequence,
+        stateVector: priorInventory.version.stateVector })) fail('ORIGINAL_DELETE_POSTCONDITION');
+    const expected = { ...binding, expected: { ...binding.expected, stateProof: receipt.after.stateProof,
+      documentSequence: receipt.after.documentSequence, persistedAt: receipt.after.persistedAt,
+      binaryHash: receipt.afterBinaryHash, vectorHash: receipt.afterVectorHash }, inventoryProof: nativeLinkJsonProof(inventory) };
+    if (!equal(observed, expected) || inventory.version.stateVector !== receipt.after.stateVector
+      || inventory.version.stateProof !== receipt.after.stateProof || inventory.version.documentSequence !== receipt.after.documentSequence
+      || inventory.version.persistedAt !== receipt.after.persistedAt) fail('ORIGINAL_DELETE_POSTCONDITION');
+  }
 }

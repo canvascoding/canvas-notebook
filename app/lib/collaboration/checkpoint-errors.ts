@@ -64,6 +64,17 @@ export class CollaborationCopyPublicationPendingError extends Error {
   }
 }
 
+/** A derived file may be retried after its original Move/Delete publishes.
+ * This is scheduling state, never a schema error or document quarantine. */
+export class CollaborationFileOperationProjectionPendingError extends Error {
+  readonly code = 'COLLABORATION_FILE_OPERATION_PROJECTION_PENDING';
+  readonly status = 409;
+  constructor() {
+    super('A workspace file operation has not finished publishing.');
+    this.name = 'CollaborationFileOperationProjectionPendingError';
+  }
+}
+
 export class CollaborationCheckpointQuarantinedError extends Error {
   readonly code = COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined;
   constructor() {

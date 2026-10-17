@@ -165,7 +165,8 @@ export function assertOriginalMoveFinalSourceGraph(input: {
       || !equal(receipt.before, mutation.before) || receipt.after.status !== 'active'
       || !equal(receipt.after.identity, { ...mutation.source, path: mutation.destinationPath ?? mutation.source.path })) bad();
   }
-  const originalBindings = new Map(context.plan.sourceEvidence.nativeBindings.map(binding => [binding.expected.documentId, binding]));
+  const originalEvidence = intent.version === 2 ? intent.currentWitness : context.plan.sourceEvidence;
+  const originalBindings = new Map(originalEvidence.nativeBindings.map(binding => [binding.expected.documentId, binding]));
   const bindings = new Map(observation.nativeBindings.map(binding => [binding.expected.documentId, binding]));
   const inventories = observation.stage.sources.flatMap(source => source.kind === 'native' ? [source.inventory] : []);
   if (bindings.size !== originalBindings.size || observation.nativeBindings.length !== bindings.size

@@ -23,7 +23,7 @@ import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-p
 import { lockFileCollaborationPaths } from './collaboration-repository';
 import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
 import { readWorkspaceOperationOriginalDeleteIntentOnConnection } from './workspace-operation-original-delete-repository';
-import { parseIntent } from './workspace-operation-original-delete-evidence';
+import { parseIntent, assertOriginalDeleteIntentPlan } from './workspace-operation-original-delete-evidence';
 import { applyOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
   type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 import { readWorkspaceLinkSourceAuthorityOnConnection,
@@ -36,7 +36,9 @@ import { proveCollaborationAdmissionQuiescenceOnConnection } from '../collaborat
 import { executeCollaborationAdmissionHandoffOnConnection } from '../collaboration/room-admission-handoff';
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { createWorkspaceOperationOriginalMoveAdmissionRequest } from './workspace-operation-original-move-admission';
-import { decodeWorkspaceOperationNativeMoveBatchPlan, assertWorkspaceOperationNativeMoveBatchPlanCurrent } from './workspace-operation-native-move-plan';
+import { decodeWorkspaceOperationNativeMoveBatchPlan, assertWorkspaceOperationNativeMoveBatchPlanCurrent,
+  captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness } from './workspace-operation-native-move-plan';
+import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
 import { createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent, getWorkspaceOperationOriginalMoveNativeIds,
   decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
@@ -372,14 +374,16 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
-              if (intent.version !== 2 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              if (intent.version !== 2 && intent.version !== 3 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              assertOriginalDeleteIntentPlan(intent, binding.plan);
               assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
               // Keep current authority before every source (including receipt
               // retries) and immediately before each CAS. This private check
               // does not recursively enter the public dispatch queue.
               const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
                 checkPhase(captured, phase); phase.stage = 'sql'; };
-              return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate);
+              return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate,
+                intent.version === 3 ? intent.currentWitness : undefined);
             }, 'native-link-write'),
             assertCurrent: () => dispatch(undefined, async () => undefined) })); }
           catch (error) { captured.failure ??= asError(error); }
@@ -582,6 +586,22 @@ export function readWorkspaceOperationOriginalMoveJobReceipts(owner: WorkspaceOp
   } catch (error) { return rejectMoveBoundary(owner,error); }
 }
 
+/** Fresh owner-bound namespace basis before the first descriptor preparation.
+ * The durable intent will independently capture the actual B1 observation. */
+export function readWorkspaceOperationOriginalMovePreparation(owner: WorkspaceOperationNativeMoveJobOwner) {
+  try {
+    const captured = moveOwner(owner);
+    return movePhase(owner, async (access, database) => {
+      const plan = captured.move!.context.plan;
+      if (plan.planIdentityVersion !== 2) return plan.sourceEvidence;
+      const rows = await readMoveRows(captured, database);
+      if (rows.intent || rows.completion) fail('JOB_LIFECYCLE_CHANGED');
+      const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+      return captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
+    });
+  } catch (error) { return rejectMoveBoundary(owner, error); }
+}
+
 /** Internal fixed collector seam. A different B, detached phase, missing cap,
  * stale receipt, replaced source leaf or journal mismatch cannot mint an overlay. */
 export async function readWorkspaceOperationOriginalMoveSourcesContext(database: SqlConnection) {
@@ -627,10 +647,14 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
     const { captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection } = await import('./workspace-operation-original-move-namespace-effects');
     for (const item of prepared) { await assertPreparedWorkspacePathMoveCurrent(item.cap); await check(); }
     const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace);
-    assertWorkspaceOperationNativeMoveBatchPlanCurrent(captured.move!.context.plan,observation,captured.move!.context.plan.sourceEvidence.workspaceScope);
+    const plan = captured.move!.context.plan;
+    const currentWitness = plan.planIdentityVersion === 2
+      ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
+    if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
     const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context});
-    const nativeBundle = buildMoveNativeBundle(captured.move!.context,observation);
-    const intent = createWorkspaceOperationOriginalMoveIntent({physical,nativeBundle,namespaceState},captured.move!.context);
+    const nativeBundle = buildMoveNativeBundle(captured.move!.context,observation,currentWitness ?? plan.sourceEvidence);
+    const intent = createWorkspaceOperationOriginalMoveIntent({physical,nativeBundle,namespaceState,
+      ...(currentWitness ? {currentWitness} : {})},captured.move!.context);
     const existing = await readMoveRows(captured,database);
     if (existing.intentRow) {
       if (existing.intentRow.intentText !== moveJson(intent)) fail('JOB_LIFECYCLE_CHANGED');
@@ -896,15 +920,16 @@ function rejectMoveBoundary(owner: WorkspaceOperationNativeMoveJobOwner, error: 
 }
 
 function buildMoveNativeBundle(selected: WorkspaceOperationOriginalMoveContext,
-  observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationOriginalMoveNativeBundleData|null {
+  observation: WorkspaceLinkSourceAuthorityObservation,
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
   const plan = selected.plan, mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
   const ids = [...new Set([...mappings.map(mapping => mapping.source.documentId!),...plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
   if (!ids.length) return null;
   const identity = getWorkspaceOperationOriginalMoveNativeIds(selected);
   const mutations = ids.map(documentId => {
-    const original = plan.sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
+    const original = sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
     const state = observation.privateNativeStates.find(item => item.documentId === documentId);
-    const version = plan.sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
+    const version = sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
     if (!original || !state || !version) fail('JOB_LIFECYCLE_CHANGED');
     const mutationId = getWorkspaceOperationOriginalMoveNativeIds(selected,documentId).mutationId!;
     const mapping = mappings.find(mapping => mapping.source.documentId === documentId);

@@ -5,7 +5,7 @@ import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLink
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
 import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
 import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
-import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
 /** Literal namespace snapshot only; this grants no authority or filesystem identity. */
@@ -64,14 +64,27 @@ export type WorkspaceOperationLegacyBatchPlan = {
   /** Internal exact span plan consumed by the fenced plain-file/Yjs writer. */
   linkPlan: WorkspaceFileOperationPreview;
 };
-export type WorkspaceOperationNativeDeleteBatchPlan = Omit<WorkspaceOperationLegacyBatchPlan, 'version' | 'linkPlan'> & {
+type WorkspaceOperationNativeDeleteBatchPlanFields = Omit<WorkspaceOperationLegacyBatchPlan, 'version' | 'linkPlan'> & {
   version: 2;
   kind: 'native-original-delete';
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
   nativeTarget: NativeFileArchiveExpected;
   nativeGraphPlan: NativeMixedBatchPlan;
   linkPlan?: never;
 };
+/** Original exact-shape/raw-hash contract, including historical Evidence V2. */
+export type WorkspaceOperationNativeDeleteBatchPlanLegacy = WorkspaceOperationNativeDeleteBatchPlanFields & {
+  planIdentityVersion?: never;
+  integrityProof?: never;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
+};
+/** Semantic preview identity with a separate proof of every historical field. */
+export type WorkspaceOperationNativeDeleteBatchPlanV2 = WorkspaceOperationNativeDeleteBatchPlanFields & {
+  planIdentityVersion: 2;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+};
+export type WorkspaceOperationNativeDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlanLegacy
+  | WorkspaceOperationNativeDeleteBatchPlanV2;
 export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan
   | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {

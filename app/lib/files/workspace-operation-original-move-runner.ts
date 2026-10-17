@@ -8,7 +8,7 @@ import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceip
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { withWorkspaceOperationNativeMoveJobOwner, readWorkspaceOperationOriginalMoveJobHistory,
-  readWorkspaceOperationOriginalMoveJobReceipts, stageWorkspaceOperationOriginalMoveJob,
+  readWorkspaceOperationOriginalMoveJobReceipts, readWorkspaceOperationOriginalMovePreparation, stageWorkspaceOperationOriginalMoveJob,
   recordWorkspaceOperationOriginalMoveJobParentReceipt, recordWorkspaceOperationOriginalMoveJobPathReceipt,
   completeWorkspaceOperationOriginalMoveJob } from './workspace-operation-job-lifecycle-owner';
 import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
@@ -37,8 +37,10 @@ export async function executeWorkspaceOperationOriginalMove(input: {
     if (rows.intent) originals = rows.intent.steps.map(step=>({stepKey:step.stepKey,original:step.physical}));
     else {
       originals = [];
+      const sourceEvidence = plan.planIdentityVersion === 2
+        ? await readWorkspaceOperationOriginalMovePreparation(owner) : plan.sourceEvidence;
       for (const [index,selection] of plan.actions[0].selections.entries()) {
-        const source = plan.sourceEvidence.stage.namespace.find(entry=>entry.path===selection.sourcePath);
+        const source = sourceEvidence.stage.namespace.find(entry=>entry.path===selection.sourcePath);
         if (!source || !selection.destinationPath) throw new Error('ORIGINAL_MOVE_SOURCE_CHANGED');
         await withPreparedWorkspacePathMove({workspace,sourcePath:selection.sourcePath,destinationPath:selection.destinationPath,
           sourceKind:source.filesystemIdentity===null ? 'projection_absent' : source.kind==='directory' ? 'directory':'regular_file'},async cap=>{

@@ -6,7 +6,7 @@ import { Y } from '@/app/lib/collaboration/server-runtime';
 import { collaborationUpdateStateProof, isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { CollaborationCheckpointSupersededError, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
-import { CollaborationCopyPublicationPendingError, collaborationCheckpointValidationFailure, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError, collaborationCheckpointValidationFailure, COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
 import { logCollaborationDiagnostic } from '@/app/lib/collaboration/diagnostics';
 import { FileGuestCheckpointRequestError } from './checkpoint-error';
 import { fileGuestService, FileGuestError } from './service';
@@ -64,9 +64,10 @@ export async function fileGuestCheckpoint(id: string, token: string, ticket: str
     || collaborationUpdateStateProof(found.state.yjsState, Y) !== stateProof) throw new FileGuestError('Änderungen werden noch synchronisiert. Bitte erneut versuchen.', 409);
   const result = await materializeCollaborationCheckpoint({ state: found.state, workspace: found.workspace,
     actorUserId: found.user.id, actorType: 'user', sourceSessionId: found.guestSession.id }).catch(async (error: unknown) => {
-    if (error instanceof CollaborationCopyPublicationPendingError) {
+    if (error instanceof CollaborationCopyPublicationPendingError || error instanceof CollaborationFileOperationProjectionPendingError) {
       throw new FileGuestCheckpointRequestError(409, {
-        success: false, code: error.code, error: 'Die Kopie wird noch veröffentlicht.', projectionFinalized: false,
+        success: false, code: error.code, error: error instanceof CollaborationFileOperationProjectionPendingError
+          ? 'Die Dateiaktion wird noch veröffentlicht.' : 'Die Kopie wird noch veröffentlicht.', projectionFinalized: false,
         documentId: found.state.documentId, lifecycleGeneration: found.state.lifecycleGeneration,
         documentSequence: found.state.documentSequence, checkpointSequence: found.state.checkpointSequence,
         stateVector: Buffer.from(found.state.stateVector).toString('base64'),

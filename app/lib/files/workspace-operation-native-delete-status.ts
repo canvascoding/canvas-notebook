@@ -1,6 +1,5 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
 import type { SqlConnection } from '../db';
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -9,6 +8,7 @@ import type { WorkspaceOperationBatchScope, WorkspaceOperationNativeDeleteBatchP
 import { withWorkspaceOperationNativeBatchReadContext, WorkspaceOperationNativeReadError } from './workspace-operation-native-read-context';
 import { readWorkspaceOperationOriginalDeleteObservationOnConnection,
   type WorkspaceOperationOriginalDeleteObservation } from './workspace-operation-original-delete-observation';
+import { assertOriginalDeleteIntentPlan } from './workspace-operation-original-delete-evidence';
 
 export type WorkspaceOperationNativeDeleteBatchStatus = Readonly<{
   batch: WorkspaceOperationBatchRecord; plan: WorkspaceOperationNativeDeleteBatchPlan;
@@ -33,8 +33,9 @@ export async function withWorkspaceOperationNativeDeleteReadContext<T>(input: In
       const observation = await readWorkspaceOperationOriginalDeleteObservationOnConnection(database, { schema,
         context: { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
           authorization: batch.authorization, sourcePath: plan.nativeTarget.path }, workspace, dataRoot: resolveWorkspaceDataRoot() });
-      if (observation.original && !isDeepStrictEqual(observation.original.native, plan.nativeTarget)) {
-        throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED');
+      if (observation.original) {
+        try { assertOriginalDeleteIntentPlan(observation.original, plan); }
+        catch { throw new WorkspaceOperationNativeDeleteStatusError('BATCH_SCOPE_CHANGED'); }
       }
       const status = Object.freeze({ batch, plan, observation });
       return operation(Object.freeze({ database, schema, workspace, status }));

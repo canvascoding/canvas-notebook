@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { EventEmitter } from 'node:events';
 import fs from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -199,6 +200,10 @@ async function harness() {
   let beforeShares: (() => Promise<void>) | undefined;
   const checkpoint = await compile<typeof Checkpoint>('app/lib/collaboration/checkpoint.ts', {
     'server-only': {}, './persistence': persistence, './server-runtime': { Y }, './markdown-state': {},
+    // This fixture proves the existing checkpoint transaction/compensation
+    // contract. The separate publication-guard suite owns its PG guard boundary.
+    './projection-publication-guard': { withCollaborationProjectionPublicationGuard: async <T>(state: Persistence.PersistedCollaborationState,
+      operation: (assertCurrent: () => Promise<void>) => Promise<T>) => lock(state.workspaceId, () => operation(async () => { assertWorkspace(); })) },
     './projection-identity': identity,
     './projection-repository': {
       loadCollaborationProjectionReceipt: async () => receipt === 'confirmed' || receipt === 'finalized'
@@ -326,10 +331,13 @@ async function main() {
     const releases: Array<Error | undefined> = [];
     const database = await compile<typeof import('../app/lib/db')>('app/lib/db/index.ts', {
       './postgres': {
-        createPostgresPool: () => ({ connect: async () => ({
-          query: async () => ({ rows: [{ value: 1 }], rowCount: 1 }),
-          release: (error?: Error) => releases.push(error),
-        }) }),
+        createPostgresPool: () => ({ connect: (callback: (error: Error | null, client: unknown) => void) => {
+          const client = Object.assign(new EventEmitter(), {
+            query: async () => ({ rows: [{ value: 1 }], rowCount: 1 }),
+            release: (error?: Error) => releases.push(error),
+          });
+          queueMicrotask(() => callback(null, client));
+        } }),
         createPostgresDrizzle: () => ({}),
       },
       './provider': { assertRuntimeDatabaseProviderSupported() {}, getDatabaseProvider: () => 'postgres' },
@@ -489,4 +497,10 @@ async function main() {
   console.log('Projection fence: concurrent pure deletion, lifecycle ordering through share finalization, stale identities, atomic receipts, compensation and ambiguous commits passed.');
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1; });
+let mainCompleted = false;
+process.once('beforeExit', () => {
+  if (mainCompleted) return;
+  console.error('Projection fence test did not complete.');
+  process.exitCode = 1;
+});
+void main().then(() => { mainCompleted = true; }).catch((error) => { console.error(error); process.exitCode = 1; });

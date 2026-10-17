@@ -1368,6 +1368,7 @@ export async function assertAuthenticatedMarkdownBirthProjectionAllowed(database
 
 async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: AuthenticatedCreateSource, input: Captured,
   result: MarkdownFileImportResult, claim: MarkdownCreateBirthClaim, openPhase: () => Promise<SqlConnection>): Promise<AuthenticatedMarkdownFirstProjectionResult> {
+  const { assertNoPendingOriginalFileOperationProjection } = await import('./projection-publication-guard');
   const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
   const { authoritativeCollaborationSnapshot, finalizeCollaborationCheckpointProjection } = await import('./checkpoint');
   const { serializeCanonicalText, sha256Text, withCollaborationCheckpointFence } = await import('./persistence');
@@ -1403,7 +1404,13 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
           await scope.access.assertCurrent(); await assertBootstrapExpectedScope(database, frame, scope.access);
           await assertBootstrapOwner(frame); await claim.assertRoot();
         }
+        // This exact private first-birth phase already retains the real
+        // EXCLUSIVE owner B. A second shared session would block its own I04.
+        // Keep the same durable-operation deferral without an ALS-only bypass.
+        await assertNoPendingOriginalFileOperationProjection(database, state.workspaceId, frame.realm.schema);
+        await assertBootstrapOwner(frame);
       };
+      await beforeBoundary();
       const binding = await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
       if (binding.finalized === 1) {
         const receipt = await loadCollaborationProjectionReceipt(state), file = await claim.verify();

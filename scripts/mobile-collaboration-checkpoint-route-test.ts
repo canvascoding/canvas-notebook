@@ -7,7 +7,7 @@ import ts from 'typescript';
 import * as Y from 'yjs';
 import { collaborationStateProof, collaborationUpdateStateProof, isCollaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { isCanonicalAdmissionPath } from '../app/lib/collaboration/room-admission-contract';
-import { CollaborationCopyPublicationPendingError } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationFileOperationProjectionPendingError } from '../app/lib/collaboration/checkpoint-errors';
 
 async function main() {
   const doc = new Y.Doc();
@@ -108,6 +108,15 @@ async function main() {
     assert.equal(projectionStatusReads, beforePending.projectionStatusReads, 'a pending publication cannot certify a finalized receipt');
     assert.equal(current, state);
     assert.equal(final, state);
+    const beforeOperationPending = { materializations, failures, projectionStatusReads };
+    failure = new CollaborationFileOperationProjectionPendingError();
+    const operationPendingResponse = await request(), operationPendingBody = await operationPendingResponse.json();
+    assert.equal(operationPendingResponse.status, 409); assert.equal(operationPendingBody.success, false);
+    assert.equal(operationPendingBody.code, 'COLLABORATION_FILE_OPERATION_PROJECTION_PENDING');
+    assert.equal(materializations, beforeOperationPending.materializations + 1);
+    assert.equal(failures, beforeOperationPending.failures);
+    assert.equal(projectionStatusReads, beforeOperationPending.projectionStatusReads);
+    assert.equal(current, state); assert.equal(final, state);
     failure = new Superseded();
     assert.equal((await request()).status, 409);
     assert.equal(failures, 0, 'superseded old work does not poison current projection');
