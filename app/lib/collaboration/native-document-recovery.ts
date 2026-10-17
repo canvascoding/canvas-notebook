@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
-import { getSchema, type JSONContent } from '@tiptap/core';
+import type { JSONContent } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 import { CollaborationBlockTree } from './block-tree';
 import { inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
@@ -11,6 +11,7 @@ import { TiptapTransformer, Y } from './server-runtime';
 import { readRichDocumentJson } from './rich-document';
 import { isCanonicalAdmissionPath } from './room-admission-contract';
 import { assertNativeDocumentSchema } from './native-document-schema';
+import { getNativeInspectionSchema } from './native-inspection-schema';
 
 const MAGIC = Buffer.from('CNATIVE2');
 export const NATIVE_RECOVERY_PAYLOAD_LIMIT = 128 * 1024 * 1024;
@@ -157,7 +158,7 @@ export type NativeDocumentClone = {
 /** Semantic independent clone: keeps every supported native attribute and creates fresh CRDT/block identities. */
 export function cloneNativeCollaborationDocument(state: PersistedCollaborationState): NativeDocumentClone {
   return inspectPersistedNativeCollaborationSnapshot(state, (source, snapshot) => {
-    const schema = getSchema(richMarkdownSchemaExtensions());
+    const schema = getNativeInspectionSchema();
     try { assertNativeDocumentSchema(source, state.representation, schema); }
     catch { return reject(); }
     const blockIdMapping: Record<string, string> = Object.create(null);

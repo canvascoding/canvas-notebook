@@ -1,11 +1,10 @@
 import 'server-only';
 
-import { getSchema } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 import { CollaborationBlockTree } from '../collaboration/block-tree';
 import type { BlockPlacementOperation } from '../collaboration/block-tree-placement';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
-import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { Y } from '../collaboration/server-runtime';
 import { getObsidianWikiDisplayLabel, parseObsidianWikiTarget } from './obsidian-flavored-markdown';
@@ -70,7 +69,7 @@ function textRef(text: YTypes.Text, start: number, end: number, blockId: string 
 }
 
 function treeFor(doc: YTypes.Doc): CollaborationBlockTree {
-  return new CollaborationBlockTree(doc, getSchema(richMarkdownSchemaExtensions()));
+  return new CollaborationBlockTree(doc, getNativeInspectionSchema());
 }
 
 function range(doc: YTypes.Doc, source: NativeLinkDocumentIdentity, ref: NativeLinkTextReference): { text: YTypes.Text; start: number; end: number } {

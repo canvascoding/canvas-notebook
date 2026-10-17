@@ -4,13 +4,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { getSchema } from '@tiptap/core';
 import { openDb, type SqlConnection } from '../db';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { mapValidatedNativeStateRow, validateRawState } from '../collaboration/native-session-state-reader';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
-import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
@@ -130,7 +129,7 @@ async function readNativeSource(workspace: WorkspaceContext, document: Workspace
     if (!isDeepStrictEqual(candidate, state)) fail('native-source-changed', document.path);
   }
   const inventory = inspectPersistedNativeCollaborationSnapshot(state!, (doc, snapshot) => {
-    assertNativeDocumentSchema(doc, state!.representation, getSchema(richMarkdownSchemaExtensions()));
+    assertNativeDocumentSchema(doc, state!.representation, getNativeInspectionSchema());
     return inspectNativeDocumentLinks(doc, snapshot);
   });
   const expected: NativeFileArchiveExpected = Object.freeze({ documentId: document.id, lineageId: document.lineage_id!,

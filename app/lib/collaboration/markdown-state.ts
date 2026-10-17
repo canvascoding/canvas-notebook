@@ -20,6 +20,7 @@ import { equivalentRichDocument } from '../markdown/core/equivalence';
 import { CollaborationBlockTree } from './block-tree';
 import { readRichDocumentJson, richDocumentFormat, type RichDocumentFormat } from './rich-document';
 import { assertNativeDocumentSchema } from './native-document-schema';
+import { getNativeInspectionSchema } from './native-inspection-schema';
 
 export function richMarkdownSchemaExtensions() {
   return richMarkdownCodecExtensions();
@@ -143,7 +144,7 @@ export type RichMarkdownStructureValidation =
 export function validateRichMarkdownStructure(doc: YTypes.Doc): RichMarkdownStructureValidation {
   let json: JSONContent;
   try {
-    const schema = getSchema(richMarkdownSchemaExtensions());
+    const schema = getNativeInspectionSchema();
     json = readRichDocumentJson(doc, schema);
     const schemaDocument = schema.nodeFromJSON(json);
     // A new Y.Doc can be completely empty before the first editor mounts.

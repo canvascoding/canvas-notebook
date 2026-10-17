@@ -1,9 +1,8 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { getSchema } from '@tiptap/core';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
-import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
@@ -214,7 +213,7 @@ function inspectInventory(inventory: NativeDocumentLinkInventory): void {
           || ref.raw.slice(ref.targetStart - ref.syntaxStart, ref.targetEnd - ref.syntaxStart) !== ref.expected) fail();
       } else {
         if (inventory.document.representation === 'plain_text') fail();
-        linkAttributes ??= Object.keys(getSchema(richMarkdownSchemaExtensions()).marks.link.spec.attrs ?? {});
+        linkAttributes ??= Object.keys(getNativeInspectionSchema().marks.link.spec.attrs ?? {});
         const attrs = record(ref.expected, [], linkAttributes);
         if (attrs.href !== link.literal || Object.values(attrs).some(value => value !== null && !text(value))) fail();
       }
@@ -407,7 +406,7 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
         || state.status !== 'active' || state.newlineStyle !== binding.byteProfile.newlineStyle || state.hasBom !== binding.byteProfile.hasBom
         || sha(state.yjsState) !== binding.expected.binaryHash || sha(state.stateVector) !== binding.expected.vectorHash) fail();
       const inventory = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
-        assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
+        assertNativeDocumentSchema(doc, state.representation, getNativeInspectionSchema());
         return inspectNativeDocumentLinks(doc, snapshot);
       });
       if (nativeLinkJsonProof(inventory) !== binding.inventoryProof) fail();

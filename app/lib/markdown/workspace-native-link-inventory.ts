@@ -1,13 +1,13 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { getSchema, type JSONContent } from '@tiptap/core';
+import type { JSONContent } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 import { BLOCK_TREE_KEY, CollaborationBlockTree } from '../collaboration/block-tree';
 import { inspectPersistedNativeCollaborationSnapshot, type NativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { Y } from '../collaboration/server-runtime';
-import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { getObsidianWikiDisplayLabel, parseObsidianBlockIds, parseObsidianWikiTarget } from './obsidian-flavored-markdown';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
@@ -134,7 +134,7 @@ export function inspectNativeDocumentLinks(
     return result();
   }
 
-  const schema = getSchema(richMarkdownSchemaExtensions());
+  const schema = getNativeInspectionSchema();
   const inspectAttrs = (type: string, attrs: Record<string, unknown>, nodeId?: string, mark = false) => {
     const knownType = mark ? MARK_TYPES.has(type) : NODE_TYPES.has(type);
     if (!knownType) { gap(mark ? 'unknown-mark' : 'unknown-node', { nodeId, attribute: type }); return; }
