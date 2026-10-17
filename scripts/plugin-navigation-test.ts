@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { legacyPluginSettingsHref, readPluginNavigation, updatePluginNavigation } from '../app/lib/plugins/plugin-navigation';
 
-assert.deepEqual(readPluginNavigation(new URLSearchParams()), { area: 'plugins', view: 'installed', scope: 'user' });
+assert.deepEqual(readPluginNavigation(new URLSearchParams()), { area: 'plugins', view: 'browse', scope: 'all' });
 assert.deepEqual(readPluginNavigation(new URLSearchParams('area=skills&view=library&scope=organization')), { area: 'skills', view: 'library', scope: 'organization' });
 assert.equal(readPluginNavigation(new URLSearchParams('area=skills&view=advanced')).view, 'installed');
 assert.equal(readPluginNavigation(new URLSearchParams('view=library&scope=system')).view, 'installed');
@@ -25,7 +25,8 @@ assert.equal(resetPage.searchParams.has('page'), false, 'filter changes reset pa
 assert.equal(resetPage.searchParams.get('q'), 'team');
 const resetScope = new URL(updatePluginNavigation('view=installed&q=team&page=3&readiness=available&enabled=enabled', { scope: 'organization' }), 'https://canvas.test');
 assert.equal(resetScope.searchParams.get('scope'), 'organization');
-for (const key of ['q', 'page', 'readiness', 'enabled']) assert.equal(resetScope.searchParams.has(key), false);
+assert.equal(resetScope.searchParams.get('q'), 'team', 'ownership filtering preserves the shared search');
+for (const key of ['page', 'readiness', 'enabled']) assert.equal(resetScope.searchParams.has(key), false);
 const installedView = new URL(updatePluginNavigation('view=discover&q=team&page=3&category=Work&connection=mcp', { view: 'installed' }), 'https://canvas.test');
 assert.equal(installedView.searchParams.get('q'), 'team');
 for (const key of ['page', 'category', 'connection']) assert.equal(installedView.searchParams.has(key), false);
@@ -98,4 +99,43 @@ const skillStoreRedirect = new URL(legacyPluginSettingsHref({ tab: 'skills', ski
   storeRegistryId: 'verified-registry', storeVersion: '1.2.3', storeChecksum: checksum })!, 'https://canvas.test');
 assert.equal(skillStoreRedirect.searchParams.get('source'), 'store');
 assert.equal(skillStoreRedirect.searchParams.get('storeChecksum'), checksum);
+const browse = 'view=browse&q=Canva&kind=all&stock=installed&extensionSource=composio&extensionCursor=opaque_cursor';
+const browseDetail = new URL(updatePluginNavigation(browse, { extensionId: 'composio:canva' }), 'https://canvas.test');
+assert.equal(browseDetail.searchParams.get('q'), 'Canva');
+assert.equal(browseDetail.searchParams.get('stock'), 'installed');
+assert.equal(browseDetail.searchParams.get('extensionCursor'), 'opaque_cursor');
+const browseKind = new URL(updatePluginNavigation(browseDetail.search.slice(1), { kind: 'mcp' }), 'https://canvas.test');
+assert.equal(browseKind.searchParams.get('q'), 'Canva');
+assert.equal(browseKind.searchParams.has('extensionId'), false);
+assert.equal(browseKind.searchParams.has('extensionCursor'), false);
+const browsePackage = new URL(updatePluginNavigation(browse, { area: 'skills', resourceRef, task: 'connections' }), 'https://canvas.test');
+assert.equal(browsePackage.searchParams.get('q'), 'Canva');
+assert.equal(browsePackage.searchParams.get('kind'), 'all');
+assert.equal(browsePackage.searchParams.get('extensionCursor'), 'opaque_cursor');
+const browseSearch = new URL(updatePluginNavigation(browsePackage.search.slice(1), { q: 'Slack' }), 'https://canvas.test');
+assert.equal(browseSearch.searchParams.has('resourceRef'), false, 'a new search returns to the same mixed list');
+assert.equal(browseSearch.searchParams.has('extensionCursor'), false);
+assert.equal(readPluginNavigation(new URLSearchParams('view=browse&extensionId=composio:duckduckgo')).extensionId, 'composio:duckduckgo');
+assert.equal(readPluginNavigation(new URLSearchParams('view=browse&extensionId=composio:my-toolkit')).extensionId, 'composio:my-toolkit');
+for (const invalid of ['composio-personal:private-profile:private-account', 'https://outside.invalid', 'composio:CANVA', 'composio:canva\n']) {
+  assert.equal(readPluginNavigation(new URLSearchParams({ view: 'browse', extensionId: invalid })).extensionId, undefined);
+}
+const returned = readPluginNavigation(new URLSearchParams({ view: 'browse', workspaceId: 'workspace-readable', scope: 'all',
+  q: 'Canva', extensionId: 'composio:canva', connectionRef: 'canvas-connection:11111111-1111-4111-8111-111111111111', sharedOAuth: 'cancelled' }));
+assert.equal(returned.connectionRef, 'canvas-connection:11111111-1111-4111-8111-111111111111');
+assert.equal(returned.sharedOAuth, 'cancelled');
 console.log('Plugin navigation: explicit views, area defaults, legacy links, scope validation and query preservation passed');
+
+const publishedRevisionRef = 'canvas-package-revision:33333333-3333-4333-8333-333333333333';
+const exactPublished = new URL(updatePluginNavigation(`view=drafts&draftRef=${draftRef}`, { view: 'browse', draftRef: undefined, resourceRef,
+  publishedRevisionRef, publishedChecksum: checksum, task: 'sharing' }), 'https://canvas.test');
+assert.equal(readPluginNavigation(exactPublished.searchParams).publishedRevisionRef, publishedRevisionRef);
+assert.equal(readPluginNavigation(exactPublished.searchParams).publishedChecksum, checksum);
+assert.equal(exactPublished.searchParams.has('draftRef'), false);
+const publishedTaskChange = new URL(updatePluginNavigation(exactPublished.search.slice(1), { task: 'connections' }), 'https://canvas.test');
+assert.equal(publishedTaskChange.searchParams.get('publishedRevisionRef'), publishedRevisionRef, 'Task changes retain exact publication identity.');
+const publishedResourceChange = new URL(updatePluginNavigation(exactPublished.search.slice(1), { resourceRef: 'canvas-resource:44444444-4444-4444-8444-444444444444' }), 'https://canvas.test');
+assert.equal(publishedResourceChange.searchParams.has('publishedRevisionRef'), false);
+assert.equal(publishedResourceChange.searchParams.has('publishedChecksum'), false);
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, publishedRevisionRef, publishedChecksum: 'invalid' })).publishedRevisionRef, undefined);
+assert.equal(readPluginNavigation(new URLSearchParams({ resourceRef, publishedRevisionRef })).publishedRevisionRef, undefined);

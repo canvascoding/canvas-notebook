@@ -20,6 +20,10 @@ import { resolveIntegrationRuntimePolicy } from '@/app/lib/integration-tools/run
 import { isIntegrationTurnUncertain, markIntegrationTurnUncertain, type IntegrationUncertainTurnContext } from '@/app/lib/integration-tools/uncertain-turns';
 import { isPersistedIntegrationTurnUncertain, persistIntegrationTurnUncertain } from '@/app/lib/integration-tools/uncertain-turn-store';
 import { cloneIntegrationArguments, schemaFingerprint } from '@/app/lib/integration-tools/schema';
+import { getRuntimeAgentWorkflowMode } from '@/app/lib/agents/workflow-runtime-mode';
+import { isExplicitAgentWorkflowVersion } from '@/app/lib/agents/workflow-version';
+import { isAgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
+import { isIssuedScopedIntegrationTurn } from '@/app/lib/capabilities/extensions/effective-context';
 import { getAgentExecutionContext, type AgentExecutionContext } from './agent-execution-context';
 
 export { getIntegrationGatewayErrorOverride } from '@/app/lib/integration-tools/agent-errors';
@@ -78,6 +82,7 @@ function sameIdentity(expected: AgentExecutionContext, actual: AgentExecutionCon
 function errorCode(error: unknown, providerCallMayStart: boolean): IntegrationErrorCode {
   const knownCode = readIntegrationContractErrorCode(error);
   if (knownCode) return knownCode;
+  if (isAgentWorkflowError(error) && error.code === 'AGENT_EXTENSION_CONTEXT_DENIED') return 'provider_denied';
   if (error && typeof error === 'object' && 'code' in error && error.code === 'AGENT_ACCESS_DENIED') return 'provider_denied';
   return providerCallMayStart ? 'outcome_unknown' : 'provider_unavailable';
 }
@@ -209,8 +214,12 @@ export function createIntegrationGatewayTool(
         uncertainTurn = { ...capturedContext };
         signal?.throwIfAborted();
         const authorize = async () => {
-          if (!dependencies.isEnabled()) throw new IntegrationContractError('tool_denied', ERROR_MESSAGES.tool_denied);
           const resolved = await dependencies.resolveContext({ executionContext: capturedContext, policyRevision: 'integration-preflight' });
+          const scopedTurn = isIssuedScopedIntegrationTurn(resolved.executionContext);
+          if (!dependencies.isEnabled() && !scopedTurn
+            && !isExplicitAgentWorkflowVersion(await getRuntimeAgentWorkflowMode(resolved.executionContext))) {
+            throw new IntegrationContractError('tool_denied', ERROR_MESSAGES.tool_denied);
+          }
           const runtimePolicy = await dependencies.resolvePolicy({
             executionContext: resolved.executionContext, ceiling,
             planningMode: options.planningMode, emailEventAutomation: options.emailEventAutomation,

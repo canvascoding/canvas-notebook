@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import {
   ChevronLeft,
+  Copy,
   Gauge,
   History,
   Lightbulb,
+  Loader2,
   MoreHorizontal,
   PanelsTopLeft,
   Plus,
@@ -41,6 +43,7 @@ import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentS
 import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
 import { formatContextTokens, getContextStatusPresentation } from '@/app/components/canvas-agent-chat/contextStatusDisplay';
 import { ContextMeasurementDetails } from './ContextMeasurementDetails';
+import { useChatMarkdownCopy } from './useChatMarkdownCopy';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import {
   getRuntimeCompactionCauseTranslationKey,
@@ -64,6 +67,7 @@ type ChatHeaderProps = {
   onCompact: (focusTopic?: string) => void;
   onDeleteSession: () => void;
   onSelectAgent: (agentId: string) => void;
+  onAgentCreated: (agent: AgentProfile) => boolean;
   onReloadAgents: () => Promise<void>;
   onOpenLiveBrowser?: () => void;
   onSetShowHistory: (value: boolean) => void;
@@ -75,6 +79,7 @@ type ChatHeaderProps = {
   showSkillsLink: boolean;
   showWorkspaceSwitcher: boolean;
   totalUnreadCount: number;
+  workspaceId?: string | null;
 };
 
 export function ChatHeader({
@@ -91,6 +96,7 @@ export function ChatHeader({
   onCompact,
   onDeleteSession,
   onSelectAgent,
+  onAgentCreated,
   onReloadAgents,
   onOpenLiveBrowser,
   onSetShowHistory,
@@ -102,10 +108,12 @@ export function ChatHeader({
   showSkillsLink,
   showWorkspaceSwitcher: showWorkspaceSwitcherEnabled,
   totalUnreadCount,
+  workspaceId,
 }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
   const tWorkspaces = useTranslations('workspaces');
+  const { copyChatMarkdown, isCopyingMarkdown } = useChatMarkdownCopy({ sessionId, agentId: activeSessionAgentId, workspaceId });
   const [workspaceSheetOpen, setWorkspaceSheetOpen] = useState(false);
   const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
   const [focusDialogOpen, setFocusDialogOpen] = useState(false);
@@ -217,12 +225,14 @@ export function ChatHeader({
           </div>
 
           <ChatAgentSelector
+            context={{ workspaceId: workspaceId ?? null }}
             variant={isMobile ? 'mobile' : 'compact'}
             activeAgentId={activeSessionAgentId}
             activeAgentName={activeAgentDisplayName}
             activeAgentIconId={activeAgentIconId}
             agents={chatAgentOptions}
             onSelectAgent={onSelectAgent}
+            onAgentCreated={onAgentCreated}
             onReloadAgents={onReloadAgents}
             iconOnly={isMobile}
             className="border-transparent bg-transparent px-1.5 hover:border-border/60 hover:bg-accent"
@@ -396,6 +406,15 @@ export function ChatHeader({
                 </DropdownMenuItem>
               ) : null}
               <DropdownMenuSeparator />
+              <DropdownMenuItem
+                data-testid="chat-copy-markdown"
+                onSelect={() => void copyChatMarkdown()}
+                disabled={!sessionId || !workspaceId || isCopyingMarkdown || Boolean(runtimeStatus && runtimeStatus.phase !== 'idle')}
+                title={runtimeStatus && runtimeStatus.phase !== 'idle' ? t('compactAfterResponse') : undefined}
+              >
+                {isCopyingMarkdown ? <Loader2 className="animate-spin" /> : <Copy />}
+                <span>{t(isCopyingMarkdown ? 'copyingChatMarkdown' : 'copyChatMarkdown')}</span>
+              </DropdownMenuItem>
               <DropdownMenuItem
                 data-testid="chat-delete-session"
                 className="text-destructive focus:text-destructive"

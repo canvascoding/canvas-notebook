@@ -32,13 +32,29 @@ export const FILE_VERSION_CENTER_STORAGE_UP_SQL = `
     CONSTRAINT file_version_blobs_scope_identity_unique UNIQUE (blob_id, workspace_id),
     CONSTRAINT file_version_blobs_hash_check CHECK (content_sha256 ~ '^[a-f0-9]{64}$'),
     CONSTRAINT file_version_blobs_codec_check CHECK (codec IN ('gzip')),
-    CONSTRAINT file_version_blobs_raw_size_check CHECK (raw_size_bytes >= 0 AND raw_size_bytes <= 1048576),
+    CONSTRAINT file_version_blobs_raw_size_check CHECK (raw_size_bytes >= 0 AND raw_size_bytes <= 52428800),
     CONSTRAINT file_version_blobs_stored_size_check CHECK (
       stored_size_bytes > 0
-      AND stored_size_bytes <= 1114112
+      AND stored_size_bytes <= 52494336
       AND stored_size_bytes = octet_length(compressed_content)
     )
   );
+  -- Scene versions require the portable budget. Markdown/text callers retain
+  -- their smaller limits in the content store and capability policy.
+  DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='file_version_blobs'::regclass
+      AND conname='file_version_blobs_raw_size_check' AND pg_get_constraintdef(oid) NOT LIKE '%52428800%') THEN
+      ALTER TABLE file_version_blobs DROP CONSTRAINT file_version_blobs_raw_size_check;
+      ALTER TABLE file_version_blobs ADD CONSTRAINT file_version_blobs_raw_size_check
+        CHECK (raw_size_bytes >= 0 AND raw_size_bytes <= 52428800);
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='file_version_blobs'::regclass
+      AND conname='file_version_blobs_stored_size_check' AND pg_get_constraintdef(oid) NOT LIKE '%52494336%') THEN
+      ALTER TABLE file_version_blobs DROP CONSTRAINT file_version_blobs_stored_size_check;
+      ALTER TABLE file_version_blobs ADD CONSTRAINT file_version_blobs_stored_size_check
+        CHECK (stored_size_bytes > 0 AND stored_size_bytes <= 52494336 AND stored_size_bytes=octet_length(compressed_content));
+    END IF;
+  END $$;
   CREATE INDEX IF NOT EXISTS idx_file_version_blobs_workspace_created
     ON file_version_blobs (workspace_id, created_at, blob_id);
 

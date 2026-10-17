@@ -9,6 +9,8 @@ export function notebookLocationAfterClosing(href: string, workspaceId: string, 
   const intent = getNotebookNavigationIntent(url.searchParams);
   if (intent.path && paths.includes(intent.path) && (!intent.workspaceId || intent.workspaceId === workspaceId)) {
     url.searchParams.delete('path');
+    url.searchParams.delete('documentId');
+    url.searchParams.delete('lineageId');
   }
   return `${url.pathname}${url.search}${url.hash}`;
 }

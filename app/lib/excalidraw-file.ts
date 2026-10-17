@@ -1,6 +1,10 @@
 export const EXCALIDRAW_FILE_EXTENSION = 'excalidraw';
 export const EXCALIDRAW_FILE_SOURCE = 'canvas-notebook';
 
+export function isExcalidrawPathExtensionChange(sourcePath: string, destinationPath: string): boolean {
+  return isExcalidrawFilePath(sourcePath) && !isExcalidrawFilePath(destinationPath);
+}
+
 export function isExcalidrawFilePath(path: string): boolean {
   return path.toLowerCase().endsWith(`.${EXCALIDRAW_FILE_EXTENSION}`);
 }

@@ -111,7 +111,7 @@ async function writeCollaborationCheckpointFile(input: {
   const serialized = serializeCanonicalText(canonical, input.state);
   const fileOptions = workspaceFileOptions(input.workspace);
   const beforePublish = () => assertCurrentCollaborationProjectionIdentity(input.state);
-  if (input.createIfAbsent) await writeFileIfAbsent(input.state.path, serialized, fileOptions, beforePublish, input.onPublished);
+  if (input.createIfAbsent) await writeFileIfAbsent(input.state.path, serialized, fileOptions, beforePublish, undefined, input.onPublished);
   else await writeFile(input.state.path, serialized, fileOptions, beforePublish);
   const fileRevision = await getWorkspaceFileRevision(input.state.path, fileOptions);
   if (!fileRevision) throw new Error('Collaboration checkpoint could not be read after write.');

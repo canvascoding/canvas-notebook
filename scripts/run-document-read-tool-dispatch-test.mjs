@@ -1,4 +1,4 @@
-/** Run the unchanged registered MCP/PI integration suite as one real-source ESM graph. */
+/** Run a bounded document-read integration suite as one real-source ESM graph. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -10,8 +10,14 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
-const entryPoint = 'scripts/document-read-tool-dispatch-postgres-test.ts';
-const criticalInputs = [entryPoint, 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
+assert(['scripts/document-read-tool-dispatch-postgres-test.ts',
+  'scripts/native-docx-file-read-postgres-test.ts'].includes(entryPoint), 'Unknown document-read integration suite.');
+const criticalInputs = entryPoint === 'scripts/native-docx-file-read-postgres-test.ts'
+  ? [entryPoint, 'app/lib/collaboration/workspace-native-file-read.ts',
+    'app/lib/files/collaboration-repository/index.ts', 'app/lib/office/document-service.ts',
+    'app/lib/filesystem/workspace-files.ts', 'app/lib/db/index.ts']
+  : [entryPoint, 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
   'app/lib/pi/tool-registry.ts', 'app/lib/pi/agent-tool-invocation.ts',
   'app/lib/documents/service.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/db/index.ts'];
 let stage = 'preflight';

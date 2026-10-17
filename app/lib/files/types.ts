@@ -81,6 +81,7 @@ export interface CollaborationDocumentState {
 }
 
 export interface FileCollaborationState {
+  lineageId?: string | null;
   path: string;
   strategy: FileCollaborationStrategy;
   crdtCapable: boolean;
@@ -118,6 +119,7 @@ export interface OpenWorkspaceFileOptions {
   explorerBehavior?: 'preserve' | 'reveal';
   transitionId?: string;
   expectedDocumentId?: string;
+  expectedLineageId?: string;
   isCurrent?: () => boolean;
   /** Revalidate a closed preview when reopening its URL, including the same path. */
   forceReload?: boolean;

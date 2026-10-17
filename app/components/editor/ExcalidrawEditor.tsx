@@ -44,6 +44,7 @@ import { ExcalidrawAgentOperations } from './ExcalidrawAgentOperations';
 
 interface ExcalidrawEditorProps {
   path: string;
+  workspaceId?: string | null;
   value: string;
   onChange: (content: string) => void;
   collaborationEnabled?: boolean;
@@ -177,27 +178,28 @@ function offsetElements(
   })) as OrderedExcalidrawElement[];
 }
 
-export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled = false, documentIdentity, externalCollaboration }: ExcalidrawEditorProps) {
+export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value, onChange, collaborationEnabled = true, documentIdentity, externalCollaboration }: ExcalidrawEditorProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
   const { resolvedTheme } = useTheme();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceId = providedWorkspaceId === undefined ? activeWorkspaceId : providedWorkspaceId;
   const internalCollaboration = useExcalidrawCollaboration({
     enabled: collaborationEnabled && externalCollaboration === undefined,
-    workspaceId: activeWorkspaceId,
+    workspaceId,
     path,
   });
   const collaboration = externalCollaboration ?? internalCollaboration;
   useEffect(() => {
     if (!collaborationEnabled) return;
-    return registerDocumentTransitionGuard(activeWorkspaceId, path, {
+    return registerDocumentTransitionGuard(workspaceId, path, {
       hasPendingChanges: () => !collaboration || collaboration.hasPendingChanges(),
       prepare: async () => {
         if (!collaboration) throw new Error(t('collaboration.connecting'));
         await collaboration.prepareToLeave();
       },
     });
-  }, [activeWorkspaceId, collaboration, collaborationEnabled, path, t]);
+  }, [workspaceId, collaboration, collaborationEnabled, path, t]);
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const loadingAssetsRef = useRef(new Set<string>());
   const lastSerializedRef = useRef(value);
@@ -582,6 +584,7 @@ export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled =
           </Footer>
         </Excalidraw>
         <ExcalidrawAgentOperations
+          workspaceId={workspaceId ?? null}
           documentId={collaboration?.session?.documentId ?? null}
           readOnly={collaborationReadOnly}
         />

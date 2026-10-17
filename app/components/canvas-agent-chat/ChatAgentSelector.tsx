@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
-import { CheckCircle2, ChevronDown, Pencil, Plus, Route } from 'lucide-react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Pencil, Plus, Route } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -10,6 +10,8 @@ import {
 } from '@/app/components/agents/AgentIdentityVisual';
 import { EditAgentProfileDialog } from '@/app/components/agents/EditAgentProfileDialog';
 import { AgentWorkflowChoiceDialog } from '@/app/components/agents/AgentWorkflowChoiceDialog';
+import type { AgentExtensionEditorContext } from '@/app/components/agents/AgentExtensionEditor';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { authClient } from '@/app/lib/auth-client';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { CreateAgentDialog, type CreateAgentInput, type CreatedAgent } from '@/app/components/settings/CreateAgentDialog';
@@ -17,7 +19,40 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
-export function ChatAgentSelector({
+type ChatAgentSelectorProps = {
+  variant: 'desktop' | 'mobile' | 'compact'; activeAgentId: string; activeAgentName: string;
+  activeAgentIconId?: string | null; agents: AgentProfile[]; className?: string; testId?: string;
+  onSelectAgent: (agentId: string) => void; onReloadAgents?: () => Promise<void>;
+  onAgentCreated: (agent: AgentProfile) => boolean;
+  iconOnly?: boolean; adaptiveMobileLabel?: boolean; context?: AgentExtensionEditorContext;
+};
+type AgentSelectorContextStatus = 'ready' | 'loading' | 'auth_error' | 'unavailable';
+
+/** A forced chat workspace never falls back to a different active workspace. */
+export function ChatAgentSelector(props: ChatAgentSelectorProps) {
+  const { data: session, isPending, error: sessionError } = authClient.useSession();
+  const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
+  const initialized = useWorkspaceStore(state => state.initialized);
+  const workspaceError = useWorkspaceStore(state => state.error);
+  const workspaceId = props.context === undefined ? activeWorkspaceId : props.context.workspaceId;
+  const workspace = useWorkspaceStore(state => state.workspaces.find(row => row.id === workspaceId));
+  const actorId = session?.user?.id ?? null;
+  // Explicit null is a complete scope value; an omitted field still needs the
+  // matching workspace metadata. A forced workspace never uses another row.
+  const organizationId = props.context?.organizationId !== undefined ? props.context.organizationId : workspace?.organizationId ?? null;
+  const projectId = props.context?.projectId !== undefined ? props.context.projectId : workspace?.projectId ?? null;
+  const explicitScope = Boolean(workspaceId && props.context?.organizationId !== undefined && props.context?.projectId !== undefined);
+  const currentWorkspaceUnavailable = Boolean(workspace && (workspace.status !== 'active' || !workspace.permissions.canRead
+    || organizationId !== (workspace.organizationId ?? null) || projectId !== (workspace.projectId ?? null)));
+  const contextStatus: AgentSelectorContextStatus = isPending ? 'loading' : sessionError || !actorId ? 'auth_error'
+    : currentWorkspaceUnavailable ? 'unavailable' : explicitScope ? 'ready' : !initialized ? 'loading'
+      : workspaceError || !workspace ? 'unavailable' : 'ready';
+  const context = useMemo(() => ({ actorId, workspaceId, organizationId, projectId }), [actorId, workspaceId, organizationId, projectId]);
+  const key = JSON.stringify([actorId, workspaceId, organizationId, projectId, contextStatus]);
+  return <ChatAgentSelectorSession key={key} {...props} context={context} contextStatus={contextStatus} canManageAgentDefaults={session?.user?.role === 'admin'} />;
+}
+
+function ChatAgentSelectorSession({
   variant,
   activeAgentId,
   activeAgentName,
@@ -27,23 +62,18 @@ export function ChatAgentSelector({
   testId = 'chat-agent-id',
   onSelectAgent,
   onReloadAgents,
+  onAgentCreated,
   iconOnly = false,
   adaptiveMobileLabel = false,
-}: {
-  variant: 'desktop' | 'mobile' | 'compact';
-  activeAgentId: string;
-  activeAgentName: string;
-  activeAgentIconId?: string | null;
-  agents: AgentProfile[];
-  className?: string;
-  testId?: string;
-  onSelectAgent: (agentId: string) => void;
-  onReloadAgents?: () => Promise<void>;
-  iconOnly?: boolean;
-  adaptiveMobileLabel?: boolean;
-}) {
+  context,
+  contextStatus,
+  canManageAgentDefaults,
+}: ChatAgentSelectorProps & { context: AgentExtensionEditorContext; contextStatus: AgentSelectorContextStatus; canManageAgentDefaults: boolean }) {
   const t = useTranslations('chat');
   const tWorkflow = useTranslations('agentWorkflow');
+  const contextReady = contextStatus === 'ready';
+  const contextLabel = contextReady ? null : contextStatus === 'loading' ? t('agentContextLoading')
+    : contextStatus === 'auth_error' ? t('agentContextAuthUnavailable') : t('agentContextUnavailable');
   const compact = variant === 'mobile' || variant === 'compact';
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -55,8 +85,8 @@ export function ChatAgentSelector({
   const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
   const agentsLoadSequenceRef = useRef(0);
   const selectorTriggerRef = useRef<HTMLButtonElement>(null);
-  const { data: session } = authClient.useSession();
-  const canManageAgentDefaults = session?.user?.role === 'admin';
+  const mounted = useRef(false), creatingNow = useRef(false);
+  useLayoutEffect(() => { mounted.current = true; return () => { mounted.current = false; agentsLoadSequenceRef.current += 1; }; }, []);
 
   const reloadAgents = useCallback(async () => {
     if (!onReloadAgents) return;
@@ -78,17 +108,22 @@ export function ChatAgentSelector({
   }, [onReloadAgents, t]);
 
   const handlePopoverOpenChange = useCallback((open: boolean) => {
+    if (open && !contextReady) return;
     setPopoverOpen(open);
     if (open) {
       void reloadAgents();
     }
-  }, [reloadAgents]);
+  }, [contextReady, reloadAgents]);
 
   const createAgent = useCallback(async (input: CreateAgentInput): Promise<CreatedAgent | null> => {
+    if (creatingNow.current) return null;
+    creatingNow.current = true;
     setCreating(true);
     setCreateError(null);
     try {
-      const response = await fetch('/api/agents', {
+      const query = new URLSearchParams();
+      for (const key of ['workspaceId', 'organizationId', 'projectId'] as const) if (context[key]) query.set(key, context[key]);
+      const response = await fetch(`/api/agents${query.size ? `?${query}` : ''}`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -104,8 +139,11 @@ export function ChatAgentSelector({
         throw new Error(payload.error || t('agentCreateFailed'));
       }
 
-      await onReloadAgents?.();
-      onSelectAgent(createdAgent.agentId);
+      // Creation is acknowledged already. A list-refresh failure must never invite a second POST.
+      if (mounted.current && onAgentCreated(createdAgent)) {
+        onSelectAgent(createdAgent.agentId);
+        void onReloadAgents?.().catch(() => { if (mounted.current) setAgentsLoadError(t('agentLoadFailed')); });
+      }
       return {
         agentId: createdAgent.agentId,
         name: createdAgent.name,
@@ -113,12 +151,13 @@ export function ChatAgentSelector({
         revision: createdAgent.revision || 1,
       };
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : t('agentCreateFailed'));
+      if (mounted.current) setCreateError(error instanceof Error ? error.message : t('agentCreateFailed'));
       return null;
     } finally {
-      setCreating(false);
+      creatingNow.current = false;
+      if (mounted.current) setCreating(false);
     }
-  }, [onReloadAgents, onSelectAgent, t]);
+  }, [context, onAgentCreated, onReloadAgents, onSelectAgent, t]);
 
   const handleAgentChanged = useCallback(async () => {
     await onReloadAgents?.();
@@ -144,10 +183,13 @@ export function ChatAgentSelector({
           ref={selectorTriggerRef}
           type="button"
           data-testid={testId}
-          aria-label={`${t('agentSelectTitle')}: ${activeAgentName}`}
-          title={t('agentSelectTitle')}
+          data-context-status={contextStatus}
+          disabled={!contextReady}
+          aria-busy={contextStatus === 'loading' || undefined}
+          aria-label={`${t('agentSelectTitle')}: ${contextLabel ?? activeAgentName}`}
+          title={contextLabel ?? t('agentSelectTitle')}
           className={cn(
-            'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 font-medium text-foreground transition-colors hover:bg-accent',
+            'inline-flex h-7 min-w-0 shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-2 font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60',
             iconOnly
               ? 'w-auto justify-center border-border/60'
               : 'border-border/60 bg-muted/50',
@@ -162,11 +204,12 @@ export function ChatAgentSelector({
           {!compact && !iconOnly ? (
             <span className="text-[9px] uppercase tracking-[0.15em] text-muted-foreground">{t('agentLabel')}</span>
           ) : null}
-          <AgentIdentityIcon
+          {contextStatus === 'loading' ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" /> : !contextReady
+            ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" /> : <AgentIdentityIcon
             agentId={activeAgentId}
             iconId={activeAgentIconId}
             className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
-          />
+          />}
           {!iconOnly ? (
             <span className={cn(
               'min-w-0 truncate',
@@ -176,7 +219,7 @@ export function ChatAgentSelector({
                   ? 'max-w-[6rem]'
                   : 'max-w-[9rem]',
             )}>
-              {activeAgentName}
+              {contextLabel ?? activeAgentName}
             </span>
           ) : null}
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
@@ -250,7 +293,7 @@ export function ChatAgentSelector({
                 </span>
                 {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
               </button>
-              {agent.workflowVersion === 1 && agent.access?.canUse ? <button
+              {(agent.workflowVersion === 1 || agent.workflowVersion === 2) && agent.access?.canUse ? <button
                 type="button"
                 data-testid={`chat-agent-workflow-${agent.agentId}`}
                 onClick={() => { setPopoverOpen(false); setWorkflowTarget(agent); }}
@@ -259,7 +302,7 @@ export function ChatAgentSelector({
                 className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 <Route className="size-3.5" />
               </button> : null}
-              {agent.removable && agent.access?.canEdit && agent.workflowVersion == null ? (
+              {agent.removable && agent.access?.canEdit ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -287,6 +330,7 @@ export function ChatAgentSelector({
       </PopoverContent>
     </Popover>
     <CreateAgentDialog
+      context={context}
       open={createDialogOpen}
       creating={creating}
       error={createError}
@@ -298,6 +342,7 @@ export function ChatAgentSelector({
       onCreate={createAgent}
     />
     <EditAgentProfileDialog
+      context={context}
       open={Boolean(editTarget)}
       agent={editTarget}
       canManageAgentDefaults={canManageAgentDefaults}
@@ -307,7 +352,7 @@ export function ChatAgentSelector({
       onChanged={handleAgentChanged}
       onDeleted={handleAgentDeleted}
     />
-    {workflowTarget ? <AgentWorkflowChoiceDialog open agentId={workflowTarget.agentId} agentName={workflowTarget.name}
+    {workflowTarget ? <AgentWorkflowChoiceDialog open context={context} agentId={workflowTarget.agentId} agentName={workflowTarget.name}
       onRestoreFocus={() => selectorTriggerRef.current?.focus()}
       onOpenChange={(open) => { if (!open) setWorkflowTarget(null); }} /> : null}
     </>

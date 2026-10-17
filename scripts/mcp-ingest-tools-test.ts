@@ -143,6 +143,7 @@ function fixture() {
         sha256: createHash('sha256').update(loaded.content).digest('hex'), mime_type: loaded.validation.mimeType,
         revision_id: 'revision-fixture', operation_id: 'operation-fixture',
         document_url: 'https://canvas.fixture.test/notebook?workspaceId=workspace-1&path=notes%2Fnew.md',
+        document_id: null, lineage_id: null,
         markdown: loaded.validation.markdown, warnings: loaded.validation.warnings,
       };
     },

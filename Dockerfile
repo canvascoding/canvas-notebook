@@ -148,10 +148,10 @@ RUN if [ "$CANVAS_RELEASE_BUILD_SKIP_TYPECHECK" != "1" ]; then \
 RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" = "1" ]; then \
       CANVAS_RELEASE_SOURCE_SHA="$CANVAS_RELEASE_SOURCE_SHA" CANVAS_RELEASE_BUILD_RUN_ID="$CANVAS_RELEASE_BUILD_RUN_ID" node scripts/release-app-build.mjs verify; \
     else \
-      CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1 node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build --experimental-build-mode compile; \
+      node scripts/release-next-build.mjs compile; \
     fi
 RUN if [ "$CANVAS_RELEASE_USE_PREBUILT_APP" != "1" ]; then \
-      CANVAS_RELEASE_BUILD_SKIP_TYPECHECK=1 node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build --experimental-build-mode generate \
+      node scripts/release-next-build.mjs generate \
       && bash scripts/inject-cli-version.sh; \
     fi \
     && node scripts/collaboration-production-module-test.mjs

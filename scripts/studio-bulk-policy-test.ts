@@ -169,10 +169,9 @@ async function main() {
     }
     for (const locale of ['de', 'en']) {
       const response = await middleware(new NextRequest(`${origin}/${locale}/studio/bulk?workspaceId=fixture`));
-      assert.equal(response.status, 307);
-      const login = new URL(response.headers.get('location')!);
-      assert.equal(login.pathname, locale === 'de' ? '/login' : '/en/login', 'anonymous pages retain the existing login routing');
-      assert.equal(login.searchParams.get('from'), `/${locale}/studio/bulk?workspaceId=fixture`, 'login retains the original destination');
+      assert.equal(response.headers.get('x-middleware-next'), '1', 'anonymous page authentication belongs to the page guard');
+      assert.equal(response.headers.get('location'), null, 'disabled Bulk must not redirect before the anonymous page guard runs');
+      assert.equal(response.headers.get('x-middleware-request-x-canvas-page-return-to'), `/${locale}/studio/bulk?workspaceId=fixture`, 'login retains the original destination');
     }
     await setEnabled(true);
     for (const locale of ['de', 'en']) {

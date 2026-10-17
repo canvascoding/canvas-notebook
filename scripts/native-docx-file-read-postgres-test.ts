@@ -108,6 +108,7 @@ async function main() {
     const { prepareOfficeCommit, findOfficeCommit } = await import('../app/lib/office/document-journal');
     const { createEmptyDocx } = await import('../app/lib/office/empty-docx');
     const collaboration = await import('../app/lib/files/collaboration-policy');
+    const catalogue = await import('../app/lib/collaboration/workspace-document-catalogue');
     const filesystem = await import('../app/lib/filesystem/workspace-files');
     const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
     const workspace: WorkspaceContext = { workspaceId: `native-docx-${randomUUID()}`, organizationId: null,
@@ -120,6 +121,25 @@ async function main() {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
     }).outputText;
     const mocks: Record<string, unknown> = {
+      // The ESM graph holds these actual modules; do not require a second CJS
+      // copy through TypeScript aliases while evaluating the actual route.
+      '@/app/lib/files/revision-guard': { sha256Buffer },
+      '@/app/lib/office/editor-compatibility': await import('../app/lib/office/editor-compatibility'),
+      '@/app/lib/excalidraw-file': await import('../app/lib/excalidraw-file'),
+      '@/app/lib/collaboration/checkpoint-errors': await import('../app/lib/collaboration/checkpoint-errors'),
+      '@/app/lib/files/read-busy': await import('../app/lib/files/read-busy'),
+      // Scene routes have their own integration suite. A DOCX request must never
+      // enter them; keep their new imports outside this read-only DOCX fixture.
+      '@/app/lib/excalidraw-collaboration/scene-service': {
+        getExcalidrawDocument: () => assert.fail('A DOCX read must not resolve an Excalidraw scene.'),
+      },
+      '@/app/lib/excalidraw-collaboration/checkpoint': {
+        serializePortableExcalidrawScene: () => assert.fail('A DOCX read must not serialize an Excalidraw scene.'),
+      },
+      '@/app/lib/excalidraw-collaboration/http': {
+        excalidrawRequestAuthority: () => assert.fail('A DOCX read must not request Excalidraw authority.'),
+        excalidrawRouteError: () => assert.fail('A DOCX read must not return an Excalidraw error.'),
+      },
       '@/app/lib/utils/rate-limit': { rateLimit: () => ({ ok: true }) },
       '@/app/lib/workspaces/request': {
         requireRequestWorkspace: async () => ({ workspace, session: { user: { id: 'owner' } } }),
@@ -149,9 +169,14 @@ async function main() {
         readFile: async (...args: Parameters<typeof filesystem.readFile>) => { physicalReads++; return filesystem.readFile(...args); },
       },
       '@/app/lib/files/collaboration-policy': collaboration,
+      '@/app/lib/collaboration/workspace-document-catalogue': catalogue,
     };
     const route = {} as typeof Route;
-    new Function('require', 'module', 'exports', source)((name: string) => mocks[name] ?? runtimeRequire(name), { exports: route }, route);
+    new Function('require', 'module', 'exports', source)((name: string) => {
+      if (Object.hasOwn(mocks, name)) return mocks[name];
+      assert.equal(name, 'next/server', 'Every route dependency must use the held ESM graph or an explicit IO seam.');
+      return runtimeRequire(name);
+    }, { exports: route }, route);
     const read = (filePath: string, query = '') => route.GET(new NextRequest(`https://canvas.test/api/files/read?path=${encodeURIComponent(filePath)}${query}`));
     const expectSuccess = async (filePath: string, query = '') => {
       const response = await read(filePath, query);
@@ -327,21 +352,28 @@ async function main() {
     } finally { await admission.cancel(request, reservation.revision); }
     assert.equal(live.size, 0); assert.equal(readFences.size, 0); assert(kernelEntries > 0);
     console.log('PASS real DA04 reservation remains read-only reachable and rejects new lifecycle publication; no native Office side effects');
+  } catch (error) {
+    console.error('Native DOCX original failure:', phase,
+      error instanceof Error ? error.message.slice(0, 400) : 'Unknown failure');
+    throw error;
   } finally {
-    setFileCollaborationConnectionFactoryForTests(null);
-    assert.equal(live.size, 0, 'Every owned checkout must close before schema cleanup.');
-    await pool?.end();
-    if (created) {
-      assert.match(schema, schemaPattern);
-      const owned = (await control.query('SELECT nspowner = (SELECT oid FROM pg_roles WHERE rolname=current_user) AS owned FROM pg_namespace WHERE nspname=$1', [schema])).rows[0];
-      assert.equal(owned?.owned, true);
-      await control.query(`DROP SCHEMA "${schema}" CASCADE`);
-      assert.equal((await control.query('SELECT count(*) AS count FROM pg_namespace WHERE nspname=$1', [schema])).rows[0].count, '0');
-      console.log('PASS owned PG18 schema/checkouts cleanup; no public-table mutations or host/container runtime');
-    }
-    await control.end(); await rm(root, { recursive: true, force: true });
-    for (const key of ['DATA', 'CANVAS_DATA_ROOT'] as const) {
-      if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
+    try {
+      setFileCollaborationConnectionFactoryForTests(null);
+      assert.equal(live.size, 0, 'Every owned checkout must close before schema cleanup.');
+      await pool?.end();
+      if (created) {
+        assert.match(schema, schemaPattern);
+        const owned = (await control.query('SELECT nspowner = (SELECT oid FROM pg_roles WHERE rolname=current_user) AS owned FROM pg_namespace WHERE nspname=$1', [schema])).rows[0];
+        assert.equal(owned?.owned, true);
+        await control.query(`DROP SCHEMA "${schema}" CASCADE`);
+        assert.equal(Number((await control.query('SELECT count(*) AS count FROM pg_namespace WHERE nspname=$1', [schema])).rows[0].count), 0);
+        console.log('PASS owned PG18 schema/checkouts cleanup; no public-table mutations or host/container runtime');
+      }
+    } finally {
+      await control.end(); await rm(root, { recursive: true, force: true });
+      for (const key of ['DATA', 'CANVAS_DATA_ROOT'] as const) {
+        if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key];
+      }
     }
   }
 }

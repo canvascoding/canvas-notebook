@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite-pgvector';
 
 import type { SqlConnection } from '../app/lib/db';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
@@ -77,7 +78,7 @@ async function insertExcalidrawState(
 }
 
 async function main(): Promise<void> {
-  const postgres = new PGlite();
+  const postgres = new PGlite({ extensions: { vector } });
   const dataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-file-policy-postgres-'));
   const originalData = process.env.DATA;
   const originalProvider = process.env.CANVAS_DATABASE_PROVIDER;

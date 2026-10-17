@@ -19,8 +19,14 @@ moduleLoader._load = function loadWithServerOnlyMock(request, parent, isMain) {
   if (request === '@/app/lib/db' || /\/app\/lib\/db(?:\/index)?(?:\.ts)?$/u.test(request) || /^(?:\.\.\/)+db$/u.test(request)) return testDatabase;
   if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-agent-core') return {};
+  if (request === '@/app/lib/capabilities/extensions/delegation-source') return {
+    // Dispatcher/controller scheduling fixture. Issuer and policy authority are
+    // separately exercised with actual stored sessions and ACLs.
+    captureDelegatedExtensionSource: async () => null,
+  };
   if (request === '@/app/lib/pi/session-workspace-context') return {
-    resolveAgentExecutionContextForSession: async ({ sessionId }: { sessionId: string }) => ({
+    resolveAgentExecutionContextForSession: async ({ sessionId, userId, agentId }: { sessionId: string; userId: string; agentId: string }) => ({
+      userId, sessionId, agentId: agentId === 'canvas-agent' ? 'bradley' : agentId,
       organizationId: 'managed-org',
       workspaceId: ['managed-parent-other-workspace', 'managed-worker-other-workspace'].includes(sessionId)
         ? 'other-workspace' : 'managed-workspace',
@@ -95,6 +101,10 @@ async function main() {
       updatedAt: now,
     });
 
+    await db.insert(piSessions).values({ sessionId: 'source-session', userId: 'dispatcher-user', agentId: 'bradley',
+      organizationId: 'managed-org', workspaceId: 'managed-workspace', workspaceType: 'personal',
+      provider: 'test-provider', model: 'test-model', sessionKind: 'conversation', delegationDepth: 0, createdAt: now, updatedAt: now });
+
     const started: DelegateTaskRequest[] = [];
     const delivered: string[] = [];
     const originalParentControllers: AbortController[] = [];
@@ -147,7 +157,7 @@ async function main() {
       originalParentControllers.push(parentController);
       return dispatcher!.enqueue({
         userId: 'dispatcher-user',
-        sourceAgentId: 'canvas-agent',
+        sourceAgentId: 'bradley',
         sourceSessionId: 'source-session',
         abortSignal: parentController.signal,
         goal,
@@ -229,11 +239,25 @@ async function main() {
     await waitFor(() => delivered.includes(remoteStopId), 'Remote stop did not deliver its final status.');
 
     dispatcher.stop();
+    const missingOrigin = await createPiDelegation({ id: 'delegation-missing-origin', userId: 'dispatcher-user',
+      sourceSessionId: 'source-session', sourceAgentId: 'bradley', sourceAgentTurnId: 'original-server-turn',
+      workerSessionId: 'missing-origin-worker', workerType: 'ephemeral', goal: 'Reloaded finite task', toolsets: ['composio'] });
+    let missingOriginStarts = 0;
+    let missingOriginSettled = false;
+    dispatcher = new PiDelegationDispatcher({ maxConcurrency: 1, pollIntervalMs: 60_000, recoverInterrupted: false,
+      startDelegatedRunFn: async request => { missingOriginStarts++; return completionResult(request, 'Unexpected generic fallback'); },
+      deliverCompletionFn: async () => { missingOriginSettled = true; } });
+    await dispatcher.initialize();
+    await waitFor(() => missingOriginSettled, 'The reloaded task was not settled.');
+    await waitFor(() => dispatcher!.getActiveCount() === 0, 'The missing-origin task did not settle.');
+    assert.equal(missingOriginStarts, 0, 'Persisted public task fields cannot reconstruct a private source after reload.');
+    assert.match((await getPiDelegation(missingOrigin.id))?.errorText ?? '', /cannot be resumed/u);
+    dispatcher.stop();
     const recoveredWorkerSessionId = 'recovered-worker-session';
     const [recoveredSession] = await db.insert(piSessions).values({
       sessionId: recoveredWorkerSessionId,
       userId: 'dispatcher-user',
-      agentId: 'canvas-agent',
+      agentId: 'bradley',
       provider: 'test-provider',
       model: 'test-model',
       title: 'Recovered worker',
@@ -271,7 +295,7 @@ async function main() {
       id: 'delegation-recovered',
       userId: 'dispatcher-user',
       sourceSessionId: 'source-session',
-      sourceAgentId: 'canvas-agent',
+      sourceAgentId: 'bradley',
       workerSessionId: recoveredWorkerSessionId,
       workerType: 'ephemeral',
       goal: 'Recover the persisted worker result',
@@ -306,7 +330,7 @@ async function main() {
     dispatcher.stop();
     const uncertain = await createPiDelegation({
       id: 'delegation-uncertain-delivery', userId: 'dispatcher-user',
-      sourceSessionId: 'source-session', sourceAgentId: 'canvas-agent',
+      sourceSessionId: 'source-session', sourceAgentId: 'bradley',
       workerSessionId: 'uncertain-worker-session', workerType: 'ephemeral',
       goal: 'Inspect an uncertain completion', toolsets: ['file'],
     });

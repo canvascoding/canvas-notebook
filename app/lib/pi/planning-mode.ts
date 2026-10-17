@@ -6,6 +6,7 @@ import { isProgressiveGatewayTool, withAllowedProgressiveGatewayOperations } fro
  * Whitelist approach: new tools are blocked by default until explicitly added here.
  */
 export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
+  'search_canvas_extensions',
   'list_canvas_package_store',
   'inspect_canvas_package_presentation',
   'inspect_canvas_package_store_install_options',
@@ -14,6 +15,13 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'describe_canvas_skill_script',
   'inspect_canvas_package',
   'list_canvas_package_scopes',
+  'list_canvas_package_drafts',
+  'inspect_canvas_package_draft_status',
+  'inspect_canvas_package_operation',
+  'inspect_canvas_package_workspace_draft',
+  'inspect_canvas_package_authoring_source',
+  'inspect_canvas_package_provisioning',
+  'list_canvas_package_versions',
   'inspect_canvas_package_draft',
   'list_canvas_package_draft_files',
   'read_canvas_package_draft_file',
@@ -26,6 +34,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'ls',
   'read',
   'read_document',
+  'get_excalidraw_scene',
   'inspect_document_relations',
   'list_file_snapshots',
   'glob',
@@ -39,6 +48,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'inspect_agent',
   'inspect_agent_workflow',
   'list_agent_workflow_options',
+  'list_agent_extension_options',
   'list_human_todos',
   'inspect_human_todo',
 ]);

@@ -7,7 +7,7 @@ import messages from '../messages/en.json';
 import { useChatSessionBootstrap } from '../app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionHistory } from '../app/components/canvas-agent-chat/useChatSessionHistory';
 import { writeCanvasChatActiveSessionStorage } from '../app/lib/chat/constants';
-import { createPromptHandoff, persistPromptHandoff } from '../app/lib/chat/prompt-handoff';
+import { createPromptHandoff, persistPromptHandoff, type PromptHandoff } from '../app/lib/chat/prompt-handoff';
 import { getNotebookQueryClient } from '../app/lib/queries/client';
 import { observeOpenedDocumentAuth } from '../app/lib/collaboration/opened-document-registry';
 import type { AISession } from '../app/lib/chat/types';
@@ -39,6 +39,8 @@ let sendHandler: Send = async () => {};
 const send: Send = async (...args) => { await sendHandler(...args); };
 let historyState!: ReturnType<typeof useChatSessionHistory>;
 let bootstrapState!: ReturnType<typeof useChatSessionBootstrap>;
+let composedHandoff: PromptHandoff | null = null;
+const composeHandoff = (handoff: PromptHandoff) => { composedHandoff = handoff; };
 
 function Harness({ workspaceId, requested = null, restore = false, showHistory = false, initialPromptStorageKey, isAuthReady = true, layoutVersion = 0 }: {
   workspaceId: string; requested?: string | null; restore?: boolean; showHistory?: boolean; initialPromptStorageKey?: string; isAuthReady?: boolean; layoutVersion?: number;
@@ -69,6 +71,7 @@ function Harness({ workspaceId, requested = null, restore = false, showHistory =
     await loadBarrier;
   }, [layoutVersion]);
   const bootstrap = useChatSessionBootstrap({ activeWorkspaceId: workspaceId, addSessionToHistory: history.addSessionToHistory,
+    onComposeHandoff: composeHandoff,
     appendSystemMessage: noop, clearSessionParamFromUrl: noop, fetchHistory: history.fetchHistory,
     handleControlAction: send, initialPromptStorageKey, isAuthReady, hasLoadedSessionListRef: history.hasLoadedSessionListRef,
     historyLength: history.history.length, initialPromptConsumedRef: consumed,
@@ -250,6 +253,14 @@ async function main() {
   await act(async () => { sendAttempt.resolve(); });
   await tick();
   assert.equal(window.sessionStorage.getItem('handoff-test'), null, 'consume only after acknowledged send');
+  const composer = createPromptHandoff({ ...source, handoffId: 'creator-composer', mode: 'compose' });
+  persistPromptHandoff(window.sessionStorage, 'handoff-test', composer);
+  window.history.replaceState(null, '', `?workspaceId=handoff-workspace&chat=open&handoff=${composer.handoffId}`);
+  await render({ workspaceId: 'handoff-workspace', initialPromptStorageKey: 'handoff-test' }, 'composer-handoff');
+  await tick();
+  assert.deepEqual(composedHandoff, composer, 'The unmodified public body reaches the ordinary composer adapter.');
+  assert.equal(attempts.length, 2, 'A composer handoff must never submit a message.');
+  assert.equal(window.sessionStorage.getItem('handoff-test'), null, 'Only the consumed exact composer handoff is removed.');
   console.error = originalError;
   await act(async () => root.unmount());
   getNotebookQueryClient().clear();

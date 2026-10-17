@@ -9,6 +9,7 @@ import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/ap
 import {
   DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
   DIRECT_MCP_DEFAULT_TOOL_IDS,
+  DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS,
   DIRECT_MCP_TOOL_IDS,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
@@ -357,10 +358,10 @@ export async function setDirectMcpServerPreferences(
   const now = new Date().toISOString();
   // A server activation should be immediately useful. Preserve intentional
   // capability changes while it remains active. The original capabilities
-  // retain their activation behavior; newly introduced ingestion requires
+  // retain their activation behavior; ingestion and scenes require
   // an explicit capability selection, including on reactivation.
   const enabledTools = input.enabled && !file.settings.directMcp?.enabled
-    ? DIRECT_MCP_TOOL_IDS.filter(tool => !['create_knowledge_source', 'import_knowledge_file'].includes(tool) || tools.includes(tool))
+    ? DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool) || tools.includes(tool))
     : tools;
   const directMcp: DirectMcpServerPreferences = {
     enabled: input.enabled,

@@ -180,7 +180,8 @@ async function main(): Promise<void> {
         cwd:process.cwd(),env:{...process.env,PGOPTIONS:`${process.env.PGOPTIONS} -c application_name=${applicationName}`,CANVAS_MANUAL_CREATE_CHILD:descriptor},
         detached:true,stdio:['ignore','pipe','pipe','ipc']});
       const group=child.pid;assert(Number.isSafeInteger(group)&&group! > 0);
-      let output='',failure:unknown,closed=false,started=false,readyResolve!:()=>void,readyReject!:(error:unknown)=>void,closedResolve!:()=>void;
+      let output='',stderrTail='',failure:unknown,closed=false,started=false,readyResolve!:()=>void,readyReject!:(error:unknown)=>void,closedResolve!:()=>void;
+      const childErrorCodes=new Set<string>();
       const closedPromise=new Promise<void>(resolve=>{closedResolve=resolve;});
       const ready=new Promise<void>((resolve,reject)=>{readyResolve=resolve;readyReject=reject;});
       void ready.catch(()=>undefined);
@@ -195,12 +196,17 @@ async function main(): Promise<void> {
       const rejectDeadline=(error:unknown)=>{failure??=error;readyReject(error);deadlineReject(error);void stop(error).catch(closeError=>{failure??=closeError;});};
       const timer=setTimeout(()=>rejectDeadline(new Error('Own manual Create child exceeded its 120s wall budget.')),120000);
       child.stdout!.on('data',chunk=>{output+=String(chunk);if(output.length>65536)rejectDeadline(new Error('Own manual Create child output exceeded its finite limit.'));});
-      child.stderr!.resume();
+      child.stderr!.on('data',chunk=>{
+        stderrTail=(stderrTail+String(chunk)).slice(-8192);
+        for(const match of stderrTail.matchAll(/\bcode:\s*['"]([A-Z0-9_]{1,80})['"]/gu)){
+          if(childErrorCodes.size<8)childErrorCodes.add(match[1]);
+        }
+      });
       child.once('error',error=>{failure??=error;readyReject(error);});
       child.on('message',message=>{if(message==='manual_create_ready')readyResolve();});
       const actualResult=new Promise<ChildResult>((resolve,reject)=>child.once('close',(code,signal)=>{
         closed=true;entry.ended=true;clearTimeout(timer);closedResolve();
-        try{if(failure)throw failure;assert.equal(code,0,`Own Create child failed (${signal??'no signal'}).`);
+        try{if(failure)throw failure;assert.equal(code,0,`Own Create child failed (${signal??'no signal'}; codes=${[...childErrorCodes].join(',')||'unavailable'}).`);
           const lines=output.split('\n').filter(line=>line.startsWith('MANUAL_CHILD_RESULT '));assert.equal(lines.length,1);
           const value=JSON.parse(lines[0].slice('MANUAL_CHILD_RESULT '.length)) as ChildResult;
           assert([200,409].includes(value.status));assert(Array.isArray(value.backends));assert.equal(typeof value.body.success,'boolean');

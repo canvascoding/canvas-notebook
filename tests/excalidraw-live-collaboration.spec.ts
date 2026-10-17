@@ -1,4 +1,5 @@
-import { expect, request, test, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request, type APIRequestContext, type BrowserContext, type Page } from '@playwright/test';
+import { test } from './helpers/excalidraw-experimental-review';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { ownedCollaborationQaEnabled, requireOwnedCollaborationQaTarget } from '../scripts/lib/owned-collaboration-qa';
@@ -26,6 +27,7 @@ type WorkspaceSummary = {
 
 type LiveScene = {
   documentId: string;
+  lifecycleGeneration: number;
   sceneSequence: number;
   elements: Array<Record<string, unknown> & { id: string; version: number; versionNonce: number; isDeleted: boolean; x?: number }>;
 };
@@ -41,12 +43,12 @@ async function login(page: Page, email: string, password: string): Promise<strin
   return payload.user!.id!;
 }
 
-async function organizationWorkspace(request: APIRequestContext): Promise<WorkspaceSummary> {
+async function listedWorkspace(request: APIRequestContext, workspaceId: string): Promise<WorkspaceSummary> {
   const response = await request.get('/api/workspaces');
   const payload = await response.json() as { workspaces?: WorkspaceSummary[]; error?: string };
   expect(response.ok(), payload.error || 'Could not list workspaces').toBeTruthy();
-  const workspace = payload.workspaces?.find((candidate) => candidate.name === 'Shared Test Workspace' && candidate.permissions.canWrite);
-  expect(workspace, 'The existing shared managed fixture must be writable for both team users.').toBeTruthy();
+  const workspace = payload.workspaces?.find((candidate) => candidate.id === workspaceId && candidate.permissions.canWrite);
+  expect(workspace, 'The API-created shared fixture must be writable for both team users.').toBeTruthy();
   return workspace!;
 }
 
@@ -64,7 +66,7 @@ async function openDrawing(page: Page, filePath: string): Promise<void> {
 }
 
 async function runAgentTool(input: {
-  toolName: 'read' | 'edit_excalidraw_scene';
+  toolName: 'read' | 'create_excalidraw_scene' | 'get_excalidraw_scene' | 'edit_excalidraw_scene';
   toolCallId: string;
   params: Record<string, unknown>;
   context: Record<string, unknown>;
@@ -124,6 +126,7 @@ test.describe('Excalidraw live collaboration', () => {
       });
     }
     let workspaceId: string | null = null;
+    let workspaceCreated = false;
     let cleanupApi: APIRequestContext | undefined;
     let fileCreated = false;
     let storedSessionId: string | undefined;
@@ -139,10 +142,24 @@ test.describe('Excalidraw live collaboration', () => {
       const ownerUserId = await login(adminPage, ADMIN_EMAIL, ADMIN_PASSWORD);
       cleanupApi = await request.newContext({ baseURL: BASE_URL,
         storageState: await adminContext.storageState(), timeout: 15_000 });
-      expect(await login(memberPage, SECONDARY_EMAIL, SECONDARY_PASSWORD), 'Two distinct actual team users must coauthor.').not.toBe(ownerUserId);
-      const workspace = await organizationWorkspace(adminPage.request);
-      workspaceId = workspace.id;
-      const memberWorkspace = await organizationWorkspace(memberPage.request);
+      const memberUserId = await login(memberPage, SECONDARY_EMAIL, SECONDARY_PASSWORD);
+      expect(memberUserId, 'Two distinct actual team users must coauthor.').not.toBe(ownerUserId);
+      // Own a fresh workspace so unrelated historical fixtures cannot make its
+      // link-coverage scan incomplete during deletion or restoration.
+      const createdWorkspace = await adminPage.request.post('/api/workspaces', {
+        data: { type: 'team', name: `Excalidraw E2E ${suffix}` },
+      });
+      expect(createdWorkspace.status()).toBe(201);
+      const workspacePayload = await createdWorkspace.json() as { workspace: WorkspaceSummary };
+      workspaceId = workspacePayload.workspace.id;
+      expect(workspaceId).toBeTruthy();
+      workspaceCreated = true;
+      const granted = await adminPage.request.post(`/api/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+        data: { userId: memberUserId, role: 'member', canRead: true, canWrite: true, canManage: false },
+      });
+      expect(granted.status()).toBe(200);
+      const workspace = await listedWorkspace(adminPage.request, workspaceId);
+      const memberWorkspace = await listedWorkspace(memberPage.request, workspaceId);
       expect(memberWorkspace.id).toBe(workspaceId);
       await useWorkspace(adminContext, workspaceId);
       await useWorkspace(memberContext, workspaceId);
@@ -263,6 +280,8 @@ test.describe('Excalidraw live collaboration', () => {
         toolCallId: `review-${suffix}`,
         params: {
           path: filePath,
+          documentId: initialScene!.documentId,
+          lifecycleGeneration: initialScene!.lifecycleGeneration,
           observedSceneSequence: initialScene!.sceneSequence,
           actions: [{
             type: 'update',
@@ -371,6 +390,8 @@ test.describe('Excalidraw live collaboration', () => {
         toolCallId: `reject-${suffix}`,
         params: {
           path: filePath,
+          documentId: initialScene!.documentId,
+          lifecycleGeneration: initialScene!.lifecycleGeneration,
           observedSceneSequence: initialScene!.sceneSequence,
           actions: [{
             type: 'delete',
@@ -453,13 +474,17 @@ test.describe('Excalidraw live collaboration', () => {
         const deleted = await cleanupApi!.delete('/api/files/delete', {
           headers: { [WORKSPACE_ID_HEADER]: workspaceId! }, data: { path: filePath },
         });
-        expect(deleted.status(), 'Only the UUID-owned drawing is deleted.').toBe(200);
+        expect(deleted.status(), `Only the UUID-owned drawing is deleted: ${await deleted.text()}`).toBe(200);
         expect(await deleted.json()).toMatchObject({ success: true, deleted: [filePath], failed: [] });
+      });
+      if (!exitUnconfirmed && cleanupErrors.length === 0 && cleanupApi && workspaceId && workspaceCreated) await clean(async () => {
+        const deleted = await cleanupApi!.delete(`/api/workspaces/${encodeURIComponent(workspaceId!)}`);
+        expect(deleted.status(), 'Only the API-created empty fixture workspace is deleted.').toBe(200);
       });
       if (cleanupApi) await clean(() => cleanupApi!.dispose());
       await clean(() => testInfo.attach('owned-excalidraw-cleanup', { contentType: 'application/json',
         body: JSON.stringify({ workspaceId, filePath, sessionId: storedSessionId, agentId: storedAgentId,
-          fileCreated, verified: cleanupErrors.length === 0, cleanupFailureCount: cleanupErrors.length }) }));
+          fileCreated, workspaceCreated, verified: cleanupErrors.length === 0, cleanupFailureCount: cleanupErrors.length }) }));
       if (cleanupErrors.length) throw aggregateOwnedNativeErrors(failure, cleanupErrors,
         'Excalidraw fixture cleanup failed; exact owned session and file identities were retained.');
     }

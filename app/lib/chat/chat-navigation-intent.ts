@@ -15,6 +15,8 @@ export type ChatNavigationIntent = {
 
 export type NotebookNavigationIntent = ChatNavigationIntent & {
   path: string | null;
+  documentId?: string;
+  lineageId?: string;
 };
 
 function normalizeQueryValue(value: string | null): string | null {
@@ -86,9 +88,13 @@ export function getNotebookNavigationIntent(searchParams: SearchParamsReader): N
   const literalPath = rawPath.startsWith('/data/workspace/') ? rawPath.slice('/data/workspace/'.length) : rawPath;
   const path = isCanonicalMarkdownWorkspacePath(literalPath as unknown)
     ? literalPath : normalizeChatFilePath(rawPath) || null;
+  const documentId = searchParams.get('documentId');
+  const lineageId = searchParams.get('lineageId');
 
   return {
     ...chatIntent,
     path,
+    ...(documentId !== null ? { documentId: documentId || ' ' } : {}),
+    ...(lineageId !== null ? { lineageId: lineageId || ' ' } : {}),
   };
 }

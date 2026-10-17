@@ -18,6 +18,8 @@ import { classifyFileVersionFileV1 } from '@/app/lib/file-version-center/policy-
 import { COMPAT_MARKDOWN_UPLOAD_MAX_BYTES, importCompatMarkdownUpload,
   type CompatMarkdownUploadResult } from '@/app/lib/files/compat-markdown-upload';
 import type { WorkspaceUploadCommit } from '@/app/lib/files/upload-result';
+import { excalidrawRequestAuthority } from '@/app/lib/excalidraw-collaboration/http';
+import { workspaceUploadErrorResponse } from '@/app/lib/files/workspace-upload-responses';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
@@ -187,6 +189,8 @@ export async function POST(request: NextRequest) {
         actorUserId: workspaceResult.session.user.id,
         targetPath,
         content: normalized.buffer,
+        beforeWrite: targetPath.toLowerCase().endsWith('.excalidraw')
+          ? async () => { await excalidrawRequestAuthority(request, workspaceResult, 'canWrite')(); } : undefined,
         write: (onBeforeReplace) => writeFile(
           targetPath,
           normalized.buffer,
@@ -227,6 +231,13 @@ export async function POST(request: NextRequest) {
       uploads: nativeResults.map(value => value.status === 'failed'
         ? { status: value.status, locator: value.locator, unlocated: value.unlocated, phase: value.phase, code: value.code }
         : { status: value.status, locator: value.locator, completion: value.completion }) } : {};
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      && /^(?:EXCALIDRAW_|INVALID_EXCALIDRAW_|PATH_EXISTS)/u.test(error.code)) {
+      const response = workspaceUploadErrorResponse(error, '[API] Excalidraw upload failed:');
+      if (!nativeResults.length) return response;
+      const detail = await response.json() as Record<string, unknown>;
+      return NextResponse.json({ ...detail, ...partial }, { status: response.status, headers: response.headers });
+    }
     if (error instanceof FileCollaborationPolicyError) {
       return NextResponse.json(
         {

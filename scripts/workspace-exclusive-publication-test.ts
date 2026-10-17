@@ -19,7 +19,7 @@ test('exclusive publication compensation proves its own inode and preserves peer
   const options = { workspace };
   const publish = async (filename: string) => {
     let claim: WorkspaceExclusiveFilePublication | undefined;
-    await writeFileIfAbsent(filename, 'Exact owned bytes\r\n😀', options, undefined, value => { claim = value; });
+    await writeFileIfAbsent(filename, 'Exact owned bytes\r\n😀', options, undefined, undefined, value => { claim = value; });
     assert.ok(claim); return claim;
   };
   try {
@@ -55,7 +55,7 @@ test('exclusive publication compensation proves its own inode and preserves peer
     assert.equal(await fs.readFile(path.join(workspace.rootPath, 'race.md'), 'utf8'), 'Peer during lifecycle check');
 
     let failedPublication: WorkspaceExclusiveFilePublication | undefined;
-    await assert.rejects(writeFileIfAbsent('callback-failed.md', 'Exact owned bytes\r\n😀', options, undefined, claim => {
+    await assert.rejects(writeFileIfAbsent('callback-failed.md', 'Exact owned bytes\r\n😀', options, undefined, undefined, claim => {
       failedPublication = claim; throw new Error('Publication metadata failed');
     }), /Publication metadata failed/u);
     assert.ok(failedPublication);

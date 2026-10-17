@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { isExcalidrawPathExtensionChange } from '@/app/lib/excalidraw-file';
 
 import {
   WORKSPACE_LINK_CONTRACT_VERSION_V1,
@@ -239,6 +240,10 @@ export function createWorkspaceFileOperationPlan(request: WorkspaceFileOperation
       }
       selectedPaths.add(entry.path);
       const suffix = entry.path.slice(sourcePath.length);
+      if (entry.kind === 'file' && isExcalidrawPathExtensionChange(entry.path, `${destinationPath}${suffix}`)) {
+        issue('unsupported-target-format', request.sourceWorkspaceId, entry.path,
+          'Excalidraw drawings must keep their .excalidraw extension.');
+      }
       mapped.set(entry.path, {
         sourceWorkspaceId: request.sourceWorkspaceId,
         sourcePath: entry.path,

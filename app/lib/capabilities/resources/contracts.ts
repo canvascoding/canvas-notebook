@@ -58,7 +58,11 @@ export type CapabilityResourceDescriptor = {
   access: CapabilityResourceAccess;
   /** Safe current package description when no metadata override has been set. */
   description?: string;
-  artifact: Pick<CapabilityReference, 'resourceType' | 'resourceId' | 'scopeType' | 'name' | 'version' | 'revision' | 'checksum' | 'sourceType' | 'sourcePluginId'>;
+  artifact: Pick<CapabilityReference, 'resourceType' | 'resourceId' | 'scopeType' | 'name' | 'version' | 'revision' | 'checksum' | 'sourceType' | 'sourcePluginId'> & {
+    /** Does not disclose a path or grant access to the underlying image. */
+    hasDeclaredIcon?: boolean;
+    pluginSkillRelativeRoot?: string;
+  };
   /** Returned only to resource managers; ordinary readers see their effective rights. */
   grants?: CapabilityResourceGrant[];
   /** Labels of people already referenced by this readable resource, never a user directory. */

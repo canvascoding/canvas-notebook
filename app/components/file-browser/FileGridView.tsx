@@ -20,6 +20,7 @@ import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
+import { WorkspaceSearchPagination } from './WorkspaceSearchPagination';
 import { useMarqueeSelection } from './useMarqueeSelection';
 import type { WorkspaceMoveController } from './useWorkspaceMove';
 import { useFilePresence } from './useFilePresence';
@@ -82,6 +83,9 @@ export function FileGridView({
     searchQuery,
     searchError,
     searchResultTotal,
+    hasMoreSearchResults,
+    isLoadingMoreSearchResults,
+    loadMoreSearchResults,
     searchResultNodes,
     setFileSort,
     treeError,
@@ -203,11 +207,9 @@ export function FileGridView({
       <p className="truncate text-xs font-medium text-foreground">
         {t('searchResultsSummary', { count: visibleSearchResultCount, query: searchQuery.trim() })}
       </p>
-      {searchResultTotal !== null && searchResultTotal > visibleSearchResultCount && (
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {t('searchResultsLimited', { shown: visibleSearchResultCount, total: searchResultTotal })}
-        </p>
-      )}
+      {searchResultTotal !== null ? <WorkspaceSearchPagination loaded={visibleSearchResultCount}
+        total={searchResultTotal} hasMore={hasMoreSearchResults} isLoading={isLoadingMoreSearchResults}
+        onLoadMore={loadMoreSearchResults} /> : null}
     </div>
   ) : null;
 

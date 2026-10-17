@@ -10,7 +10,6 @@ import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import { replaceDocumentPresence } from '@/app/lib/collaboration/presence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
-import { validateExcalidrawAssetMetadata } from '@/app/lib/excalidraw-collaboration/assets';
 import { materializeExcalidrawCheckpoint } from '@/app/lib/excalidraw-collaboration/checkpoint';
 import {
   EXCALIDRAW_COLLABORATION_PATH,
@@ -21,27 +20,30 @@ import {
   type ExcalidrawServerMessage,
 } from '@/app/lib/excalidraw-collaboration/protocol';
 import {
-  applyExcalidrawScenePatch,
   ExcalidrawSceneResyncError,
   loadExcalidrawScene,
-  markExcalidrawSceneDegraded,
   type PersistedExcalidrawScene,
 } from '@/app/lib/excalidraw-collaboration/repository';
-import { installExcalidrawCollaborationRuntime } from '@/app/lib/excalidraw-collaboration/runtime';
+import { installExcalidrawCollaborationRuntime, installExcalidrawSceneNotificationListener } from '@/app/lib/excalidraw-collaboration/runtime';
+import { flushPendingExcalidrawCheckpoints, startExcalidrawCheckpointWorker } from '@/app/lib/excalidraw-collaboration/checkpoint-worker';
 import { liveCollaborationRuntimeAvailable } from '@/app/lib/collaboration/runtime-policy';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveUserProfile } from '@/app/lib/user-profile/service';
 import type { ResolvedUserProfile } from '@/app/lib/user-profile/types';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
-import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
+import { resolveExistingPostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { prepareExcalidrawAppliedDelivery } from './applied-delivery';
+import { applyExcalidrawSocketPatch, createExcalidrawAuthorizedDelivery, ExcalidrawSocketAuthorityError,
+  withExcalidrawSocketAuthority, type ExcalidrawSocketScope } from './socket-authority';
 
 const AUTHENTICATION_TIMEOUT_MS = 7_500;
 const HEARTBEAT_INTERVAL_MS = 25_000;
 const CHECKPOINT_DEBOUNCE_MS = 500;
 const MAX_SCENE_PATCHES_PER_MINUTE = 180;
 const MAX_PRESENCE_MESSAGES_PER_MINUTE = 2_000;
+const MAX_PENDING_MESSAGES = 32;
 
 type ConnectionContext = {
   socket: WebSocket;
@@ -57,6 +59,7 @@ type ConnectionContext = {
   authenticatedAt: number;
   isAlive: boolean;
   ticketTimer: ReturnType<typeof setTimeout>;
+  delivery?: ReturnType<typeof createExcalidrawAuthorizedDelivery>;
 };
 
 type Room = {
@@ -65,6 +68,9 @@ type Room = {
   connections: Set<ConnectionContext>;
   checkpointTimer: ReturnType<typeof setTimeout> | null;
   checkpointPromise: Promise<void> | null;
+  broadcastSequence: number;
+  broadcastState: PersistedExcalidrawScene | null;
+  lifecycleGeneration: number;
   lastActor: {
     userId: string | null;
     sessionId: string | null;
@@ -108,9 +114,26 @@ function rawBuffer(data: RawData): Buffer {
   return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
-function send(socket: WebSocket, message: ExcalidrawServerMessage): void {
+function sendRaw(socket: WebSocket, message: ExcalidrawServerMessage): void {
   if (socket.readyState !== WebSocket.OPEN) return;
   socket.send(JSON.stringify(message));
+}
+
+function socketScope(context: ConnectionContext): ExcalidrawSocketScope {
+  return { claims: context.claims, requestHeaders: context.requestHeaders, workspace: context.workspace,
+    isOpen: () => context.socket.readyState === WebSocket.OPEN };
+}
+
+function send(context: ConnectionContext,
+  message: ExcalidrawServerMessage | ((state: PersistedExcalidrawScene) => ExcalidrawServerMessage)): Promise<void> {
+  context.delivery ??= createExcalidrawAuthorizedDelivery(socketScope(context), error => {
+    context.socket.close(error instanceof ExcalidrawSocketAuthorityError ? error.closeCode : 4403,
+      'Current Excalidraw session or document access is unavailable.');
+  });
+  return context.delivery((state, workspace) => {
+    context.workspace = workspace;
+    sendRaw(context.socket, typeof message === 'function' ? message(state) : message);
+  });
 }
 
 function messageId(): string {
@@ -119,7 +142,7 @@ function messageId(): string {
 
 function broadcast(room: Room, message: ExcalidrawServerMessage, except?: WebSocket): void {
   for (const connection of room.connections) {
-    if (connection.socket !== except) send(connection.socket, message);
+    if (connection.socket !== except) void send(connection, message);
   }
 }
 
@@ -149,7 +172,7 @@ function projectRoomPresence(room: Room): void {
   );
 }
 
-function roomFor(context: ConnectionContext): Room {
+function roomFor(context: ConnectionContext, initialState?: PersistedExcalidrawScene): Room {
   let room = rooms.get(context.claims.documentId);
   if (!room) {
     room = {
@@ -158,6 +181,9 @@ function roomFor(context: ConnectionContext): Room {
       connections: new Set(),
       checkpointTimer: null,
       checkpointPromise: null,
+      broadcastSequence: context.acknowledgedSequence,
+      broadcastState: initialState ?? null,
+      lifecycleGeneration: context.claims.lifecycleGeneration,
       lastActor: { userId: null, sessionId: null, actorType: 'user', initiatedByUserId: null },
     };
     rooms.set(context.claims.documentId, room);
@@ -219,32 +245,11 @@ function validatePresence(type: string, payload: unknown): ExcalidrawPresencePay
   return { idleState: input.idleState as 'active' | 'idle' | 'away' };
 }
 
-async function revalidateWriteContext(context: ConnectionContext): Promise<void> {
-  const session = await auth.api.getSession({ headers: context.requestHeaders });
-  const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
-  if (!session || session.user.id !== context.claims.userId || sessionId !== context.claims.sessionId) {
-    throw new Error('Collaboration session is no longer authenticated.');
-  }
-  const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(session.user), context.claims.workspaceId);
-  if (!workspace?.permissions.canRead || !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
-  const metadata = await getFileCollaborationState({ workspace, path: context.claims.path, ensureDocument: false });
-  const state = await loadExcalidrawScene(context.claims.documentId);
-  if (
-    !metadata.sceneCapable
-    || metadata.document?.id !== context.claims.documentId
-    || metadata.document.provider !== 'excalidraw'
-    || !state
-    || state.workspaceId !== context.claims.workspaceId
-    || state.path !== context.claims.path
-    || state.lifecycleGeneration !== context.claims.lifecycleGeneration
-  ) throw new Error('Excalidraw collaboration document generation is stale.');
-  context.workspace = workspace;
-}
-
 async function authenticateConnection(
   socket: WebSocket,
   headers: Headers,
   value: unknown,
+  resolveProfile: typeof resolveUserProfile = resolveUserProfile,
 ): Promise<{ context: ConnectionContext; state: PersistedExcalidrawScene }> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Excalidraw authentication message is required.');
   const authMessage = value as { type?: unknown; token?: unknown };
@@ -257,7 +262,7 @@ async function authenticateConnection(
   const session = await auth.api.getSession({ headers });
   const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
   if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) throw new Error('Collaboration session is no longer authenticated.');
-  const workspace = await resolvePostgresWorkspaceForActor(resolveWorkspaceActor(session.user), claims.workspaceId);
+  const workspace = await resolveExistingPostgresWorkspaceForActor(resolveWorkspaceActor(session.user), claims.workspaceId);
   if (!workspace?.permissions.canRead) throw new Error('Workspace access was revoked.');
   if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
   const metadata = await getFileCollaborationState({ workspace, path: claims.path, ensureDocument: false });
@@ -272,7 +277,7 @@ async function authenticateConnection(
     || state.lifecycleGeneration !== claims.lifecycleGeneration
   ) throw new Error('Excalidraw collaboration document generation is stale.');
   const colors = collaborationUserColors(session.user.id);
-  const profile = await resolveUserProfile({
+  const profile = await resolveProfile({
     userId: session.user.id,
     name: session.user.name,
     email: session.user.email,
@@ -310,16 +315,25 @@ async function authenticateConnection(
     isAlive: true,
     ticketTimer: setTimeout(() => socket.close(4401, 'Collaboration ticket renewal required.'), Math.max(1_000, claims.expiresAt - now)),
   };
-  return { context, state };
+  try {
+    const current = await withExcalidrawSocketAuthority(socketScope(context), claims.permission, (current, workspace) => {
+      context.workspace = workspace;
+      context.acknowledgedSequence = current.sceneSequence;
+      return current;
+    });
+    return { context, state: current };
+  } catch (error) { clearTimeout(context.ticketTimer); throw error; }
 }
 
 async function runCheckpoint(room: Room): Promise<void> {
   if (room.checkpointPromise) return room.checkpointPromise;
   room.checkpointPromise = (async () => {
     const state = await loadExcalidrawScene(room.documentId);
-    if (!state || state.status !== 'active' || state.checkpointSequence >= state.sceneSequence) return;
+    if (!state || state.status !== 'active') return;
     try {
-      await materializeExcalidrawCheckpoint({
+      const checkpoint = state.checkpointSequence >= state.sceneSequence && state.checkpointRevisionId && !state.degradedReason
+        ? { sceneSequence: state.sceneSequence }
+        : await materializeExcalidrawCheckpoint({
         state,
         workspace: room.workspace,
         actorUserId: room.lastActor.userId,
@@ -331,11 +345,10 @@ async function runCheckpoint(room: Room): Promise<void> {
         type: 'scene:status',
         messageId: messageId(),
         status: 'saved',
-        sceneSequence: state.sceneSequence,
+        sceneSequence: checkpoint.sceneSequence,
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : 'Excalidraw checkpoint failed.';
-      await markExcalidrawSceneDegraded(room.documentId, reason).catch(() => undefined);
       broadcast(room, {
         schemaVersion: 1,
         type: 'scene:status',
@@ -368,6 +381,7 @@ async function handleAuthenticatedMessage(context: ConnectionContext, value: unk
   }
   const room = roomFor(context);
   if (value.type.startsWith('presence:')) {
+    await withExcalidrawSocketAuthority(socketScope(context), 'read', (_state, workspace) => { context.workspace = workspace; });
     if (!consumeRate(context.presenceWindow, MAX_PRESENCE_MESSAGES_PER_MINUTE)) throw new Error('Excalidraw presence rate limit exceeded.');
     const presence = validatePresence(value.type, value.payload);
     context.presence = { ...context.presence, ...presence };
@@ -383,34 +397,27 @@ async function handleAuthenticatedMessage(context: ConnectionContext, value: unk
     return;
   }
   if (value.type === 'scene:resync_request') {
-    const state = await loadExcalidrawScene(context.claims.documentId);
-    if (!state) throw new Error('Excalidraw scene is unavailable.');
-    send(context.socket, snapshotMessage(state, context.claims.permission));
+    await send(context, state => snapshotMessage(state, context.claims.permission));
     return;
   }
   if (value.type === 'scene:ack') {
     const sequence = (value.payload as { sceneSequence?: unknown } | null)?.sceneSequence;
-    const state = await loadExcalidrawScene(context.claims.documentId);
-    if (!state || !Number.isSafeInteger(sequence) || Number(sequence) < 0 || Number(sequence) > state.sceneSequence) return;
-    context.acknowledgedSequence = Math.max(context.acknowledgedSequence, Number(sequence));
-    send(context.socket, {
-      schemaVersion: 1,
-      type: 'scene:ack',
-      messageId: messageId(),
-      replyTo: value.messageId,
-      sceneSequence: context.acknowledgedSequence,
+    if (!Number.isSafeInteger(sequence) || Number(sequence) < 0) return;
+    await send(context, state => {
+      context.acknowledgedSequence = Math.max(context.acknowledgedSequence, Math.min(Number(sequence), state.sceneSequence));
+      return { schemaVersion: 1,type: 'scene:ack',messageId: messageId(),replyTo: value.messageId,
+        sceneSequence: context.acknowledgedSequence };
     });
     return;
   }
   if (!consumeRate(context.sceneWindow, MAX_SCENE_PATCHES_PER_MINUTE)) throw new Error('Excalidraw scene patch rate limit exceeded.');
   if (context.claims.permission !== 'write') throw new Error('This Excalidraw session is read-only.');
-  await revalidateWriteContext(context);
   const payload = value.payload as { elements?: unknown; appState?: unknown; assets?: unknown } | null;
   if (!payload || !Array.isArray(payload.elements)) throw new Error('Excalidraw scene patch elements are required.');
   let assets: ExcalidrawAssetMetadata[] | undefined;
   if (payload.assets !== undefined) {
     if (!Array.isArray(payload.assets)) throw new Error('Excalidraw asset references must be an array.');
-    assets = await validateExcalidrawAssetMetadata(context.claims.workspaceId, payload.assets as ExcalidrawAssetMetadata[]);
+    assets = payload.assets as ExcalidrawAssetMetadata[];
   }
   broadcast(room, {
     schemaVersion: 1,
@@ -419,33 +426,23 @@ async function handleAuthenticatedMessage(context: ConnectionContext, value: unk
     status: 'persisting',
     sceneSequence: value.baseSequence,
   });
-  const result = await applyExcalidrawScenePatch({
-    documentId: context.claims.documentId,
-    lifecycleGeneration: context.claims.lifecycleGeneration,
+  const result = await applyExcalidrawSocketPatch(socketScope(context), {
     baseSequence: value.baseSequence,
     messageId: value.messageId,
     elements: payload.elements,
     appState: payload.appState,
     assets,
-    actorType: 'user',
-    actorId: context.user.id,
   });
-  const applied: ExcalidrawServerMessage = {
-    schemaVersion: 1,
-    type: 'scene:applied',
-    messageId: messageId(),
-    replyTo: value.messageId,
-    elements: result.acceptedElements,
-    appState: result.acceptedAppState,
-    assets: result.state.assets,
-    sceneSequence: result.state.sceneSequence,
-    canonicalHash: result.state.canonicalHash,
-    persisted: true,
-    checkpointed: result.state.checkpointSequence >= result.state.sceneSequence,
-  };
-  if (result.duplicate) send(context.socket, applied);
-  else broadcast(room, applied);
-  context.acknowledgedSequence = result.state.sceneSequence;
+  context.workspace = result.workspace;
+  const delivery = prepareExcalidrawAppliedDelivery({ result, broadcastSequence: room.broadcastSequence,
+    broadcastState: room.broadcastState, replyTo: value.messageId, messageId: messageId() });
+  if (delivery.broadcast) {
+    broadcast(room, delivery.message);
+    room.broadcastSequence = delivery.state.sceneSequence;
+    room.broadcastState = delivery.state;
+  } else void send(context, delivery.message);
+  context.acknowledgedSequence = Math.max(context.acknowledgedSequence, delivery.state.sceneSequence);
+  if (result.state.sceneSequence < room.broadcastSequence) return;
   room.workspace = context.workspace;
   room.lastActor = {
     userId: context.user.id,
@@ -472,7 +469,8 @@ function removeConnection(context: ConnectionContext): void {
   if (room.connections.size === 0) scheduleCheckpoint(room);
 }
 
-export function createExcalidrawCollaborationServer(server: http.Server): WebSocketServer {
+export function createExcalidrawCollaborationServer(server: http.Server,
+  options: { resolveProfile?: typeof resolveUserProfile } = {}): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true, maxPayload: EXCALIDRAW_MAX_MESSAGE_BYTES });
   const heartbeat = setInterval(() => {
     for (const socket of wss.clients) {
@@ -491,63 +489,79 @@ export function createExcalidrawCollaborationServer(server: http.Server): WebSoc
     const peer = socket as WebSocket & { canvasContext?: ConnectionContext };
     const headers = requestHeaders(request);
     const authenticationTimer = setTimeout(() => socket.close(4401, 'Authentication timeout.'), AUTHENTICATION_TIMEOUT_MS);
+    let incoming = Promise.resolve();
+    let pendingMessages = 0;
     socket.on('pong', () => { if (peer.canvasContext) peer.canvasContext.isAlive = true; });
-    socket.on('message', async (raw) => {
-      try {
-        const data = rawBuffer(raw);
-        if (data.byteLength > EXCALIDRAW_MAX_MESSAGE_BYTES) throw new Error('Excalidraw collaboration message exceeds 1 MiB.');
-        const value = JSON.parse(data.toString('utf8')) as unknown;
-        if (!peer.canvasContext) {
-          const authenticated = await authenticateConnection(socket, headers, value);
-          clearTimeout(authenticationTimer);
-          peer.canvasContext = authenticated.context;
-          const room = roomFor(authenticated.context);
-          room.connections.add(authenticated.context);
-          send(socket, snapshotMessage(authenticated.state, authenticated.context.claims.permission));
-          for (const other of room.connections) {
-            if (other === authenticated.context) continue;
-            send(socket, {
+    socket.on('message', (raw) => {
+      if (pendingMessages >= MAX_PENDING_MESSAGES) {
+        socket.close(4408, 'Too many pending Excalidraw messages.');
+        return;
+      }
+      pendingMessages += 1;
+      incoming = incoming.then(async () => {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        try {
+          const data = rawBuffer(raw);
+          if (data.byteLength > EXCALIDRAW_MAX_MESSAGE_BYTES) throw new Error('Excalidraw collaboration message exceeds 1 MiB.');
+          const value = JSON.parse(data.toString('utf8')) as unknown;
+          if (!peer.canvasContext) {
+            const authenticated = await authenticateConnection(socket, headers, value, options.resolveProfile);
+            clearTimeout(authenticationTimer);
+            peer.canvasContext = authenticated.context;
+            const room = roomFor(authenticated.context, authenticated.state);
+            room.connections.add(authenticated.context);
+            await send(authenticated.context, state => snapshotMessage(state, authenticated.context.claims.permission));
+            for (const other of room.connections) {
+              if (other === authenticated.context) continue;
+              await send(authenticated.context, {
+                schemaVersion: 1,
+                type: 'presence:update',
+                messageId: messageId(),
+                connectionId: other.connectionId,
+                user: other.user,
+                payload: other.presence,
+              });
+            }
+            broadcast(room, {
               schemaVersion: 1,
               type: 'presence:update',
               messageId: messageId(),
-              connectionId: other.connectionId,
-              user: other.user,
-              payload: other.presence,
-            });
+              connectionId: authenticated.context.connectionId,
+              user: authenticated.context.user,
+              payload: authenticated.context.presence,
+            }, socket);
+            projectRoomPresence(room);
+            return;
           }
-          broadcast(room, {
+          await handleAuthenticatedMessage(peer.canvasContext, value);
+        } catch (error) {
+          if (error instanceof ExcalidrawSocketAuthorityError) {
+            socket.close(error.closeCode, 'Current Excalidraw session or document access is unavailable.');
+            return;
+          }
+          const currentSequence = error instanceof ExcalidrawSceneResyncError ? error.currentSequence : undefined;
+          if (currentSequence !== undefined) {
+            if (peer.canvasContext) await send(peer.canvasContext, {
+              schemaVersion: 1,
+              type: 'scene:resync_required',
+              messageId: messageId(),
+              reason: error instanceof Error ? error.message : 'Excalidraw scene resynchronization is required.',
+              sceneSequence: currentSequence,
+            });
+            return;
+          }
+          const rejected: ExcalidrawServerMessage = {
             schemaVersion: 1,
-            type: 'presence:update',
+            type: 'error',
             messageId: messageId(),
-            connectionId: authenticated.context.connectionId,
-            user: authenticated.context.user,
-            payload: authenticated.context.presence,
-          }, socket);
-          projectRoomPresence(room);
-          return;
+            code: 'EXCALIDRAW_MESSAGE_REJECTED',
+            message: error instanceof Error ? error.message : 'Excalidraw collaboration message was rejected.',
+          };
+          if (peer.canvasContext) await send(peer.canvasContext, rejected);
+          else sendRaw(socket, rejected);
+          if (!peer.canvasContext) socket.close(4403, 'Authentication failed.');
         }
-        await handleAuthenticatedMessage(peer.canvasContext, value);
-      } catch (error) {
-        const currentSequence = error instanceof ExcalidrawSceneResyncError ? error.currentSequence : undefined;
-        if (currentSequence !== undefined) {
-          send(socket, {
-            schemaVersion: 1,
-            type: 'scene:resync_required',
-            messageId: messageId(),
-            reason: error instanceof Error ? error.message : 'Excalidraw scene resynchronization is required.',
-            sceneSequence: currentSequence,
-          });
-          return;
-        }
-        send(socket, {
-          schemaVersion: 1,
-          type: 'error',
-          messageId: messageId(),
-          code: 'EXCALIDRAW_MESSAGE_REJECTED',
-          message: error instanceof Error ? error.message : 'Excalidraw collaboration message was rejected.',
-        });
-        if (!peer.canvasContext) socket.close(4403, 'Authentication failed.');
-      }
+      }).finally(() => { pendingMessages -= 1; });
     });
     socket.on('close', () => {
       clearTimeout(authenticationTimer);
@@ -566,32 +580,63 @@ export function createExcalidrawCollaborationServer(server: http.Server): WebSoc
     scenePersistenceReady: true,
     assetStoreReady: true,
   });
-  installExcalidrawCollaborationRuntime({
+  const uninstallRuntime = installExcalidrawCollaborationRuntime({
     connectionCount: (documentId) => rooms.get(documentId)?.connections.size ?? 0,
     publishApplied: (documentId, operationId, result, attribution) => {
       const room = rooms.get(documentId);
       if (!room) return;
-      broadcast(room, {
-        schemaVersion: 1,
-        type: 'scene:applied',
-        messageId: messageId(),
-        replyTo: operationId,
-        elements: result.acceptedElements,
-        appState: result.acceptedAppState,
-        assets: result.state.assets,
-        sceneSequence: result.state.sceneSequence,
-        canonicalHash: result.state.canonicalHash,
-        persisted: true,
-        checkpointed: result.state.checkpointSequence >= result.state.sceneSequence,
-      });
+      if (result.state.lifecycleGeneration !== room.lifecycleGeneration) return;
+      const delivery = prepareExcalidrawAppliedDelivery({ result, broadcastSequence: room.broadcastSequence,
+        broadcastState: room.broadcastState, replyTo: operationId, messageId: messageId() });
+      if (!delivery.broadcast) return;
+      broadcast(room, delivery.message);
       room.lastActor = {
         userId: attribution.actorId,
         sessionId: operationId,
         actorType: 'agent',
         initiatedByUserId: attribution.initiatedByUserId,
       };
+      room.broadcastSequence = delivery.state.sceneSequence;
+      room.broadcastState = delivery.state;
       scheduleCheckpoint(room);
     },
+  });
+  const reportBackgroundError = (error: unknown) => {
+    console.warn('[Excalidraw collaboration] Background persistence needs retry.',
+      error instanceof Error ? error.message : 'Unknown persistence error.');
+  };
+  const checkpointWorker = startExcalidrawCheckpointWorker({ onError: reportBackgroundError });
+  const notifications = installExcalidrawSceneNotificationListener({
+    documentIds: () => rooms.keys(),
+    onReconnect: checkpointWorker.recover,
+    onError: reportBackgroundError,
+    onScene: (state, operationId) => {
+      const room = rooms.get(state.documentId);
+      if (!room) return;
+      if (state.status !== 'active' || state.lifecycleGeneration !== room.lifecycleGeneration
+        || state.workspaceId !== room.workspace.workspaceId
+        || state.organizationId !== (room.workspace.organizationId ?? null)
+        || [...room.connections].some(context => context.claims.path !== state.path)) {
+        for (const context of room.connections) context.socket.close(4409, 'Excalidraw document lifecycle changed.');
+        return;
+      }
+      if (state.sceneSequence <= room.broadcastSequence) return;
+      // Full durable state closes notification gaps without trusting message content.
+      broadcast(room, {
+        schemaVersion: 1, type: 'scene:applied', messageId: messageId(), replyTo: operationId ?? messageId(),
+        elements: state.elements, appState: state.appState, assets: state.assets,
+        sceneSequence: state.sceneSequence, canonicalHash: state.canonicalHash,
+        persisted: true, checkpointed: state.checkpointSequence >= state.sceneSequence,
+      });
+      room.broadcastSequence = state.sceneSequence;
+      room.broadcastState = state;
+      scheduleCheckpoint(room);
+    },
+  });
+  wss.on('close', () => {
+    uninstallRuntime();
+    void notifications.stop();
+    void checkpointWorker.stop();
   });
   return wss;
 }
@@ -606,4 +651,5 @@ export async function flushExcalidrawCollaborationDocuments(): Promise<void> {
     pending.push(runCheckpoint(room));
   }
   await Promise.all(pending);
+  await flushPendingExcalidrawCheckpoints({ throwOnFailure: false });
 }

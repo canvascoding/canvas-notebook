@@ -12,6 +12,7 @@ import {
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { excalidrawRequestAuthority } from '@/app/lib/excalidraw-collaboration/http';
 
 export async function POST(
   request: NextRequest,
@@ -78,6 +79,8 @@ export async function POST(
           idempotencyKey: `upload:${id}:${file.id}`,
           officeAttempt: file.officeAttempt,
           persistOfficeAttempt,
+          beforeWrite: file.targetPath.toLowerCase().endsWith('.excalidraw')
+            ? async () => { await excalidrawRequestAuthority(request, workspaceResult, 'canWrite')(); } : undefined,
           write: (onBeforeReplace) => replaceWorkspaceFileFromPath(
             sourcePath,
             file.targetPath,

@@ -11,6 +11,70 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.17.2] - 2026-10-17
+
+### Added
+
+- Added unified extension discovery and exact skill, plugin, integration, and MCP selection for chat and agent workflows.
+- Added organization plugin creation with durable drafts, provisioning, validation, and guided setup.
+- Added durable chat queue recovery and inline extension references, with scoped mobile extension context.
+- Added complete workspace file discovery across desktop, mobile, and Studio reference pickers.
+
+### Changed
+
+- Prioritized connected and usable extension references and made search results available progressively.
+- Preserved exact account, connection, package, and workflow choices across setup, navigation, and OAuth.
+- Aligned local production verification with the CI compiler, typecheck, route generation, and production module checks.
+
+### Fixed
+
+- Improved provider setup recovery, Codex request compatibility, dictation error handling, and MCP file-link identity.
+- Fixed workspace search depth limits and refreshed package readiness from current connected sources.
+- Provisioned compiler memory on hosted release runners and added bounded build execution with resource diagnostics.
+- Corrected macOS bundle path validation during signed desktop packaging.
+
+### Verification
+
+- `npm run build` from a clean source copy without cached build output.
+- `npm run verify:release`
+
+## [2026.10.15.2] - 2026-10-15
+
+### Changed
+
+- Standardized OpenAI image request handling across Studio generation and aspect-ratio workflows.
+- Aligned Studio image controls with provider capabilities while preserving compatibility with older clients.
+
+### Fixed
+
+- Preserved image-generation failures and partial outputs across Studio and mobile flows.
+
+### Verification
+
+- `npm run verify:release`
+
+## [2026.10.15.1] - 2026-10-15
+
+### Added
+
+- Added an authoritative headless Excalidraw scene service with authenticated agent tools, reviewed operations, checkpoint inspection, and an updated seed workflow.
+- Added Markdown export for chat sessions and localized 404 recovery pages for guests and signed-in users.
+- Added Mermaid diagrams to Markdown reading and editing, with bounded PDF previews, Canvas themes, and export branding.
+- Added Matplotlib to the agent Python runtime.
+
+### Changed
+
+- Improved permissions for managed Excalidraw scenes and workspace scoping for personal To-do items.
+- Allowed Composio OAuth callbacks to complete when the browser does not return cookies.
+
+### Fixed
+
+- Handled OpenAI dictation response failures safely.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.12.12] - 2026-10-12
 
 ### Added

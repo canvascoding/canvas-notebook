@@ -1,6 +1,11 @@
 # Third-Party Compliance Runbook
 
-Stand: 2026-10-04
+Stand: 2026-10-14
+
+Der aktuelle Python-Basis-Lock enthaelt 51 Pakete einschliesslich Matplotlib
+und seiner fuenf zusaetzlichen Abhaengigkeiten. Plattform-, Hash- und
+Lizenzmetadatenpruefung sowie die Grenzen des lokalen Nachweises stehen in
+[`matplotlib-runtime-intake-2026-10-14.md`](matplotlib-runtime-intake-2026-10-14.md).
 
 Der Stand vom 17. Juli 2026 dokumentiert das damalige 45-Paket-Python-Image.
 Ein spaeterer Diktat-Kandidat vom 28. September 2026 enthielt 58 per pip
@@ -58,7 +63,7 @@ statische Komponentenmanifest umfasst:
 | Blocker im statischen kommerziellen Release-Gate | 0 |
 
 Der normale Build prueft die exakten Namen, Versionen und Hashes des
-45-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
+51-Paket-Basis-Locks. Der Runtime-Inventartest im Docker-Build prueft die
 Abwesenheit der optionalen Diktatpakete im Basis-Image. Die 13 Pakete bleiben
 fuer eine optionale Installation versionsgebunden dokumentiert. Der aktuelle
 Docker-Quellstand entfernt deren Python-Installer und Faster-Whisper-Worker

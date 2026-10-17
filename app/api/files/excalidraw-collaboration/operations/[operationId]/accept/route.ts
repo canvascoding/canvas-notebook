@@ -1,26 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { applyRateLimit } from '@/app/lib/api/route-helpers';
-import { readCollaborationOperationIdempotencyKey } from '@/app/lib/collaboration/operation-route';
-import { acceptExcalidrawAgentOperation } from '@/app/lib/excalidraw-collaboration/agent-operations';
-import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import { readExcalidrawOperationApproval } from '@/app/lib/excalidraw-collaboration/review-route';
+import { reviewExcalidrawOperation } from '@/app/lib/excalidraw-collaboration/operation-service';
+import { excalidrawRequestAuthority, excalidrawRouteError, requireExcalidrawRequestWorkspace } from '@/app/lib/excalidraw-collaboration/http';
 
 export async function POST(request: NextRequest, context: { params: Promise<{ operationId: string }> }) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
-  if (workspaceResult.response) return workspaceResult.response;
-  const limited = applyRateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'excalidraw-operation-accept' });
-  if (limited) return limited;
-  const body = await readCollaborationOperationIdempotencyKey(request);
-  if (body.response) return body.response;
   try {
+    const workspaceResult = await requireExcalidrawRequestWorkspace(request, { permissions: 'canWrite' });
+    if (workspaceResult.response) return workspaceResult.response;
+    const limited = applyRateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'excalidraw-operation-accept' });
+    if (limited) return limited;
+    const body = await readExcalidrawOperationApproval(request);
+    if (body.response) return body.response;
     const { operationId } = await context.params;
-    const operation = await acceptExcalidrawAgentOperation({
+    const operation = await reviewExcalidrawOperation({
       operationId,
       workspace: workspaceResult.workspace,
       userId: workspaceResult.session.user.id,
+      sessionId: workspaceResult.session.session.id,
+      decision: 'accept',
+      expectedCasVersion: body.expectedCasVersion,
+      beforeApply: excalidrawRequestAuthority(request, workspaceResult, 'canWrite'),
     });
-    return NextResponse.json({ success: true, operation });
+    return NextResponse.json({ success: true, operation }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Accept failed.' }, { status: 409 });
+    return excalidrawRouteError(error);
   }
 }

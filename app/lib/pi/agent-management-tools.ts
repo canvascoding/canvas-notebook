@@ -5,7 +5,9 @@ import { Type } from 'typebox';
 import { z } from 'zod';
 import { updateManagedAgentConfiguration, inspectManagedAgentWorkflow, listManagedAgentWorkflowOptions,
   setManagedAgentWorkflowChoice } from '@/app/lib/agents/workflow-configuration';
-import { agentWorkflowPersonalOptionsSchema, bindOwnAgentWorkflowChoiceInput, updateAgentConfigurationSchema, updateAgentWorkflowChoiceSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { agentWorkflowPersonalOptionsSchema, bindOwnAgentWorkflowChoiceInput, createCompleteAgentConfigurationSchema,
+  updateCompleteAgentConfigurationSchema, updateAgentWorkflowChoiceSchema } from '@/app/lib/agents/workflow-api-contracts';
+import { agentExtensionMetadataOptionsRequestSchema, agentExtensionAccountOptionsRequestSchema } from '@/app/lib/agents/extension-options-contracts';
 import { agentWorkflowManagementPersonalConnectionsRequestSchema, agentWorkflowManagementRequestSchema } from '@/app/lib/agents/workflow-management-contracts';
 import { listAgentWorkflowManagementOptions } from '@/app/lib/agents/workflow-management';
 
@@ -144,14 +146,15 @@ export function createAgentManagementTools(
   const inspectAgent: AgentTool = {
     name: 'inspect_agent',
     label: 'Inspect agent',
-    description: 'Inspects one available agent. Profile, runtime, capability bindings, readiness, and access are returned by default; managed-file contents and grants require matching edit/manage access.',
+    description: 'Inspects one agent for use or configuration. The default purpose use requires Use permission; purpose configure requires Edit permission. Profile, runtime, complete extensions, readiness, and access are returned; managed-file contents and grants require matching edit/manage access.',
     parameters: Type.Object({
       agentId: Type.String(),
+      purpose: Type.Optional(Type.Union([Type.Literal('use'), Type.Literal('configure')])),
       includeFiles: Type.Optional(Type.Boolean()),
       includeAccess: Type.Optional(Type.Boolean()),
-    }),
+    }, { additionalProperties: false }),
     execute: async (_toolCallId, params) => {
-      const input = params as { agentId: string; includeFiles?: boolean; includeAccess?: boolean };
+      const input = params as { agentId: string; purpose?: 'use' | 'configure'; includeFiles?: boolean; includeAccess?: boolean };
       const inspected = await inspectManagedAgent(actor(userId, sessionId), input.agentId, input);
       return result(
         `${inspected.agent.name} (${inspected.agent.agentId}) is a ${inspected.agent.scopeType} agent at revision ${inspected.agent.revision}.`,
@@ -163,35 +166,38 @@ export function createAgentManagementTools(
   const createAgent: AgentTool = {
     name: 'create_agent',
     label: 'Create agent',
-    description: 'Creates a complete personal or organization agent with profile, runtime defaults, tools, stable skill/plugin bindings, connection requirements, managed instruction files, and optional organization grants. Organization agents require owner/admin permission.',
-    parameters: Type.Object({
-      name: Type.String(),
-      agentId: Type.Optional(Type.String()),
-      iconId: Type.Optional(Type.String()),
-      scopeType: Type.Optional(Type.Union([Type.Literal('user'), Type.Literal('organization')])),
-      defaultProviderInstallationId: Type.Optional(nullableString),
-      defaultProvider: Type.Optional(nullableString),
-      defaultModel: Type.Optional(nullableString),
-      defaultThinking: Type.Optional(nullableString),
-      expectedCatalogRevision: Type.Optional(Type.Number()),
-      enabledTools: Type.Optional(Type.Array(Type.String())),
-      relevantSkills: Type.Optional(Type.Array(Type.String())),
-      relevantConnections: Type.Optional(Type.Array(Type.String())),
-      capabilities: Type.Optional(Type.Array(capabilitySelectionSchema)),
-      files: Type.Optional(Type.Partial(Type.Object({
-        'AGENTS.md': Type.String(),
-        'MEMORY.md': Type.String(),
-        'SOUL.md': Type.String(),
-        'TOOLS.md': Type.String(),
-      }))),
-      grants: Type.Optional(Type.Array(grantSchema)),
-    }),
+    description: 'Creates a complete personal or organization agent with profile, runtime defaults, native tool limits, exact plugin/skill pins, standalone MCP/Composio fixed or selectable connections, instruction files and optional grants. Use extensions for the complete fixed or explicit legacy-inherit configuration; do not combine it with legacy capability fields. Fresh personal account choices require the current server-issued receipt. Organization agents require owner/admin permission.',
+    parameters: Type.Unsafe(z.toJSONSchema(createCompleteAgentConfigurationSchema, { target: 'draft-7', io: 'input' })),
     execute: async (_toolCallId, params) => {
-      const created = await createManagedAgent(actor(userId, sessionId), params as Parameters<typeof createManagedAgent>[1]);
+      const input = createCompleteAgentConfigurationSchema.parse(params);
+      const created = await createManagedAgent(actor(userId, sessionId), input);
       return result(
         `Created ${created.agent.scopeType} agent ${created.agent.name} (${created.agent.agentId}) at revision ${created.agent.revision}.`,
         created,
       );
+    },
+  };
+
+  const extensionOptions: AgentTool = {
+    name: 'list_agent_extension_options', label: 'Find agent extensions',
+    description: 'Searches plugins, skills, Composio app offerings and exact MCP connections for a prospective or existing agent, reads exact published package children, lists permitted connection metadata, or previews the complete configuration. Start before creation with target kind prospective and the intended scope; existing targets require current agent/workflow revisions. Reuse returned package pins and exact choices in extensions. No agent, profile, account or grant is created. This planning-safe tool never probes accounts; use list_agent_extension_accounts only after explicitly choosing one returned personal profile.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentExtensionMetadataOptionsRequestSchema, { target: 'draft-7', io: 'input' })),
+    execute: async (_callId, params) => {
+      const input = agentExtensionMetadataOptionsRequestSchema.parse(params);
+      const { listManagedAgentExtensionOptions } = await import('@/app/lib/agents/extension-options');
+      const data = await listManagedAgentExtensionOptions(actor(userId, sessionId), input);
+      return result(`Extension ${data.operation} options for the current agent context.`, { options: data });
+    },
+  };
+  const extensionAccounts: AgentTool = {
+    name: 'list_agent_extension_accounts', label: 'Choose own extension account',
+    description: 'Explicitly inspects accounts for one returned actor-owned Composio profile and exact allowed toolkit/declaration. Requires operation connection_choices with profileId. Returns precise personal selections and short-lived server receipts; never chooses a default account or changes bindings. Unavailable in planning mode. Account authorization and provider health remain different states.',
+    parameters: Type.Unsafe(z.toJSONSchema(agentExtensionAccountOptionsRequestSchema, { target: 'draft-7', io: 'input' })),
+    execute: async (_callId, params) => {
+      const input = agentExtensionAccountOptionsRequestSchema.parse(params);
+      const { listManagedAgentExtensionOptions } = await import('@/app/lib/agents/extension-options');
+      const data = await listManagedAgentExtensionOptions(actor(userId, sessionId), input);
+      return result('Exact accounts for the explicitly selected profile.', { options: data });
     },
   };
 
@@ -313,18 +319,18 @@ export function createAgentManagementTools(
   };
   const updateConfiguration: AgentTool = {
     name: 'update_agent_configuration', label: 'Update agent configuration',
-    description: 'Atomically saves profile, enabled native tools, validated model defaults and exact published plugin/skill workflow bindings. Required package capabilities cannot be downgraded. Supply expectedWorkflowRevision when changing workflow; only explicit workflow:null clears it. Portable manifests contain declarations; instance account choices and permissions belong here.',
-    parameters: Type.Unsafe(z.toJSONSchema(updateAgentConfigurationSchema, { target: 'draft-7' })),
+    description: 'Atomically saves profile, native tools, model defaults and complete extensions with exact package pins, child masks and fixed/selectable standalone MCP/Composio choices. Required capabilities cannot be downgraded. Supply expectedWorkflowRevision when changing extensions or legacy workflow; omitting extensions preserves it, while extensions.mode=legacy_inherit explicitly restores inheritance. Do not combine complete extensions with legacy selection fields. Retain an unchanged saved connection with its returned retainedBindingRef; a fresh personal account needs a current receipt. Instance account choices and permissions belong here, outside portable manifests.',
+    parameters: Type.Unsafe(z.toJSONSchema(updateCompleteAgentConfigurationSchema, { target: 'draft-7', io: 'input' })),
     execute: async (_toolCallId, params) => {
-      const input = updateAgentConfigurationSchema.parse(params);
+      const input = updateCompleteAgentConfigurationSchema.parse(params);
       const data = await updateManagedAgentConfiguration({ ...input, actor: actor(userId, sessionId) });
       return result(`Updated ${data.agent.agentId} to revision ${data.agent.revision}.`, data);
     },
   };
   const selectWorkflowChoice: AgentTool = {
     name: 'set_agent_workflow_choice', label: 'Select own workflow connection',
-    description: 'Saves only the current user’s choice within the administrator’s allowlist or explicit personal policy. Never changes central configuration, fixed bindings, grants, or tool caps. Use returned capabilityKey and both current revisions; personal accountSelectionRef must come from the current account chooser.',
-    parameters: Type.Unsafe(z.toJSONSchema(updateAgentWorkflowChoiceSchema, { target: 'draft-7' })),
+    description: 'Saves only the current user’s package or standalone connection choice within the administrator’s allowlist or explicit personal policy. Never changes central configuration, fixed bindings, grants, or tool caps. Use the returned capabilityKey and both current revisions. Provide exactly one choiceId (null clears), personalSelection for a package capability, or standaloneSelection for a standalone slot; a fresh personal Composio account requires its current sealed accountSelectionRef.',
+    parameters: Type.Unsafe(z.toJSONSchema(updateAgentWorkflowChoiceSchema, { target: 'draft-7', io: 'input' })),
     execute: async (_toolCallId, params) => {
       const input = updateAgentWorkflowChoiceSchema.parse(params);
       const data = await setManagedAgentWorkflowChoice({ ...bindOwnAgentWorkflowChoiceInput(input, userId), actor: actor(userId, sessionId) });
@@ -397,7 +403,9 @@ export function createAgentManagementTools(
     protectWorkflowTool(inspectWorkflow),
     protectWorkflowTool(workflowOptions),
     protectWorkflowTool(personalWorkflowOptions),
-    createAgent,
+    protectWorkflowTool(extensionOptions),
+    protectWorkflowTool(extensionAccounts),
+    protectWorkflowTool(createAgent),
     updateProfile,
     updateRuntime,
     updateCapabilities,

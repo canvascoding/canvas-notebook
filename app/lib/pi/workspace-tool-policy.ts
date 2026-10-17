@@ -7,6 +7,8 @@ import { isProgressiveGatewayTool } from './progressive-tool-gateway';
 const WRITE_WORKSPACE_TOOL_NAMES = new Set([
   'write',
   'edit_file',
+  'create_excalidraw_scene',
+  'edit_excalidraw_scene',
   'apply_patch',
   'restore_file_snapshot',
   'copy_path',

@@ -58,13 +58,13 @@ function invalid(message: string): never { throw new WorkflowManifestError([mess
 
 const identifier = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9._-]*$/u);
 const application = z.string().min(1).max(128).regex(/^[a-z0-9][a-z0-9_-]*$/u);
-const reference = z.string().min(1).max(128).refine(value => value === value.trim()
-  && !/[\u0000-\u0020\u007f/\\:]/u.test(value));
-const toolName = z.string().min(1).max(256).refine(value => value === value.trim()
-  && !/[\u0000-\u0020\u007f]/u.test(value));
-const relativePath = z.string().min(1).max(256).refine(value => !/^[A-Za-z]:/u.test(value)
-  && !value.startsWith('/') && !/[\\\u0000-\u001f\u007f]/u.test(value)
-  && !value.split('/').some(segment => segment === '..' || segment === ''));
+// Regex equivalents keep these existing rules visible in generated JSON Schema.
+const reference = z.string().min(1).max(128)
+  .regex(/^(?!\s)(?![\s\S]*\s$)[^\u0000-\u0020\u007f/\\:]+$/u);
+const toolName = z.string().min(1).max(256)
+  .regex(/^(?!\s)(?![\s\S]*\s$)[^\u0000-\u0020\u007f]+$/u);
+const relativePath = z.string().min(1).max(256)
+  .regex(/^(?![A-Za-z]:)(?!\/)(?![\s\S]*(?:^|\/)\.\.(?:\/|$))(?![\s\S]*\/\/)(?![\s\S]*\/$)[^\\\u0000-\u001f\u007f]+$/u);
 const tools = z.array(toolName).max(CAPABILITY_WORKFLOW_LIMITS.requiredTools).optional();
 const alternativeSchema = z.discriminatedUnion('source', [
   z.object({ source: z.literal('mcp'), connector: reference, requiredTools: tools }).strict(),
@@ -84,6 +84,10 @@ const genericSchema = z.object({ version: z.literal(1),
 }).strict();
 const skillSchema = genericSchema.extend({ mcpConnectors: z.array(connectorSchema)
   .max(CAPABILITY_WORKFLOW_LIMITS.mcpConnectors).optional() }).strict();
+
+/** Shared structural contracts; semantic uniqueness and references remain in the parser below. */
+export { genericSchema as workflowManifestV1Schema, connectorSchema as workflowMcpConnectorDescriptorSchema,
+  application as workflowApplicationSchema, toolName as workflowToolNameSchema };
 
 function assertBoundedPortableJson(value: unknown): void {
   const queue = [{ value, depth: 0 }];

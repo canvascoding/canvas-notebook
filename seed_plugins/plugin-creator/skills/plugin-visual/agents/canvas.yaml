@@ -1,0 +1,6 @@
+interface:
+  display_name: Plugin Visual
+  short_description: Draw the purpose graphic for a Canvas plugin
+  brand_color: "#17614B"
+  icon_small: "./assets/logo.svg"
+  icon_large: "./assets/logo.svg"

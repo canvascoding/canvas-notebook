@@ -1,5 +1,8 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { chatBodyV1Schema } from '@/app/lib/chat/chat-body-contracts';
+import { chatExtensionSelectionInputSchema } from '@/app/lib/capabilities/extensions/contracts';
+import { captureChatTransportJson, resolveChatClientMessageId, type ChatMessageSubmissionOptions } from '@/app/lib/chat/message-submission';
 
 export const CHAT_WEBSOCKET_PATH = '/ws/chat';
 export const CHAT_WEBSOCKET_PROTOCOL = 'canvas-chat-v1';
@@ -32,25 +35,26 @@ export type ClientMessage =
       clientMessageId?: string;
       message: AgentMessage;
       context?: ChatRequestContext;
-    }
+    } & ChatMessageSubmissionOptions
   | {
       type: 'control';
       requestId?: string;
       sessionId: string;
       action: ControlAction;
+      clientMessageId?: string;
       message?: AgentMessage;
       queueItemId?: string;
       context?: ChatRequestContext;
       focusTopic?: string;
-    }
+    } & ChatMessageSubmissionOptions
   | { type: 'get_status'; requestId?: string; sessionId: string };
 
 export type ServerMessage =
   | { type: 'auth_success'; userId: string }
   | { type: 'auth_error'; error: string }
   | { type: 'subscribe_result'; requestId?: string; success: boolean; sessionId?: string; error?: string }
-  | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
-  | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
+  | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus | null; error?: string; code?: string }
+  | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus | null; error?: string; code?: string }
   | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
   | { type: 'session_updated'; sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }
@@ -108,8 +112,31 @@ function invalid(error: string): ClientMessageParseResult {
   return { ok: false, code: 'INVALID_MESSAGE', error };
 }
 
+function parseSubmission(value: Record<string, unknown>): string | null {
+  if (value.body !== undefined && !chatBodyV1Schema.safeParse(value.body).success) return 'body must be an exact inline document';
+  if (value.selection !== undefined && value.selection !== null && !chatExtensionSelectionInputSchema.safeParse(value.selection).success)
+    return 'selection must be an exact extension selection';
+  if (!isOptionalBoundedString(value.expectedAgentId, MAX_IDENTIFIER_LENGTH)
+    || !isOptionalBoundedString(value.expectedWorkspaceId, MAX_IDENTIFIER_LENGTH)) return 'Expected message target must be a non-empty bounded string';
+  if (value.expectedAgentId !== undefined && value.agentId !== undefined && value.expectedAgentId !== value.agentId)
+    return 'agentId and expectedAgentId must agree';
+  return null;
+}
+
+function parseUserMessageIdentity(value: Record<string, unknown>): string | null {
+  if (!isRecord(value.message) || value.message.role !== 'user') return 'A user message is required';
+  try {
+    const id = resolveChatClientMessageId(value.clientMessageId, value.message.clientMessageId);
+    value.clientMessageId = id;
+    value.message = { ...value.message, clientMessageId: id };
+    return null;
+  } catch { return 'A stable, consistent clientMessageId is required'; }
+}
+
 /** Runtime validation at the untrusted WebSocket boundary. */
 export function parseClientMessage(value: unknown): ClientMessageParseResult {
+  try { value = captureChatTransportJson(value); }
+  catch { return invalid('A bounded plain JSON message is required'); }
   if (!isRecord(value)) {
     return invalid('Message must be a JSON object');
   }
@@ -139,8 +166,9 @@ export function parseClientMessage(value: unknown): ClientMessageParseResult {
       if (!isOptionalBoundedString(value.agentId, MAX_IDENTIFIER_LENGTH)) {
         return invalid('agentId must be a non-empty bounded string');
       }
-      if (!isOptionalBoundedString(value.clientMessageId, MAX_IDENTIFIER_LENGTH)) {
-        return invalid('clientMessageId must be a non-empty bounded string');
+      {
+        const error = parseUserMessageIdentity(value) ?? parseSubmission(value);
+        if (error) return invalid(error);
       }
       if (value.context !== undefined && !isRecord(value.context)) {
         return invalid('context must be an object');
@@ -153,6 +181,12 @@ export function parseClientMessage(value: unknown): ClientMessageParseResult {
       }
       if (value.message !== undefined && !isRecord(value.message)) {
         return invalid('message must be an object');
+      }
+      if (['follow_up', 'steer', 'replace'].includes(value.action as string)) {
+        const error = parseUserMessageIdentity(value) ?? parseSubmission(value);
+        if (error) return invalid(error);
+      } else if (value.body !== undefined || value.selection !== undefined || value.clientMessageId !== undefined) {
+        return invalid('Message intent requires a message-bearing control action');
       }
       if (!isOptionalBoundedString(value.queueItemId, MAX_IDENTIFIER_LENGTH)) {
         return invalid('queueItemId must be a non-empty bounded string');

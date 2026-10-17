@@ -60,6 +60,10 @@ export type CapabilityCandidate = {
   enabled: boolean;
   userPreference?: 'unset' | 'enabled' | 'disabled';
   runtimePath: string | null;
+  /** Metadata only; image bytes still require the exact current resource read. */
+  hasDeclaredIcon?: boolean;
+  /** Relative child directory from the actual parsed parent, never an absolute path. */
+  pluginSkillRelativeRoot?: string;
   pluginResourceId?: string | null;
   connectionRequirementCount?: number;
   connectionReady?: boolean;

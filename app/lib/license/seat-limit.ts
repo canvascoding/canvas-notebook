@@ -2,7 +2,7 @@ import 'server-only';
 
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
-import { getLicenseStatus } from './index';
+import { getLicenseStatus, getLicenseStatusOnConnection } from './index';
 import type { LicenseStatus } from './types';
 
 type SeatLimitDatabase = Pick<SqlConnection, 'get' | 'all' | 'close'>;
@@ -302,8 +302,11 @@ export async function assertUserSeatAccess(input: {
   userId: string;
   database?: SeatLimitDatabase;
   licenseStatus?: LicenseStatus;
+  /** Internal held-transaction read: verify current signed storage without refresh or a global checkout. */
+  readOnlyLicense?: boolean;
 }): Promise<UserSeatAccess> {
-  const licenseStatus = input.licenseStatus ?? await getLicenseStatus();
+  const licenseStatus = input.licenseStatus ?? await (input.readOnlyLicense && input.database
+    ? getLicenseStatusOnConnection(input.database) : getLicenseStatus());
   const database = input.database ?? await openDb();
   const ownsDatabase = !input.database;
   try {

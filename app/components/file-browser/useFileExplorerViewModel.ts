@@ -12,22 +12,13 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
-import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
+import { useWorkspaceFileSearch } from './useWorkspaceFileSearch';
 import { sortFileNodes, sortFileTree } from '@/app/lib/files/sort';
 import { useExplorerScrollAnchor } from './useExplorerScrollAnchor';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
   variant: 'default' | 'mobile-sheet' | 'fullscreen';
-}
-
-interface SearchState {
-  workspaceId: string | null;
-  query: string;
-  results: FileNodeType[] | null;
-  total: number | null;
-  isSearching: boolean;
-  error: string | null;
 }
 
 const RESTORE_LOAD_CONCURRENCY = 4;
@@ -68,14 +59,6 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   const lastScrolledSelection = useRef<string | null>(null);
   const [restoringScope, setRestoringScope] = useState<string | null>(null);
   const [loadedRootScope, setLoadedRootScope] = useState<string | null>(null);
-  const [searchState, setSearchState] = useState<SearchState>({
-    workspaceId: null,
-    query: '',
-    results: null,
-    total: null,
-    isSearching: false,
-    error: null,
-  });
 
   const {
     fileTree: storedFileTree,
@@ -143,10 +126,12 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
   const normalizedSearchQuery = searchQuery.trim();
   const normalizedSearchQueryLower = normalizedSearchQuery.toLowerCase();
-  const searchResults = searchState.workspaceId === activeWorkspaceId && searchState.query === normalizedSearchQuery ? searchState.results : null;
-  const searchResultTotal = searchState.workspaceId === activeWorkspaceId && searchState.query === normalizedSearchQuery ? searchState.total : null;
-  const isSearching = searchState.workspaceId === activeWorkspaceId && searchState.query === normalizedSearchQuery && searchState.isSearching;
-  const searchError = searchState.workspaceId === activeWorkspaceId && searchState.query === normalizedSearchQuery ? searchState.error : null;
+  const workspaceSearch = useWorkspaceFileSearch({ workspaceId: activeWorkspaceId, query: normalizedSearchQuery,
+    enabled: workspaceReady && Boolean(normalizedSearchQuery), limit: SEARCH_RESULT_LIMIT, refreshKey: workspaceFileVersion });
+  const searchResults = normalizedSearchQuery && !workspaceSearch.isLoading ? workspaceSearch.results : null;
+  const searchResultTotal = normalizedSearchQuery && !workspaceSearch.isLoading ? workspaceSearch.total : null;
+  const isSearching = Boolean(normalizedSearchQuery) && workspaceSearch.isLoading;
+  const searchError = workspaceSearch.error;
 
   const activeDirectoryChildren = useMemo(
     () => {
@@ -250,51 +235,6 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     const { exists, isLoaded } = directoryLoadState(useFileStore.getState().fileTree, currentDirectory);
     if (!exists || !isLoaded) void loadSubdirectory(currentDirectory, true, false, activeWorkspaceId);
   }, [activeWorkspaceId, browserMode, currentDirectory, loadSubdirectory, ownsTree, workspaceReady]);
-
-  useEffect(() => {
-    const query = normalizedSearchQuery;
-    if (!query || !workspaceReady || !activeWorkspaceId) return;
-
-    const controller = new AbortController();
-    const timeout = window.setTimeout(async () => {
-      setSearchState((previous) => previous.workspaceId === activeWorkspaceId && previous.query === query ? { ...previous, isSearching: true, error: null }
-        : { workspaceId: activeWorkspaceId, query, results: null, total: null, isSearching: true, error: null });
-      try {
-        if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
-        const result = await searchWorkspaceFileReferences({
-          query,
-          limit: SEARCH_RESULT_LIMIT,
-          workspaceId: activeWorkspaceId,
-          signal: controller.signal,
-        });
-        const nextResults = result.files.map((entry) => ({
-          name: entry.name,
-          path: entry.path,
-          type: entry.type,
-          size: entry.size,
-          publicShare: entry.publicShare,
-        } satisfies FileNodeType));
-        if (controller.signal.aborted) return;
-        setSearchState({ workspaceId: activeWorkspaceId, query, results: nextResults, total: result.total, isSearching: false, error: null });
-      } catch (error) {
-        if (!controller.signal.aborted && !(error instanceof DOMException && error.name === 'AbortError')) {
-          setSearchState((previous) => ({
-            workspaceId: activeWorkspaceId,
-            query,
-            results: previous.workspaceId === activeWorkspaceId && previous.query === query ? previous.results : null,
-            total: previous.workspaceId === activeWorkspaceId && previous.query === query ? previous.total : null,
-            isSearching: false,
-            error: error instanceof Error ? error.message : 'Failed to search files',
-          }));
-        }
-      }
-    }, 200);
-
-    return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [activeWorkspaceId, normalizedSearchQuery, workspaceFileVersion, workspaceReady]);
 
   const filteredTree = useMemo(
     () => sortFileTree(
@@ -434,6 +374,9 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     searchQuery,
     searchError,
     searchResultTotal,
+    hasMoreSearchResults: workspaceSearch.hasMore,
+    isLoadingMoreSearchResults: workspaceSearch.isLoadingMore,
+    loadMoreSearchResults: workspaceSearch.loadMore,
     visibleSearchResultCount,
     searchResultNodes,
     setFileSort,

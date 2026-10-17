@@ -723,6 +723,29 @@ export function FileVersionComparison({
           onContinue={onContinue}
           onReviewStatus={onGraphReviewStatus}
         />
+      ) : selection.state === 'selected' && selected?.kind === 'revision' && current
+        && timeline.document.path.toLowerCase().endsWith('.excalidraw') ? (
+        <>
+          <EmptyComparison
+            testId="file-version-excalidraw-revision"
+            icon={<FileQuestion className="size-4" aria-hidden="true" />}
+            title={t('revisionNumber', { number: selected.revisionNumber })}
+            description={t('comparisonUnavailableDescription')}
+            action={<CurrentRevisionDetails revision={selected} />}
+          />
+          <FileVersionActions
+            request={request}
+            current={current}
+            entry={selected}
+            reviewedProposalVersion={null}
+            candidateAvailable={selected.content.availability === 'available'}
+            reviewPending={isRevalidating || isStale || localSyncPending}
+            restoreAllowed={timeline.capabilities.restore}
+            allowSameContentRestore
+            onTimelineInvalidate={onTimelineInvalidate}
+            onContinue={onContinue}
+          />
+        </>
       ) : !timeline.capabilities.compare ? (
         <EmptyComparison
           icon={<FileQuestion className="size-4" aria-hidden="true" />}

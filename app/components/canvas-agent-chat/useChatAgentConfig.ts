@@ -1,11 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchChatAgents } from '@/app/lib/chat/agent-api';
+import { useCallback, useEffect, useState } from 'react';
 import { fetchLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
-import type { AgentProfile } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
-import { invalidateNotebookQueries } from '@/app/lib/queries/client';
+import { useChatAgentList } from './useChatAgentList';
 
 export const DEFAULT_PROVIDER_ID = '';
 export const DEFAULT_MODEL_ID = '';
@@ -31,47 +29,16 @@ export function useChatAgentConfig({
   const [activeModel, setActiveModel] = useState(DEFAULT_MODEL_ID);
   const [activeProvider, setActiveProvider] = useState(DEFAULT_PROVIDER_ID);
   const [activeThinkingLevel, setActiveThinkingLevel] = useState<PiThinkingLevel>(DEFAULT_THINKING_LEVEL);
-  const [agentListState, setAgentListState] = useState<{
-    workspaceId: string | null;
-    agents: AgentProfile[];
-  }>({ workspaceId: null, agents: [] });
+  const { availableAgents, refreshAgents, acceptCreatedAgent, scopeKey } = useChatAgentList(workspaceId);
   const [requestedAgentId, setSelectedAgentId] = useState(initialAgentId);
-  const agentsRequestSequenceRef = useRef(0);
-  const preferredAgentLoadedRef = useRef(false);
-  const availableAgents = agentListState.workspaceId === workspaceId
-    ? agentListState.agents
-    : [];
   const selectedAgentId = availableAgents.some((agent) => agent.agentId === requestedAgentId)
     ? requestedAgentId
     : initialAgentId;
 
-  const refreshAgents = useCallback(async (fresh = true) => {
-    const requestSequence = ++agentsRequestSequenceRef.current;
-    if (!workspaceId) return;
-    if (fresh) await invalidateNotebookQueries(workspaceId, 'agents');
-    const agents = await fetchChatAgents(workspaceId);
-    if (requestSequence === agentsRequestSequenceRef.current) {
-      setAgentListState({ workspaceId, agents });
-    }
-  }, [workspaceId]);
-
   useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        await refreshAgents(false);
-      } catch (err) {
-        console.error('Failed to fetch agents', err);
-      }
-    };
-
-    void fetchAgents();
-  }, [refreshAgents]);
-
-  useEffect(() => {
-    if (sessionId || preferredAgentLoadedRef.current) {
+    if (sessionId || !workspaceId) {
       return;
     }
-    preferredAgentLoadedRef.current = true;
     let cancelled = false;
 
     const fetchPreferredAgent = async () => {
@@ -87,7 +54,7 @@ export function useChatAgentConfig({
     return () => {
       cancelled = true;
     };
-  }, [initialAgentId, sessionId]);
+  }, [initialAgentId, scopeKey, sessionId, workspaceId]);
 
   const updateAgentModelSelection = useCallback((next: AgentModelState) => {
     setActiveModel(next.model);
@@ -102,6 +69,7 @@ export function useChatAgentConfig({
     availableAgents,
     selectedAgentId,
     refreshAgents,
+    acceptCreatedAgent,
     setActiveModel,
     setActiveProvider,
     setActiveThinkingLevel,

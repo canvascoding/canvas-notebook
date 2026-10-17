@@ -3,7 +3,7 @@ import 'server-only';
 import crypto from 'crypto';
 import { desc, eq, inArray } from 'drizzle-orm';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
-import { db } from '@/app/lib/db';
+import { db, type SqlConnection } from '@/app/lib/db';
 import { licensePublicKeys } from '@/app/lib/db/schema';
 import { getControlPlaneLicenseBaseUrl } from './instance';
 import { logLicenseInfoThrottled } from './logging';
@@ -377,9 +377,13 @@ function persistedSources(keyset: LicensePublicKeySet): string[] {
 
 async function resolveFromPostgres(
   keyset: LicensePublicKeySet,
+  database?: Pick<SqlConnection, 'all'>,
 ): Promise<LicensePublicKeyResolution> {
   try {
-    const rows = await db
+    const sources = persistedSources(keyset);
+    const rows = database ? await database.all(`SELECT public_key AS "publicKey",fingerprint,kid FROM license_public_keys
+      WHERE source IN (${sources.map((_, index) => `$${index + 1}`).join(',')}) ORDER BY fetched_at DESC LIMIT 5`,
+    sources) as Array<{ publicKey: string; fingerprint: string; kid: string | null }> : await db
       .select({
         publicKey: licensePublicKeys.publicKey,
         fingerprint: licensePublicKeys.fingerprint,
@@ -414,7 +418,7 @@ async function resolveFromPostgres(
       return { keys: [], source: 'none', keyset, error: 'untrusted_key' };
     }
 
-    await Promise.all(keys.map((key) => db
+    if (!database) await Promise.all(keys.map((key) => db
         .update(licensePublicKeys)
         .set({ lastUsedAt: new Date() })
         .where(eq(licensePublicKeys.fingerprint, key.fingerprint))));
@@ -477,6 +481,8 @@ export async function resolveLicensePublicKeys(
   options: {
     keyset?: LicensePublicKeySet;
     forceRefresh?: boolean;
+    /** Held transaction: fresh trusted stored keys only, without refresh/cache writes or pool checkout. */
+    database?: Pick<SqlConnection, 'get' | 'all'>;
   } = {},
 ): Promise<LicensePublicKeyResolution> {
   const keyset = options.keyset ?? 'production';
@@ -501,6 +507,8 @@ export async function resolveLicensePublicKeys(
     });
     return { keys: bundledKeys, source: 'bundled', keyset };
   }
+
+  if (options.database) return resolveFromPostgres(keyset, options.database);
 
   const cached = positiveMemoryCache[keyset];
   if (!forceRefresh && cached && Date.now() < cached.expiresAt) {

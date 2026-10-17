@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCanvasSessionCookie } from '@/app/lib/auth-cookie';
+import { PAGE_RETURN_TO_HEADER } from '@/app/lib/auth/page-request';
 import { getManagedSystemUpdateOrigin, hasManagedSystemUpdateIntent } from '@/app/lib/managed/control-plane-url-policy';
 import { optionalHtmlPreviewOrigin, isHtmlPreviewHost } from '@/app/lib/html-preview-origin';
 import { readStudioBulkAvailability } from '@/app/lib/studio-bulk-availability';
@@ -63,14 +64,6 @@ function getLocaleFromPathname(pathname: string) {
   }
 
   return routing.defaultLocale;
-}
-
-function buildLocalePath(locale: string, pathname: string) {
-  if (locale === routing.defaultLocale) {
-    return pathname;
-  }
-
-  return pathname === '/' ? `/${locale}` : `/${locale}${pathname}`;
 }
 
 function setCommonHeaders(response: NextResponse) {
@@ -194,6 +187,18 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (pathname.startsWith('/api/')) {
+    // Personal Composio flows are authenticated by an expiring, single-use
+    // server token. Native/system browsers may have no Canvas session cookie.
+    if (request.method === 'GET' && pathname === '/api/composio/callback'
+      && /^[A-Za-z0-9_-]{43}$/u.test(request.nextUrl.searchParams.get('flow') || '')
+      && request.nextUrl.searchParams.getAll('flow').length === 1
+      && (!request.headers.get('sec-fetch-mode') || request.headers.get('sec-fetch-mode') === 'navigate')
+      && (!request.headers.get('sec-fetch-dest') || request.headers.get('sec-fetch-dest') === 'document')) {
+      const response = nextWithCommonHeaders();
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('Referrer-Policy', 'no-referrer');
+      return response;
+    }
     // Composio completes provider OAuth itself. The public desktop return only
     // collects a response; the original authenticated manager must publish it.
     const composioReturn = request.nextUrl.searchParams;
@@ -229,16 +234,22 @@ export default async function middleware(request: NextRequest) {
     }
 
     const sessionCookie = getCanvasSessionCookie(request);
-    // The versioned native handlers validate this credential with Better Auth.
+    // Native and scene handlers validate these credentials with Better Auth.
     // Presence here only delegates authentication; it grants no session rights.
     const mobileBearerCandidate = pathname.startsWith('/api/mobile/v1/')
       && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/u.test(request.headers.get('authorization') || '');
+    const excalidrawBearerCandidate = (
+      request.method === 'POST' && pathname === '/api/excalidraw/scenes'
+      || request.method === 'GET' && /^\/api\/excalidraw\/scenes\/[^/]{1,200}$/u.test(pathname)
+      || request.method === 'POST' && /^\/api\/excalidraw\/scenes\/[^/]{1,200}\/operations$/u.test(pathname)
+    ) && /^Bearer [^\s\x00-\x1f\x7f]{1,4096}$/iu.test(request.headers.get('authorization') || '');
+    const bearerCandidate = mobileBearerCandidate || excalidrawBearerCandidate;
     const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-    if (!sessionCookie && !mobileBearerCandidate && logMissingSession) {
+    if (!sessionCookie && !bearerCandidate && logMissingSession) {
       console.log(`[Middleware] No session credential for ${pathname}. Denying API request.`);
     }
 
-    if (!sessionCookie && !mobileBearerCandidate) {
+    if (!sessionCookie && !bearerCandidate) {
       const errorResponse = NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -254,50 +265,20 @@ export default async function middleware(request: NextRequest) {
     return nextWithCommonHeaders();
   }
 
-  // 1. Handle i18n routing first
-  const response = handleI18nRouting(request);
+  // Let Next.js resolve pages before requiring authentication: an unmatched URL
+  // must reach the public 404, while actual protected pages use requirePageSession.
+  // Forward the original path so their login redirects retain the return target.
+  const pageHeaders = new Headers(request.headers);
+  pageHeaders.set(PAGE_RETURN_TO_HEADER, `${pathname}${request.nextUrl.search}`);
+  const response = handleI18nRouting(new NextRequest(request, { headers: pageHeaders }));
   
   // Set security headers on the i18n response
   setCommonHeaders(response);
 
-  // 2. Allow public routes and auth API routes
-  if (isPublicRoute(pathname)) {
-    return response;
-  }
-
-  // 3. Check for session cookie using Better Auth utility
-  const sessionCookie = getCanvasSessionCookie(request);
-  
-  const logMissingSession = process.env.NODE_ENV !== 'production' || process.env.AUTH_DEBUG === 'true';
-  if (!sessionCookie && logMissingSession) {
-    console.log(`[Middleware] No session cookie for ${pathname}. Redirecting/denying.`);
-  }
-
-  if (!sessionCookie) {
-    // Redirect to login for page requests
-    if (!pathname.startsWith('/api/')) {
-      const locale = getLocaleFromPathname(pathname);
-      const loginUrl = new URL(buildLocalePath(locale, '/login'), request.url);
-      const from = `${pathname}${request.nextUrl.search}`;
-      loginUrl.searchParams.set('from', from);
-      const redirectResponse = NextResponse.redirect(loginUrl);
-      setCommonHeaders(redirectResponse);
-      return redirectResponse;
-    }
-
-    // Return 401 for API requests
-    const errorResponse = NextResponse.json(
-      { success: false, error: 'Unauthorized' },
-      { status: 401 }
-    );
-    setCommonHeaders(errorResponse);
-    return errorResponse;
-  }
-
   // Redirect before rendering StudioShell: a streamed child-page redirect
   // would hydrate its Bulk title against the destination Studio pathname.
   const locale = getLocaleFromPathname(pathname);
-  if (['GET', 'HEAD'].includes(request.method)
+  if (getCanvasSessionCookie(request) && ['GET', 'HEAD'].includes(request.method)
     && [`/${locale}/studio/bulk`, `/${locale}/studio/bulk/`].includes(pathname)
     && !readStudioBulkAvailability().studioBulkEnabled) {
     const redirectResponse = NextResponse.redirect(new URL(`/${locale}/studio`, request.url));
@@ -321,5 +302,9 @@ export const config = {
     // shared abuse limits and 16 KiB body reader before consuming input.
     '/api/((?!documents/read$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
+    // Localized page URLs can contain dots. They still need locale forwarding
+    // for the global 404; root-level public asset URLs remain excluded above.
+    '/de/:path*',
+    '/en/:path*',
   ],
 };

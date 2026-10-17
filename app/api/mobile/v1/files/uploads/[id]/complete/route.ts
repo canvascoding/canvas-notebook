@@ -9,6 +9,7 @@ import { completeWorkspaceUploadFile, publicWorkspaceUploadFile, publicWorkspace
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { excalidrawRequestAuthority } from '@/app/lib/excalidraw-collaboration/http';
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
@@ -56,6 +57,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           idempotencyKey: `upload:${id}:${file.id}`,
           officeAttempt: file.officeAttempt,
           persistOfficeAttempt,
+          beforeWrite: file.targetPath.toLowerCase().endsWith('.excalidraw')
+            ? async () => { await excalidrawRequestAuthority(request, workspaceResult, 'canWrite')(); } : undefined,
           write: () => writeWorkspaceFileFromPathIfAbsent(sourcePath, file.targetPath, fileOptions),
         });
       },

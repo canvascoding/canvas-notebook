@@ -7,7 +7,7 @@ import { getAgentAccessOnConnection, requireAgentAccess } from '@/app/lib/agents
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { db, openDb, type SqlConnection } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { captureCapabilityPackageRuntimeBindings } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { resolveEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
 import {
   LEGACY_PERSONAL_WORKSPACE_ID,
   resolveWorkspaceActor,
@@ -173,10 +173,12 @@ export async function addEffectiveSkillReadRoots(
   executionContext: AgentExecutionContext,
 ): Promise<AgentExecutionContext> {
   try {
-    return { ...executionContext, ...await captureCapabilityPackageRuntimeBindings(executionContext) };
+    return await resolveEffectiveExtensionContext(executionContext);
   } catch (error) {
     console.warn('[AgentExecutionContext] Failed to resolve effective skill read roots:', error);
-    return { ...executionContext, skillReadRoots: [], skillPackageBindings: [] };
+    // An unverified selection must never become legacy inheritance or keep a
+    // previous prompt's tool hints. Stop this setup/refresh before execution.
+    throw error;
   }
 }
 

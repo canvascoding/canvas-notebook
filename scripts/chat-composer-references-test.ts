@@ -14,8 +14,15 @@ assert.deepEqual(findActiveComposerReference('+', 1), {
   endIndex: 1,
 });
 assert.equal(findActiveComposerReference('+annual report', 14)?.query, 'annual report');
-assert.equal(findActiveComposerReference('@annual', 7)?.kind, 'file');
-assert.equal(findActiveComposerReference('/pdf', 4)?.kind, 'capability');
+assert.deepEqual(findActiveComposerReference('@', 1), {
+  kind: 'all', trigger: '@', query: '', startIndex: 0, endIndex: 1,
+});
+assert.equal(findActiveComposerReference('@annual', 7)?.kind, 'all');
+assert.equal(findActiveComposerReference('@Plugin Creator', 15)?.query, 'Plugin Creator');
+assert.equal(findActiveComposerReference('@reports/annual.md', 18)?.query, 'reports/annual.md');
+assert.equal(findActiveComposerReference('@"annual report.md" ', 20), null);
+assert.equal(findActiveComposerReference('/pdf', 4), null);
+assert.equal(findActiveComposerReference('Bitte /Plugin Creator', 21), null);
 assert.equal(findActiveComposerReference('person@example.com', 18), null);
 assert.equal(findActiveComposerReference('https://example.com', 19), null);
 assert.equal(findActiveComposerReference('2 + 2', 5), null);

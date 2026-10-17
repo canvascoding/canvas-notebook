@@ -30,6 +30,8 @@ import { isOnboardingComplete } from '../onboarding/status';
 import { ensureLegacyMemoryMigrated } from '../memory/legacy-migration';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { loadCapabilityPackageRuntimeSkills } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { readEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
+import { EFFECTIVE_EXTENSION_FOUNDATION_MARKER } from '@/app/lib/capabilities/extensions/runtime-prompt';
 
 export {
   composeManagedAgentSystemPrompt,
@@ -167,7 +169,8 @@ export async function loadManagedAgentSystemPrompt(
         projectId: scope.projectId,
       })
       : null;
-    const skills = boundContext
+    const extensionContext = boundContext ? readEffectiveExtensionContext(boundContext) : null;
+    const skills = extensionContext ? [] : boundContext
       ? await loadCapabilityPackageRuntimeSkills(boundContext)
       : capabilitySnapshot
       ? await loadEffectiveSkills(capabilitySnapshot)
@@ -189,7 +192,9 @@ export async function loadManagedAgentSystemPrompt(
       agentProfile?.relevantSkills,
       requiredSkillNames,
     );
-    const skillsContext = getSkillsContext(promptSkills);
+    // Final native tools, delegated ceilings and run mode are known at runtime.
+    // Keep the persisted foundation free of a second full inherited skill index.
+    const skillsContext = extensionContext ? EFFECTIVE_EXTENSION_FOUNDATION_MARKER : getSkillsContext(promptSkills);
     
     const result = composeManagedAgentSystemPrompt(files, skillsContext, {
       agentId: normalizedAgentId,

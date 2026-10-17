@@ -4,6 +4,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import { openDb } from '@/app/lib/db';
+import { AgentWorkflowError, isAgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
+import type { AgentExecutionContext } from './agent-execution-context';
+import type { ChatMessageSubmissionOptions } from '@/app/lib/chat/message-submission';
+import { captureChatMessageAdmissionRequest, type CapturedChatMessageAdmissionRequest } from '@/app/lib/chat/durable-message-contracts';
+import { prepareChatMessageAdmission, commitPreparedChatMessageAdmission, commitPreparedChatMessageReplacement,
+  readOwnedAcceptedChatMessageQueue, readOwnedChatMessageExecutionSnapshot, type OwnedAcceptedChatMessage } from './durable-message-admission';
 
 import type {
   ChatRequestContext,
@@ -20,23 +27,18 @@ import {
   invalidatePiRuntime,
   type PiRuntimeStatus,
 } from '@/app/lib/pi/live-runtime';
-import {
-  assertUnambiguousOwnedPiSessionForRuntime,
-  PiSessionRuntimeAccessError,
-} from '@/app/lib/pi/session-runtime-access';
 import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import { getStudioOutputsRoot, resolveStudioFilePath } from '@/app/lib/integrations/studio-workspace';
 import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
 import { createPersistedStudioScope } from '@/app/lib/integrations/studio-scope';
-import { compactImageBufferForLlm } from '@/app/lib/pi/message-normalization';
+import { assertMessageUploadReferences, compactImageBufferForLlm } from '@/app/lib/pi/message-normalization';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import {
-  ensurePiSessionWorkspaceSnapshot,
-  requestedWorkspaceIdFromChatContext,
+  readStoredAgentWorkspaceOnConnection,
   workspaceToChatRequestWorkspace,
 } from '@/app/lib/pi/session-workspace-context';
-import { MessageDeliveryError, withMessageDeliveryReceipt } from '@/app/lib/pi/message-delivery-receipt';
+import { MessageDeliveryError } from '@/app/lib/pi/message-delivery-receipt';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 import {
@@ -46,7 +48,7 @@ import {
   TODO_WORKSPACE_TYPES,
 } from '@/app/lib/todos/store';
 
-export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
+export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }> & { clientMessageId?: string };
 
 export type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 
@@ -80,7 +82,8 @@ export function getErrorMessage(error: unknown): string {
 }
 
 export function getErrorStatusCode(error: unknown): number {
-  return error instanceof RuntimeServiceError || error instanceof MessageDeliveryError ? error.statusCode : 500;
+  return isAgentWorkflowError(error) ? error.status
+    : error instanceof RuntimeServiceError || error instanceof MessageDeliveryError ? error.statusCode : 500;
 }
 
 export function isValidUserMessage(message: unknown): message is UserAgentMessage {
@@ -262,11 +265,38 @@ async function normalizeTodoContext(
   }
 }
 
+/** Stored assignments only: this read never bootstraps or changes a session. */
+async function readSubmissionWorkspace(userId: string, sessionId: string,
+  target: { expectedAgentId?: string; expectedWorkspaceId?: string } = {}) {
+  const database = await openDb();
+  try {
+    const sessions = await database.all(`SELECT agent_id,workspace_id FROM pi_sessions
+      WHERE user_id=$1 AND session_id=$2 AND archived_at IS NULL LIMIT 2`, [userId, sessionId]) as
+      { agent_id: string | null; workspace_id: string | null }[];
+    const session = sessions[0];
+    if (sessions.length !== 1 || !session?.agent_id || !session.workspace_id
+      || target.expectedAgentId !== undefined && session.agent_id !== target.expectedAgentId
+      || target.expectedWorkspaceId !== undefined && session.workspace_id !== target.expectedWorkspaceId) {
+      throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The originating chat context is unavailable.', 403);
+    }
+    const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId, sessionId,
+      agentId: session.agent_id, workspaceId: session.workspace_id, permissions: ['canRead', 'canRunAgent'] });
+    return { agentId: session.agent_id, workspace };
+  } finally { await database.close(); }
+}
+
 async function normalizeContext(
   context: ChatRequestContext | undefined,
   userId: string,
   sessionId: string,
+  target?: { expectedAgentId?: string; expectedWorkspaceId?: string },
 ): Promise<ChatRequestContext> {
+  const stored = await readSubmissionWorkspace(userId, sessionId, target);
+  if (context?.workspace && (context.workspace.workspaceId !== stored.workspace.workspaceId
+    || context.workspace.organizationId !== undefined
+      && context.workspace.organizationId !== (stored.workspace.organizationId ?? null))) {
+    throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The message belongs to a different workspace.', 403);
+  }
   let userTimeZone: string;
   try {
     userTimeZone = await getServerPreferredTimeZone();
@@ -274,38 +304,20 @@ async function normalizeContext(
     console.warn('[RuntimeService] Failed to resolve user time zone preference:', getErrorMessage(error));
     userTimeZone = normalizeTimeZone(context?.userTimeZone);
   }
-
-  let workspace: ChatRequestContext['workspace'] | undefined;
-  try {
-    const resolvedWorkspace = await ensurePiSessionWorkspaceSnapshot({
-      sessionId,
-      userId,
-      requestedWorkspaceId: requestedWorkspaceIdFromChatContext(context),
-    });
-    workspace = workspaceToChatRequestWorkspace(resolvedWorkspace);
-  } catch (error) {
-    console.warn('[RuntimeService] Failed to resolve session workspace context:', {
-      sessionId,
-      userId,
-      error: getErrorMessage(error),
-    });
-  }
-
   const todoContext = await normalizeTodoContext(context?.todoContext, userId);
-
   return {
-    channelId: typeof context?.channelId === 'string' ? context.channelId : undefined,
+    ...(typeof context?.channelId === 'string' ? { channelId: context.channelId } : {}),
     userTimeZone,
     currentTime: typeof context?.currentTime === 'string' ? context.currentTime : new Date().toISOString(),
     activeFilePath: typeof context?.activeFilePath === 'string' ? context.activeFilePath : null,
-    workingDirectory: typeof context?.workingDirectory === 'string' ? context.workingDirectory : undefined,
-    workspace,
+    ...(typeof context?.workingDirectory === 'string' ? { workingDirectory: context.workingDirectory } : {}),
+    workspace: workspaceToChatRequestWorkspace(stored.workspace),
     planningMode: context?.planningMode === true,
-    currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
-    todoContext,
-    notebookContext: normalizeNotebookRequestContext(context?.notebookContext),
-    studioContext: context?.studioContext,
-    emailContext: context?.emailContext,
+    ...(typeof context?.currentPage === 'string' ? { currentPage: context.currentPage } : {}),
+    ...(todoContext ? { todoContext } : {}),
+    ...(context?.notebookContext ? { notebookContext: normalizeNotebookRequestContext(context.notebookContext) } : {}),
+    ...(context?.studioContext ? { studioContext: context.studioContext } : {}),
+    ...(context?.emailContext ? { emailContext: context.emailContext } : {}),
   };
 }
 
@@ -395,6 +407,112 @@ async function injectStudioImage(
   return message;
 }
 
+/** Reconstruct internal completion presentation from its actual terminal record, never caller metadata. */
+export async function attachAcceptedRuntimeMessageMetadata(message: UserAgentMessage,
+  context: Pick<AgentExecutionContext, 'userId' | 'sessionId' | 'agentId'>): Promise<UserAgentMessage> {
+  const clean = { ...message, delegationCompletion: undefined };
+  const prefix = 'delegation-completion:';
+  if (!message.clientMessageId?.startsWith(prefix) || !context.agentId) return clean;
+  const { getOwnedPiDelegation } = await import('./delegation-store');
+  const record = await getOwnedPiDelegation(message.clientMessageId.slice(prefix.length), context.userId);
+  if (!record || record.sourceSessionId !== context.sessionId || record.sourceAgentId !== context.agentId
+    || !['completed', 'failed', 'cancelled'].includes(record.status)) return clean;
+  const { createDelegationCompletionMessage } = await import('./delegation-completion-message');
+  const completion = createDelegationCompletionMessage(record, message.timestamp);
+  if (completion.content !== message.content) return clean;
+  return { ...clean, delegationCompletion: completion.delegationCompletion } as UserAgentMessage;
+}
+
+/** Hydrate only after the runtime has acquired a fresh execution claim and exact turn source. */
+export async function prepareAcceptedRuntimePrompt(message: UserAgentMessage, context: ChatRequestContext,
+  executionContext: AgentExecutionContext): Promise<{ message: UserAgentMessage; context: ChatRequestContext }> {
+  if (!executionContext.agentId) throw new AgentWorkflowError('AGENT_EXTENSION_CONTEXT_DENIED', 'The originating agent is unavailable.', 403);
+  const normalized = await normalizeContext(context, executionContext.userId, executionContext.sessionId,
+    { expectedAgentId: executionContext.agentId, expectedWorkspaceId: executionContext.workspaceId });
+  await assertMessageUploadReferences(message, { uploadOwnerUserId: executionContext.userId,
+    uploadWorkspaceId: executionContext.workspaceId });
+  const hydrated = await injectStudioImage(message, normalized, executionContext.userId);
+  return { message: await attachAcceptedRuntimeMessageMetadata(hydrated ?? message, executionContext), context: normalized };
+}
+
+/** Inspect positional legacy transport objects without evaluating a getter. */
+function submissionData(value: unknown, allowedKeys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || ![null, Object.prototype].includes(Object.getPrototypeOf(value))
+    || Object.getOwnPropertySymbols(value).length) throw new RuntimeServiceError('Plain message data is required.', 400);
+  const result: Record<string, unknown> = Object.create(null);
+  for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+    if (!allowedKeys.includes(key) || !('value' in descriptor) || !descriptor.enumerable)
+      throw new RuntimeServiceError('Message data properties are required.', 400);
+    Object.defineProperty(result, key, { value: descriptor.value, enumerable: true });
+  }
+  return result;
+}
+
+function captureSubmission(sessionId: string, userId: string, message: unknown, context: ChatRequestContext | undefined,
+  mode: 'message' | 'steer', submission?: ChatMessageSubmissionOptions,
+  target?: { expectedAgentId?: string | null }): CapturedChatMessageAdmissionRequest {
+  try {
+    const fields = submissionData(message, ['role', 'content', 'timestamp', 'clientMessageId', 'delegationCompletion']);
+    const options = submission === undefined ? {} : submissionData(submission,
+      ['body', 'selection', 'expectedAgentId', 'expectedWorkspaceId']);
+    const oldTarget = target === undefined ? {} : submissionData(target, ['expectedAgentId']);
+    if (oldTarget.expectedAgentId !== undefined && options.expectedAgentId !== undefined
+      && oldTarget.expectedAgentId !== options.expectedAgentId) throw new Error('The message targets disagree.');
+    // The completion payload is already in content. Its UI marker is freshly
+    // reconstructed from the actual owned delegation record during dispatch.
+    return captureChatMessageAdmissionRequest({ userId, sessionId, clientMessageId: fields.clientMessageId,
+      message: { role: fields.role, content: fields.content, timestamp: fields.timestamp }, mode,
+      ...(context === undefined ? {} : { context }), ...options,
+      ...(oldTarget.expectedAgentId === undefined ? {} : { expectedAgentId: oldTarget.expectedAgentId }) });
+  } catch {
+    throw new AgentWorkflowError('AGENT_MESSAGE_ADMISSION_INVALID', 'A bounded user message and stable client message ID are required.', 400);
+  }
+}
+
+async function replayAcceptedMessage(owned: OwnedAcceptedChatMessage): Promise<PiRuntimeStatus | null> {
+  const { payload } = readOwnedChatMessageExecutionSnapshot(owned);
+  // SQL Use/payload validation was performed by the admission reader. Never
+  // instantiate a runtime, resolve model/tools, or re-run replace on replay.
+  const runtime = await getExistingPiRuntime(payload.identity.sessionId, payload.identity.userId);
+  if (!runtime) return null;
+  if (runtime.agentId !== payload.identity.agentId) throw new RuntimeServiceError('The active runtime belongs to a different agent.', 409);
+  return runtime.refreshOwnedQueue();
+}
+
+async function submitCapturedMessage(captured: CapturedChatMessageAdmissionRequest,
+  action: 'message' | 'follow_up' | 'steer' | 'replace'): Promise<PiRuntimeStatus | null> {
+  return withPiSessionOperationLock(captured.sessionId, captured.userId, async () => {
+    const prepared = await prepareChatMessageAdmission(captured);
+    if (prepared.kind === 'replay') return replayAcceptedMessage(prepared.message);
+    const stored = await readSubmissionWorkspace(captured.userId, captured.sessionId, captured);
+    await assertMessageUploadReferences(captured.message, { uploadOwnerUserId: captured.userId,
+      uploadWorkspaceId: stored.workspace.workspaceId });
+    let cancelled: Awaited<ReturnType<typeof commitPreparedChatMessageReplacement>>['cancelled'] | undefined;
+    let owned: OwnedAcceptedChatMessage;
+    if (action === 'replace') {
+      const queue = await readOwnedAcceptedChatMessageQueue({ userId: captured.userId, sessionId: captured.sessionId,
+        expectedAgentId: stored.agentId, expectedWorkspaceId: stored.workspace.workspaceId });
+      const targets = queue.messages.filter(candidate => {
+        const snapshot = readOwnedChatMessageExecutionSnapshot(candidate);
+        return snapshot.phase === 'queued' && snapshot.runtimeToken === 'unclaimed';
+      });
+      const result = await commitPreparedChatMessageReplacement(prepared.admission, targets);
+      owned = result.message; cancelled = result.cancelled;
+    } else {
+      owned = await commitPreparedChatMessageAdmission(prepared.admission,
+        { lane: action === 'steer' ? 'steer' : action === 'follow_up' ? 'follow_up' : 'prompt' });
+    }
+    const snapshot = readOwnedChatMessageExecutionSnapshot(owned);
+    // Another process may have committed/dispatched the same logical send after
+    // prepare. It remains a replay, including the replace case.
+    if (snapshot.phase !== 'queued' || snapshot.runtimeToken !== 'unclaimed') return replayAcceptedMessage(owned);
+    const { runtime } = await getOrCreatePiRuntimeWithState(captured.sessionId, captured.userId,
+      { metadataOnlyExternal: true, initialPlanningMode: captured.context.planningMode === true });
+    if (runtime.agentId !== snapshot.payload.identity.agentId) throw new RuntimeServiceError('The active runtime belongs to a different agent.', 409);
+    return runtime.acceptOwnedMessage(owned, action === 'replace' ? { cancelled, replace: true } : undefined);
+  });
+}
+
 export async function prepareRuntimePrompt(
   sessionId: string,
   userId: string,
@@ -458,32 +576,14 @@ export async function sendMessage(
   userId: string,
   message: UserAgentMessage | null,
   context?: ChatRequestContext,
-): Promise<PiRuntimeStatus> {
-  return withPiSessionOperationLock(sessionId, userId, async () => {
-    const payload = {
-      sessionId,
-      ...(message ? { message, messages: [message] } : {}),
-      context,
-    };
-    const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
-
-    if (prepared.promptMessage) {
-      const promptMessage = prepared.promptMessage;
-      return withMessageDeliveryReceipt({
-        sessionId, userId, runtime: prepared.runtimeInstance,
-        message: message!, context,
-        dispatch: () => {
-          if (prepared.runtimeInstance.getStatus().canAbort) {
-            return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
-          }
-          prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
-          return prepared.runtimeInstance.getStatus();
-        },
-      });
-    }
-
-    return prepared.runtimeInstance.getStatus();
-  });
+  submission?: ChatMessageSubmissionOptions,
+): Promise<PiRuntimeStatus | null> {
+  if (message === null) {
+    await readSubmissionWorkspace(userId, sessionId);
+    return (await getExistingPiRuntime(sessionId, userId))?.getStatus() ?? null;
+  }
+  const captured = captureSubmission(sessionId, userId, message, context, 'message', submission);
+  return submitCapturedMessage(captured, 'message');
 }
 
 export async function prewarmSessionRuntime(
@@ -512,55 +612,10 @@ export async function sendFollowUpMessage(
   message: UserAgentMessage,
   context?: ChatRequestContext,
   target?: { expectedAgentId?: string | null },
-): Promise<PiRuntimeStatus> {
-  return withPiSessionOperationLock(sessionId, userId, async () => {
-    const expectedAgentId = target?.expectedAgentId?.trim() || null;
-    if (target?.expectedAgentId !== undefined && !expectedAgentId) {
-      throw new RuntimeServiceError('Expected agent ID must not be empty.', 400);
-    }
-    if (expectedAgentId) {
-      try {
-        await assertUnambiguousOwnedPiSessionForRuntime({ sessionId, userId, agentId: expectedAgentId });
-      } catch (error) {
-        if (error instanceof PiSessionRuntimeAccessError) {
-          throw new RuntimeServiceError(error.message, error.code === 'SESSION_NOT_FOUND' ? 404 : 409);
-        }
-        throw error;
-      }
-      const existingRuntime = await getExistingPiRuntime(sessionId, userId);
-      if (existingRuntime && existingRuntime.agentId !== expectedAgentId) {
-        throw new RuntimeServiceError('The active runtime belongs to a different agent.', 409);
-      }
-    }
-
-    const payload = {
-      sessionId,
-      message,
-      messages: [message],
-      context,
-    };
-    const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
-    if (expectedAgentId && prepared.runtimeInstance.agentId !== expectedAgentId) {
-      throw new RuntimeServiceError('The prepared runtime belongs to a different agent.', 409);
-    }
-    const promptMessage = prepared.promptMessage;
-
-    if (!promptMessage) {
-      throw new RuntimeServiceError('Follow-up message required.', 400);
-    }
-
-    return withMessageDeliveryReceipt({
-      sessionId, userId, runtime: prepared.runtimeInstance,
-      message, context,
-      dispatch: () => {
-        if (prepared.runtimeInstance.getStatus().canAbort) {
-          return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
-        }
-        prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
-        return prepared.runtimeInstance.getStatus();
-      },
-    });
-  });
+  submission?: ChatMessageSubmissionOptions,
+): Promise<PiRuntimeStatus | null> {
+  const captured = captureSubmission(sessionId, userId, message, context, 'message', submission, target);
+  return submitCapturedMessage(captured, 'follow_up');
 }
 
 export async function control(
@@ -571,73 +626,28 @@ export async function control(
   queueItemId?: string,
   requestContext?: ChatRequestContext,
   focusTopic?: string,
-): Promise<PiRuntimeStatus> {
+  submission?: ChatMessageSubmissionOptions,
+): Promise<PiRuntimeStatus | null> {
+  if (action === 'follow_up' || action === 'steer' || action === 'replace') {
+    const captured = captureSubmission(sessionId, userId, message, requestContext,
+      action === 'steer' ? 'steer' : 'message', submission);
+    return submitCapturedMessage(captured, action);
+  }
   return withPiSessionOperationLock(sessionId, userId, async () => {
-    const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
-    const prepareMessageContext = async () => {
-      const context = await normalizeContext(requestContext, userId, sessionId);
-      applyPiRuntimePromptContext(runtimeInstance, context);
-      return context;
-    };
-
+    // Queue/control commands do not install a new message's descriptive context.
+    await readSubmissionWorkspace(userId, sessionId);
+    const { runtime: runtimeInstance } = await getOrCreatePiRuntimeWithState(sessionId, userId, { metadataOnlyExternal: true });
     switch (action) {
-      case 'follow_up':
-        if (!isValidUserMessage(message)) {
-          throw new RuntimeServiceError('User message required for follow_up.', 400);
-        }
-        {
-          const context = await prepareMessageContext();
-          await runtimeInstance.refreshWorkspaceFileTreePrompt();
-          return withMessageDeliveryReceipt({
-            sessionId, userId, runtime: runtimeInstance, message, context: requestContext,
-            dispatch: () => {
-              // The run can finish between queue selection and serialized admission.
-              if (!runtimeInstance.getStatus().canAbort) {
-                runtimeInstance.startPrompt(message, context);
-                return runtimeInstance.getStatus();
-              }
-              return runtimeInstance.queueFollowUp(message, context);
-            },
-          });
-        }
-      case 'steer':
-        if (!isValidUserMessage(message)) {
-          throw new RuntimeServiceError('User message required for steer.', 400);
-        }
-        {
-          const context = await prepareMessageContext();
-          await runtimeInstance.refreshWorkspaceFileTreePrompt();
-          return withMessageDeliveryReceipt({
-            sessionId, userId, runtime: runtimeInstance, message, context: requestContext, mode: 'steer',
-            dispatch: () => runtimeInstance.queueSteering(message, context),
-          });
-        }
       case 'promote_queued_to_steer':
-        if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
-          throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
-        }
-        await runtimeInstance.refreshWorkspaceFileTreePrompt();
-        return runtimeInstance.promoteQueuedMessageToSteering(queueItemId.trim());
       case 'remove_queued_item':
-        if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
-          throw new RuntimeServiceError('Queue item id required for remove_queued_item.', 400);
-        }
-        return runtimeInstance.removeQueuedMessage(queueItemId.trim());
-      case 'replace':
-        if (!isValidUserMessage(message)) {
-          throw new RuntimeServiceError('User message required for replace.', 400);
-        }
-        {
-          const context = await prepareMessageContext();
-          await runtimeInstance.refreshWorkspaceFileTreePrompt();
-          return runtimeInstance.replace(message, context);
-        }
-      case 'abort':
-        return runtimeInstance.abort();
-      case 'compact':
-        return runtimeInstance.startCompaction(focusTopic);
-      default:
-        throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
+        if (typeof queueItemId !== 'string' || !queueItemId || queueItemId !== queueItemId.trim())
+          throw new RuntimeServiceError('An exact queue item ID is required.', 400);
+        return action === 'promote_queued_to_steer'
+          ? runtimeInstance.promoteQueuedMessageToSteering(queueItemId)
+          : runtimeInstance.removeQueuedMessage(queueItemId);
+      case 'abort': return runtimeInstance.abort();
+      case 'compact': return runtimeInstance.startCompaction(focusTopic);
+      default: throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
     }
   });
 }

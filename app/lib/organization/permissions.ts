@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { isAdminUser, type AdminUserCandidate } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import { type OrganizationPermissionSnapshot, type OrganizationPermissionState } from '@/app/lib/organization/contracts';
 import {
   ensureOrganizationPermissionRow,
@@ -195,12 +195,12 @@ export function assertOrganizationPermission(
   }
 }
 
-export async function readOrganizationPermissionForUser(userId: string): Promise<OrganizationPermissionState> {
-  return getPostgresOrganizationPermissionForUser(userId);
+export async function readOrganizationPermissionForUser(userId: string, database?: SqlConnection): Promise<OrganizationPermissionState> {
+  return getPostgresOrganizationPermissionForUser(userId, database);
 }
 
-async function readPermissionUserCandidate(userId: string): Promise<PermissionUserCandidate | null> {
-  return findPostgresPermissionUserCandidate(userId);
+async function readPermissionUserCandidate(userId: string, database?: SqlConnection): Promise<PermissionUserCandidate | null> {
+  return findPostgresPermissionUserCandidate(userId, database);
 }
 
 function warnLegacyAdminFallback(userId: string, key: OrganizationPermissionKey, databaseProvider: string): void {
@@ -300,10 +300,11 @@ export function isOrganizationBillingApprover(
 export async function assertUserOrganizationAdmin(
   userId: string,
   message = 'Organization admin permission required.',
+  database?: SqlConnection,
 ): Promise<OrganizationPermissionState> {
-  const state = await readOrganizationPermissionForUser(userId);
+  const state = await readOrganizationPermissionForUser(userId, database);
   if (!state.configured) {
-    const user = await readPermissionUserCandidate(userId);
+    const user = await readPermissionUserCandidate(userId, database);
     if (isAdminUser(user)) {
       warnLegacyAdminFallback(userId, 'canSharePluginsAndSkills', state.databaseProvider);
       return legacyFallbackState();

@@ -7,6 +7,7 @@ import type { CapabilityPackageOwnedDraftStatus } from '@/app/lib/capabilities/p
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { PackageDraftsSection } from './PackageDraftsSection';
 import { PackageEditorSection } from './PackageEditorSection';
+import { publishedPackageNavigationPatch } from './package-provisioning-client';
 import { usePluginNavigation } from './usePluginNavigation';
 
 /** Own draft metadata stays reachable independently from the visible installed catalog. */
@@ -17,7 +18,7 @@ export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { 
   const workspaceId = requestedWorkspaceId ?? activeWorkspaceId;
   const open = (status: CapabilityPackageOwnedDraftStatus) => {
     navigate({ area: status.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
-      resourceRef: status.sourceResourceRef, draftRef: status.draftRef, task: 'content' });
+      resourceRef: status.sourceResourceRef ?? undefined, draftRef: status.draftRef, task: 'content' });
   };
   const close = () => navigate({ draftRef: undefined, resourceRef: undefined, task: undefined, file: undefined });
   return (
@@ -31,9 +32,12 @@ export function PackageDraftsWorkspace({ workspaceId: requestedWorkspaceId }: { 
           <ArrowLeft className="h-4 w-4" />{navigation.draftRef ? t('backToDrafts') : t('backToInstalled')}
         </Button>
       </header>
-      {navigation.draftRef && navigation.resourceRef ? (
+      {navigation.draftRef ? (
         <PackageEditorSection resourceRef={navigation.resourceRef} initialDraftRef={navigation.draftRef}
-          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} />
+          initiallyOpen initialFile={navigation.file} workspaceId={workspaceId} onPublished={pin => navigate(publishedPackageNavigationPatch(pin))} onDraftStarted={draft => navigate({
+            area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts', resourceRef: draft.sourceResourceRef ?? undefined,
+            draftRef: draft.draftRef, task: 'content', file: undefined,
+          })} />
       ) : <PackageDraftsSection workspaceId={workspaceId} onOpenDraft={open} showHeader={false} />}
     </section>
   );

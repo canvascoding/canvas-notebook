@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { buildFileChangeReviewCenterHref } from '@/app/lib/file-version-center/notification-contract';
 
 import { resolveDirectMcpOrigin } from './config';
+import { workspaceFileLinkHref } from '@/app/lib/files/file-link-target';
 
 const PUBLIC_IDEMPOTENCY_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u;
 
@@ -48,11 +49,13 @@ export function createDirectMcpEditIdentity(input: {
 
 export function buildDirectMcpDocumentUrl(input: {
   workspaceId: string;
+  path: string;
+  documentId?: string | null;
+  lineageId?: string | null;
   origin?: string;
 }): string {
-  const url = new URL('/notebook', input.origin ?? resolveDirectMcpOrigin());
-  url.searchParams.set('workspaceId', input.workspaceId);
-  return url.toString();
+  return new URL(workspaceFileLinkHref({ ...input, documentId: input.documentId ?? null,
+    lineageId: input.lineageId ?? null }), input.origin ?? resolveDirectMcpOrigin()).toString();
 }
 
 export function buildDirectMcpReviewUrl(input: {

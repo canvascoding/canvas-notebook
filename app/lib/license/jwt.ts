@@ -1,6 +1,7 @@
 import 'server-only';
 
 import crypto from 'crypto';
+import type { SqlConnection } from '@/app/lib/db';
 import { getExpectedLicenseRuntimeEnvironment } from '@/app/lib/server-settings';
 import {
   resolveLicensePublicKeys,
@@ -149,7 +150,7 @@ export function decodeLicenseJwt(token: string): LicenseCert | null {
 export async function verifyLicenseJwtDetailed(
   token: string,
   expectedInstanceId: string,
-  options: { nowMs?: number } = {},
+  options: { nowMs?: number; database?: Pick<SqlConnection, 'get' | 'all'> } = {},
 ): Promise<LicenseVerificationResult> {
   const parts = token.split('.');
   if (parts.length !== 3) return failure('LICENSE_CERT_MALFORMED');
@@ -186,7 +187,7 @@ export async function verifyLicenseJwtDetailed(
   }
 
   const keyset = keysetForPayload(payload);
-  let resolution = await resolveLicensePublicKeys({ keyset });
+  let resolution = await resolveLicensePublicKeys({ keyset, ...(options.database ? { database: options.database } : {}) });
   if (resolution.keys.length === 0) {
     return failure('LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE', payload);
   }
@@ -194,7 +195,7 @@ export async function verifyLicenseJwtDetailed(
     ? resolution.keys.filter((key) => key.kid === header.kid)
     : resolution.keys;
   if (candidateKeys.length === 0 && nonEmptyString(header.kid)) {
-    resolution = await resolveLicensePublicKeys({ keyset, forceRefresh: true });
+    resolution = await resolveLicensePublicKeys({ keyset, forceRefresh: true, ...(options.database ? { database: options.database } : {}) });
     candidateKeys = resolution.keys.filter((key) => key.kid === header.kid);
   }
   if (candidateKeys.length === 0) {

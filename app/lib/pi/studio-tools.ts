@@ -93,7 +93,6 @@ export function createStudioGenerateImageTool(
       background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto. To request a transparent image, set this to transparent and set output_format to png (recommended) or webp.' })),
       moderation: Type.Optional(Type.Union([Type.Literal('auto'), Type.Literal('low')], { description: 'Content moderation level. OpenAI only. Default: auto.' })),
       output_compression: Type.Optional(Type.Number({ description: 'JPEG/WebP compression from 0 to 100. OpenAI only. Default: 100; ignored for PNG.', minimum: 0, maximum: 100 })),
-      input_fidelity: Type.Optional(Type.Union([Type.Literal('low'), Type.Literal('high')], { description: 'How strongly edits preserve input-image details. OpenAI edit/reference requests only. Default: low.' })),
       stream: Type.Optional(Type.Boolean({ description: 'Use the OpenAI image streaming transport and keep the final completed image. Default: false.' })),
       partial_images: Type.Optional(Type.Number({ description: 'Number of streamed partial images (0-3). Requires stream=true. Partial images incur additional image tokens; Studio persists only the final completed image.', minimum: 0, maximum: 3 })),
       source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as the base image for editing or variation. Prefer this when you have the output ID.' })),
@@ -123,6 +122,7 @@ export function createStudioGenerateImageTool(
       });
       const summary = [
         `Studio image generation completed (${result.outputs.length} output(s))`,
+        ...(result.failedOutputCount ? [`${result.failedOutputCount} variation(s) failed.`, ...(result.warnings || [])] : []),
         '',
         ...outputLines,
         '',

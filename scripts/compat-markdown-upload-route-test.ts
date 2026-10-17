@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import test from 'node:test';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import ts from 'typescript';
 import type { CompatMarkdownUploadResult } from '../app/lib/files/compat-markdown-upload';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
@@ -13,8 +13,9 @@ const workspace: WorkspaceContext = { workspaceId: 'compat-route-workspace', wor
   permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: true, canManageWorkspace: true, canRunAgent: true } };
 const uploadId = '11111111-1111-4111-8111-111111111111', fileId = '22222222-2222-4222-8222-222222222222';
 
-/** Executes the real compatibility POST; only named backend IO is substituted.
- * No database, native authority or upload session is fabricated by the route. */
+/** Executes the real compatibility POST and unchanged upload error response
+ * helper. Auth, native import and storage are explicit IO fixtures; this is no
+ * PostgreSQL, native authority, actual session or Scene-service proof. */
 function harness(files: File[], options: { convertParams?: unknown; targetDir?: string } = {}) {
   const filename = path.resolve('app/api/files/upload/route.ts'), load = createRequire(filename);
   const form = new FormData(); for (const file of files) form.append('files', file);
@@ -22,10 +23,14 @@ function harness(files: File[], options: { convertParams?: unknown; targetDir?: 
   if (options.convertParams) form.append('convertParams', JSON.stringify(options.convertParams));
   const controls = { enabled: true, authStatus: 0, nativeStatus: 'completed', unlocated: false,
     conversionFailure: '', rawFailure: '', effectsFailure: false,
+    sceneConflict: false, sceneAuthorityRevoked: false, sceneAuthorityFactories: 0, sceneAuthorityChecks: 0,
     nativeInputs: [] as Row[], rawWrites: [] as string[], normalizes: [] as string[],
+    rawAttempts: [] as string[], beforeWrites: [] as string[],
     shares: [] as string[][], published: [] as string[], audits: [] as Row[] };
   class PolicyError extends Error {}
+  class ServiceError extends Error {}
   const dependencies: Record<string, unknown> = {
+    'next/server': { NextRequest, NextResponse },
     '@/app/lib/workspaces/request': { requireRequestWorkspace: async (request: NextRequest) => {
       assert(request instanceof NextRequest); assert.equal(request.headers.get('cookie'), 'actual-current-cookie');
       return controls.authStatus ? { response: Response.json({ success: false }, { status: controls.authStatus }) }
@@ -45,10 +50,33 @@ function harness(files: File[], options: { convertParams?: unknown; targetDir?: 
           locator: controls.unlocated ? null : locator, unlocated: controls.unlocated };
         const completion = { status: controls.nativeStatus as 'completed' | 'projection_pending' | 'recovery_required' | 'unavailable', ...locator };
         return controls.nativeStatus === 'completed'
-          ? { status: 'completed', locator, completion, committed: { targetPath, fileVersion: 'native-version' } }
+          ? Object.assign({ status: 'completed' as const, locator, completion, committed: { targetPath, fileVersion: 'native-version' } },
+            { privateNativeEvidence: { session: 'private-upload-session', receipt: 'private-receipt', stateProof: 'private-state-proof' } })
           : { status: 'pending', httpStatus: 202, locator, completion };
       } },
     '@/app/lib/files/collaboration-policy': { FileCollaborationPolicyError: PolicyError },
+    '@/app/lib/excalidraw-collaboration/http': { excalidrawRequestAuthority: (request: NextRequest, initial: {
+      workspace: WorkspaceContext; session: { user: { id: string }; session: { id: string } };
+    }, permission: 'canRead' | 'canWrite') => {
+      assert(request instanceof NextRequest); assert.equal(request.method, 'POST');
+      assert.equal(request.url, 'http://localhost/api/files/upload');
+      assert.equal(request.headers.get('cookie'), 'actual-current-cookie');
+      assert.equal(initial.workspace, workspace); assert.equal(permission, 'canWrite');
+      assert.equal(initial.session.user.id, 'actual-user'); assert.equal(initial.session.session.id, 'actual-session');
+      controls.sceneAuthorityFactories++;
+      return async () => {
+        controls.sceneAuthorityChecks++; request.signal.throwIfAborted();
+        assert.equal(initial.workspace, workspace); assert.equal(initial.workspace.permissions.canWrite, true);
+        assert.equal(request.headers.get('cookie'), 'actual-current-cookie');
+        if (controls.sceneAuthorityRevoked) {
+          assert.equal(controls.nativeInputs.length, 1, 'The controlled late rejection follows the preceding native import.');
+          throw Object.assign(new Error('The scene upload authority changed.'), {
+            status: 403, code: 'EXCALIDRAW_AUTHORITY_CHANGED', privateAuthority: 'private-scene-authority',
+          });
+        }
+        return workspace;
+      };
+    } },
     '@/app/lib/images/convert': { getImageConversionErrorMessage: (name: string) => `Could not convert ${name}.` },
     '@/app/lib/images/upload-conversion': {
       parseUploadConvertParams: (raw: string | undefined) => ({ ok: true, params: raw ? JSON.parse(raw) : null }),
@@ -56,7 +84,14 @@ function harness(files: File[], options: { convertParams?: unknown; targetDir?: 
         controls.normalizes.push(input.filename); if (controls.conversionFailure === input.filename) throw new Error('Expected conversion failure.');
         return { ...input, filename: input.convertParams ? input.filename.replace(/\.[^.]+$/u, '.jpg') : input.filename };
       } },
-    '@/app/lib/files/workspace-upload-flow': { runWorkspaceUploadWrite: async (input: { targetPath: string; write: (before: () => Promise<void>) => Promise<void> }) => {
+    '@/app/lib/files/workspace-upload-flow': { runWorkspaceUploadWrite: async (input: {
+      targetPath: string; beforeWrite?: () => Promise<void>; write: (before: () => Promise<void>) => Promise<void>;
+    }) => {
+      controls.rawAttempts.push(input.targetPath);
+      if (input.beforeWrite) { controls.beforeWrites.push(input.targetPath); await input.beforeWrite(); }
+      if (controls.sceneConflict && input.targetPath.endsWith('.excalidraw')) throw Object.assign(new Error('The scene path already exists.'), {
+        status: 409, code: 'PATH_EXISTS', privateSceneReceipt: 'private-scene-receipt',
+      });
       if (controls.rawFailure === input.targetPath) throw new Error('Expected raw write failure.');
       await input.write(async () => undefined);
     } },
@@ -71,6 +106,24 @@ function harness(files: File[], options: { convertParams?: unknown; targetDir?: 
     } },
     '@/app/lib/audit/audit-service': { recordAuditEvent: async (input: Row) => { controls.audits.push(input); } },
   };
+  const responseFilename = path.resolve('app/lib/files/workspace-upload-responses.ts');
+  const responseJavascript = ts.transpileModule(readFileSync(responseFilename, 'utf8'), {
+    fileName: responseFilename,
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
+  }).outputText;
+  const responseDependencies: Record<string, unknown> = {
+    'server-only': {}, 'next/server': { NextResponse },
+    '@/app/lib/files/collaboration-policy': { FileCollaborationPolicyError: PolicyError },
+    '@/app/lib/files/workspace-upload-service': { WorkspaceUploadServiceError: ServiceError },
+  };
+  const responseModule = { exports: {} as {
+    workspaceUploadErrorResponse: (error: unknown, scope: string) => NextResponse;
+  } };
+  new Function('require', 'module', 'exports', responseJavascript)((name: string) => {
+    assert(Object.hasOwn(responseDependencies, name), `Unexpected upload response dependency: ${name}`);
+    return responseDependencies[name];
+  }, responseModule, responseModule.exports);
+  dependencies['@/app/lib/files/workspace-upload-responses'] = responseModule.exports;
   const javascript = ts.transpileModule(readFileSync(filename, 'utf8'), {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
@@ -173,3 +226,35 @@ test('current auth rejection precedes helper, File reads and every side effect',
   assert.equal((await h.invoke()).response.status, 401); assert.deepEqual(h.controls.nativeInputs, []);
   assert.deepEqual(h.controls.rawWrites, []); assert.deepEqual(h.controls.published, []);
 });
+
+for (const code of ['PATH_EXISTS', 'EXCALIDRAW_AUTHORITY_CHANGED'] as const) test(
+  `route-only IO: Markdown then Scene ${code} preserves exact public native completion and stops later files`, async () => {
+    let laterReads = 0;
+    const later = file('never.txt');
+    Object.defineProperty(later, 'arrayBuffer', { value: async () => { laterReads++; throw new Error('Later file must not be read.'); } });
+    const h = harness([file('note.md'), file('scene.excalidraw'), later]);
+    h.controls.sceneConflict = code === 'PATH_EXISTS';
+    h.controls.sceneAuthorityRevoked = code === 'EXCALIDRAW_AUTHORITY_CHANGED';
+    const { response, body } = await h.invoke();
+    assert(response instanceof NextResponse);
+    assert.equal(response.status, code === 'PATH_EXISTS' ? 409 : 403);
+    const locator = { uploadId, fileId, targetPath: 'folder/note.md' };
+    assert.deepEqual(body, {
+      success: false, code,
+      error: code === 'PATH_EXISTS' ? 'The scene path already exists.' : 'The scene upload authority changed.',
+      count: 1, files: ['note.md'], committed: [{ targetPath: locator.targetPath, fileVersion: 'native-version' }],
+      uploads: [{ status: 'completed', locator, completion: { status: 'completed', ...locator } }],
+    });
+    assert.equal(Object.hasOwn(body, 'unlocated'), false);
+    assert.equal(Object.hasOwn(body.uploads[0], 'unlocated'), false);
+    assert.doesNotMatch(JSON.stringify(body), /private-|privateNativeEvidence|privateAuthority|privateSceneReceipt|stateProof/);
+    assert.equal(h.controls.nativeInputs.length, 1);
+    assert.equal(h.controls.nativeInputs[0].relativePath, 'note.md');
+    assert.equal(h.controls.sceneAuthorityFactories, 1); assert.equal(h.controls.sceneAuthorityChecks, 1);
+    assert.deepEqual(h.controls.beforeWrites, ['folder/scene.excalidraw']);
+    assert.deepEqual(h.controls.rawAttempts, ['folder/scene.excalidraw']);
+    assert.deepEqual(h.controls.normalizes, ['scene.excalidraw']); assert.equal(laterReads, 0);
+    assert.deepEqual(h.controls.rawWrites, []); assert.deepEqual(h.controls.shares, []);
+    assert.deepEqual(h.controls.published, []); assert.deepEqual(h.controls.audits, []);
+  },
+);

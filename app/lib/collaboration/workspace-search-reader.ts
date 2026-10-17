@@ -31,6 +31,8 @@ export type WorkspaceSearchText = {
   /** Milliseconds since Unix epoch; null for newer, not-yet-durable room edits. */
   modifiedAt: number | null;
   source: 'file' | 'live_yjs' | 'persisted_yjs';
+  /** Identity belongs to this native content read, never a later path lookup. */
+  nativeIdentity: Readonly<{ documentId: string; lineageId: string | null; path: string }> | null;
 };
 
 /** Semantic text for retrieval. This is deliberately not a Markdown export. */
@@ -74,7 +76,7 @@ async function readPhysicalSearchText(workspace: WorkspaceContext, filePath: str
     let content: string;
     try { content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(captured); }
     catch { throw new WorkspaceSearchReadError('SOURCE_BINARY'); }
-    return { content, modifiedAt: after.mtimeMs, source: 'file' };
+    return { content, modifiedAt: after.mtimeMs, source: 'file', nativeIdentity: null };
   } finally { await handle.close(); }
 }
 
@@ -132,8 +134,14 @@ export async function readWorkspaceSearchText(workspace: WorkspaceContext, fileP
         workspace, path: filePath, documentId: document.id, lifecycleGeneration: document.lifecycle_generation,
         loadState: documentId => (dependencies.loadState ?? loadCollaborationStateOnConnection)(connection, documentId),
       });
+      if (read.documentId !== document.id || read.path !== filePath || read.workspaceId !== workspace.workspaceId
+        || read.organizationId !== (workspace.organizationId ?? null)
+        || read.lifecycleGeneration !== document.lifecycle_generation) {
+        throw new WorkspaceSearchReadError('SOURCE_UNAVAILABLE');
+      }
       result = { content: nativeCollaborationSearchText(read.observed.content), source: read.source,
-        modifiedAt: read.observed.durable ? read.durable.persistedAt : null };
+        modifiedAt: read.observed.durable ? read.durable.persistedAt : null,
+        nativeIdentity: Object.freeze({ documentId: read.documentId, lineageId: document.lineage_id, path: read.path }) };
     } else result = await (dependencies.readPhysical ?? readPhysicalSearchText)(workspace, filePath, maxBytes);
     if (Buffer.byteLength(result.content, 'utf8') > maxBytes) throw new WorkspaceSearchReadError('SOURCE_TOO_LARGE');
     await connection.run('COMMIT'); transaction = false;

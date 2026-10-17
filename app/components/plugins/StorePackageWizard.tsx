@@ -14,6 +14,7 @@ import type { CapabilityPackageStoreApplicationResult, CapabilityPackageStoreIns
   CapabilityPackageStoreUpdateReview } from '@/app/lib/capabilities/packages/store-contracts';
 import { PackageWorkspaceRequestError, workspaceRequest } from './plugin-workspace-client';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
 type Ownership = CapabilityPackageStoreInstallRequest['ownership'];
 type ScopeChoice = { type: 'user' | 'organization' | 'team'; workspaceId?: string; label: string };
@@ -193,12 +194,15 @@ function StorePackageWizardSession({ source, workspaceId, initialOwnership, reso
   const reload = () => { if (step === 'sharing' && !update) void loadOptions(); else void load(); };
 
   return <section ref={setPortalContainer} data-testid="store-package-wizard" aria-busy={busy} className="min-w-0 space-y-5 [&_[data-slot=popover-content]_.font-mono]:hidden">
-    <header className="space-y-2">
+    <header className="flex min-w-0 items-start gap-4">
+      <PluginExtensionAvatar name={preview?.title || selection.entryKey} identity={JSON.stringify([selection.kind, selection.registryId, selection.entryKey, selection.version, selection.checksum, workspaceId])} icon={preview?.icon} size="lg" />
+      <div className="min-w-0 space-y-2">
       <p className="text-xs font-medium tracking-wide text-muted-foreground">{t(update ? 'storeWizard.titleUpdate' : 'storeWizard.titleInstall')}</p>
       <h2 className="break-words text-xl font-semibold tracking-tight">{preview?.title || selection.entryKey}</h2>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
         {current ? <><span>{t('storeWizard.installedVersion', { version: current.version })}</span><ArrowRight aria-hidden="true" className="h-3.5 w-3.5" /></> : null}
         <span>{t('storeWizard.selectedVersion', { version: selection.version })}</span>
+      </div>
       </div>
     </header>
     {!update && step !== 'complete' ? <ol aria-label={t('storeWizard.steps')} className="flex flex-wrap gap-x-5 gap-y-2 border-y py-3 text-xs">
@@ -220,9 +224,18 @@ function StorePackageWizardSession({ source, workspaceId, initialOwnership, reso
       <p className="break-words text-sm leading-relaxed text-muted-foreground">{preview.description}</p>
       <details className="rounded-lg border px-3 py-2" data-testid="store-wizard-package-details"><summary className="cursor-pointer text-sm font-medium">{t('storeWizard.packageDetails')}</summary>
         <div className="mt-3 space-y-4 text-sm">
-          {preview.children.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.children')}</h3><ul className="space-y-2">{preview.children.map(child => <li key={child.name} className="break-words"><span>{child.title}</span>{child.version ? <span className="ml-2 text-xs text-muted-foreground">{child.version}</span> : null}<p className="text-xs text-muted-foreground">{child.description}</p></li>)}</ul></div> : null}
+          {preview.children.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.children')}</h3><ul className="space-y-2">{preview.children.map(child => <li key={child.name} className="flex min-w-0 items-start gap-3">
+            <PluginExtensionAvatar name={child.title} identity={JSON.stringify([selection, workspaceId, 'child', child.name])} icon={child.icon} size="sm" />
+            <div className="min-w-0 break-words"><span>{child.title}</span>{child.version ? <span className="ml-2 text-xs text-muted-foreground">{child.version}</span> : null}<p className="text-xs text-muted-foreground">{child.description}</p></div></li>)}</ul></div> : null}
           {preview.scripts.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.scripts')}</h3><ul className="space-y-1">{preview.scripts.map(script => <li key={`${script.skillName}:${script.id}`} className="break-words">{script.title}<span className="ml-2 text-xs text-muted-foreground">{script.runtime.kind}{script.runtime.minimumVersion ? ` ≥ ${script.runtime.minimumVersion}` : ''}</span></li>)}</ul></div> : null}
-          {preview.requirements.length || preview.capabilities.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.requirements')}</h3><ul className="space-y-1">{preview.capabilities.map(capability => <li key={`${capability.declaredBy.name}:${capability.id}`} className="break-words">{capability.application}<span className="ml-2 text-xs text-muted-foreground">{t(capability.required ? 'storeWizard.required' : 'storeWizard.optional')} · {capability.alternatives.map(alternative => alternative.label).join(' / ')}</span></li>)}{preview.requirements.map((requirement, index) => <li key={`${requirement.declaredBy.name}:${requirement.source}:${index}`} className="break-words">{requirement.label}<span className="ml-2 text-xs text-muted-foreground">{t(requirement.required ? 'storeWizard.required' : 'storeWizard.optional')}</span></li>)}</ul><p className="mt-2 text-xs text-muted-foreground">{t('storeWizard.connectionSeparation')}</p></div> : null}
+          {preview.requirements.length || preview.capabilities.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.requirements')}</h3><ul className="space-y-2">
+            {preview.capabilities.map((capability, index) => <li key={`${capability.declaredBy.name}:${capability.id}:${index}`} className="flex min-w-0 items-start gap-3">
+              <PluginExtensionAvatar name={capability.application} identity={JSON.stringify([selection, workspaceId, capability.declaredBy, 'capability', capability.id, index])} size="sm" />
+              <div className="min-w-0 break-words">{capability.application}<span className="ml-2 text-xs text-muted-foreground">{t(capability.required ? 'storeWizard.required' : 'storeWizard.optional')} · {capability.alternatives.map(alternative => alternative.label).join(' / ')}</span></div></li>)}
+            {preview.requirements.map((requirement, index) => <li key={`${requirement.declaredBy.name}:${requirement.source}:${index}`} className="flex min-w-0 items-start gap-3">
+              <PluginExtensionAvatar name={requirement.label} identity={JSON.stringify([selection, workspaceId, requirement.declaredBy, 'requirement', requirement.source, requirement.selector, index])} size="sm" />
+              <div className="min-w-0 break-words">{requirement.label}<span className="ml-2 text-xs text-muted-foreground">{t(requirement.required ? 'storeWizard.required' : 'storeWizard.optional')}</span></div></li>)}
+            </ul><p className="mt-2 text-xs text-muted-foreground">{t('storeWizard.connectionSeparation')}</p></div> : null}
           {preview.compatibility.length || preview.minCanvasVersion ? <div><h3 className="mb-1 font-medium">{t('storeWizard.compatibility')}</h3>{preview.minCanvasVersion ? <p>{t('storeWizard.minimumCanvas', { version: preview.minCanvasVersion })}</p> : null}<ul>{preview.compatibility.map(value => <li key={value} className="break-words">{value}</li>)}</ul></div> : null}
           {preview.requiredEnv.length ? <div><h3 className="mb-1 font-medium">{t('storeWizard.configuration')}</h3><p className="break-words font-mono text-xs">{preview.requiredEnv.join(', ')}</p><p className="mt-1 text-xs text-muted-foreground">{t('storeWizard.configurationHint')}</p></div> : null}
           {preview.license ? <p className="break-words text-xs text-muted-foreground">{t('storeWizard.license', { license: preview.license })}</p> : null}

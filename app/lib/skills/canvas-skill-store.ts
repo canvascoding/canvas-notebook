@@ -31,6 +31,7 @@ import {
   type CanvasSkillInterface,
 } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { loadCoreSkillByName } from '@/app/lib/skills/core-skill-loader';
 import { loadSkillByName, getSkillNames } from '@/app/lib/skills/skill-loader';
 import { loadSkillSummaries, type SkillSummary } from '@/app/lib/skills/skill-summaries';
@@ -296,9 +297,9 @@ async function readUrlBytes(rawUrl: string): Promise<Buffer> {
   return readBoundedStorePackageBytes(validateRegistryUrl(rawUrl));
 }
 
-async function readJsonUrl(rawUrl: string): Promise<unknown> {
+async function readJsonUrl(rawUrl: string, options: { signal?: AbortSignal; cache?: 'metadata' | 'fresh' } = {}): Promise<unknown> {
   const { readBoundedStoreRegistryJson } = await import('@/app/lib/plugins/store-registry-reader');
-  return readBoundedStoreRegistryJson(rawUrl, { allowedProtocols: ['https:', 'http:', 'file:'] });
+  return readBoundedStoreRegistryJson(rawUrl, { ...options, allowedProtocols: ['https:', 'http:', 'file:'] });
 }
 
 function normalizeStoreVersion(value: unknown): CanvasSkillStoreVersion | null {
@@ -361,9 +362,9 @@ function normalizeStoreSkill(value: unknown, registryUrl: string): CanvasSkillSt
   };
 }
 
-export async function readCanvasSkillStoreRegistry(): Promise<CanvasSkillStoreRegistry> {
+export async function readCanvasSkillStoreRegistry(options: { signal?: AbortSignal; cache?: 'metadata' | 'fresh' } = {}): Promise<CanvasSkillStoreRegistry> {
   const registryUrl = getRegistryUrl();
-  const parsed = await readJsonUrl(registryUrl);
+  const parsed = await readJsonUrl(registryUrl, options);
   if (!isRecord(parsed)) {
     throw new Error('Skill store registry must be a JSON object.');
   }
@@ -920,7 +921,7 @@ async function ensureStandaloneSkillInstallAllowed(
   replace: boolean,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<void> {
-  if (isCoreSkillName(skillName)) {
+  if (isProtectedCoreSkillName(skillName)) {
     throw new Error(coreSkillInstallError(skillName));
   }
 

@@ -59,6 +59,8 @@ test('native-only table is searchable with read permission and no projection or 
       readPhysical: async () => { assert.fail('An initialized document must not read its projection.'); } });
     assert.match(result.content, /NativeSearch/u); assert.match(result.content, /Target phrase/u);
     assert.equal(result.source, 'persisted_yjs'); assert.equal(result.modifiedAt, 100);
+    assert.deepEqual(result.nativeIdentity, { documentId: 'search-document', lineageId: 'search-lineage', path: 'note.md' });
+    assert.equal(Object.isFrozen(result.nativeIdentity), true);
     assert.deepEqual(Buffer.from(state.yjsState), before);
     assert.ok(calls.includes('SELECT pg_advisory_xact_lock_shared($1::bigint)'));
     assert.deepEqual(calls.slice(-2), ['COMMIT', 'close']);
@@ -73,12 +75,13 @@ test('live native text is read without stamping an older durable timestamp', asy
     const result = await readWorkspaceSearchText(workspace, 'note.md', 4096, seams([entry()]).dependencies);
     assert.equal(result.content, 'Before fresh live edit'); assert.equal(result.source, 'live_yjs');
     assert.equal(result.modifiedAt, null);
+    assert.deepEqual(result.nativeIdentity, { documentId: 'search-document', lineageId: 'search-lineage', path: 'note.md' });
   } finally { installed(); doc.destroy(); }
 });
 
 test('historical missing state, wrong lifecycle and offline catalogue never fall back to disk', async () => {
   let physicalReads = 0;
-  const readPhysical = async () => { physicalReads++; return { content: 'stale', source: 'file' as const, modifiedAt: 10 }; };
+  const readPhysical = async () => { physicalReads++; return { content: 'stale', source: 'file' as const, modifiedAt: 10, nativeIdentity: null }; };
   const missing = seams([entry('missing-state')]);
   await assert.rejects(readWorkspaceSearchText(workspace, 'note.md', 4096, { ...missing.dependencies, readPhysical }), WorkspaceSearchReadError);
   assert.deepEqual(missing.calls.slice(-2), ['ROLLBACK', 'close']);
@@ -101,6 +104,7 @@ test('pristine and unregistered text use bounded strict UTF-8 physical reads wit
     for (const catalogue of [[entry('pristine')], []]) {
       const read = await readWorkspaceSearchText(physicalWorkspace, 'note.md', 4096, seams(catalogue).dependencies);
       assert.equal(read.content, content); assert.equal(read.source, 'file');
+      assert.equal(read.nativeIdentity, null, 'Physical text does not acquire a later native path identity.');
       assert.deepEqual(await fs.readFile(path.join(root, 'note.md')), original);
     }
     await assert.rejects(readWorkspaceSearchText(physicalWorkspace, 'note.md', 4, seams([]).dependencies),
@@ -131,7 +135,35 @@ test('persisted fallback uses the held read connection instead of opening anothe
         assert.equal(typeof connection.get, 'function'); return state;
       } });
     assert.equal(result.content, 'Current persisted text'); assert.equal(loads, 1);
+    assert.deepEqual(result.nativeIdentity, { documentId: 'search-document', lineageId: 'search-lineage', path: 'note.md' });
   } finally { doc.destroy(); }
+});
+
+test('a reused catalogue object and a replacement D2 at the same path cannot change captured D1 identity', async () => {
+  const original = createPlainTextYDoc('Original D1 target');
+  const replacement = createPlainTextYDoc('Replacement D2 target');
+  const registered = entry();
+  let currentDoc = original;
+  let currentState = stateFor(original, 'plain_text');
+  const installed = installCollaborationDocumentReader(async (_id, _workspaceId, read) => read(currentDoc, currentState));
+  const fixture = seams([registered]);
+  try {
+    const first = await readWorkspaceSearchText(workspace, 'note.md', 4096, fixture.dependencies);
+    assert.equal(first.content, 'Original D1 target');
+    assert.deepEqual(first.nativeIdentity, { documentId: 'search-document', lineageId: 'search-lineage', path: 'note.md' });
+    assert.equal(Object.isFrozen(first.nativeIdentity), true);
+    Object.assign(registered, { id: 'search-document-D2', lineage_id: 'search-lineage-D2', lifecycle_generation: 1 });
+    currentDoc = replacement;
+    currentState = { ...stateFor(replacement, 'plain_text'), documentId: 'search-document-D2', lifecycleGeneration: 1 };
+    const second = await readWorkspaceSearchText(workspace, 'note.md', 4096, fixture.dependencies);
+    assert.equal(second.content, 'Replacement D2 target');
+    assert.deepEqual(second.nativeIdentity, { documentId: 'search-document-D2', lineageId: 'search-lineage-D2', path: 'note.md' });
+    assert.notEqual(first.nativeIdentity, second.nativeIdentity);
+    assert.deepEqual(first.nativeIdentity, { documentId: 'search-document', lineageId: 'search-lineage', path: 'note.md' },
+      'The first actual Yjs read keeps its own copied identity after the catalogue is reused.');
+    assert.equal(first.content, 'Original D1 target');
+    assert.deepEqual(fixture.calls.slice(-2), ['COMMIT', 'close']);
+  } finally { installed(); original.destroy(); replacement.destroy(); }
 });
 
 test('registry-only paths remain discoverable and denied scope opens no connection', async () => {

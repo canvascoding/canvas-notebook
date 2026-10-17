@@ -84,6 +84,13 @@ export async function runWorkspaceUploadWrite(params: {
   params = { ...params, targetPath: normalizeWorkspaceRelativePath(params.targetPath), fileOptions: { ...params.fileOptions, workspace: params.workspace } };
   if (await dispatchMarkdownChunkWrite(params)) return;
   return withWorkspaceMutationLock(params.workspace.workspaceId, async () => {
+    if (params.targetPath.toLowerCase().endsWith('.excalidraw')) {
+      const { importExcalidrawDocumentFile } = await import('@/app/lib/excalidraw-collaboration/portable-import');
+      await importExcalidrawDocumentFile({ workspace: params.workspace, path: params.targetPath,
+        content: params.content, sourcePath: params.sourcePath, beforeApply: params.beforeWrite,
+        actor: { userId: params.actorUserId, actorId: `user:${params.actorUserId}`, actorType: 'user' } });
+      return;
+    }
     const office = params.targetPath.toLowerCase().endsWith('.docx');
     if (office && params.idempotencyKey && !params.persistOfficeAttempt) throw new Error('Retryable Word uploads require durable upload-session metadata.');
     if (!office || !params.officeAttempt) await params.beforeWrite?.();

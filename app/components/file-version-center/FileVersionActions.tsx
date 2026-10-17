@@ -52,6 +52,7 @@ export function FileVersionActions({
   candidateAvailable,
   reviewPending = false,
   restoreAllowed,
+  allowSameContentRestore = false,
   onTimelineInvalidate,
   onContinue,
   controller = fileVersionActionController,
@@ -63,6 +64,7 @@ export function FileVersionActions({
   candidateAvailable: boolean;
   reviewPending?: boolean;
   restoreAllowed: boolean;
+  allowSameContentRestore?: boolean;
   onTimelineInvalidate: (action?: FileVersionMutation) => Promise<void> | void;
   onContinue: () => void;
   controller?: FileVersionActionController;
@@ -123,7 +125,7 @@ export function FileVersionActions({
     && entry.restorable
     && restoreAllowed
     && candidateAvailable
-    && entry.content.sha256 !== current.sha256;
+    && (allowSameContentRestore || entry.content.sha256 !== current.sha256);
   const busyLabel = busy ? t(`actions.busy.${busy}`) : null;
 
   return (

@@ -31,6 +31,11 @@ export type EffectiveAgentRuntimeSettings = {
   setupState: AgentRuntimeSetupState;
 };
 
+export type SpecialAgentRuntimeFields = Partial<Pick<AgentProfile,
+  'defaultProvider' | 'defaultModel' | 'defaultThinking' | 'enabledTools'>>;
+export type SpecialAgentRuntimeSettings = Pick<EffectiveAgentRuntimeSettings,
+  'activeProvider' | 'providerConfig' | 'thinkingLevel' | 'enabledTools' | 'overrideState' | 'setupState'>;
+
 function clonePiConfig(config: PiRuntimeConfig): PiRuntimeConfig {
   return JSON.parse(JSON.stringify(config)) as PiRuntimeConfig;
 }
@@ -44,19 +49,20 @@ function emptyProviderConfig(providerId: string): PiProviderConfig {
   };
 }
 
-function isModelOverrideConfigured(agent: AgentProfile): boolean {
+function isModelOverrideConfigured(agent: SpecialAgentRuntimeFields): boolean {
   return Boolean(agent.defaultProvider?.trim() && agent.defaultModel?.trim());
 }
 
 export function resolveEffectiveProviderConfig(
   mainPiConfig: PiRuntimeConfig,
-  agent: AgentProfile,
+  agent: SpecialAgentRuntimeFields,
+  kind: 'main' | 'special',
 ): {
   activeProvider: string;
   providerConfig: PiProviderConfig;
   overrideState: AgentOverrideState;
 } {
-  const isMainAgent = agent.agentId === DEFAULT_MANAGED_AGENT_ID;
+  const isMainAgent = kind === 'main';
   const modelOverride = !isMainAgent && isModelOverrideConfigured(agent);
   const activeProvider = modelOverride ? agent.defaultProvider! : mainPiConfig.activeProvider;
   const inheritedProviderConfig = mainPiConfig.providers[activeProvider] || emptyProviderConfig(activeProvider);
@@ -109,7 +115,8 @@ export async function resolveAgentRuntimeSettings(agentIdInput?: string | null):
     throw new Error('Agent not found.');
   }
 
-  const { activeProvider, providerConfig, overrideState } = resolveEffectiveProviderConfig(mainPiConfig, agent);
+  const { activeProvider, providerConfig, overrideState } = resolveEffectiveProviderConfig(mainPiConfig, agent,
+    agentId === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special');
   const setupState = buildSetupState(activeProvider, providerConfig);
   const effectivePiConfig = clonePiConfig(mainPiConfig);
   effectivePiConfig.activeProvider = activeProvider;
@@ -130,5 +137,25 @@ export async function resolveAgentRuntimeSettings(agentIdInput?: string | null):
     enabledTools: providerConfig.enabledTools || [],
     overrideState,
     setupState,
+  };
+}
+
+/**
+ * The same inheritance as a persisted special agent, without inventing an
+ * agent/session. The established config reader may initialize storage and
+ * discover Control Plane model metadata when no managed model is configured.
+ * This is not model authorization or provider readiness.
+ */
+export async function resolveSpecialAgentRuntimeSettings(fields: SpecialAgentRuntimeFields): Promise<SpecialAgentRuntimeSettings> {
+  const captured = structuredClone(fields);
+  const mainPiConfig = await readPiRuntimeConfig();
+  const { activeProvider, providerConfig, overrideState } = resolveEffectiveProviderConfig(mainPiConfig, captured, 'special');
+  return {
+    activeProvider,
+    providerConfig,
+    thinkingLevel: providerConfig.thinking || 'off',
+    enabledTools: providerConfig.enabledTools || [],
+    overrideState,
+    setupState: buildSetupState(activeProvider, providerConfig),
   };
 }

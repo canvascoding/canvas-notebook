@@ -30,6 +30,7 @@ import { Switch } from '@/components/ui/switch';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { cn } from '@/lib/utils';
 import { DirectMcpWorkspaceAccessSwitch } from '@/app/components/settings/DirectMcpWorkspaceAccessSwitch';
+import { DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS } from '@/app/lib/mcp/server/config';
 import {
   buildCodexMcpServerConfiguration,
   missingScopesForEnabledCapabilities,
@@ -544,7 +545,7 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                     enabled,
                     tools: enabled && !current.enabled
                       ? availableCapabilities
-                        .filter((capability) => !['create_knowledge_source', 'import_knowledge_file'].includes(capability.id)
+                        .filter((capability) => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(capability.id)
                           || current.tools.includes(capability.id))
                         .map((capability) => capability.id)
                       : current.tools,

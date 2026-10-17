@@ -4,7 +4,6 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 import {
-  buildFileTree,
   getFileStats,
   listDirectory,
   readFile,
@@ -20,10 +19,9 @@ import { sortFileNodes } from '@/app/lib/files/sort';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { hasMarpFileName, isMarpMarkdown } from '@/app/lib/marp/detect';
+import { getCachedWorkspaceReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 
 const MAX_LIST_LIMIT = 80;
-const MAX_SEARCH_ENTRIES = 10_000;
-const MAX_TREE_DEPTH = 12;
 const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024;
 
 const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
@@ -252,15 +250,6 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
   };
 }
 
-function collectEntries(nodes: FileNode[], output: FileNode[] = []): FileNode[] {
-  for (const node of nodes) {
-    if (output.length >= MAX_SEARCH_ENTRIES) break;
-    output.push(node);
-    if (node.type === 'directory' && node.children) collectEntries(node.children, output);
-  }
-  return output;
-}
-
 function cursorSignature(input: {
   directory: string;
   query: string;
@@ -342,9 +331,9 @@ export async function listMobileFiles(input: {
 
   let nodes: FileNode[];
   if (query) {
-    const tree = await buildFileTree('.', MAX_TREE_DEPTH, 0, { ...input.fileOptions, includeMetadata: true });
+    const entries = await getCachedWorkspaceReferenceEntries(false, input.fileOptions);
     const needle = query.toLowerCase();
-    nodes = collectEntries(tree)
+    nodes = entries
       .map((node) => ({ node, rank: searchRank(node, needle) }))
       .filter((candidate) => Number.isFinite(candidate.rank))
       .sort((left, right) => left.rank - right.rank || left.node.path.localeCompare(right.node.path))

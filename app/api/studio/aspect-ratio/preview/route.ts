@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { createAspectRatioPreview, type AspectRatioPreviewRequest } from '@/app/lib/integrations/studio-aspect-ratio-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
+import { StudioGenerationFailureError, studioGenerationFailureHttpStatus } from '@/app/lib/integrations/studio-generation-failures';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
     );
     return NextResponse.json({ success: true, preview }, { status: 201 });
   } catch (error) {
+    if (error instanceof StudioGenerationFailureError) {
+      return NextResponse.json({ success: false, error: error.userMessage, code: error.code, retryable: error.failure.retryable }, { status: studioGenerationFailureHttpStatus(error.failure) });
+    }
     const message = error instanceof Error ? error.message : 'Preview failed';
     const status = /required|unsupported|invalid|outside|freeform|size|provider|ratio/i.test(message) ? 400 : 500;
     if (status >= 500) {

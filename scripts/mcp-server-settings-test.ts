@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     const { DIRECT_MCP_SERVER_VERSION } = await import(
       '../app/lib/mcp/server/version'
     );
-    const { DIRECT_MCP_TOOL_IDS, getDirectMcpEnabledTools } = await import(
+    const { DIRECT_MCP_TOOL_IDS, DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS, getDirectMcpEnabledTools } = await import(
       '../app/lib/mcp/server/config'
     );
     const {
@@ -59,8 +59,8 @@ async function main(): Promise<void> {
       tools: ['auth_probe'],
     });
     assert.equal(preferences.enabled, true);
-    assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !['create_knowledge_source', 'import_knowledge_file'].includes(tool)));
-    assert.equal(preferences.toolsVersion, 6);
+    assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool)));
+    assert.equal(preferences.toolsVersion, 7);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await getDirectMcpServerPreferences(), {
       enabled: true,
       tools: ['auth_probe'],
-      toolsVersion: 6,
+      toolsVersion: 7,
     });
 
     await writeFile(settingsPath, JSON.stringify({
@@ -161,6 +161,9 @@ async function main(): Promise<void> {
         { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'create_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'import_knowledge_file', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'create_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'get_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:read'] },
+        { id: 'edit_excalidraw_scene', available: true, enabled: false, scopes: ['knowledge:write'] },
       ],
     );
     assert.equal(
@@ -238,7 +241,20 @@ async function main(): Promise<void> {
       tools: ['auth_probe'],
     });
 
-    console.log('mcp-server-settings-test: ok');
+    await writeFile(settingsPath, JSON.stringify({ version: 1, settings: { directMcp: {
+      enabled: true, tools: ['auth_probe', 'edit_knowledge_source'], toolsVersion: 6,
+    } } }));
+    assert.deepEqual((await getDirectMcpServerPreferences())?.tools, ['auth_probe', 'edit_knowledge_source'],
+      'A version 6 installation must not silently gain scene capabilities on upgrade.');
+    await setDirectMcpServerPreferences('admin-1', { enabled: false, tools: ['auth_probe'] });
+    const reactivated = await setDirectMcpServerPreferences('admin-1', { enabled: true, tools: ['auth_probe'] });
+    for (const tool of ['create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'] as const) {
+      assert.equal(reactivated.tools.includes(tool), false, 'Reactivation must not opt in to scene tools.');
+    }
+    const selected = await setDirectMcpServerPreferences('admin-1', { enabled: true,
+      tools: ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'] });
+    assert.deepEqual(selected.tools, ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene']);
+    console.log('mcp-server-settings-test: ok (scene capabilities require explicit activation, upgrade and reactivation selection)');
   } finally {
     for (const key of runtimeEnvironmentKeys) {
       if (previousRuntimeEnvironment[key] === undefined) delete process.env[key];

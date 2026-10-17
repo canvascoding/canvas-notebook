@@ -1,11 +1,13 @@
 import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { parseChatBody, projectChatBodyText, type ChatBodyV1 } from './chat-body-contracts';
 
 const STORAGE_KEY = 'canvas.chat.composerDrafts.v1';
 const MAX_DRAFTS = 30;
 
 export interface ComposerDraftEntry {
   text: string;
+  body?: ChatBodyV1;
   updatedAt: number;
 }
 
@@ -46,17 +48,33 @@ export function composerDraftScope(workspaceId = useWorkspaceStore.getState().ac
   return auth && workspaceId ? JSON.stringify([auth.userId, workspaceId]) : null;
 }
 
-export function saveComposerDraft(key: string, text: string, scope = composerDraftScope()) {
+export function saveComposerDraft(key: string, text: string, scope = composerDraftScope(), body?: ChatBodyV1) {
   if (!scope) return;
+  const capturedBody = body === undefined ? undefined : parseChatBody(body);
+  if (capturedBody && projectChatBodyText(capturedBody) !== text) throw new Error('The draft text does not match its inline body.');
   const map = loadDraftMap();
-  map[JSON.stringify([scope, key])] = { text, updatedAt: Date.now() };
+  map[JSON.stringify([scope, key])] = { text, ...(capturedBody === undefined ? {} : { body: capturedBody }), updatedAt: Date.now() };
   saveDraftMap(map);
 }
 
 export function loadComposerDraft(key: string, scope = composerDraftScope()): string | null {
   if (!scope) return null;
   const map = loadDraftMap();
-  return map[JSON.stringify([scope, key])]?.text ?? null;
+  const entry = map[JSON.stringify([scope, key])];
+  if (!entry || typeof entry.text !== 'string') return null;
+  if (entry.body !== undefined && !loadComposerDraftBody(key, scope)) return null;
+  return entry.text;
+}
+
+/** Plain legacy drafts have no body. An invalid structured draft never flattens into a valid one. */
+export function loadComposerDraftBody(key: string, scope = composerDraftScope()): ChatBodyV1 | null {
+  if (!scope) return null;
+  const entry = loadDraftMap()[JSON.stringify([scope, key])];
+  if (!entry || entry.body === undefined) return null;
+  try {
+    const body = parseChatBody(entry.body);
+    return projectChatBodyText(body) === entry.text ? body : null;
+  } catch { return null; }
 }
 
 export function removeComposerDraft(key: string, scope = composerDraftScope()) {
@@ -64,6 +82,15 @@ export function removeComposerDraft(key: string, scope = composerDraftScope()) {
   const map = loadDraftMap();
   delete map[JSON.stringify([scope, key])];
   saveDraftMap(map);
+}
+
+/** An older ACK cannot erase a draft that another window saved meanwhile. */
+export function removeComposerDraftIfUnchanged(key: string, expected: Pick<ComposerDraftEntry, 'text' | 'body'>,
+  scope = composerDraftScope()): void {
+  if (!scope) return;
+  const map = loadDraftMap(), storageKey = JSON.stringify([scope, key]), current = map[storageKey];
+  if (!current || current.text !== expected.text || JSON.stringify(current.body ?? null) !== JSON.stringify(expected.body ?? null)) return;
+  delete map[storageKey]; saveDraftMap(map);
 }
 
 export function clearComposerDrafts() {

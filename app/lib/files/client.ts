@@ -152,6 +152,7 @@ export interface WorkspaceFileReferenceEntry {
 export interface WorkspaceFileReferencePage {
   files: WorkspaceFileReferenceEntry[];
   total: number;
+  nextCursor: string | null;
 }
 
 export interface ListWorkspaceFileReferencesOptions {
@@ -161,6 +162,10 @@ export interface ListWorkspaceFileReferencesOptions {
   workspaceId: string;
   signal?: AbortSignal;
   cache?: RequestCache;
+  entryType?: 'file' | 'directory' | 'all';
+  extensions?: readonly string[];
+  cursor?: string | null;
+  noCache?: boolean;
 }
 
 function formatResponseStatus(response: Response) {
@@ -257,6 +262,10 @@ export async function searchWorkspaceFileReferences({
   workspaceId,
   signal,
   cache = 'no-store',
+  entryType,
+  extensions,
+  cursor,
+  noCache,
 }: ListWorkspaceFileReferencesOptions): Promise<WorkspaceFileReferencePage> {
   const normalizedWorkspaceId = workspaceId.trim();
   if (!normalizedWorkspaceId) {
@@ -268,6 +277,10 @@ export async function searchWorkspaceFileReferences({
     workspaceId: normalizedWorkspaceId,
   });
   if (sort) params.set('sort', sort);
+  if (entryType) params.set('type', entryType);
+  if (extensions?.length) params.set('extensions', extensions.join(','));
+  if (cursor) params.set('cursor', cursor);
+  if (noCache) params.set('noCache', '1');
   const normalizedQuery = query.trim();
   if (normalizedQuery) params.set('q', normalizedQuery);
 
@@ -278,13 +291,10 @@ export async function searchWorkspaceFileReferences({
     signal,
   });
   if (!response.ok) {
-    throw new WorkspaceFileApiError(
-      await readApiError(response, 'Failed to search workspace files'),
-      response,
-    );
+    throw await readWorkspaceFileApiError(response, 'Failed to search workspace files');
   }
 
-  const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; total?: number; error?: string }>(
+  const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; total?: number; nextCursor?: string | null; error?: string }>(
     response,
     'Failed to search workspace files',
   );
@@ -294,6 +304,7 @@ export async function searchWorkspaceFileReferences({
   return {
     files: payload.files,
     total: typeof payload.total === 'number' ? payload.total : payload.files.length,
+    nextCursor: typeof payload.nextCursor === 'string' ? payload.nextCursor : null,
   };
 }
 

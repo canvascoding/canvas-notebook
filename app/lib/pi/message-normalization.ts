@@ -271,6 +271,28 @@ async function loadImageDataFromFile(
   return compactImageBufferForLlm(bytes, path.basename(filePath), resolvedMimeType);
 }
 
+async function requireMessageUploadAccess(fileId: string, options: PiMessageNormalizationOptions): Promise<void> {
+  const { getUploadAccessGrant, isUploadAccessAllowed } = await import('../files/upload-access-store');
+  const grant = await getUploadAccessGrant(fileId);
+  if (!grant || !options.uploadOwnerUserId || !isUploadAccessAllowed(grant, {
+    userId: options.uploadOwnerUserId, workspaceId: options.uploadWorkspaceId,
+  })) throw new Error('Upload attachment is not available to this user.');
+}
+
+/** Metadata-only admission check; image bytes are resolved again at the actual model boundary. */
+export async function assertMessageUploadReferences(message: Extract<AgentMessage, { role: 'user' }>,
+  options: Pick<PiMessageNormalizationOptions, 'uploadOwnerUserId' | 'uploadWorkspaceId'>): Promise<void> {
+  const ids = new Set((extractMessageAttachments(message.content) ?? []).map(attachment => attachment.id));
+  if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (!isImageContentPart(part)) continue;
+      const id = resolveApiUploadFileId(part.data);
+      if (id) ids.add(id);
+    }
+  }
+  for (const id of ids) await requireMessageUploadAccess(id, options);
+}
+
 async function normalizeImagePart(
   part: ImageContent,
   options: PiMessageNormalizationOptions,
@@ -296,21 +318,7 @@ async function normalizeImagePart(
   const apiUploadFileId = resolveApiUploadFileId(trimmed);
   if (apiUploadFileId) {
     try {
-      const {
-        getUploadAccessGrant,
-        isUploadAccessAllowed,
-      } = await import('../files/upload-access-store');
-      const grant = await getUploadAccessGrant(apiUploadFileId);
-      if (
-        !grant
-        || !options.uploadOwnerUserId
-        || !isUploadAccessAllowed(grant, {
-          userId: options.uploadOwnerUserId,
-          workspaceId: options.uploadWorkspaceId,
-        })
-      ) {
-        throw new Error('Upload attachment is not available to this user.');
-      }
+      await requireMessageUploadAccess(apiUploadFileId, options);
       const filePath = await findFilePath(apiUploadFileId);
       if (filePath) {
         // Upload IDs are resolved by the server-side upload store. Do not accept

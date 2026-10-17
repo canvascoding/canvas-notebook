@@ -40,6 +40,8 @@ type PdfErrorPayload = {
   error?: string;
 };
 
+const MARKDOWN_PREVIEW_TIMEOUT_MS = 60_000;
+
 function getPdfDownloadName(filePath: string) {
   const rawBaseName = filePath.split(/[\\/]/).filter(Boolean).pop() || 'document';
   let decodedBaseName = rawBaseName;
@@ -104,6 +106,8 @@ export function ShareMarkdownDialog({
     const generation = epoch.current;
     const sequence = ++previewSequence.current;
     const controller = new AbortController();
+    const deadline = new AbortController();
+    const timeout = window.setTimeout(() => deadline.abort(), MARKDOWN_PREVIEW_TIMEOUT_MS);
     pending.current.add(controller);
     const current = () => generation === epoch.current && sequence === previewSequence.current && !controller.signal.aborted;
     setLoading(true);
@@ -117,7 +121,7 @@ export function ShareMarkdownDialog({
       const response = await fetch(
         exportUrl,
         {
-          signal: controller.signal,
+          signal: AbortSignal.any([controller.signal, deadline.signal]),
           cache: 'no-store',
           credentials: isPublicMarkdownExport ? 'same-origin' : 'include',
           headers: isPublicMarkdownExport ? undefined : internalHeaders(),
@@ -135,10 +139,13 @@ export function ShareMarkdownDialog({
       if (current()) setHtmlContent(html);
     } catch (err) {
       if (!current()) return;
-      const message = err instanceof Error ? err.message : t('failedToLoadPreview');
+      const message = deadline.signal.aborted
+        ? t('exportPreviewTimedOut')
+        : err instanceof Error ? err.message : t('failedToLoadPreview');
       setError(message);
       toast.error(message);
     } finally {
+      window.clearTimeout(timeout);
       pending.current.delete(controller);
       if (current()) setLoading(false);
     }

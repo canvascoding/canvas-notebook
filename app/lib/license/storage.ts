@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { and, desc, eq, inArray, not } from 'drizzle-orm';
-import { db } from '@/app/lib/db';
+import { db, type SqlConnection } from '@/app/lib/db';
 import { licenseCerts } from '@/app/lib/db/schema';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
 import {
@@ -1213,8 +1213,10 @@ export async function removeCommunityClaimSession(expectedClaimId?: string): Pro
   });
 }
 
-async function selectNewestStoredRevision(instanceId: string): Promise<CertificateRevision | null> {
-  const rows = await db
+async function selectNewestStoredRevision(instanceId: string, database?: Pick<SqlConnection, 'get'>): Promise<CertificateRevision | null> {
+  const stored = database ? await database.get('SELECT cert FROM license_certs WHERE instance_id=$1 ORDER BY id DESC LIMIT 1',
+    [instanceId]) as { cert: string } | undefined : undefined;
+  const rows = database ? stored ? [stored] : [] : await db
     .select({ cert: licenseCerts.cert })
     .from(licenseCerts)
     .where(eq(licenseCerts.instanceId, instanceId))
@@ -1226,8 +1228,8 @@ async function selectNewestStoredRevision(instanceId: string): Promise<Certifica
   return certificateRevision(rows[0].cert, decoded);
 }
 
-export async function loadStoredLicenseCert(instanceId: string): Promise<string | null> {
-  return (await selectNewestStoredRevision(instanceId))?.cert ?? null;
+export async function loadStoredLicenseCert(instanceId: string, database?: Pick<SqlConnection, 'get'>): Promise<string | null> {
+  return (await selectNewestStoredRevision(instanceId, database))?.cert ?? null;
 }
 
 type CertificateRevision = {
@@ -1266,6 +1268,18 @@ export function compareLicenseCertificatePayloads(left: LicenseCert, right: Lice
   return compareCertificateRevision(certificateRevision('', left), certificateRevision('', right));
 }
 
+function assertCertificateRevision(next: CertificateRevision, current: CertificateRevision | null): void {
+  if (current && current.cert !== next.cert && compareCertificateRevision(next, current) <= 0) {
+    throw new LicenseCertificateStorageError('LICENSE_CERT_ROLLBACK', 'License certificate would replace a newer entitlement state.');
+  }
+}
+
+/** Same monotonic-head rule as the certificate writer, freshly read without writing or borrowing a connection. */
+export async function assertLicenseCertificateNotRollbackOnConnection(database: Pick<SqlConnection, 'get'>,
+  cert: string, payload: LicenseCert): Promise<void> {
+  assertCertificateRevision(certificateRevision(cert, payload), await selectNewestStoredRevision(payload.sub, database));
+}
+
 const LICENSE_CERT_RETENTION_COUNT = 10;
 
 async function pruneOldLicenseCerts(instanceId: string): Promise<void> {
@@ -1292,12 +1306,7 @@ async function saveLicenseCertLocked(cert: string, payload: LicenseCert): Promis
   const next = certificateRevision(cert, payload);
 
   if (current?.cert === cert) return;
-  if (current && compareCertificateRevision(next, current) <= 0) {
-    throw new LicenseCertificateStorageError(
-      'LICENSE_CERT_ROLLBACK',
-      'License certificate would replace a newer entitlement state.',
-    );
-  }
+  assertCertificateRevision(next, current);
 
   const now = new Date();
   await db.insert(licenseCerts).values({

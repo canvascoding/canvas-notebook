@@ -173,7 +173,7 @@ async function main() {
 
   try {
     const { db } = database;
-    const { user, piSessions, piMessages, piDelegationProgress, piDelegationSteering } = await import('../app/lib/db/schema');
+    const { user, canvasOrganizationSettings, canvasWorkspaces, piSessions, piMessages, piDelegationProgress, piDelegationSteering } = await import('../app/lib/db/schema');
     const { createPiDelegation, claimQueuedPiDelegation, completeRunningPiDelegation } =
       await import('../app/lib/pi/delegation-store');
     const { getDelegatedWorkerToolsets } = await import('../app/lib/pi/delegation-policy');
@@ -186,6 +186,11 @@ async function main() {
     const now = new Date();
     await db.insert(user).values({ id: 'owner', name: 'Owner', email: 'managed-live@example.test',
       emailVerified: true, createdAt: now, updatedAt: now });
+    await db.insert(canvasOrganizationSettings).values({ organizationId: 'managed-org', ownerUserId: 'owner',
+      createdAt: now, updatedAt: now });
+    await db.insert(canvasWorkspaces).values({ id: 'managed-workspace', organizationId: 'managed-org', type: 'personal',
+      ownerUserId: 'owner', rootRelativePath: 'managed-workspace', displayName: 'Managed fixture workspace',
+      createdAt: now, updatedAt: now });
     await db.insert(piSessions).values([
       { sessionId: 'parent', userId: 'owner', agentId: 'bradley', provider: model.provider, model: model.id,
         sessionKind: 'conversation', delegationDepth: 0, organizationId: 'managed-org',

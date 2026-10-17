@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import ts from 'typescript';
+import { directMcpFileLinkFields } from '../app/lib/mcp/server/file-links';
 
 type EditResponse = { isError?: boolean; content: Array<{ text: string }>; structuredContent?: Record<string, unknown> };
 
@@ -31,6 +32,7 @@ function sha256(content: string): string {
 function harness() {
   const workspace = { workspaceId: 'workspace', permissions: { canRead: true, canWrite: true } };
   const principal = { clientId: 'client', userId: 'user', sessionId: 'session' };
+  const nativeIdentity = Object.freeze({ documentId: 'document', lineageId: null, path: 'document.md' });
   let content = 'hello old';
   let sequence = 1;
   let executionCount = 0;
@@ -76,12 +78,13 @@ function harness() {
       actorId: 'mcp-agent', proposalIdempotencyKey: 'proposal-key', operationIdempotencyKey: 'operation-key',
       retryRequested: input.idempotencyKey !== null, publicIdempotencyKey: input.idempotencyKey,
     }),
-    buildDirectMcpDocumentUrl: () => 'https://canvas.example/notebook',
+    directMcpFileLinkFields,
+    readDirectMcpFileLinks: async () => assert.fail('A late path lookup cannot replace the observed native document identity.'),
     buildDirectMcpReviewUrl: () => 'https://canvas.example/notebook?review=1',
     getFileStats: async () => ({ isFile: true, size: 9, modified: new Date(0) }),
     readFile: async () => Buffer.from('old disk'),
     isLikelyBinary: () => false,
-    readDirectMcpTextContent: async () => ({ content, sha256: sha256(content), source: 'live_yjs', documentId: 'document' }),
+    readDirectMcpTextContent: async () => ({ content, sha256: sha256(content), source: 'live_yjs', documentId: 'document', nativeIdentity }),
     sha256Buffer: (buffer: Buffer) => sha256(buffer.toString('utf8')),
     applyExactTextEdits: (source: string, edits: Array<{ oldText: string; newText: string }>) =>
       source.replace(edits[0].oldText, edits[0].newText),
@@ -178,6 +181,15 @@ test('MCP no-change waits for physical checkpoint but reports the live Yjs guard
   assert.equal(response.structuredContent?.current_sha256, h.currentSha());
   assert.equal(h.checkpointCount(), 1);
   assert.equal(h.executionCount(), 0);
+  assert.equal(response.structuredContent?.document_id, 'document');
+  assert.equal(response.structuredContent?.lineage_id, null);
+  const documentUrl = response.structuredContent?.document_url;
+  assert.ok(typeof documentUrl === 'string');
+  const url = new URL(documentUrl);
+  assert.equal(url.searchParams.get('workspaceId'), 'workspace');
+  assert.equal(url.searchParams.get('path'), 'document.md');
+  assert.equal(url.searchParams.get('documentId'), 'document');
+  assert.equal(url.searchParams.has('lineageId'), false);
 });
 
 test('MCP applied retry with old expected hash reuses the receipt and confirms the physical checkpoint', async () => {
@@ -193,6 +205,17 @@ test('MCP applied retry with old expected hash reuses the receipt and confirms t
   assert.equal(h.executionCount(), 1);
   assert.equal(h.checkpointCount(), 2);
   assert.equal(h.checkpointLinkCount(), 2);
+  for (const response of [first, retry]) {
+    assert.equal(response.structuredContent?.document_id, 'document');
+    assert.equal(response.structuredContent?.lineage_id, null);
+    const documentUrl = response.structuredContent?.document_url;
+    assert.ok(typeof documentUrl === 'string');
+    const url = new URL(documentUrl);
+    assert.equal(url.searchParams.get('workspaceId'), 'workspace');
+    assert.equal(url.searchParams.get('path'), 'document.md');
+    assert.equal(url.searchParams.get('documentId'), 'document');
+    assert.equal(url.searchParams.has('lineageId'), false);
+  }
 });
 
 test('MCP checkpoint failure never reports the already durable edit as success', async () => {

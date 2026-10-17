@@ -5,6 +5,7 @@ import {
   type FileReviewPolicyV1,
   type FileVersionCapabilitiesV1,
 } from './contracts/v1';
+import { EXCALIDRAW_PORTABLE_MAX_BYTES } from '@/app/lib/excalidraw-collaboration/limits';
 
 export const FILE_VERSION_CENTER_ROLLOUT_ENV_V1 = Object.freeze({
   mode: 'FILE_VERSION_CENTER_MODE',
@@ -95,6 +96,7 @@ export function resolveFileVersionRolloutV1(
 export type FileVersionFileClassV1 =
   | 'markdown'
   | 'text'
+  | 'excalidraw'
   | 'code'
   | 'office'
   | 'binary';
@@ -117,6 +119,7 @@ function normalizedExtensionV1(pathHint: string): string {
 
 export function classifyFileVersionFileV1(pathHint: string): FileVersionFileClassV1 {
   const extension = normalizedExtensionV1(pathHint);
+  if (extension === 'excalidraw') return 'excalidraw';
   if (MARKDOWN_EXTENSIONS_V1.has(extension)) return 'markdown';
   if (TEXT_EXTENSIONS_V1.has(extension)) return 'text';
   if (CODE_EXTENSIONS_V1.has(extension)) return 'code';
@@ -192,13 +195,14 @@ export function resolveFileVersionCapabilitiesV1(
     : fileClass === 'text' ? 'text'
       : 'metadata';
 
-  if (fileClass !== 'markdown' && fileClass !== 'text') {
+  if (fileClass !== 'markdown' && fileClass !== 'text' && fileClass !== 'excalidraw') {
     return unavailableCapabilitiesV1(preview, 'unsupported_type');
   }
   if (!input.canRead || !input.lineageAvailable) {
     return unavailableCapabilitiesV1(preview, input.canRead ? 'missing' : 'read_only');
   }
-  if (input.sizeBytes < 0 || input.sizeBytes > FILE_VERSION_CENTER_LIMITS_V1.maxRawVersionBytes) {
+  if (input.sizeBytes < 0 || input.sizeBytes > (fileClass === 'excalidraw'
+    ? EXCALIDRAW_PORTABLE_MAX_BYTES : FILE_VERSION_CENTER_LIMITS_V1.maxRawVersionBytes)) {
     return unavailableCapabilitiesV1(preview, 'limit_exceeded');
   }
   if (input.rolloutMode === 'off' || input.rolloutMode === 'shadow') {
@@ -210,9 +214,9 @@ export function resolveFileVersionCapabilitiesV1(
 
   const isFull = input.rolloutMode === 'full';
   const canMutate = isFull && input.canWrite;
-  const compare = input.backends.compareReady;
+  const compare = fileClass !== 'excalidraw' && input.backends.compareReady;
   const restore = canMutate && input.backends.restoreReady;
-  const agentReviewPolicy = canMutate && input.backends.policyReady;
+  const agentReviewPolicy = fileClass !== 'excalidraw' && canMutate && input.backends.policyReady;
   const reason = !input.canWrite ? 'read_only'
     : input.rolloutMode === 'read_only' ? 'read_only_rollout'
       : !compare || !input.backends.restoreReady || !input.backends.policyReady

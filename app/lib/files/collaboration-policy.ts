@@ -211,7 +211,7 @@ function collaborationProviderForStrategy(
   if (strategy === 'crdt_text' && workspaceSupportsRealtimeTextCollaboration(workspace)) {
     return 'yjs';
   }
-  if (strategy === 'excalidraw_scene' && workspaceRequiresCollaborationPolicy(workspace)) {
+  if (strategy === 'excalidraw_scene' && workspaceSupportsRealtimeTextCollaboration(workspace)) {
     return 'excalidraw';
   }
   return null;

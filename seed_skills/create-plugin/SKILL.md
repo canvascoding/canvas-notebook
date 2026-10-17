@@ -1,195 +1,55 @@
 ---
 name: create-plugin
-description: "Create, update, validate, and package Canvas Plugins. Use when users want to build a Canvas plugin, bundle multiple skills into a plugin, define plugin metadata, add icons or logos, declare recommended Composio, Canvas Email, or MCP connectors, prepare a marketplace entry, or submit a plugin to the Canvas Plugin Store."
-compatibility: Requires filesystem access to the Canvas repository or plugin marketplace repository
+description: "Create or improve an organization-managed Canvas plugin that combines complete new or existing skills with optional custom MCP and Composio integrations. Use for reusable multi-skill workflows, plugin composition, plugin editing, and plugin graphics."
 metadata:
-  version: "1.0.0"
+  version: "2.0.1"
   author: canvas-studios
 ---
 
-# Create Plugin
+# Plugin Creator
 
-Use this skill to create production-ready Canvas Plugins.
+Turn the requested workflow into an organization-managed Canvas package. A plugin contains at least one complete skill, its purpose graphic, and any required connection declarations. A single independent skill can use Skill Creator instead. Existing separate skills and connections remain usable independently.
 
-A Canvas Plugin is a bundle that combines:
+## Establish the useful result
 
-- one plugin manifest at `.canvas-plugin/plugin.json`
-- one or more bundled skills under `skills/`
-- optional visual assets such as `assets/icon.svg` and `assets/logo.svg`
-- optional connector recommendations for Composio, Canvas Email, and MCP servers
-- optional marketplace metadata in a registry entry
+Use the conversation to determine purpose, inputs, output, new versus existing skills, required integrations, and intended users. Ask only for information that changes the result and cannot be inferred. A request to plan stays a plan; a request to create and make the plugin usable authorizes the necessary internal creation steps. Keep the target organization and intended access visible in the preview. Public marketplace submission and server hosting are separate workflows.
 
-Plugins should teach the agent which workflows belong together. They should not secretly install external services, write connector configuration, or store secrets.
+Use the existing `canvas_extensions` gateway: `search` for the needed operation, `describe` its exact schema, then `call` with that schema. A directly registered operation can be used directly. Tool names in this skill describe routes to discover, not permission or schema definitions. Missing operations or creation rights require an honest limitation; legacy personal installers are not an alternative organization-creation path.
 
-## Default Workflow
+## Create or resume one draft
 
-1. Clarify the plugin's audience, workflows, bundled skills, and connector recommendations.
-2. Choose a stable plugin name in lowercase kebab-case.
-3. Scaffold the plugin package:
+- New plugin: `create_canvas_package_draft` with `operation: "create"`, `kind: "plugin"`, a stable lowercase name, and a fresh UUID `requestId`. Organization and actor come from the server; send no ownership, user ID, or server path.
+- Resume: use the known `draftRef`; otherwise `list_canvas_package_drafts`. Inspect its current files, revision and operation status before continuing. Link the returned draft in the chat so another chat can resume it.
+- Edit: inspect the exact resource with `inspect_canvas_package`, then create an `edit` draft using its current metadata, grants and package-head revisions. An existing read-only package may permit a differently named `fork`; keep its explicit source/target contract. Do not replace core content or mutate a published revision.
+- Recover uncertain create/publish results with `inspect_canvas_package_operation` using the original request ID or draft reference. For uncertain file/composition writes, inspect the current draft and affected files first. Never blindly create another draft, repeat publication, or overwrite a newer revision.
 
-   ```text
-   plugins/<plugin-name>/<version>/
-   ├── .canvas-plugin/plugin.json
-   ├── assets/
-   │   ├── icon.svg
-   │   └── logo.svg
-   ├── connectors/
-   │   └── optional-example.mcp.json
-   ├── skills/
-   │   └── <skill-name>/
-   │       ├── SKILL.md
-   │       └── agents/canvas.yaml
-   └── LICENSE
-   ```
+Use the common package file tools with relative paths, base64 content and the latest `expectedDraftRevision`. Preserve files not involved in the request. Draft files are private authoring content; do not execute them through workspace or runtime bypasses.
 
-4. Validate that every bundled skill has a unique `name` and a useful trigger-focused `description`.
-5. Add connector recommendations only as metadata. The user must explicitly connect Composio apps, Canvas Email accounts, or MCP servers in the UI.
-6. For a personal Canvas installation, call `install_canvas_plugin_from_workspace` with the package directory. To update an installed plugin, first call `inspect_canvas_plugin`, then call `update_canvas_plugin_from_workspace` with its version and checksum.
-7. Use `set_canvas_plugin_enabled` to toggle it and `remove_canvas_plugin` to remove it. Removal deliberately stops when a materialized skill was edited, so the agent must preserve or resolve that user work explicitly.
-8. Package or commit the plugin to the marketplace repository only after validation passes.
+## Compose the actual package
 
-## Manifest Template
+Load [package-and-connections.md](references/package-and-connections.md) when writing the manifest or connection requirements. Start with a useful narrow skill; Skill Creator can author a new child directly in this draft when given its exact draft reference and child root. No preliminary standalone installation is needed.
 
-Use this shape for `.canvas-plugin/plugin.json`:
+For existing skills and integration requirements, call `search_canvas_extensions` with `purpose: "authoring"`, a useful query and optional type filters. This is the same catalog as the Plugins page, using metadata only. A normal runtime search returns only the agent's current installed runtime selection and is not the complete authoring catalog. Account authorization, live reachability and tool schemas are not tested by this search.
 
-```json
-{
-  "name": "sales-operations",
-  "version": "1.0.0",
-  "description": "Coordinate sales workflows with CRM, email, and research connector recommendations.",
-  "license": "MIT",
-  "author": {
-    "name": "Canvas Studios"
-  },
-  "source": "https://github.com/canvascoding/canvas-notebook-plugin-marketplace/tree/main/plugins/sales-operations/1.0.0",
-  "skills": "./skills",
-  "interface": {
-    "displayName": "Sales Operations",
-    "shortDescription": "Prepare account research and sales follow-ups",
-    "category": "Sales",
-    "brandColor": "#0F766E",
-    "icon": "./assets/icon.svg",
-    "logo": "./assets/logo.svg",
-    "defaultPrompt": [
-      "Use /sales-account-brief to prepare a target-account brief."
-    ]
-  },
-  "connectors": {
-    "composio": [
-      {
-        "toolkit": "hubspot",
-        "label": "HubSpot",
-        "recommended": true,
-        "reason": "Use CRM records and company data during sales workflows."
-      }
-    ],
-    "email": [
-      {
-        "kind": "mailbox",
-        "label": "Sales inbox",
-        "providers": ["gmail", "imap-smtp"],
-        "recommended": true,
-        "reason": "Read and send sales email through Canvas Email, not through Composio Gmail."
-      }
-    ],
-    "mcp": [
-      {
-        "name": "sales-research",
-        "label": "Sales Research MCP",
-        "configPath": "./connectors/sales-research.mcp.json",
-        "recommended": true,
-        "env": ["SALES_RESEARCH_API_KEY"],
-        "oauth": true,
-        "reason": "Optional external research tools for account enrichment."
-      }
-    ]
-  }
-}
-```
+Use `inspect_canvas_package_authoring_source` for the exact readable resource and chosen version. Select the returned verified source entries for `compose_canvas_package_skills` with the current draft revision. For a historical plugin child, select the parent resource, its exact `revisionRef`, parent checksum and declared `childRelativeRoot`. A direct child selection also requires the inspected parent checksum. The batch service copies complete content, resolves parent resources and hoists standalone MCP declarations. Review its reported reference/version changes and preserve license and author attribution. Resolve a conflict explicitly; do not silently rename, overwrite or copy a same-name skill from elsewhere. A Store offering must first use its explicit existing installation workflow before it is a readable copy source.
 
-## Connector Rules
+For one Composio or MCP requirement, use `add_canvas_package_requirement` with the current draft revision and selected catalog identity. Composio contributes the exact toolkit slug. An MCP needs an explicit portable `connectorName` for this package. The private selected connection, definition, profile or account is not saved in the manifest. Add the corresponding portable Workflow V1 capability if the skill needs it; the manifest and workflow must agree. Rich existing declarations are preserved; edit a conflicting declaration explicitly rather than replacing it silently.
 
-Composio recommendations:
+Legacy managed workspace drafts can be inspected with `inspect_canvas_package_workspace_draft` and explicitly imported into an empty common draft with `import_canvas_package_workspace_draft`. Use the returned identity and checksum. Leave the original workspace draft intact.
 
-- Use Composio toolkit slugs such as `hubspot`, `slack`, or `linear`.
-- Include `label`, `reason`, and `recommended` or `required`.
-- Do not include API keys, connected-account IDs, trigger IDs, or user-specific secrets.
-- Do not recommend Gmail through Composio for email workflows. Use Canvas Email.
+## Create the purpose graphic
 
-Canvas Email recommendations:
+Load the complete `plugin-visual` member of the system Plugin Creator through the exact authorized skill path supplied by plugin context or metadata discovery. With a legacy direct `create-plugin` reference, use its supplied visual dependency/read recipe. Do not guess an absolute filesystem path or install another illustration package.
 
-- Use `connectors.email[]` for mailbox needs.
-- Supported provider hints are `gmail` and `imap-smtp`.
-- Explain why the mailbox is useful, but leave account connection to the UI.
+Create an original small purpose illustration at `assets/logo.svg`; point `interface.logo` to `./assets/logo.svg`. Follow that child skill's passive SVG, accessibility and preview rules. The image should explain this plugin's job, rather than repeat the generic Creator icon. Referenced external provider logos remain provider branding, not the generated purpose image.
 
-MCP recommendations:
+## Validate and make it usable
 
-- Use `connectors.mcp[]` for optional MCP servers.
-- Put example server config under `connectors/*.mcp.json`.
-- List required environment variable names in `env`.
-- Set `oauth: true` when OAuth may be required.
-- Do not merge MCP config automatically.
+1. Present graphic, name, organization, intended access, included skills and connection requirements first. Keep manifest/files, provenance and version details behind optional detail. Selected references stay inline in chat text.
+2. Call `validate_canvas_package_draft` for the current revision. Repair the returned file/field errors and validate again. Do not call a structural check a successful provider or workflow test. A changed draft needs fresh validation; final publication validates again.
+3. When internal saving is requested, call `publish_canvas_package_draft` using the current draft, metadata, grants and head revisions and a stable UUID request ID. Do not route through `install_canvas_plugin_from_workspace` or a public marketplace upload.
+4. Publication, use access and activation are distinct. Retain the actual published `resourceRef`, `publishedRevisionRef` and checksum as its exact pin. Call `inspect_canvas_package_provisioning` for that pin. Use `provision_canvas_package` with fresh expected revisions for separate explicitly requested `set_use_audience` and `activate` steps. The audience is either explicitly selected users or all organization members (which can include external members); do not infer it from organization ownership. Empty users grants no Use. This flow changes only Use and preserves existing Edit/Manage rights. `canManage` and `canEdit` do not imply `canUse`. An optional organization policy additionally needs the user's own opt-in: when the request includes using the package, use `enable_for_me` with the inspected personal activation revision for the current actor only. Do not change other members' preferences or the organization's policy. If a later step fails or its reply is lost, inspect provisioning and resume only that step on the saved version; never publish a duplicate or silently switch to a newer head.
+5. Use existing requirement/setup and personal binding tools to choose each actual MCP definition or Composio profile/account. Display incomplete setup. Never copy the Creator's private bindings into the portable package or choose another account automatically.
+6. A behavior test uses the exact published organization revision through ordinary chat/agent context, after valid use access and activation. Use harmless authorized read operations or the requested example. Do not test a business mutation incidentally, or repeat an action with an uncertain outcome.
 
-## Skill Bundling Rules
-
-Each bundled skill should be narrow enough to be useful independently and clear enough to trigger correctly.
-
-Use this skill layout:
-
-```text
-skills/<skill-name>/SKILL.md
-skills/<skill-name>/agents/canvas.yaml
-```
-
-`SKILL.md` frontmatter should include:
-
-```yaml
----
-name: sales-account-brief
-description: "Use this skill to prepare a target-account sales brief from CRM context, email context, and research notes."
-license: "MIT"
-metadata:
-  version: "1.0.0"
----
-```
-
-`agents/canvas.yaml` should include UI metadata:
-
-```yaml
-interface:
-  display_name: Sales Account Brief
-  short_description: Prepare a target-account sales brief
-  brand_color: "#0F766E"
-  icon_small: "./icon.svg"
-```
-
-## Marketplace Registry Entry
-
-When preparing an official marketplace entry, add the plugin to `registry.json` in the marketplace repo.
-
-Required fields:
-
-- `name`
-- `displayName`
-- `description`
-- `latestVersion`
-- `versions[version].downloadUrl`
-- `versions[version].packagePath`
-- `versions[version].checksum`
-- `versions[version].manifestPath`
-
-The checksum should be the Canvas Plugin package checksum, not a checksum of the whole git repository.
-
-## Validation Checklist
-
-Before handing off:
-
-- `.canvas-plugin/plugin.json` exists and is valid JSON.
-- `name` is lowercase kebab-case.
-- `version` is semantic, for example `1.0.0`.
-- `skills` points to a package-local directory.
-- Every `connectors.mcp[].configPath` points to an existing file.
-- Icons and logos are package-local image files.
-- No secrets, tokens, personal account IDs, or generated local paths are committed.
-- Local installation succeeds through the Canvas Plugin installer.
-- Marketplace install succeeds from a registry archive when publishing to the store.
+Finish with the draft or saved version link, precise version, included workflows, intended access, graphic and remaining connection/test state. After publication, further editing starts a new edit draft; prior pins and published files stay unchanged. A model that cannot visually inspect the result should say so rather than inventing a visual acceptance result.

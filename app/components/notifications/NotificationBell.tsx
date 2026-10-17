@@ -258,7 +258,8 @@ function AuthenticatedNotificationBell({ authScope }: { authScope: OpenedDocumen
   }, [mutateInbox, refresh, isCurrentScope, t]);
 
   const notificationItems = useMemo(
-    () => visibleSummary?.sections.notifications ?? visibleSummary?.items.filter((item) => item.target.kind !== 'todo') ?? [],
+    () => (visibleSummary?.sections.notifications ?? visibleSummary?.items.filter((item) => item.target.kind !== 'todo') ?? [])
+      .filter((item) => item.unread),
     [visibleSummary],
   );
   const todoItems = visibleSummary?.sections.todoAttention ?? visibleSummary?.sections.todos ?? visibleSummary?.items.filter((item) => item.target.kind === 'todo') ?? [];

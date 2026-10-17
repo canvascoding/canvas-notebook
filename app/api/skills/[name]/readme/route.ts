@@ -9,7 +9,8 @@ import {
   requireOrganizationPermission,
 } from '@/app/lib/organization/permissions';
 import { getSkillsDir, isValidAgentSkillName } from '@/app/lib/skills/canvas-skill-manifest';
-import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { coreSkillInstallError } from '@/app/lib/skills/core-skills';
+import { isProtectedCoreSkillName } from '@/app/lib/plugins/core-plugins';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import { readCanvasSkillRegistry } from '@/app/lib/skills/canvas-skill-store';
 import { assertLegacyCapabilityPackageMutationAllowed, withCapabilityPackageRegistryLock } from '@/app/lib/capabilities/packages/artifacts';
@@ -64,7 +65,7 @@ export async function PUT(
         { status: 400 }
       );
     }
-    if (isCoreSkillName(name)) {
+    if (isProtectedCoreSkillName(name)) {
       return NextResponse.json(
         { success: false, error: coreSkillInstallError(name) },
         { status: 409 },

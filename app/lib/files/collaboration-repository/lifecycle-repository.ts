@@ -6,10 +6,48 @@ import { ensureActiveFileLineage } from './lineage-revision-repository';
 import type { FileCollaborationTransaction } from './types';
 import { revokeFileGuestPathScope } from '@/app/lib/file-guests/lifecycle';
 import { assertWorkspaceFileLifecycleSqlAvailable } from '../workspace-file-lifecycle-guard';
+import { movePendingExcalidrawCreatePaths } from '@/app/lib/excalidraw-collaboration/create-journal';
 
 type ArchivedLineageRow = {
   id: string;
 };
+
+export class ExcalidrawLifecycleExtensionError extends Error {
+  readonly code = 'EXCALIDRAW_EXTENSION_REQUIRED';
+  readonly status = 409;
+  constructor() { super('Excalidraw documents must retain their .excalidraw extension when moved or renamed.'); }
+}
+
+/** Defensive metadata boundary, including callers that do not use the file-action preview. */
+async function assertExcalidrawMoveExtension(transaction: FileCollaborationTransaction,
+  params: { workspaceId: string; oldPath: string; newPath: string }): Promise<void> {
+  if (params.newPath.toLowerCase().endsWith('.excalidraw')) return;
+  const scene = await transaction.get(`SELECT document_id FROM collaboration_excalidraw_states
+    WHERE workspace_id=$1 AND path=$2 AND status='active' LIMIT 1`, [params.workspaceId,params.oldPath]);
+  if (scene) throw new ExcalidrawLifecycleExtensionError();
+}
+
+async function lockExcalidrawLifecycleScopes(transaction: FileCollaborationTransaction,
+  workspaceId: string, paths: string[]): Promise<void> {
+  const scenes = await transaction.all(`SELECT document_id FROM collaboration_excalidraw_states
+    WHERE workspace_id=$1 AND EXISTS (SELECT 1 FROM unnest($2::text[]) scope(path)
+      WHERE collaboration_excalidraw_states.path=scope.path
+        OR left(collaboration_excalidraw_states.path,char_length(scope.path)+1)=scope.path||'/')
+    ORDER BY document_id`, [workspaceId,paths]) as Array<{ document_id: string }>;
+  for (const scene of scenes) {
+    await transaction.get('SELECT pg_advisory_xact_lock(hashtext($1))', [`excalidraw:${scene.document_id}`]);
+    await transaction.get('SELECT document_id FROM collaboration_excalidraw_states WHERE document_id=$1 FOR UPDATE', [scene.document_id]);
+  }
+}
+
+async function notifyExcalidrawLifecycleScopes(transaction: FileCollaborationTransaction,
+  workspaceId: string, paths: string[]): Promise<void> {
+  await transaction.run(`SELECT pg_notify('canvas_excalidraw_scene',json_build_object(
+    'documentId',document_id,'sceneSequence',scene_sequence)::text) FROM collaboration_excalidraw_states
+    WHERE workspace_id=$1 AND EXISTS (SELECT 1 FROM unnest($2::text[]) scope(path)
+      WHERE collaboration_excalidraw_states.path=scope.path
+        OR left(collaboration_excalidraw_states.path,char_length(scope.path)+1)=scope.path||'/')`, [workspaceId,paths]);
+}
 
 async function materializeLegacyLineagesInPathScope(
   transaction: FileCollaborationTransaction,
@@ -87,6 +125,7 @@ export async function archivePersistedCollaborationStatePathScopes(
 ): Promise<void> {
   if (!params.paths.length) return;
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, params.paths);
+  await lockExcalidrawLifecycleScopes(transaction, params.workspaceId, params.paths);
   for (const filePath of params.paths) {
     await transaction.run(`
       UPDATE collaboration_agent_operations
@@ -121,7 +160,13 @@ export async function archivePersistedCollaborationStatePathScopes(
         AND status = 'active'
         AND (path = $2 OR left(path, char_length($2) + 1) = $2 || '/')
     `, [params.workspaceId, filePath]);
+    await transaction.run(`UPDATE collaboration_excalidraw_agent_operations
+      SET status='cancelled',review_reason='The Excalidraw document was deleted.',updated_at=$1,cas_version=cas_version+1
+      WHERE workspace_id=$2 AND status IN ('preparing','needs_review') AND document_id IN (
+        SELECT document_id FROM collaboration_excalidraw_states WHERE workspace_id=$2
+          AND (path=$3 OR left(path,char_length($3)+1)=$3||'/'))`, [params.nowMs,params.workspaceId,filePath]);
   }
+  await notifyExcalidrawLifecycleScopes(transaction, params.workspaceId, params.paths);
 }
 
 async function remapActivePathScope(
@@ -156,6 +201,8 @@ export async function movePersistedCollaborationStatePathScope(
   },
 ): Promise<void> {
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.oldPath, params.newPath]);
+  await lockExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.oldPath,params.newPath]);
+  await assertExcalidrawMoveExtension(transaction,params);
   await remapActivePathScope(transaction, 'collaboration_yjs_states', params);
   await moveExcalidrawCollaborationStatePathScope(transaction, params);
 }
@@ -168,7 +215,10 @@ export async function moveExcalidrawCollaborationStatePathScope(
     newPath: string;
   },
 ): Promise<void> {
+  await lockExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.oldPath,params.newPath]);
+  await assertExcalidrawMoveExtension(transaction,params);
   await remapActivePathScope(transaction, 'collaboration_excalidraw_states', params);
+  await notifyExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.newPath]);
 }
 
 export async function reactivatePersistedCollaborationStatePathScope(
@@ -179,6 +229,7 @@ export async function reactivatePersistedCollaborationStatePathScope(
   },
 ): Promise<void> {
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.path]);
+  await lockExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.path]);
   await transaction.run(`
     UPDATE collaboration_yjs_states
     SET status = 'active', lifecycle_generation = lifecycle_generation + 1, degraded = 0
@@ -193,6 +244,7 @@ export async function reactivatePersistedCollaborationStatePathScope(
       AND path = $2
       AND status = 'archived'
   `, [params.workspaceId, params.path]);
+  await notifyExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.path]);
 }
 
 export async function archiveFileCollaborationPathScopes(
@@ -206,6 +258,7 @@ export async function archiveFileCollaborationPathScopes(
 ): Promise<void> {
   if (!params.entries.length) return;
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspace.workspaceId, params.entries.map(entry => entry.path));
+  await lockExcalidrawLifecycleScopes(transaction,params.workspace.workspaceId,params.entries.map(entry=>entry.path));
   for (const entry of params.entries) {
     await materializeLegacyLineagesInPathScope(transaction, {
       workspace: params.workspace,
@@ -232,6 +285,7 @@ export async function restoreFileCollaborationPathScope(
   },
 ): Promise<boolean> {
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspaceId, [params.path]);
+  await lockExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.path]);
   const archived = await transaction.all(`
     SELECT id
     FROM file_collaboration_lineages
@@ -291,6 +345,7 @@ export async function restoreFileCollaborationPathScope(
           AND documents.status = 'active'
       )
   `, [archived.map((lineage) => lineage.id)]);
+  await notifyExcalidrawLifecycleScopes(transaction,params.workspaceId,[params.path]);
   return true;
 }
 
@@ -337,6 +392,9 @@ export async function moveFileCollaborationPathScope(
   },
 ): Promise<void> {
   await assertWorkspaceFileLifecycleSqlAvailable(transaction, params.workspace.workspaceId, [params.oldPath, params.newPath]);
+  await lockExcalidrawLifecycleScopes(transaction,params.workspace.workspaceId,[params.oldPath,params.newPath]);
+  await assertExcalidrawMoveExtension(transaction,{ workspaceId:params.workspace.workspaceId,oldPath:params.oldPath,newPath:params.newPath });
+  await movePendingExcalidrawCreatePaths(transaction, params);
   await revokeFileGuestPathScope(transaction, { workspaceId: params.workspace.workspaceId, path: params.oldPath, nowMs: params.nowMs });
   await materializeLegacyLineagesInPathScope(transaction, {
     workspace: params.workspace,

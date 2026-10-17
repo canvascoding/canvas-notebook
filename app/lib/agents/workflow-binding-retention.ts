@@ -34,7 +34,7 @@ function slotValid(slot: AgentWorkflowBindingSlot): boolean {
 function oldTarget(actor: AgentManagementActor, snapshot: AgentWorkflowInternalSnapshot, slot: AgentWorkflowBindingSlot):
   { target: StoredAgentWorkflowTarget; checksum: string } | null {
   if (!slotValid(slot) || !bounded(actor.userId) || [actor.organizationId, actor.workspaceId, actor.projectId]
-    .some(value => value != null && !bounded(value)) || snapshot.workflowVersion !== 1
+    .some(value => value != null && !bounded(value)) || snapshot.workflowVersion !== 1 && snapshot.workflowVersion !== 2
     || !Number.isSafeInteger(snapshot.agent.revision) || snapshot.agent.revision < 1
     || !Number.isSafeInteger(snapshot.workflowRevision) || snapshot.workflowRevision < 1) return null;
   const packages = snapshot.bindings.flatMap(binding => binding.configuration && binding.configuration.resourceRef === slot.resourceRef

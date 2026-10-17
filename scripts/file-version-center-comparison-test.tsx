@@ -464,6 +464,28 @@ async function main() {
     /Accept change/u.test(candidate.textContent ?? '') && !candidate.disabled), false,
   'unsynchronized local content cannot expose a live accepting action');
 
+  const requestsBeforeScene = requestedCursors.length;
+  const sameSceneVersion = { ...revisionEntry, content: { ...revisionEntry.content, sha256: currentEntry.sha256 } };
+  await act(async () => root.render(
+    <NextIntlClientProvider locale="en" timeZone="UTC" messages={messages}>
+      <FileVersionComparison
+        request={request}
+        timeline={{ ...timeline, document: { ...timeline.document, path: 'diagram.excalidraw' },
+          capabilities: { contractVersion: 1, history: true, compare: false, restore: true, agentReviewPolicy: false, preview: 'metadata' },
+          entries: [currentEntry, sameSceneVersion] }}
+        selection={{ key: `revision:${sameSceneVersion.id}`, entry: sameSceneVersion, state: 'selected' }}
+        onTimelineInvalidate={() => {}}
+        onContinue={() => {}}
+      />
+    </NextIntlClientProvider>,
+  ));
+  await settle();
+  assert(document.querySelector('[data-testid="file-version-excalidraw-revision"]'));
+  assert.equal(requestedCursors.length, requestsBeforeScene,
+    'Portable scenes show retained version metadata without attempting the Markdown/text comparison endpoint.');
+  assert([...document.querySelectorAll<HTMLButtonElement>('button')].some(button => /Restore version/u.test(button.textContent ?? '') && !button.disabled),
+    'An Excalidraw restore remains available for identical bytes because it creates a new lifecycle generation.');
+
   await act(async () => root.unmount());
   const compatibilityRoot = createRoot(document.getElementById('root')!);
   const markdownTarget: AgentReviewTarget = {

@@ -6,7 +6,7 @@ import type { FileHandle } from 'node:fs/promises';
 import type { SqlConnection } from '../db';
 import { resolveEffectiveProviderConfig } from '../agents/effective-runtime-config';
 import { normalizeManagedAgentId, readAgentProfileOnConnection } from '../agents/registry';
-import { PI_RUNTIME_CONFIG_FILE, PI_RUNTIME_CONFIG_PATH, readPiRuntimeConfig } from '../agents/storage';
+import { DEFAULT_MANAGED_AGENT_ID, PI_RUNTIME_CONFIG_FILE, PI_RUNTIME_CONFIG_PATH, readPiRuntimeConfig } from '../agents/storage';
 import { captureCurrentAgentToolInvocation, withCapturedAgentToolInvocation } from '../pi/agent-tool-invocation';
 import { DISABLED_ALL_TOOLS_SENTINEL, getDefaultEnabledToolNames, isDefaultToolsConfig,
   normalizeEnabledToolsConfig, resolveEnabledToolNames } from '../pi/enabled-tools';
@@ -121,7 +121,8 @@ export async function withPreparedPublicShareToolPolicy<T>(operation: (policy: P
             await access.assertCurrent(); await assertConfig(captures); assertInvocation();
             const before = await readAgentProfileOnConnection(database,access.agentId);
             if (!before || before.agentId !== access.agentId) fail('TOOL_POLICY_DENIED');
-            const configured = normalizeEnabledToolsConfig(resolveEffectiveProviderConfig(preparedMainConfig,before).providerConfig.enabledTools);
+            const configured = normalizeEnabledToolsConfig(resolveEffectiveProviderConfig(preparedMainConfig,before,
+              access.agentId === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special').providerConfig.enabledTools);
             if (configured.includes(DISABLED_ALL_TOOLS_SENTINEL)) fail('TOOL_POLICY_DENIED');
             const names = [PUBLIC_TOOL];
             const enabled = isDefaultToolsConfig(configured) ? getDefaultEnabledToolNames(names) : resolveEnabledToolNames(names,configured);

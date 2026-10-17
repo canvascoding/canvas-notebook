@@ -20,7 +20,7 @@ export function legacyInstalledPluginCandidate(actorUserId: string, record: Reco
  * the actual PostgreSQL ACLs; older namespace/OAuth fixtures have no grants.
  */
 export function unmanagedCapabilityResourceStoreFixture(organizationId: () => string | null) {
-  return {
+  const store = {
     listCapabilityResourceRecordsForActor: async () => [],
     getCapabilityResourceAccess: async (actor: CapabilityResourceActor, storage: CapabilityResourceStorageBinding): Promise<CapabilityResourceAccessEntry> => {
       const own = storage.scopeType === 'user' && storage.ownerUserId === actor.userId;
@@ -39,5 +39,9 @@ export function unmanagedCapabilityResourceStoreFixture(organizationId: () => st
         access: { canRead: readable, canUse: readable, canEdit: own && !storage.sourcePluginId, canManage: own && !storage.sourcePluginId },
       };
     },
+  };
+  return { ...store,
+    readCapabilityResourceAccessBatch: (actor: CapabilityResourceActor, storages: readonly CapabilityResourceStorageBinding[]) =>
+      Promise.all(storages.map(storage => store.getCapabilityResourceAccess(actor, storage))),
   };
 }

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "head": "a4e301958",
+  "timestamp": "2026-10-16T16:25:35.868Z",
+  "environment": "existing managed local stack, PostgreSQL 18, compiled production server",
+  "conditions": [
+    "Twelve sequential warm samples per repeated scenario; nearest-rank p95 is the highest sample at n=12.",
+    "First access is one observation after startup and does not establish cold p95.",
+    "Browser Home initialization and another worktree build overlapped part of this run; outliers are retained.",
+    "Initial baseline contains only three parallel observations on the earlier compiled source, so this is not a controlled p95 before/after comparison.",
+    "Metadata latency excludes subsequent icons except maxTotalMs; four icon requests were concurrent in the final workload.",
+    "The final f688a77df correction changes legacy setup classification and dialog wording; these timings precede that correction."
+  ],
+  "iterations": 12,
+  "concurrentImageRequests": 4,
+  "summaries": [
+    {
+      "name": "first-core",
+      "samples": 1,
+      "medianMs": 487,
+      "p95Ms": 487,
+      "maxTotalMs": 487
+    },
+    {
+      "name": "first-installed",
+      "samples": 1,
+      "medianMs": 210,
+      "p95Ms": 210,
+      "maxTotalMs": 210
+    },
+    {
+      "name": "warm-core",
+      "samples": 12,
+      "medianMs": 252,
+      "p95Ms": 1458,
+      "maxTotalMs": 1458
+    },
+    {
+      "name": "warm-chat-local-all",
+      "samples": 12,
+      "medianMs": 371,
+      "p95Ms": 679,
+      "maxTotalMs": 679
+    },
+    {
+      "name": "warm-chat-local-recents",
+      "samples": 12,
+      "medianMs": 421,
+      "p95Ms": 765,
+      "maxTotalMs": 765
+    },
+    {
+      "name": "warm-preview",
+      "samples": 12,
+      "medianMs": 49,
+      "p95Ms": 104,
+      "maxTotalMs": 104
+    },
+    {
+      "name": "warm-installed-no-icons",
+      "samples": 12,
+      "medianMs": 173,
+      "p95Ms": 2986,
+      "maxTotalMs": 2986
+    },
+    {
+      "name": "parallel-installed",
+      "samples": 1,
+      "medianMs": 340,
+      "p95Ms": 340,
+      "maxTotalMs": 340
+    },
+    {
+      "name": "parallel-core",
+      "samples": 1,
+      "medianMs": 534,
+      "p95Ms": 534,
+      "maxTotalMs": 534
+    },
+    {
+      "name": "parallel-all",
+      "samples": 1,
+      "medianMs": 3026,
+      "p95Ms": 3026,
+      "maxTotalMs": 3026
+    },
+    {
+      "name": "warm-installed-icons",
+      "samples": 3,
+      "medianMs": 195,
+      "p95Ms": 431,
+      "maxTotalMs": 1378
+    },
+    {
+      "name": "parallel-installed-under-icons",
+      "samples": 1,
+      "medianMs": 560,
+      "p95Ms": 560,
+      "maxTotalMs": 560
+    },
+    {
+      "name": "parallel-core-under-icons",
+      "samples": 1,
+      "medianMs": 738,
+      "p95Ms": 738,
+      "maxTotalMs": 738
+    },
+    {
+      "name": "parallel-local-under-icons",
+      "samples": 1,
+      "medianMs": 770,
+      "p95Ms": 770,
+      "maxTotalMs": 770
+    }
+  ],
+  "warmSearchP95TargetMs": 300,
+  "warmSearchTargetMet": false
+}

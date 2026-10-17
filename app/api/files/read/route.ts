@@ -16,6 +16,9 @@ import type { FileReadStats } from '@/app/lib/files/types';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { WorkspaceDocumentCatalogueError } from '@/app/lib/collaboration/workspace-document-catalogue';
 import { FILE_READ_BUSY_CODE, isFileReadBusyError } from '@/app/lib/files/read-busy';
+import { getExcalidrawDocument } from '@/app/lib/excalidraw-collaboration/scene-service';
+import { serializePortableExcalidrawScene } from '@/app/lib/excalidraw-collaboration/checkpoint';
+import { excalidrawRequestAuthority, excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const EXCALIDRAW_READ_SIZE_LIMIT = 25 * 1024 * 1024; // embedded image data can make scenes larger
@@ -49,6 +52,28 @@ export async function GET(request: NextRequest) {
       );
     }
     
+    if (isExcalidrawFilePath(path)) {
+      const verify = excalidrawRequestAuthority(request, workspaceResult, 'canRead');
+      const scene = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () =>
+        getExcalidrawDocument({ workspace: await verify(), path, beforeRead: verify,
+        actor: { userId: workspaceResult.session.user.id, actorId: `user:${workspaceResult.session.user.id}`,
+          actorType: 'user', sessionId: workspaceResult.session.session.id } }));
+      const content = await serializePortableExcalidrawScene(scene);
+      const collaboration = await readFileCollaborationState({ workspace: workspaceResult.workspace, path: scene.path });
+      const sha256 = sha256Buffer(Buffer.from(content));
+      const stats = await getFileStats(scene.path, fileOptions).catch((error) => {
+        if (!hasNodeErrorCode(error, 'ENOENT')) throw error;
+        return { modified: scene.persistedAt, permissions: '', fileVersion: undefined };
+      });
+      return NextResponse.json({ success: true, data: {
+        path: scene.path, content: searchParams.get('meta') === '1' ? '' : content,
+        stats: { size: Buffer.byteLength(content), modified: stats.modified,
+          permissions: stats.permissions, fileVersion: stats.fileVersion, sha256 },
+        collaboration, revision: collaboration.latestRevision?.contentHash === sha256 ? collaboration.latestRevision : null,
+        documentId: scene.documentId, lifecycleGeneration: scene.lifecycleGeneration,
+        sceneSequence: scene.sceneSequence, checkpoint: scene.checkpoint,
+      } }, { headers: { 'Cache-Control': 'no-store' } });
+    }
     const docx = isDocxPath(path);
     const sizeLimit = isExcalidrawFilePath(path) ? EXCALIDRAW_READ_SIZE_LIMIT : READ_SIZE_LIMIT;
     const metaOnly = searchParams.get('meta') === '1';
@@ -124,6 +149,8 @@ export async function GET(request: NextRequest) {
     if (error instanceof WorkspaceDocumentCatalogueError) {
       return NextResponse.json({ success: false, error: error.message }, { status: 409 });
     }
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      && /^(?:EXCALIDRAW_|INVALID_EXCALIDRAW_)/u.test(error.code)) return excalidrawRouteError(error);
     const validationFailure = collaborationCheckpointValidationFailure(error);
     if (validationFailure) {
       return NextResponse.json({ success: false, error: validationFailure.message,

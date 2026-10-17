@@ -194,8 +194,8 @@ async function main() {
         'flag-on explicit denial stays empty even in the real pending-profile onboarding session');
     }
     await setExperimentalFeatures('registry-user', { integrationToolGatewayEnabled: false });
-    assert((await getPiTools('registry-user', 'bradley', onboardingSessionId, { executionContext: onboardingContext }))
-      .some(tool => tool.name === ONBOARDING_PROFILE_TOOL_NAME), 'flag-off keeps the exact legacy onboarding exception');
+    assert.deepEqual(await getPiTools('registry-user', 'bradley', onboardingSessionId, { executionContext: onboardingContext }), [],
+      'flag-off explicit denial cannot be overridden by the onboarding exception');
     await setExperimentalFeatures('registry-user', { integrationToolGatewayEnabled: true });
     await configure(['mcp']);
     assert((await getPiTools('registry-user', 'bradley', onboardingSessionId, { executionContext: onboardingContext }))

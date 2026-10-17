@@ -1,8 +1,10 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { getComposio, getComposioMode } from '@/app/lib/composio/composio-client';
 import {
+  assertResolvedComposioContext,
   resolveBoundComposioContext,
   resolveComposioContext,
   type ResolvedComposioContext,
@@ -30,7 +32,9 @@ const CATALOGUE_TIMEOUT_MS = 15_000;
 const MAX_PAGES = 20;
 
 type RecordValue = Record<string, unknown>;
-type Collection = { items: RecordValue[]; complete: boolean; errors: IntegrationProviderError[] };
+export type ComposioToolkitCatalogueQuery = { search?: string; cursor?: string; maxPages?: number };
+export type ComposioToolkitCatalogueResult = { items: RecordValue[]; complete: boolean; errors: IntegrationProviderError[]; nextCursor?: string };
+type Collection = ComposioToolkitCatalogueResult;
 type ProfileAccounts = Collection & { context: ResolvedComposioContext; configured: boolean };
 
 function record(value: unknown): RecordValue {
@@ -105,12 +109,13 @@ async function collectPages(
   itemKey: 'items' | 'toolkits',
   operation: 'catalogue' | 'accounts',
   signal: AbortSignal,
+  options: { cursor?: string; maxPages?: number } = {},
 ): Promise<Collection> {
   const items: RecordValue[] = [];
-  const cursors = new Set<string>();
-  let cursor: string | undefined;
+  const cursors = new Set<string>(options.cursor ? [options.cursor] : []);
+  let cursor: string | undefined = options.cursor;
   try {
-    for (let page = 0; page < MAX_PAGES; page += 1) {
+    for (let page = 0; page < Math.min(MAX_PAGES, Math.max(1, options.maxPages ?? MAX_PAGES)); page += 1) {
       signal.throwIfAborted();
       const result = record(await load(cursor));
       if (!Array.isArray(result[itemKey])) throw badResponse();
@@ -119,27 +124,60 @@ async function collectPages(
       if (next === null || next === undefined || next === '') {
         // A provider that advertises more pages must also provide a cursor.
         const totalPages = Number(result.totalPages ?? result.total_pages ?? 1);
-        if (Number.isFinite(totalPages) && totalPages > page + 1) throw badResponse();
+        if (!options.cursor && Number.isFinite(totalPages) && totalPages > page + 1) throw badResponse();
         return { items, complete: true, errors: [] };
       }
       if (typeof next !== 'string' || cursors.has(next)) throw badResponse();
       cursors.add(next);
       cursor = next;
     }
-    throw badResponse();
+    return { items, complete: false, errors: [safeFailure(badResponse(), operation)], ...(cursor ? { nextCursor: cursor } : {}) };
   } catch (error) {
-    return { items, complete: false, errors: [safeFailure(error, operation)] };
+    const failure = safeFailure(error, operation);
+    return { items, complete: false, errors: [failure], ...(cursor && failure.retryable ? { nextCursor: cursor } : {}) };
   }
 }
 
-async function loadLocalCollections(contexts: readonly ResolvedComposioContext[], signal: AbortSignal) {
+function loadLocalToolkitCatalogue(client: NonNullable<Awaited<ReturnType<typeof getComposio>>>, signal: AbortSignal,
+  options: ComposioToolkitCatalogueQuery): Promise<ComposioToolkitCatalogueResult> {
+  // The core SDK's toolkits.get() discards next_cursor; its public API client
+  // preserves pages without introducing another credential or entity path.
+  return collectPages(cursor => client.getClient().toolkits.list({
+    limit: 1000, ...(cursor ? { cursor } : {}), ...(options.search ? { search: options.search } : {}),
+  }, { signal, maxRetries: 0 }), 'items', 'catalogue', signal, options);
+}
+
+/** The caller verifies this exact credential scope. Toolkit metadata needs no personal profile or provider entity. */
+export async function loadLocalComposioToolkitCatalogue(storageScope: EnvStorageScope, signal: AbortSignal,
+  options: ComposioToolkitCatalogueQuery = {}): Promise<ComposioToolkitCatalogueResult> {
+  signal = AbortSignal.any([signal, AbortSignal.timeout(CATALOGUE_TIMEOUT_MS)]);
+  signal.throwIfAborted();
+  const client = await getComposio(storageScope);
+  if (!client) return { items: [], complete: false, errors: [{ source: 'composio', code: 'COMPOSIO_NOT_CONFIGURED',
+    message: 'The Composio app catalogue is not configured.', retryable: false }] };
+  return loadLocalToolkitCatalogue(client, signal, options);
+}
+
+function loadManagedToolkitCatalogue(context: ResolvedComposioContext, signal: AbortSignal,
+  options: ComposioToolkitCatalogueQuery): Promise<ComposioToolkitCatalogueResult> {
+  return collectPages(cursor => requestManagedComposio('/toolkits', {
+    signal,
+    query: new URLSearchParams({ limit: '1000', ...(cursor ? { cursor } : {}), ...(options.search ? { search: options.search } : {}) }),
+  }, context), 'toolkits', 'catalogue', signal, options);
+}
+
+/** Existing verified profile context only; never create a profile or request account/status/tool metadata. */
+export async function loadManagedComposioToolkitCatalogue(context: ResolvedComposioContext, signal: AbortSignal,
+  options: ComposioToolkitCatalogueQuery = {}): Promise<ComposioToolkitCatalogueResult> {
+  assertResolvedComposioContext(context);
+  return loadManagedToolkitCatalogue(context, AbortSignal.any([signal, AbortSignal.timeout(CATALOGUE_TIMEOUT_MS)]), options);
+}
+
+async function loadLocalCollections(contexts: readonly ResolvedComposioContext[], signal: AbortSignal,
+  options: { search?: string; cursor?: string; maxPages?: number } = {}) {
   const client = await getComposio(contexts[0].storageScope);
   if (!client) throw badResponse();
-  // The core SDK's toolkits.get() returns only an array and discards next_cursor.
-  // Its public API client retains pagination without creating another credential path.
-  const cataloguePromise = collectPages((cursor) => client.getClient().toolkits.list({
-    limit: 1000, ...(cursor ? { cursor } : {}),
-  }, { signal, maxRetries: 0 }), 'items', 'catalogue', signal);
+  const cataloguePromise = loadLocalToolkitCatalogue(client, signal, options);
   const accounts: ProfileAccounts[] = [];
   let index = 0;
   await Promise.all(Array.from({ length: Math.min(2, contexts.length) }, async () => {
@@ -154,11 +192,9 @@ async function loadLocalCollections(contexts: readonly ResolvedComposioContext[]
   return { catalogue: await cataloguePromise, accounts };
 }
 
-async function loadManagedCollections(contexts: readonly ResolvedComposioContext[], signal: AbortSignal) {
-  const cataloguePromise = collectPages((cursor) => requestManagedComposio('/toolkits', {
-    signal,
-    query: new URLSearchParams({ limit: '1000', ...(cursor ? { cursor } : {}) }),
-  }, contexts[0]), 'toolkits', 'catalogue', signal);
+async function loadManagedCollections(contexts: readonly ResolvedComposioContext[], signal: AbortSignal,
+  options: { search?: string; cursor?: string; maxPages?: number } = {}) {
+  const cataloguePromise = loadManagedToolkitCatalogue(contexts[0], signal, options);
   const accounts: ProfileAccounts[] = [];
   let index = 0;
   await Promise.all(Array.from({ length: Math.min(2, contexts.length) }, async () => {
@@ -184,6 +220,10 @@ async function loadManagedCollections(contexts: readonly ResolvedComposioContext
   }));
   return { catalogue: await cataloguePromise, accounts };
 }
+
+// Human-authenticated catalogue projections reuse the same credential/context
+// resolution and complete/partial pagination without inventing an agent session.
+export { loadLocalCollections as loadLocalComposioMetadata, loadManagedCollections as loadManagedComposioMetadata };
 
 function providersForProfile(input: {
   profile: ProfileAccounts;

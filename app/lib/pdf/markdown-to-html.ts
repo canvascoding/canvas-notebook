@@ -15,6 +15,8 @@ import {
 import path from 'path';
 import fs from 'fs/promises';
 import type { Page } from 'puppeteer-core';
+import type { MermaidConfig } from 'mermaid';
+import { createMermaidExportTheme } from '@/app/lib/markdown/mermaid-theme';
 
 const READ_SIZE_LIMIT = 5 * 1024 * 1024; // 5MB
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
@@ -34,14 +36,7 @@ function getMimeType(ext: string): string {
   return MIME_TYPES[ext.toLowerCase()] || 'image/png';
 }
 
-function escapeForJsTemplate(code: string): string {
-  return code
-    .replace(/\\/g, '\\\\')
-    .replace(/`/g, '\\`')
-    .replace(/\$/g, '\\$');
-}
-
-export async function renderMermaidToSvg(code: string): Promise<string | null> {
+export async function renderMermaidToSvg(code: string, config: MermaidConfig = createMermaidExportTheme()): Promise<string | null> {
   const pageRef: { current: Page | null } = { current: null };
 
   try {
@@ -65,8 +60,6 @@ export async function renderMermaidToSvg(code: string): Promise<string | null> {
         const mermaidPath = path.resolve(process.cwd(), 'node_modules/mermaid/dist/mermaid.min.js');
         const mermaidJs = await fs.readFile(mermaidPath, 'utf-8');
 
-        const escapedCode = escapeForJsTemplate(code);
-
         await page.setContent(`
           <!DOCTYPE html>
           <html>
@@ -75,28 +68,24 @@ export async function renderMermaidToSvg(code: string): Promise<string | null> {
             </head>
             <body>
               <div id="diagram"></div>
-              <script>
-                ${mermaidJs}
-                mermaid.initialize({
-                  startOnLoad: false,
-                  theme: 'default',
-                  securityLevel: 'strict'
-                });
-                mermaid.render('mermaid-svg', \`${escapedCode}\`)
-                  .then(({ svg }) => {
-                    document.getElementById('diagram').innerHTML = svg;
-                  })
-                  .catch((err) => {
-                    console.error('Mermaid render error:', err);
-                    document.getElementById('diagram').innerHTML = '<div class="mermaid-error">Error rendering diagram</div>';
-                  });
-              </script>
             </body>
           </html>
         `);
-
-        await page.waitForSelector('#diagram svg', { timeout: 10_000 });
-        return page.$eval('#diagram svg', el => el.outerHTML);
+        await page.addScriptTag({ content: mermaidJs });
+        // Pass document text as data, outside an inline HTML script. Awaiting
+        // render also reports a rejected diagram immediately instead of waiting
+        // for an SVG that Mermaid will never produce.
+        return page.evaluate(async ({ definition, theme }) => {
+          const api = (window as unknown as {
+            mermaid: {
+              initialize: (config: MermaidConfig) => void;
+              render: (id: string, text: string) => Promise<{ svg: string }>;
+            };
+          }).mermaid;
+          api.initialize(theme);
+          const { svg } = await api.render('mermaid-svg', definition);
+          return svg;
+        }, { definition: code, theme: config });
       },
     });
   } catch (err) {
@@ -111,7 +100,7 @@ export async function renderMermaidToSvg(code: string): Promise<string | null> {
   }
 }
 
-async function processMermaidBlocks(markdownContent: string): Promise<string> {
+async function processMermaidBlocks(markdownContent: string, brandProfile: WorkspaceBrandProfile): Promise<string> {
   const mermaidBlockRegex = /```mermaid\n([\s\S]*?)```/g;
   const matches = Array.from(markdownContent.matchAll(mermaidBlockRegex));
 
@@ -120,11 +109,12 @@ async function processMermaidBlocks(markdownContent: string): Promise<string> {
   }
 
   let processed = markdownContent;
+  const theme = createMermaidExportTheme(brandProfile);
 
   for (const match of matches) {
     const fullMatch = match[0];
     const mermaidCode = match[1].trim();
-    const svg = await renderMermaidToSvg(mermaidCode);
+    const svg = await renderMermaidToSvg(mermaidCode, theme);
 
     if (svg) {
       processed = processed.replace(fullMatch, `<div class="mermaid-diagram" style="text-align: center; margin: 1em 0;">${svg}</div>`);
@@ -282,7 +272,8 @@ export async function markdownTextToHtmlDocument(
     markdown,
   );
 
-  const processedMarkdown = await processMermaidBlocks(markdownContent);
+  const brandProfile = options.brandProfile ?? DEFAULT_WORKSPACE_BRAND_PROFILE;
+  const processedMarkdown = await processMermaidBlocks(markdownContent, brandProfile);
 
   let htmlContent = await renderMarkdownForPdf(processedMarkdown);
 
@@ -292,7 +283,6 @@ export async function markdownTextToHtmlDocument(
 
   const assetBasePath = options.assetBasePath?.trim() || '.';
   const title = options.title?.trim() || 'document';
-  const brandProfile = options.brandProfile ?? DEFAULT_WORKSPACE_BRAND_PROFILE;
   htmlContent = await inlineImagesAsBase64(htmlContent, assetBasePath, options.fileOptions);
   const katexCss = htmlContent.includes('class="katex')
     ? await getEmbeddedKatexCss()

@@ -14,6 +14,10 @@ import { stripInternalProjectionNotices } from '@/app/lib/chat/display-text';
 import { getChatDocumentLinkLabel, isChatMarkdownDocumentPath } from '@/app/lib/chat/document-link-label';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
 import type { ChatMessage } from '@/app/lib/chat/types';
+import type { ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
+import { createChatInlineMarkdownPresentation } from '@/app/lib/chat/inline-markdown';
+import { chatInlineReferenceIconKey, type ChatInlineReferenceIcons } from '@/app/lib/chat/inline-editor';
+import { PluginExtensionAvatar } from '@/app/components/plugins/PluginExtensionAvatar';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
@@ -387,6 +391,8 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   variant,
   onMediaClick,
   className,
+  inlineBody,
+  referenceIcons,
 }: {
   content: string;
   embedAncestorPaths?: string[];
@@ -394,11 +400,17 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   variant: 'user' | 'assistant' | 'tool';
   onMediaClick?: (mediaUrl: string) => void;
   className?: string;
+  inlineBody?: ChatBodyV1;
+  referenceIcons?: ChatInlineReferenceIcons;
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
   const friendlyDocumentLabels = variant === 'assistant' && !sourcePath;
   const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
+  const inlinePresentation = React.useMemo(() => {
+    // Stored body is the original first text block. Attachment displays remain in the parent.
+    return inlineBody ? createChatInlineMarkdownPresentation(inlineBody) : null;
+  }, [inlineBody]);
   const sharedClasses =
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
   const toneClasses =
@@ -417,6 +429,9 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
     variant === 'user'
       ? 'border-primary-foreground/20'
       : 'border-border';
+  const inlineReferenceToneClasses = variant === 'user'
+    ? 'border-primary-foreground/25 bg-primary-foreground/10 text-inherit'
+    : 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:text-blue-300';
 
   const extractColorCode = (props: Record<string, unknown>): string | null => {
     const colorCode = props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
@@ -424,7 +439,17 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   };
 
   const components = {
-    span: ({ className, ...props }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string }) => {
+    span: ({ className, node, ...props }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string; node?: unknown }) => {
+      const reference = inlinePresentation?.referenceForNode(node);
+      if (reference) {
+        const identity = chatInlineReferenceIconKey(reference.primary.selection);
+        return <span className={cn('mx-0.5 inline-flex max-w-full items-baseline gap-1 rounded-md border px-1 py-0.5 align-baseline', inlineReferenceToneClasses)}
+          data-testid="chat-inline-reference">
+          <PluginExtensionAvatar name={reference.caption} identity={identity} icon={referenceIcons?.[identity]} size="sm"
+            className={cn('!size-4 !rounded-sm !border-0 !bg-transparent !text-[8px] self-center [&_img]:!p-0', variant === 'user' && '!text-inherit')} />
+          <span className="break-words font-medium">{reference.caption}</span>
+        </span>;
+      }
       const colorCode = extractColorCode(props as Record<string, unknown>);
       if (colorCode) {
         return <ColorSwatch color={colorCode} />;
@@ -625,10 +650,10 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
     <div className={cn(sharedClasses, toneClasses, className)}>
       <ReactMarkdown
         remarkPlugins={CANVAS_MARKDOWN_REMARK_PLUGINS}
-        rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
+        rehypePlugins={inlinePresentation ? [...CANVAS_MARKDOWN_REHYPE_PLUGINS, inlinePresentation.rehypePlugin] : CANVAS_MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
-        {variant === 'user' ? content : stripInternalProjectionNotices(content)}
+        {inlinePresentation?.markdown ?? (variant === 'user' ? content : stripInternalProjectionNotices(content))}
       </ReactMarkdown>
     </div>
   );

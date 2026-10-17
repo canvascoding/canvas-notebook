@@ -28,7 +28,7 @@ test('edit tool advertises review-aware receipts and stable retries', async () =
     required: string[];
   };
 
-  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 6);
+  assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 7);
   assert.ok(input.properties.idempotency_key);
   for (const field of [
     'status',
@@ -80,7 +80,7 @@ test('external MCP identities are bounded and retry keys are request scoped', ()
 
 test('review links target the exact workspace lineage and operation without credentials', () => {
   const origin = 'https://canvas.example.test';
-  const documentUrl = new URL(buildDirectMcpDocumentUrl({ workspaceId: 'workspace-1', origin }));
+  const documentUrl = new URL(buildDirectMcpDocumentUrl({ workspaceId: 'workspace-1', path: 'notes/Überblick & Plan.md', documentId: 'doc-1', lineageId: 'lineage-1', origin }));
   const reviewUrl = new URL(buildDirectMcpReviewUrl({
     workspaceId: 'workspace-1',
     lineageId: 'lineage-1',
@@ -91,6 +91,9 @@ test('review links target the exact workspace lineage and operation without cred
   assert.equal(documentUrl.origin, origin);
   assert.equal(documentUrl.pathname, '/notebook');
   assert.equal(documentUrl.searchParams.get('workspaceId'), 'workspace-1');
+  assert.equal(documentUrl.searchParams.get('path'), 'notes/Überblick & Plan.md');
+  assert.equal(documentUrl.searchParams.get('documentId'), 'doc-1');
+  assert.equal(documentUrl.searchParams.get('lineageId'), 'lineage-1');
   assert.equal(reviewUrl.origin, origin);
   assert.equal(reviewUrl.pathname, '/notebook');
   assert.equal(reviewUrl.searchParams.get('workspaceId'), 'workspace-1');

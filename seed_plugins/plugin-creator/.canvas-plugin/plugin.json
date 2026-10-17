@@ -1,0 +1,12 @@
+{
+  "name": "plugin-creator",
+  "version": "1.0.0",
+  "description": "Create and edit organization-managed Canvas plugins from new and existing skills and portable integration requirements.",
+  "skills": "./skills",
+  "skillRefs": [{ "name": "create-plugin", "source": "seed" }],
+  "interface": {
+    "displayName": "Plugin Creator",
+    "shortDescription": "Create and edit Canvas plugins",
+    "logo": "./assets/logo.svg"
+  }
+}

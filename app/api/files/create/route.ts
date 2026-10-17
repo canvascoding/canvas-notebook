@@ -6,7 +6,10 @@ import { fileVersionHistoryService } from '@/app/lib/file-version-center/history
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { createDirectoryIfAbsent, writeFileIfAbsent } from '@/app/lib/filesystem/workspace-files';
-import { createEmptyExcalidrawFileContent, isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
+import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
+import { createExcalidrawDocument } from '@/app/lib/excalidraw-collaboration/scene-service';
+import { excalidrawRequestAuthority, excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
+import { parseExcalidrawCreateInput } from '@/app/lib/excalidraw-collaboration/api-contract';
 import {
   WorkspaceFileRevisionError,
   assertWorkspaceFileRevisionAllowed,
@@ -50,6 +53,7 @@ export async function POST(request: NextRequest) {
       type?: 'file' | 'directory';
       template?: 'excalidraw';
       requestId?: string;
+      idempotencyKey?: string;
     }>(request);
     const { path, type, template } = body;
 
@@ -66,6 +70,14 @@ export async function POST(request: NextRequest) {
 
     if (type === 'directory') {
       await createDirectoryIfAbsent(path, fileOptions);
+    } else if (type === 'file' && (template === 'excalidraw' || isExcalidrawFilePath(path))) {
+      const verify = excalidrawRequestAuthority(request, workspaceResult, 'canWrite');
+      const input = parseExcalidrawCreateInput({ path,
+        idempotencyKey: body.idempotencyKey ?? request.headers.get('Idempotency-Key') ?? randomUUID() });
+      await createExcalidrawDocument({ ...input, workspace: workspaceResult.workspace,
+        actor: { userId: workspaceResult.session.user.id, actorId: `user:${workspaceResult.session.user.id}`,
+          actorType: 'user', sessionId: workspaceResult.session.session.id },
+        beforeApply: async () => { await verify(); } });
     } else if (type === 'file' && isDocxPath(path)) {
       await writeWorkspaceFileContent({
         workspace: workspaceResult.workspace, fileOptions, actorUserId: workspaceResult.session.user.id,
@@ -85,9 +97,7 @@ export async function POST(request: NextRequest) {
         actorSessionId: null,
         actorType: 'user',
       });
-      const initialContent = template === 'excalidraw' || isExcalidrawFilePath(path)
-        ? createEmptyExcalidrawFileContent()
-        : '';
+      const initialContent = '';
       await writeFileIfAbsent(path, initialContent, fileOptions);
       const revision = await getWorkspaceFileRevision(path, fileOptions);
       if (revision) {
@@ -142,6 +152,8 @@ export async function POST(request: NextRequest) {
     return jsonSuccess();
   } catch (error) {
     if (error instanceof MarkdownManualCreateError) return jsonError(error.message, error.status, { code: error.code });
+    if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+      && /^(?:EXCALIDRAW_|INVALID_EXCALIDRAW_|PATH_EXISTS)/u.test(error.code)) return excalidrawRouteError(error);
     if (error instanceof WorkspacePathAliasError) return jsonError(error.message, error.status, { code: error.code });
     if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') {
       return jsonError('A file or folder already exists at this path.', 409, { code: 'PATH_EXISTS' });

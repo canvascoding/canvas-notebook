@@ -1,4 +1,5 @@
 import 'server-only';
+import { observeExtensionStage } from '@/app/lib/plugins/extension-search-observation';
 
 import { Value } from 'typebox/value';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
@@ -18,12 +19,13 @@ import {
   type CapabilityResourceStorageBinding,
 } from './contracts';
 import { CapabilityResourceConfigurationSchema, CapabilityResourceMutationSchema, CapabilityResourceReferenceSchema } from './schemas';
-import { readCapabilityResourceLabels } from './labels';
+import { readCapabilityResourceLabels, readCapabilityResourceLabelsBatch } from './labels';
 import { capabilityResourceStorageBinding } from './storage-binding';
 import { projectCapabilityPluginChildAccess } from './child-access';
 import {
-  adoptCapabilityResource, findCapabilityResourceRecord, getCapabilityResourceAccess,
+  adoptCapabilityResource, findCapabilityResourceRecord, getCapabilityResourceAccess, readCapabilityResourceAccessBatch,
   listCapabilityResourceGrants, listCapabilityResourceGrantTargets, mutateCapabilityResource,
+  type CapabilityResourceMutationOptions,
 } from './store';
 
 function invalidRequest(): never {
@@ -91,7 +93,8 @@ function notFound(): never {
   throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'The resource is unavailable in this context.', 404);
 }
 
-async function resolveInstalledCandidate(actor: CapabilityResourceActor, context: CapabilityResolutionContext, ref: string): Promise<CapabilityCandidate> {
+async function resolveInstalledCandidate(actor: CapabilityResourceActor, context: CapabilityResolutionContext, ref: string,
+  actorCatalog?: { candidates?: CapabilityCandidate[] }): Promise<CapabilityCandidate> {
   const record = await findCapabilityResourceRecord(ref);
   let sourceContext = context;
   if (record) {
@@ -104,13 +107,15 @@ async function resolveInstalledCandidate(actor: CapabilityResourceActor, context
       sourceContext = { ...context, userId: record.storage.ownerUserId };
     }
   }
-  let candidates = await loadCapabilityCandidates(sourceContext, { resolveConnections: false, applyResourceAccess: false });
+  let candidates = await loadCapabilityCandidates(sourceContext, { resolveConnections: false, applyResourceAccess: sourceContext === context });
+  if (actorCatalog && sourceContext === context) actorCatalog.candidates = candidates;
   let matches = candidates.filter(candidate => candidate.ref.resourceId === (record?.metadata.legacyResourceId ?? ref));
   if (!record && matches.length === 0) {
     // A readonly child has no independent managed row. Resolve only an exact
     // identity exposed by this actor's current ACL catalog, never a foreign
     // owner's directory or a name supplied by the caller.
     candidates = await loadCapabilityCandidates(context, { resolveConnections: false });
+    if (actorCatalog) actorCatalog.candidates = candidates;
     matches = candidates.filter(candidate => candidate.ref.resourceId === ref && candidate.resourceAccess?.canRead !== false);
   }
   if (matches.length !== 1) return notFound();
@@ -140,7 +145,8 @@ async function effectiveEntries(context: CapabilityResolutionContext, candidates
 }
 
 async function descriptor(actor: CapabilityResourceActor, context: CapabilityResolutionContext, candidate: CapabilityCandidate,
-  entry?: CapabilityResourceAccessEntry, effectiveById?: Map<string, EffectiveCapability>): Promise<CapabilityResourceDescriptor> {
+  entry?: CapabilityResourceAccessEntry, effectiveById?: Map<string, EffectiveCapability>,
+  presentation?: { labels: Pick<CapabilityResourceDescriptor, 'people' | 'ownershipLabel'>; grants?: CapabilityResourceDescriptor['grants'] }): Promise<CapabilityResourceDescriptor> {
   const entries = effectiveById ?? await effectiveEntries(context);
   const resolved = entry ?? await candidateAccess(actor, candidate, [...entries.values()]);
   const ref = candidate.ref;
@@ -151,34 +157,48 @@ async function descriptor(actor: CapabilityResourceActor, context: CapabilityRes
     description: (resolved.metadata.description ?? candidate.description)
       .replace(/[\u0000-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/gu, '').slice(0, 4096),
     artifact: { resourceType: ref.resourceType, resourceId: ref.resourceId, scopeType: ref.scopeType, name: ref.name,
-      version: ref.version, revision: ref.revision, checksum: ref.checksum, sourceType: ref.sourceType, sourcePluginId: ref.sourcePluginId },
+      version: ref.version, revision: ref.revision, checksum: ref.checksum, sourceType: ref.sourceType, sourcePluginId: ref.sourcePluginId,
+      ...(candidate.hasDeclaredIcon === undefined ? {} : { hasDeclaredIcon: candidate.hasDeclaredIcon }),
+      ...(candidate.pluginSkillRelativeRoot === undefined ? {} : { pluginSkillRelativeRoot: candidate.pluginSkillRelativeRoot }) },
     activation: { effectivePolicy: effective?.effectivePolicy || 'optional', enabled: effective?.effectiveEnabled === true && resolved.access.canUse,
       readiness: !effective || !resolved.access.canUse ? 'blocked'
         : effective.effectiveEnabled && (candidate.connectionRequirementCount || 0) > 0 ? 'unknown' : effective.readiness,
       blockedReason: effective?.blockedReason || (!resolved.access.canUse ? 'Resource use is not granted.' : null) },
   };
   if (resolved.access.canManage) result.grants = resolved.metadata.metadataRevision === 0 ? []
-    : await listCapabilityResourceGrants(actor, resolved.metadata.resourceRef);
-  return { ...result, ...await readCapabilityResourceLabels(actor, resolved) };
+    : presentation?.grants ?? await listCapabilityResourceGrants(actor, resolved.metadata.resourceRef);
+  return { ...result, ...(presentation ? presentation.labels : await readCapabilityResourceLabels(actor, resolved)) };
 }
 
 export async function listCapabilityResources(input: CapabilityResourceActor): Promise<CapabilityResourceDescriptor[]> {
+  return observeExtensionStage('catalog', () => readCapabilityResources(input), resources => resources.length);
+}
+
+async function readCapabilityResources(input: CapabilityResourceActor): Promise<CapabilityResourceDescriptor[]> {
   const { actor, context } = await resolveActor(input);
   const candidates = await loadCapabilityCandidates(context, { resolveConnections: false });
-  const effective = await effectiveEntries(context, candidates);
-  const result: CapabilityResourceDescriptor[] = [];
-  for (const candidate of candidates) {
-    const entry = await candidateAccess(actor, candidate, candidates);
-    if (entry.access.canRead) result.push(await descriptor(actor, context, candidate, entry, effective));
-  }
-  return result;
+  // A fresh completion phase, after artifact I/O. Its rights are never reused by mutation or runtime admission.
+  const access = await readCapabilityResourceAccessBatch(actor, candidates.map(binding), undefined, { includeGrants: true });
+  const parents = new Map(candidates.flatMap((candidate, index) => candidate.ref.resourceType === 'plugin'
+    ? [[candidate.ref.resourceId, access[index]] as const] : []));
+  const authorized = candidates.map((candidate, index) => {
+    const entry = candidate.pluginResourceId ? projectCapabilityPluginChildAccess(access[index], parents.get(candidate.pluginResourceId) ?? null) : access[index];
+    return { candidate: { ...candidate, resourceMetadata: entry.metadata, resourceAccess: entry.access }, entry,
+      grants: entry.access.canManage ? access[index].grants : undefined };
+  });
+  const readable = authorized.filter(value => value.entry.access.canRead);
+  const [effective, labels] = await Promise.all([effectiveEntries(context, authorized.map(value => value.candidate)),
+    readCapabilityResourceLabelsBatch(actor, readable.map(value => value.entry))]);
+  return Promise.all(readable.map(({ candidate, entry, grants }, index) => descriptor(actor, context, candidate, entry, effective,
+    { labels: labels[index], grants })));
 }
 
 export async function inspectCapabilityResource(input: CapabilityResourceActor, reference: string): Promise<CapabilityResourceDescriptor> {
   const ref = captureReference(reference);
   const { actor, context } = await resolveActor(input);
-  const candidate = await resolveInstalledCandidate(actor, context, ref);
-  return descriptor(actor, context, candidate);
+  const actorCatalog: { candidates?: CapabilityCandidate[] } = {};
+  const candidate = await resolveInstalledCandidate(actor, context, ref, actorCatalog);
+  return descriptor(actor, context, candidate, undefined, await effectiveEntries(context, actorCatalog.candidates));
 }
 
 function assertWritableArtifact(candidate: CapabilityCandidate): void {
@@ -225,14 +245,16 @@ export async function configureCapabilityResource(input: CapabilityResourceActor
   return descriptor(actor, context, candidate, entry);
 }
 
-export async function updateCapabilityResource(input: CapabilityResourceActor, reference: string, value: unknown): Promise<CapabilityResourceDescriptor> {
+export async function updateCapabilityResource(input: CapabilityResourceActor, reference: string, value: unknown,
+  options: CapabilityResourceMutationOptions = {}): Promise<CapabilityResourceDescriptor> {
   const ref = captureReference(reference);
   const mutation = parseCapabilityResourceMutation(value);
   const { actor, context } = await resolveActor(input);
   const candidate = await resolveInstalledCandidate(actor, context, ref);
   assertWritableArtifact(candidate);
   const record = await findCapabilityResourceRecord(ref);
-  const entry = record ? await mutateCapabilityResource(actor, record.metadata.resourceRef, mutation)
+  if (!record && options.beforeMutation) throw new CapabilityResourceError('CAPABILITY_RESOURCE_NOT_FOUND', 'The managed resource was not found.', 404);
+  const entry = record ? await mutateCapabilityResource(actor, record.metadata.resourceRef, mutation, options)
     : await adoptCapabilityResource(actor, binding(candidate), mutation);
   await afterMutation(actor, candidate, entry);
   // A manager may intentionally revoke their own grant. Return the committed revisions without re-authorizing access to contents.

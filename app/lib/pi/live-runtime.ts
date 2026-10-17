@@ -1,5 +1,8 @@
 import 'server-only';
 
+import { projectChatBodyText } from '@/app/lib/chat/chat-body-contracts';
+import { extractMessageAttachments, stripAttachmentBlocks } from '@/app/lib/chat/message-content';
+
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
@@ -9,6 +12,8 @@ import {
   type AgentMessage,
   type AgentTool,
   type PrepareNextTurnContext,
+  type PrepareRequestContext,
+  type AgentRequestUpdate,
   type StreamFn,
   type ThinkingLevel,
 } from '@earendil-works/pi-agent-core';
@@ -99,6 +104,7 @@ import {
 } from '@/app/lib/pi/effective-tool-manifest';
 import { replaceNextTurnContext } from '@/app/lib/pi/next-turn-context';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
+import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { formatZonedDateTimeForPrompt } from '@/app/lib/time-zones';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { loadLatestPiSessionInputUsage, persistPiUsageEvents } from '@/app/lib/pi/usage-events';
@@ -143,7 +149,19 @@ import {
 } from '@/app/lib/pi/runtime-queue';
 import { addEffectiveSkillReadRoots, resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { appendEffectiveExtensionContextPrompt } from '@/app/lib/capabilities/extensions/runtime-prompt';
+import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { readOwnedAcceptedChatMessage, readOwnedChatMessageExecutionSnapshot,
+  type OwnedAcceptedChatMessage } from './durable-message-admission';
+import { claimOwnedChatMessageExecution, startClaimedChatMessageExecution, finishClaimedChatMessageExecution,
+  cancelOwnedQueuedChatMessages, promoteOwnedQueuedChatMessage,
+  type ChatMessageExecutionClaim, type ChatMessageExecutionOutcome } from './durable-message-execution';
+import { sameDurableChatMessageState } from './durable-message-row-state';
+import type { ChatMessageQueueUpdate } from './durable-message-queue';
+import { getAuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { reissueOwnedChatMessageRuntimeSelection } from '@/app/lib/capabilities/extensions/turn-runtime';
+import { resolveEffectiveExtensionContext } from '@/app/lib/capabilities/extensions/effective-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
 import { findUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
@@ -250,6 +268,7 @@ export type PiRuntimeStatus = {
   pendingToolCalls: number;
   followUpQueue: RuntimeQueuePreview[];
   steeringQueue: RuntimeQueuePreview[];
+  durableQueueBlocked?: readonly { clientMessageId: string; reason: string }[];
   canAbort: boolean;
   contextWindow: number;
   estimatedHistoryTokens: number;
@@ -557,6 +576,13 @@ type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
+type PiRuntimeExecutionOwnerIdentity = Readonly<{
+  userId: string;
+  sessionId: string;
+  agentId: string;
+  workspaceId: string;
+}>;
+
 export class LivePiRuntime {
   readonly sessionId: string;
   readonly userId: string;
@@ -572,6 +598,11 @@ export class LivePiRuntime {
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
   private readonly messageQueues = new RuntimeMessageQueues();
+  private readonly ownedQueuedMessages = new Map<string, RuntimeQueueEntry>();
+  private activeDurableMessage: { owned: OwnedAcceptedChatMessage; entry: RuntimeQueueEntry;
+    claim: ChatMessageExecutionClaim | null; requestPrepared: boolean } | null = null;
+  private durableTurnPersisted = true;
+  private durableQueueBlocked: readonly { clientMessageId: string; reason: string }[] = [];
   private pendingReplace: RuntimeQueueEntry | null = null;
   private activeTool: { toolCallId: string; name: string } | null = null;
   private abortRequested = false;
@@ -610,6 +641,7 @@ export class LivePiRuntime {
   private statusRevision = 0;
   private currentUserPromptText = '';
   private currentUserPromptSignature: string | null = null;
+  private activeDelegationId: string | null = null;
   private activeAgentTurn: ActiveAgentTurn | null = null;
   private agentTurnTransition: Promise<void> = Promise.resolve();
   private agentTurnHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -668,6 +700,14 @@ export class LivePiRuntime {
         this.publishStatus();
       },
     );
+  }
+
+  /** Internal identity read only; actual store registration remains required. */
+  getDurableExecutionOwnerIdentity(): PiRuntimeExecutionOwnerIdentity | null {
+    const context = this.executionContext;
+    if (this.disposed || !this.userId || !this.sessionId || !this.agentId || !context?.workspaceId
+      || context.userId !== this.userId || context.sessionId !== this.sessionId || context.agentId !== this.agentId) return null;
+    return Object.freeze({ userId: this.userId, sessionId: this.sessionId, agentId: this.agentId, workspaceId: context.workspaceId });
   }
 
   private invalidateContextBudget(): void {
@@ -1150,6 +1190,7 @@ export class LivePiRuntime {
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
+      ...(this.durableQueueBlocked.length ? { durableQueueBlocked: this.durableQueueBlocked } : {}),
       canAbort: this.isRunning
         || this.abortRequested
         || hasPendingReplace
@@ -1182,6 +1223,193 @@ export class LivePiRuntime {
       lastCompactionOmittedCount: this.lastCompactionOmittedCount,
       compactionStatus: this.compactionStatus,
     };
+  }
+
+  private ownedQueueEntry(owned: OwnedAcceptedChatMessage): RuntimeQueueEntry {
+    const snapshot = readOwnedChatMessageExecutionSnapshot(owned), { payload } = snapshot;
+    if (payload.identity.userId !== this.userId || payload.identity.sessionId !== this.sessionId
+      || payload.identity.agentId !== this.agentId || payload.identity.workspaceId !== this.executionContext.workspaceId
+      || snapshot.phase !== 'queued' || snapshot.runtimeToken !== 'unclaimed' || !snapshot.queue) {
+      throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The admitted message is not an executable queue entry for this runtime.', 409);
+    }
+    const message = { ...structuredClone(payload.message), clientMessageId: payload.clientMessageId,
+      serverMessageId: payload.serverMessageId, ...(payload.body === undefined ? {} : { body: payload.body }) };
+    const attachments = extractMessageAttachments(payload.message.content) ?? [];
+    return { id: payload.serverMessageId, message, context: payload.context, signature: getMessageSignature(message),
+      durable: { message: owned, queue: snapshot.queue }, preview: { ...buildQueuePreview(message),
+        id: payload.serverMessageId, executionRevision: snapshot.executionRevision, queue: snapshot.queue,
+        text: payload.body ? projectChatBodyText(payload.body) : stripAttachmentBlocks(extractUserMessageText(message)),
+        attachments, attachmentCount: Math.max(attachments.length, countMessageAttachments(message)),
+        ...(payload.body === undefined ? {} : { body: payload.body }) } };
+  }
+
+  getOwnedQueuedMessages(): readonly OwnedAcceptedChatMessage[] {
+    return Object.freeze([...this.ownedQueuedMessages.values()].map(entry => entry.durable!.message));
+  }
+
+  /** Presentation only. The actual claim remains private to this runtime. */
+  getActiveDurableMessageId(): string | undefined {
+    return !this.disposed && this.activeDurableMessage?.claim ? this.activeDurableMessage.entry.id : undefined;
+  }
+
+  /** Refresh is a read-only projection; only explicit admission/resume starts a run. */
+  async refreshOwnedQueue(): Promise<PiRuntimeStatus> {
+    const { readOwnedAcceptedChatMessageQueue } = await import('./durable-message-admission');
+    const current = await readOwnedAcceptedChatMessageQueue({ userId: this.userId, sessionId: this.sessionId,
+      expectedAgentId: this.agentId, expectedWorkspaceId: this.executionContext.workspaceId });
+    if (this.disposed) throw new Error('The originating runtime was replaced.');
+    const activeId = this.activeDurableMessage?.entry.id;
+    const entries = current.messages.flatMap(owned => {
+      const snapshot = readOwnedChatMessageExecutionSnapshot(owned);
+      return snapshot.phase === 'queued' && snapshot.runtimeToken === 'unclaimed' && snapshot.queue
+        && snapshot.payload.serverMessageId !== activeId ? [this.ownedQueueEntry(owned)] : [];
+    });
+    this.durableQueueBlocked = [...current.blocked, ...current.messages.flatMap(owned => {
+      const snapshot = readOwnedChatMessageExecutionSnapshot(owned);
+      return ['dispatching', 'running'].includes(snapshot.phase) && snapshot.payload.serverMessageId !== activeId
+        ? [{ clientMessageId: snapshot.payload.clientMessageId, reason: 'execution_in_progress' }] : [];
+    })];
+    this.ownedQueuedMessages.clear();
+    for (const entry of entries) this.ownedQueuedMessages.set(entry.id, entry);
+    this.messageQueues.reconcileDurable(entries, this.agent,
+      this.isRunning && this.activeDurableMessage?.requestPrepared === true && !this.durableQueueBlocked.length);
+    this.publishStatus();
+    return this.getStatus();
+  }
+
+  async acceptOwnedMessage(owned: OwnedAcceptedChatMessage,
+    options?: { replace?: boolean; cancelled?: readonly ChatMessageQueueUpdate[] }): Promise<PiRuntimeStatus> {
+    const accepted = this.ownedQueueEntry(owned);
+    const current = await readOwnedAcceptedChatMessage({ userId: this.userId, sessionId: this.sessionId,
+      clientMessageId: readOwnedChatMessageExecutionSnapshot(owned).payload.clientMessageId,
+      expectedAgentId: this.agentId, expectedWorkspaceId: this.executionContext.workspaceId });
+    if (!current || !sameDurableChatMessageState(readOwnedChatMessageExecutionSnapshot(owned), readOwnedChatMessageExecutionSnapshot(current))) {
+      throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The admitted message changed before queue attachment.', 409);
+    }
+    // Only confirmed cancelled IDs are removed. A sibling queued after the
+    // replacement transaction remains part of the ordinary existing scheduler.
+    for (const cancelled of options?.cancelled ?? []) this.ownedQueuedMessages.delete(cancelled.serverMessageId);
+    await this.refreshOwnedQueue();
+    if (!this.ownedQueuedMessages.has(accepted.id)) throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The accepted message is no longer queued.', 409);
+    if (options?.replace && (this.isRunning || this.agent.state.isStreaming)) {
+      await this.abort();
+      // The SDK's awaited agent_end listener is not idle yet. Wait outside it.
+      void this.agent.waitForIdle().then(() => this.startNextOwnedQueuedMessage()).catch(error => this.publishError(error));
+    } else if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.startNextOwnedQueuedMessage();
+    }
+    return this.getStatus();
+  }
+
+  private startNextOwnedQueuedMessage(): void {
+    if (this.disposed || this.isRunning || this.agent.state.isStreaming || this.activeDurableMessage || this.durableQueueBlocked.length) return;
+    const entry = [...this.ownedQueuedMessages.values()].filter(candidate => candidate.durable?.queue.disposition === 'ready')
+      .sort((left, right) => left.durable!.queue.ordinal - right.durable!.queue.ordinal)[0];
+    if (!entry) return;
+    // Abort leaves the SDK queues intact. A manually restarted entry must be
+    // detached there before prompt() inserts its one original user message.
+    this.messageQueues.reconcileDurable([...this.ownedQueuedMessages.values()], this.agent, false);
+    this.ownedQueuedMessages.delete(entry.id);
+    this.messageQueues.consumeDurable(entry.id, this.agent, false);
+    this.activeDurableMessage = { owned: entry.durable!.message, entry, claim: null, requestPrepared: false };
+    void this.dispatchPrompt(entry.message, entry.context).catch(error => this.publishError(error));
+  }
+
+  private async freshDurableMessage(owned: OwnedAcceptedChatMessage): Promise<OwnedAcceptedChatMessage> {
+    const expected = readOwnedChatMessageExecutionSnapshot(owned), { payload } = expected;
+    const current = await readOwnedAcceptedChatMessage({ userId: this.userId, sessionId: this.sessionId,
+      clientMessageId: payload.clientMessageId, expectedAgentId: this.agentId, expectedWorkspaceId: this.executionContext.workspaceId });
+    if (!current || !sameDurableChatMessageState(expected, readOwnedChatMessageExecutionSnapshot(current))) {
+      throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The selected message changed before its model request.', 409);
+    }
+    return current;
+  }
+
+  private async settleDurableMessage(outcome: ChatMessageExecutionOutcome): Promise<void> {
+    const active = this.activeDurableMessage;
+    if (!active) return;
+    if (this.agent.state.pendingToolCalls.size || this.activeTool || !this.durableTurnPersisted) {
+      outcome = 'outcome_unknown';
+    }
+    if (active.claim) await finishClaimedChatMessageExecution(active.claim, outcome);
+    // A pre-claim failure remains safely queued or explicitly cancelled by the
+    // claim kernel. It is never silently re-enqueued from this error handler.
+    if (this.activeDurableMessage === active) this.activeDurableMessage = null;
+  }
+
+  async prepareRequest(context: PrepareRequestContext, signal?: AbortSignal): Promise<AgentRequestUpdate | undefined> {
+    const active = this.activeDurableMessage;
+    if (!active) return undefined;
+    if (this.disposed || signal?.aborted || this.abortRequested) throw new Error('The admitted request was cancelled before execution.');
+    if (this.agent.state.pendingToolCalls.size || this.activeTool) throw new Error('The previous tool batch has not settled.');
+    if (!active.claim) {
+      const owner = await getRegisteredPiRuntimeExecutionOwner(this);
+      const claim = await claimOwnedChatMessageExecution(await this.freshDurableMessage(active.owned), owner);
+      try {
+        const running = await startClaimedChatMessageExecution(claim);
+        active.owned = running.message; active.claim = running.claim;
+      } catch (error) {
+        // A known dispatch can be cancelled. A lost start confirmation or the
+        // kernel's own post-commit cancellation must never be overwritten.
+        try { await finishClaimedChatMessageExecution(claim, 'cancelled'); }
+        catch { /* Keep the actual SQL state for explicit recovery. */ }
+        throw error;
+      }
+    }
+    const running = await this.freshDurableMessage(active.owned), snapshot = readOwnedChatMessageExecutionSnapshot(running);
+    const next: AgentExecutionContext = { ...await resolveAgentExecutionContextForSession({ userId: this.userId,
+      sessionId: this.sessionId, agentId: this.agentId }), agentTurnId: snapshot.payload.serverMessageId,
+      turnExtensions: snapshot.payload.extensionSelection?.publicSelection ?? undefined,
+      turnExtensionSource: undefined, delegatedExtensionSource: undefined, effectiveExtensions: undefined,
+      skillReadRoots: undefined, skillPackageBindings: undefined };
+    const packages = await getAuthorizedAgentWorkflowPackageSelections(next);
+    next.turnExtensionSource = await reissueOwnedChatMessageRuntimeSelection(next, running, { packageSelection: packages }) ?? undefined;
+    const effective = await resolveEffectiveExtensionContext(next, { packageSelection: packages });
+    const { prepareAcceptedRuntimePrompt } = await import('./runtime-service');
+    const hydrated = await prepareAcceptedRuntimePrompt({ ...snapshot.payload.message, clientMessageId: snapshot.payload.clientMessageId }, snapshot.payload.context, effective);
+    if (this.activeDurableMessage !== active || this.disposed || signal?.aborted || this.abortRequested) throw new Error('The originating message changed during preparation.');
+    applyPiRuntimePromptContext(this, hydrated.context);
+    const prompt = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId,
+      organizationId: effective.organizationId, workspaceId: effective.workspaceId, projectId: effective.projectId }, { executionContext: effective });
+    const tools = await getPiTools(this.userId, this.agentId, this.sessionId, { executionContext: effective,
+      browserMode: this.browserToolMode, planningMode: this.planningMode, strictAuthorization: true, metadataOnlyExternal: true });
+    await this.freshDurableMessage(active.owned);
+    if (this.activeDurableMessage !== active || this.disposed || signal?.aborted || this.abortRequested) throw new Error('The originating message changed before its model request.');
+    Object.assign(this.executionContext, effective);
+    this.systemPrompt = prompt.systemPrompt; this.tools = tools; this.systemPromptRefreshRequested = false;
+    this.agent.state.tools = this.getEffectiveTools(); this.invalidateContextBudget(); this.updateAgentSystemPrompt();
+    await this.refreshWorkspaceFileTreePrompt();
+    await this.refreshMemoryPrompt();
+    await reissueOwnedChatMessageRuntimeSelection(next, active.owned, { packageSelection: packages });
+    await getRegisteredPiRuntimeExecutionOwner(this);
+    await this.freshDurableMessage(active.owned);
+    if (this.activeDurableMessage !== active || this.disposed || signal?.aborted || this.abortRequested) throw new Error('The originating message changed at its request boundary.');
+    const userMessage = { ...hydrated.message, clientMessageId: snapshot.payload.clientMessageId,
+      serverMessageId: snapshot.payload.serverMessageId, ...(snapshot.payload.body === undefined ? {} : { body: snapshot.payload.body }) };
+    this.rememberMessageContext(userMessage, hydrated.context);
+    const messages = context.context.messages.map(message => isUserMessage(message)
+      && (message as { serverMessageId?: string }).serverMessageId === snapshot.payload.serverMessageId ? userMessage : message);
+    this.currentUserPromptText = extractUserMessageText(userMessage);
+    active.requestPrepared = true;
+    this.durableTurnPersisted = false;
+    // Initial steering polling is already over at this SDK hook. Only now may
+    // a later user message be attached for a subsequent request.
+    this.messageQueues.reconcileDurable([...this.ownedQueuedMessages.values()], this.agent, !this.durableQueueBlocked.length);
+    return replaceNextTurnContext({ ...context.context, messages }, { systemPrompt: this.getEffectiveSystemPrompt(), tools: this.agent.state.tools });
+  }
+
+  async beforeDurableToolCall(): Promise<{ block: true; terminate: true; reason: string } | undefined> {
+    const active = this.activeDurableMessage;
+    if (!active) return undefined;
+    try {
+      if (this.disposed || this.abortRequested || !active.claim) throw new Error('The originating execution is no longer active.');
+      await getRegisteredPiRuntimeExecutionOwner(this);
+      await this.freshDurableMessage(active.owned);
+      if (this.activeDurableMessage !== active || this.disposed || this.abortRequested) throw new Error('The originating execution was cancelled.');
+      return undefined;
+    } catch {
+      return { block: true, terminate: true, reason: 'The originating message no longer has current execution access. Refresh its state before continuing.' };
+    }
   }
 
   async queueFollowUp(
@@ -1219,6 +1447,14 @@ export class LivePiRuntime {
   }
 
   async promoteQueuedMessageToSteering(queueItemId: string) {
+    if (!this.ownedQueuedMessages.has(queueItemId)) await this.refreshOwnedQueue();
+    const owned = this.ownedQueuedMessages.get(queueItemId)?.durable?.message;
+    if (owned) {
+      await promoteOwnedQueuedChatMessage(owned);
+      await this.refreshOwnedQueue();
+      if (!this.isRunning && !this.agent.state.isStreaming) this.startNextOwnedQueuedMessage();
+      return this.getStatus();
+    }
     const entry = this.messageQueues.promoteFollowUp(queueItemId, this.agent);
     if (!entry) {
       return this.getStatus();
@@ -1237,11 +1473,18 @@ export class LivePiRuntime {
   }
 
   async removeQueuedMessage(queueItemId: string) {
-    const removedKind = this.messageQueues.remove(queueItemId, this.agent);
-    if (removedKind) {
-      this.touch();
-      this.publishStatus();
+    if (!this.ownedQueuedMessages.has(queueItemId)) await this.refreshOwnedQueue();
+    const owned = this.ownedQueuedMessages.get(queueItemId)?.durable?.message;
+    if (owned) {
+      await cancelOwnedQueuedChatMessages([owned]);
+      return this.refreshOwnedQueue();
     }
+    const removedKind = this.messageQueues.remove(queueItemId, this.agent);
+    if (!removedKind) {
+      throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The queued message is no longer removable. Refresh its current state.', 409);
+    }
+    this.touch();
+    this.publishStatus();
 
     return this.getStatus();
   }
@@ -1569,6 +1812,7 @@ export class LivePiRuntime {
     }
     this.executionContext.skillReadRoots = nextContext.skillReadRoots;
     this.executionContext.skillPackageBindings = nextContext.skillPackageBindings;
+    this.executionContext.effectiveExtensions = nextContext.effectiveExtensions;
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
     this.invalidateContextBudget();
@@ -1619,9 +1863,10 @@ export class LivePiRuntime {
     }
 
     const foundation = blocks.length > 0 ? `${this.systemPrompt}\n\n${blocks.join('\n\n')}` : this.systemPrompt;
+    const tools = this.getEffectiveTools();
     return appendEffectiveToolCapabilitiesPrompt(
-      foundation,
-      buildEffectiveToolManifest(this.getEffectiveTools()),
+      appendEffectiveExtensionContextPrompt(foundation, this.executionContext, tools, this.currentUserPromptText),
+      buildEffectiveToolManifest(tools),
     );
   }
 
@@ -2099,10 +2344,23 @@ export class LivePiRuntime {
     });
   }
 
-  private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>): void {
+  private resetRunSupervisorForUserMessage(message: Extract<AgentMessage, { role: 'user' }>, turnId?: string): void {
     this.currentUserPromptText = extractUserMessageText(message);
     this.currentUserPromptSignature = getMessageSignature(message);
-    this.executionContext.agentTurnId = randomUUID();
+    if (this.activeDurableMessage && this.executionContext.agentTurnId !== turnId) {
+      // The previous tool batch has settled before a durable handoff. Its
+      // issued proofs belong to that old turn, even while the next request is
+      // still waiting for its SQL claim and fresh context compilation.
+      Object.assign(this.executionContext, {
+        turnExtensions: undefined, turnExtensionSource: undefined,
+        delegatedExtensionSource: undefined, effectiveExtensions: undefined,
+        skillReadRoots: undefined, skillPackageBindings: undefined,
+      });
+      this.tools = [];
+      this.agent.state.tools = [];
+      this.invalidateContextBudget();
+    }
+    this.executionContext.agentTurnId = turnId ?? randomUUID();
     this.syntheticContinuationCount = 0;
     this.lastContinuationReason = null;
     this.lastTurnDiagnostics = null;
@@ -2216,7 +2474,8 @@ export class LivePiRuntime {
     if (this.abortRequested || this.pendingReplace) {
       return null;
     }
-    if (this.followUpQueue.length > 0 || this.steeringQueue.length > 0 || this.agent.hasQueuedMessages()) {
+    if ([...this.followUpQueue, ...this.steeringQueue].some(entry => !entry.durable
+      || entry.durable.queue.disposition === 'ready') || this.agent.hasQueuedMessages()) {
       return null;
     }
     if (event.message.role !== 'assistant' || event.toolResults.length > 0) {
@@ -2234,7 +2493,7 @@ export class LivePiRuntime {
       return null;
     }
 
-    this.agent.followUp(this.createRuntimeContinuation(decision));
+    this.messageQueues.enqueueContinuation(this.createRuntimeContinuation(decision), this.agent);
     console.log('[LiveRuntime] Queued synthetic continuation after turn:', {
       sessionId: this.sessionId,
       reason: decision.reason,
@@ -2248,15 +2507,70 @@ export class LivePiRuntime {
     message: Extract<AgentMessage, { role: 'user' }>,
     context?: PiRuntimePromptContext,
   ) {
+    void this.dispatchPrompt(message, context).catch(() => {});
+  }
+
+  /** Server-only admission. Neither public prompt context nor message JSON can supply a source. */
+  async startDelegatedPrompt(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    source: HeldDelegatedExtensionSource,
+    delegationId: string,
+    preparePrompt?: (issuedContext: AgentExecutionContext) => Promise<Extract<AgentMessage, { role: 'user' }>>,
+  ): Promise<void> {
+    if (!delegationId.trim() || this.isRunning || this.agent.state.isStreaming) {
+      throw new Error('An idle runtime and a stored delegated task are required.');
+    }
+    return this.dispatchPrompt(message, undefined, { source, delegationId, preparePrompt });
+  }
+
+  private async compilePromptExtensionContext(turnId: string,
+    delegation?: { source: HeldDelegatedExtensionSource; delegationId: string }): Promise<void> {
+    const assertCurrent = () => {
+      if (this.disposed || this.abortRequested || this.executionContext.agentTurnId !== turnId) {
+        throw new Error('The originating agent turn changed before its context was admitted.');
+      }
+    };
+    assertCurrent();
+    const next = delegation
+      ? await (await import('@/app/lib/capabilities/extensions/turn-runtime')).resolveDelegatedExtensionContextSource(
+        delegation.source, this.executionContext, { delegationId: delegation.delegationId })
+      : { ...await resolveAgentExecutionContextForSession({ userId: this.userId, sessionId: this.sessionId, agentId: this.agentId }),
+        agentTurnId: turnId, turnExtensions: undefined, turnExtensionSource: undefined, delegatedExtensionSource: undefined };
+    assertCurrent();
+    // Tools retain this object through their execution closures.
+    Object.assign(this.executionContext, next);
+    const snapshot = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId,
+      organizationId: next.organizationId, workspaceId: next.workspaceId, projectId: next.projectId }, { executionContext: this.executionContext });
+    assertCurrent();
+    const tools = await getPiTools(this.userId, this.agentId, this.sessionId, { executionContext: this.executionContext,
+      browserMode: this.browserToolMode, planningMode: this.planningMode });
+    assertCurrent();
+    this.systemPrompt = snapshot.systemPrompt;
+    this.tools = tools;
+    this.systemPromptRefreshRequested = false;
+    this.agent.state.tools = this.getEffectiveTools();
+    this.invalidateContextBudget();
+    this.updateAgentSystemPrompt();
+  }
+
+  private dispatchPrompt(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+    delegation?: { source: HeldDelegatedExtensionSource; delegationId: string;
+      preparePrompt?: (issuedContext: AgentExecutionContext) => Promise<Extract<AgentMessage, { role: 'user' }>> },
+  ): Promise<void> {
     if (this.disposed) {
       throw new Error('The session runtime was replaced before the prompt started. Try again.');
     }
+    const restoreOwnContext = !delegation && !this.activeDurableMessage && Boolean(this.executionContext.delegatedExtensionSource);
+    if (delegation || restoreOwnContext) this.executionContext.effectiveExtensions = undefined;
+    this.activeDelegationId = delegation?.delegationId ?? null;
     const sanitized = sanitizeUserMessage(message);
     this.rememberMessageContext(sanitized, context);
     this.activePromptTiming = createOperationTiming();
     this.firstAssistantEventLogged = false;
     this.firstTextDeltaLogged = false;
-    this.resetRunSupervisorForUserMessage(sanitized);
+    this.resetRunSupervisorForUserMessage(sanitized, this.activeDurableMessage?.entry.id);
     const initialContinuation = this.maybeCreateInitialToolTailContinuation();
     
     // Log message structure for debugging
@@ -2281,14 +2595,9 @@ export class LivePiRuntime {
     this.isRunning = true;
     this.publishStatus();
 
-    this.agent.state.tools = this.getEffectiveTools();
-    const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
-    if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
-
     const turnReady = this.beginAgentTurnForUserMessage();
     const turn = this.activeAgentTurn;
-    const prompts = initialContinuation ? [initialContinuation, sanitized] : sanitized;
-    void turnReady.then(() => this.agent.prompt(prompts)).catch(async (error) => {
+    const reportError = async (error: unknown) => {
       if (turn && this.executionContext.agentTurnId !== turn.identity.turnId) {
         console.warn('[LiveRuntime] Ignoring late error from a superseded agent turn:', {
           sessionId: this.sessionId,
@@ -2298,6 +2607,29 @@ export class LivePiRuntime {
       }
       this.publishError(error);
       await this.persistMessagesOnError(turn);
+    };
+    return turnReady.then(async () => {
+      if (!turn || this.disposed || this.executionContext.agentTurnId !== turn.identity.turnId || this.abortRequested) {
+        throw new Error('The originating agent turn changed before its prompt started.');
+      }
+      if (delegation || restoreOwnContext) await this.compilePromptExtensionContext(turn.identity.turnId, delegation);
+      let preparedMessage = sanitized;
+      if (delegation?.preparePrompt) {
+        preparedMessage = sanitizeUserMessage(await delegation.preparePrompt(this.executionContext));
+        if (this.disposed || this.abortRequested || this.executionContext.agentTurnId !== turn.identity.turnId) {
+          throw new Error('The delegated turn changed while its approved handoff was prepared.');
+        }
+        this.currentUserPromptText = extractUserMessageText(preparedMessage);
+        this.currentUserPromptSignature = getMessageSignature(preparedMessage);
+      }
+      this.agent.state.tools = this.getEffectiveTools();
+      const effectiveSystemPrompt = this.getEffectiveSystemPrompt();
+      if (this.agent.state.systemPrompt !== effectiveSystemPrompt) this.updateAgentSystemPrompt();
+      const prompts = initialContinuation ? [initialContinuation, preparedMessage] : preparedMessage;
+      void this.agent.prompt(prompts).catch(reportError);
+    }).catch(async error => {
+      await reportError(error);
+      throw error;
     });
   }
 
@@ -2320,17 +2652,55 @@ export class LivePiRuntime {
     }
 
     if (event.type === 'message_start' && isUserMessage(event.message)) {
-      this.consumeQueuedMessage(event.message);
+      const durableId = (event.message as { serverMessageId?: string }).serverMessageId;
+      const durableEntry = this.activeDurableMessage && durableId === this.activeDurableMessage.entry.id ? this.activeDurableMessage.entry
+        : durableId ? this.ownedQueuedMessages.get(durableId) : undefined;
+      if (durableId && !durableEntry) throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'This SDK message has no admitted current queue entry.', 409);
+      if (durableEntry) {
+        if (JSON.stringify(event.message) !== JSON.stringify(durableEntry.message)) {
+          throw new AgentWorkflowError('MESSAGE_EXECUTION_CONFLICT', 'The SDK message differs from the exact admitted message.', 409);
+        }
+        const { attachAcceptedRuntimeMessageMetadata } = await import('./runtime-service');
+        Object.assign(event.message, await attachAcceptedRuntimeMessageMetadata(event.message,
+          { userId: this.userId, sessionId: this.sessionId, agentId: this.agentId }));
+        if (this.activeDurableMessage?.entry.id !== durableEntry.id) {
+          await this.freshDurableMessage(durableEntry.durable!.message);
+          if (!this.durableTurnPersisted || this.agent.state.pendingToolCalls.size || this.activeTool) {
+            throw new Error('The previous tool batch and transcript must settle before another user message.');
+          }
+          await this.settleDurableMessage(durableEntry.durable!.queue.lane === 'steer' ? 'cancelled' : 'succeeded');
+          this.messageQueues.discardContinuation(this.agent);
+          await this.finishAgentTurn(this.activeAgentTurn, durableEntry.durable!.queue.lane === 'steer' ? 'interrupted' : 'completed');
+          this.activeDurableMessage = { owned: durableEntry.durable!.message, entry: durableEntry, claim: null, requestPrepared: false };
+          this.resetRunSupervisorForUserMessage(event.message, durableEntry.id);
+          await this.beginAgentTurnForUserMessage();
+        }
+        this.ownedQueuedMessages.delete(durableEntry.id);
+        this.messageQueues.consumeDurable(durableEntry.id, this.agent, false);
+      } else {
+        this.consumeQueuedMessage(event.message);
+      }
       const signature = getMessageSignature(event.message);
-      if (signature !== this.currentUserPromptSignature) {
+      if (!durableEntry && signature !== this.currentUserPromptSignature) {
         try {
           this.resetRunSupervisorForUserMessage(event.message);
+          if (this.executionContext.delegatedExtensionSource) this.executionContext.effectiveExtensions = undefined;
           await this.beginAgentTurnForUserMessage();
+          if (this.executionContext.delegatedExtensionSource) {
+            if (!this.activeDelegationId) throw new Error('The delegated turn has no active task provenance.');
+            await this.compilePromptExtensionContext(this.executionContext.agentTurnId!, {
+              source: this.executionContext.delegatedExtensionSource, delegationId: this.activeDelegationId,
+            });
+          }
         } catch (error) {
           this.publishError(error);
           throw error;
         }
       }
+    }
+
+    if (event.type === 'message_start' && event.message.role === 'runtime_continuation') {
+      this.messageQueues.consumeContinuation(event.message);
     }
 
     if (event.type === 'message_update' && event.assistantMessageEvent) {
@@ -2656,11 +3026,14 @@ export class LivePiRuntime {
 
     try {
       const persistedCount = await this.persistMessages('turn_end');
+      this.durableTurnPersisted = true;
       if (persistedCount > 0) {
         console.log(`[LiveRuntime] Incremental save after turn_end: ${persistedCount} messages for session ${this.sessionId}`);
       }
     } catch (error) {
+      this.durableTurnPersisted = false;
       console.error('[LiveRuntime] Failed to incrementally save after turn_end:', error);
+      if (this.activeDurableMessage) throw error;
     }
   }
 
@@ -2700,6 +3073,16 @@ export class LivePiRuntime {
         turnFinishError = error;
         this.publishError(error);
       }
+    }
+
+    const durableHadClaim = this.activeDurableMessage?.claim !== null && this.activeDurableMessage !== null;
+    try {
+      this.durableTurnPersisted = !persistError;
+      await this.settleDurableMessage(hasPendingTools || persistError || turnFinishError ? 'outcome_unknown'
+        : outcome === 'completed' ? 'succeeded' : outcome === 'failed' ? 'failed' : 'cancelled');
+    } catch (error) {
+      turnFinishError ??= error;
+      this.publishError(error);
     }
 
     this.lastComposition = null;
@@ -2767,6 +3150,9 @@ export class LivePiRuntime {
       return;
     }
 
+    if (durableHadClaim && !persistError && !turnFinishError && !hasPendingTools) {
+      void this.agent.waitForIdle().then(() => this.startNextOwnedQueuedMessage()).catch(error => this.publishError(error));
+    }
     if (!hasPendingTools) this.scheduleIdleCompaction();
   }
 
@@ -2877,9 +3263,11 @@ export class LivePiRuntime {
   private async persistMessagesOnError(turn: ActiveAgentTurn | null) {
     if (!turn || this.executionContext.agentTurnId !== turn.identity.turnId) return;
     const hadPendingTools = this.agent.state.pendingToolCalls.size > 0 || this.activeTool !== null;
+    let saved = false;
     this.invalidateContextMeasurement();
     try {
       const persistedCount = await this.persistMessages('error');
+      saved = true;
       if (persistedCount > 0) {
         console.log(`[LiveRuntime] Saved ${persistedCount} messages after error for session ${this.sessionId}`);
       }
@@ -2900,6 +3288,9 @@ export class LivePiRuntime {
       }
     }
     if (this.executionContext.agentTurnId !== turn.identity.turnId) return;
+    this.durableTurnPersisted = saved;
+    try { await this.settleDurableMessage(hadPendingTools || !saved ? 'outcome_unknown' : 'failed'); }
+    catch (error) { this.publishError(error); }
     this.isRunning = false;
     this.activeTool = null;
     this.abortRequested = false;
@@ -2954,10 +3345,15 @@ export class LivePiRuntime {
       this.browserSnapshotUnsubscribe();
       this.browserSnapshotUnsubscribe = null;
     }
-    if (this.agentUnsubscribe) {
-      this.agentUnsubscribe();
-      this.agentUnsubscribe = null;
-    }
+    const unsubscribe = this.agentUnsubscribe;
+    this.agentUnsubscribe = null;
+    // Keep the awaited lifecycle subscriber until actual SDK/tool settlement.
+    // Registry removal forbids new requests/tools; it must not discard final
+    // persistence and leave a running receipt silently resumable.
+    if (this.agent.state.isStreaming) {
+      this.agent.abort();
+      void this.agent.waitForIdle().then(() => unsubscribe?.()).catch(() => unsubscribe?.());
+    } else unsubscribe?.();
     this.subscribers.clear();
   }
 
@@ -3163,7 +3559,8 @@ async function createRuntime(sessionId: string, userId: string, options: PiRunti
   );
   const agent = new Agent({
     initialState: {
-      systemPrompt: appendEffectiveToolCapabilitiesPrompt(systemPrompt, buildEffectiveToolManifest(tools)),
+      systemPrompt: appendEffectiveToolCapabilitiesPrompt(
+        appendEffectiveExtensionContextPrompt(systemPrompt, executionContext, tools), buildEffectiveToolManifest(tools)),
       model,
       thinkingLevel,
       tools,
@@ -3183,11 +3580,15 @@ async function createRuntime(sessionId: string, userId: string, options: PiRunti
       return runtimeRef.current.transformContext(messages, signal);
     },
     streamFn: mainRequestStreamFn,
+    beforeToolCall: async () => runtimeRef.current?.beforeDurableToolCall(),
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     prepareNextTurnWithContext: async (context, signal) => {
       if (!runtimeRef.current) return undefined;
       return runtimeRef.current.prepareNextTurnContext(context, signal);
     },
+    prepareRequest: async (context, signal) => runtimeRef.current?.prepareRequest(context, signal),
+    steeringMode: 'one-at-a-time',
+    followUpMode: 'one-at-a-time',
     sessionId,
   });
   timing.mark('agentConstruction');
@@ -3251,9 +3652,106 @@ type RuntimeStore = {
   cleanupStarted: boolean;
 };
 
+export type RegisteredPiRuntimeExecutionOwner = Readonly<{ kind: 'registered_pi_runtime_execution_owner' }>;
+type RegisteredPiRuntimeExecutionOwnerData = PiRuntimeExecutionOwnerIdentity & Readonly<{ token: string }>;
+type RegisteredPiRuntimeExecutionOwnerRecord = {
+  runtime: LivePiRuntime;
+  runtimePromise: Promise<LivePiRuntime>;
+  store: RuntimeStore;
+  runtimes: RuntimeStore['runtimes'];
+  data: RegisteredPiRuntimeExecutionOwnerData;
+  invalidated: boolean;
+};
+
 const globalStore = globalThis as typeof globalThis & {
   __canvasPiRuntimeStore?: RuntimeStore;
+  __canvasPiRuntimeExecutionOwnersV1?: WeakMap<object, RegisteredPiRuntimeExecutionOwnerRecord>;
+  __canvasPiRuntimeExecutionOwnersByRuntimeV1?: WeakMap<LivePiRuntime, WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>>;
 };
+const registeredExecutionOwners = globalStore.__canvasPiRuntimeExecutionOwnersV1 ??= new WeakMap<object, RegisteredPiRuntimeExecutionOwnerRecord>();
+const registeredExecutionOwnersByRuntime = globalStore.__canvasPiRuntimeExecutionOwnersByRuntimeV1
+  ??= new WeakMap<LivePiRuntime, WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>>();
+
+function executionOwnerChanged(): never {
+  throw new AgentWorkflowError('AGENT_MESSAGE_EXECUTION_OWNER_CHANGED', 'The registered runtime execution owner changed.', 409);
+}
+
+function sameExecutionOwnerIdentity(left: PiRuntimeExecutionOwnerIdentity, right: PiRuntimeExecutionOwnerIdentity): boolean {
+  return left.userId === right.userId && left.sessionId === right.sessionId
+    && left.agentId === right.agentId && left.workspaceId === right.workspaceId;
+}
+
+function assertRegisteredExecutionOwnerNow(record: RegisteredPiRuntimeExecutionOwnerRecord): void {
+  const { runtime, runtimePromise, store, runtimes, data } = record;
+  try {
+    const identity = LivePiRuntime.prototype.getDurableExecutionOwnerIdentity.call(runtime);
+    if (record.invalidated || globalStore.__canvasPiRuntimeStore !== store || store.runtimes !== runtimes
+      || runtimes.get(getRuntimeKey(data.sessionId, data.userId)) !== runtimePromise
+      || !identity || !sameExecutionOwnerIdentity(identity, data)) return executionOwnerChanged();
+  } catch {
+    record.invalidated = true;
+    return executionOwnerChanged();
+  }
+}
+
+async function assertRegisteredExecutionOwner(record: RegisteredPiRuntimeExecutionOwnerRecord): Promise<void> {
+  assertRegisteredExecutionOwnerNow(record);
+  try {
+    if (await record.runtimePromise !== record.runtime) return executionOwnerChanged();
+  } catch {
+    record.invalidated = true;
+    return executionOwnerChanged();
+  }
+  assertRegisteredExecutionOwnerNow(record);
+}
+
+/** Only the exact existing store registration can issue this opaque owner. Never creates a runtime. */
+export async function getRegisteredPiRuntimeExecutionOwner(runtime: LivePiRuntime): Promise<RegisteredPiRuntimeExecutionOwner> {
+  if (!runtime || typeof runtime !== 'object') return executionOwnerChanged();
+  const identity = LivePiRuntime.prototype.getDurableExecutionOwnerIdentity.call(runtime);
+  const store = globalStore.__canvasPiRuntimeStore;
+  const runtimePromise = identity && store?.runtimes.get(getRuntimeKey(identity.sessionId, identity.userId));
+  if (!identity || !store || !runtimePromise) return executionOwnerChanged();
+  let owners = registeredExecutionOwnersByRuntime.get(runtime);
+  const existing = owners?.get(runtimePromise);
+  if (existing) {
+    await readRegisteredPiRuntimeExecutionOwner(existing);
+    const record = registeredExecutionOwners.get(existing);
+    if (!record) return executionOwnerChanged();
+    assertRegisteredExecutionOwnerNow(record);
+    return existing;
+  }
+  const record: RegisteredPiRuntimeExecutionOwnerRecord = { runtime, runtimePromise, store, runtimes: store.runtimes,
+    data: Object.freeze({ token: randomUUID(), ...identity }), invalidated: false };
+  await assertRegisteredExecutionOwner(record);
+  assertRegisteredExecutionOwnerNow(record);
+  // Another caller can have issued the same registration while this reader awaited it.
+  owners = registeredExecutionOwnersByRuntime.get(runtime);
+  const concurrent = owners?.get(runtimePromise);
+  if (concurrent) {
+    const issued = registeredExecutionOwners.get(concurrent);
+    if (!issued || issued.invalidated || !sameExecutionOwnerIdentity(issued.data, record.data)) return executionOwnerChanged();
+    assertRegisteredExecutionOwnerNow(issued);
+    return concurrent;
+  }
+  const owner = Object.freeze({ kind: 'registered_pi_runtime_execution_owner' as const });
+  if (!owners) {
+    owners = new WeakMap<Promise<LivePiRuntime>, RegisteredPiRuntimeExecutionOwner>();
+    registeredExecutionOwnersByRuntime.set(runtime, owners);
+  }
+  registeredExecutionOwners.set(owner, record);
+  owners.set(runtimePromise, owner);
+  return owner;
+}
+
+/** Fresh registration proof only; the returned identity grants no SQL or business authority. */
+export async function readRegisteredPiRuntimeExecutionOwner(originalOwner: RegisteredPiRuntimeExecutionOwner): Promise<RegisteredPiRuntimeExecutionOwnerData> {
+  const record = originalOwner && typeof originalOwner === 'object' ? registeredExecutionOwners.get(originalOwner) : undefined;
+  if (!record) return executionOwnerChanged();
+  await assertRegisteredExecutionOwner(record);
+  assertRegisteredExecutionOwnerNow(record);
+  return record.data;
+}
 
 function getStore(): RuntimeStore {
   if (!globalStore.__canvasPiRuntimeStore) {
@@ -3418,6 +3916,16 @@ export async function getExistingPiRuntime(sessionId: string, userId: string) {
   return resolved;
 }
 
+/** Observe an already resolved registered instance without waiting for model initialization. */
+export async function getResolvedPiRuntime(sessionId: string, userId: string) {
+  const store = getStore(), key = getRuntimeKey(sessionId, userId), pending = store.runtimes.get(key);
+  if (!pending) return null;
+  // A fulfilled promise wins in registration order; an unresolved initialization
+  // yields null immediately. Failure cannot obstruct a read or SQL cancellation.
+  const runtime = await Promise.race([pending, Promise.resolve(null)]).catch(() => null);
+  return runtime && store.runtimes.get(key) === pending ? runtime : null;
+}
+
 /** Marks live sessions for a prompt reload at their next safe turn boundary. */
 export async function requestPiRuntimePromptRefreshForUser(userId: string): Promise<number> {
   const store = getStore();
@@ -3566,7 +4074,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     usableContextTokens: model.contextWindow,
     recordUsage: false,
   });
-  const effectiveSystemPrompt = appendEffectiveToolCapabilitiesPrompt([
+  const storedFoundation = [
     systemPrompt,
     workspaceFileTree.promptBlock,
     memoryBlock,
@@ -3574,7 +4082,9 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
       userId, sessionId, agentId: sessionRecord.agentId,
       organizationId: executionContext.organizationId,
     }),
-  ].filter(Boolean).join('\n\n'), manifest);
+  ].filter(Boolean).join('\n\n');
+  const effectiveSystemPrompt = appendEffectiveToolCapabilitiesPrompt(
+    appendEffectiveExtensionContextPrompt(storedFoundation, executionContext, tools), manifest);
   const composition = projectPiHermesHistory({
     messages,
     summary,

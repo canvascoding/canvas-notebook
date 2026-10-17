@@ -6,6 +6,7 @@ import {
   constants,
 } from 'fs';
 import { createHash, randomUUID } from 'crypto';
+import type { BigIntStats } from 'fs';
 import os from 'os';
 import path from 'path';
 import {Readable} from 'stream';
@@ -19,6 +20,8 @@ import {
   resolveWritableWorkspacePath as resolveWritableWorkspacePathForContext,
   resolveWorkspacePath,
   normalizeWorkspaceRelativePath,
+  assertWorkspacePathHasNoAliases,
+  WorkspacePathAliasError,
 } from '@/app/lib/workspaces/path-guard';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -26,6 +29,7 @@ import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { withWorkspaceFileLifecycleGuards } from '@/app/lib/files/workspace-file-lifecycle-guard';
 import { assertOfficePublicationAllowed } from '@/app/lib/office/publication-context';
+import { assertExcalidrawPublicationAllowed, ExcalidrawPublicationRequiredError } from '@/app/lib/excalidraw-collaboration/publication-context';
 import { filesystemFileVersion } from './file-version';
 import { isInternalWorkspaceStagingPath } from '@/app/lib/files/internal-staging-path';
 import type { WorkspaceNativeCopyDependencies } from '@/app/lib/collaboration/workspace-native-copy';
@@ -59,7 +63,29 @@ function getWorkspace(options?: WorkspaceFileOperationOptions): WorkspaceContext
   return options?.workspace ?? createLegacyPersonalWorkspaceContext();
 }
 
-async function assertNoActiveRawCopyPath(workspace: WorkspaceContext, relativePath: string, absolutePath: string): Promise<void> {
+/** Shared filesystem primitives never grant scene publication from request options. */
+async function assertWorkspaceExcalidrawPublicationAllowed(
+  filePath: string, options: WorkspaceFileOperationOptions | undefined, kind: 'create' | 'replace',
+): Promise<void> {
+  const workspace = getWorkspace(options);
+  const resolved = resolveWorkspacePath(workspace, filePath);
+  let actualPath: string | null = null;
+  try { actualPath = await fs.realpath(resolved.absolutePath); }
+  catch (error) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'ENOENT') throw error;
+  }
+  if (!resolved.relativePath.toLowerCase().endsWith('.excalidraw') && !actualPath?.toLowerCase().endsWith('.excalidraw')) return;
+  await assertWorkspacePathHasNoAliases(workspace, resolved.relativePath);
+  assertExcalidrawPublicationAllowed(workspace.workspaceId, resolved.relativePath, kind);
+  if (actualPath) {
+    const realRoot = await fs.realpath(workspace.rootPath);
+    const actualRelativePath = path.relative(realRoot, actualPath).split(path.sep).join('/');
+    assertExcalidrawPublicationAllowed(workspace.workspaceId, actualRelativePath, kind);
+  }
+}
+
+async function assertNoActiveRawCopyPath(workspace: WorkspaceContext, relativePath: string, absolutePath: string,
+  controlledPaths: ReadonlySet<string> = new Set()): Promise<void> {
   const stats = await fs.lstat(absolutePath);
   if (stats.isSymbolicLink() || !stats.isDirectory() && !stats.isFile()) {
     throw Object.assign(new Error('Special-file destinations cannot be overwritten safely.'),
@@ -67,10 +93,11 @@ async function assertNoActiveRawCopyPath(workspace: WorkspaceContext, relativePa
   }
   if (stats.isDirectory()) {
     for (const child of await fs.readdir(absolutePath)) {
-      await assertNoActiveRawCopyPath(workspace, path.posix.join(relativePath, child), path.join(absolutePath, child));
+      await assertNoActiveRawCopyPath(workspace, path.posix.join(relativePath, child), path.join(absolutePath, child), controlledPaths);
     }
     return;
   }
+  if (controlledPaths.has(relativePath)) return;
   const { detectFileCollaborationStrategy, readFileCollaborationState } = await import('@/app/lib/files/collaboration-policy');
   const strategy = detectFileCollaborationStrategy(relativePath);
   if (strategy !== 'crdt_text' && strategy !== 'excalidraw_scene') return;
@@ -280,11 +307,12 @@ export async function writeFile(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(
     filePath,
     options,
-    () => writeFileUnlocked(filePath, content, options, onBeforeReplace),
+    () => writeFileUnlocked(filePath, content, options, onBeforeReplace, onStaged),
   );
 }
 
@@ -293,8 +321,10 @@ async function writeFileUnlocked(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
 ): Promise<void> {
   assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
+  await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'replace');
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   const stagingPath = `${fullPath}.canvas-write-${randomUUID()}.tmp`;
@@ -312,9 +342,14 @@ async function writeFileUnlocked(
     handle = await fs.open(stagingPath, 'wx', mode);
     await handle.writeFile(buffer);
     await handle.sync();
+    if (onStaged) {
+      const identity = await handle.stat({ bigint: true });
+      await onStaged({ dev: String(identity.dev), ino: String(identity.ino) });
+    }
     await handle.close();
     handle = null;
     await onBeforeReplace?.();
+    await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'replace');
     await fs.rename(stagingPath, fullPath);
 
     const directoryHandle = await fs.open(path.dirname(fullPath), 'r');
@@ -349,6 +384,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
   onBeforeReplace?: () => Promise<void>,
 ): Promise<void> {
   assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
+  await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'replace');
   const sourceStats = await fs.stat(sourcePath);
   if (!sourceStats.isFile()) {
     throw new Error('Upload source must be a file.');
@@ -377,6 +413,7 @@ async function replaceWorkspaceFileFromPathUnlocked(
       );
     }
     await onBeforeReplace?.();
+    await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'replace');
     await fs.rename(stagingPath, fullPath);
     await fs.chmod(fullPath, 0o644);
   } finally {
@@ -395,10 +432,12 @@ export async function writeFileIfAbsent(
   content: Buffer | string,
   options?: WorkspaceFileOperationOptions,
   onBeforeReplace?: () => Promise<void>,
+  onStaged?: (identity: { dev: string; ino: string }) => Promise<void>,
   onPublished?: (publication: WorkspaceExclusiveFilePublication) => void,
 ): Promise<void> {
   return withWorkspaceFileMutationLock(filePath, options, async () => {
     assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
+    await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'create');
     const fullPath = await resolveWritableWorkspacePath(filePath, options);
     const stagingPath = `${fullPath}.canvas-create-${randomUUID()}.tmp`;
     let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
@@ -407,9 +446,14 @@ export async function writeFileIfAbsent(
       await handle.writeFile(content);
       await handle.sync();
       const publishedInode = await handle.stat();
+      if (onStaged) {
+        const identity = await handle.stat({ bigint: true });
+        await onStaged({ dev: String(identity.dev), ino: String(identity.ino) });
+      }
       await handle.close();
       handle = null;
       await onBeforeReplace?.();
+      await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'create');
       // link() publishes the complete inode atomically and rejects EEXIST.
       // rename() would silently replace a concurrent creator's file.
       await fs.link(stagingPath, fullPath);
@@ -481,30 +525,30 @@ export async function writeWorkspaceFileFromPathIfAbsent(
   filePath: string,
   options?: WorkspaceFileOperationOptions,
 ): Promise<void> {
-  assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
-  const sourceStats = await fs.stat(sourcePath);
-  if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
-  const parentDir = path.posix.dirname(filePath);
-  if (parentDir !== '.' && parentDir !== '/') await createWorkspaceFileParentDirectory(filePath, options);
-  const fullPath = await resolveWritableWorkspacePath(filePath, options);
-  let created = false;
-  try {
+  return withWorkspaceFileMutationLock(filePath, options, async () => {
+    assertOfficePublicationAllowed(getWorkspace(options).workspaceId, filePath);
+    await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'create');
+    const sourceStats = await fs.stat(sourcePath);
+    if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
+    const parentDir = path.posix.dirname(filePath);
+    if (parentDir !== '.' && parentDir !== '/') await createWorkspaceFileParentDirectory(filePath, options);
+    const fullPath = await resolveWritableWorkspacePath(filePath, options);
+    const stagingPath = `${fullPath}.canvas-upload-create-${randomUUID()}.tmp`;
     try {
-      await fs.link(sourcePath, fullPath);
-      created = true;
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') throw error;
-      const canCopy = Boolean(error && typeof error === 'object' && 'code' in error
-        && ['EXDEV', 'EPERM', 'EACCES', 'ENOTSUP', 'EMLINK'].includes(String(error.code)));
-      if (!canCopy) throw error;
-      await pipeline(createLocalReadStream(sourcePath), createLocalWriteStream(fullPath, { flags: 'wx', mode: 0o644 }));
-      created = true;
-    }
-    await fs.chmod(fullPath, 0o644);
-  } catch (error) {
-    if (created) await fs.rm(fullPath, { force: true }).catch(() => undefined);
-    throw error;
-  }
+      try {
+        await fs.link(sourcePath, stagingPath);
+      } catch (error) {
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') throw error;
+        const canCopy = Boolean(error && typeof error === 'object' && 'code' in error
+          && ['EXDEV', 'EPERM', 'EACCES', 'ENOTSUP', 'EMLINK'].includes(String(error.code)));
+        if (!canCopy) throw error;
+        await pipeline(createLocalReadStream(sourcePath), createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }));
+      }
+      await fs.chmod(stagingPath, 0o644);
+      await assertWorkspaceExcalidrawPublicationAllowed(filePath, options, 'create');
+      await fs.link(stagingPath, fullPath);
+    } finally { await fs.rm(stagingPath, { force: true }).catch(() => undefined); }
+  });
 }
 
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
@@ -900,6 +944,93 @@ async function collectOfficeCopyPaths(filePath: string, options: WorkspaceFileOp
   return result;
 }
 
+async function collectExcalidrawCopyPaths(filePath: string, options: WorkspaceFileOperationOptions): Promise<string[]> {
+  filePath = normalizeWorkspaceRelativePath(filePath);
+  const absolutePath = validatePath(filePath, options);
+  let stats: Awaited<ReturnType<typeof fs.lstat>>;
+  try { stats = await fs.lstat(absolutePath); }
+  catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+  if (stats.isSymbolicLink()) {
+    const target = await fs.realpath(absolutePath);
+    if (target.toLowerCase().endsWith('.excalidraw') || (await fs.stat(target)).isDirectory()) throw new WorkspacePathAliasError();
+    return [];
+  }
+  if (!stats.isDirectory()) {
+    if (!filePath.toLowerCase().endsWith('.excalidraw')) return [];
+    await assertWorkspacePathHasNoAliases(getWorkspace(options), filePath);
+    return [filePath];
+  }
+  const result: string[] = [];
+  for (const child of await fs.readdir(absolutePath)) {
+    result.push(...await collectExcalidrawCopyPaths(path.posix.join(filePath, child), options));
+  }
+  return result;
+}
+
+async function readExcalidrawCopyContent(filePath: string, options: WorkspaceFileOperationOptions): Promise<Buffer> {
+  const { getExcalidrawDocument } = await import('@/app/lib/excalidraw-collaboration/scene-service');
+  const { serializePortableExcalidrawScene } = await import('@/app/lib/excalidraw-collaboration/checkpoint');
+  const { validatePortableExcalidrawScene } = await import('@/app/lib/excalidraw-collaboration/portable-import');
+  const state = await getExcalidrawDocument({ workspace: getWorkspace(options), path: filePath });
+  const content = await serializePortableExcalidrawScene(state);
+  validatePortableExcalidrawScene(content);
+  return Buffer.from(content);
+}
+
+type CopiedFileIdentity = { dev: string; ino: string };
+
+async function publishCopiedExcalidrawContent(filePath: string, content: Buffer, options: WorkspaceFileOperationOptions,
+  onFileStaged?: (identity: CopiedFileIdentity) => Promise<void>): Promise<void> {
+  const workspace = getWorkspace(options);
+  const actorUserId = options.mutationActorUserId ?? workspace.ownerUserId;
+  if (!actorUserId) throw new Error('A user identity is required to copy Excalidraw documents.');
+  const { importExcalidrawDocumentFile } = await import('@/app/lib/excalidraw-collaboration/portable-import');
+  await importExcalidrawDocumentFile({ workspace, path: filePath, content, onFileStaged,
+    actor: { userId: actorUserId, actorId: actorUserId, actorType: 'user' } });
+}
+
+/** Failed copies may only remove their own inode and their own portable scene files. */
+async function canDiscardCopiedExcalidrawDestination(filePath: string, options: WorkspaceFileOperationOptions,
+  rootIdentity: CopiedFileIdentity | null, ownedScenes: ReadonlyMap<string, CopiedFileIdentity>): Promise<boolean> {
+  if (!rootIdentity) return false;
+  let root: BigIntStats;
+  try {
+    root = await fs.lstat(validatePath(filePath, options), { bigint: true });
+  } catch (error) {
+    return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+  }
+  if (root.isSymbolicLink() || String(root.dev) !== rootIdentity.dev || String(root.ino) !== rootIdentity.ino) return false;
+  try {
+    for (const scenePath of await collectExcalidrawCopyPaths(filePath, options)) {
+      const expected = ownedScenes.get(scenePath);
+      if (!expected) return false;
+      const actual = await fs.lstat(validatePath(scenePath, options), { bigint: true });
+      if (String(actual.dev) !== expected.dev || String(actual.ino) !== expected.ino) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function assertNoManagedExcalidrawCopyDestination(filePath: string, options: WorkspaceFileOperationOptions): Promise<void> {
+  const workspace = getWorkspace(options);
+  if (workspace.legacy) return;
+  const { openDb } = await import('@/app/lib/db');
+  const database = await openDb();
+  try {
+    const prefix = `${filePath.replace(/[\\%_]/g, '\\$&')}/%`;
+    const document = await database.get(`SELECT d.id FROM collaboration_documents d
+      JOIN file_collaboration_lineages l ON l.id=d.lineage_id AND l.status='active'
+      WHERE d.workspace_id=$1 AND d.provider='excalidraw' AND d.status='active'
+      AND (d.path=$2 OR d.path LIKE $3 ESCAPE '\\') LIMIT 1`, [workspace.workspaceId, filePath, prefix]);
+    if (document) throw new ExcalidrawPublicationRequiredError();
+  } finally { await database.close(); }
+}
+
 async function publishCopiedOfficeContent(filePath: string, content: Buffer, options: WorkspaceFileOperationOptions): Promise<void> {
   const workspace = getWorkspace(options);
   const actorUserId = options.mutationActorUserId ?? workspace.ownerUserId;
@@ -935,11 +1066,13 @@ async function withOfficeCopyReplacement<T>(
   exists: boolean,
   options: WorkspaceFileOperationOptions,
   operation: () => Promise<T>,
+  canDiscardPartialDestination?: () => Promise<boolean>,
 ): Promise<T> {
   const workspace = getWorkspace(options);
   const { archiveFileCollaborationPaths, moveFileCollaborationPath, remapArchivedFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
   const { deleteWorkspaceFileMetadata, moveWorkspaceFileMetadata } = await import('@/app/lib/files/workspace-file-metadata');
   const discardPartialDestination = async () => {
+    if (canDiscardPartialDestination && !await canDiscardPartialDestination()) return;
     await fs.rm(validatePath(destination, options), { recursive: true, force: true });
     await archiveFileCollaborationPaths({ workspace, paths: [{ path: destination }] });
     await deleteWorkspaceFileMetadata({ workspace, path: destination });
@@ -1072,12 +1205,25 @@ export async function copyFileBetweenWorkspaces(
     // Reinspect under the actual admission barrier: pre-collision metadata granted no writer authority.
     const currentNative = await native.inspect({ sourceWorkspace, targetWorkspace, sourcePath, targetDirectory: destDir,
       operationId, actorUserId, actorSessionId: options.target.mutationActorSessionId });
+    await assertNoManagedExcalidrawCopyDestination(destRelative, options.target);
     await assertWorkspaceOfficePathMutationAllowed([destRelative], options.target);
     const officeSources = sourceExists && destRelative.toLowerCase().endsWith('.docx') && (await fs.stat(fullSource)).isFile()
       ? [sourcePath]
       : await collectOfficeCopyPaths(sourcePath, options.source);
     const replacedOfficePaths = destExists ? await collectOfficeCopyPaths(destRelative, options.target) : [];
+    const excalidrawSources = await collectExcalidrawCopyPaths(sourcePath, options.source);
+    const replacedExcalidrawPaths = destExists ? await collectExcalidrawCopyPaths(destRelative, options.target) : [];
+    if (replacedExcalidrawPaths.length) throw new ExcalidrawPublicationRequiredError();
     const includesOffice = officeSources.length > 0 || replacedOfficePaths.length > 0;
+    const includesExcalidraw = excalidrawSources.length > 0;
+    if (currentNative.hasNativeSource && includesExcalidraw) {
+      // The native backup publisher cannot import scene authority. Refuse this
+      // combination before even a scene read can initialize its durable state.
+      throw Object.assign(new Error('Copying mixed native text and Excalidraw folders requires the shared scene publication workflow.'),
+        { status: 409, code: 'NATIVE_COPY_MIXED_SCENE_UNSUPPORTED' });
+    }
+    const excalidrawContents = new Map<string, Buffer>();
+    for (const source of excalidrawSources) excalidrawContents.set(source, await readExcalidrawCopyContent(source, options.source));
     let backup: { path: string; backupId: string; contentSha256: string; sizeBytes: number } | undefined;
     if (currentNative.hasNativeSource) {
       if (!actorUserId) throw Object.assign(new Error('A user identity is required to copy native documents.'), { status: 403 });
@@ -1095,7 +1241,7 @@ export async function copyFileBetweenWorkspaces(
     if (!destExists && currentNative.targetDocumentPaths.some(document => document === destRelative || document.startsWith(`${destRelative}/`))) {
       throw Object.assign(new Error('The copy destination changed after its name was selected.'), { status: 409 });
     }
-    if (overwrite) await assertNoActiveRawCopyPath(getWorkspace(options.source), sourcePath, fullSource);
+    if (overwrite) await assertNoActiveRawCopyPath(getWorkspace(options.source), sourcePath, fullSource, new Set(excalidrawSources));
     if (destExists && overwrite) {
       await assertNoActiveRawCopyPath(getWorkspace(options.target), destRelative, fullDest);
       const { captureWorkspaceOperationBackup } = await import('@/app/lib/files/workspace-operation-backup');
@@ -1106,8 +1252,8 @@ export async function copyFileBetweenWorkspaces(
         contentSha256: captured.contentSha256, sizeBytes: captured.sizeBytes };
     }
     try {
-      if (includesOffice) {
-        if (!(options.target.mutationActorUserId ?? getWorkspace(options.target).ownerUserId)) throw new Error('A user identity is required to copy Word documents.');
+      if (includesOffice || includesExcalidraw) {
+        if (!(options.target.mutationActorUserId ?? getWorkspace(options.target).ownerUserId)) throw new Error('A user identity is required to copy managed documents.');
         const { readOfficeFileBytes } = await import('@/app/lib/office/document-service');
         const { validateDocxPackage } = await import('@/app/lib/office/docx-package');
         // Complete validation before touching destination bytes or lineage metadata.
@@ -1117,19 +1263,49 @@ export async function copyFileBetweenWorkspaces(
         }
         const { initializeCopiedFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
         const sourceIsOfficeFile = officeSources.length === 1 && officeSources[0] === sourcePath;
+        const sourceIsExcalidrawFile = excalidrawSources.length === 1 && excalidrawSources[0] === sourcePath;
+        let copiedRootIdentity: CopiedFileIdentity | null = null;
+        const copiedSceneIdentities = new Map<string, CopiedFileIdentity>();
+        const recordSceneIdentity = (destination: string) => async (identity: CopiedFileIdentity) => {
+          copiedSceneIdentities.set(destination, identity);
+          if (destination === destRelative) copiedRootIdentity = identity;
+        };
         await withOfficeCopyReplacement(destRelative, destExists, options.target, async () => {
           await initializeCopiedFileCollaborationPaths({ workspace: getWorkspace(options.target), paths: [destRelative] });
           if (sourceIsOfficeFile) {
             await publishCopiedOfficeContent(destRelative, await readOfficeFileBytes(sourcePath, options.source), options.target);
+          } else if (sourceIsExcalidrawFile) {
+            await publishCopiedExcalidrawContent(destRelative, excalidrawContents.get(sourcePath)!, options.target,
+              recordSceneIdentity(destRelative));
           } else {
-            const excluded = new Set(officeSources.map((source) => validatePath(source, options.source)));
-            await fs.cp(fullSource, fullDest, { recursive: true, filter: (source) => !excluded.has(source) });
+            const excluded = new Set(await Promise.all([...officeSources, ...excalidrawSources]
+              .map((source) => resolveExistingWorkspacePath(source, options.source))));
+            if (includesExcalidraw) {
+              await fs.mkdir(fullDest);
+              const identity = await fs.lstat(fullDest, { bigint: true });
+              copiedRootIdentity = { dev: String(identity.dev), ino: String(identity.ino) };
+            }
+            if (includesExcalidraw) {
+              // The exclusively reserved root already exists; only its children enter cp's exclusive path.
+              for (const child of await fs.readdir(fullSource)) {
+                await fs.cp(path.join(fullSource, child), path.join(fullDest, child), { recursive: true,
+                  force: false, errorOnExist: true, filter: (source) => !excluded.has(source) });
+              }
+            } else {
+              await fs.cp(fullSource, fullDest, { recursive: true, filter: (source) => !excluded.has(source) });
+            }
             for (const source of officeSources) {
               const destination = path.posix.join(destRelative, path.posix.relative(sourcePath, source));
               await publishCopiedOfficeContent(destination, await readOfficeFileBytes(source, options.source), options.target);
             }
+            for (const source of excalidrawSources) {
+              const destination = path.posix.join(destRelative, path.posix.relative(sourcePath, source));
+              await publishCopiedExcalidrawContent(destination, excalidrawContents.get(source)!, options.target,
+                recordSceneIdentity(destination));
+            }
           }
-        });
+        }, includesExcalidraw ? () => canDiscardCopiedExcalidrawDestination(destRelative, options.target,
+          copiedRootIdentity, copiedSceneIdentities) : undefined);
       } else {
         if (destExists) await fs.rm(fullDest, { recursive: true, force: true });
         await fs.cp(fullSource, fullDest, {recursive: true});

@@ -38,6 +38,7 @@ assert.deepEqual(buildDeliveryTarget('slack', 'C123', '1700000000.000'), {
 });
 
 const textOnly = buildUserAgentMessageFromInbound({
+  clientMessageId: 'channel-text-1',
   channelId: 'web',
   channelSessionKey: 'web:user:user-123',
   userId: 'user-123',
@@ -49,6 +50,7 @@ assert.equal(textOnly.content, 'hello');
 assert.equal(textOnly.timestamp, 1710000000000);
 
 const imageMessage = buildUserAgentMessageFromInbound({
+  clientMessageId: 'channel-image-1',
   channelId: 'telegram',
   channelSessionKey: 'telegram:123456',
   userId: 'user-123',
@@ -61,6 +63,7 @@ assert.deepEqual(imageMessage.content, [
 ]);
 
 const explicitParts = buildUserAgentMessageFromInbound({
+  clientMessageId: 'channel-parts-1',
   channelId: 'telegram',
   channelSessionKey: 'telegram:123456',
   userId: 'user-123',
@@ -74,6 +77,8 @@ assert.deepEqual(explicitParts.content, [
   { type: 'text', text: 'caption' },
   { type: 'image', data: 'xyz', mimeType: 'image/jpeg' },
 ]);
+assert.throws(() => buildUserAgentMessageFromInbound({ channelId: 'web', channelSessionKey: 'web:user:user-123',
+  userId: 'user-123', text: 'missing stable identity' }), /stable, consistent client message ID/u);
 
 assert.deepEqual(
   buildChannelChatContext({ channelId: 'telegram' }, { channelId: 'web', currentTime: '2026-05-31T12:00:00.000Z' }),

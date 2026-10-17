@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import path from 'path';
+import { constants, promises as fs } from 'node:fs';
 
 import { readMcpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
 import { fetchMcpHttp } from '@/app/lib/mcp/http';
@@ -8,8 +9,10 @@ import {
   readMcpTextFileIfExists,
   writeMcpBufferFileAtomic,
   writeMcpTextFileAtomic,
+  resolveMcpStoragePath,
 } from '@/app/lib/mcp/storage';
-import type { McpScope } from '@/app/lib/mcp/scope';
+import { getMcpScopeKey, type McpScope } from '@/app/lib/mcp/scope';
+import { supportedImage } from '@/app/lib/capabilities/packages/package-icon-image';
 
 const ICON_CACHE_FILE = 'mcp-server-icons.json';
 const ICON_CACHE_DIR = 'mcp-icons';
@@ -217,7 +220,8 @@ async function buildIconCandidates(serverConfig: McpServerConfig): Promise<Array
   });
 }
 
-async function fetchIcon(serverName: string, origin: string, iconUrl: string, scope?: McpScope | null): Promise<McpServerIconMetadata> {
+async function fetchIcon(serverName: string, origin: string, iconUrl: string, scope?: McpScope | null,
+  assertCurrent?: () => Promise<void>): Promise<McpServerIconMetadata> {
   const response = await fetchWithTimeout(iconUrl, {
     headers: { Accept: 'image/avif,image/webp,image/svg+xml,image/png,image/*,*/*;q=0.8' },
   });
@@ -234,6 +238,10 @@ async function fetchIcon(serverName: string, origin: string, iconUrl: string, sc
   if (buffer.length === 0) {
     throw new Error('MCP icon response is empty.');
   }
+  if (!supportedMcpIconImage(buffer, contentType)) {
+    throw new Error('MCP icon contains unsupported image content.');
+  }
+  await assertCurrent?.();
 
   const extension = CONTENT_TYPE_EXTENSIONS[contentType];
   const digest = crypto.createHash('sha256').update(`${serverName}:${iconUrl}:${buffer.length}`).digest('hex').slice(0, 16);
@@ -249,6 +257,137 @@ async function fetchIcon(serverName: string, origin: string, iconUrl: string, sc
     fetchedAt: new Date().toISOString(),
     discoveryVersion: DISCOVERY_VERSION,
   };
+}
+
+function supportedMcpIconImage(bytes: Buffer, contentType: string): boolean {
+  if (['image/x-icon', 'image/vnd.microsoft.icon'].includes(contentType)) {
+    if (bytes.length < 22 || bytes.readUInt16LE(0) !== 0 || bytes.readUInt16LE(2) !== 1) return false;
+    const count = bytes.readUInt16LE(4);
+    if (!count || count > 256 || bytes.length < 6 + count * 16) return false;
+    for (let index = 0; index < count; index += 1) {
+      const entry = 6 + index * 16, size = bytes.readUInt32LE(entry + 8), offset = bytes.readUInt32LE(entry + 12);
+      if (!size || offset < 6 + count * 16 || offset + size > bytes.length) return false;
+    }
+    return true;
+  }
+  return ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'].includes(contentType)
+    && supportedImage(bytes, contentType);
+}
+
+type BoundMcpIconCache = { version: 1; binding: string; fetchedAt: number; metadata: McpServerIconMetadata | null };
+const boundIconRequests = new Map<string, Promise<{ buffer: Buffer; contentType: string } | null>>();
+class McpIconAuthorityFailure extends Error {
+  constructor(readonly original: unknown) { super('The MCP image source changed.'); }
+}
+
+async function readBoundIconFile(relativePath: string, scope: McpScope, maxBytes: number): Promise<Buffer | null> {
+  const target = resolveMcpStoragePath(relativePath, scope);
+  let handle;
+  try { handle = await fs.open(target, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  try {
+    const before = await handle.stat({ bigint: true });
+    if (!before.isFile() || before.nlink !== BigInt(1) || !before.size || before.size > BigInt(maxBytes)) return null;
+    const bytes = Buffer.alloc(Number(before.size));
+    let offset = 0;
+    while (offset < bytes.length) {
+      const read = await handle.read(bytes, offset, bytes.length - offset, offset);
+      if (!read.bytesRead) return null;
+      offset += read.bytesRead;
+    }
+    const after = await handle.stat({ bigint: true });
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
+      || (await handle.read(Buffer.alloc(1), 0, 1, offset)).bytesRead) return null;
+    const parent = await fs.lstat(path.dirname(target));
+    if (!parent.isDirectory() || parent.isSymbolicLink()) return null;
+    return bytes;
+  } finally { await handle.close(); }
+}
+
+/** Lazy image IO only. Callers must recheck the exact current human/source before and after IO. */
+export async function readSourceBoundMcpServerIcon(serverConfig: McpServerConfig, binding: string,
+  scope: McpScope, assertCurrent: () => Promise<void>, recoverJoiner = true): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (!/^[a-f0-9]{64}$/u.test(binding)) throw new Error('Invalid MCP icon source binding.');
+  await assertCurrent();
+  const key = `${getMcpScopeKey(scope)}:${binding}`;
+  let pending = boundIconRequests.get(key);
+  const joined = Boolean(pending);
+  if (!pending) {
+    const guarded = async () => {
+      try { await assertCurrent(); }
+      catch (error) { throw new McpIconAuthorityFailure(error); }
+    };
+    pending = (async () => {
+      const cachePath = path.join(ICON_CACHE_DIR, `bound-${binding}.json`);
+      const readMetadata = await readBoundIconFile(cachePath, scope, 16 * 1024);
+      await guarded();
+      let cached: BoundMcpIconCache | undefined;
+      if (readMetadata) {
+        try { cached = JSON.parse(readMetadata.toString('utf8')) as BoundMcpIconCache; }
+        catch { /* Invalid optional cache metadata is rediscovered. */ }
+      }
+      if (cached?.version === 1 && cached.binding === binding && Number.isFinite(cached.fetchedAt)
+        && cached.fetchedAt > 0 && cached.fetchedAt <= Date.now()
+        && Date.now() - cached.fetchedAt < (cached.metadata ? ICON_TTL_MS : NEGATIVE_ICON_TTL_MS)) {
+        if (!cached.metadata) return null;
+        const { fileName, contentType } = cached.metadata;
+        const origin = getServerOrigin(serverConfig), configuredIcon = getConfiguredIconUrl(serverConfig);
+        const allowedOrigins = new Set([origin, origin ? getRegistrableOrigin(origin) : null,
+          !origin && configuredIcon ? new URL(configuredIcon).origin : null].filter(Boolean));
+        if (cached.metadata.serverName === `bound-${binding}` && cached.metadata.discoveryVersion === DISCOVERY_VERSION
+          && cached.metadata.origin && allowedOrigins.has(cached.metadata.origin)
+          && fileName && new RegExp(`^bound-${binding}-[a-f0-9]{16}\\.(?:ico|png|jpg|svg|webp|gif)$`, 'u').test(fileName)
+          && contentType && CONTENT_TYPE_EXTENSIONS[contentType]) {
+          const buffer = await readBoundIconFile(path.join(ICON_CACHE_DIR, fileName), scope, MAX_ICON_BYTES);
+          await guarded();
+          if (buffer && supportedMcpIconImage(buffer, contentType)) return { buffer, contentType };
+        }
+      }
+      // Domain discovery uses the endpoint's origin only, never MCP query credentials or headers.
+      const configuredIconUrl = getConfiguredIconUrl(serverConfig);
+      let iconUrl: string | undefined;
+      if (configuredIconUrl) {
+        const configured = new URL(configuredIconUrl);
+        if (!configured.username && !configured.password) {
+          configured.search = ''; configured.hash = ''; iconUrl = configured.href;
+        }
+      }
+      const origin = getServerOrigin(serverConfig);
+      const candidates = await buildIconCandidates({ ...(origin ? { url: origin } : {}), ...(iconUrl ? { iconUrl } : {}) });
+      await guarded();
+      let metadata: McpServerIconMetadata | null = null;
+      for (const candidate of candidates) {
+        await guarded();
+        try { metadata = await fetchIcon(`bound-${binding}`, candidate.origin, candidate.iconUrl, scope, guarded); break; }
+        catch (error) { if (error instanceof McpIconAuthorityFailure) throw error; }
+      }
+      await guarded();
+      await writeMcpTextFileAtomic(cachePath, JSON.stringify({ version: 1, binding, fetchedAt: Date.now(), metadata } satisfies BoundMcpIconCache), scope);
+      await guarded();
+      if (!metadata?.fileName || !metadata.contentType) return null;
+      const buffer = await readBoundIconFile(path.join(ICON_CACHE_DIR, metadata.fileName), scope, MAX_ICON_BYTES);
+      await guarded();
+      return buffer && supportedMcpIconImage(buffer, metadata.contentType) ? { buffer, contentType: metadata.contentType } : null;
+    })();
+    boundIconRequests.set(key, pending);
+    void pending.finally(() => { if (boundIconRequests.get(key) === pending) boundIconRequests.delete(key); }).catch(() => undefined);
+  }
+  try {
+    const image = await pending;
+    await assertCurrent();
+    return image;
+  } catch (error) {
+    if (!(error instanceof McpIconAuthorityFailure)) throw error;
+    if (joined && recoverJoiner) {
+      // A coalesced caller owns its own request/workspace authority. An aborted
+      // first owner cannot force a still-authorized viewer onto initials.
+      await assertCurrent();
+      if (boundIconRequests.get(key) === pending) boundIconRequests.delete(key);
+      return readSourceBoundMcpServerIcon(serverConfig, binding, scope, assertCurrent, false);
+    }
+    throw error.original;
+  }
 }
 
 function shouldRefreshIcon(metadata: McpServerIconMetadata | undefined, serverConfig: McpServerConfig): boolean {
