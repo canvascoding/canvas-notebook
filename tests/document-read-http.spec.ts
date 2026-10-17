@@ -201,12 +201,17 @@ test.describe('owned production HTTP document read by stable native ID', () => {
   test.beforeAll(async () => {
     await requireOwnedYjsQaTarget();
     owner = await login(process.env.BOOTSTRAP_ADMIN_EMAIL, process.env.BOOTSTRAP_ADMIN_PASSWORD);
-    const response = await owner.web.post('/api/workspaces', { data: { type: 'organization', name: `Document read HTTP ${randomUUID()}` }, maxRedirects: 0 });
-    const value = await json(response, 'Owned team workspace creation');
-    expect(response.status()).toBe(201);
-    const workspace = value.workspace as { id?: unknown } | undefined;
-    if (typeof workspace?.id !== 'string' || !workspace.id) throw new Error('The actual owned team workspace has no ID.');
-    workspaceId = workspace.id;
+    const response = await owner.web.get('/api/workspaces', { maxRedirects: 0 });
+    const value = await json(response, 'Original supervisor-owned shared workspace');
+    expect(response.status()).toBe(200); expect(value.success).toBe(true);
+    const workspaces = value.workspaces as Array<{ id: string; name: string; type: string; legacy: boolean;
+      permissions: { canRead: boolean; canWrite: boolean } }>;
+    expect(Array.isArray(workspaces)).toBe(true);
+    const selected = workspaces.filter(workspace => workspace.name === 'Shared Test Workspace'
+      && workspace.type === 'organization' && workspace.legacy === false
+      && workspace.permissions.canRead === true && workspace.permissions.canWrite === true);
+    expect(selected).toHaveLength(1);
+    workspaceId = selected[0].id; expect(workspaceId.length).toBeGreaterThan(0);
   });
 
   test.afterAll(async () => {
