@@ -1,6 +1,28 @@
 # Plan: Yjs-Dokumentautorität und sichere Dateiaktionen konsolidieren
 
-## Aktueller Überblick: vorhandene Bausteine und fehlende Anschlüsse
+## Verbindlicher aktueller Status
+
+Stand 17. Oktober 2026. Der Gesamtauftrag ist weiterhin offen: Neben bereits verbundenen Kernen fehlen noch echte Implementierungen und gemeinsame Abnahmen. Die folgenden Angaben sind der aktuelle Überblick; ältere Nachweise darunter gelten ausschließlich für ihre jeweiligen Quellenstände.
+
+| Bereich | Aktueller Stand | Noch erforderlich |
+| --- | --- | --- |
+| Editor und manuelle Anlage | Read/Edit-Auswahl entfernt; direkt editierbarer Editor, kompakte Breiten-/Fokussteuerung sowie Create/Paste/Markdownimport lokal im Browser geprüft | Gemeinsame Abnahme nach weiterer Integration; native Mobile- und übrige Transportverträge abschließen |
+| Move/Copy/Delete und zentrale Linkpflege | Native Owner, Recovery, Metadaten, Projektionsschutz und umfangreiche echte Datenbank-/FS-Regressionen implementiert | Aktuelle gemeinsame Browserfolge abschließen; weitere unterstützte Dateifälle und allgemeine Aktivierung prüfen |
+| Zentraler Dokumentdienst | Autorisierte Yjs-Lese-/Editkerne und native Web-Anlage vorhanden | Einheitliche Create-/Import-/Read-/Edit-Verträge und vollständige API-/MCP-/PI-/Mobile-Anschlüsse implementieren |
+| Progressive Suche | Workspace-Suche und nativer semantischer Reader vorhanden | Einheitliches Ranking, Abdeckungsangaben und stabile IDs; danach vollständiger versionsgebundener Read per ID |
+| Python-SDK und Standard-Skill | Interne Python-Toolbrücke, verzögertes Skillladen und Marketplace-Entwurf vorhanden | Externes HTTP-SDK; Documents-Skill an tatsächliche Verträge binden, regulär registrieren und als Standard ausliefern |
+| PDF-Import | Bestehender PDF-zu-Markdown-Konverter | Gefrorene Quellbytes zentral als natives Dokument mit ID, Lineage, dauerhafter Herkunft und Operationsstatus anlegen; Konkurrenz-/Recoveryfälle prüfen |
+| Sandbox | OS-Schreibschutz für kontrollierte Agent-Shell-/Skillprozesse und ein lokaler nativer Python-Editpfad geprüft | Übrige Launcher, Kindprozesse, Plattformen und Transportwege abnehmen |
+
+**Neuester abgeschlossener gemeinsamer Browserlauf:** Root 19b40114b / QA c4fce2e7e, frischer erfolgreicher Originalbuild und separater Artefaktabgleich. Copy6, Herkunft2 und UndoOFF2 bestehen vollständig; Move besteht 3/4. Damit bestehen **13 von 14 gestarteten Fällen**; die zwei Delete-Linkfälle wurden nach dem Fehler nicht gestartet. Die vollständige 16-Fälle-Abnahme ist nicht bestanden. Der mobile Movefall scheitert bereits beim initialen Dokument-Sessionread nach erfolgreichem UI-Create, vor Paste und Move: HTTP 409, PRINCIPAL_BUSY, Startup-Phase enroll, ohne Retrymarker. Die konkrete SQL-Sperrstelle und ihr Gegner sind nicht belegt. Der frühere Copy-Apply-409 bleibt eine getrennte ungeklärte Beobachtung. [Originale und genaue Diagnosegrenzen](./yjs-file-actions-browser16-first-evidence.md#zweiter-gemeinsamer-lauf-copy-bestanden-neuer-sessionfehler).
+
+**PR und Integration:** Ein Draft ist möglich. Der vorhandene Branch enthält den gesamten bisherigen Yjs-Umbau. Beim Abgleich auf Root 19b40114b gegen den tatsächlich per Remote-Ref geprüften main eb4de5512 umfasst der PR-Diff 838 Dateien; der Branch ist dort 324 Commits voraus und 149 zurück. 36 Pfade ändern sich auf beiden Seiten; das belegt noch keine Mergekonflikte. Vor einer Mergefreigabe sind die Integration des aktuellen main und darauf gebundene Prüfungen nötig. Ein auf Dateiaktionen begrenzter Titel würde den bestehenden Branch falsch beschreiben. Ein vollständiger PR für den gesamten Auftrag benötigt außerdem die noch offenen Implementierungen aus der Tabelle und die abschließende gemeinsame E2E-Abnahme. Es gibt noch keinen PR, Push, Rollout oder allgemeinen Aktivierungsnachweis.
+
+Dateiaktions-Undo bleibt für alle Dateitypen einschließlich historischer Jobs ausgeschaltet; Text-Undo im Editor bleibt getrennt. Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags. Die ursprünglichen Produktionsdateien wurden nur gelesen; ihre ursprüngliche Dateiaktionsblockade ist nicht als behoben nachgewiesen.
+
+## Quellengebundene Historie der Umsetzung und Nachweise
+
+Die folgenden Zwischenstände bleiben als Nachweis erhalten. Aussagen wie „aktuell“, „als nächstes“ oder „offen“ beschreiben dort den jeweils genannten Commit und ersetzen nicht den verbindlichen Status oben. Insbesondere sind frühere Browserpässe keine aktuelle Gesamtfreigabe.
 
 Stand 17. Oktober 2026: Die Umsetzung ist teilweise integriert. Es fehlen auch noch Implementierungen; der Gesamtauftrag ist nicht auf das Verbinden fertiger Module reduziert.
 
