@@ -46,6 +46,10 @@ export type NativeCopyPhaseResult = Readonly<{
   disposition: 'prepared' | 'already-prepared' | 'completed'; operation: WorkspaceOperationRecord;
   nativeReceipt: NativeCopyReceipt; admissions: readonly CollaborationAdmissionRequest[]; linkReceipts: readonly NativeCopyPhaseLinkReceipt[];
 }>;
+/** Domain disposition only; the owner must still confirm this B2 COMMIT. */
+export type NativeCopyPhaseCompletionResult = NativeCopyPhaseResult & Readonly<{
+  publication: 'published' | 'historical';
+}>;
 export type NativeCopyPhasePathReceipt = Readonly<{ selectionIndex: number; receipt: PreparedWorkspacePathCopyReceipt }>;
 type Captured = NativeCopyPhaseInput;
 type Row = Record<string, unknown>;
@@ -437,12 +441,12 @@ export function recordNativeCopyPathOnConnection(database: SqlConnection,
  * graph on B, confirms existing link SQL receipts, publishes C3 and closes the
  * durable admission requests. It never prepares or applies a second link delta. */
 export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
-  input: NativeCopyPhaseInput & Readonly<{ pathReceipts: readonly NativeCopyPhasePathReceipt[] }>): Promise<NativeCopyPhaseResult> {
+  input: NativeCopyPhaseInput & Readonly<{ pathReceipts: readonly NativeCopyPhasePathReceipt[] }>): Promise<NativeCopyPhaseCompletionResult> {
   const initialStage = captureNativeCopyPhaseStage(input.stage), receipts = physicalReceipts(initialStage, input.pathReceipts);
   return phase(database, { stage: initialStage, request: input.request }, async captured => {
     const stage = captured.stage;
     const before = await write(database, captured, () => existing(database, captured)) ?? copyPhaseChanged();
-    if (before.disposition === 'completed') return before;
+    if (before.disposition === 'completed') return { ...before, publication: 'historical' as const };
     const journal = await readNativeCopyPhaseJournalOnConnection(database, stage) ?? copyPhaseChanged();
     if (['failed', 'recovery_required'].includes(journal.status)) await write(database, captured,
       () => resumeWorkspaceOperationOnConnection(database, { operationId: stage.identity.operationId, expectedRevision: journal.revision }));
@@ -538,6 +542,7 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
       stepKey: NATIVE_COPY_COMPLETION_STEP_KEY, beforeFence: completionFence, afterFence: stage.payloadSha256,
       receipt: nativeCopyPhaseCompletionReceipt(stage, before.nativeReceipt, before.admissions, birth?.createdAt) }));
     const operation = await write(database, captured, () => completeWorkspaceOperationOnConnection(database, stage.identity.operationId));
-    return { ...before, disposition: 'completed', operation, nativeReceipt: { ...before.nativeReceipt, publicationStatus: 'published' } };
+    return { ...before, disposition: 'completed', operation, nativeReceipt: { ...before.nativeReceipt, publicationStatus: 'published' },
+      publication: 'published' as const };
   });
 }

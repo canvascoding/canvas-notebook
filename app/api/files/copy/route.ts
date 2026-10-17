@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
       const linkWarnings = execution.status === 'complete' ? [] : [
         'Some planned Markdown links still need recovery. Use the operation ID to retry safely.',
       ];
-      invalidateWorkspaceFileViews({
+      if (!operation.copyViewsFinalized) invalidateWorkspaceFileViews({
         fileOptions: targetFileOptions, subtreeDirs: [destDir],
         mutations: operation.copied.map((path) => ({ path, type: 'add' as const })),
       });

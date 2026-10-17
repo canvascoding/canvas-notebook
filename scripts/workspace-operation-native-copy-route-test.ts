@@ -11,6 +11,8 @@ async function main() {
   let nativeEnabled = true, authenticated = true, forbidden = false;
   let diskCalls = 0, legacyPreviewCalls = 0, nativePreviewCalls = 0, rawCopies = 0, lockDepth = 0;
   let diskUnavailable = true, historical = false;
+  let serviceFinalized = true, serviceStatus: 'complete' | 'needs_recovery' = 'complete';
+  const invalidations: Array<{ fileOptions?: { workspace?: WorkspaceContext }; mutations?: unknown[] }> = [];
   let backendError: Error | null = null, overwriteError: Error | null = null;
   let serviceInput: WorkspaceFileOperationServiceInput | undefined;
   let nativeInput: Record<string, unknown> | undefined;
@@ -57,7 +59,7 @@ async function main() {
     workspaceFileOptions: (workspace: WorkspaceContext) => ({ workspace }),
   } });
   mock.module('@/app/lib/api/route-helpers', { exports: {
-    applyRateLimit: () => null, invalidateWorkspaceFileViews: () => {}, jsonError,
+    applyRateLimit: () => null, invalidateWorkspaceFileViews: (input: typeof invalidations[number]) => { invalidations.push(input); }, jsonError,
     jsonSuccess: (payload: object, init?: ResponseInit) => Response.json({ success: true, ...payload }, init),
     jsonServerError: (_prefix: string, error: unknown) => jsonError(String(error), 500),
     readJsonBody: (request: Request) => request.json(),
@@ -111,8 +113,10 @@ async function main() {
     executeWorkspaceFileOperationService: async (input: WorkspaceFileOperationServiceInput) => {
       serviceInput = input;
       if (backendError) throw backendError;
-      return { execution: { operationId, planId, status: 'complete', completedSteps: ['copy-completion'], pendingSteps: [], errorCode: null },
-        plan: historical ? null : publicPlan, copied: ['Logical/note.md'], alreadyKnown: historical };
+      return { execution: { operationId, planId, status: serviceStatus, completedSteps: serviceStatus === 'complete' ? ['copy-completion'] : [],
+        pendingSteps: serviceStatus === 'complete' ? [] : ['copy-completion'], errorCode: serviceStatus === 'complete' ? null : 'OWNED_UNCONFIRMED' },
+        plan: historical ? null : publicPlan, copied: serviceStatus === 'complete' ? ['Logical/note.md'] : [], alreadyKnown: historical,
+        ...(serviceFinalized ? { copyViewsFinalized: true } : {}), privateOwnerOutcome: 'PRIVATE_OWNER_FACT' };
     },
   } });
   const copyRoute = await import('../app/api/files/copy/route');
@@ -212,6 +216,36 @@ async function main() {
       const response = await copyRoute.POST(request({ overwrite: true })); assert.equal(response.status, 409);
       assert.equal((await response.json()).code, 'NATIVE_COPY_REPLACEMENT_UNSUPPORTED'); overwriteError = null;
       assert.equal((await copyRoute.POST(request({ overwrite: true, dryRun: true }))).status, 422);
+    });
+    await group('centrally finalized native publication and historical replay never publish duplicate route additions', async () => {
+      serviceFinalized = true;
+      for (const replay of [false, true]) {
+        historical = replay; const before = invalidations.length;
+        const response = await copyRoute.POST(request({ planId })); assert.equal(response.status, 200);
+        assert.equal(invalidations.length, before, 'The common service already finalized the native target views.');
+        const body = JSON.stringify(await response.json());
+        for (const field of ['copyViewsFinalized', 'privateOwnerOutcome', 'PRIVATE_OWNER_FACT', 'viewOutcome', 'snapshotProof', 'receiptDigest']) {
+          assert.equal(body.includes(field), false, `private ${field} must not escape Copy HTTP`);
+        }
+      }
+    });
+    await group('pending historical recovery does not manufacture additions or expose private outcomes', async () => {
+      historical = true; serviceStatus = 'needs_recovery'; const before = invalidations.length;
+      const response = await recoveryRoute.POST(recoveryRequest(), context); assert.ok(response); assert.equal(response.status, 200);
+      const body = await response.json(); assert.equal(body.operation.status, 'needs_recovery'); assert.equal(body.linkStatus, 'partial');
+      assert.equal(invalidations.length, before);
+      for (const field of ['copyViewsFinalized', 'privateOwnerOutcome', 'PRIVATE_OWNER_FACT', 'viewOutcome', 'snapshotProof', 'receiptDigest']) {
+        assert.equal(JSON.stringify(body).includes(field), false, `private ${field} must not escape Recovery HTTP`);
+      }
+      serviceStatus = 'complete';
+    });
+    await group('legacy normal Copy retains its target invalidation when the common native finalizer did not run', async () => {
+      nativeEnabled = false; serviceFinalized = false; historical = false; diskUnavailable = false;
+      const before = invalidations.length, response = await copyRoute.POST(request({ planId })); assert.equal(response.status, 200);
+      assert.equal(invalidations.length, before + 1);
+      assert.equal(invalidations.at(-1)?.fileOptions?.workspace?.workspaceId, destination.workspaceId);
+      assert.deepEqual(invalidations.at(-1)?.mutations, [{ path: 'Logical/note.md', type: 'add' }]);
+      nativeEnabled = true; serviceFinalized = true;
     });
     console.log(`workspace-operation-native-copy-route-test: ${passed}/${passed} groups passed`);
   } finally { mock.reset(); }

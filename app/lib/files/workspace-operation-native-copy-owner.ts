@@ -38,6 +38,7 @@ import { readNativeCopyReceiptStorageIdentityOnConnection } from '../collaborati
 import type { WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { captureNativeCopyMetadataSnapshotOnConnection } from './workspace-operation-native-copy-metadata';
+import type { NativeCopyViewOutcome } from './workspace-operation-copy-view-finalizer';
 
 export class NativeCopyOwnerError extends Error {
   readonly status: number;
@@ -177,7 +178,8 @@ async function withSession<T>(supplied: Invocation, operation: (owner: Owner) =>
   };
   return enter(0);
 }
-async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation: () => Promise<T>): Promise<T> {
+async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation: () => Promise<T>,
+  onCommitted?: (result: T) => void): Promise<T> {
   return withNativeInspectionSchema(async () => {
     await verify(owner); if (owner.phase !== 'idle') problem();
     owner.phase = mode;
@@ -187,6 +189,9 @@ async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation
         : 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'); began = true;
       await verify(owner); const result = await operation(); await verify(owner);
       commitAttempted = true; await owner.database.run('COMMIT'); began = false; owner.phase = 'idle';
+      // Fixed in-process notification capture only, after the actual ACK and
+      // before any later session verification or disposal can fail.
+      onCommitted?.(result);
       await verify(owner); return result;
     } catch (error) {
       if (commitAttempted) {
@@ -204,8 +209,8 @@ async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation
 /** Detach original data before BEGIN. Current authority, B/XID and every write
  * remain inside the fixed phase; this pure frame ends with this one TX. */
 function copyPhaseTransaction<T>(owner: Owner, stage: WorkspaceOperationNativeCopyStage,
-  operation: (detached: WorkspaceOperationNativeCopyStage) => Promise<T>): Promise<T> {
-  return withCapturedNativeCopyPhaseStage(stage, detached => transaction(owner, 'write', () => operation(detached)));
+  operation: (detached: WorkspaceOperationNativeCopyStage) => Promise<T>, onCommitted?: (result: T) => void): Promise<T> {
+  return withCapturedNativeCopyPhaseStage(stage, detached => transaction(owner, 'write', () => operation(detached), onCommitted));
 }
 
 async function principal<T>(owner: Owner, operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
@@ -292,6 +297,13 @@ export type NativeCopyExecutionResult = Readonly<{
   execution: WorkspaceOperationExecutionResult; plan: WorkspaceOperationNativeCopyPlan | null;
   copied: string[]; alreadyKnown: boolean;
 }>;
+const copyViewOutcomes = new WeakMap<object, NativeCopyViewOutcome>();
+/** Exact returned result/error only. Serialized clones carry no event facts.
+ * These facts authorize no read, write, recovery or journal operation. */
+export function readWorkspaceNativeCopyViewOutcome(value: unknown): NativeCopyViewOutcome | null {
+  return value !== null && (typeof value === 'object' || typeof value === 'function')
+    ? copyViewOutcomes.get(value) ?? null : null;
+}
 function assertRequestedCopy(request: WorkspaceOperationRequest, original: WorkspaceOperationCopyOrigin,
   selections: readonly WorkspaceOperationNativeCopySelection[], renameOnCollision: boolean): void {
   if (request.kind !== 'copy' || !request.origin || !equal(decodeWorkspaceOperationCopyOrigin(request.origin), original)
@@ -531,13 +543,24 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
     || expectedPlanId !== undefined && (typeof expectedPlanId !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedPlanId))) problem('NATIVE_COPY_INVALID_REQUEST');
   let durable: WorkspaceOperationNativeCopyStage | undefined, alreadyKnown = false;
   let completedSteps: string[] = [], pendingSteps: string[] = [];
+  let viewOutcome: NativeCopyViewOutcome | null = null;
+  const bindViews = <T extends object>(value: T): T => {
+    if (viewOutcome) copyViewOutcomes.set(value, viewOutcome);
+    else copyViewOutcomes.delete(value);
+    return value;
+  };
+  const bindViewError = (error: unknown): unknown => viewOutcome && (error === null
+    || typeof error !== 'object' && typeof error !== 'function')
+    ? bindViews(new Error('Native Copy failed after a confirmed view outcome.', { cause: error }))
+    : error !== null && (typeof error === 'object' || typeof error === 'function') ? bindViews(error) : error;
   try {
-    return await withSession(invocation, async owner => {
+    return bindViews(await withSession(invocation, async owner => {
       const store = new WorkspaceOperationStaging();
       const header = await transaction(owner, 'write', () => operationHeader(owner, operationId));
       const request = header ? bindHeader(owner, header, selections, renameOnCollision, expectedPlanId) : null;
       if (header?.status === 'completed') {
         const result = await completedHistory(owner, header, request!);
+        viewOutcome = Object.freeze({ kind: 'historical', destinationWorkspaceId: header.destinationWorkspaceId });
         // A lost B2 acknowledgement may leave the original private Stage after
         // a proven completion. Retire that exact Stage without reading D2.
         const retained = await store.loadNativeCopyByOperationId(operationId);
@@ -571,8 +594,21 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
         { stage: detached, request: owner.invocation.request }));
       pendingSteps.push(...prepared.linkReceipts.map(link => link.stepKey), 'copy-completion');
       const pathReceipts = await publishPaths(owner, stage);
+      const entries = new Map(stage.plan.nativePathPlan.pathMappings.map(mapping => [mapping.destinationPath,
+        Object.freeze({ path: mapping.destinationPath, type: mapping.source.kind === 'directory' ? 'addDir' as const : 'add' as const })]));
+      for (const path of pathReceipts) for (const parent of path.receipt.createdParents) {
+        entries.set(parent.relativePath, Object.freeze({ path: parent.relativePath, type: 'addDir' }));
+      }
+      const publishedViews: NativeCopyViewOutcome = Object.freeze({ kind: 'published',
+        destinationWorkspaceId: stage.identity.destinationWorkspaceId,
+        entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
       const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
-        { stage: detached, request: owner.invocation.request, pathReceipts }));
+        { stage: detached, request: owner.invocation.request, pathReceipts }), committed => {
+        if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
+          viewOutcome = committed.publication === 'published' ? publishedViews
+            : Object.freeze({ kind: 'historical', destinationWorkspaceId: stage.identity.destinationWorkspaceId });
+        }
+      });
       if (result.disposition !== 'completed' || result.operation.status !== 'completed') problem();
       const journal = await transaction(owner, 'write', () => principal(owner, async () =>
         await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
@@ -582,16 +618,16 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
       await store.removeCompletedNativeCopy(stage.identity);
       return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
         copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
-    });
+    }));
   } catch (error) {
-    if (!durable || authenticationError(error)) throw error;
+    if (!durable || authenticationError(error)) throw bindViewError(error);
     try { await recordRecovery(invocation, durable, errorCode(error)); }
     catch (recording) {
-      if (authenticationError(recording)) throw recording;
+      if (authenticationError(recording)) throw bindViewError(recording);
       // Preserve the original immutable Stage and error if the separate status
       // acknowledgement is itself uncertain. An explicit retry still uses D1.
     }
-    return { execution: executionResult(operationId, durable.plan.planId, false, completedSteps, pendingSteps, errorCode(error)),
-      plan: durable.plan, copied: [], alreadyKnown };
+    return bindViews({ execution: executionResult(operationId, durable.plan.planId, false, completedSteps, pendingSteps, errorCode(error)),
+      plan: durable.plan, copied: [], alreadyKnown });
   }
 }

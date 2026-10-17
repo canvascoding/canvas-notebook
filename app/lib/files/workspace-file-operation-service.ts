@@ -28,6 +28,7 @@ import { WorkspaceOperationStaging, type WorkspaceOperationStage } from './works
 import { renameWorkspacePath, type WorkspacePathRenameResult } from './rename-service';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
+import { finalizeWorkspaceNativeCopyViews } from './workspace-operation-copy-view-finalizer';
 
 type Selection = { sourcePath: string; destinationPath: string };
 type Scope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
@@ -58,6 +59,8 @@ export type WorkspaceFileOperationServiceResult = {
   rename: WorkspacePathRenameResult | null;
   copied: string[];
   alreadyKnown: boolean;
+  /** Private adapter deduplication hint; never part of the public execution DTO. */
+  copyViewsFinalized?: true;
 };
 
 function operationIdFor(input: WorkspaceFileOperationServiceInput): string {
@@ -190,15 +193,27 @@ export async function executeWorkspaceFileOperationService(
       const enabled = authenticatedNativeTextSessionEnabled();
       if (stageKind === 'native-copy' || nativeJournal || enabled && stageKind === null && routingRecord === null) {
         if (!enabled) throw Object.assign(new Error('Native Copy is unavailable.'), { status: 409, code: 'NATIVE_COPY_UNAVAILABLE' });
-        const [{ executeWorkspaceNativeCopyOperation }, { workspaceOperationNativeCopyPublicPreview }] = await Promise.all([
+        const [{ executeWorkspaceNativeCopyOperation, readWorkspaceNativeCopyViewOutcome }, { workspaceOperationNativeCopyPublicPreview }] = await Promise.all([
           import('./workspace-operation-native-copy-owner'), import('./workspace-operation-native-copy-public'),
         ]);
-        const result = await executeWorkspaceNativeCopyOperation({ origin: currentCopyContext!, request: input.request,
-          operationId, selections: input.selections, expectedPlanId: input.expectedPlanId, renameOnCollision: input.renameOnCollision,
-          destinationDirectory: input.destinationDirectory });
+        let result: Awaited<ReturnType<typeof executeWorkspaceNativeCopyOperation>>;
+        try {
+          result = await executeWorkspaceNativeCopyOperation({ origin: currentCopyContext!, request: input.request,
+            operationId, selections: input.selections, expectedPlanId: input.expectedPlanId, renameOnCollision: input.renameOnCollision,
+            destinationDirectory: input.destinationDirectory });
+        } catch (error) {
+          const outcome = readWorkspaceNativeCopyViewOutcome(error);
+          if (outcome) {
+            try { finalizeWorkspaceNativeCopyViews({ fileOptions: input.destination.fileOptions, outcome }); }
+            catch (views) { throw new AggregateError([error, views], 'Native Copy views could not be finalized.'); }
+          }
+          throw error;
+        }
+        const outcome = readWorkspaceNativeCopyViewOutcome(result);
+        if (outcome) finalizeWorkspaceNativeCopyViews({ fileOptions: input.destination.fileOptions, outcome });
         observeExecutionStatus(input.kind, result.execution.status, result.alreadyKnown ? 'recovery' : 'apply');
         return { execution: result.execution, plan: result.plan ? workspaceOperationNativeCopyPublicPreview(result.plan) : null,
-          rename: null, copied: result.copied, alreadyKnown: result.alreadyKnown };
+          rename: null, copied: result.copied, alreadyKnown: result.alreadyKnown, copyViewsFinalized: true };
       }
     }
     const savedRequest = (record: WorkspaceOperationRecord | null): WorkspaceOperationRequest | null => {

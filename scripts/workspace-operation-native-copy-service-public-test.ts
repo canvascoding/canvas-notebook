@@ -22,6 +22,7 @@ import { createWorkspaceFileOperationPlan } from '../app/lib/markdown/workspace-
 import type * as Service from '../app/lib/files/workspace-file-operation-service';
 import type * as Journal from '../app/lib/files/workspace-operation-journal';
 import type { NativeCopyExecutionInput, NativeCopyExecutionResult } from '../app/lib/files/workspace-operation-native-copy-owner';
+import type { NativeCopyViewOutcome } from '../app/lib/files/workspace-operation-copy-view-finalizer';
 
 // Real C1/Yjs/pure projection and real Service export bodies. Catalogue/FS
 // identities below are declared fixtures, never actual ownership. Auth, owner,
@@ -186,7 +187,13 @@ async function nativeCopyServicePublicHarness() {
   const controls = { enabled: true, stageKind: null as 'native-copy' | 'legacy' | null, header: null as Journal.WorkspaceOperationWithSteps | null,
     stageError: null as Error | null, ownerError: null as Error | null, firstGet: null as (() => Promise<void>) | null,
     getCalls: 0, stageCalls: 0, legacyGuards: 0, legacyLocks: 0, legacyPreviews: 0, legacyExecutes: 0, legacyRecovers: 0,
-    ownerCalls: [] as NativeCopyExecutionInput[], ownerPlan: plan as WorkspaceOperationNativeCopyPlan | null, metrics: [] as unknown[] };
+    ownerCalls: [] as NativeCopyExecutionInput[], ownerPlan: plan as WorkspaceOperationNativeCopyPlan | null, metrics: [] as unknown[],
+    ownerExecution: execution, viewOutcome: null as NativeCopyViewOutcome | null,
+    viewCalls: [] as Array<{ fileOptions: Input['destination']['fileOptions']; outcome: NativeCopyViewOutcome }>,
+    ownerAlreadyKnown: null as boolean | null };
+  // Named Owner/finalizer boundaries for service dispatch only. Actual private
+  // outcome registration and COMMIT semantics have a separate real PG fixture.
+  const ownerFacts = new Map<unknown, NativeCopyViewOutcome>();
   const serviceModule = { exports: {} as typeof Service };
   const denied = (label: string) => () => assert.fail(`Unexpected real-service boundary: ${label}`);
   class Blocked extends Error {} class Stale extends Error {}
@@ -195,10 +202,16 @@ async function nativeCopyServicePublicHarness() {
     if (name === '../collaboration/native-text-session-activation') return { authenticatedNativeTextSessionEnabled: () => controls.enabled };
     if (name === './workspace-operation-native-copy-public') return { workspaceOperationNativeCopyPublicPreview };
     if (name === './workspace-operation-native-copy-owner') return { executeWorkspaceNativeCopyOperation: async (captured: NativeCopyExecutionInput) => {
-      controls.ownerCalls.push(captured); if (controls.ownerError) throw controls.ownerError;
-      return { execution, plan: controls.ownerPlan, copied: ['copied/note.md'], alreadyKnown: controls.header !== null || controls.stageKind === 'native-copy',
+      controls.ownerCalls.push(captured);
+      if (controls.ownerError) { if (controls.viewOutcome) ownerFacts.set(controls.ownerError, controls.viewOutcome); throw controls.ownerError; }
+      const result = { execution: controls.ownerExecution, plan: controls.ownerPlan, copied: ['copied/note.md'],
+        alreadyKnown: controls.ownerAlreadyKnown ?? (controls.header !== null || controls.stageKind === 'native-copy'),
         privateFutureOwnerData: 'never-expose-this' };
-    } };
+      if (controls.viewOutcome) ownerFacts.set(result, controls.viewOutcome); return result;
+    }, readWorkspaceNativeCopyViewOutcome: (value: unknown) => ownerFacts.get(value) ?? null };
+    if (name === './workspace-operation-copy-view-finalizer') return {
+      finalizeWorkspaceNativeCopyViews: (value: typeof controls.viewCalls[number]) => { controls.viewCalls.push(value); },
+    };
     if (name === './workspace-operation-journal') return { serializeWorkspaceOperationRequest: journal.exports.serializeWorkspaceOperationRequest,
       WorkspaceOperationJournal: class { async get() { if (++controls.getCalls === 1) await controls.firstGet?.(); return controls.header; } } };
     if (name === './workspace-operation-staging') return { WorkspaceOperationStaging: class { async readKind() {
@@ -350,4 +363,69 @@ test('a second genuine NextRequest constructor is normalized locally while plain
   assert.equal(captured.headers.get('cookie'), 'auth=original-session');
   assert.equal(captured.headers.get('origin'), 'https://notebook.example');
   assert.equal(captured.headers.get('X-Canvas-Workspace-Id'), 'copy-public-source');
+});
+
+test('fresh native publication is finalized centrally for a direct service caller, without exposing its private fact', async () => {
+  const h = await nativeCopyServicePublicHarness();
+  h.controls.viewOutcome = { kind: 'published', destinationWorkspaceId: h.input.destination.workspace.workspaceId,
+    entries: [{ path: 'copied/note.md', type: 'add' }] };
+  const result = await h.run(); assertNativeBoundary(h.controls);
+  assert.deepEqual(h.controls.viewCalls, [{ fileOptions: h.input.destination.fileOptions, outcome: h.controls.viewOutcome }]);
+  assert.equal(result.copyViewsFinalized, true);
+  assert.equal(Object.hasOwn(result, 'viewOutcome'), false); assert.equal(Object.hasOwn(result, 'entries'), false);
+});
+test('pending original recovery that actually publishes still finalizes additions despite alreadyKnown', async () => {
+  const h = await nativeCopyServicePublicHarness(); h.controls.stageKind = 'native-copy'; h.controls.ownerAlreadyKnown = true;
+  h.controls.viewOutcome = { kind: 'published', destinationWorkspaceId: h.input.destination.workspace.workspaceId,
+    entries: [{ path: 'copied/note.md', type: 'add' }] };
+  const result = await h.run(); assert.equal(result.alreadyKnown, true); assert.equal(result.copyViewsFinalized, true);
+  assert.equal(h.controls.viewCalls.length, 1); assert.equal(h.controls.viewCalls[0].outcome.kind, 'published');
+});
+test('completed historical service replay requests cache refresh without an addition fact', async () => {
+  const h = await nativeCopyServicePublicHarness(); h.controls.ownerAlreadyKnown = true; h.controls.ownerPlan = null;
+  h.controls.viewOutcome = { kind: 'historical', destinationWorkspaceId: h.input.destination.workspace.workspaceId };
+  const result = await h.run(); assert.equal(result.alreadyKnown, true); assert.equal(result.plan, null);
+  assert.deepEqual(h.controls.viewCalls, [{ fileOptions: h.input.destination.fileOptions, outcome: h.controls.viewOutcome }]);
+  assert.equal(result.copyViewsFinalized, true);
+});
+test('cross-workspace native publication uses the actual destination options, preserving read-only source scope', async () => {
+  const h = await nativeCopyServicePublicHarness(), destination = workspace('destination');
+  h.input.source.workspace.permissions.canWrite = false; h.input.source.workspace.permissions.canDelete = false;
+  h.input.destination = { workspace: destination, fileOptions: { workspace: destination, mutationActorUserId: 'copy-user' } };
+  h.controls.viewOutcome = { kind: 'published', destinationWorkspaceId: destination.workspaceId,
+    entries: [{ path: 'copied/note.md', type: 'add' }] };
+  await h.run(); assert.equal(h.controls.viewCalls.length, 1);
+  assert.equal(h.controls.viewCalls[0].fileOptions.workspace?.workspaceId, destination.workspaceId);
+  assert.notEqual(h.controls.viewCalls[0].fileOptions.workspace?.workspaceId, h.input.source.workspace.workspaceId);
+});
+test('unfinished or unknown-ACK service result cannot manufacture publication from copied paths or complete flags', async () => {
+  for (const status of ['needs_recovery', 'complete'] as const) {
+    const h = await nativeCopyServicePublicHarness(); h.controls.ownerExecution.status = status;
+    h.controls.ownerAlreadyKnown = true; h.controls.viewOutcome = null;
+    await h.run(); assert.deepEqual(h.controls.viewCalls, []);
+  }
+});
+test('private publication fact survives a later Owner error and is finalized before preserving that error identity', async () => {
+  const h = await nativeCopyServicePublicHarness(), error = Object.assign(new Error('Confirmed publication, later disposal failed'), { code: 'OWNED_AFTER_COMMIT' });
+  h.controls.ownerError = error;
+  h.controls.viewOutcome = { kind: 'published', destinationWorkspaceId: h.input.destination.workspace.workspaceId,
+    entries: [{ path: 'copied/note.md', type: 'add' }] };
+  await assert.rejects(h.run(), actual => actual === error);
+  assert.deepEqual(h.controls.viewCalls, [{ fileOptions: h.input.destination.fileOptions, outcome: h.controls.viewOutcome }]);
+});
+test('prepublication Owner failure has no view side effects and never falls back to legacy copy', async () => {
+  const h = await nativeCopyServicePublicHarness(), error = Object.assign(new Error('B2 rolled back'), { code: 'OWNED_B2_ROLLBACK' });
+  h.controls.ownerError = error; await assert.rejects(h.run(), actual => actual === error);
+  assert.deepEqual(h.controls.viewCalls, []); assertNativeBoundary(h.controls);
+});
+test('direct agent service invocation reaches the same native finalizer without requiring a Web route', async () => {
+  const h = await nativeCopyServicePublicHarness(); h.input.actorType = 'agent'; h.input.actorId = 'genuine-invocation-boundary'; delete h.input.request;
+  h.controls.viewOutcome = { kind: 'published', destinationWorkspaceId: h.input.destination.workspace.workspaceId,
+    entries: [{ path: 'copied/note.md', type: 'add' }] };
+  await h.run(); assert.equal(h.controls.ownerCalls[0].origin.actor.type, 'agent');
+  assert.equal(h.controls.ownerCalls[0].request, undefined); assert.equal(h.controls.viewCalls.length, 1);
+});
+test('legacy normal Copy keeps its existing executor and does not use the native-only view finalizer', async () => {
+  const h = await nativeCopyServicePublicHarness(); h.controls.stageKind = 'legacy'; h.input.expectedPlanId = h.legacy.planId;
+  await h.run(); assert.equal(h.controls.legacyExecutes, 1); assert.deepEqual(h.controls.viewCalls, []);
 });
