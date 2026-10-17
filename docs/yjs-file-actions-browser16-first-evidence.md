@@ -49,3 +49,18 @@ Die passive Baseline besteht mit zehn beobachteten Prozessen und drei Ports, SHA
 Die separat vorbereitete und vollständig von Root geprüfte eigene Bereinigung (`32090`, Exit 0) erhält sämtliche Originale: `/private/tmp/canvas-file-actions-response-owned-cleanup-n987xf7o/cleanup-report.json`, SHA-256 `9738f52ac05781773d474d60d497baecb25fdc5c3e581aa360597ee482a9d86f`. Beide exakt gebundenen eigenen DB-Namen/OIDs sowie DATA/TMP sind tatsächlich entfernt; 180 ursprüngliche Einträge/157 Dateien und zwölf externe Originaldateien bleiben unverändert. Keine erzwungene Sessionbeendigung, Signale oder Containeraktionen. Die operativen Helfer unterscheiden sich vom zuvor geprüften Helfer ausschließlich in den vollständig geprüften festen Literalbindungen; ursprüngliche Fehlerreceipts und negative Nachprüfung bleiben erhalten.
 
 Nächster Schritt ist die gezielte Abgrenzung der echten Capture-Sperrphasen mit unveränderten Final-/Rollback-/Scopeguards. Die einheitlichen Dokument-/Such-/Create-/Edit-Verträge, SDK, Standard-Skill, PDF, restliche Sandbox und abschließende gemeinsame E2E bleiben erforderlich; keine allgemeine Aktivierung oder Veröffentlichung.
+
+## Dritter gemeinsamer Lauf: vollständige 16-Fälle-Abnahme
+
+Stand 17. Oktober 2026: Auf Root `101ee77e509c8b11c5f8e96034628fc1516eb043`, QA `22033952c7a075117d9e8ddff5cb7e7dc510c55f` und unveränderter Control Plane `27c8ce37d` bestehen frische Quellenprüfung, Originalbuild und separater Artefaktabgleich. Der originale Browser-Supervisor **80563 endet tatsächlich mit Exit 0**. Alle fünf Original-Outcomes in `canvas-yjs-authority-Yirhhm/results` bestehen: **NativeCopy6, CopyOrigin2, UndoOFF2, NativeMove4 und NativeDeleteLinks2**, insgesamt **16/16**; keine fehlgeschlagenen, übersprungenen, zeitüberschrittenen oder unterbrochenen Fälle.
+
+Der unabhängige Originalpostcheck **23024 endet ebenfalls mit Exit 0**, `acceptancePassed:true`, alle Prüfungen positiv. Er bindet dieselben sauberen Heads, den frischen Build und exakt die drei bekannten Root↔QA-Abweichungen. Beobachtete eigene Prozesse, Gruppen und Listener sind abwesend; beide ursprünglichen Datenbanknamen/OIDs, Backends, DATA/TMP und Lock sind entfernt. Vier verwaltete Dienstidentitäten bleiben gleich und gesund, drei Health-Endpunkte liefern HTTP 200; ursprüngliche Belege bleiben unverändert. Die Prozessabdeckung ist eine konkrete Stichprobe, keine vollständige Startuphistorie.
+
+| Beleg unter `/private/tmp/canvas-file-actions-capture-browser16-3nyln17g` | SHA-256 |
+| --- | --- |
+| `source-report.json` | `416be7aaebdd522f11eb9dd071390968df57261168335050694cf5ef284b5836` |
+| `artifact-report.json` | `3641e8798bdbcae693ce24f6e73ad5f88976966a8e89d0b0e1520c793d79cdef` |
+| `baseline.json` | `a985f33e1c59cc4f52ab973fd8f8be5f40353c2d94bb9c338f815f0ea9eec6ed` |
+| `postruntime-report.json` | `1e109290a8674c744b8f2d691920a313c4fc552f3f05e6ef60a4698cd5aec0e7` |
+
+Die ursprünglichen roten Läufe einschließlich 13/14 bleiben erhalten. Der neue Pass beweist nicht rückwirkend die konkrete Sperrstelle des damaligen mobilen Session-409; der frühere Copy-Apply-409 bleibt ebenfalls getrennt ungeklärt. Diese lokale Matrix ist abgenommen. Allgemeine Aktivierung bleibt aus; Gesamt-API, Suche, SDK, Standard-Skill, native PDF-Anlage und übrige Sandboxabnahmen bleiben offen. Dateiaktions-Undo und Review Center bleiben aus; keine Produktionsauslieferung.
