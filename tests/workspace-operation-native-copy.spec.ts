@@ -224,7 +224,12 @@ async function copyInUi(page: Page, f: Fixture, sourceId: string, targetId: stri
   await dialog.screenshot({ path: info.outputPath('native-copy-v4-preview.png'), animations: 'disabled' });
   if (recovery) await recovery.beforeApply(preview.plan);
   const copied = page.waitForResponse(reply => matches(reply, false), { timeout: 90_000 });
-  await dialog.getByRole('button', { name: 'Copy', exact: true }).click(); const applied = await copied; expect(applied.status()).toBe(200);
+  await dialog.getByRole('button', { name: 'Copy', exact: true }).click(); const applied = await copied;
+  if (applied.status() !== 200) {
+    // Read the failure before fixture teardown closes its context and loses the body.
+    await info.attach('native-copy-apply-response', { body: await applied.body(), contentType: 'application/json' });
+  }
+  expect(applied.status()).toBe(200);
   expect(applied.request().postDataJSON().planId).toBe(preview.plan.planId);
   const body = await applied.json(); privateFieldsAbsent(body);
   if (recovery) {
