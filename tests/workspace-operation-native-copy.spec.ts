@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
@@ -14,6 +14,8 @@ import { prepareDestinationTreeRequestBudget, waitForDestinationFileTreeBudget }
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
+import { observeOwnedCopyFiles } from './helpers/owned-copy-files-observer';
+import type { OwnedCopyB2FaultInput } from '../scripts/lib/owned-yjs-native-copy-b2-fault';
 
 const spec = 'tests/workspace-operation-native-copy.spec.ts', selector = '.tiptap-editor-shell .ProseMirror';
 const profiles = [{ name: 'desktop', viewport: { width: 1440, height: 960 }, mobile: false },
@@ -168,7 +170,8 @@ async function status(request: APIRequestContext, operation: Operation) {
   expect(body.operation.steps.every((step: { status: string }) => step.status === 'applied')).toBe(true); return body;
 }
 async function copyInUi(page: Page, f: Fixture, sourceId: string, targetId: string, sourcePath: string,
-  directory: string, createDirectory: boolean, links: number, info: TestInfo) {
+  directory: string, createDirectory: boolean, links: number, info: TestInfo,
+  recovery?: { beforeApply: (preview: WorkspaceOperationNativeCopyPreviewPublic) => Promise<void> }) {
   await page.goto(`/en/files?workspaceId=${sourceId}`);
   const row = page.locator(`[data-file-path="${sourcePath}"]`).filter({ visible: true }).first(); await expect(row).toBeVisible(); await row.hover();
   await row.getByRole('button', { name: /^More actions for /u }).click();
@@ -202,14 +205,26 @@ async function copyInUi(page: Page, f: Fixture, sourceId: string, targetId: stri
   expect(bounds!.x).toBeGreaterThanOrEqual(-1); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(f.profile.viewport.width + 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await dialog.screenshot({ path: info.outputPath('native-copy-v4-preview.png'), animations: 'disabled' });
+  if (recovery) await recovery.beforeApply(preview.plan);
   const copied = page.waitForResponse(reply => matches(reply, false), { timeout: 90_000 });
   await dialog.getByRole('button', { name: 'Copy', exact: true }).click(); const applied = await copied; expect(applied.status()).toBe(200);
   expect(applied.request().postDataJSON().planId).toBe(preview.plan.planId);
   const body = await applied.json(); privateFieldsAbsent(body);
-  expect(body).toMatchObject({ success: true, failed: [], skipped: [], linkStatus: 'complete', updatedLinks: links,
+  if (recovery) {
+    expect(body).toMatchObject({ success: true, copied: [], failed: [], skipped: [], linkStatus: 'partial', updatedLinks: 0,
+      operation: { planId: preview.plan.planId, status: 'needs_recovery', errorCode: 'NATIVE_COPY_PUBLICATION_UNCONFIRMED' } });
+    expect(body.operation.pendingSteps.length).toBeGreaterThan(0);
+  } else expect(body).toMatchObject({ success: true, failed: [], skipped: [], linkStatus: 'complete', updatedLinks: links,
     operation: { planId: preview.plan.planId, status: 'complete', pendingSteps: [], errorCode: null } });
   expect(body.operation.operationId).toMatch(/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u);
+  if (recovery) await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden({ timeout: 90_000 }); return { operation: body.operation as Operation, preview: preview.plan };
+}
+async function copyB2Fault(input: OwnedCopyB2FaultInput) {
+  const wire = Buffer.from(JSON.stringify(input)).toString('base64url');
+  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx',
+    'scripts/owned-yjs-native-copy-b2-fault.ts', wire], { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 64 * 1024 });
+  return JSON.parse(result.stdout) as { armed?: boolean; faultId?: string; removed?: boolean; fired?: boolean; matchingAttempts?: string };
 }
 async function withNativeCopyBrowserFixture(browser: Browser, profile: Profile, count: number, run: (fixture: Fixture) => Promise<void>) {
   const owned = await requireOwnedYjsQaTarget(); expect(owned.activeSpec).toBe(spec);
@@ -341,6 +356,109 @@ test.describe('owned native Copy through V4 preview, rich editor and original co
         for (const file of [notePath, targetPath]) expect(version(await session(loggedIn.request, sourceId, file))).toEqual(version(before[file].session));
         await bytes(loggedIn.request, sourceId, pdfPath, pdfBytes); await bytes(loggedIn.request, targetId, pdfPath, pdfBytes);
         info.annotations.push({ type: 'acceptance-scope', description: 'Completed native Copy replay under a genuinely new login after a legitimate clone edit. No incomplete-stage crash recovery, PDF parsing/import or Undo claim.' });
+      });
+    });
+    test(`${profile.name}: pending Copy recovery reaches an already open target view and preserves the shared title`, async ({ browser }, info) => {
+      await withNativeCopyBrowserFixture(browser, profile, 2, async f => {
+        const [sourceWorkspace, targetWorkspace] = f.workspaces, sourceId = sourceWorkspace.id, targetId = targetWorkspace.id;
+        const page = await f.context.newPage(), file = fileName(), title = `Shared DB title ${randomUUID().slice(0, 8)}`;
+        const initial = await createInUi(page, sourceId, file);
+        await pasteMarkdown(page, f, '# Content heading differs from shared title\n\nRecovery keeps this original native document.\n');
+        const original = await persisted(page, sourceId, file, initial); await closeAndRelease(page, f, sourceId, file, original.session);
+        const sourceInfo = await page.request.get('/api/files/info', { headers: headers(sourceId), params: { path: file } });
+        expect(sourceInfo.status()).toBe(200); const sourceNode = (await sourceInfo.json()).data;
+        expect(sourceNode.metadataTarget).toMatchObject({ kind: 'native_file', documentId: original.session.documentId,
+          lifecycleGeneration: original.session.lifecycleGeneration, workspaceId: sourceId, path: file });
+        const titled = await page.request.patch('/api/files/metadata', { headers: headers(sourceId),
+          data: { path: file, expectedTarget: sourceNode.metadataTarget, title } }); expect(titled.status()).toBe(200);
+        const sourceTitle = await page.request.get('/api/files/info', { headers: headers(sourceId), params: { path: file } });
+        expect(sourceTitle.status()).toBe(200); expect((await sourceTitle.json()).data.title).toBe(title);
+
+        const targetContext = await freshContext(browser, f, targetId), targetPage = await targetContext.newPage();
+        const observer = observeOwnedCopyFiles(targetPage, targetId, file);
+        await targetPage.goto(`/en/files?workspaceId=${targetId}`);
+        await expect.poll(() => observer.snapshot().opened, { timeout: 30_000 }).toBeGreaterThan(0);
+        const targetRow = targetPage.locator(`[data-file-path="${file}"]`).filter({ visible: true });
+        await expect(targetRow).toHaveCount(0); const openView = observer.snapshot();
+        const login = await loginIdentity(page.request); expect(login.userId).toBe(f.owned.actorId);
+        let fault: OwnedCopyB2FaultInput | undefined, faultClosed = false, bodyFailed = false, primary: unknown;
+        try {
+          const pending = await copyInUi(page, f, sourceId, targetId, file, '.', false, 0, info, {
+            beforeApply: async preview => {
+              const owned = f.owned;
+              const operationId = createHash('sha256').update(JSON.stringify(['workspace-file-operation-v1', login.userId,
+                sourceId, targetId, preview.planId])).digest('hex');
+              fault = { version: 1, action: 'arm', faultId: randomUUID().replaceAll('-', ''), target: {
+                nonce: owned.nonce, repo: owned.repo, head: owned.head, sourceFingerprint: owned.sourceFingerprint,
+                buildFingerprint: owned.buildFingerprint, buildId: owned.buildId, receiptIdentity: ownedNativeFileRoomReceiptIdentity(owned) },
+              sourceWorkspaceId: sourceId, destinationWorkspaceId: targetId, actorUserId: login.userId, sourcePath: file,
+              destinationPath: file, sourceDocumentId: original.session.documentId, sourceGeneration: original.session.lifecycleGeneration,
+              planId: preview.planId, operationId };
+              expect(await copyB2Fault(fault)).toEqual({ armed: true, faultId: fault.faultId });
+            },
+          });
+          expect(fault).toBeTruthy(); expect(pending.operation.operationId).toBe(fault!.operationId);
+          const pendingStatus = await page.request.get(`/api/files/operations/${pending.operation.operationId}`);
+          expect(pendingStatus.status()).toBe(200); const pendingBody = await pendingStatus.json(); privateFieldsAbsent(pendingBody);
+          expect(pendingBody.operation).toMatchObject({ operationId: pending.operation.operationId, status: 'recovery_required' });
+          expect(pendingBody.operation.steps.some((step: { key: string; status: string }) => step.key === 'copy-completion' && step.status === 'applied')).toBe(false);
+          expect(observer.snapshot().adds).toBe(0);
+          expect(await copyB2Fault({ ...fault!, action: 'cleanup' })).toEqual({ removed: true, fired: true, matchingAttempts: '1' }); faultClosed = true;
+
+          const recovered = await page.request.post(`/api/files/operations/${pending.operation.operationId}`, { timeout: 90_000 });
+          expect(recovered.status()).toBe(200); const recoveredBody = await recovered.json(); privateFieldsAbsent(recoveredBody);
+          expect(recoveredBody).toMatchObject({ success: true, linkStatus: 'complete', operation: {
+            operationId: pending.operation.operationId, planId: pending.operation.planId, status: 'complete', pendingSteps: [], errorCode: null } });
+          await expect.poll(() => observer.snapshot().adds, { timeout: 30_000 }).toBe(1);
+          await expect.poll(() => observer.snapshot().treeRequests, { timeout: 30_000 }).toBeGreaterThan(openView.treeRequests);
+          await expect(targetRow).toHaveCount(1); await expect(targetRow).toBeVisible();
+          expect(observer.snapshot().navigations).toBe(openView.navigations); expect(observer.snapshot().errors).toEqual([]);
+          expect(await targetPage.evaluate(() => localStorage.getItem('canvas.activeWorkspaceId'))).toBe(targetId);
+
+          await targetRow.hover(); await targetRow.getByRole('button', { name: /^More actions for /u }).click();
+          const targetInfo = targetPage.waitForResponse(response => new URL(response.url()).pathname === '/api/files/info'
+            && new URL(response.url()).searchParams.get('path') === file
+            && response.request().headers()['x-canvas-workspace-id'] === targetId);
+          await targetPage.getByRole('menuitem', { name: 'Information', exact: true }).click();
+          const targetInfoResponse = await targetInfo; expect(targetInfoResponse.status()).toBe(200);
+          const cloneNode = (await targetInfoResponse.json()).data;
+          expect(cloneNode).toMatchObject({ path: file, title, metadataTarget: { kind: 'native_file', workspaceId: targetId, path: file } });
+          expect(cloneNode.metadataTarget.documentId).not.toBe(original.session.documentId);
+          const dialog = targetPage.getByRole('dialog', { name: 'Information', exact: true });
+          await expect(dialog.locator('dt').filter({ hasText: /^Title$/u })).toBeVisible();
+          await expect(dialog.locator('dd').filter({ hasText: title })).toHaveText(title);
+          await dialog.screenshot({ path: info.outputPath('native-copy-recovery-shared-title.png'), animations: 'disabled' });
+          await dialog.locator('[data-slot="dialog-footer"]').getByRole('button', { name: 'Close', exact: true }).click(); await expect(dialog).toHaveCount(0);
+          const clone = await session(targetContext.request, targetId, file);
+          expect(clone.documentId).toBe(cloneNode.metadataTarget.documentId); expect(clone.documentSequence).toBe(0);
+          const editor = await targetContext.newPage(); await open(editor, targetId, file);
+          const cloneContent = await readNativeRichCandidate(editor, selector);
+          expect(semanticDocument(cloneContent.document)).toEqual(semanticDocument(original.candidate.document));
+          expect(blockIds(cloneContent.document).every(id => !blockIds(original.candidate.document).includes(id))).toBe(true);
+          expect(cloneContent.stateProof).toBe(clone.stateProof); expect(cloneContent.stateVector).toBe(clone.stateVector);
+          await closeAndRelease(editor, f, targetId, file, clone); await editor.close();
+          expect(version(await session(page.request, sourceId, file))).toEqual(version(original.session));
+
+          const beforeHistory = observer.snapshot(), completedStatus = await status(page.request, recoveredBody.operation);
+          const historical = await page.request.post(`/api/files/operations/${pending.operation.operationId}`, { timeout: 90_000 });
+          expect(historical.status()).toBe(200); const historicalBody = await historical.json(); privateFieldsAbsent(historicalBody);
+          expect(historicalBody).toMatchObject({ success: true, linkStatus: 'complete', operation: recoveredBody.operation });
+          expect(await status(page.request, recoveredBody.operation)).toEqual(completedStatus);
+          // A real later heartbeat on this same files subscription closes the observation window.
+          const afterHistoryHeartbeat = observer.snapshot().heartbeats;
+          await expect.poll(() => observer.snapshot().heartbeats, { timeout: 40_000, intervals: [250, 500] }).toBeGreaterThan(afterHistoryHeartbeat);
+          expect(observer.snapshot().adds).toBe(beforeHistory.adds); expect(observer.snapshot().errors).toEqual([]);
+          expect(observer.snapshot().navigations).toBe(openView.navigations); await expect(targetRow).toHaveCount(1);
+          expect(version(await session(targetContext.request, targetId, file))).toEqual(version(clone));
+          expect(version(await session(page.request, sourceId, file))).toEqual(version(original.session));
+          await info.attach('native-copy-files-protocol.json', { contentType: 'application/json', body: Buffer.from(JSON.stringify(observer.snapshot())) });
+        } catch (error) { bodyFailed = true; primary = error; }
+        finally {
+          // Known faultId locates the durable intent even when arm lost its ACK.
+          if (fault && !faultClosed) try { expect((await copyB2Fault({ ...fault, action: 'cleanup' })).removed).toBe(true); }
+          catch (error) { throw aggregateOwnedNativeErrors(bodyFailed ? primary : undefined, [error], 'Owned Copy fault cleanup failed.'); }
+        }
+        if (bodyFailed) throw primary;
       });
     });
   }
