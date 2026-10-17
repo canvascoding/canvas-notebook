@@ -89,7 +89,14 @@ async function open(page: Page, workspaceId: string, file: string) {
 async function createInUi(page: Page, workspaceId: string, file: string) {
   await page.goto(`/en?workspaceId=${workspaceId}`);
   await page.getByTestId('home-files').getByRole('button', { name: 'New note', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'New note', exact: true }); await dialog.getByLabel('Note name', { exact: true }).fill(file);
+  const dialog = page.getByRole('dialog', { name: 'New note', exact: true });
+  await dialog.getByLabel('Note name', { exact: true }).fill(path.posix.basename(file));
+  const directory = path.posix.dirname(file);
+  if (directory !== '.') {
+    await dialog.getByText('Choose another folder', { exact: true }).click();
+    const destination = dialog.getByTitle(directory, { exact: true }); await destination.click();
+    await expect(destination).toHaveAttribute('aria-pressed', 'true');
+  }
   await waitForFileCreateBudget();
   const created = page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/create'
     && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspaceId
@@ -442,7 +449,14 @@ test.describe('owned native Copy through V4 preview, rich editor and original co
           const beforeHistory = observer.snapshot(), completedStatus = await status(page.request, recoveredBody.operation);
           const historical = await page.request.post(`/api/files/operations/${pending.operation.operationId}`, { timeout: 90_000 });
           expect(historical.status()).toBe(200); const historicalBody = await historical.json(); privateFieldsAbsent(historicalBody);
-          expect(historicalBody).toMatchObject({ success: true, linkStatus: 'complete', operation: recoveredBody.operation });
+          expect(historicalBody).toMatchObject({ success: true, linkStatus: 'complete' });
+          const historicalOperation = historicalBody.operation as Operation;
+          for (const operation of [recoveredBody.operation as Operation, historicalOperation]) {
+            expect(new Set(operation.completedSteps).size).toBe(operation.completedSteps.length);
+          }
+          expect(historicalOperation.completedSteps).toHaveLength(recoveredBody.operation.completedSteps.length);
+          expect({ ...historicalOperation, completedSteps: [...historicalOperation.completedSteps].sort() })
+            .toEqual({ ...recoveredBody.operation, completedSteps: [...recoveredBody.operation.completedSteps].sort() });
           expect(await status(page.request, recoveredBody.operation)).toEqual(completedStatus);
           // A real later heartbeat on this same files subscription closes the observation window.
           const afterHistoryHeartbeat = observer.snapshot().heartbeats;

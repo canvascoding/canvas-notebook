@@ -1,6 +1,6 @@
 # Gemeinsamer Dokumentzugriff: Editor, API, MCP, Agent und SDK
 
-Stand: 16. Oktober 2026. Verbindliche Ergänzung des Nutzerauftrags. Die folgenden gemeinsamen Anschlüsse sind geplant und noch nicht als durchgängig implementiert oder abgenommen ausgewiesen. Erstellen gehört ausdrücklich ebenso dazu wie Lesen und Bearbeiten. Review Center und zusätzliche menschliche Annahme sind keine Voraussetzung; das experimentelle Feature bleibt ausgeschaltet.
+Stand: 17. Oktober 2026. Verbindliche Ergänzung des Nutzerauftrags. Viele Einzelbausteine sind implementiert; der gemeinsame Vertrag ist noch nicht durchgängig angeschlossen oder abgenommen. Neben Adapterarbeit fehlen insbesondere öffentliche versionsgebundene ID-Reads, gemeinsame Suchergebnisse und das externe HTTP-SDK. Erstellen gehört ausdrücklich ebenso dazu wie Lesen und Bearbeiten. Review Center und zusätzliche menschliche Annahme sind keine Voraussetzung; das experimentelle Feature bleibt ausgeschaltet.
 
 ## 1. Ziel und Reihenfolge
 
@@ -22,6 +22,9 @@ Danach werden die gemeinsamen Dokumentfähigkeiten einschließlich MCP/Agent, Su
 | MCP-Suche | `search_knowledge` liest nativen semantischen Text bereits direkt aus Yjs. | Alphabetische Kandidatenreihenfolge, harte Grenzen, keine ID/Version oder Cursor. Nachgeschalteter Endungsfilter schließt sogar native Registrypfade mit anderer Endung aus. |
 | Mobile-Suche | `/api/mobile/v1/notebook?query=…&cursor=…` hat Name-/Pfad-/Inhaltssuche und Ausschnitte. | Inhalt stammt aus Markdown-Projektionen; Scan- und Inhaltsgrenzen sind kein vollständiger nativer Suchindex. |
 | Agenten-Suche | `rg`, Legacy-`grep` und `glob` existieren. | Physische Dateisuche ersetzt keine Suche über den maßgeblichen nativen Dokumentbestand. |
+| Python/Standard-Skill | Interne `canvas_skill.arguments/describe/call`-Bridge und kurze nachladbare Skillkataloge existieren. Der Dokument-Skill liegt als Marketplace-Kandidat vor. | Kein veröffentlichtes HTTP-Python-SDK; Kandidat noch nicht in Registry/Core-Auslieferung. Die gehaltene Scriptbridge ist kein Zugang für beliebige Host-Pythonprozesse; ihr Tool ist standardmäßig deaktiviert. |
+| PDF | `pdf_to_markdown` / `convertPdfFileToMarkdown` parsen tatsächlich und schreiben über `writeAgentTextFile`. | Neue Ausgabeziele fallen noch auf physische Text-/Revisionsanlage zurück. Native Erstanlage, bestätigte Dokument-ID und Herkunft müssen an denselben Importvertrag angeschlossen werden. |
+| Sandbox/Writer-Sperre | Kontrollierte Agenten-Shells und Skillprozesse verwenden OS-Schreibschutz mit schreibbarem Scratch; initialisierte native Projektionen sind zusätzlich gegen ganze Dateiersetzung geschützt. | Vollständige Laufweg-/Plattformabnahme bleibt offen. Diese Launcher isolieren keine beliebigen externen MCP-Server oder Hostprozesse. Der Schutz ist bereits implementiert, kein vollständig offener Neubau. |
 
 Die aktuelle MCP-Suche begrenzt sich auf 400 Kandidaten, 256 KiB je Quelle und 25 Treffer. Mobile durchsucht bis zu 5.000 Dateipfade, davon höchstens 200 Inhalte bis 512 KiB. Diese Grenzen werden bei der Zusammenführung ausdrücklich als Coverage-/Fortsetzungsproblem behandelt; daraus darf kein unbelegtes „keine Treffer im gesamten Workspace“ werden.
 
