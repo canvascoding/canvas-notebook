@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { batchCopyBetweenWorkspaces, getFileStats, withWorkspaceCopyMutationLocks } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { compactWorkspaceSelection, getWorkspacePathName, resolveMoveDestination } from '@/app/lib/files/operation-flows';
@@ -103,12 +104,31 @@ export async function POST(request: NextRequest) {
     if (planId !== undefined && (!/^[0-9a-f]{64}$/u.test(planId) || overwrite)) {
       return jsonError('This preview cannot be applied with the requested options.', 422, { code: 'PREVIEW_UNSUPPORTED_APPLY' });
     }
+    const nativeCopy = !overwrite && authenticatedNativeTextSessionEnabled();
+    const destinationDirectory = nativeCopy ? normalizeWorkspaceRelativePath(destDir) : undefined;
+    const selections = copySources.map((sourcePath) => ({ sourcePath,
+      destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)) }));
 
     if (dryRun) {
       if (overwrite) {
         return jsonError('Dry run cannot safely preview overwrite with the current copy executor.', 422, {
           code: 'PREVIEW_UNSUPPORTED_COLLISION_POLICY',
         });
+      }
+      if (nativeCopy) {
+        const [{ captureWorkspaceOperationCopyOrigin }, { previewWorkspaceNativeCopyOperation },
+          { workspaceOperationNativeCopyPublicPreview }] = await Promise.all([
+          import('@/app/lib/files/workspace-operation-copy-origin'),
+          import('@/app/lib/files/workspace-operation-native-copy-owner'),
+          import('@/app/lib/files/workspace-operation-native-copy-public'),
+        ]);
+        const origin = captureWorkspaceOperationCopyOrigin({
+          actor: { type: 'user', userId: session.user.id, actorId: session.user.id, sessionId: actorSessionId ?? null },
+          sourceWorkspace: sourceWorkspaceResult.workspace, destinationWorkspace: targetWorkspaceResult.workspace,
+        });
+        const plan = await previewWorkspaceNativeCopyOperation({ origin, request, selections, renameOnCollision,
+          destinationDirectory: destinationDirectory === '.' ? '' : destinationDirectory });
+        return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: workspaceOperationNativeCopyPublicPreview(plan) });
       }
       try {
         const destinationStats = await getFileStats(destDir, targetFileOptions);
@@ -129,31 +149,30 @@ export async function POST(request: NextRequest) {
         sourceOptions: sourceFileOptions,
         destinationOptions: targetFileOptions,
         renameOnCollision,
-        selections: copySources.map((sourcePath) => ({
-          sourcePath,
-          destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)),
-        })),
+        selections,
       });
       const { previewContents: _previewContents, ...publicPlan } = plan;
       return jsonSuccess({ dryRun: true, requiresRevalidation: true, plan: publicPlan });
     }
 
     if (!overwrite) {
-      try {
-        const destinationStats = await getFileStats(destDir, targetFileOptions);
-        if (!destinationStats.isDirectory) return jsonError('Destination must be a directory', 409, { code: 'DESTINATION_NOT_DIRECTORY' });
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-          return jsonError('Destination directory was not found', 404, { code: 'DESTINATION_NOT_FOUND' });
+      if (!nativeCopy) {
+        try {
+          const destinationStats = await getFileStats(destDir, targetFileOptions);
+          if (!destinationStats.isDirectory) return jsonError('Destination must be a directory', 409, { code: 'DESTINATION_NOT_DIRECTORY' });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return jsonError('Destination directory was not found', 404, { code: 'DESTINATION_NOT_FOUND' });
+          }
+          throw error;
         }
-        throw error;
       }
       const operation = await executeWorkspaceFileOperationService({
         kind: 'copy',
         source: { workspace: sourceWorkspaceResult.workspace, fileOptions: sourceFileOptions },
         destination: { workspace: targetWorkspaceResult.workspace, fileOptions: targetFileOptions },
-        selections: copySources.map((sourcePath) => ({ sourcePath,
-          destinationPath: resolveMoveDestination(destDir, getWorkspacePathName(sourcePath)) })),
+        selections, request,
+        ...(nativeCopy ? { destinationDirectory: destinationDirectory === '.' ? '' : destinationDirectory } : {}),
         expectedPlanId: planId, renameOnCollision,
         actorUserId: session.user.id, actorId: session.user.id, actorSessionId,
         actorDisplayName: session.user.name ?? 'Workspace user', actorType: 'user',
@@ -278,8 +297,10 @@ export async function POST(request: NextRequest) {
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(error.message, 422, { code: 'PREVIEW_UNREADABLE' });
     if (error instanceof WorkspacePreviewBlockedError) return jsonError(error.message, 409, { code: 'PREVIEW_BLOCKED' });
     const operationError = error as { status?: number; code?: string };
-    if (operationError.status && [403, 409, 422, 503].includes(operationError.status)) {
-      return jsonError(error instanceof Error ? error.message : 'File operation failed', operationError.status,
+    const status = operationError?.code === 'PRINCIPAL_AUTH_REVOKED' ? 401
+      : operationError?.code === 'PRINCIPAL_ACCESS_DENIED' ? 403 : operationError?.status;
+    if (status && [401, 403, 404, 409, 422, 503].includes(status)) {
+      return jsonError(error instanceof Error ? error.message : 'File operation failed', status,
         { code: operationError.code ?? 'WORKSPACE_OPERATION_FAILED' });
     }
     return jsonServerError('[API] File copy error:', error, 'Failed to copy files');

@@ -160,14 +160,14 @@ async function harness() {
       async get() {
         controls.getCalls += 1;
         if (controls.getCalls === 1) await controls.onFirstGet?.();
-        return controls.known;
+        return controls.known ? { steps: [], ...controls.known } : null;
       }
     } };
     if (name === './workspace-operation-path-probe') return {
       probeWorkspacePathOperation: async () => undefined,
       probeWorkspacePathSelectionOperation: async () => undefined,
     };
-    if (name === './workspace-operation-staging') return { WorkspaceOperationStaging: class {} };
+    if (name === './workspace-operation-staging') return { WorkspaceOperationStaging: class { async readKind() { return null; } } };
     if (name === './rename-service') return { renameWorkspacePath: async () => ({}) };
     if (name === './workspace-operation-backup') return { captureWorkspaceOperationBackup: async () => ({ backupId: 'backup' }) };
     return load(name);

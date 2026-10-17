@@ -4,6 +4,7 @@ import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-o
 import type { WorkspaceOperationBatchPlan } from './workspace-operation-batch-contract';
 import { WorkspaceOperationBatchError } from './workspace-operation-batch-store';
 import { workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
+import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
 
 /** Native preview text is a display summary. No Markdown offsets, document
  * IDs, relative positions or native evidence are exposed or fabricated. */
@@ -16,7 +17,7 @@ export type WorkspaceOperationNativeMovePreviewPublic = {
   issues: [];
 };
 export type WorkspacePathOperationPreviewPublic = Omit<WorkspaceFileOperationPreview, 'previewContents'>
-  | WorkspaceOperationNativeMovePreviewPublic;
+  | WorkspaceOperationNativeMovePreviewPublic | WorkspaceOperationNativeCopyPreviewPublic;
 
 export function workspacePathOperationPreview(plan: WorkspaceOperationBatchPlan): WorkspacePathOperationPreviewPublic {
   if (plan.version === 1) {

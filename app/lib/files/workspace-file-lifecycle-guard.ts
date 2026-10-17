@@ -245,13 +245,25 @@ export async function assertWorkspaceFileLifecycleSqlAvailable(database: SqlConn
     if (acquired?.locked !== true) throw new WorkspaceFileLifecycleBusyError();
   }
   for (const path of paths) {
-    const reservation = await database.get(`SELECT s.request_id FROM collaboration_admission_scopes s
-      JOIN collaboration_admission_requests r ON r.request_id = s.request_id
-      WHERE s.workspace_id = $1 AND r.status NOT IN ('committed', 'cancelled')
-        AND (s.path = $2 OR $2 = '' OR left(s.path, length($2) + 1) = $2 || '/'
-          OR (s.kind = 'subtree' AND (s.path = '' OR left($2, length(s.path) + 1) = s.path || '/')))
-      LIMIT 1`, [workspaceId, path]);
-    if (reservation) throw new WorkspaceFileLifecycleBusyError();
+    const ownReservations: string[] = [];
+    while (true) {
+      const reservation = await database.get(`SELECT s.request_id FROM collaboration_admission_scopes s
+        JOIN collaboration_admission_requests r ON r.request_id = s.request_id
+        WHERE s.workspace_id = $1 AND r.status NOT IN ('committed', 'cancelled')
+          AND (s.path = $2 OR $2 = '' OR left(s.path, length($2) + 1) = $2 || '/'
+            OR (s.kind = 'subtree' AND (s.path = '' OR left($2, length(s.path) + 1) = s.path || '/')))
+          AND NOT (s.request_id = ANY($3::text[])) LIMIT 1`,
+      [workspaceId, path, ownReservations]) as { request_id: string } | undefined;
+      if (!reservation) break;
+      // Only the fixed genuine Copy phase can recognize its original durable
+      // reservation on this actual B. No public request-id/skip flag is used.
+      const { readNativeCopyOwnedReservationOnConnection } = await import('./workspace-operation-native-copy-phase');
+      const original = await readNativeCopyOwnedReservationOnConnection(database, reservation.request_id, workspaceId);
+      if (!original || original.requestId !== reservation.request_id || ownReservations.includes(reservation.request_id)
+        || ownReservations.length >= 1000) throw new WorkspaceFileLifecycleBusyError();
+      ownReservations.push(reservation.request_id);
+      // Continue scanning: our own first match must not hide another request.
+    }
     const rows = await database.all(`SELECT document_id, room_owner_token, room_owner_backend_pid, room_owner_backend_start
       FROM collaboration_yjs_states WHERE workspace_id = $1
         AND (path = $2 OR $2 = '' OR left(path, length($2) + 1) = $2 || '/')

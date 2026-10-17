@@ -127,7 +127,7 @@ async function main() {
     buildWorkspacePathOperationPlan: async () => {
       assert.equal(lockDepth, 1);
       const linkPlan = { ...preview(), planId: 'b'.repeat(64) };
-      return { planId: currentPlanId, readiness: currentReadiness, linkPlan };
+      return { version: 1, planId: currentPlanId, readiness: currentReadiness, linkPlan };
     },
     submitDirectWorkspacePathOperation: async (input: (typeof submitted)[number]) => {
       assert.equal(lockDepth, 1, 'submission follows a refreshed permission check under the mutation lock');
