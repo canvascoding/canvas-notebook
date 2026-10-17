@@ -47,6 +47,11 @@ export interface WorkspaceFileMutation {
   fileVersion?: string;
 }
 
+type FileWatcherDependencies = {
+  /** Raw filesystem notifications carry projection facts, not native births. */
+  classifyFilesystemEvent?: (input: { workspace: WorkspaceContext; event: FileEvent }) => Promise<FileEvent>;
+};
+
 function normalizeRelativePath(value: string): string {
   const normalized = value.replaceAll('\\', '/');
   const withoutCurrentDirectory = normalized.startsWith('./') ? normalized.slice(2) : normalized;
@@ -87,7 +92,7 @@ export class FileWatcherService {
   private readonly STALE_TIMEOUT_MS = 90_000;
   private managedRenames = new Map<string, { mutation: WorkspacePathRenameMutation; committed: boolean }>();
 
-  constructor() {
+  constructor(private readonly dependencies: FileWatcherDependencies = {}) {
     this.startStaleCheck();
   }
 
@@ -304,8 +309,20 @@ export class FileWatcherService {
         const fullFilePath = path.join(fullPath, filename.toString());
 
         const managedRename = this.findManagedRename(workspace.workspaceId, relativeFilePath);
-        void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then((event) => {
-          if (event && !managedRename?.committed) this.queueEvent(event);
+        const currentWatcher = () => this.watchers.get(key) === watcher
+          && this.subscriptions.get(key) === subscription && subscription.clients.size > 0;
+        void this.determineEventType(eventType, relativeFilePath, fullFilePath, workspace).then(async (event) => {
+          if (!event || !currentWatcher()) return;
+          const classified = this.dependencies.classifyFilesystemEvent
+            ? await this.dependencies.classifyFilesystemEvent({ workspace, event }) : event;
+          if (currentWatcher() && !managedRename?.committed) this.queueEvent(classified);
+        }).catch(() => {
+          if (!currentWatcher()) return;
+          // An unavailable authority read cannot become an invented file birth
+          // or deletion. Refresh views and retain an observable safe diagnostic.
+          clearSubtreeCache(getParentDirectory(relativeFilePath), workspace.workspaceId);
+          invalidateFileReferenceCache({ workspace });
+          console.warn('[FileWatcher]', { code: 'FILESYSTEM_AUTHORITY_UNAVAILABLE' });
         });
       });
 
@@ -489,7 +506,12 @@ export class FileWatcherService {
 const watcherRuntime = globalThis as typeof globalThis & { __canvasFileWatcherService?: FileWatcherService };
 
 export function getFileWatcher(): FileWatcherService {
-  return watcherRuntime.__canvasFileWatcherService ??= new FileWatcherService();
+  return watcherRuntime.__canvasFileWatcherService ??= new FileWatcherService({
+    async classifyFilesystemEvent(input) {
+      const { classifyWorkspaceFilesystemEvent } = await import('./native-file-event');
+      return classifyWorkspaceFilesystemEvent(input);
+    },
+  });
 }
 
 export function withWorkspacePathRenameEvent<T>(
