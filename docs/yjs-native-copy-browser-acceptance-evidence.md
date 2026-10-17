@@ -2,6 +2,8 @@
 
 Stand: 17. Oktober 2026. Der frische kompilierte Lauf ist beendet und bleibt **fehlgeschlagen**. Der Ressourcenabschluss ist separat bestätigt; die korrigierte Testspezifikation wurde noch nicht erneut im Browser ausgeführt.
 
+Nachtrag: Die anschließend ausgeführte [zweite frische Build-/Browserfolge](./yjs-native-copy-second-browser-evidence.md) ist ebenfalls beendet. Die damaligen Korrekturen wurden dort ausgeführt; der Gesamtstand bleibt mit 2/6 bestanden und vier weiteren, getrennt dokumentierten Fehlern offen. Nachfolgende Abschnitte erhalten den ursprünglichen ersten Lauf und dessen damalige Grenzen unverändert.
+
 ## Gebauter und tatsächlich geprüfter Stand
 
 | Bindung | Tatsächlicher Wert |

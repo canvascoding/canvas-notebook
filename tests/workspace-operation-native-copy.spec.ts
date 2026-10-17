@@ -168,6 +168,14 @@ async function bytes(request: APIRequestContext, workspaceId: string, file: stri
   const response = await request.get('/api/files/download', { headers: headers(workspaceId), params: { path: file } });
   expect(response.status()).toBe(200); expect(await response.body()).toEqual(expected);
 }
+function expectSameCompleteOperation(actual: Operation, expected: Operation): void {
+  for (const operation of [actual, expected]) {
+    expect(new Set(operation.completedSteps).size).toBe(operation.completedSteps.length);
+  }
+  expect(actual.completedSteps).toHaveLength(expected.completedSteps.length);
+  expect({ ...actual, completedSteps: [...actual.completedSteps].sort() })
+    .toEqual({ ...expected, completedSteps: [...expected.completedSteps].sort() });
+}
 async function status(request: APIRequestContext, operation: Operation) {
   const response = await request.get(`/api/files/operations/${operation.operationId}`); expect(response.status()).toBe(200);
   const body = await response.json(); privateFieldsAbsent(body);
@@ -180,6 +188,8 @@ async function copyInUi(page: Page, f: Fixture, sourceId: string, targetId: stri
   directory: string, createDirectory: boolean, links: number, info: TestInfo,
   recovery?: { beforeApply: (preview: WorkspaceOperationNativeCopyPreviewPublic) => Promise<void> }) {
   await page.goto(`/en/files?workspaceId=${sourceId}`);
+  await page.getByRole('navigation', { name: 'Current folder path', exact: true })
+    .getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
   const row = page.locator(`[data-file-path="${sourcePath}"]`).filter({ visible: true }).first(); await expect(row).toBeVisible(); await row.hover();
   await row.getByRole('button', { name: /^More actions for /u }).click();
   await page.getByRole('menuitem', { name: 'Copy to workspace', exact: true }).click();
@@ -355,7 +365,8 @@ test.describe('owned native Copy through V4 preview, rich editor and original co
         expect(currentLogin.userId).toBe(originalLogin.userId); expect(currentLogin.sessionId).not.toBe(originalLogin.sessionId);
         const replay = await loggedIn.request.post(`/api/files/operations/${operation.operationId}`); expect(replay.status()).toBe(200);
         const replayBody = await replay.json(); privateFieldsAbsent(replayBody);
-        expect(replayBody).toMatchObject({ success: true, operation, linkStatus: 'complete' });
+        expect(replayBody).toMatchObject({ success: true, linkStatus: 'complete' });
+        expectSameCompleteOperation(replayBody.operation, operation);
         expect(await status(loggedIn.request, operation)).toEqual(originalStatus);
         expect(await children(loggedIn.request, targetId, '.')).toEqual(originalChildren);
         expect(version(await session(loggedIn.request, targetId, notePath))).toEqual(version(edited.session));
@@ -450,13 +461,7 @@ test.describe('owned native Copy through V4 preview, rich editor and original co
           const historical = await page.request.post(`/api/files/operations/${pending.operation.operationId}`, { timeout: 90_000 });
           expect(historical.status()).toBe(200); const historicalBody = await historical.json(); privateFieldsAbsent(historicalBody);
           expect(historicalBody).toMatchObject({ success: true, linkStatus: 'complete' });
-          const historicalOperation = historicalBody.operation as Operation;
-          for (const operation of [recoveredBody.operation as Operation, historicalOperation]) {
-            expect(new Set(operation.completedSteps).size).toBe(operation.completedSteps.length);
-          }
-          expect(historicalOperation.completedSteps).toHaveLength(recoveredBody.operation.completedSteps.length);
-          expect({ ...historicalOperation, completedSteps: [...historicalOperation.completedSteps].sort() })
-            .toEqual({ ...recoveredBody.operation, completedSteps: [...recoveredBody.operation.completedSteps].sort() });
+          expectSameCompleteOperation(historicalBody.operation, recoveredBody.operation);
           expect(await status(page.request, recoveredBody.operation)).toEqual(completedStatus);
           // A real later heartbeat on this same files subscription closes the observation window.
           const afterHistoryHeartbeat = observer.snapshot().heartbeats;

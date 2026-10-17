@@ -4,6 +4,8 @@ Stand: 17. Oktober 2026. Backendanschluss im Worktree abgenommen; die gemeinsame
 
 Aktueller Nachtrag: Der erste gemeinsame frische Build besteht. Die [anschließende Browserfolge](./yjs-native-copy-browser-acceptance-evidence.md) endet mit tatsächlichem Exit 1, 2/6 bestanden und vier Fehlern; CopyOrigin2 und UndoOFF2 starten nicht. Zwei anhand der Originaltraces belegte Testannahmen sind eng korrigiert, noch nicht erneut im Browser geprüft. Eine mögliche vorzeitige physische Projektion während Pending-Copy bleibt gesondert zu untersuchen; dieser Backendnachweis garantiert keine Copy-weite Unterdrückung aller physischen Watcherereignisse.
 
+Der [zweite frische Build und Browserlauf](./yjs-native-copy-second-browser-evidence.md) führt diese damaligen Korrekturen tatsächlich aus, bleibt aber mit 2/6 bestanden und vier neuen Fehlerstellen ebenfalls rot. Zwei weitere Testannahmen sind korrigiert; ein einzelner Transportabbruch und ein tatsächlicher Plan-ID-Konflikt sind ungeklärt. Beide Projektionsgegenproben und die vollständige Browserfolge bleiben offen; der frühere Backendumfang wird dadurch nicht zu einer aktuellen UI-Abnahme erweitert.
+
 ## Verhalten und Anschluss
 
 Der bestehende `executeWorkspaceFileOperationService` finalisiert native Copy-Ansichten zentral. Dadurch benutzen Copy-POST, Recovery-POST und die vorhandenen direkten PI-/Agentenaufrufe denselben Anschluss. Der vorhandene `invalidateWorkspaceFileViews` und die gesamte `route-helpers.ts` bleiben bytegleich.
