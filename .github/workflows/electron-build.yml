@@ -132,6 +132,8 @@ jobs:
             exit 1
           fi
 
+          app_path="$(cd "$(dirname "$app_path")" && printf '%s/%s' "$(pwd -P)" "$(basename "$app_path")")"
+
           codesign --verify --deep --strict --verbose=2 "$app_path"
           CANVAS_ELECTRON_MAC_TEST_BUNDLE="$app_path" node --test electron/main/microphone-packaging.test.mjs
           xcrun stapler validate "$app_path"
