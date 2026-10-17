@@ -36,6 +36,7 @@ import { groupWorkspaceLinkWrites, type WorkspaceLinkWriteGroup } from '@/app/li
 import { authoritativeCollaborationSnapshot, materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
 import { ensureCollaborationDocumentIdleReleased } from '@/app/lib/collaboration/document-idle-release';
 import { loadCollaborationState, serializeCanonicalText } from '@/app/lib/collaboration/persistence';
+import { hasPendingCollaborationProjection, loadCollaborationProjectionStatus } from '@/app/lib/collaboration/projection-repository';
 import { computeWorkspaceFileOperationPlanId } from '@/app/lib/markdown/workspace-file-operation-planner';
 import { buildWorkspacePlannerSnapshot } from '@/app/lib/markdown/workspace-file-operation-preview';
 import { buildWorkspaceAuthoritativePlannerSnapshot } from '@/app/lib/markdown/workspace-authoritative-planner-snapshot';
@@ -123,7 +124,10 @@ async function checkpointBatchLink(input: WorkspaceLinkWriteExecutorInput, group
   if (diskHash !== group.beforeSha256 && diskHash !== group.afterSha256) throw new Error('BATCH_CHECKPOINT_FILE_CHANGED');
   // The queued projector cannot acquire the workspace lock while this batch owns it.
   // Reuse its transactional lifecycle/sequence fence in our reentrant lock instead.
-  if (diskHash !== group.afterSha256 || state.checkpointSequence < state.documentSequence) {
+  const projection = await loadCollaborationProjectionStatus(state);
+  // Matching bytes and sequence can precede receipt and registry finalization.
+  if (diskHash !== group.afterSha256 || state.checkpointSequence < state.documentSequence
+    || !projection.projectionFinalized || await hasPendingCollaborationProjection(state)) {
     await materializeCollaborationCheckpoint({ state, workspace: input.destination.workspace,
       actorUserId: input.actorUserId, actorType: input.actorType ?? 'user', sourceSessionId: input.actorSessionId });
   }
