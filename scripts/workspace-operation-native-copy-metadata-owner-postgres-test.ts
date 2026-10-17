@@ -256,7 +256,15 @@ async function runNativeCopyMetadataOwnerPostgresTest(): Promise<void> {
       const job = await newJob(sourcePath);
       const { readWorkspaceLinkSourceAuthorityOnConnection } = await import('../app/lib/markdown/workspace-source-authority-stage');
       const { withPreparedWorkspacePathCopy, readPreparedWorkspacePathCopy } = await import('../app/lib/filesystem/prepared-workspace-path-copy');
+      const { createWorkspaceOperationNativeCopyPlanV1 } = await import('../app/lib/files/workspace-operation-native-copy-plan');
       const observations = await Promise.all([h.source, h.destination].map(workspace => readWorkspaceLinkSourceAuthorityOnConnection(h.connection, workspace)));
+      // A historical Stage needs its historical plan even when today's preview
+      // uses V2. Construct V1 from these genuine observations, without changing
+      // the current-owner factory or relaxing the Plan/Original version guard.
+      const legacyPlan = createWorkspaceOperationNativeCopyPlanV1({ sourceScope: { workspace: h.source, fileOptions: {} },
+        destinationScope: { workspace: h.destination, fileOptions: {} }, selections: job.selections,
+        sourceObservation: observations[0], destinationObservation: observations[1] });
+      const legacyJob: Job = { ...job, plan: legacyPlan, expectedPlanId: legacyPlan.planId };
       const nativeRecords = observations.flatMap(observation => observation.privateNativeStates.map(state => {
         const binding = observation.nativeBindings.find(item => item.expected.documentId === state.documentId); assert(binding);
         return { lineageId: binding.expected.lineageId, state };
@@ -268,7 +276,7 @@ async function runNativeCopyMetadataOwnerPostgresTest(): Promise<void> {
       // observations. No V3 job/header or foreign reservation exists here.
       // These data grant no current permission: the owner reauthenticates.
       const legacyId = job.operationId, request = { kind: 'copy' as const, origin, selections: job.selections };
-      const prepared = prepareNativeCopyStage({ operationId: legacyId, request, plan: job.plan, physical, nativeRecords });
+      const prepared = prepareNativeCopyStage({ operationId: legacyId, request, plan: legacyJob.plan, physical, nativeRecords });
       const legacy = decodeNativeCopyStage(prepared.manifest, prepared.recordsBytes, prepared.manifest.identity); assert.equal(legacy.version, 2);
       assert.equal(await journal.get(legacyId), null); assert.equal(await row(legacyId), undefined);
       assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM collaboration_admission_requests r JOIN collaboration_admission_scopes s ON s.request_id=r.request_id WHERE s.workspace_id=$1 AND r.status NOT IN ($2,$3)', [h.destination.workspaceId, 'committed', 'cancelled'])).rows[0].n, 0);
@@ -277,7 +285,7 @@ async function runNativeCopyMetadataOwnerPostgresTest(): Promise<void> {
       await journal.prepare({ operationId: legacyId, planId: legacy.plan.planId, sourceWorkspaceId: h.source.workspaceId, destinationWorkspaceId: h.destination.workspaceId,
         actor: { type: 'user', id: 'member' }, request: legacy.request, expectedStepCount: nativeCopyPhaseStepCount(legacy) });
       assert.equal(serialized.requestHash, legacy.identity.canonicalRequestHash);
-      const legacyJob = job, result = await run(legacyJob); assert.equal(result.execution.status, 'complete', JSON.stringify(result.execution));
+      const result = await run(legacyJob); assert.equal(result.execution.status, 'complete', JSON.stringify(result.execution));
       const stored = await journal.get(legacyId), completion = stored?.steps.find(step => step.stepKey === 'copy-completion'); assert(completion?.receiptJson);
       assert.equal(JSON.parse(completion.receiptJson).version, 1);
       assert.equal((await titles(h.destination.workspaceId, legacyJob.selections[0].destinationPath)).length, 0);
