@@ -108,3 +108,34 @@ Die privaten Wiederholungen liegen unter `/private/tmp/cn-move-delete-source-pro
 | `independent-closure.json` | `61d6a537dd3ead1ceee576e112f49638cc3877f92a9c4a075c86e1228e25d487` | `c7612cfce8280148ce2a2784cb89a982f3eb824e907cf4a8c2e341df6ba2ca56` |
 
 Dieser Durchstich beweist die ursprüngliche Preview-Anwendbarkeit nach reiner Quellenprojektion. Post-B1-ACK-Verlust/Ownerverlust, historische Recovery, vollständige ursprüngliche Negativ-/Lastregressionen und frische gemeinsame Transport-/UI-Abnahme bleiben offen. Der zusätzlich reproduzierte ältere Asset-Delete-/Native-Backlink-Konflikt wird separat korrigiert; diese sechs nativen Ownerfälle beweisen dessen Abschluss nicht. Dateiaktions-Undo, Review Center und allgemeine Aktivierung bleiben aus.
+
+
+## Original-Move: tatsächlicher Post-B1-ACK-Verlust und Projector-Deferral
+
+Auf Root `ada376646345e5730d4667609c3bc3e1043a7189` / QA `c557c53c6ed3b61800428e7eae2e0aa45d32cd56` besteht das echte einzelne Szenario unter `/private/tmp/cn-move-b1-root-runner-pending-jfltu44o`. Ein tatsächlicher B1-COMMIT verliert seine Antwort; der echte Owner ist geschlossen. Der reguläre Projector erwirbt danach positiv seinen Shared-Lock, erkennt den dauerhaft offenen Move-Intent und bleibt sowohl vor als auch nach echter Claimfreigabe ohne SQL-/Dateiänderung zurückgestellt. Dieselbe Operation wird über den echten Store ohne Repreview fortgesetzt; ursprünglicher Intent und vorbereitete CRDT-Identitäten bleiben erhalten. Vollständige native Ergebnisbelege und unabhängig angewandtes vorbereitetes Delta stimmen überein. Nach Abschluss kann der authentifizierte Import D2 am alten Movepfad erzeugen; der alte Projector wird wegen geänderter Identität abgewiesen, der neue Zielpfad funktioniert und D2 bleibt unverändert.
+
+Originalchild und Runner Exit 0, ein tatsächlich gestartetes Szenario, kein Timeout/Signal; unabhängiger Ressourcenabschluss Exit 0. Die Bindung umfasst 6.918 Rootquellen und die konkreten Root-/QA-/CP- und Native-Pins. Dies ist keine Move-B2-ACK-Verlust- oder historische Store-Recoveryprüfung bei schon vorhandenem D2 und kein UI-/HTTP-Nachweis.
+
+| Move-Artefakt | SHA-256 |
+| --- | --- |
+| Unverändertes Kindskript | `e6fe8520882062409f86496464e49488af22e9b020f6a2e2d5829aecdcf6d274` |
+| `ready.json` | `33c5eed454fe048711dd8309248f2442fca2c9958460737ee9273e66becb8dfd` |
+| `results.json` | `16ddfa9ee33c6810afae9456feeb7103e89cd010f571205fa521622fdcc9f68e` |
+| `independent-closure.json` | `3d3d251148cb1c7dd571a1f970111160280ff54e970de003fc80339e8b2fdb79` |
+
+## Original-Delete: B1/B2 bestätigt, tatsächliche Neuanlage am gelöschten Pfad blockiert
+
+Das separate echte Szenario `/private/tmp/cn-delete-b1-root-runner-pending-zmnty5xv` auf denselben Quellen endet tatsächlich mit **Exit 1**. Bis dahin bestehen tatsächlicher B1-COMMIT-ACK-Verlust/Ownerabschluss, dauerhafter Projector-Ausschluss vor/nach Claimfreigabe, echte Wiederaufnahme sowie der zweite tatsächliche B2-COMMIT-ACK-Verlust. Archivierung, zentraler nativer Link, Trash, immutable Completion sind auf dieselbe B2-Transaktion gebunden. Anschließende reale Quellenprojektion ist vollständig; ursprüngliche native Belege bleiben unverändert.
+
+Der erste Fehler entsteht erst bei der echten authentifizierten D2-Erzeugung am zuvor gelöschten Pfad: `MARKDOWN_IMPORT_LIFECYCLE_REQUIRED` in `captureAuthenticatedUpload`. Der bisherige any-status-Registrycheck blockiert auch korrekt archiviertes D1. Die Datenbank erlaubt Wiederbelegung ausdrücklich durch aktive partielle Unique-Indizes. Auch manuelles Create nutzt denselben bisher blockierenden Erzeugungskern. Die spätere historische Wiederaufnahme mit D2 wurde deshalb nicht erreicht und ist nicht bestanden. Der unabhängige Abschluss besteht; alle eigenen Ressourcen sind geschlossen und bestehende Dienste unverändert.
+
+| Delete-Artefakt des roten Originals | SHA-256 |
+| --- | --- |
+| Unverändertes Kindskript | `2427f9eeb3756fe0c528bf203a5fc320a99f77141bdd6eaa2263ea6826913834` |
+| `ready.json` | `9bf6060334d56ee761fcb8095113770a52f0bc829dfbd4bee4d9e581363981c8` |
+| `results.json` | `081f30f55a6a1da04e3dae511871a0569ca50fd36185ccc32aabe4faa47bded0` |
+| `independent-closure.json` | `fda4256c85c5de94e8148f211e33c185585f44618a7e52cb0ae0d670a14c6b71` |
+
+Die enge Korrektur betrifft ausschließlich authentifiziertes First-Birth-Create: physische Abwesenheit und echter privater Birthclaim bleiben zwingend; ausschließlich archivierte Historie und keine aktive Lineage sind erlaubt. Vor neuer Native-DML wird unter dem echten EXCLUSIVE Owner zusätzlich jeder dauerhaft offene Original-Move/Delete-Intent abgewiesen. Neue Dokument-ID und Lineage entstehen frisch; D1/Archivzustand/Receipts werden nicht geändert. Pristine-/Originaldatei-/Session-Bootstrap-Sperren bleiben erhalten. Unabhängiges Source-Review bestätigt die Auth-/Owner-/Realm-/Replaygrenzen. Der echte Folgelauf auf der Korrektur bleibt bis zu seinem tatsächlichen Ergebnis offen.
+
+Die ursprüngliche strenge Probe liegt zusätzlich als Repositoryregression `scripts/workspace-operation-original-delete-recreate-postgres-test.ts` vor. Nur Import-/Reportpfade und Suitebezeichnung wurden tragbar gemacht; die Receipt-Typen sind konkret. B1/B2-Faults, sämtliche Domainassertions, Zeitgrenze und echter Ressourcenabschluss bleiben erhalten. npm-Einstieg: `test:files:original-delete-recreate:postgres`; benötigt den bestehenden verwalteten lokalen PG18-Stack. Keine neue Testumgebung oder Containeranlage.

@@ -933,10 +933,23 @@ async function captureAuthenticatedUpload(database: SqlConnection, frame: Bootst
     FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`,
   [input.workspace.workspaceId, input.path]) as Array<Record<string, unknown>>;
   const document = rows[0];
+  let recreatingArchivedPath = false;
   if (!prior) {
     if (!document) {
-      if (catalogue.length || await database.get(`SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 LIMIT 1`,
-        [input.workspace.workspaceId, input.path])) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+      const historical = await database.all(`SELECT status FROM collaboration_documents
+        WHERE workspace_id=$1 AND path=$2 ORDER BY id FOR UPDATE`,
+      [input.workspace.workspaceId, input.path]) as Array<{ status: string }>;
+      if (catalogue.length || historical.some(row => row.status !== 'archived')
+        || historical.length > 0 && !uploadBirthTargets.has(absence)) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+      if (historical.length) {
+        // A real first-birth claim creates a new identity at the vacant path;
+        // it must never adopt or reactivate an archived document or lineage.
+        // Retain the actual EXCLUSIVE owner and reject unfinished originals
+        // before any new native DML, as well as before first publication.
+        const { assertNoPendingOriginalFileOperationProjection } = await import('./projection-publication-guard');
+        await assertNoPendingOriginalFileOperationProjection(database, input.workspace.workspaceId, frame.realm.schema);
+        recreatingArchivedPath = true;
+      }
     } else {
       if (rows.length !== 1 || catalogue.length !== 1 || catalogue[0].id !== document.id || catalogue[0].authority !== 'pristine'
         || !validId(document.id) || document.provider !== 'yjs' || document.workspace_type !== input.workspace.workspaceType
@@ -951,7 +964,7 @@ async function captureAuthenticatedUpload(database: SqlConnection, frame: Bootst
   const lineages = await database.all(`SELECT id,organization_id,workspace_type,customer_id,project_id FROM file_collaboration_lineages
     WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`, [input.workspace.workspaceId, input.path]) as Array<Record<string, unknown>>;
   const existing = lineages[0];
-  if (lineages.length > 1 || existing && (!validId(existing.id) || existing.organization_id !== (input.workspace.organizationId ?? null)
+  if (recreatingArchivedPath && lineages.length > 0 || lineages.length > 1 || existing && (!validId(existing.id) || existing.organization_id !== (input.workspace.organizationId ?? null)
     || existing.workspace_type !== input.workspace.workspaceType || existing.customer_id !== (input.workspace.customerId ?? null)
     || existing.project_id !== (input.workspace.projectId ?? null)) || document?.lineage_id && document.lineage_id !== existing?.id
     || existing && await database.get(`SELECT id FROM collaboration_documents WHERE lineage_id=$1 AND id<>$2 LIMIT 1`,

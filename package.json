@@ -667,6 +667,7 @@
     "test:collaboration:native-schema": "tsx --conditions react-server scripts/collaboration-native-schema-test.ts",
     "test:collaboration:markdown-file-import": "tsx --conditions react-server scripts/markdown-file-import-test.ts",
     "test:collaboration:markdown-file-import:postgres": "tsx --conditions react-server scripts/markdown-file-import-postgres-test.ts",
+    "test:files:original-delete-recreate:postgres": "NODE_ENV=test CANVAS_DATABASE_PROVIDER=postgres CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/workspace-operation-original-delete-recreate-postgres-test.ts",
     "test:collaboration:pristine-original-bootstrap:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/workspace-pristine-original-bootstrap-postgres-test.ts",
     "test:collaboration:pristine-initial-format:postgres": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/workspace-pristine-initial-format-postgres-test.ts",
     "test:files:native-mixed-batch": "tsx --conditions react-server scripts/workspace-native-mixed-batch-test.ts",
