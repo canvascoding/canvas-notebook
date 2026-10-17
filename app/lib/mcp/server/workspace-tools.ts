@@ -10,6 +10,10 @@ import {
 } from '@modelcontextprotocol/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { DocumentReadError } from '@/app/lib/documents/contracts';
+import { readDocumentForDirectMcp } from '@/app/lib/documents/service';
+import { DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, DOCUMENT_READ_PAGE_JSON_SCHEMA_V1 } from '@/app/lib/documents/read-json-schema';
+import { decodeDirectMcpDocumentReadSelection, DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES } from './document-read-tool-contract';
 import {
   getFileStats,
   listDirectory,
@@ -589,30 +593,42 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
   return {
     name: tool,
     title: 'Read workspace document',
-    description: 'Reads a bounded text excerpt from a visible file in an accessible workspace.',
+    description: 'Reads a visible native document by stable document_id with a full version and UTF-8 continuation pages, or preserves the legacy path-based text excerpt and SHA-256 contract. Supply exactly one selector. Native pages contain the full document/currency/projection envelope; follow nextCursor until complete before treating the body as complete.',
     inputSchema: {
       type: 'object' as const,
       properties: {
         workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
-        path: { type: 'string', description: 'Workspace-relative file path.' },
-        offset: { type: 'integer', minimum: 0, description: 'Character offset. Defaults to 0.' },
-        max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Maximum returned characters. Defaults to 12000.' },
+        path: { type: 'string', description: 'Legacy workspace-relative file path. Cannot be combined with document_id or native page fields.' },
+        offset: { type: 'integer', minimum: 0, description: 'Legacy path mode only: UTF-16 character offset. Defaults to 0.' },
+        max_characters: { type: 'integer', minimum: 1, maximum: MAX_READ_CHARACTERS, description: 'Legacy path mode only: maximum returned characters. Defaults to 12000.' },
+        ...DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES,
       },
-      required: ['workspace_id', 'path'],
+      required: ['workspace_id'],
+      oneOf: [
+        { properties: { path: {} }, required: ['path'],
+          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor']
+            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
+        { properties: { document_id: {}, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } }, required: ['document_id'],
+          not: { anyOf: ['path', 'offset', 'max_characters']
+            .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
+      ],
       additionalProperties: false,
     },
     outputSchema: {
       type: 'object' as const,
-      properties: {
-        path: { type: 'string' },
-        content: { type: 'string' },
-        sha256: { type: 'string' },
-        source: { type: 'string' },
-        truncated: { type: 'boolean' },
-        next_offset: { type: ['integer', 'null'] },
-      },
-      required: ['path', 'content', 'sha256', 'source', 'truncated', 'next_offset'],
-      additionalProperties: false,
+      oneOf: [
+        {
+          type: 'object', additionalProperties: false,
+          properties: {
+            workspace_id: { type: 'string' }, path: { type: 'string' }, content: { type: 'string' },
+            sha256: { type: 'string' }, source: { type: 'string' }, truncated: { type: 'boolean' },
+            next_offset: { type: ['integer', 'null'] }, size: { type: 'integer' }, modified_at: { type: ['string', 'null'] },
+          },
+          required: ['workspace_id', 'path', 'content', 'sha256', 'source', 'truncated', 'next_offset', 'size', 'modified_at'],
+        },
+        DOCUMENT_READ_PAGE_JSON_SCHEMA_V1,
+        DOCUMENT_READ_ERROR_JSON_SCHEMA_V1,
+      ],
     },
     annotations: {
       readOnlyHint: true,
@@ -1045,6 +1061,32 @@ async function executeReadKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpDocumentReadSelection>;
+  try { nativeSelection = decodeDirectMcpDocumentReadSelection(args); }
+  catch { invalidParams('Native document selection must use only workspace_id, document_id, format, expected_version, max_bytes and cursor with valid values. Do not mix path or character offsets with native pages.'); }
+  if (nativeSelection) {
+    const authorization = await authenticateForTool(authInfo, 'knowledge:read');
+    if ('result' in authorization) return authorization.result;
+    if (!authInfo) return directMcpToolAuthorizationError(undefined, 'knowledge:read');
+    try {
+      const page = await readDocumentForDirectMcp(authInfo, nativeSelection);
+      try { assertVisibleWorkspacePath(page.document.path); }
+      catch { throw new DocumentReadError('ACCESS_DENIED'); }
+      // This genuine workspace read supplies audit identity only; the central
+      // service already performed its own current authorization on actual B.
+      const workspace = await readableWorkspace(authorization.principal, nativeSelection.workspaceId);
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'read_knowledge_source',
+        workspace, resultCount: page.byteLength, path: page.document.path });
+      return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page };
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:read');
+      if (error instanceof DocumentReadError) {
+        const failure = { apiVersion: 1, success: false, code: error.code };
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+      }
+      return errorResult('Could not read the Canvas native document.');
+    }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);

@@ -31,6 +31,7 @@ import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
 import { createWebSearchTool, createWebFetchTool, createRipgrepTool } from '@/app/lib/pi/web-tools';
 import { createInspectDocumentRelationsTool } from '@/app/lib/pi/document-relations-tool';
+import { createDocumentReadTool } from '@/app/lib/pi/document-read-tool';
 import { createPdfTools } from '@/app/lib/pi/pdf-tools';
 import { createOfficeDocumentTools } from '@/app/lib/pi/office-document-tools';
 import {
@@ -146,6 +147,7 @@ export const piTools: AgentTool[] = [
   createRipgrepTool(),
   createTranscribeAudioTool(),
   createInspectDocumentRelationsTool(),
+  createDocumentReadTool(),
   ...createPdfTools(),
   ...createOfficeDocumentTools(),
   {
