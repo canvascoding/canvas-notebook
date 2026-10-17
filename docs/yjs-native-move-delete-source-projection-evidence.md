@@ -139,3 +139,19 @@ Der erste Fehler entsteht erst bei der echten authentifizierten D2-Erzeugung am 
 Die enge Korrektur betrifft ausschließlich authentifiziertes First-Birth-Create: physische Abwesenheit und echter privater Birthclaim bleiben zwingend; ausschließlich archivierte Historie und keine aktive Lineage sind erlaubt. Vor neuer Native-DML wird unter dem echten EXCLUSIVE Owner zusätzlich jeder dauerhaft offene Original-Move/Delete-Intent abgewiesen. Neue Dokument-ID und Lineage entstehen frisch; D1/Archivzustand/Receipts werden nicht geändert. Pristine-/Originaldatei-/Session-Bootstrap-Sperren bleiben erhalten. Unabhängiges Source-Review bestätigt die Auth-/Owner-/Realm-/Replaygrenzen. Der echte Folgelauf auf der Korrektur bleibt bis zu seinem tatsächlichen Ergebnis offen.
 
 Die ursprüngliche strenge Probe liegt zusätzlich als Repositoryregression `scripts/workspace-operation-original-delete-recreate-postgres-test.ts` vor. Nur Import-/Reportpfade und Suitebezeichnung wurden tragbar gemacht; die Receipt-Typen sind konkret. B1/B2-Faults, sämtliche Domainassertions, Zeitgrenze und echter Ressourcenabschluss bleiben erhalten. npm-Einstieg: `test:files:original-delete-recreate:postgres`; benötigt den bestehenden verwalteten lokalen PG18-Stack. Keine neue Testumgebung oder Containeranlage.
+
+
+### Frischer vollständiger Delete-B1/B2-/Recreate-Folgelauf bestanden
+
+Root `953f54f0026aa96e5b9a5d6cdce3dff6e044480e` / QA `c703470c1d19ac6f310544bc48a4a621954a6449` enthalten die enge authentifizierte Create-Korrektur und die dauerhafte Repositoryregression. Vollständiges cachefreies TypeScript, Scoped-Lint und acht bestehende Markdownimport-Prüfungen bestehen. Der frisch ausschließlich lesend aktualisierte GitNexus-Index umfasst 84.601 Knoten/235.501 Kanten; die Änderungskontrolle meldet sechs erwartete Dateien/70 Symbole, Risiko LOW. Der Root-/QA-Unterschied bleibt exakt auf die drei vorher erlaubten Gate-/Dokumentdateien begrenzt.
+
+Der echte Repositorytest läuft unter `/private/tmp/cn-delete-recreate-root-runner-pending-a3ambh_2` mit 6.919 gebundenen aktuellen Quellen. Alle ursprünglichen strengen Domainassertions schließen ab: echte B1- und B2-COMMIT-ACK-Verluste, jeweiliger tatsächlicher Ownerabschluss, Projector-Zurückstellung bei dauerhaftem offenen Intent vor/nach Claimverlust, ursprüngliche Recovery, exakt eine native Linkänderung und ein Trashpayload. Die bestätigte spätere D2-Anlage erhält eine andere Dokument-ID und Lineage. Die historische tatsächliche Store-Recovery mit D2 am alten Pfad endet erfolgreich und hat **null beobachtete Domain-DML**; vollständige D2-Fakten, archiviertes D1, ursprüngliche immutable Journale, Linkreceipt und Trash bleiben unverändert. Originalchild/Runner Exit 0, keine Signale/Timeouts, kein Skip und kein Repreview.
+
+Der unabhängige Auditor endet mit Exit 0; eigene Prozesse/Gruppen, echte Schema-OIDs/Backendidentitäten/Advisorylocks und Fixture-DATA sind entfernt beziehungsweise geschlossen. Alle vier vorhandenen verwalteten Dienste und Listener/Gesundheitsprüfungen bleiben unverändert. Der tatsächliche vorige D2-Create-RED bleibt erhalten. Die Pure- und Runtimebelege sind getrennt; es wird keine neue Browser-/HTTP-/MCP-/SDK-/Produktionsabnahme behauptet. Das zusätzliche spätere Legacy-Receipt-Finalisierungsgate sowie weitere ursprüngliche Regressionen und gemeinsame neue UI-Abnahme bleiben offen.
+
+| Artefakt des tatsächlichen erfolgreichen Repositorylaufs | SHA-256 |
+| --- | --- |
+| `scripts/workspace-operation-original-delete-recreate-postgres-test.ts` | `ed4e8793449f123e3dabc1d974ae8cfce95bd17b99476d34f9b81478dd51861b` |
+| `ready.json` | `4e6b65183f3fcf7f6cd284ba0084032043eadbc7ab00f685bd324457bcb41f9f` |
+| `results.json` | `81b8e21209b309bd712c3eefdb719f57f967bce75b19b8ae95ef8511c01a2d49` |
+| `independent-closure.json` | `0502b4d634c008a5b8c4a98bb928f38cb844b00b512dfdf667ac640300f68bc5` |
