@@ -266,7 +266,14 @@ export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperation
 }
 
 function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
-  const version = directInputData(input, 'version');
+  let version: unknown;
+  try {
+    version = directInputData(input, 'version');
+    if ((version === 2 || version === 3) && directInputData(input, 'kind')
+      !== (version === 2 ? 'native-original-delete' : 'native-path-change')) {
+      throw claimError('BATCH_INVALID_PLAN');
+    }
+  } catch { throw claimError('BATCH_INVALID_PLAN'); }
   if (version === 2) return decodeWorkspaceOperationNativeDeleteBatchPlan(input);
   if (version === 3) return decodeWorkspaceOperationNativeMoveBatchPlan(input);
   // Never reinterpret a downgraded/unknown native envelope as historical V1.
