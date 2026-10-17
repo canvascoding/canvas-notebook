@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
         },
       });
 
-      const heartbeatInterval = setInterval(() => {
+      const sendHeartbeat = () => {
         if (closed) return;
         try {
           watcher.touchClient(clientId);
@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
           console.warn('[FileWatcher SSE]', { code: 'STREAM_HEARTBEAT_FAILED' });
           cleanup?.();
         }
-      }, 30000);
+      };
+      const heartbeatInterval = setInterval(sendHeartbeat, 30000);
 
       cleanup = () => {
         if (closed) return;
@@ -90,6 +91,7 @@ export async function GET(request: NextRequest) {
 
       request.signal.addEventListener('abort', cleanup, { once: true });
       if (request.signal.aborted) cleanup();
+      else sendHeartbeat();
     },
 
     cancel() {

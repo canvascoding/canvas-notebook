@@ -205,6 +205,75 @@ test('actual watch/presence/terminal GET handlers retain scope; cross-bundle HTT
   assert.equal(fixture.controls.unsubscribed, 3);
 });
 
+test('authorized files reopens emit a heartbeat without a gap when refresh wins the interval race', async context => {
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const fixture = await actualRoutes();
+  const socket = new Socket();
+  const id = 'watch-rhythm';
+  const close = attachLiveEventConnection(socket as unknown as WebSocket, handshake(), fixture.handlers);
+  const heartbeats = () => socket.frames.filter(frame => frame.type === 'event' && frame.id === id
+    && (frame.event as { event?: string }).event === 'heartbeat');
+  try {
+    socket.message(subscription(id)); await flush();
+    assert.equal(fixture.controls.requests.length, 1);
+    assert.equal(fixture.controls.subscriptions, 1);
+    assert.equal(fixture.intervals.length, 1);
+    assert.deepEqual(socket.frames.filter(frame => frame.type === 'open'), [{ type: 'open', id }]);
+    const initialHeartbeats = heartbeats().length;
+
+    context.mock.timers.tick(30_000);
+    fixture.intervals[0](); await flush();
+    assert.equal(heartbeats().length, initialHeartbeats + 1, 'the authorized watch emits its regular 30-second heartbeat');
+    const beforeRefresh = heartbeats().length;
+
+    // Both timers can become due together. Exercise the ordering where the
+    // mandatory authorization refresh cancels the old interval before it runs.
+    context.mock.timers.tick(30_000); await flush();
+    assert.deepEqual(socket.frames.at(-1), { type: 'refresh', id });
+    assert.equal(fixture.controls.unsubscribed, 1);
+    const afterRefresh = socket.frames.length;
+    fixture.intervals[0](); fixture.emitFile({ type: 'change', relativePath: 'late-old' }); await flush();
+    assert.equal(socket.frames.length, afterRefresh, 'the aborted handler cannot emit a late heartbeat or file event');
+    assert.equal(heartbeats().length, beforeRefresh);
+
+    // The normal client refresh reuses its logical subscription ID, but must
+    // authorize and register a new real watch handler before sending liveness.
+    socket.message(subscription(id)); await flush();
+    assert.equal(fixture.controls.requests.length, 2);
+    assert.equal(fixture.controls.subscriptions, 2);
+    assert.equal(fixture.intervals.length, 2);
+    assert.deepEqual(socket.frames.filter(frame => frame.type === 'open'), [{ type: 'open', id }, { type: 'open', id }]);
+    assert.equal(heartbeats().length, beforeRefresh + 1,
+      'the newly authorized handler sends a real heartbeat immediately instead of waiting another 30 seconds');
+    assert.equal(initialHeartbeats, 1, 'the initial authorized handler also starts with a real heartbeat');
+    for (const frame of heartbeats()) assert.match((frame.event as { data: string }).data, /^\d+$/u);
+    const afterReopen = socket.frames.length;
+    fixture.intervals[0](); await flush();
+    assert.equal(socket.frames.length, afterReopen, 'the canceled old interval stays fenced after a same-ID reopen');
+
+    context.mock.timers.tick(30_000);
+    fixture.intervals[1](); await flush();
+    assert.equal(heartbeats().length, beforeRefresh + 2, 'the reopened handler retains its regular heartbeat');
+    fixture.controls.allowed = false;
+    context.mock.timers.tick(30_000); await flush();
+    assert.deepEqual(socket.frames.at(-1), { type: 'refresh', id });
+    assert.equal(fixture.controls.unsubscribed, 2);
+    const beforeDeniedReopen = heartbeats().length;
+    socket.message(subscription(id)); await flush();
+    assert.deepEqual(socket.frames.at(-1), { type: 'error', id, status: 403 });
+    assert.equal(fixture.controls.requests.length, 3, 'the next normal refresh checks authorization again');
+    assert.equal(fixture.controls.subscriptions, 2, 'revoked access cannot register a replacement watch');
+    assert.equal(fixture.intervals.length, 2);
+    assert.equal(heartbeats().length, beforeDeniedReopen, 'a denied handler emits no liveness heartbeat');
+    const afterDeniedReopen = socket.frames.length;
+    for (const interval of fixture.intervals) interval();
+    fixture.emitFile({ type: 'change', relativePath: 'late-revoked' }); await flush();
+    assert.equal(socket.frames.length, afterDeniedReopen, 'neither canceled watch leaks events after revocation');
+    assert.equal(JSON.stringify(socket.frames).includes('PRIVATE_AUTH_DETAIL'), false);
+  } finally { close(); context.mock.timers.reset(); }
+  assert.equal(fixture.controls.unsubscribed, 2);
+});
+
 test('actual handler auth failure is structured without raw errors; revoked presence closes and rechecks', async () => {
   const fixture = await actualRoutes();
   const unauthorized = new Socket();
