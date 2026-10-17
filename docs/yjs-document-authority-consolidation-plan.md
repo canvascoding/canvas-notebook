@@ -4,6 +4,8 @@
 
 Stand 17. Oktober 2026: Die Umsetzung ist teilweise integriert. Es fehlen auch noch Implementierungen; der Gesamtauftrag ist nicht auf das Verbinden fertiger Module reduziert.
 
+Der neue Quellenbeleg V2 ist auf Root `98819e401c55c47515d30d0660b73e3f231c86cc` separat implementiert und mit 258/258 gemeinsamen Regressionen, vollständiger cachefreier Typprüfung und Scoped-Lint abgesichert; QA `693facdd30498912f125ce0ecefd5589bb29e25f` enthält dieselben Produktbytes. Die regulären Dateiaktionsplaner verwenden ihn noch nicht. Eine zusätzlich tatsächlich ausgeführte PG18-Gegenprobe bestätigt außerdem die nächste Copy-Recoverylücke: Ohne Zwischenprojektion gelingt die ursprüngliche Wiederaufnahme, nach erfolgreicher Sourceprojektion stoppt sie trotz identischem Yjszustand mit `source-changed` an der alten physischen Sourceidentität. Semantische Preview-IDs und der ausdrücklich versionierte Umgang mit ausgelassenen nativen Projektionen müssen zusammen umgesetzt werden. Beide roten Produktbelege, ihre Grenzen und separaten Ressourcenabschlüsse stehen im [Sourceprojektionsnachweis](./yjs-native-copy-source-projection-evidence.md). Eine neue Gesamt-E2E oder allgemeine Aktivierung ist daraus nicht abgeleitet.
+
 | Bereich | Bereits vorhanden | Noch erforderlich |
 | --- | --- | --- |
 | Zentrale Dokumentbearbeitung | Autorisierte Yjs-Lese-/Editkerne; native Web-Dokumentanlage und kompatibler Markdownimport | Einheitliche Create-/Import-/Read-/Edit-Verträge und vollständige Anschlüsse für API, MCP, PI und Mobile |
