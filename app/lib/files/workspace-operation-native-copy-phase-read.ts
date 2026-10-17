@@ -16,6 +16,7 @@ import { assertNativeCopyPhaseReceipt, copyPhaseChanged, NativeCopyPhaseError, n
   nativeCopyPhaseSha, nativeCopyPhaseStepCount } from './workspace-operation-native-copy-phase-contract';
 import { NATIVE_COPY_COMPLETION_STEP_KEY, nativeCopyPhaseReceiptProof, nativeCopyPhaseCompletionFence } from './workspace-operation-native-copy-phase-contract';
 import type { WorkspaceOperationRecord } from './workspace-operation-journal';
+import { decodeNativeCopyMetadataCompletionWitness, nativeCopyMetadataCompositeDigest } from './workspace-operation-native-copy-metadata';
 
 type Row = Record<string, unknown>;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -148,10 +149,10 @@ export async function readNativeCopyPhaseJournalOnConnection(database: SqlConnec
 /** Immutable original C3 body only. No current registry/Yjs/lineage rescan and
  * no permission, resume grant, transaction or connection ownership. */
 export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnection, stage: WorkspaceOperationNativeCopyStage): Promise<{
-  receipt: NativeCopyReceipt; xmin: string;
+  receipt: NativeCopyReceipt; xmin: string; createdAt: number;
 } | null> {
   const header = await database.get(`SELECT workspace_id,operation_id,organization_id,actor_user_id,actor_session_id,version,kind,
-    request_fingerprint,publication_fingerprint,publication_status,xmin::text AS xmin,
+    request_fingerprint,publication_fingerprint,publication_status,xmin::text AS xmin,created_at,
     octet_length(private_result::text) AS result_bytes,octet_length(scope_paths::text) AS scope_bytes
     FROM collaboration_native_copy_receipts WHERE workspace_id=$1 AND operation_id=$2 FOR UPDATE`,
   [stage.identity.destinationWorkspaceId, stage.identity.operationId]) as Row | undefined;
@@ -161,7 +162,8 @@ export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnect
     || header.actor_session_id !== stage.origin.actor.sessionId || header.version !== 1 || header.kind !== 'native_clone'
     || !hash(header.request_fingerprint) || header.publication_fingerprint !== stage.payloadSha256
     || !['native_committed', 'published'].includes(String(header.publication_status)) || typeof header.xmin !== 'string'
-    || !bounded(header.result_bytes, 16 * 1024 * 1024) || !bounded(header.scope_bytes, 128 * 1024)) copyPhaseChanged();
+    || !bounded(header.result_bytes, 16 * 1024 * 1024) || !bounded(header.scope_bytes, 128 * 1024)
+    || stage.version === 3 && (!bounded(Number(header.created_at), Number.MAX_SAFE_INTEGER - 1) || Number(header.created_at) < 1)) copyPhaseChanged();
   const row = await database.get(`SELECT private_result,scope_paths FROM collaboration_native_copy_receipts
     WHERE workspace_id=$1 AND operation_id=$2 AND octet_length(private_result::text)<=$3 AND octet_length(scope_paths::text)<=$4`,
   [stage.identity.destinationWorkspaceId, stage.identity.operationId, 16 * 1024 * 1024, 128 * 1024]) as Row | undefined;
@@ -169,7 +171,7 @@ export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnect
     || Buffer.byteLength(JSON.stringify(row.private_result)) > 8 * 1024 * 1024) copyPhaseChanged();
   const receipt = receiptBody(row.private_result, stage, header.publication_status as NativeCopyReceipt['publicationStatus']);
   if (receipt.requestFingerprint !== header.request_fingerprint) copyPhaseChanged();
-  return { receipt, xmin: header.xmin };
+  return { receipt, xmin: header.xmin, createdAt: Number(header.created_at) };
 }
 
 export type NativeCopyPhaseLinkReceipt = Readonly<{
@@ -293,11 +295,17 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
   const serialized = serializeWorkspaceOperationRequest(request);
   if (request.kind !== 'copy' || !request.origin || !equal(request.origin, origin)
     || serialized.requestJson !== header.request_json || serialized.requestHash !== value.requestHash) copyPhaseChanged();
-  const completed = object(JSON.parse(step.receipt_json), ['version', 'kind', 'canonicalRequestHash', 'planId', 'stageDigest',
-    'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof']);
-  if (completed.version !== 1 || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
+  const parsed: unknown = JSON.parse(step.receipt_json);
+  const version = parsed && typeof parsed === 'object' ? Object.getOwnPropertyDescriptor(parsed, 'version')?.value : undefined;
+  const completed = object(parsed, ['version', 'kind', 'canonicalRequestHash', 'planId', 'stageDigest',
+    'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof', ...(version === 2 ? ['coreV2StageDigest', 'metadata'] : [])]);
+  if (completed.version !== 1 && completed.version !== 2 || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
     || completed.planId !== value.planId || completed.stageDigest !== step.after_fence
     || ![completed.stageDigest, completed.nativeRequestFingerprint, completed.copyReceiptProof, completed.admissionsProof].every(hash)) copyPhaseChanged();
+  const metadata = completed.version === 2 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
+  if (metadata && (!hash(completed.coreV2StageDigest)
+    || nativeCopyMetadataCompositeDigest(completed.coreV2StageDigest, { version: metadata.version, kind: metadata.kind,
+      snapshotProof: metadata.snapshotProof, sourceRowCount: metadata.sourceRowCount, copiedTitleCount: metadata.copiedTitleCount }) !== completed.stageDigest)) copyPhaseChanged();
   if (step.before_fence !== nativeCopyPhaseCompletionFence({ canonicalRequestHash: value.requestHash, planId: value.planId,
     stageDigest: completed.stageDigest as string })) copyPhaseChanged();
   const progress = await database.get(`SELECT count(*)::integer AS total,
@@ -309,10 +317,11 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
     operationId: value.operationId, actorUserId: origin.actor.userId, actorSessionId: origin.actor.sessionId,
     kind: 'native_clone', requestFingerprint: completed.nativeRequestFingerprint as string, publicationFingerprint: completed.stageDigest as string });
   if (!nativeReceipt || nativeReceipt.publicationStatus !== 'published' || nativeCopyPhaseReceiptProof(nativeReceipt) !== completed.copyReceiptProof) copyPhaseChanged();
-  const scopes = await database.get(`SELECT CASE WHEN octet_length(scope_paths::text)<=131072 THEN scope_paths END AS scopes
+  const scopes = await database.get(`SELECT CASE WHEN octet_length(scope_paths::text)<=131072 THEN scope_paths END AS scopes${metadata ? ',created_at' : ''}
     FROM collaboration_native_copy_receipts WHERE workspace_id=$1 AND operation_id=$2`,
   [origin.destinationScope.workspaceId, value.operationId]) as Row | undefined;
-  if (!scopes || !equal(scopes.scopes, [...new Set(request.selections.map(selection => selection.destinationPath))].sort())) copyPhaseChanged();
+  if (!scopes || !equal(scopes.scopes, [...new Set(request.selections.map(selection => selection.destinationPath))].sort())
+    || metadata && (!bounded(Number(scopes.created_at), Number.MAX_SAFE_INTEGER - 1) || Number(scopes.created_at) !== metadata.copyCreatedAt)) copyPhaseChanged();
   if (pinned !== await historyWitness(database) || relations !== await historyRelations(database, value.storage)) copyPhaseChanged();
   await assertNativeCopySessionOnConnection(database, origin);
   return { operation: { operationId: value.operationId, planId: value.planId, requestHash: value.requestHash, requestJson: header.request_json,

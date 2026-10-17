@@ -9,11 +9,13 @@ import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/worksp
 import type { PreparedWorkspacePathCopyOriginal, PreparedPathCopyIdentity } from '../filesystem/prepared-workspace-path-copy-contract';
 import { decodePreparedWorkspacePathCopyOriginal } from '../filesystem/prepared-workspace-path-copy-contract';
 import { decodeWorkspaceOperationNativeCopyPlan, assertWorkspaceOperationNativeCopyPlanCurrent,
-  type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
+  withNativeCopyPlanValidation, type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationCopyOrigin, type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
 import { serializeWorkspaceOperationRequest, type WorkspaceOperationRequest } from './workspace-operation-journal';
 import type { WorkspaceOperationStageIdentity } from './workspace-operation-staging';
+import { decodeNativeCopyMetadataSnapshot, nativeCopyMetadataWitness, nativeCopyMetadataCompositeDigest, NativeCopyMetadataError,
+  type NativeCopyMetadataSnapshot } from './workspace-operation-native-copy-metadata';
 
 export type WorkspaceOperationNativeCopyStageIdentity = Readonly<WorkspaceOperationStageIdentity & {
   kind: 'native-copy'; canonicalRequestHash: string;
@@ -22,19 +24,24 @@ export type WorkspaceOperationNativeCopyPhysical = Readonly<{ selectionIndex: nu
 export type WorkspaceOperationNativeCopyStageInput = Readonly<{
   operationId: string; request: WorkspaceOperationRequest; plan: WorkspaceOperationNativeCopyPlan;
   physical: readonly WorkspaceOperationNativeCopyPhysical[]; nativeRecords: readonly NativeRecoveryRecord[];
+  metadata?: NativeCopyMetadataSnapshot;
 }>;
-export type WorkspaceOperationNativeCopyStage = Readonly<{
+export type WorkspaceOperationNativeCopyStageV2 = Readonly<{
   version: 2; kind: 'native-copy'; identity: WorkspaceOperationNativeCopyStageIdentity;
   request: WorkspaceOperationRequest; origin: WorkspaceOperationCopyOrigin; plan: WorkspaceOperationNativeCopyPlan;
   physical: readonly WorkspaceOperationNativeCopyPhysical[]; nativeRecords: readonly NativeRecoveryRecord[]; payloadSha256: string;
 }>;
-export type NativeCopyStageManifest = Readonly<{
+export type WorkspaceOperationNativeCopyStage = WorkspaceOperationNativeCopyStageV2
+  | (Omit<WorkspaceOperationNativeCopyStageV2, 'version'> & Readonly<{ version: 3; coreV2StageDigest: string; metadata: NativeCopyMetadataSnapshot }>);
+type NativeCopyStageManifestV2 = Readonly<{
   version: 2; kind: 'native-copy'; identity: WorkspaceOperationNativeCopyStageIdentity;
   request: WorkspaceOperationRequest; origin: WorkspaceOperationCopyOrigin; plan: WorkspaceOperationNativeCopyPlan;
   physical: readonly WorkspaceOperationNativeCopyPhysical[];
   records: Readonly<{ file: 'native-records.bin'; sizeBytes: number; sha256: string; count: number }>;
   payloadSha256: string;
 }>;
+export type NativeCopyStageManifest = NativeCopyStageManifestV2
+  | (Omit<NativeCopyStageManifestV2, 'version'> & Readonly<{ version: 3; coreV2StageDigest: string; metadata: NativeCopyMetadataSnapshot }>);
 export class NativeCopyStageDataError extends Error {
   constructor(readonly code: 'CORRUPT_STAGE' | 'STAGE_CONFLICT' | 'STAGE_TOO_LARGE') {
     super(code); this.name = 'NativeCopyStageDataError';
@@ -155,7 +162,7 @@ function captureRecords(input: unknown, plan: WorkspaceOperationNativeCopyPlan):
   replay(plan, detachedHeader);
   return serializeNativeRecoveryPayload(detachedHeader);
 }
-export function prepareNativeCopyStage(input: WorkspaceOperationNativeCopyStageInput): { manifest: NativeCopyStageManifest; manifestBytes: Buffer; recordsBytes: Buffer } {
+function prepareNativeCopyStageV2(input: WorkspaceOperationNativeCopyStageInput): { manifest: NativeCopyStageManifestV2; manifestBytes: Buffer; recordsBytes: Buffer } {
   try {
     const fields = object(input, ['operationId', 'request', 'plan', 'physical', 'nativeRecords']);
     const plan = decodeWorkspaceOperationNativeCopyPlan(fields.plan);
@@ -175,8 +182,8 @@ export function prepareNativeCopyStage(input: WorkspaceOperationNativeCopyStageI
     return { manifest, manifestBytes, recordsBytes };
   } catch (error) { if (error instanceof NativeCopyStageDataError) throw error; return fail(); }
 }
-export function decodeNativeCopyStage(manifestInput: unknown, bytes: Buffer,
-  expected: WorkspaceOperationNativeCopyStageIdentity): WorkspaceOperationNativeCopyStage {
+function decodeNativeCopyStageV2(manifestInput: unknown, bytes: Buffer,
+  expected: WorkspaceOperationNativeCopyStageIdentity): WorkspaceOperationNativeCopyStageV2 {
   try {
     const manifest = object(capture(manifestInput), ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'records', 'payloadSha256']);
     const recordInfo = object(manifest.records, ['file', 'sizeBytes', 'sha256', 'count']);
@@ -184,11 +191,75 @@ export function decodeNativeCopyStage(manifestInput: unknown, bytes: Buffer,
       || recordInfo.file !== 'native-records.bin' || recordInfo.sizeBytes !== bytes.length || recordInfo.sha256 !== sha(bytes)) fail('CORRUPT_STAGE');
     const nativeRecords = deserializeNativeRecoveryPayload(bytes);
     if (recordInfo.count !== nativeRecords.length) fail('CORRUPT_STAGE');
-    const rebuilt = prepareNativeCopyStage({ operationId: expected.operationId, request: manifest.request as WorkspaceOperationRequest,
+    const rebuilt = prepareNativeCopyStageV2({ operationId: expected.operationId, request: manifest.request as WorkspaceOperationRequest,
       plan: manifest.plan as WorkspaceOperationNativeCopyPlan, physical: manifest.physical as WorkspaceOperationNativeCopyPhysical[], nativeRecords });
     if (!equal(rebuilt.manifest, manifest)) fail('CORRUPT_STAGE');
     return freeze({ version: 2 as const, kind: 'native-copy' as const, identity: expected, request: rebuilt.manifest.request,
       origin: rebuilt.manifest.origin, plan: rebuilt.manifest.plan, physical: rebuilt.manifest.physical,
       nativeRecords, payloadSha256: rebuilt.manifest.payloadSha256 });
+  } catch (error) { if (error instanceof NativeCopyStageDataError && error.code === 'STAGE_TOO_LARGE') throw error; return fail('CORRUPT_STAGE'); }
+}
+
+/** Missing metadata deliberately preserves the exact historical V2 body/hash.
+ * Only a newly captured full metadata snapshot selects the V3 data format. */
+export function prepareNativeCopyStage(input: WorkspaceOperationNativeCopyStageInput): { manifest: NativeCopyStageManifest; manifestBytes: Buffer; recordsBytes: Buffer } {
+  try {
+    if (!Object.hasOwn(input, 'metadata')) return prepareNativeCopyStageV2(input);
+    return withNativeCopyPlanValidation(() => {
+      const fields = object(input, ['operationId', 'request', 'plan', 'physical', 'nativeRecords', 'metadata']);
+      const core = prepareNativeCopyStageV2({ operationId: fields.operationId as string, request: fields.request as WorkspaceOperationRequest,
+        plan: fields.plan as WorkspaceOperationNativeCopyPlan, physical: fields.physical as WorkspaceOperationNativeCopyPhysical[],
+        nativeRecords: fields.nativeRecords as NativeRecoveryRecord[] });
+      const metadata = decodeNativeCopyMetadataSnapshot(fields.metadata, { plan: core.manifest.plan, physical: core.manifest.physical });
+      const coreV2StageDigest = core.manifest.payloadSha256;
+      const manifest: NativeCopyStageManifest = freeze({ ...core.manifest, version: 3 as const, coreV2StageDigest, metadata,
+        payloadSha256: nativeCopyMetadataCompositeDigest(coreV2StageDigest, nativeCopyMetadataWitness(metadata)) });
+      const manifestBytes = Buffer.from(JSON.stringify(manifest));
+      if (manifestBytes.length > NATIVE_COPY_STAGE_MANIFEST_LIMIT) fail('STAGE_TOO_LARGE');
+      return { manifest, manifestBytes, recordsBytes: core.recordsBytes };
+    });
+  } catch (error) { if (error instanceof NativeCopyStageDataError) throw error;
+    if (error instanceof NativeCopyMetadataError && error.code === 'NATIVE_COPY_METADATA_TOO_LARGE') fail('STAGE_TOO_LARGE');
+    return fail(); }
+}
+
+/** Manifest-only validation is also used before reading native binary payloads. */
+export function assertNativeCopyStageManifestDigest(input: unknown): void {
+  try {
+    const raw = capture(input), version = field(raw, 'version');
+    if (version === 2) {
+      const value = object(raw, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'records', 'payloadSha256']);
+      const { payloadSha256, ...body } = value;
+      if (value.kind !== 'native-copy' || sha(JSON.stringify(body)) !== payloadSha256) fail('CORRUPT_STAGE');
+      return;
+    }
+    const value = object(raw, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'records', 'payloadSha256', 'coreV2StageDigest', 'metadata']);
+    if (version !== 3 || value.kind !== 'native-copy') fail('CORRUPT_STAGE');
+    const metadataWitness = nativeCopyMetadataWitness(value.metadata as NativeCopyMetadataSnapshot);
+    const { coreV2StageDigest, metadata: _metadata, ...old } = value;
+    const restored: Record<string, unknown> = { ...old, version: 2 };
+    const { payloadSha256: _payload, ...body } = restored;
+    if (sha(JSON.stringify(body)) !== coreV2StageDigest || nativeCopyMetadataCompositeDigest(coreV2StageDigest as string,
+      metadataWitness) !== value.payloadSha256) fail('CORRUPT_STAGE');
+  } catch (error) {
+    if (error instanceof NativeCopyStageDataError && error.code === 'STAGE_TOO_LARGE') throw error;
+    if (error instanceof NativeCopyMetadataError && error.code === 'NATIVE_COPY_METADATA_TOO_LARGE') fail('STAGE_TOO_LARGE');
+    return fail('CORRUPT_STAGE');
+  }
+}
+
+export function decodeNativeCopyStage(manifestInput: unknown, bytes: Buffer,
+  expected: WorkspaceOperationNativeCopyStageIdentity): WorkspaceOperationNativeCopyStage {
+  try {
+    if (field(manifestInput, 'version') === 2) return decodeNativeCopyStageV2(manifestInput, bytes, expected);
+    return withNativeCopyPlanValidation(() => {
+      assertNativeCopyStageManifestDigest(manifestInput);
+      const value = object(capture(manifestInput), ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'records', 'payloadSha256', 'coreV2StageDigest', 'metadata']);
+      const { coreV2StageDigest, metadata: originalMetadata, ...old } = value;
+      const core = decodeNativeCopyStageV2({ ...old, version: 2, payloadSha256: coreV2StageDigest }, bytes, expected);
+      const metadata = decodeNativeCopyMetadataSnapshot(originalMetadata, { plan: core.plan, physical: core.physical });
+      return freeze({ ...core, version: 3 as const, coreV2StageDigest: coreV2StageDigest as string, metadata,
+        payloadSha256: value.payloadSha256 as string });
+    });
   } catch (error) { if (error instanceof NativeCopyStageDataError && error.code === 'STAGE_TOO_LARGE') throw error; return fail('CORRUPT_STAGE'); }
 }

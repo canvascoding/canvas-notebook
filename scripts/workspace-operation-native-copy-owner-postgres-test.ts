@@ -65,6 +65,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
   const sourceFiles = ['scripts/workspace-operation-native-copy-owner-postgres-test.ts',
     'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-phase.ts',
     'app/lib/files/workspace-operation-native-copy-phase-contract.ts', 'app/lib/files/workspace-operation-native-copy-phase-read.ts',
+    'app/lib/files/workspace-operation-native-copy-metadata.ts',
     'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts',
     'app/lib/files/workspace-operation-native-copy-plan.ts', 'app/lib/files/workspace-operation-native-copy-graph.ts',
     'app/lib/files/workspace-operation-journal.ts', 'app/lib/workspaces/copy-principal.ts',
@@ -744,7 +745,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
     };
     const nativeStage = async (job: Job): Promise<WorkspaceOperationNativeCopyStage> => {
       const manifest = JSON.parse(await readFile(path.join(dataRoot, 'workspace-operation-staging', job.operationId, 'manifest.json'), 'utf8'));
-      assert.equal(manifest.version, 2); assert.equal(manifest.kind, 'native-copy');
+      assert.equal(manifest.version, 3); assert.equal(manifest.kind, 'native-copy');
       assert.equal(manifest.identity.operationId, job.operationId);
       const value = await staging.loadNativeCopy(manifest.identity);
       assert.equal(value.identity.canonicalRequestHash, serializeWorkspaceOperationRequest(value.request).requestHash);

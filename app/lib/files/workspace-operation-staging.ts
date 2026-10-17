@@ -16,7 +16,7 @@ import type { WorkspaceLinkWritePreflight } from '@/app/lib/markdown/workspace-l
 import { WorkspaceOperationJournal, type WorkspaceOperationRecord } from './workspace-operation-journal';
 import { getFdDirectoryInventoryBackend, getFdPathMoveBackend, getFdPublicationBackend } from './fd-publication';
 import { NATIVE_RECOVERY_PAYLOAD_LIMIT } from '../collaboration/native-document-recovery';
-import { captureNativeCopyStageIdentity, decodeNativeCopyStage, prepareNativeCopyStage, NativeCopyStageDataError,
+import { captureNativeCopyStageIdentity, decodeNativeCopyStage, prepareNativeCopyStage, assertNativeCopyStageManifestDigest, NativeCopyStageDataError,
   NATIVE_COPY_STAGE_MANIFEST_LIMIT, type WorkspaceOperationNativeCopyStage,
   type WorkspaceOperationNativeCopyStageIdentity, type WorkspaceOperationNativeCopyStageInput } from './workspace-operation-native-copy-stage';
 export type { WorkspaceOperationNativeCopyStage, WorkspaceOperationNativeCopyStageIdentity,
@@ -398,6 +398,7 @@ async function nativeLoad(root: NativeDirectoryPin, identity: WorkspaceOperation
   try {
     const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
     if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
+    assertNativeCopyStageManifestDigest(manifest);
     const actualIdentity = captureNativeCopyStageIdentity(manifest.identity);
     if ((['operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'kind', 'canonicalRequestHash'] as const)
       .some(key => actualIdentity[key] !== identity[key])) fail('STAGE_CONFLICT', 'Native stage belongs to a different original request.');
@@ -658,7 +659,7 @@ export class WorkspaceOperationStaging {
       try {
         const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
         if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
-        if (manifest.version !== 2 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
+        if (manifest.version !== 2 && manifest.version !== 3 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
         const identity = captureNativeCopyStageIdentity(manifest.identity);
         if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage operation identity differs.');
         nativeCheckDirectory(directory);
@@ -680,11 +681,10 @@ export class WorkspaceOperationStaging {
       const directory = nativeOpenDirectory(root, captured); if (!directory) return null;
       try {
         const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
-        if (manifest.version === 2 && manifest.kind === 'native-copy') {
+        if ((manifest.version === 2 || manifest.version === 3) && manifest.kind === 'native-copy') {
           const identity = captureNativeCopyStageIdentity(manifest.identity);
           if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage identity differs.');
-          const { payloadSha256, ...body } = manifest;
-          if (digest(JSON.stringify(body)) !== payloadSha256) fail('CORRUPT_STAGE', 'Native stage manifest hash differs.');
+          assertNativeCopyStageManifestDigest(manifest);
           return 'native-copy';
         }
         const keys = ['version', 'operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'preview', 'documents', 'linkPreflight', 'payloadSha256'];

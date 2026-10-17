@@ -15,7 +15,7 @@ import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../coll
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import { readOriginalMoveCollectorOverlay } from '../files/workspace-operation-original-move-sources';
-import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
+import { assertWorkspaceOriginalPathsCurrent, readWorkspaceOriginalFileSource, WorkspaceOriginalFileSourceError,
   type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { assertWorkspacePathHasNoAliases } from '../workspaces/path-guard';
@@ -241,7 +241,10 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         if (child.isDirectory() && (EXCLUDED_DIRECTORIES.has(child.name) || directory.depth === 0 && child.name === '.canvas-skill-drafts')
           || EXCLUDED_FILES.has(child.name) || isInternalWorkspaceStagingPath(child.name)) { excludedPaths.push(relativePath); continue; }
         if (observed.length >= limits.maxPaths) fail('path-count-limit', relativePath);
-        await assertWorkspacePathHasNoAliases(workspace, relativePath, { readOnly: true });
+        // File names came from this actual parent listing. Keep the original
+        // directory/unsafe-Dirent guard before traversal; the final batch below
+        // freshly verifies exact membership and all physical ancestry for files.
+        if (!child.isFile()) await assertWorkspacePathHasNoAliases(workspace, relativePath, { readOnly: true });
         const stat = await fs.lstat(path.join(realRoot, relativePath));
         if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) { gap('unsafe-physical-source', relativePath); continue; }
         const item = { relativePath, stat, identity: filesystemFileVersion(stat) }; observed.push(item); entries.set(relativePath, item);
@@ -343,7 +346,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         fail('native-source-changed', binding.expected.path);
       }
     }
-    for (const item of observed) await assertWorkspaceOriginalPathCurrent({ configuredRootPath: workspace.rootPath, root, observed: item });
+    await assertWorkspaceOriginalPathsCurrent({ configuredRootPath: workspace.rootPath, root, observed });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
     if (nativeLinkJsonProof(await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths })) !== catalogueProof) fail('source-authority-changed', '');
   } catch (error) {

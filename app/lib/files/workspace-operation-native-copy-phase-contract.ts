@@ -14,6 +14,7 @@ import { workspaceOperationNativePlanSnapshot } from './workspace-operation-nati
 import { assertWorkspaceOperationNativeCopyPlanCurrent } from './workspace-operation-native-copy-plan';
 import { prepareNativeCopyStage, decodeNativeCopyStage, type WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
 import { preparedWorkspacePathCopyProof, type PreparedWorkspacePathCopyParentReceipt } from '../filesystem/prepared-workspace-path-copy-contract';
+import { nativeCopyMetadataCompletionWitness } from './workspace-operation-native-copy-metadata';
 
 export class NativeCopyPhaseError extends Error {
   readonly status = 409;
@@ -25,14 +26,20 @@ export class NativeCopyPhaseError extends Error {
 export function copyPhaseChanged(): never { throw new NativeCopyPhaseError(); }
 export const nativeCopyPhaseSha = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
 function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationNativeCopyStage): WorkspaceOperationNativeCopyStage {
-  const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256'];
+  if (!stage || Object.getPrototypeOf(stage) !== Object.prototype) copyPhaseChanged();
+  const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || discriminator.value !== 2 && discriminator.value !== 3) copyPhaseChanged();
+  const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256',
+    ...(discriminator.value === 3 ? ['coreV2StageDigest', 'metadata'] : [])];
   if (!stage || Object.getPrototypeOf(stage) !== Object.prototype || Reflect.ownKeys(stage).length !== expected.length
     || expected.some(key => { const property = Object.getOwnPropertyDescriptor(stage, key);
       return !property?.enumerable || !Object.hasOwn(property, 'value'); })) copyPhaseChanged();
   const prepared = prepareNativeCopyStage({ operationId: stage.identity.operationId, request: stage.request, plan: stage.plan,
-    physical: stage.physical, nativeRecords: stage.nativeRecords });
-  if (stage.version !== 2 || stage.kind !== 'native-copy' || prepared.manifest.payloadSha256 !== stage.payloadSha256
+    physical: stage.physical, nativeRecords: stage.nativeRecords, ...(stage.version === 3 ? { metadata: stage.metadata } : {}) });
+  if (stage.version !== prepared.manifest.version || stage.kind !== 'native-copy' || prepared.manifest.payloadSha256 !== stage.payloadSha256
     || !equal(stage.origin, prepared.manifest.origin) || !equal(stage.identity, prepared.manifest.identity)) copyPhaseChanged();
+  if (stage.version === 3 && (prepared.manifest.version !== 3 || stage.coreV2StageDigest !== prepared.manifest.coreV2StageDigest
+    || !equal(stage.metadata, prepared.manifest.metadata))) copyPhaseChanged();
   return decodeNativeCopyStage(prepared.manifest, prepared.recordsBytes, prepared.manifest.identity);
 }
 type CapturedStageFrame = {
@@ -62,10 +69,21 @@ const compilations = new AsyncLocalStorage<CompilationFrame>();
 function compilationPin(stage: WorkspaceOperationNativeCopyStage): string {
   const hash = createHash('sha256'), parents = new Set<object>();
   let nodes = 0, metadataBytes = 0, binaryBytes = 0;
+  const pending: string[] = [];
+  let pendingBytes = 0;
+  const flush = () => {
+    if (pending.length) { hash.update(pending.join('')); pending.length = 0; pendingBytes = 0; }
+  };
   const add = (value: string) => {
-    metadataBytes += Buffer.byteLength(value);
+    const bytes = Buffer.byteLength(value);
+    metadataBytes += bytes;
     if (metadataBytes > 64 * 1024 * 1024) copyPhaseChanged();
-    hash.update(value);
+    // Each value is a whole JSON token or an ASCII marker. Keep their exact
+    // UTF-8 byte order while avoiding a native Hash.update call per token.
+    // Never split UTF-16 strings; an oversized token is hashed intact.
+    if (pendingBytes + bytes > 64 * 1024 || pending.length >= 1024) flush();
+    if (bytes > 64 * 1024) hash.update(value);
+    else { pending.push(value); pendingBytes += bytes; }
   };
   const visit = (value: unknown, depth: number): void => {
     if (++nodes > 1_000_000 || depth > 64) copyPhaseChanged();
@@ -102,7 +120,7 @@ function compilationPin(stage: WorkspaceOperationNativeCopyStage): string {
       }
     } finally { parents.delete(value); }
   };
-  visit(stage, 0); return hash.digest('hex');
+  visit(stage, 0); flush(); return hash.digest('hex');
 }
 function assertCapturedStagePin(frame: CapturedStageFrame): void {
   if (frame.failed) throw frame.failure;
@@ -169,13 +187,17 @@ export function nativeCopyPhaseCompletionFence(input: Readonly<{ canonicalReques
     planId: input.planId, stageDigest: input.stageDigest });
 }
 export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt,
-  admissions: readonly CollaborationAdmissionRequest[]) {
-  return { version: 1, kind: 'native-copy-completion', canonicalRequestHash: stage.identity.canonicalRequestHash,
+  admissions: readonly CollaborationAdmissionRequest[], copyCreatedAt?: number) {
+  const original = { version: 1, kind: 'native-copy-completion', canonicalRequestHash: stage.identity.canonicalRequestHash,
     planId: stage.plan.planId, stageDigest: stage.payloadSha256, nativeRequestFingerprint: receipt.requestFingerprint,
     copyReceiptProof: nativeCopyPhaseReceiptProof(receipt), admissionsProof: proof(admissions.map(request => {
       const captured = captureCollaborationAdmissionRequest(request);
       return { requestId: request.requestId, requestDigest: captured.requestDigest };
     })) } as const;
+  if (stage.version === 2) return original;
+  if (copyCreatedAt === undefined) copyPhaseChanged();
+  return { ...original, version: 2 as const, coreV2StageDigest: stage.coreV2StageDigest,
+    metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt) };
 }
 export type NativeCopyPhaseParent = NativeCopyPhaseStep & Readonly<{
   path: string; producerSelectionIndex: number; consumerSelectionIndexes: readonly number[];

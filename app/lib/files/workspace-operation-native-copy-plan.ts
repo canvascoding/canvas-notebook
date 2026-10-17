@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import type { NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
@@ -161,9 +161,7 @@ export function computeWorkspaceOperationNativeCopyPlanId(plan: Omit<WorkspaceOp
   const { planId: _historical, ...body } = capture(plan) as WorkspaceOperationNativeCopyPlan;
   return nativeLinkJsonProof(body);
 }
-/** Bounded historical integrity only. Rehashing compiler/content/final hashes
- * does not make them current or confer execution admission. */
-export function decodeWorkspaceOperationNativeCopyPlan(input: unknown): WorkspaceOperationNativeCopyPlan {
+function decodeWorkspaceOperationNativeCopyPlanRaw(input: unknown): WorkspaceOperationNativeCopyPlan {
   return guarded(() => {
     const value = capture(input) as WorkspaceOperationNativeCopyPlan;
     exact(value, keys);
@@ -181,6 +179,46 @@ export function decodeWorkspaceOperationNativeCopyPlan(input: unknown): Workspac
       || computeWorkspaceOperationNativeCopyPlanId(value) !== value.planId) fail();
     return freeze(value);
   });
+}
+
+// Only this call's fully decoded, recursively frozen JSON RESULTS are reusable.
+// Raw caller references and digest-equal data never enter the set. A synchronous
+// stack lifetime avoids inheriting validation state into promises or timers.
+let historicalValidation: Set<WorkspaceOperationNativeCopyPlan> | undefined;
+export function withNativeCopyPlanValidation<T>(operation: () => T): T {
+  const previous = historicalValidation, current = new Set<WorkspaceOperationNativeCopyPlan>();
+  historicalValidation = current;
+  let result!: T;
+  try { result = operation(); }
+  finally { current.clear(); historicalValidation = previous; }
+  if (types.isPromise(result)) fail();
+  // Inspect only after clearing this lifetime, and use descriptors instead of
+  // reading result.then. Accessors never execute; exotic prototype chains are
+  // bounded as well. Ordinary own/inherited thenables are rejected.
+  if (result !== null && (typeof result === 'object' || typeof result === 'function')) {
+    let prototype: object | null = result;
+    for (let depth = 0; prototype; depth++) {
+      if (depth > 64) fail();
+      const then = Object.getOwnPropertyDescriptor(prototype, 'then');
+      if (then) {
+        if (!Object.hasOwn(then, 'value') || typeof then.value === 'function') fail();
+        break;
+      }
+      prototype = Object.getPrototypeOf(prototype);
+    }
+  }
+  return result;
+}
+
+/** Bounded historical integrity only. Rehashing compiler/content/final hashes
+ * does not make them current or confer execution admission. */
+export function decodeWorkspaceOperationNativeCopyPlan(input: unknown): WorkspaceOperationNativeCopyPlan {
+  if (historicalValidation?.has(input as WorkspaceOperationNativeCopyPlan)) return input as WorkspaceOperationNativeCopyPlan;
+  const value = decodeWorkspaceOperationNativeCopyPlanRaw(input);
+  // This is a memory bound, not a new plan restriction. Further inputs retain
+  // the complete original validation and simply do not gain a reuse entry.
+  if (historicalValidation && historicalValidation.size < 8) historicalValidation.add(value);
+  return value;
 }
 export function createWorkspaceOperationNativeCopyPlan(input: {
   sourceScope: WorkspaceOperationBatchScope; destinationScope: WorkspaceOperationBatchScope;

@@ -37,6 +37,7 @@ import { readNativeCopyPhaseJournalOnConnection, readCompletedNativeCopyHistoryO
 import { readNativeCopyReceiptStorageIdentityOnConnection } from '../collaboration/native-copy-historical-receipt';
 import type { WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
+import { captureNativeCopyMetadataSnapshotOnConnection } from './workspace-operation-native-copy-metadata';
 
 export class NativeCopyOwnerError extends Error {
   readonly status: number;
@@ -394,8 +395,10 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
       if (!state) problem('NATIVE_COPY_INVALID_REQUEST');
       return { lineageId: binding.expected.lineageId, state };
     }));
+    const metadata = await transaction(owner, 'write', () => principal(owner,
+      () => captureNativeCopyMetadataSnapshotOnConnection(owner.database, { plan: observed.plan, physical })));
     const stage = await store.stageNativeCopy({ operationId, plan: observed.plan,
-      request: { kind: 'copy', origin: owner.invocation.origin, selections: observed.plan.selections }, physical, nativeRecords });
+      request: { kind: 'copy', origin: owner.invocation.origin, selections: observed.plan.selections }, physical, nativeRecords, metadata });
     persisted = true; return stage;
   } catch (error) {
     // No publication occurred. Only exact preparations born here may be

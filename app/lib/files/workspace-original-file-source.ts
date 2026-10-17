@@ -91,6 +91,81 @@ export async function assertWorkspaceOriginalPathCurrent(input: Source): Promise
   await assertCurrent(capture(input));
 }
 
+/** One point-in-time namespace observation. Each parent is streamed once for
+ * its required exact names; no result survives this call or grants authority.
+ * The single-path and byte-reader checks retain their independent lifetimes. */
+export async function assertWorkspaceOriginalPathsCurrent(input: {
+  configuredRootPath: string; root: WorkspaceOriginalRootObservation;
+  observed: readonly WorkspaceOriginalPathObservation[];
+}): Promise<void> {
+  const { configuredRootPath, root, observed } = input;
+  const resolvedRootPath = root.resolvedRootPath, rootIdentity = root.identity;
+  if (typeof configuredRootPath !== 'string' || !configuredRootPath || configuredRootPath.includes('\0')
+    || typeof resolvedRootPath !== 'string' || !path.isAbsolute(resolvedRootPath)
+    || typeof rootIdentity !== 'string' || !rootIdentity) fail('physical-scope-changed', '');
+  if (!Array.isArray(observed) || observed.length > 10_000) fail('invalid-source-limit', '');
+  const paths = new Map<string, CapturedPath>(), leaves = new Set<string>();
+  // Capture every child AND ancestor before the first await. Subsequent caller
+  // mutation of Stats, the input array or root.entries cannot replace facts.
+  for (const item of observed) {
+    const source = capture({ configuredRootPath, root, observed: item });
+    if (source.resolvedRootPath !== resolvedRootPath || source.rootIdentity !== rootIdentity
+      || leaves.has(source.observed.relativePath)) fail('physical-source-changed', source.observed.relativePath);
+    leaves.add(source.observed.relativePath);
+    for (const captured of source.ancestors) {
+      if (captured.kind === 'unsafe') fail('unsafe-physical-source', captured.relativePath);
+      const prior = paths.get(captured.relativePath);
+      if (prior && (prior.identity !== captured.identity || prior.kind !== captured.kind
+        || prior.size !== captured.size || prior.nlink !== captured.nlink)) fail('physical-source-changed', captured.relativePath);
+      if (!prior && paths.size >= 10_000) fail('invalid-source-limit', captured.relativePath);
+      paths.set(captured.relativePath, captured);
+    }
+  }
+  const parents = new Map<string, Map<string, CapturedPath>>();
+  for (const captured of paths.values()) {
+    const directory = path.posix.dirname(captured.relativePath), parent = directory === '.' ? '' : directory;
+    let children = parents.get(parent);
+    if (!children) { children = new Map(); parents.set(parent, children); }
+    children.set(path.posix.basename(captured.relativePath), captured);
+  }
+  const assertRoot = async () => {
+    const current = await fs.stat(resolvedRootPath);
+    if (!current.isDirectory() || filesystemFileVersion(current) !== rootIdentity
+      || await fs.realpath(configuredRootPath) !== resolvedRootPath) fail('physical-scope-changed', '');
+  };
+  const assertPath = async (captured: CapturedPath) => {
+    const current = await fs.lstat(path.join(resolvedRootPath, captured.relativePath));
+    if (current.isSymbolicLink() || filesystemFileVersion(current) !== captured.identity
+      || captured.kind === 'directory' && !current.isDirectory()
+      || captured.kind === 'file' && !current.isFile()) fail('physical-source-changed', captured.relativePath);
+  };
+  const orderedParents = [...parents].sort(([a], [b]) => (a ? a.split('/').length : 0)
+    - (b ? b.split('/').length : 0) || Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  await assertRoot();
+  for (const [parent, children] of orderedParents) {
+    const capturedParent = parent ? paths.get(parent) : undefined;
+    if (parent && capturedParent?.kind !== 'directory') fail('physical-source-changed', parent);
+    if (capturedParent) await assertPath(capturedParent); else await assertRoot();
+    // Store only requested names. Excluded siblings neither become namespace
+    // facts nor introduce an artificial bound on raw directory membership.
+    const missing = new Set(children.keys());
+    const directory = await fs.opendir(parent ? path.join(resolvedRootPath, parent) : resolvedRootPath);
+    try {
+      while (missing.size) {
+        const entry = await directory.read(); if (!entry) break;
+        missing.delete(entry.name);
+      }
+    } finally { await directory.close(); }
+    if (missing.size) fail('physical-source-changed', children.get(missing.values().next().value!)!.relativePath);
+    if (capturedParent) await assertPath(capturedParent); else await assertRoot();
+    for (const child of children.values()) await assertPath(child);
+  }
+  // A directory may have changed after its own group was checked while later
+  // descendants were awaited. Retain every original ancestor, then the root.
+  for (const captured of paths.values()) if (captured.kind === 'directory') await assertPath(captured);
+  await assertRoot();
+}
+
 /** Opaque original bytes: no decoding, native IDs, filesystem writes or SQL.
  * Caller must retain its actual fence and await its own fresh source check.
  * No file descriptor escapes, including on a failed check/read/close. */
