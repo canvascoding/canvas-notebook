@@ -11,6 +11,7 @@ export type DocumentReadFormatV1 = 'native' | 'text' | 'markdown';
 export type NativeDocumentRefV1 = Readonly<{
   kind: 'native_document';
   workspaceId: string;
+  organizationId: string | null;
   documentId: string;
   lineageId: string;
   lifecycleGeneration: number;
@@ -79,6 +80,7 @@ export type DocumentReadPageV1 = Readonly<{
 
 const errorStatuses = {
   INVALID_REQUEST: 400,
+  AUTHENTICATION_REQUIRED: 401,
   ACCESS_DENIED: 403,
   DOCUMENT_NOT_FOUND: 404,
   DOCUMENT_SCOPE_CHANGED: 409,
@@ -90,6 +92,7 @@ const errorStatuses = {
   DOCUMENT_FORMAT_UNAVAILABLE: 422,
   DOCUMENT_TOO_LARGE: 413,
   READ_OUTCOME_UNCONFIRMED: 503,
+  DOCUMENT_READ_UNAVAILABLE: 503,
 } as const;
 
 export type DocumentReadErrorCodeV1 = keyof typeof errorStatuses;

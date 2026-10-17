@@ -6,7 +6,7 @@ import type { JSONWebKeySet, JWTPayload } from 'jose';
 import { verifyJwsAccessToken } from 'better-auth/oauth2';
 
 import { auth } from '@/app/lib/auth';
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 import {
   assertUserSeatAccess,
   SeatLimitGuardError,
@@ -20,7 +20,7 @@ import { directMcpClientDisplayName } from '@/app/lib/mcp/server/client-name';
 const MAX_BEARER_TOKEN_LENGTH = 16 * 1024;
 const localJwksCacheKey = {};
 
-type DirectMcpGrantStateRow = {
+export type DirectMcpGrantStateRow = {
   session_id: string;
   session_expires_at: unknown;
   user_id: string;
@@ -249,6 +249,18 @@ export async function loadDirectMcpGrantState(
 ): Promise<DirectMcpGrantStateRow | null> {
   const database = await openDb();
   try {
+    return await loadDirectMcpGrantStateOnConnection(database, claims, token);
+  } finally {
+    await database.close();
+  }
+}
+
+/** Pure grant read on caller B. This neither verifies a JWT nor grants access. */
+export async function loadDirectMcpGrantStateOnConnection(
+  database: Pick<SqlConnection, 'get'>,
+  claims: Pick<DirectMcpJwtClaims, 'sessionId' | 'subject' | 'clientId'>,
+  token?: string,
+): Promise<DirectMcpGrantStateRow | null> {
     const row = await database.get(`
       SELECT
         auth_session.id AS session_id,
@@ -297,12 +309,9 @@ export async function loadDirectMcpGrantState(
       claims.subject,
     ]);
     return (row as DirectMcpGrantStateRow | undefined) ?? null;
-  } finally {
-    await database.close();
-  }
 }
 
-function assertGrantStateActive(
+export function assertGrantStateActive(
   state: DirectMcpGrantStateRow | null,
   claims: DirectMcpJwtClaims,
 ): void {

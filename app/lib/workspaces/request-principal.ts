@@ -55,6 +55,7 @@ type AgentProfilePin = Readonly<{
 type AgentCapture = AuthorizationCapture & {
   kind: 'agent_tool'; invocation: AgentToolInvocation; origin: AgentToolInvocationOrigin;
   agentId: string; piSessionDbId: number; profile: AgentProfilePin;
+  originalOrigin?: { observe: WorkspaceAgentToolHistoricalOriginObserver; realm: Readonly<{ schemaOid: number; searchPath: string }> };
 };
 type AgentWorkspaceOrigin = Pick<AgentToolInvocationOrigin, 'userId' | 'sessionId' | 'workspaceId' | 'workspaceType'
   | 'organizationId' | 'customerId' | 'projectId' | 'workspaceRoot' | 'workspaceRootRelativePath' | 'legacy'>;
@@ -98,6 +99,19 @@ export type WorkspaceRequestHistoricalOrigin = Readonly<{
   schema: string; schemaOid: number; searchPath: string; databaseOid: number;
 }>;
 export type WorkspaceRequestHistoricalOriginObserver = (origin: WorkspaceRequestHistoricalOrigin) => void;
+/** Historical PI invocation scalars only; this is neither a Web session nor
+ * a permission, SQL connection, document admission or reusable principal. */
+export type WorkspaceAgentToolHistoricalOrigin = Readonly<{
+  userId: string; agentId: string; piSessionId: string; toolName: string; toolCallId: string; agentTurnId: string | null;
+  piSessionDbId: number; agentProfileId: number; agentProfileRevision: number;
+  workflowVersion: number | null; workflowRevision: number;
+  workspaceId: string; workspaceType: string; organizationId: string | null; customerId: string | null;
+  projectId: string | null; ownerUserId: string | null; rootPath: string; rootRelativePath: string; legacy: false; status: 'active';
+  schema: string; schemaOid: number; searchPath: string; databaseOid: number;
+}>;
+/** Idempotent synchronous sink: initial, final and explicit current checks can
+ * observe the same original scalars repeatedly within the genuine phase. */
+export type WorkspaceAgentToolHistoricalOriginObserver = (origin: WorkspaceAgentToolHistoricalOrigin) => void;
 type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture | AgentCapture | JobUserCapture | JobAgentCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>> };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
@@ -772,11 +786,69 @@ async function currentAgent(phase: Phase): Promise<WorkspaceContext> {
   return workspace;
 }
 
+async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceContext> {
+  const workspace = await currentAgent(phase);
+  const request = phase.request;
+  if (request.kind !== 'agent_tool') fail('PRINCIPAL_REQUIRED');
+  const optin = request.originalOrigin;
+  if (!optin) return workspace;
+  const original = request.workspace;
+  const expected = Object.freeze({ userId: request.userId, agentId: request.agentId, piSessionId: request.origin.sessionId,
+    toolName: request.origin.toolName, toolCallId: request.origin.toolCallId, agentTurnId: request.origin.agentTurnId ?? null,
+    piSessionDbId: request.piSessionDbId, agentProfileId: request.profile.id, agentProfileRevision: request.profile.revision,
+    workflowVersion: request.profile.workflowVersion, workflowRevision: request.profile.workflowRevision,
+    workspaceId: original.workspaceId, workspaceType: original.workspaceType, organizationId: original.organizationId ?? null,
+    customerId: original.customerId ?? null, projectId: original.projectId ?? null, ownerUserId: original.ownerUserId ?? null,
+    rootPath: original.rootPath, rootRelativePath: original.rootRelativePath, legacy: original.legacy, status: original.status });
+  active(phase);
+  const row = await phase.database.get(`SELECT w.id AS workspace_id,w.type AS workspace_type,w.organization_id,w.customer_id,
+    w.project_id,w.owner_user_id,w.root_relative_path,w.status,current_schema() AS schema,
+    to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid
+    FROM ${table(phase,'canvas_workspaces')} w WHERE w.id=$1`, [expected.workspaceId]) as Row | undefined;
+  active(phase);
+  if (!row || row.workspace_id !== expected.workspaceId || row.workspace_type !== expected.workspaceType
+    || (row.organization_id ?? null) !== expected.organizationId || (row.customer_id ?? null) !== expected.customerId
+    || (row.project_id ?? null) !== expected.projectId || (row.owner_user_id ?? null) !== expected.ownerUserId
+    || row.root_relative_path !== expected.rootRelativePath || row.status !== 'active'
+    || ['workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId','rootPath','rootRelativePath','legacy','status']
+      .some(key => (Reflect.get(workspace,key) ?? null) !== (Reflect.get(original,key) ?? null))
+    || expected.legacy !== false || expected.status !== 'active' || typeof expected.rootPath !== 'string' || !expected.rootPath
+    || typeof expected.rootRelativePath !== 'string' || expected.rootRelativePath.length > 4096
+    || row.schema !== request.schema || !number(row.schema_oid,1) || Number(row.schema_oid) !== optin.realm.schemaOid
+    || row.search_path !== optin.realm.searchPath || !number(row.database_oid,1) || Number(row.database_oid) !== request.database) fail('PRINCIPAL_SCOPE_CHANGED');
+  await checkIdentity(phase);
+  const historical: WorkspaceAgentToolHistoricalOrigin = Object.freeze({ ...expected,
+    rootRelativePath: expected.rootRelativePath, legacy: false, status: 'active', schema: request.schema,
+    schemaOid: Number(row.schema_oid), searchPath: String(row.search_path), databaseOid: request.database });
+  const returned: unknown = optin.observe(historical);
+  if (returned !== undefined) {
+    if (returned instanceof Promise) void returned.catch(() => undefined);
+    fail('PRINCIPAL_DETACHED');
+  }
+  active(phase);
+  return workspace;
+}
+
 /** Actual wrapped Agent invocation only. No caller context, user/session ID,
  * synthetic web request, credential or license override can mint this origin.
  * The captured scope spans the caller's transaction and its COMMIT cleanup. */
 export async function withWorkspaceAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
   operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>): Promise<T> {
+  return withAgentToolPrincipal(input, operation);
+}
+
+/** Opt-in original PI history from the genuine invocation and current B phase.
+ * The synchronous sink may run repeatedly; its scalars grant no authority. */
+export async function withWorkspaceAgentToolPrincipalOriginalOrigin<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
+  observe: WorkspaceAgentToolHistoricalOriginObserver,
+  operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>): Promise<T> {
+  if (typeof observe !== 'function') fail('PRINCIPAL_INVALID');
+  return withAgentToolPrincipal(input, operation, observe);
+}
+
+async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
+  operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>, observe?: WorkspaceAgentToolHistoricalOriginObserver): Promise<T> {
   const selected = agentOptions(input);
   if (typeof operation !== 'function') return Promise.reject(new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'));
   const invocation = captureCurrentAgentToolInvocation();
@@ -792,16 +864,22 @@ export async function withWorkspaceAgentToolPrincipal<T>(input: { permission: 'c
     const database = await openDb();
     let captured: AgentCapture;
     try {
-      const realm = await database.get(`SELECT current_schema() AS schema,
+      const realm = await database.get(observe
+        ? `SELECT current_schema() AS schema,(SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database,
+          to_regnamespace(current_schema())::oid::bigint AS schema_oid,current_setting('search_path') AS search_path`
+        : `SELECT current_schema() AS schema,
         (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database`) as Row | undefined;
       assertInvocation();
       if (!realm || typeof realm.schema !== 'string' || !realm.schema || !number(realm.database,1)) fail('PRINCIPAL_SCOPE_CHANGED');
+      if (observe && (!number(realm.schema_oid,1) || typeof realm.search_path !== 'string'
+        || !realm.search_path || realm.search_path.length > 4096)) fail('PRINCIPAL_SCOPE_CHANGED');
       const piSessionDbId = await readAgentSession(database, realm.schema, origin, agentId); assertInvocation();
       const profile = await readAgentProfilePin(database, realm.schema, agentId); assertInvocation();
       const workspace = await readAgentWorkspace(database, realm.schema, origin, agentId, selected.permission, license, assertInvocation, false);
       captured = { kind: 'agent_tool', invocation, origin, agentId, piSessionDbId, profile, active: true, accepting: true,
         pending: new Set(), userId: origin.userId, workspace, permission: selected.permission, license,
-        database: Number(realm.database), schema: realm.schema, enterBefore: 0 };
+        database: Number(realm.database), schema: realm.schema, enterBefore: 0,
+        ...(observe ? { originalOrigin: { observe, realm: Object.freeze({ schemaOid: Number(realm.schema_oid), searchPath: String(realm.search_path) }) } } : {}) };
     } finally { await database.close(); }
     assertInvocation();
     captured.enterBefore = performance.now()+MAX_PHASE_MS;
@@ -829,7 +907,7 @@ export async function withWorkspaceAgentToolPrincipal<T>(input: { permission: 'c
 export function withWorkspaceAgentToolPrincipalOnConnection<T>(database: SqlConnection, principal: WorkspaceAgentToolPrincipal,
   operation: (access: WorkspaceAgentToolPrincipalAccess) => Promise<T>): Promise<T> {
   const request = agentToolPrincipals.get(principal);
-  return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), currentAgent,
+  return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), currentAgentWithOriginalOrigin,
     (workspace, assertCurrent) => Object.freeze({ workspace, userId: request!.userId, agentId: request!.agentId,
       piSessionId: request!.origin.sessionId, toolName: request!.origin.toolName, toolCallId: request!.origin.toolCallId, assertCurrent }), operation);
 }
