@@ -35,3 +35,29 @@ Originalverzeichnis: `/private/tmp/cn-asset-delete-native-checkpoint-runtime-red
 | `ready.json` | `b452c3612a1d2017118fa61b0c2ed818f94cb1460b005e2b54d6267e45725c4e` |
 | `results.json` | `84f317c1127ed504f934d71be9bca0cba01980bec2caa706d743c0fa6095b1d5` |
 | `independent-closure.json` | `385af20434dcedbd289ac3329f07b883f6c151d391fd6b375c79beac8558ebd4` |
+
+## Tatsächlicher Folgelauf auf unverändertem Produktcode: 3/3
+
+Root `6179d1c51d12f1a77df23117982e771f4d255f30` und QA `140d327649af80277bcda0e79762fce0cb220d10` binden die Korrektur. Die drei tatsächlichen Varianten PDF/TXT/PNG bestehen mit jeweils Exit 0: Batch `applied`, alle Pfad-/Linkschritte abgeschlossen, physisches Ziel weg, Keep-Dokument unverändert, vollständiger nativer Linkinventarvergleich, exakter erwarteter Markdowntext in Yjs und auf der Platte, kein ausstehender Checkpoint und kein abgewiesener Shared-Lock. Der Originalrunner endet mit Exit 0; die unabhängige Ressourcenprüfung ebenfalls. Die ursprünglichen 180 Sekunden und Erfolgserwartungen bleiben erhalten.
+
+Der erste Folgelauf unter `/private/tmp/cn-asset-delete-native-checkpoint-green-vrsmv7s_` erreicht bereits dreimal tatsächlich `applied`, endet aber dreimal mit Exit 1: Die zusätzliche Testassertion fragt `canonicalContent` am strukturierten nativen Snapshot ab, der dieses Feld nicht besitzt. Dieser Lauf wird ausdrücklich nicht als bestanden gewertet; sein eigener Ressourcenabschluss besteht. Die Testkorrektur liest den echten Markdownserializer und vergleicht zusätzlich unabhängig vorgegebene exakte Sollbytes. Die vorherige Assertion auf den tatsächlichen erfolgreichen Batchabschluss bleibt unverändert. Produktcode, Zeitgrenze, ursprüngliche Daten und alle übrigen Prüfungen werden nicht verändert.
+
+Der korrigierte Nachweis liegt unter `/private/tmp/cn-asset-delete-native-checkpoint-green-fixed-assert-l4j_ik7y`. 6.917 aktuelle Repositoryquellen sind vor/nach dem Lauf gebunden. Kein Kind hat Timeout/Signal, alle drei eigenen Fixturesschemas und Backendidentitäten sind geschlossen/entfernt. Vier vorhandene verwaltete Container und ihre Listener/Gesundheitsprüfungen bleiben unverändert.
+
+| Artefakt des tatsächlichen erfolgreichen Laufs | SHA-256 |
+| --- | --- |
+| `asset-delete-native-checkpoint.ts` | `c4ced396dd0a3d791c7ef21763b36d4295ad60ff8b214b296052b423f5ee0d75` |
+| `manifest.json` | `9ef5c4fb577d8e02d1edfe20e9be28d2cd25d49021960cac6240924ac394854b` |
+| `ready.json` | `b6353d00ea8dfdcc8bab878a31c441d9c0720853cefa157a1cf39949fc074497` |
+| `results.json` | `201e1de8003181f3008952cc7c69566a77fe5a41336fcdedc924a6b0a227007b` |
+| `independent-closure.json` | `05e513a8965a9efebbdd3e6e9751f851e2bdb67c504a75edec592a353f7aaf03` |
+
+Die zusätzliche isolierte Prüfung führt den vollständigen aktuellen Executor mit echten lokalen Dateimutationen, Planer, Kernel-Fence und fsync-Journal aus. Nur die PG-Lifecyclegrenze und fachliche Adapter sind modelliert; jeder PG-Client-/Poolzugriff scheitert. Alle drei Fälle bestehen mit Exit 0 und vollständigem Abschlussmarker: aktive Lease während Mutation / beendete Lease bei Projektion, konkurrierender unabhängiger Kernelzugriff erst nach finalem `applied`-Journal, aktive geerbte Lease vor allen Writes abgewiesen, inaktive geerbte Lease zulässig. Der erste private Pure-Aufbau erreichte noch einen nicht ersetzten SQL-Trashreader und scheiterte; die korrigierte Fassung verwendet genau den bei tatsächlichem Fixture-Rename erzeugten Trashkatalog. Keine Assertion wurde gelockert. Diese isolierte Prüfung beweist keine PG-Locksemantik oder native Yjs-Autorität; dafür steht der getrennte echte Lauf. Die portable Repositoryfassung besteht über `npm run test:files:operation-publication-phase` ebenfalls mit allen drei Fällen, tatsächlichem Exit 0 und vollständigem Abschlussmarker; Scoped-Lint und vollständiges cachefreies TypeScript einschließlich der neuen Testdatei bestehen.
+
+Noch offen sind die explizite tatsächliche Wiederaufnahme desselben Legacy-Batches nach gespeicherten Pfad-/Linkbelegen, Original-Move/Delete-Post-B1-/B2-/ACK-Verlustfolgen, frischer Gesamtbuild und gemeinsame Browserabnahme. Die drei Assetfälle sind kein PDFparser-, HTTP-SDK-, Such-, MCP-Neuanlage- oder Gesamtabschluss. Undo, Review Center und allgemeine Aktivierung bleiben aus.
+
+### Deterministischer Kernelbeleg der portablen Regression
+
+Der zunächst zusätzliche unabhängige Async-Contender allein hatte noch eine Timinglücke: Sein Startsignal plus `setImmediate` bewiesen keinen bereits entschiedenen Sperrerwerb. Diese Annahme ist durch eine echte unabhängige nichtblockierende Python-`flock(LOCK_EX|LOCK_NB)`-Abfrage ersetzt. Ein separat geöffnetes File-Description prüft dieselbe private Lock-Inode; Eltern- und Kind-fstat binden dev/ino/nlink/uid vor und nach dem Versuch. Vor der Publikation müssen die tatsächlich beobachtete Sperre und der weiterhin nicht eingetretene Contender zusammen gelten. Der Helper wird nach tatsächlichem Close ausgewertet; seine 2-Sekunden-Grenze ist keine Domainretry oder verlängerte Dateiaktionsfrist.
+
+Die gehärtete npm-Prüfung besteht wieder mit 3/3 und vollständigem Abschlussmarker. Eine kontrollierte private Kopie des tatsächlichen Executors ohne ausschließlich die äußere `withLock`-Hülle schlägt mit Exit 1 fehl: Der konkurrierende echte Kernelzugriff sieht noch `applying` statt des finalen `applied`-Journals. Alle übrigen Assertionen bleiben erhalten; der Produktcode wird für diese Gegenkontrolle nicht verändert. Private Gegenkontrolle: `/private/tmp/cn-legacy-publication-no-outer-kernel-mutant-49cjpjrs`. Der ursprüngliche Produkt-SHA bleibt `e99befd180360d69ceebf2b137e513f46aef5bc5aa261b6849e131406598efd4`.
