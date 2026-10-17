@@ -59,7 +59,7 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
       r.private_payload::jsonb #>> '{identity,sessionId}' AS stored_session,
       r.private_payload::jsonb #>> '{identity,agentId}' AS agent,s.agent_id AS actual_agent,
       r.private_payload::jsonb #> '{extensionSelection,publicSelection}' AS public_selection,
-      CASE WHEN r.private_payload::jsonb ? 'body' THEN jsonb_build_object('version',1,
+      CASE WHEN jsonb_exists(r.private_payload::jsonb, 'body') THEN jsonb_build_object('version',1,
         'parts',(SELECT COALESCE(jsonb_agg(p),'[]'::jsonb) FROM jsonb_array_elements(r.private_payload::jsonb #> '{body,parts}') p WHERE p->>'type'='extension_reference'),
         'bundles',r.private_payload::jsonb #> '{body,bundles}') ELSE NULL END AS body
       FROM pi_message_delivery_receipts r JOIN pi_sessions s ON s.id=r.pi_session_db_id
