@@ -183,6 +183,8 @@ function fingerprint(value: unknown): value is string {
   return parts.length === 5 && parts.slice(0, 3).every(part => /^(?:0|[1-9][0-9]*)$/u.test(part) && Number.isSafeInteger(Number(part)))
     && parts.slice(3).every(part => /^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$/u.test(part) && Number.isFinite(Number(part)));
 }
+/** Shared pure fact validation; it grants no filesystem or writer authority. */
+export { fingerprint as isNativeSourceFilesystemFingerprint };
 function complete(value: unknown): void {
   const row = record(value, ['complete', 'gaps']);
   if (row.complete !== true || list(row.gaps, 0).length) fail();

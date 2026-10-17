@@ -20,6 +20,9 @@ import { assertWorkspaceOriginalPathsCurrent, readWorkspaceOriginalFileSource, W
 import { filesystemFileVersion } from '../filesystem/file-version';
 import { assertWorkspacePathHasNoAliases } from '../workspaces/path-guard';
 import type { WorkspaceContext } from '../workspaces/types';
+import type { WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-scene-catalogue';
+import type { WorkspaceSceneSnapshotRecord } from '../excalidraw-collaboration/workspace-scene-snapshot';
+import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-copy-source-observation';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
@@ -63,6 +66,10 @@ export type WorkspaceLinkSourceAuthorityObservation = Readonly<{
   privateNativeStates: readonly PersistedCollaborationState[];
   /** Private transient full catalogue witness, never serialized stage data or authority. */
   privateCatalogue?: readonly Readonly<WorkspaceDocumentCatalogueEntry>[];
+  /** Scene provider component. Historical Yjs-only observers omit these. */
+  sceneBindings?: readonly WorkspaceSceneSourceBinding[];
+  privateSceneSnapshots?: readonly WorkspaceSceneSnapshotRecord[];
+  privateSceneCatalogue?: readonly Readonly<WorkspaceSceneCatalogueEntry>[];
 }>;
 type CollectorDependencies = Omit<Dependencies, 'openConnection'>;
 type Row = Record<string, unknown>;

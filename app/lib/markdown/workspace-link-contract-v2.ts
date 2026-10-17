@@ -61,6 +61,9 @@ export type NativeDocumentLinkInventory = {
 };
 
 export type NativeNamespaceEntry = {
+  /** Explicit provider component in the managed Copy contract. The documentId
+   * fields below remain Yjs-only; Scene identity is bound separately. */
+  provider?: 'excalidraw';
   workspaceId: string;
   path: string;
   kind: 'file' | 'directory';

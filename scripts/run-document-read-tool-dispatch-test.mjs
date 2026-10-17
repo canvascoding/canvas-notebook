@@ -23,6 +23,14 @@ const criticalInputsByEntryPoint = {
   'scripts/excalidraw-lifecycle-availability-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/lib/excalidraw-collaboration/lifecycle-availability.ts', 'app/lib/excalidraw-collaboration/scene-service.ts',
     'app/lib/excalidraw-collaboration/portable-import.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-scene-snapshot-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/excalidraw-collaboration/workspace-scene-snapshot.ts',
+    'app/lib/excalidraw-collaboration/readonly-assets.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-managed-copy-plan-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/files/workspace-operation-managed-copy-plan.ts', 'app/lib/files/workspace-operation-copy-source-evidence.ts',
+    'app/lib/files/workspace-operation-copy-source-observation.ts',
+    'app/lib/excalidraw-collaboration/workspace-scene-snapshot.ts', 'app/lib/excalidraw-collaboration/readonly-assets.ts',
+    'app/lib/markdown/workspace-native-mixed-batch-compiler.ts', 'app/lib/db/index.ts'],
 };
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];

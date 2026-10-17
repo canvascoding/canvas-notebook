@@ -149,6 +149,9 @@ function cloneRequirements(original: NativeWorkspaceLinkSnapshot, destination: W
   if (!isDeepStrictEqual(result, supplied)) fail();
   return result;
 }
+/** Pure shared compiler-contract validation, including provider-composite plans.
+ * The original V1/V2 decoder and its hash contract remain unchanged. */
+export { cloneRequirements as assertNativeCopyCloneRequirements };
 type CapturedObservation = { evidence: WorkspaceOperationNativeSourceEvidence; observation: WorkspaceLinkSourceAuthorityObservation };
 function observed(scope: WorkspaceOperationJobScope, observation: WorkspaceLinkSourceAuthorityObservation,
   version: 1 | 2 = 1): CapturedObservation {
