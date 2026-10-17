@@ -14,6 +14,7 @@ import * as DirectActivity from '../app/lib/collaboration/direct-activity-sessio
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type * as Server from '../server/collaboration-server';
+import { legacyRoomLifecycleStub } from './helpers/legacy-room-lifecycle-stubs';
 
 function gate() {
   let resolve!: () => void;
@@ -32,7 +33,7 @@ async function harness() {
     status: 'active', schemaVersion: 1, persistedAt: 1, checkpointedAt: 1, canonicalHash: null, serializedHash: null,
     newlineStyle: 'lf', hasBom: false, degraded: false };
   const h = { doc, workspace, state: initial as PersistedCollaborationState | null, authorized: true,
-    documentId: 'document', accessChecks: 0, userAccessChecks: 0, applied: 0, disconnected: 0, admissionCount: 0,
+    documentId: 'document', accessChecks: 0, userAccessChecks: 0, opened: 0, applied: 0, disconnected: 0, admissionCount: 0,
     openEntered: gate(), releaseOpen: gate(), beforeDisconnect: async () => {},
     events: [] as string[], run: null as unknown as Parameters<typeof Direct.installCollaborationDirectConnection>[0] };
   let hooks!: Record<string, (input: Record<string, unknown>) => Promise<unknown>>;
@@ -41,6 +42,7 @@ async function harness() {
     constructor(options: typeof hooks) { hooks = options; }
     closeConnections() {}
     async openDirectConnection() {
+      h.opened++;
       h.openEntered.resolve();
       await h.releaseOpen.promise;
       return {
@@ -57,6 +59,8 @@ async function harness() {
   });
   const exported = {} as typeof Server;
   new Function('require', 'module', 'exports', compiled.outputText)((name: string) => {
+    const outsideScope = legacyRoomLifecycleStub(name);
+    if (outsideScope) return outsideScope.value;
     if (name === '@hocuspocus/server') return { Hocuspocus };
     if (name === 'ws') return { WebSocketServer: class extends EventEmitter {} };
     if (name.endsWith('/direct-activity-session')) return DirectActivity;
@@ -167,13 +171,17 @@ async function main() {
       });
       try {
         await entered.promise;
-        const editing = h.edit(); await h.openEntered.promise; h.releaseOpen.resolve();
+        const editing = h.edit();
         await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(h.mutable.accessChecks, 1, 'the first authorization completed before waiting for the workspace lock');
+        assert.equal(h.mutable.opened, 0, 'room opening waits for the active workspace mutation');
+        assert.equal(h.mutable.admissionCount, 0, 'room admission cannot bypass the active workspace mutation');
         assert.equal(h.mutable.applied, 0, 'a room opening cannot bypass an ongoing workspace mutation');
         release.resolve(); await mutation;
+        await h.openEntered.promise; h.releaseOpen.resolve();
         await assert.rejects(editing, Direct.AgentDirectConnectionAuthorizationError);
         assert.equal(h.mutable.applied, 0); cases++;
-      } finally { release.resolve(); await mutation; h.close(); }
+      } finally { release.resolve(); h.releaseOpen.resolve(); await mutation; h.close(); }
     }
     {
       const h = await harness(); const entered = gate(); const release = gate();

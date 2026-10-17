@@ -51,6 +51,7 @@ import {
   workspaceFromAgentExecutionContext,
 } from '@/app/lib/pi/session-workspace-context';
 import { installCollaborationDocumentReader } from '@/app/lib/collaboration/document-access';
+import { installCollaborationSearchRoomCensus } from '../app/lib/collaboration/search-room-census';
 import { getWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
@@ -1650,6 +1651,18 @@ export function createCollaborationServer(server: http.Server, options: {
     // until it is gone, or a new client can receive its previous representation.
     return room ? Math.max(1, room.getConnectionsCount()) : 0;
   });
+  const uninstallSearchCensus = installCollaborationSearchRoomCensus({
+    maps: () => ({ documents: hocuspocus.documents, loadingDocuments: hocuspocus.loadingDocuments,
+      unloadingDocuments: hocuspocus.unloadingDocuments }),
+    identity: document => roomIdentities.get(document),
+    owner: document => roomOwners?.fence(document),
+    isDraining: documentId => roomOwners?.isDraining(documentId) ?? false,
+    assertAvailable() {
+      if (nativeClosing) throw new CollaborationRoomOwnerError('ROOM_OWNER_UNAVAILABLE');
+      roomOwners?.assertAvailable();
+    },
+  });
+  server.once('close', uninstallSearchCensus);
   installCollaborationDocumentReader(async (documentId, workspaceId, read, loadState = loadCollaborationState) => {
     const session = directActivitySessions.getStore();
     if (session) {
