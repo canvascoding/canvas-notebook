@@ -56,6 +56,14 @@ export class CollaborationCheckpointRequestError extends Error {
   }
 }
 
+export class CollaborationCopyPublicationPendingError extends Error {
+  readonly code = 'COLLABORATION_COPY_PUBLICATION_PENDING';
+  constructor() {
+    super('The document copy has not finished publishing.');
+    this.name = 'CollaborationCopyPublicationPendingError';
+  }
+}
+
 export class CollaborationCheckpointQuarantinedError extends Error {
   readonly code = COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined;
   constructor() {

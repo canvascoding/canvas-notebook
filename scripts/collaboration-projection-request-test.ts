@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import ts from 'typescript';
 import * as Y from 'yjs';
 
-import { CollaborationCheckpointValidationError, CollaborationCheckpointQuarantinedError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationCopyPublicationPendingError, CollaborationCheckpointValidationError, CollaborationCheckpointQuarantinedError, COLLABORATION_CHECKPOINT_ERROR_CODES } from '../app/lib/collaboration/checkpoint-errors';
 import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
 import { FileGuestCheckpointRequestError } from '../app/lib/file-guests/checkpoint-error';
@@ -67,7 +67,7 @@ async function requestHarness(channel: 'account' | 'guest') {
     invitation: { policyRevision: 3, permission: 'write' } };
   const controls = { materializeError: null as Error | null, accessDenied: false, ticketError: null as Error | null,
     advanceOnFailure: false, latest: null as PersistedCollaborationState | null,
-    materialized: 0, loaded: 0, diagnostics: [] as unknown[][] };
+    materialized: 0, loaded: 0, recordedFailures: 0, diagnostics: [] as unknown[][] };
   const mocks = {
     '@/app/lib/collaboration/server-runtime': { Y },
     '@/app/lib/collaboration/diagnostics': { logCollaborationDiagnostic: (...args: unknown[]) => controls.diagnostics.push(args) },
@@ -87,7 +87,7 @@ async function requestHarness(channel: 'account' | 'guest') {
       } },
     '@/app/lib/collaboration/persistence': { loadCollaborationState: async () => { controls.loaded++; return controls.latest ?? state; } },
     '@/app/lib/collaboration/projection-repository': {
-      recordCollaborationProjectionFailure: async () => {},
+      recordCollaborationProjectionFailure: async () => { controls.recordedFailures++; },
       loadCollaborationProjectionStatus: async () => ({ degraded: state.degraded, projectionFinalized: false }),
     },
     '@/app/lib/audit/audit-service': { recordAuditEvent: async () => {} },
@@ -139,6 +139,30 @@ function assertSnapshot(body: Record<string, unknown>, state: PersistedCollabora
 }
 
 for (const channel of ['account', 'guest'] as const) {
+  test(`${channel}: pending Copy publication is a transient conflict without projection failure mutation`, async () => {
+    const { controls, request, state, proof, doc } = await requestHarness(channel);
+    const before = { ...state, yjsState: new Uint8Array(state.yjsState), stateVector: new Uint8Array(state.stateVector) };
+    controls.materializeError = new CollaborationCopyPublicationPendingError();
+    try {
+      const response = await request();
+      const body = await response.json();
+      assert.equal(response.status, 409);
+      assert.equal(body.success, false);
+      assert.equal(body.code, 'COLLABORATION_COPY_PUBLICATION_PENDING');
+      assert.equal(controls.materialized, 1, 'the actual checkpoint boundary receives the pending publication error');
+      assert.equal(controls.recordedFailures, 0, 'pending publication cannot write projection failure/degraded status');
+      assert.deepEqual(controls.diagnostics, []);
+      assert.deepEqual(state, before);
+      assertSafe(body, controls.diagnostics);
+      if (channel === 'guest') {
+        assert.equal(body.projectionFinalized, false);
+        assertSnapshot(body, state, proof);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+        assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+      }
+    } finally { doc.destroy(); }
+  });
+
   test(`${channel}: projection responses preserve exact persisted proof and sanitize failures`, async (t) => {
     const fixture = await requestHarness(channel);
     const { controls, request, state, proof, doc } = fixture;

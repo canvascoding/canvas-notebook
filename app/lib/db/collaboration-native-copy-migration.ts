@@ -34,6 +34,10 @@ export const COLLABORATION_NATIVE_COPY_STATEMENTS = [
     PRIMARY KEY (workspace_id,operation_id)
   )`,
   'CREATE INDEX IF NOT EXISTS idx_collaboration_native_copy_receipts_actor ON collaboration_native_copy_receipts (workspace_id,actor_user_id,created_at)',
+  `CREATE INDEX IF NOT EXISTS idx_collaboration_native_copy_unpublished_workspace
+    ON collaboration_native_copy_receipts (workspace_id)
+    WHERE kind IN ('native_clone','native_restore')
+      AND publication_status IN ('native_committed','publication_failed')`,
   `CREATE OR REPLACE FUNCTION ${COLLABORATION_NATIVE_COPY_IMMUTABLE_FUNCTION}() RETURNS trigger LANGUAGE plpgsql
     AS $$${COLLABORATION_NATIVE_COPY_IMMUTABLE_BODY}$$`,
   `CREATE OR REPLACE TRIGGER ${COLLABORATION_NATIVE_COPY_IMMUTABLE_TRIGGER}
