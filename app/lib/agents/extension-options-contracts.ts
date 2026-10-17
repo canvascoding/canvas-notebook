@@ -50,8 +50,8 @@ export type AgentExtensionConfigurationConnectionSelector = z.infer<typeof agent
 export type AgentExtensionUserChoiceSelector = z.infer<typeof slotSelector>;
 export type AgentExtensionConnectionSelector = AgentExtensionConfigurationConnectionSelector | AgentExtensionUserChoiceSelector;
 
-export const createExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('search'), target,
-  phase: z.enum(['all', 'local', 'remote']).optional(),
+const createMetadataSearchRequestSchema = <T extends z.ZodType, P extends z.ZodType>(target: T, phase: P) => z.object({ operation: z.literal('search'), target,
+  phase: phase.optional(),
   q: query.default(''), types: z.array(z.enum(['plugin', 'skill', 'integration', 'mcp'])).min(1).max(4)
     .refine(values => new Set(values).size === values.length).default(['plugin', 'skill', 'integration', 'mcp']),
   stock: z.enum(['all', 'installed', 'available']).default('all'), source: z.enum(['all', 'store', 'composio', 'mcp']).default('all'),
@@ -64,6 +64,11 @@ export const createExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(
   if (value.audience !== null && value.scope !== 'user') context.addIssue({ code: 'custom', path: ['audience'], message: 'Audience requires the user scope.' });
   if ((value.scope === 'team') !== (value.teamId !== null)) context.addIssue({ code: 'custom', path: ['teamId'], message: 'Choose one exact team for the team scope.' });
 });
+export const createExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(target: T) =>
+  createMetadataSearchRequestSchema(target, z.enum(['all', 'local', 'remote']));
+/** The connected observation phase belongs to Chat, never Agent configuration or the full catalog. */
+export const createChatExtensionMetadataSearchRequestSchema = <T extends z.ZodType>(target: T) =>
+  createMetadataSearchRequestSchema(target, z.enum(['all', 'local', 'connected', 'remote']));
 const searchRequest = createExtensionMetadataSearchRequestSchema(agentExtensionConfigurationTargetSchema);
 export const createExtensionMetadataPackageRequestSchema = <T extends z.ZodType>(target: T) => z.object({ operation: z.literal('package_version'), target,
   resourceRef: extensionPackagePinSchema.shape.resourceRef,
@@ -165,6 +170,8 @@ export type AgentExtensionOptionEligibility = {
 export type AgentExtensionSearchItem = {
   item: PluginExtensionItem;
   eligibility: AgentExtensionOptionEligibility;
+  /** Chat presentation only; current permissions and execution are checked independently. */
+  chatAvailability?: 'ready' | 'setup';
   /** Source-verified public identity. An own account still needs its explicit intake receipt. */
   selection?: ExtensionSelection;
   publishedVersions?: Array<{ pin: ExtensionPackagePin; version: string; publishedAt: number }>;

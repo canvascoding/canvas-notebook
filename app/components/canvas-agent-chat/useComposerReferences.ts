@@ -8,7 +8,7 @@ import type { ChatInlineEditorHandle } from './ChatInlineEditor';
 import { PluginExtensionAvatar } from '@/app/components/plugins/PluginExtensionAvatar';
 import { deriveChatBodySelection, parseChatBody, projectChatBodyText, type ChatBodyV1, type ChatReferenceBundleV1 } from '@/app/lib/chat/chat-body-contracts';
 import type { ChatExtensionOptionsTarget } from '@/app/lib/chat/extension-options-contracts';
-import { requestChatExtensionOptions } from '@/app/lib/chat/extension-options-client';
+import { ChatExtensionOptionsClientError, requestChatExtensionOptions } from '@/app/lib/chat/extension-options-client';
 import type { ChatReferenceDialogRequest, ChatReferencePickerValue } from '@/app/lib/chat/composer-reference-types';
 import type { ChatExtensionSelectionInput } from '@/app/lib/capabilities/extensions/contracts';
 import { findInlineComposerReference } from '@/app/lib/chat/inline-references';
@@ -25,7 +25,7 @@ type Params = { agentId: string | null; sessionId: string | null; inputBody: Cha
   resetInputHistoryNavigation: () => void; setInputBody: Dispatch<SetStateAction<ChatBodyV1>>;
   editorRef: RefObject<ChatInlineEditorHandle | null> };
 export type ChatReferenceTypeFilter = 'all' | PluginExtensionKind;
-export type ChatReferenceSourceStatus = { source: 'local' | 'remote' | 'files'; status: 'loading' | 'complete' | 'unavailable'; message?: string };
+export type ChatReferenceSourceStatus = { source: 'local' | 'connected' | 'remote' | 'files'; status: 'loading' | 'complete' | 'unavailable' | 'paused'; message?: string };
 
 export function useComposerReferences({ agentId, sessionId, inputBody, workspaceId, resetInputHistoryNavigation,
   setInputBody, editorRef }: Params) {
@@ -93,17 +93,54 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
     const current = () => !controller.signal.aborted && epoch.current === version && latest.current.scope === scope && isOpenedDocumentAuthCurrent(auth);
     const results = new Map<ChatReferenceSourceStatus['source'], ComposerReferencePickerItem<ChatReferencePickerValue>[]>();
     const statuses = new Map<ChatReferenceSourceStatus['source'], ChatReferenceSourceStatus>();
+    const generations = new Map<ChatReferenceSourceStatus['source'], number>();
+    type Pages = { cursor: string | null; seen: Set<string | null>; items: Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>; errors: Set<string>; finished: boolean; reset: boolean };
+    const pages = new Map<ChatReferenceSourceStatus['source'], Pages>();
+    const priorityOrder: string[] = [];
+    let previousItems: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [];
+    let connectedStarted = false, connectedResponded = false, catalogStarted = false;
+    const identityOf = (item: ComposerReferencePickerItem<ChatReferencePickerValue>) => {
+      const payload = item.payload;
+      const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
+      return selection ? chatInlineReferenceIconKey(selection) : item.id;
+    };
     const publish = () => {
       if (!current()) return;
-      const merged = new Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>(), exact = new Set<string>();
-      for (const source of ['local', 'remote', 'files'] as const) for (const item of results.get(source) ?? []) {
-        const payload = item.payload;
-        const selection = payload.type === 'extension' ? payload.option.selection : payload.type === 'recent' ? payload.recent.bodyBundle.primary.selection : null;
-        const identity = selection ? chatInlineReferenceIconKey(selection) : item.id;
-        if (exact.has(identity) && !merged.has(item.id)) continue;
-        exact.add(identity); merged.set(item.id, item);
+      // A connected refresh supersedes its local snapshot, while still-ready
+      // rows retain their position. Catalog arrivals never promote or reorder it.
+      const local = new Map<string, ComposerReferencePickerItem<ChatReferencePickerValue>>();
+      const refreshedIds = new Set((results.get('connected') ?? []).map(item => item.id));
+      for (const source of ['local', 'connected'] as const) for (const item of results.get(source) ?? []) {
+        if (source === 'local' && (connectedResponded || refreshedIds.has(item.id))) continue;
+        const identity = identityOf(item), existing = local.get(identity);
+        if (existing?.payload.type === 'recent' && existing.section === 'ready' && item.section === 'ready') continue;
+        if (!existing || source === 'connected' || existing.payload.type !== 'recent') local.set(identity, item);
       }
-      setItems({ key: queryKey, items: [...merged.values()] });
+      const ready = [...local.entries()].filter(([, item]) => item.section === 'ready');
+      for (const [identity] of ready) if (!priorityOrder.includes(identity)) priorityOrder.push(identity);
+      ready.sort(([left, leftItem], [right, rightItem]) => Number(rightItem.payload.type === 'recent') - Number(leftItem.payload.type === 'recent')
+        || (leftItem.payload.type === 'recent' && rightItem.payload.type === 'recent' ? rightItem.payload.recent.lastAcceptedAt - leftItem.payload.recent.lastAcceptedAt : 0)
+        || priorityOrder.indexOf(left) - priorityOrder.indexOf(right));
+      const ordered = [...ready.map(([, item]) => item), ...(results.get('files') ?? []),
+        ...(catalogStarted ? [...local.values()].filter(item => item.section !== 'ready') : []), ...(results.get('remote') ?? [])];
+      const exact = new Set<string>(), ids = new Set<string>();
+      const items = ordered.filter(item => {
+        const identity = identityOf(item);
+        if (exact.has(identity) || ids.has(item.id)) return false;
+        exact.add(identity); ids.add(item.id); return true;
+      });
+      setItems({ key: queryKey, items });
+      const before = previousItems;
+      setFocus(previous => {
+        if (previous?.key === queryKey) {
+          if (items.some(item => item.id === previous.id)) return previous;
+          const selected = before.find(item => item.id === previous.id);
+          const replacement = selected && items.find(item => identityOf(item) === identityOf(selected));
+          if (replacement) return { key: queryKey, id: replacement.id };
+        }
+        return items[0] ? { key: queryKey, id: items[0].id } : null;
+      });
+      previousItems = items;
       const states = [...statuses.values()];
       setSources({ key: queryKey, statuses: states }); setLoading(states.some(row => row.status === 'loading'));
       setError(states.filter(row => row.status === 'unavailable').map(row => row.message ?? row.source).join(' · ') || null);
@@ -111,23 +148,41 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
     const timer = setTimeout(() => {
       const load = (source: ChatReferenceSourceStatus['source']) => {
         if (!current()) return;
+        if (statuses.get(source)?.status === 'loading' && generations.has(source)) return;
+        const generation = (generations.get(source) ?? 0) + 1;
+        generations.set(source, generation);
+        const sourceCurrent = () => current() && generations.get(source) === generation;
+        let state = pages.get(source);
+        if (!state || state.finished || state.reset) {
+          state = { cursor: null, seen: new Set(), items: new Map(), errors: new Set(), finished: false, reset: false };
+          pages.set(source, state);
+        }
+        const paging = state;
         statuses.set(source, { source, status: 'loading' }); publish();
         void (async () => {
-          const items: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [];
           if (source === 'files') {
             const files = await listWorkspaceFileReferences({ query: match.query, limit: 30, workspaceId, signal: controller.signal });
-            items.push(...files.map(file => ({ id: `file:${file.path}`, kind: 'file' as const, label: getFileDisplayPath(file.path),
-              secondaryLabel: 'File', payload: file, icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }) })));
-          } else {
+            if (!sourceCurrent()) return;
+            results.set(source, files.map(file => ({ id: `file:${file.path}`, kind: 'file' as const, label: getFileDisplayPath(file.path),
+              secondaryLabel: 'File', section: 'files' as const, payload: file, icon: getFileIconComponent({ name: file.name, path: file.path, type: file.type }) })));
+            statuses.set(source, { source, status: 'complete' }); publish(); return;
+          }
+          const errors = paging.errors;
+          for (let page = 0; page < 20; page++) {
+            const cursor = paging.cursor;
             const result = await requestChatExtensionOptions({ operation: 'search', target, phase: source,
               q: match.query, types: referenceTypeFilter === 'all' ? ['plugin', 'skill', 'integration', 'mcp'] : [referenceTypeFilter],
-              stock: 'all', source: 'all', scope: 'all', audience: null, teamId: null, cursor: null, selected: null, limit: 30 }, controller.signal);
+              stock: 'all', source: 'all', scope: 'all', audience: null, teamId: null, cursor, selected: null, limit: 50 }, controller.signal);
+            if (!sourceCurrent()) return;
+            const items: ComposerReferencePickerItem<ChatReferencePickerValue>[] = [];
             const recentKeys = new Set<string>();
           for (const recent of result.recents) {
+            if (recent.chatAvailability !== 'ready') continue;
             const selection = recent.bodyBundle.primary.selection, key = chatInlineReferenceIconKey(selection);
             recentKeys.add(key);
             items.push({ id: `recent:${key}`, kind: selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind,
               label: recent.bodyBundle.caption, secondaryLabel: t('referenceRecent') + ' · ' + (selection.kind === 'composio' ? 'Composio' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind),
+              section: source !== 'remote' && recent.chatAvailability === 'ready' ? 'ready' : 'catalog',
               icon: createElement(PluginExtensionAvatar, { name: recent.bodyBundle.caption, identity: `${scope}:${key}`, icon: recent.publicIcon, size: 'sm' }),
               payload: { type: 'recent', recent } });
           }
@@ -135,22 +190,49 @@ export function useComposerReferences({ agentId, sessionId, inputBody, workspace
             if (option.selection && recentKeys.has(chatInlineReferenceIconKey(option.selection))) continue;
             const item = option.item;
             items.push({ id: item.id, kind: item.kind, label: item.displayName, secondaryLabel: option.eligibility.reason?.message ?? item.description,
+              section: source !== 'remote' && option.chatAvailability === 'ready' ? 'ready' : 'catalog',
+              ...(option.chatAvailability !== 'ready' ? { catalogAction: item.stock === 'available' && (item.kind === 'plugin' || item.kind === 'skill') ? 'install' as const
+                : (item.kind === 'integration' || item.kind === 'mcp') && !item.connections?.length ? 'connect' as const : 'setup' as const } : {}),
               icon: createElement(PluginExtensionAvatar, { name: item.displayName, identity: `${scope}:${item.id}`, icon: item.icon, size: 'sm' }),
               payload: { type: 'extension', option } });
           }
-            const errors = result.coverage.filter(row => row.status === 'unavailable').map(row => row.error?.message ?? row.source);
-            statuses.set(source, errors.length ? { source, status: 'unavailable', message: errors.join(' · ') } : { source, status: 'complete' });
+            for (const row of result.coverage) if (row.status === 'unavailable' || row.status === 'partial' && row.error?.retryable) errors.add(row.error?.message ?? row.source);
+            const next = result.pagination.nextCursor;
+            if (source !== 'remote' && result.pagination.hasNextPage && (!next || next === cursor || paging.seen.has(next))) {
+              paging.reset = true;
+              throw new Error('The search cursor repeated or is missing. Retry starts a fresh search.');
+            }
+            paging.seen.add(cursor);
+            for (const item of items) paging.items.set(item.id, item);
+            paging.finished = source === 'remote' || !result.pagination.hasNextPage;
+            paging.cursor = paging.finished ? null : next;
+            if (source === 'connected' && paging.finished) connectedResponded = true;
+            results.set(source, [...paging.items.values()]);
+            statuses.set(source, paging.finished ? errors.size ? { source, status: 'unavailable', message: [...errors].join(' · ') } : { source, status: 'complete' }
+              : page === 19 ? { source, status: 'paused' } : { source, status: 'loading' });
+            publish();
+            if (paging.finished) return;
           }
-          if (source === 'files') statuses.set(source, { source, status: 'complete' });
-          results.set(source, items); publish();
-        })().catch(reason => { if (current()) { statuses.set(source, { source, status: 'unavailable', message: String(reason.message ?? reason) }); publish(); } });
+        })().catch(reason => { if (sourceCurrent()) {
+          if (reason instanceof ChatExtensionOptionsClientError && (reason.status === 409 || reason.status === 400) && /CURSOR/u.test(reason.code)) {
+            pages.delete(source); results.delete(source);
+          }
+          statuses.set(source, { source, status: 'unavailable', message: String(reason?.message ?? reason) }); publish();
+        } })
+          .finally(() => {
+            if (!sourceCurrent()) return;
+            if (statuses.get(source)?.status === 'paused') return;
+            if (source === 'local' && !connectedStarted) { connectedStarted = true; load('connected'); }
+            else if (source === 'connected' && !catalogStarted) { catalogStarted = true; load('remote'); }
+          });
       };
       sourceRetries.current = new Map();
-      const sources: ChatReferenceSourceStatus['source'][] = match.kind === 'file' ? [] : ['local', 'remote'];
+      const sources: ChatReferenceSourceStatus['source'][] = match.kind === 'file' ? [] : ['local'];
       if (match.kind !== 'capability' && referenceTypeFilter === 'all') sources.push('files');
       for (const source of sources) statuses.set(source, { source, status: 'loading' });
       publish();
-      for (const source of sources) { sourceRetries.current.set(source, () => load(source)); load(source); }
+      for (const source of ['local', 'connected', 'remote', 'files'] as const) sourceRetries.current.set(source, () => { if (statuses.has(source)) load(source); });
+      for (const source of sources) load(source);
     }, activeReferenceMatch.query ? 120 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [activeReferenceMatch, target, scope, workspaceId, referenceTypeFilter, t, auth, queryKey]);

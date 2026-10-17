@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { chatBodyV1Schema, type ChatBodyV1, type ChatReferenceBundleV1 } from './chat-body-contracts';
 import { chatExtensionSelectionInputSchema, extensionSelectionSchema, EXTENSION_SELECTION_LIMITS,
   type ExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
-import { createExtensionMetadataSearchRequestSchema, createExtensionMetadataPackageRequestSchema, createExtensionMetadataConnectionRequestSchema,
+import { createChatExtensionMetadataSearchRequestSchema, createExtensionMetadataPackageRequestSchema, createExtensionMetadataConnectionRequestSchema,
   type AgentExtensionOptionsResponse, type AgentExtensionPackageVersion, type AgentExtensionSearchItem,
   type AgentExtensionOptionsPagination, type AgentExtensionConfigurationPreview } from '@/app/lib/agents/extension-options-contracts';
 import type { PluginExtensionCoverage } from '@/app/lib/plugins/plugin-extension-contracts';
@@ -16,7 +16,7 @@ export const chatExtensionOptionsTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('turn'), sessionId: id, expectedAgentId: id, expectedWorkspaceId: id }).strict(),
 ]);
 export type ChatExtensionOptionsTarget = z.infer<typeof chatExtensionOptionsTargetSchema>;
-export const chatExtensionSearchRequestSchema = createExtensionMetadataSearchRequestSchema(chatExtensionOptionsTargetSchema);
+export const chatExtensionSearchRequestSchema = createChatExtensionMetadataSearchRequestSchema(chatExtensionOptionsTargetSchema);
 export const chatExtensionPackageRequestSchema = createExtensionMetadataPackageRequestSchema(chatExtensionOptionsTargetSchema);
 export const chatExtensionConnectionChoicesRequestSchema = createExtensionMetadataConnectionRequestSchema(chatExtensionOptionsTargetSchema);
 export const chatExtensionOptionsRequestSchema = z.union([
@@ -40,7 +40,9 @@ export type ChatExtensionOptionsHeader = {
   coverage: PluginExtensionCoverage[]; limits: typeof EXTENSION_SELECTION_LIMITS; finalSendValidationRequired: true;
 };
 export type ChatExtensionRecentItem = { bodyBundle: ChatReferenceBundleV1; lastAcceptedAt: number;
-  eligibility: AgentExtensionSearchItem['eligibility']; publicIcon?: PluginExtensionIcon };
+  eligibility: AgentExtensionSearchItem['eligibility']; publicIcon?: PluginExtensionIcon;
+  /** Search grouping only, never a retained connection or execution authorization. */
+  chatAvailability?: 'ready' | 'setup' };
 export type ChatExtensionOptionsPreview = Omit<AgentExtensionConfigurationPreview, 'budget' | 'finalSaveValidationRequired'> & {
   budget: null; finalSendValidationRequired: true;
 };

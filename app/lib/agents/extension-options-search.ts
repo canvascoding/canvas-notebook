@@ -21,6 +21,14 @@ import { projectChatExtensionSearchItem } from '@/app/lib/chat/extension-options
 import { readAgentComposioOptionsCatalogue, readAgentMcpOptionsInventory } from './extension-options-inventory';
 import { readAgentExtensionPackageVersion } from './extension-package-options';
 import { agentExtensionPackageIcon } from './extension-options-icons';
+import { readChatComposioConnectionInventory, readChatMcpConnectionInventory, isChatConnectionReady } from '@/app/lib/chat/extension-options-connection-inventory';
+import { chatPackageConnectionsReady, getChatPackageReadinessDescriptor, prepareChatPackageReadinessDescriptor } from '@/app/lib/chat/extension-options-package-readiness';
+
+const chatConnectionSnapshots = new WeakMap<object, readonly PluginExtensionItem[]>();
+/** Request-local, freshly revalidated presentation metadata only. */
+export function getChatExtensionSearchConnections(result: object): readonly PluginExtensionItem[] {
+  return chatConnectionSnapshots.get(result) ?? [];
+}
 
 function innerCursor(context: ExtensionOptionsSourceContext, value: string | null): string | null {
   if (!value) return null;
@@ -34,27 +42,60 @@ function innerCursor(context: ExtensionOptionsSourceContext, value: string | nul
 
 /** Shared catalogue mechanics with a separate actual target-Use projection. No profile/account probes. */
 async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceContext,
-  request: AgentExtensionSearchRequest | ChatExtensionSearchRequest, signal?: AbortSignal) {
+  request: AgentExtensionSearchRequest | Omit<ChatExtensionSearchRequest, 'phase'> & { phase?: 'all' | 'local' | 'remote' }, signal?: AbortSignal,
+  options: { refreshChatConnections?: boolean } = {}) {
   const resourceActor = { userId: context.actor.userId, workspaceId: context.actor.workspaceId };
+  const chatContext = isChatExtensionOptionsContext(context) ? context : null;
+  const chatConnections = new Map<string, PluginExtensionItem>();
+  const remember = (inventory: import('@/app/lib/plugins/plugin-extension-integrations').PluginExtensionSourceResult) => {
+    for (const [id, item] of chatConnections) if (item.source === inventory.coverage.source) chatConnections.delete(id);
+    for (const item of inventory.items) chatConnections.set(item.id, item);
+    return inventory;
+  };
+  const mcpInventory = async () => chatContext ? remember(await readChatMcpConnectionInventory(chatContext)) : readAgentMcpOptionsInventory(context);
+  if (chatContext && options.refreshChatConnections) {
+    // Status refresh does not depend on the visible type filter. A plugin-only
+    // query still needs the current connections of its required capabilities.
+    await Promise.all([readChatComposioConnectionInventory(chatContext, signal ?? AbortSignal.timeout(15_000), true).then(remember), mcpInventory()]);
+  }
   const defaults = await getPluginExtensionSearchDependencies();
   const { operation: _operation, target: _target, ...selection } = request;
   const query: PluginExtensionQuery = { ...selection, cursor: innerCursor(context, request.cursor) };
   const result = await searchPluginExtensions(context.actor, query, { signal, dependencies: { ...defaults,
-    composio: (_actor, abort, options) => readAgentComposioOptionsCatalogue(context, abort, options),
-    mcp: () => readAgentMcpOptionsInventory(context),
+    composio: async (_actor, abort, catalogueOptions) => {
+      if (!chatContext) return readAgentComposioOptionsCatalogue(context, abort, catalogueOptions);
+      if (catalogueOptions?.localOnly) return remember(await readChatComposioConnectionInventory(chatContext, abort, options.refreshChatConnections));
+      const catalogue = await readAgentComposioOptionsCatalogue(context, abort, catalogueOptions);
+      const known = remember(await readChatComposioConnectionInventory(chatContext, abort));
+      const byId = new Map(known.items.map(item => [item.id, item]));
+      const merged = catalogue.items.map(item => {
+        const current = byId.get(item.id); byId.delete(item.id);
+        return item.kind === 'integration' && current?.kind === 'integration'
+          ? { ...item, connections: current.connections, stock: current.stock, access: current.access } : item;
+      });
+      return { ...catalogue, items: [...merged, ...byId.values()] };
+    },
+    mcp: mcpInventory,
     revalidate: async (actor, items) => {
       const packages = await revalidateExtensions(actor, items.filter(item => item.kind === 'plugin' || item.kind === 'skill'));
       const retained = [...packages.items];
       const coverage = [...packages.coverage];
       // Refresh personal ownership/definition status through the same pure inventory.
       if (items.some(item => item.kind === 'mcp')) {
-        const mcp = await readAgentMcpOptionsInventory(context), ids = new Set(items.filter(item => item.kind === 'mcp').map(item => item.id));
+        const mcp = await mcpInventory(), ids = new Set(items.filter(item => item.kind === 'mcp').map(item => item.id));
         retained.push(...mcp.items.filter(item => ids.has(item.id)));
         coverage.push(mcp.coverage);
       }
       // Do not turn catalogue metadata into account observations. Recheck exact
       // shared grants after all remote catalogue IO before retaining a row.
+      const currentChatApps = chatContext && items.some(item => item.kind === 'integration')
+        ? new Map(remember(await readChatComposioConnectionInventory(chatContext, signal ?? AbortSignal.timeout(15_000))).items.map(item => [item.id, item])) : null;
       for (const item of items) if (item.kind === 'integration') {
+        if (currentChatApps) {
+          const current = currentChatApps.get(item.id);
+          retained.push({ ...item, connections: current?.kind === 'integration' ? current.connections : [] });
+          continue;
+        }
         const connections: typeof item.connections = [];
         for (const previous of item.connections) {
           try {
@@ -78,6 +119,7 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
   // One exact immutable source per pin in this response, never an authorization
   // cache across searches, actors, or the final Preview/Send lifecycle.
   const packageSources = new Map<string, ReturnType<typeof readAgentExtensionPackageVersion>>();
+  const readinessDescriptors = new Map<string, ReturnType<typeof prepareChatPackageReadinessDescriptor>>();
   const packageVersion = (pin: Parameters<typeof readAgentExtensionPackageVersion>[1]) => {
     const key = JSON.stringify(pin);
     let value = packageSources.get(key);
@@ -176,19 +218,61 @@ async function searchExtensionMetadataOptions(context: ExtensionOptionsSourceCon
   if (isChatExtensionOptionsContext(context)) {
     items = await observeExtensionStage('projection', () => Promise.all(items.map(item => projectChatExtensionSearchItem(context, item, { resources, packageVersion }))), values => values.length);
     if (selectedItem) selectedItem = await projectChatExtensionSearchItem(context, selectedItem, { resources, packageVersion });
+    if (hasPackages) {
+      await Promise.all([readChatComposioConnectionInventory(context, signal ?? AbortSignal.timeout(15_000)).then(remember), mcpInventory()]);
+    }
+    const availability = async (value: AgentExtensionSearchItem): Promise<AgentExtensionSearchItem> => {
+      const usable = value.item.stock === 'installed' && value.item.access.canUse
+        && (value.eligibility.action === 'select' || value.eligibility.action === 'choose_connection');
+      let ready = usable && (value.item.kind === 'integration' || value.item.kind === 'mcp'
+        ? value.item.connections.some(isChatConnectionReady)
+        : !value.item.package?.activation || value.item.package.activation.enabled);
+      if (ready && value.selection && (value.selection.kind === 'plugin' || value.selection.kind === 'skill')) {
+        // Cold local searches never parse all package contents. Immutable
+        // declaration metadata is prepared in the background connected phase;
+        // current Use and connection policy are still checked on every request.
+        try {
+          const selected = value.selection, key = JSON.stringify(selected.package);
+          let descriptor = getChatPackageReadinessDescriptor(selected.package);
+          if (!descriptor && (options.refreshChatConnections || packageSources.has(key))) {
+            let pending = readinessDescriptors.get(key);
+            if (!pending) {
+              pending = packageVersion(selected.package).then(source => prepareChatPackageReadinessDescriptor(source, selected.package));
+              readinessDescriptors.set(key, pending);
+            }
+            descriptor = await pending;
+          }
+          ready = Boolean(descriptor) && await chatPackageConnectionsReady(context, selected, descriptor!,
+            [...chatConnections.values()], signal ?? AbortSignal.timeout(15_000));
+        }
+        catch { ready = false; }
+      }
+      return { ...value, chatAvailability: ready ? 'ready' : 'setup' };
+    };
+    items = await Promise.all(items.map(availability));
+    if (selectedItem) selectedItem = await availability(selectedItem);
   }
   await revalidateAgentExtensionOptionsContext(context);
   const nextCursor = result.pagination.nextCursor ? Buffer.from(JSON.stringify({ v: 1, context: context.contextKey,
     cursor: result.pagination.nextCursor })).toString('base64url') : null;
   if (nextCursor && nextCursor.length > 8192) throw new AgentWorkflowError('AGENT_EXTENSION_CURSOR_INVALID', 'Narrow this catalogue search before loading further pages.', 400);
-  return { schemaVersion: 1, operation: 'search', target: request.target, contextKey: context.contextKey,
+  const response = { schemaVersion: 1, operation: 'search', target: request.target, contextKey: context.contextKey,
     coverage: result.coverage, limits: EXTENSION_SELECTION_LIMITS, query: request, items, selectedItem,
     scopes: result.scopes, pagination: { ...result.pagination, nextCursor } };
+  if (chatContext) chatConnectionSnapshots.set(response, [...chatConnections.values()]);
+  return response;
 }
 
 export async function searchAgentExtensionOptions(context: AgentExtensionOptionsContext, request: AgentExtensionSearchRequest, signal?: AbortSignal): Promise<Extract<AgentExtensionOptionsResponse, { operation: 'search' }>> {
   return await searchExtensionMetadataOptions(context, request, signal) as Extract<AgentExtensionOptionsResponse, { operation: 'search' }>;
 }
 export async function searchChatExtensionOptions(context: ChatExtensionOptionsContext, request: ChatExtensionSearchRequest, signal?: AbortSignal) {
-  return await searchExtensionMetadataOptions(context, request, signal) as Omit<Extract<ChatExtensionOptionsResponse, { operation: 'search' }>, 'recents' | 'agentRevision' | 'workflowRevision' | 'preferenceRevision' | 'finalSendValidationRequired'>;
+  // Connected observations are a distinct bounded stage before the remote
+  // offering catalogue. The shared Agent/Plugin search dialect stays unchanged.
+  const connected = request.phase === 'connected';
+  const narrowed = { ...request, phase: request.phase === 'connected' ? 'local' as const : request.phase };
+  const result = await searchExtensionMetadataOptions(context, narrowed, signal, { refreshChatConnections: connected });
+  const response = { ...result, query: request } as Omit<Extract<ChatExtensionOptionsResponse, { operation: 'search' }>, 'recents' | 'agentRevision' | 'workflowRevision' | 'preferenceRevision' | 'finalSendValidationRequired'>;
+  chatConnectionSnapshots.set(response, getChatExtensionSearchConnections(result));
+  return response;
 }

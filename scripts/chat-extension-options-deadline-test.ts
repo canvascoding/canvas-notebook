@@ -57,13 +57,14 @@ async function main() {
     ['@/app/lib/agents/extension-package-options', { readAgentExtensionPackageVersion: forbidden }],
     ['@/app/lib/agents/extension-options-search', { searchChatExtensionOptions: async (_context: unknown, request: ChatExtensionSearchRequest, signal: AbortSignal) => {
       searchCalls += 1; seenSearchSignals.push(signal); return searchHold ? searchHold.promise : searchResult(request);
-    } }],
+    }, getChatExtensionSearchConnections: () => [] }],
     ['@/app/lib/agents/extension-options-connections', { listChatExtensionConnectionChoices: forbidden }],
     ['./extension-options-context', { resolveChatExtensionOptionsContext: async () => { contextCalls += 1; return contextHold ? contextHold.promise : context; },
       chatExtensionOptionsHeader: () => header, revalidateChatExtensionOptionsContext: forbidden }],
     ['./extension-options-eligibility', { chatPackageBinding: forbidden, chatPermittedPackageRoots: forbidden }],
     ['./extension-options-presentation', { presentChatExtensionIcon: forbidden }],
     ['./extension-options-recents', { readChatExtensionRecents: async () => { recentCalls += 1; return { items: [], pagination }; } }],
+    ['./extension-options-connection-inventory', { isChatStandaloneSelectionReady: () => false }],
     ['./extension-options-preview', { previewChatExtensionSelection: forbidden }],
   ]);
   loader._load = (name, parent, isMain) => {
