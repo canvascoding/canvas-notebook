@@ -7,7 +7,7 @@ import type { PersistedCollaborationState } from '../app/lib/collaboration/persi
 import type { WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-batch-contract';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
-import { createWorkspaceOperationNativeCopyPlan, createWorkspaceOperationNativeCopyPlanV2,
+import { createWorkspaceOperationNativeCopyPlan, createWorkspaceOperationNativeCopyPlanV1, createWorkspaceOperationNativeCopyPlanV2,
   computeWorkspaceOperationNativeCopyPlanId, computeWorkspaceOperationNativeCopyPlanIntegrityProof,
   decodeWorkspaceOperationNativeCopyPlan, assertWorkspaceOperationNativeCopyPlanCurrent,
   withNativeCopyPlanValidation, WorkspaceOperationNativeCopyPlanError,
@@ -191,16 +191,80 @@ for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as co
 
 test('historical V1 stays raw-hashed, has no integrity field and refuses registry drift', () => {
   for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
-    const value = fixture(representation), before = clone(value), legacy = createWorkspaceOperationNativeCopyPlan(input(value));
+    const value = fixture(representation), before = clone(value), legacy = createWorkspaceOperationNativeCopyPlanV1(input(value));
     assert.equal(legacy.version, 1); assert.equal(legacy.sourceEvidence.evidenceVersion, 1); assert.equal(legacy.destinationEvidence.evidenceVersion, 1);
     const { planId, ...body } = legacy; assert.equal(planId, proof(body));
     assert.equal(computeWorkspaceOperationNativeCopyPlanId(body), planId);
     assert.equal(Object.hasOwn(legacy, 'integrityProof'), false);
     assert.equal(JSON.stringify(decodeWorkspaceOperationNativeCopyPlan(JSON.parse(JSON.stringify(legacy)))), JSON.stringify(legacy));
     const next = clone(value); next.sourceObservation = projected(next.sourceObservation);
-    assert.notEqual(createWorkspaceOperationNativeCopyPlan(input(next)).planId, planId);
+    assert.notEqual(createWorkspaceOperationNativeCopyPlanV1(input(next)).planId, planId);
     assert.throws(() => current(legacy, next), changed); assert.deepEqual(value, before);
   }
+});
+
+test('default creator selects explicit V2 for both complete witnesses and explicit V1 only when both witnesses are absent', () => {
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    const value = fixture(representation), supplied = input(value), before = clone(supplied);
+    const current = createWorkspaceOperationNativeCopyPlan(supplied);
+    assert.equal(current.version, 2); assert.deepEqual(current, createWorkspaceOperationNativeCopyPlanV2(supplied));
+    assert.deepEqual(supplied, before);
+    const historical = clone(supplied);
+    delete historical.sourceObservation.privateCatalogue; delete historical.destinationObservation.privateCatalogue;
+    const historicalBefore = clone(historical), legacy = createWorkspaceOperationNativeCopyPlan(historical);
+    assert.equal(legacy.version, 1); assert.deepEqual(legacy, createWorkspaceOperationNativeCopyPlanV1(historical));
+    assert.deepEqual(historical, historicalBefore);
+  }
+});
+
+test('default creator rejects partial, own-undefined and malformed catalogues instead of falling back to V1', () => {
+  const value = fixture();
+  for (const side of ['sourceObservation', 'destinationObservation'] as const) {
+    const other = side === 'sourceObservation' ? 'destinationObservation' : 'sourceObservation';
+    const partial = clone(input(value)); delete partial[side].privateCatalogue;
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan(partial), invalid);
+    for (const witness of [undefined, null, 0, [], {}, [{ ...value[side].privateCatalogue[0], state_version: -1 }]]) {
+      for (const otherPresent of [false, true]) {
+        const malformed = clone(input(value));
+        if (!otherPresent) delete malformed[other].privateCatalogue;
+        Object.defineProperty(malformed[side], 'privateCatalogue', { enumerable: true, value: witness });
+        assert.throws(() => createWorkspaceOperationNativeCopyPlan(malformed), invalid);
+      }
+    }
+  }
+  const bothUndefined = clone(input(value));
+  for (const side of ['sourceObservation', 'destinationObservation'] as const) {
+    Object.defineProperty(bothUndefined[side], 'privateCatalogue', { enumerable: true, value: undefined });
+  }
+  assert.throws(() => createWorkspaceOperationNativeCopyPlan(bothUndefined), invalid);
+});
+
+test('default creator never executes accessor or Proxy traps while selecting or validating an observation version', () => {
+  const value = fixture(); let accesses = 0;
+  const trap = (): never => { accesses++; throw new Error('Default selection must not execute caller code.'); };
+  const proxied = <T extends object>(value: T): T => new Proxy<T>(value, { get: trap, ownKeys: trap,
+    getPrototypeOf: trap, getOwnPropertyDescriptor: trap, has: trap });
+  assert.throws(() => createWorkspaceOperationNativeCopyPlan(proxied(input(value))), invalid);
+  const revokedInput = Proxy.revocable(input(value), {}); revokedInput.revoke();
+  assert.throws(() => createWorkspaceOperationNativeCopyPlan(revokedInput.proxy), invalid);
+  for (const side of ['sourceObservation', 'destinationObservation'] as const) {
+    const candidate = input(value);
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan({ ...candidate, [side]: proxied(candidate[side]) }), invalid);
+    const revoked = Proxy.revocable(candidate[side], {}); revoked.revoke();
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan({ ...candidate, [side]: revoked.proxy }), invalid);
+    const accessor = input(value); Object.defineProperty(accessor, side, { enumerable: true, get: trap });
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan(accessor), invalid);
+    const witnessAccessor = clone(input(value));
+    Object.defineProperty(witnessAccessor[side], 'privateCatalogue', { enumerable: true, get: trap });
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan(witnessAccessor), invalid);
+    const witnessProxy = clone(input(value));
+    witnessProxy[side].privateCatalogue = proxied(value[side].privateCatalogue);
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan(witnessProxy), invalid);
+    const rowProxy = clone(input(value));
+    rowProxy[side].privateCatalogue![0] = proxied(rowProxy[side].privateCatalogue![0]);
+    assert.throws(() => createWorkspaceOperationNativeCopyPlan(rowProxy), invalid);
+  }
+  assert.equal(accesses, 0);
 });
 
 test('V2 Current without witnesses accepts only original raw stage/bindings and real original native records', () => {
@@ -229,7 +293,7 @@ test('both complete witnesses are mandatory for new V2 plans and present malform
 });
 
 test('V1/V2 plan and Evidence discriminants cannot be mixed or silently upgraded', () => {
-  const value = fixture(), one = createWorkspaceOperationNativeCopyPlan(input(value)), two = build(value);
+  const value = fixture(), one = createWorkspaceOperationNativeCopyPlanV1(input(value)), two = build(value);
   const probes: unknown[] = [{ ...one, version: 2 }, { ...one, integrityProof: two.integrityProof },
     { ...two, version: 1 }, { ...two, sourceEvidence: one.sourceEvidence }, { ...two, destinationEvidence: one.destinationEvidence }];
   const mixed = clone(two); mixed.sourceEvidence = clone(one.sourceEvidence) as unknown as MutablePlan['sourceEvidence']; resign(mixed);
@@ -487,7 +551,7 @@ for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as co
 test('Stage bridge rejects both Plan/Original version mixtures and rehashed foreign physical originals', () => {
   const value = fixture(), plan = build(value), base = stageInput(value, plan);
   assert.throws(() => prepareNativeCopyStage({ ...base, physical: value.original.physical }), invalidStage);
-  assert.throws(() => prepareNativeCopyStage({ ...base, plan: createWorkspaceOperationNativeCopyPlan(input(value)) }), invalidStage);
+  assert.throws(() => prepareNativeCopyStage({ ...base, plan: createWorkspaceOperationNativeCopyPlanV1(input(value)) }), invalidStage);
   const prepared = prepareNativeCopyStage({ ...base, metadata: metadata(plan) });
   const tampered = clone(prepared.manifest); tampered.physical[0].original.destinationPath = 'foreign.md';
   rehashManifest(tampered); assertNativeCopyStageManifestDigest(tampered);

@@ -283,7 +283,19 @@ function createPlan(input: NativeCopyPlanInput, version: 1 | 2): WorkspaceOperat
       integrityProof: computeWorkspaceOperationNativeCopyPlanIntegrityProof(planned as Omit<WorkspaceOperationNativeCopyPlanV2, 'integrityProof'>) });
   });
 }
-export function createWorkspaceOperationNativeCopyPlan(input: NativeCopyPlanInput): WorkspaceOperationNativeCopyPlanV1 {
+/** Complete current observations select V2. A partial or malformed catalogue
+ * must fail that contract rather than silently falling back to legacy plans. */
+export function createWorkspaceOperationNativeCopyPlan(input: NativeCopyPlanInput): WorkspaceOperationNativeCopyPlan {
+  return guarded(() => {
+    const observations = [field(input, 'sourceObservation'), field(input, 'destinationObservation')];
+    for (const observation of observations) {
+      if (!observation || typeof observation !== 'object' || types.isProxy(observation)) fail();
+    }
+    return createPlan(input, observations.some(observation => Object.hasOwn(observation!, 'privateCatalogue')) ? 2 : 1);
+  });
+}
+/** Explicit historical construction preserves the original V1 hash contract. */
+export function createWorkspaceOperationNativeCopyPlanV1(input: NativeCopyPlanInput): WorkspaceOperationNativeCopyPlanV1 {
   return createPlan(input, 1) as WorkspaceOperationNativeCopyPlanV1;
 }
 /** New plans require both complete transient catalogue witnesses. */
