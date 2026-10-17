@@ -400,6 +400,29 @@ export function assertPreparedWorkspaceSingleFileTrashCurrent(prepared: Prepared
   return trackPending(stage, operation);
 }
 
+/** Stronger, rejection-only gate for original-path SQL cleanup. Historical
+ * Current/recovery may tolerate a replacement source; this gate never adopts
+ * that node. An originally missing ancestor must still be exactly absent. */
+export function assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared: PreparedWorkspaceSingleFileTrash): Promise<void> {
+  let stage: Stage;
+  try {
+    stage = requireStage(prepared);
+    if (stage.pending) throw poison(stage, failure('reentrant-operation', stage.renameAttempted));
+    if (!stage.moveCompleted) throw poison(stage, failure('invalid-lifetime', stage.renameAttempted));
+  } catch (error) { return Promise.reject(error); }
+  const missingPrefix = stage.facts!.filesystem.missingSourcePrefix;
+  const absentPath = missingPrefix === null ? stage.sourcePath
+    : path.join(stage.facts!.filesystem.workspaceRoot.resolvedPath, missingPrefix);
+  const operation = (async () => {
+    try {
+      await verifyDirectories(stage);
+      if (await exactStat(absentPath)) throw failure('source-changed', stage.renameAttempted);
+      await verifyDirectories(stage); assertInternal(stage);
+    } catch (error) { throw poison(stage, error); }
+  })();
+  return trackPending(stage, operation);
+}
+
 /** Callback-scoped pure FS preparation. A reserved entry is retained after the
  * callback sees its facts, including callback failure: only the caller's durable
  * intent/recovery layer knows whether that reservation can be discarded safely.

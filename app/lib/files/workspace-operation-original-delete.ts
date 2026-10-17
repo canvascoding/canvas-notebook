@@ -11,7 +11,7 @@ import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-docum
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import { withPreparedWorkspaceSingleFileTrash, withRecoveredWorkspaceSingleFileTrash,
   readPreparedWorkspaceSingleFileTrash, movePreparedWorkspaceSingleFileTrash,
-  assertPreparedWorkspaceSingleFileTrashCurrent,
+  assertPreparedWorkspaceSingleFileTrashCurrent, assertPreparedWorkspaceSingleFileTrashSourceVacant,
   type PreparedWorkspaceSingleFileTrash, type PreparedSingleFileTrashOriginalFacts } from '../filesystem/prepared-single-file-trash';
 import { withPreparedWorkspaceSingleFileRestore, withRecoveredWorkspaceSingleFileRestore,
   readPreparedWorkspaceSingleFileRestore, readPreparedWorkspaceSingleFileRestoreDisposition, restorePreparedWorkspaceSingleFileTrash,
@@ -89,6 +89,17 @@ async function assertNoCompetingWriter(access: WorkspaceOperationJobLifecycleAcc
       AND o.status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') FOR SHARE OF o NOWAIT`,
   [access.workspace.workspaceId, source]);
   if (locks.length || guests.length || agents.length) fail('ORIGINAL_DELETE_BUSY');
+}
+async function removeOriginalDeleteAnnotations(access: WorkspaceOperationJobLifecycleAccess, prefix: string,
+  source: string, prepared: PreparedWorkspaceSingleFileTrash): Promise<void> {
+  await assertNoCompetingWriter(access, prefix, source);
+  await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
+  await access.database.run(`DELETE FROM ${prefix}.workspace_file_metadata WHERE workspace_id=$1 AND path=$2`,
+    [access.workspace.workspaceId, source]);
+  await access.database.run(`DELETE FROM ${prefix}.workspace_file_user_states WHERE workspace_id=$1 AND path=$2`,
+    [access.workspace.workspaceId, source]);
+  await assertNoCompetingWriter(access, prefix, source);
+  await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
 }
 async function assertStillPhysical(access: WorkspaceOperationJobLifecycleAccess, prefix: string, source: string): Promise<void> {
   // Reject a new native owner of these same projection bytes; never adopt that
@@ -288,6 +299,7 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
         if (binding.plan.version === 2 && originalIntent.version === 2) assertOriginalDeleteNativeFinalGraph(binding.plan,
           await access.readOriginalNativeDeleteSources());
         await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
+        await removeOriginalDeleteAnnotations(access, prefix, originalIntent.physical.canonicalPath, prepared);
         await insertTrash(access, prefix, originalIntent, current.intentDigest);
         const trash = await insertWorkspaceOperationOriginalDeleteTrashReceiptOnConnection(access.database,
           { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(physical) });
@@ -295,11 +307,15 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
         const value: Completion = freeze({ version: originalIntent.version, batchId: binding.batchId, intentDigest: current.intentDigest,
           trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest,
           ...(originalIntent.version === 2 ? { nativeLinks } : {}) });
+        await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+        await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
         const receipt = await insertWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database,
           { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(value) });
         if (receipt.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
         await access.assertCurrent();
         await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
+        await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+        await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
         return completed(receipt.row, trash.row, current, originalIntent);
       });
     };
