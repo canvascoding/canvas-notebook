@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.10.17.1] - 2026-10-17
+## [2026.10.17.2] - 2026-10-17
 
 ### Added
 
@@ -24,14 +24,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Prioritized connected and usable extension references and made search results available progressively.
 - Preserved exact account, connection, package, and workflow choices across setup, navigation, and OAuth.
+- Aligned local production verification with the CI compiler, typecheck, route generation, and production module checks.
 
 ### Fixed
 
 - Improved provider setup recovery, Codex request compatibility, dictation error handling, and MCP file-link identity.
 - Fixed workspace search depth limits and refreshed package readiness from current connected sources.
+- Provisioned compiler memory on hosted release runners and added bounded build execution with resource diagnostics.
+- Corrected macOS bundle path validation during signed desktop packaging.
 
 ### Verification
 
+- `npm run build` from a clean source copy without cached build output.
 - `npm run verify:release`
 
 ## [2026.10.15.2] - 2026-10-15
