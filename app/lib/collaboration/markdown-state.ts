@@ -143,8 +143,9 @@ export type RichMarkdownStructureValidation =
 export function validateRichMarkdownStructure(doc: YTypes.Doc): RichMarkdownStructureValidation {
   let json: JSONContent;
   try {
-    json = readRichDocumentJson(doc);
-    const schemaDocument = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(json);
+    const schema = getSchema(richMarkdownSchemaExtensions());
+    json = readRichDocumentJson(doc, schema);
+    const schemaDocument = schema.nodeFromJSON(json);
     // A new Y.Doc can be completely empty before the first editor mounts.
     if (schemaDocument.content.size > 0) schemaDocument.check();
   } catch {
