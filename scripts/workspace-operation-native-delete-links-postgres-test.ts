@@ -12,7 +12,8 @@ import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type { WorkspaceRequestPrincipalAccess } from '../app/lib/workspaces/request-principal';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { WorkspaceOperationNativeDeleteBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
-import type { OriginalDeleteNativeLinkIntent, OriginalDeleteNativeLinkReceipt } from '../app/lib/files/workspace-operation-original-delete-links';
+import type { OriginalDeleteNativeLinkReceipt } from '../app/lib/files/workspace-operation-original-delete-links';
+import type { Completion, OriginalIntent } from '../app/lib/files/workspace-operation-original-delete-evidence';
 import type { NativeNamespaceEntry } from '../app/lib/markdown/workspace-link-contract-v2';
 import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness';
 
@@ -175,13 +176,12 @@ async function main(): Promise<void> {
     const { captureWorkspaceOperationJobScope } = await import('../app/lib/files/workspace-operation-job-scope');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
     const { executeWorkspaceOperationOriginalDelete: execute } = await import('../app/lib/files/workspace-operation-original-delete');
+    const { assertOriginalDeleteIntentPlan } = await import('../app/lib/files/workspace-operation-original-delete-evidence');
     const store = new WorkspaceOperationBatchStore();
     type NativeDocument = { path: string; fullPath: string; documentId: string; lineageId: string;
       state: PersistedCollaborationState };
-    type Intent = { version: 2; batchId: string; planId: string; nativeLinks: OriginalDeleteNativeLinkIntent[];
-      physical: { trashEntryId: string; trashRelativePath: string }; native: { documentId: string } };
-    type Finished = { version: 2; batchId: string; intentDigest: string; trashEntryId: string;
-      nativeLinks: OriginalDeleteNativeLinkReceipt[] };
+    type Intent = Extract<OriginalIntent, { version: 3 }>;
+    type Finished = Completion & { version: 3; nativeLinks: OriginalDeleteNativeLinkReceipt[] };
     type Job = { claimed: NonNullable<Awaited<ReturnType<typeof store.claim>>>; workspace: WorkspaceContext;
       plan: WorkspaceOperationNativeDeleteBatchPlan; target: NativeDocument; sources: NativeDocument[]; keep: NativeDocument };
     const nativeState = async (documentId: string): Promise<PersistedCollaborationState> => {
@@ -312,8 +312,10 @@ async function main(): Promise<void> {
       WHERE document_id=ANY($1::text[]) ORDER BY document_id`, [job.sources.map(source => source.documentId)])).rows;
     const readIntent = async (job: Job) => {
       const row = await intentRow(job); assert(row); assert.equal(digest(Buffer.from(row.intent_text)), row.intent_digest);
-      const value = JSON.parse(row.intent_text) as Intent; assert.equal(value.version, 2); assert.equal(value.batchId, job.claimed.batchId);
-      assert.equal(value.planId, job.plan.planId); assert.equal(value.native.documentId, job.target.documentId);
+      const value = JSON.parse(row.intent_text) as Intent; assert.equal(value.version, 3); assert.equal(value.batchId, job.claimed.batchId);
+      assert.equal(job.plan.planIdentityVersion, 2); assert.equal(value.currentWitness.evidenceVersion, 2);
+      assertOriginalDeleteIntentPlan(value, job.plan);
+      assert.equal(value.planId, job.plan.planId); assert(value.native); assert.equal(value.native.documentId, job.target.documentId);
       assert.equal(value.nativeLinks.length, job.sources.length);
       for (const item of value.nativeLinks) {
         const source = job.sources.find(source => source.documentId === item.prepared.source.documentId); assert(source);
@@ -423,7 +425,7 @@ async function main(): Promise<void> {
         return await store.withClaim(job.claimed, async claim => {
           stage = `${selectedGroup}/${job.workspace.workspaceType}: execute`;
           const result = await execute(claim, adapter.open);
-          assert.equal(result.version, 2); assert(result.nativeLinks); assert.equal(result.nativeLinks.length, job.sources.length);
+          assert.equal(result.version, 3); assert(result.nativeLinks); assert.equal(result.nativeLinks.length, job.sources.length);
           const completedActions = 1 + result.nativeLinks.length;
           stage = `${selectedGroup}/${job.workspace.workspaceType}: finishClaim`;
           const completed = await store.finishClaim(job.claimed, { status: 'applied', phase: 'complete', completedActions,
@@ -459,7 +461,8 @@ async function main(): Promise<void> {
       assert.equal(captured.row.intent_digest, adapter.observation.intentDigest);
       const complete = await receiptRow(job); assert(complete); assert.equal(digest(Buffer.from(complete.receipt_text)), complete.receipt_digest);
       assert.equal(result.receiptDigest, complete.receipt_digest); assert.equal(complete.intent_digest, captured.row.intent_digest);
-      const value = JSON.parse(complete.receipt_text) as Finished; assert.equal(value.version, 2); assert.equal(value.nativeLinks.length, job.sources.length);
+      const value = JSON.parse(complete.receipt_text) as Finished; assert.equal(value.version, 3); assert.equal(value.version, captured.value.version);
+      assert.equal(value.nativeLinks.length, job.sources.length);
       assert.deepEqual(result.nativeLinks, value.nativeLinks);
       assert.equal(value.trashEntryId, captured.value.physical.trashEntryId); assert.equal(result.trashEntryId, value.trashEntryId);
       const rows = await linksRows(job); assert.equal(rows.length, job.sources.length);
