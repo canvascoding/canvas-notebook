@@ -61,6 +61,8 @@ export type WorkspaceLinkSourceAuthorityObservation = Readonly<{
   nativeBindings: readonly WorkspaceNativeSourceBinding[];
   /** Private transient compiler inputs, never serialized plan data or authority. */
   privateNativeStates: readonly PersistedCollaborationState[];
+  /** Private transient full catalogue witness, never serialized stage data or authority. */
+  privateCatalogue?: readonly Readonly<WorkspaceDocumentCatalogueEntry>[];
 }>;
 type CollectorDependencies = Omit<Dependencies, 'openConnection'>;
 type Row = Record<string, unknown>;
@@ -213,6 +215,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const sources: WorkspaceSourceAuthorityStage['sources'] = []; const namespace = new Map<string, NativeNamespaceEntry>();
   const gaps: PhysicalSourceGap[] = []; const excludedPaths: string[] = []; const observed: WorkspaceOriginalPathObservation[] = [];
   let catalogueProof: string | null = null;
+  let privateCatalogue: readonly Readonly<WorkspaceDocumentCatalogueEntry>[] | undefined;
   const nativeBindings: WorkspaceNativeSourceBinding[] = [], privateNativeStates: PersistedCollaborationState[] = [];
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
   let totalBytes = 0; let totalLinks = 0;
@@ -220,6 +223,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     const catalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
     if (catalogue.length > limits.maxPaths) fail('path-count-limit', '');
     catalogueProof = nativeLinkJsonProof(catalogue);
+    privateCatalogue = Object.freeze(catalogue.map(entry => Object.freeze({ ...entry })));
     const registered = new Map(catalogue.map((entry) => [entry.path, entry]));
     const verifyPhysicalAuthority = async (filePath: string) => {
       const current = await readWorkspaceDocumentCatalogue(connection!, workspace, { paths: [filePath] });
@@ -353,6 +357,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');
     // Incoherent global authority/namespace observations cannot certify bytes.
     sources.length = 0; nativeBindings.length = 0; privateNativeStates.length = 0;
+    privateCatalogue = undefined;
   }
   const body: Omit<WorkspaceSourceAuthorityStage, 'stageProof'> = { stageVersion: 1, workspaceId: workspace.workspaceId,
     organizationId: workspace.organizationId ?? null, catalogueProof,
@@ -361,6 +366,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     coverage: { complete: !gaps.length, gaps }, readiness: gaps.length ? 'blocked'
       : sources.some((source) => source.kind === 'physical') ? 'requires-import-and-rebinding' : 'native-coordinator-required', executionReady: false };
   return Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
+    ...(!gaps.length && privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
 }
 

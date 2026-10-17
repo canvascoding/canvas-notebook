@@ -14,6 +14,7 @@ import { workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage 
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
 
 const MAX_EVIDENCE_BYTES = 8 * 1024 * 1024;
 const MAX_BINARY_BYTES = 16 * 1024 * 1024;
@@ -373,7 +374,7 @@ function captureState(input: unknown, budget: { remaining: number }, jsonBudget:
 export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOperationJobScope,
   observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidence {
   try {
-    const observationData = record(observation, ['stage', 'nativeBindings', 'privateNativeStates']);
+    const observationData = record(observation, ['stage', 'nativeBindings', 'privateNativeStates'], ['privateCatalogue']);
     const stageData = record(observationData.stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace',
       'sources', 'scope', 'coverage', 'readiness', 'executionReady', 'stageProof']);
     for (const source of list(stageData.sources, MAX_PATHS)) {
@@ -385,6 +386,13 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
     // are replaced only after this rejection-only validation has completed.
     const preliminary = { evidenceVersion: 1 as const, ...facts, semanticProof: '0'.repeat(64), evidenceProof: '0'.repeat(64) };
     inspect(preliminary, false);
+    if (Object.hasOwn(observationData, 'privateCatalogue')) {
+      // This complete transient witness is validated independently of the
+      // persisted evidence budget. It never becomes serialized stage data.
+      captureWorkspaceOperationNativeCatalogueWitness(observationData.privateCatalogue, facts.workspaceScope,
+        facts.stage.catalogueProof!, facts.nativeBindings, reason => fail(reason === 'too-large'
+          ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID'));
+    }
     const body = { ...preliminary, semanticProof: nativeLinkJsonProof(semanticBody(facts)) };
     const { evidenceProof: _placeholder, ...withoutProof } = body;
     const evidence = decodeWorkspaceOperationNativeSourceEvidence({ ...withoutProof, evidenceProof: nativeLinkJsonProof(withoutProof) });
