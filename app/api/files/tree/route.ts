@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildFileTree } from '@/app/lib/filesystem/workspace-files';
+import { readWorkspaceDocumentTree, WorkspaceDocumentTreeError } from '@/app/lib/files/workspace-document-tree';
 import { buildFileTreeCacheKey, fileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getPublicShareAnnotations } from '@/app/lib/public-sharing/public-file-shares';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { enrichWorkspaceFileNodes } from '@/app/lib/files/workspace-file-metadata';
-import type { FileNode } from '@/app/lib/files/types';
 
 const DEFAULT_TREE_DEPTH = 4;
 const MAX_TREE_DEPTH = 6;
@@ -73,23 +73,19 @@ export async function GET(request: NextRequest) {
     const includeStats = searchParams.get('stats') !== '0';
 
     const cacheKey = buildFileTreeCacheKey(path, depth, workspaceResult.workspace.workspaceId, includeStats);
-    let tree: FileNode[] | null = null;
-    if (!noCache) {
-      const cached = fileTreeCache.get(cacheKey);
-      if (cached) {
-        tree = cached;
-      }
-    }
-
-    if (!tree) {
-      tree = await buildFileTree(path, depth, 0, {
-        ...fileOptions,
-        includeMetadata: includeStats,
-      });
-      const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
-      attachPublicShareAnnotations(tree, annotations);
-      fileTreeCache.set(cacheKey, tree);
-    }
+    const tree = await readWorkspaceDocumentTree(workspaceResult.workspace, path, depth, {
+      includeMetadata: includeStats,
+    }, {
+      buildPhysicalTree: async (directory, maxDepth, currentDepth, options) => {
+        const cached = !noCache ? fileTreeCache.get(cacheKey) : null;
+        if (cached) return cached;
+        const physical = await buildFileTree(directory, maxDepth, currentDepth, { ...fileOptions, ...options });
+        fileTreeCache.set(cacheKey, physical);
+        return physical;
+      },
+    });
+    const annotations = await getPublicShareAnnotations(collectFilePaths(tree), null, workspaceResult.workspace);
+    attachPublicShareAnnotations(tree, annotations);
     const enrichedTree = await enrichWorkspaceFileNodes({
       nodes: tree,
       workspace: workspaceResult.workspace,
@@ -101,16 +97,18 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: enrichedTree }, { headers });
   } catch (error) {
-    // If the directory doesn't exist, it's not a server error, just return an empty tree.
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+    if (error instanceof WorkspaceDocumentTreeError && error.code === 'TREE_DIRECTORY_NOT_FOUND') {
       return NextResponse.json({ success: true, data: [] });
     }
-    
     console.error('[API] File tree error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to load file tree';
+    const status = error && typeof error === 'object' && 'status' in error
+      && typeof error.status === 'number' && [400, 403, 409, 413].includes(error.status) ? error.status : 500;
+    const code = error instanceof WorkspaceDocumentTreeError ? error.code
+      : status === 413 ? 'NATIVE_CATALOGUE_TOO_LARGE' : status === 409 ? 'TREE_SOURCE_CHANGED' : undefined;
+    const message = error instanceof WorkspaceDocumentTreeError ? error.message : 'Failed to load file tree';
     return NextResponse.json(
-      { success: false, error: message },
-      { status: 500 }
+      { success: false, error: message, ...(code ? { code } : {}) },
+      { status }
     );
   }
 }

@@ -35,7 +35,7 @@ import {
   type KnowledgeGraphSearchResult,
 } from '@/app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { loadWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-client';
-import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
+import type { WorkspaceLinkReadIndex as WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-document-link-index-contract';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -812,10 +812,12 @@ export function KnowledgeGraphClient() {
               </>
             ) : null}
           </div>
-          {!loading && !error && index.omittedDocuments.length > 0 ? (
+          {!loading && !error && (!index.coverage.complete || index.omittedDocuments.length > 0) ? (
             <div className="flex items-start gap-2 border-t border-amber-400/20 px-3 py-2 text-xs text-amber-200">
               <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{t('warnings.omitted', { count: index.omittedDocuments.length })}</span>
+              <span>{index.omittedDocuments.length > 0
+                ? t('warnings.omitted', { count: index.omittedDocuments.length })
+                : t('warnings.incomplete')}</span>
             </div>
           ) : null}
         </div>

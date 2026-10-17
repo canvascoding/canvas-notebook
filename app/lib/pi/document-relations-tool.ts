@@ -8,13 +8,12 @@ import {
   type WorkspaceDocumentRelation,
   type WorkspaceNearbyDocument,
 } from '@/app/lib/markdown/workspace-document-relations';
-import { buildWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index';
+import { readWorkspaceDocumentLinkIndex } from '@/app/lib/markdown/workspace-document-link-index';
 import {
   assertAgentPathAllowed,
   getAgentWorkspaceContext,
   getErrorMessage,
   isPathWithin,
-  readAgentCollaborativeTextFile,
   resolveAgentPath,
 } from '@/app/lib/pi/tool-runtime-helpers';
 
@@ -141,13 +140,7 @@ export function createInspectDocumentRelationsTool(): AgentTool {
           throw new Error('inspect_document_relations only supports Markdown documents');
         }
 
-        const collaborative = await readAgentCollaborativeTextFile(fullPath);
-        const index = await buildWorkspaceLinkIndex(
-          { workspace },
-          collaborative
-            ? { contentOverrides: new Map([[relativePath, collaborative.content]]) }
-            : {},
-        );
+        const index = await readWorkspaceDocumentLinkIndex(workspace);
         const relations = getWorkspaceDocumentRelations(index, relativePath, {
           includeRelated: depth === 2,
           relatedLimit: limit,
@@ -158,7 +151,8 @@ export function createInspectDocumentRelationsTool(): AgentTool {
 
         const sections = [
           `Document relations for ${cleanInlineText(relations.document.title)} — ${codeValue(relativePath)}`,
-          `Index source: ${collaborative ? 'live Yjs content for the inspected document' : 'workspace files'}`,
+          'Index source: authoritative persisted native documents and original workspace files',
+          `Index coverage: ${index.coverage.complete ? 'complete' : 'partial'}`,
         ];
         if (direction === 'both' || direction === 'outgoing') {
           sections.push('', ...formatSection('Outgoing links', relations.outgoing, limit));
@@ -195,7 +189,9 @@ export function createInspectDocumentRelationsTool(): AgentTool {
             workspaceId: workspace.workspaceId,
             path: relativePath,
             generatedAt: index.generatedAt,
-            source: collaborative ? 'live_yjs' : 'workspace_files',
+            source: 'native_and_physical',
+            coverage: index.coverage,
+            gaps: index.gaps,
             document: relations.document,
             incoming: visibleIncoming,
             outgoing: visibleOutgoing,

@@ -199,7 +199,7 @@ import {
   getWorkspaceWikiCompletionItems,
   loadWorkspaceLinkIndex,
 } from '@/app/lib/markdown/workspace-link-index-client';
-import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
+import type { WorkspaceLinkReadIndex as WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-document-link-index-contract';
 import {
   consumeWorkspaceMarkdownLocation,
   getWorkspaceMarkdownLocationFromEvent,

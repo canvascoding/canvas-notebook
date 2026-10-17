@@ -1,7 +1,7 @@
 import type {
   WorkspaceLinkDocument,
-  WorkspaceLinkEdge,
 } from './workspace-link-index-core';
+import type { WorkspaceLinkReadEdge as WorkspaceLinkEdge } from './workspace-document-link-index-contract';
 import {
   workspaceDocumentTitleFromPath,
   type WorkspaceDocumentReference,
@@ -29,13 +29,16 @@ export function groupWorkspaceReferenceEdges(
   const groups = new Map<string, WorkspaceReferenceGroup>();
 
   for (const edge of edges) {
+    const sourceOffset = edge.sourcePreview?.focusOffset
+      ?? ('start' in edge && typeof edge.start === 'number' ? edge.start : null);
     const path = direction === 'incoming' ? edge.sourcePath : edge.targetPath;
     if (!path) continue;
     const existing = groups.get(path);
     if (existing) {
       existing.edges.push(edge);
-      if (direction === 'incoming' && typeof existing.reference.focusOffset === 'number') {
-        existing.reference.focusOffset = Math.min(existing.reference.focusOffset, edge.start);
+      if (direction === 'incoming' && sourceOffset !== null) {
+        existing.reference.focusOffset = existing.reference.focusOffset === null
+          || existing.reference.focusOffset === undefined ? sourceOffset : Math.min(existing.reference.focusOffset, sourceOffset);
       }
       continue;
     }
@@ -45,7 +48,7 @@ export function groupWorkspaceReferenceEdges(
       edges: [edge],
       reference: {
         blockId: direction === 'outgoing' ? edge.blockId : null,
-        focusOffset: direction === 'incoming' ? edge.start : null,
+        focusOffset: direction === 'incoming' ? sourceOffset : null,
         heading: direction === 'outgoing' ? edge.heading : null,
         path,
         title: document?.title || workspaceDocumentTitleFromPath(path),

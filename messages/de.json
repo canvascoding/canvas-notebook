@@ -1618,6 +1618,7 @@
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {Keine Dokumente} one {# Dokument} other {# Dokumente}} · {references, plural, =0 {keine Verweise} one {# Verweis} other {# Verweise}}",
     "markdownEditorBacklinksLoading": "Dokumentverbindungen werden geladen…",
     "markdownEditorBacklinksUnavailable": "Verbindungen nicht verfügbar",
+    "markdownEditorBacklinksPartial": "Der Dokumentindex ist unvollständig. Einige Dokumente oder Verbindungen können fehlen.",
     "markdownEditorBacklinksLoadError": "Dokumentverbindungen konnten nicht geladen werden.",
     "markdownEditorBacklinksIncoming": "Links zu diesem Dokument ({count})",
     "markdownEditorBacklinksOutgoing": "Ausgehende Links ({count})",
@@ -2993,6 +2994,7 @@
       "description": "Lösche Ordner- oder Tag-Filter oder aktiviere unverlinkte und fehlende Ziele, um Knoten wieder anzuzeigen."
     },
     "warnings": {
+      "incomplete": "Der Dokumentindex ist unvollständig. Einige Dokumente oder Verbindungen können fehlen.",
       "omitted": "{count, plural, one {# Markdown-Dokument wurde übersprungen, weil es zu groß oder nicht lesbar ist.} other {# Markdown-Dokumente wurden übersprungen, weil sie zu groß oder nicht lesbar sind.}}"
     },
     "errors": {

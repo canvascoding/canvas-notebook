@@ -1619,6 +1619,7 @@
     "markdownEditorBacklinksSummary": "{documents, plural, =0 {No documents} one {# document} other {# documents}} · {references, plural, =0 {no references} one {# reference} other {# references}}",
     "markdownEditorBacklinksLoading": "Loading document connections…",
     "markdownEditorBacklinksUnavailable": "Connections unavailable",
+    "markdownEditorBacklinksPartial": "The document index is incomplete. Some documents or connections may be missing.",
     "markdownEditorBacklinksLoadError": "Document connections could not be loaded.",
     "markdownEditorBacklinksIncoming": "Links to this document ({count})",
     "markdownEditorBacklinksOutgoing": "Outgoing links ({count})",
@@ -2994,6 +2995,7 @@
       "description": "Clear folder or tag filters, or enable unlinked and missing targets to show nodes again."
     },
     "warnings": {
+      "incomplete": "The document index is incomplete. Some documents or connections may be missing.",
       "omitted": "{count, plural, one {# Markdown document was skipped because it is too large or unreadable.} other {# Markdown documents were skipped because they are too large or unreadable.}}"
     },
     "errors": {

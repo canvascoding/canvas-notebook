@@ -1,8 +1,10 @@
 import type {
   WorkspaceLinkDocument,
-  WorkspaceLinkEdge,
-  WorkspaceLinkIndex,
 } from '@/app/lib/markdown/workspace-link-index-core';
+import type {
+  WorkspaceLinkReadEdge as WorkspaceLinkEdge,
+  WorkspaceLinkReadIndex as WorkspaceLinkIndex,
+} from '@/app/lib/markdown/workspace-document-link-index-contract';
 
 export type KnowledgeGraphColorMode = 'status' | 'folder' | 'tag';
 
@@ -320,9 +322,9 @@ export function buildKnowledgeGraphData(
     documentMatchesFilters(document, selectedFolders, selectedTags)
   ));
   const matchedDocumentIds = new Set(matchedDocuments.map((document) => document.path));
-  const visibleEdges = (options.showBroken
-    ? index.edges
-    : index.edges.filter((edge) => edge.status === 'resolved'))
+  const brokenIds = new Set(index.brokenLinks.map(edge => edge.id));
+  const visibleEdges = index.edges.filter(edge => edge.status === 'resolved'
+    || options.showBroken && brokenIds.has(edge.id))
     .filter((edge) => (
       matchedDocumentIds.has(edge.sourcePath)
       && (!edge.targetPath || matchedDocumentIds.has(edge.targetPath))

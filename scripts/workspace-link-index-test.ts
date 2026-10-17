@@ -9,6 +9,7 @@ import {
   getWorkspaceWikiCompletionItems,
   invalidateWorkspaceLinkIndexCache,
   loadWorkspaceLinkIndex,
+  loadWorkspaceMarkdownEmbed,
   resolveWorkspaceLinkFromIndex,
 } from '../app/lib/markdown/workspace-link-index-client';
 import { getWorkspaceDocumentRelations } from '../app/lib/markdown/workspace-document-relations';
@@ -239,10 +240,49 @@ async function testWorkspaceLinkIndexClient(): Promise<void> {
       resolveWorkspaceLinkFromIndex('Decision Alias', firstLoad, 'Projects/Overview.md')?.path,
       'Projects/Decision.md',
     );
+    const nativeTarget = {
+      aliases: ['Native Decision'], blockIds: [], headings: [], path: 'Projects/native-decision.txt',
+      tags: [], title: 'Native decision', nativeIdentity: { documentId: 'native-client-document', lifecycleGeneration: 1 },
+    };
+    const nativeIndex = { ...firstLoad, documents: [...firstLoad.documents, nativeTarget],
+      targetPaths: [...firstLoad.targetPaths, nativeTarget.path] };
+    assert.equal(resolveWorkspaceLinkFromIndex('Native Decision', nativeIndex, 'Projects/Overview.md')?.path,
+      nativeTarget.path, 'native identity preserves Wiki aliases for supported documents with another extension');
+    const physicalIndex = { ...firstLoad, documents: [...firstLoad.documents,
+      { ...nativeTarget, nativeIdentity: undefined }], targetPaths: nativeIndex.targetPaths };
+    assert.equal(resolveWorkspaceLinkFromIndex('Native Decision', physicalIndex, 'Projects/Overview.md')?.status,
+      'missing', 'a physical text asset does not acquire native document authority from its alias');
+    const shadow = { aliases: [], blockIds: [], headings: [], path: 'Projects/native-decision.txt.md',
+      tags: [], title: 'Shadow Markdown' };
+    const collisionIndex = { ...nativeIndex, documents: [...nativeIndex.documents, shadow],
+      targetPaths: [...nativeIndex.targetPaths, shadow.path] };
+    assert.equal(resolveWorkspaceLinkFromIndex('native-decision.txt', collisionIndex, 'Projects/Overview.md')?.path,
+      nativeTarget.path, 'an explicit native filename keeps the same priority as the server resolver');
+    const pdfShadow = { ...shadow, path: 'Projects/report.pdf.md', title: 'PDF shadow' };
+    const assetIndex = { ...firstLoad, documents: [...firstLoad.documents, pdfShadow],
+      targetPaths: [...firstLoad.targetPaths, pdfShadow.path, 'Projects/report.pdf'] };
+    assert.equal(resolveWorkspaceLinkFromIndex('report.pdf', assetIndex, 'Projects/Overview.md')?.path,
+      'Projects/report.pdf', 'an explicit asset target is not captured by an inferred Markdown filename');
 
     invalidateWorkspaceLinkIndexCache('workspace-a');
     await loadWorkspaceLinkIndex('workspace-a');
     assert.equal(linkIndexRequests, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    invalidateWorkspaceLinkIndexCache();
+  }
+  let fileReads = 0;
+  const assetOnly = { ...index, targetPaths: [...index.targetPaths, 'assets/report.pdf'] };
+  globalThis.fetch = async input => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url, 'https://canvas.test');
+    if (url.pathname === '/api/markdown/link-index') return Response.json({ success: true, index: assetOnly });
+    fileReads++;
+    throw new Error('An ordinary PDF must never reach the Markdown reader.');
+  };
+  try {
+    await assert.rejects(loadWorkspaceMarkdownEmbed('workspace-asset-embed', 'assets/report.pdf', 'Projects/Overview.md'),
+      /cannot be embedded as Markdown/u);
+    assert.equal(fileReads, 0, 'a resolved asset does not grant native/Markdown content authority');
   } finally {
     globalThis.fetch = originalFetch;
     invalidateWorkspaceLinkIndexCache();
