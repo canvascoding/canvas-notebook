@@ -10,7 +10,7 @@ import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contra
 import { isCollaborationStateProof } from '../collaboration/state-proof';
 import { COLLABORATION_SCHEMA_VERSION } from '../collaboration/types';
 import type { NativeDocumentLinkInventory, NativeDocumentLink } from '../markdown/workspace-link-contract-v2';
-import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
+import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
@@ -406,10 +406,11 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
         || state.documentSequence !== binding.expected.documentSequence || state.persistedAt !== binding.expected.persistedAt
         || state.status !== 'active' || state.newlineStyle !== binding.byteProfile.newlineStyle || state.hasBom !== binding.byteProfile.hasBom
         || sha(state.yjsState) !== binding.expected.binaryHash || sha(state.stateVector) !== binding.expected.vectorHash) fail();
-      inspectPersistedNativeCollaborationSnapshot(state, doc => {
+      const inventory = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
         assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
+        return inspectNativeDocumentLinks(doc, snapshot);
       });
-      if (nativeLinkJsonProof(inspectPersistedDocumentLinks(state)) !== binding.inventoryProof) fail();
+      if (nativeLinkJsonProof(inventory) !== binding.inventoryProof) fail();
     }
     return evidence;
   } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
