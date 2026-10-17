@@ -276,7 +276,7 @@ async function main(): Promise<void> {
       const changes=[['root_relative_path',`organizations/principal-org/changed-${crypto.randomUUID()}`],['type','team'],
         ['owner_user_id','member'],['project_id','another-project'],['customer_id','another-customer']];
       for(const[field,value]of changes){stage=`workspace identity ${field}`;const cap=await captured(),before=(await admin.query('SELECT * FROM canvas_workspaces WHERE id=$1',[workspaceId])).rows[0];
-        try{await admin.query(`UPDATE canvas_workspaces SET ${field}=$2 WHERE id=$1`,[workspaceId,value]);await assert.rejects(read(cap,async()=>assert.fail()),code(field==='type'?'NATIVE_SESSION_SCOPE_CHANGED':'NATIVE_TRANSPORT_SCOPE_CHANGED'));}
+        try{await admin.query(`UPDATE canvas_workspaces SET ${field}=$2 WHERE id=$1`,[workspaceId,value]);await assert.rejects(read(cap,async()=>assert.fail()),code('NATIVE_TRANSPORT_SCOPE_CHANGED'));}
         finally{await admin.query(`UPDATE canvas_workspaces SET ${field}=$2 WHERE id=$1`,[workspaceId,before[field]]);await dispose(cap);}}
       const cap=await captured(),oldData=process.env.DATA;process.env.DATA=path.join(dataRoot,'different');
       try{await assert.rejects(read(cap,async()=>assert.fail()),code('NATIVE_TRANSPORT_SCOPE_CHANGED'));}finally{process.env.DATA=oldData;await dispose(cap);}
@@ -413,7 +413,7 @@ async function main(): Promise<void> {
       const cap=await captured();let switched=false,realmReads=0;
       await assert.rejects(transaction(async(db,client)=>{
         const wrapped:SqlConnection={...db,get:async(sql,args)=>{
-          if(sql.includes('to_regnamespace(current_schema())')&&++realmReads===3){
+          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===3){
             switched=true;await client.query(`ALTER SCHEMA "${schema}" RENAME TO "${schema}_old"`);await client.query(`CREATE SCHEMA "${schema}"`);
             await client.query(`ALTER TABLE "${schema}_old".canvas_workspaces SET SCHEMA "${schema}"`);
           }return(await client.query(sql,args)).rows[0];}};
@@ -425,7 +425,7 @@ async function main(): Promise<void> {
       await assert.rejects(transaction(async(_db,client)=>{
         const peer=await ownClient();await peer.query('BEGIN');let selected=client;
         const wrapped:SqlConnection={get:async(sql,args)=>{
-          if(sql.includes('to_regnamespace(current_schema())')&&++realmReads===3){switched=true;selected=peer;}
+          if(sql.includes('to_regnamespace(current_schema())')&&sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')&&++realmReads===3){switched=true;selected=peer;}
           return(await selected.query(sql,args)).rows[0];},all:async(sql,args)=>(await selected.query(sql,args)).rows,
           run:async(sql,args)=>({changes:(await selected.query(sql,args)).rowCount??0}),close:()=>assert.fail()};
         try{await phase(wrapped,cap,{permission:'canRead',...input(native.identity)},async()=>{});}

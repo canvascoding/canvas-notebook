@@ -84,17 +84,14 @@ async function main(): Promise<void> {
     };
     await runPostgresMigrations({ query:async (sql:string,values?:unknown[]) => {
       await own(admin);
-      // The existing HTTP fixture scopes this historical migration's two
-      // public catalogue scans to the owned namespace before its unqualified
-      // DML. No migration, DDL or returned database row is replaced.
-      let ownSql = sql;
+      // The actual migration binds its catalogue scans to current_schema().
+      // Execute its original bytes; the obsolete public-scan rewrite is gone.
       if (sql.trim().startsWith('DO $main_agent_id_migration$')) {
         assert(sql.trim().endsWith('$main_agent_id_migration$;'));
-        assert.equal(sql.split("table_schema = 'public'").length - 1, 2);
-        ownSql = sql.replaceAll("table_schema = 'public'", `table_schema = '${schema}'`);
-        assert.equal(ownSql.replaceAll(`table_schema = '${schema}'`, "table_schema = 'public'"), sql);
+        assert.equal(sql.split('table_schema = current_schema()').length - 1, 2);
+        assert.equal(sql.includes("table_schema = 'public'"), false);
       }
-      const result = await admin.query(ownSql,values); await own(admin); return result;
+      const result = await admin.query(sql,values); await own(admin); return result;
     } } as unknown as Parameters<typeof runPostgresMigrations>[0]);
     stage = 'real users, memberships and auth sessions';
     const now = Date.now();

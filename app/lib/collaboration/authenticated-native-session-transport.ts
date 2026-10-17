@@ -335,6 +335,7 @@ function createNativeRuntime(): NativeRuntime {
   function captureAuthenticatedNativeSessionTransportOnConnection(connection: SqlConnection, request: NextRequest,
     options: { workspaceId: string; maxPermission: Permission }, attempt?: JoinAttempt): Promise<AuthenticatedNativeSessionTransport> {
     let record: RecordState;
+    let callbackEntered = false;
     try {
       data(options, ['workspaceId', 'maxPermission'], ['workspaceId', 'maxPermission']);
       if (!validId(options.workspaceId) || !['canRead', 'canWrite'].includes(options.maxPermission)) fail('NATIVE_TRANSPORT_INVALID');
@@ -344,10 +345,11 @@ function createNativeRuntime(): NativeRuntime {
       const phase = reserve(connection, record);
       return run(phase, () => requestPrincipal(record, record.original!, record.maxPermission, principal =>
           withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+            callbackEntered = true;
             enterPeerConsumer(record);
             await verify(phase, access); record.origin = phase.binding;
             return Object.freeze({}) as AuthenticatedNativeSessionTransport;
-          }), true)).then(capability => {
+          }), true), () => attempt === undefined && !callbackEntered).then(capability => {
             transports.set(capability, record);
             if (attempt) attempt.transport = capability;
             return capability;

@@ -11,7 +11,7 @@ import {
   captureAuthenticatedNativeSessionTransportOnConnection, disposeAuthenticatedNativeSessionTransport,
   assertAuthenticatedNativeSessionCurrentOnConnection as assertExistingNativeCollaborationSessionCurrentOnConnection,
   inspectAuthenticatedNativeSessionOnConnection as inspectExistingNativeCollaborationSessionOnConnection,
-  isAuthenticatedNativeSessionReaderError, isAuthenticatedNativeSessionPrincipalError,
+  isAuthenticatedNativeSessionReaderError, isAuthenticatedNativeSessionPrincipalError, isAuthenticatedNativeSessionTransportBusy,
   withAuthenticatedNativeSessionTransportOnConnection, type AuthenticatedNativeSessionTransport,
 } from './authenticated-native-session-transport';
 import {
@@ -43,7 +43,7 @@ export type AuthenticatedTextSessionPublication = Readonly<{ grant: Collaboratio
   takeTransport: (rollbackAdoption: () => void | Promise<void>) => AuthenticatedNativeSessionTransport }>;
 type Observation = { grant: CollaborationSessionGrant; identity: AuthenticatedTextSessionIdentity;
   native: ExistingNativeSessionIdentity; target: TextCollaborationRepresentation; normalizable: boolean };
-type ReadPhase = { retryable: boolean; entered: boolean };
+type ReadPhase = { retryable: boolean; entered: boolean; capturePending: boolean };
 // Only this service's confirmed read rollback/close can certify contention.
 // A wire code, caller exception, final check or unconfirmed COMMIT cannot.
 const cleanReadContention = new WeakSet<WorkspaceRequestPrincipalError>();
@@ -162,7 +162,7 @@ async function observeRequestScope(request: NextRequest, workspaceId: string,
  * a ticket; close/discard rather than assuming publication or replaying. */
 async function transaction<T>(operation: (connection: SqlConnection, phase: ReadPhase) => Promise<T>): Promise<T> {
   const connection = await openDb(); let began = false, committing = false, discard: Error | undefined;
-  const phase: ReadPhase = { retryable: false, entered: false };
+  const phase: ReadPhase = { retryable: false, entered: false, capturePending: false };
   let cleanBusy: WorkspaceRequestPrincipalError | undefined;
   try {
     await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
@@ -177,7 +177,11 @@ async function transaction<T>(operation: (connection: SqlConnection, phase: Read
   } catch (error) {
     if (began && !committing) try {
       await connection.run('ROLLBACK');
-      if (phase.retryable && !phase.entered && (isAuthenticatedNativeSessionPrincipalError(error)
+      if (phase.capturePending && !phase.entered && isAuthenticatedNativeSessionTransportBusy(error)) {
+        // Only the broker can prove that standalone enrollment never entered
+        // its internal callback. Its later checks remain opaque and terminal.
+        cleanBusy = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY'); error = cleanBusy;
+      } else if (phase.retryable && !phase.entered && (isAuthenticatedNativeSessionPrincipalError(error)
         || error instanceof WorkspaceRequestPrincipalError) && error.code === 'PRINCIPAL_BUSY') cleanBusy = error;
     }
     catch (rollbackError) { discard = new Error('Discarding unresolved native session read.', { cause: rollbackError });
@@ -332,11 +336,13 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
       // genuine phase runs sequentially on B after transport capture, with the
       // original full scope still required even after diagnostic reenrollment.
       return await withWorkspaceRequestPrincipal(original, { workspaceId, permission: maximum === 'write' ? 'canWrite' : 'canRead' }, principal => transaction(async (connection, phase) => {
+        phase.capturePending = true;
         captured = await captureAuthenticatedNativeSessionTransportOnConnection(connection, original,
           { workspaceId, maxPermission: maximum === 'write' ? 'canWrite' : 'canRead' });
-        // Capture's internal callback/final is opaque here. Its failure is NEVER
-        // retryable merely because captured is undefined. Only the following
-        // genuine phase has an observable pre-callback boundary.
+        phase.capturePending = false;
+        // Capture's callback/final remains opaque. Only its genuine standalone
+        // pre-callback marker, followed by confirmed rollback/close, may retry.
+        // The following genuine phase has its own pre-callback boundary.
         phase.retryable = true;
         await withWorkspaceRequestPrincipalOnConnection(connection, principal, access => {
           phase.entered = true; return assertRequestScope(connection, expectedScope, access);

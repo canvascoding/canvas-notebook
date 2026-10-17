@@ -423,6 +423,176 @@ async function main(): Promise<void> {
       } finally { observed.restore(); transports.restore(); peer.release(); await peer.done; await holder.query('ROLLBACK'); await endClient(holder); }
       assert.deepEqual(await stored(target.identity), before);
     });
+    for (const surface of ['web', 'mobile'] as const) await check(`actual capture pre-callback contention retries only after confirmed rollback and close (${surface})`, async () => {
+      for (const durable of [false, true]) {
+        const target = await seed(`${surface}-capture-entry-${durable}`), before = await stored(target.identity), holder = await ownClient();
+        let acquired = false, released = false, errors = 0, rollbacks = 0, rejectedLeasesClosed = 0;
+        const failed = new Set<number>();
+        const releaseListener = (_error: unknown, client: PoolClient) => {
+          const pid = Number(Reflect.get(client, 'processID'));
+          if (failed.delete(pid)) rejectedLeasesClosed++;
+        };
+        (runtime as unknown as Pool).on('release', releaseListener);
+        const observed = observeTransactions(async (client, sql, result, ordinal) => {
+          if (client === holder) return result;
+          try {
+            const value = await result;
+            if (ordinal === 2 && sql.includes("SET LOCAL statement_timeout='5s'") && !acquired) {
+              await holder.query('BEGIN');
+              await holder.query('LOCK TABLE organization_user_permissions IN ROW EXCLUSIVE MODE'); acquired = true;
+            }
+            if (sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE' && ordinal > 2) {
+              assert.equal(rejectedLeasesClosed, errors, 'Every rejected capture lease closes before a fresh phase.');
+              assert.equal(failed.size, 0);
+            }
+            if (sql === 'ROLLBACK' && failed.has(Number(Reflect.get(client, 'processID')))) {
+              rollbacks++;
+              if (!durable && !released) { await holder.query('ROLLBACK'); released = true; }
+            }
+            return value;
+          } catch (error) {
+            if (Reflect.get(error as object, 'code') === '55P03') {
+              assert(schemaShare(sql), 'The genuine policy-table lock fails before the capture callback.');
+              errors++; failed.add(Number(Reflect.get(client, 'processID')));
+            }
+            throw error;
+          }
+        });
+        try {
+          const response = await post(surface, target.identity.path);
+          assert.equal(acquired, true); assert.equal(rollbacks, errors); assert.equal(rejectedLeasesClosed, errors);
+          assert.equal(response.status, durable ? 409 : 200, JSON.stringify({ status: response.status, code: response.wire.code }));
+          assert.equal(errors, durable ? 3 : 1);
+          if (durable) {
+            assert.equal(response.wire.code, 'PRINCIPAL_BUSY'); assert.equal(response.wire.retryable === true, surface === 'web');
+            assert.equal(Object.hasOwn(response.wire, 'token'), false);
+          } else {
+            assert.equal(response.wire.documentId, target.identity.documentId); assert.equal(response.wire.documentSequence, 7);
+          }
+        } finally {
+          observed.restore(); (runtime as unknown as Pool).off('release', releaseListener);
+          if (acquired && !released) await holder.query('ROLLBACK'); await endClient(holder);
+        }
+        assert.deepEqual(await stored(target.identity), before);
+      }
+    });
+    for (const surface of ['web', 'mobile'] as const) await check(`capturePending rollback or post-release acknowledgement failure never retries (${surface})`, async () => {
+      for (const fault of ['rollback-ack', 'close-ack'] as const) {
+        const target = await seed(`${surface}-capture-pending-${fault}`), before = await stored(target.identity), holder = await ownClient();
+        let acquired = false, injected = false, busyErrors = 0, rollbackAcks = 0, actualReleased = 0;
+        let rejectedClient: Client | undefined, restoreRelease: (() => void) | undefined;
+        const observed = observeTransactions(async (client, sql, result, ordinal) => {
+          if (client === holder) return result;
+          try {
+            const value = await result;
+            if (ordinal === 2 && sql.includes("SET LOCAL statement_timeout='5s'") && !acquired) {
+              await holder.query('BEGIN');
+              await holder.query('LOCK TABLE organization_user_permissions IN ROW EXCLUSIVE MODE'); acquired = true;
+            }
+            if (client === rejectedClient && sql === 'ROLLBACK' && !injected) {
+              rollbackAcks++; injected = true;
+              if (fault === 'rollback-ack') throw new Error('Owned capture ROLLBACK acknowledgement loss');
+              // This actual client came from openDb's callback acquisition. Do
+              // not wrap Pool.connect or throw from Pool's early release event.
+              const release = Reflect.get(client, 'release') as (error?: Error | boolean) => void;
+              assert.equal(typeof release, 'function');
+              const afterActualRelease = (error?: Error | boolean) => {
+                Reflect.apply(release, client, [error]);
+                actualReleased++;
+                throw new Error('Owned capture close acknowledgement loss after actual pool release');
+              };
+              assert.equal(Reflect.set(client, 'release', afterActualRelease), true);
+              restoreRelease = () => {
+                // pg can assign a fresh release function on another checkout.
+                if (Reflect.get(client, 'release') === afterActualRelease) Reflect.set(client, 'release', release);
+              };
+            }
+            return value;
+          } catch (error) {
+            if (Reflect.get(error as object, 'code') === '55P03') {
+              assert.equal(ordinal, 2); assert(schemaShare(sql)); busyErrors++; rejectedClient = client;
+            }
+            throw error;
+          }
+        });
+        try {
+          const response = await post(surface, target.identity.path);
+          assert.equal(acquired, true); assert.equal(injected, true); assert.equal(busyErrors, 1); assert.equal(rollbackAcks, 1);
+          assert.equal(actualReleased, fault === 'close-ack' ? 1 : 0);
+          assert.equal(observed.begins(), 2, 'A failed capture cleanup must not start another read phase.');
+          assert.equal(response.status, 500); assert.equal(Object.hasOwn(response.wire, 'code'), false);
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+          const actualPool = runtime as unknown as Pool;
+          assert.equal(actualPool.waitingCount, 0);
+          assert.equal(actualPool.idleCount, actualPool.totalCount, 'The post-release fault leaves no checked-out fixture client.');
+        } finally {
+          observed.restore(); restoreRelease?.();
+          if (acquired) await holder.query('ROLLBACK'); await endClient(holder);
+        }
+        assert.deepEqual(await stored(target.identity), before);
+      }
+    });
+    for (const surface of ['web', 'mobile'] as const) await check(`capturePending retry preserves the originally selected full scope (${surface})`, async () => {
+      const target = await seed(`${surface}-capture-pending-scope`), before = await stored(target.identity), holder = await ownClient();
+      let acquired = false, released = false, changed = false, busyErrors = 0, rejectedClient: Client | undefined;
+      const observed = observeTransactions(async (client, sql, result, ordinal) => {
+        if (client === holder) return result;
+        try {
+          const value = await result;
+          if (ordinal === 2 && sql.includes("SET LOCAL statement_timeout='5s'") && !acquired) {
+            await holder.query('BEGIN');
+            await holder.query('LOCK TABLE organization_user_permissions IN ROW EXCLUSIVE MODE'); acquired = true;
+          }
+          if (client === rejectedClient && sql === 'ROLLBACK' && !changed) {
+            await holder.query('ROLLBACK'); released = true;
+            await admin.query("UPDATE canvas_workspaces SET root_relative_path='organizations/principal-org/capture-original-scope-drift' WHERE id=$1", [workspaceId]);
+            changed = true;
+          }
+          return value;
+        } catch (error) {
+          if (Reflect.get(error as object, 'code') === '55P03') {
+            assert.equal(ordinal, 2); assert(schemaShare(sql)); busyErrors++; rejectedClient = client;
+          }
+          throw error;
+        }
+      });
+      try {
+        const response = await post(surface, target.identity.path);
+        assert.equal(acquired, true); assert.equal(released, true); assert.equal(changed, true); assert.equal(busyErrors, 1);
+        assert.equal(observed.begins(), 3, 'Scope is checked against the original observation on the one fresh enrollment attempt.');
+        assert.equal(response.status, 409); assert.equal(response.wire.code, 'NATIVE_SESSION_SCOPE_CHANGED');
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+      } finally {
+        observed.restore();
+        if (acquired && !released) await holder.query('ROLLBACK'); await endClient(holder);
+        await admin.query("UPDATE canvas_workspaces SET root_relative_path='organizations/principal-org/shared' WHERE id=$1", [workspaceId]);
+      }
+      assert.deepEqual(await stored(target.identity), before);
+    });
+    for (const surface of ['web', 'mobile'] as const) await check(`capturePending does not certify a forged broker Busy identity (${surface})`, async () => {
+      const target = await seed(`${surface}-capture-pending-forged`), before = await stored(target.identity);
+      const { isAuthenticatedNativeSessionTransportBusy: genuineBusy } = await import('../app/lib/collaboration/authenticated-native-session-transport');
+      const forged = Object.assign(new Error('Owned forged capture Busy identity'), {
+        name: 'AuthenticatedNativeSessionTransportBusyError', code: 'PRINCIPAL_BUSY', retryable: true,
+      });
+      assert.equal(genuineBusy(forged), false);
+      let injected = false, observedBinding = false;
+      const observed = observeTransactions(async (_client, sql, result, ordinal) => {
+        const value = await result;
+        if (ordinal === 2 && sql.includes('FROM pg_stat_activity a JOIN canvas_workspaces')) observedBinding = true;
+        if (ordinal === 2 && sql.includes("SET LOCAL statement_timeout='5s'") && !injected) {
+          injected = true; throw forged;
+        }
+        return value;
+      });
+      try {
+        const response = await post(surface, target.identity.path);
+        assert.equal(injected, true); assert.equal(observedBinding, false); assert.equal(genuineBusy(forged), false);
+        assert.equal(observed.begins(), 2); assert.equal(response.status, 409); assert.equal(response.wire.code, 'PRINCIPAL_BUSY');
+        assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+      } finally { observed.restore(); }
+      assert.deepEqual(await stored(target.identity), before);
+    });
     for (const surface of ['mobile', 'web'] as const) await check(`actual opaque capture Principal final Busy is never a certified retry (${surface})`, async () => {
       const target = await seed(`${surface}-capture-final`), before = await stored(target.identity);
       let binding = false, authAfterBinding = 0, injected = false;
@@ -677,7 +847,7 @@ async function main(): Promise<void> {
         assert.equal(response.status, 409); assert.equal(response.wire.code, 'NATIVE_SESSION_SCOPE_CHANGED'); assert.equal(Object.hasOwn(response.wire, 'token'), false);
       } finally { Reflect.set(runtime, 'query', runtimeQuery); await admin.query('UPDATE canvas_workspaces SET root_relative_path=$1 WHERE id=$2', ['organizations/principal-org/shared', workspaceId]); }
     });
-    assert.equal(fetches, 0); if (!process.argv[2]) assert.equal(cases, 25); disposeMobileCollaborationTickets();
+    assert.equal(fetches, 0); if (!process.argv[2]) assert.equal(cases, 33); disposeMobileCollaborationTickets();
     console.log(`Authenticated native HTTP Busy: ${cases} genuine PostgreSQL18 families passed; existing product gate remains false.`);
   }finally{
     globalThis.fetch=originalFetch;
