@@ -137,7 +137,7 @@ async function read(api: APIRequestContext, documentId: string, extra: Partial<D
 async function failure(response: APIResponse, statuses: readonly number[], codes: readonly string[]): Promise<void> {
   const value = await json(response, 'Expected document-read denial');
   expect(statuses).toContain(response.status());
-  expect(Object.keys(value).sort()).toEqual(['apiVersion', 'success', 'code']);
+  expect(Object.keys(value).sort()).toEqual(['apiVersion', 'code', 'success']);
   expect(value.apiVersion).toBe(1); expect(value.success).toBe(false); expect(codes).toContain(value.code);
   expect(Object.hasOwn(value, 'fragment')).toBe(false); expect(Object.hasOwn(value, 'document')).toBe(false);
   expect(response.headers()['cache-control']).toBe('no-store');
@@ -162,7 +162,7 @@ async function session(api: APIRequestContext, filePath: string, representation:
 function nativeBody(page: DocumentReadPageV1): NativeBody {
   expect(page.format).toBe('native'); expect(page.byteOffset).toBe(0); expect(page.complete).toBe(true);
   const body = JSON.parse(page.fragment) as NativeBody;
-  expect(Object.keys(body).sort()).toEqual(['bodyVersion', 'representation', 'content']);
+  expect(Object.keys(body).sort()).toEqual(['bodyVersion', 'content', 'representation']);
   expect(body.bodyVersion).toBe(1); expect(body.representation).toBe(page.document.representation);
   return body;
 }

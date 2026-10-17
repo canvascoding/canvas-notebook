@@ -5,6 +5,7 @@ import { readDocumentForRequest } from '@/app/lib/documents/service';
 
 export const runtime = 'nodejs';
 const MAX_SELECTION_BYTES = 32 * 1024;
+const responseHeaders = { 'Cache-Control': 'no-store', Pragma: 'no-cache', 'X-Content-Type-Options': 'nosniff' };
 
 async function selection(request: NextRequest): Promise<unknown> {
   const reader = request.body?.getReader();
@@ -32,13 +33,16 @@ async function selection(request: NextRequest): Promise<unknown> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const limited = applyRateLimit(request, { limit: 120, windowMs: 60_000, keyPrefix: 'documents-read-v1' });
-  if (limited) return limited;
+  if (limited) {
+    for (const [name, value] of Object.entries(responseHeaders)) limited.headers.set(name, value);
+    return limited;
+  }
   try {
     const page = await readDocumentForRequest(original, await selection(request));
-    return NextResponse.json(page, { headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' } });
+    return NextResponse.json(page, { headers: responseHeaders });
   } catch (error) {
     const failure = error instanceof DocumentReadError ? error : new DocumentReadError('DOCUMENT_READ_UNAVAILABLE');
     const body: DocumentReadErrorV1 = { apiVersion: 1, success: false, code: failure.code };
-    return NextResponse.json(body, { status: failure.status, headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' } });
+    return NextResponse.json(body, { status: failure.status, headers: responseHeaders });
   }
 }
