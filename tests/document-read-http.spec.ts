@@ -315,7 +315,7 @@ test.describe('owned production HTTP document read by stable native ID', () => {
       data: selection(richId, { format: 'text', maxBytes: 4, cursor: originalCursor }) }), [409], ['DOCUMENT_SCOPE_CHANGED']);
   });
 
-  test('5: actual editor append conflicts with old continuation and survives room close as the identical durable native body', async (_fixtures, info) => {
+  test('5: actual editor append conflicts with old continuation and survives room close as the identical durable native body', async ({}, info) => {
     await editor.locator(selector).click(); await editor.keyboard.press('ControlOrMeta+End'); await editor.keyboard.insertText(suffix);
     await expect(editor.locator(selector)).toHaveText(initialText + suffix);
     const candidate = await readNativeRichCandidate(editor, selector); expect(candidate.stateProof).not.toBe(originalCandidate.stateProof);
