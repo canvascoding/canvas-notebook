@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import { types } from 'node:util';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
@@ -25,7 +26,7 @@ const MAX_LINKS = 20_000;
 type NativeStage = Omit<WorkspaceSourceAuthorityStage, 'sources'> & {
   sources: Array<Extract<WorkspaceSourceAuthorityStage['sources'][number], { kind: 'native' }>>;
 };
-export type WorkspaceOperationNativeSourceEvidence = Readonly<{
+export type WorkspaceOperationNativeSourceEvidenceV1 = Readonly<{
   evidenceVersion: 1;
   workspaceScope: WorkspaceOperationJobScope;
   stage: NativeStage;
@@ -34,6 +35,11 @@ export type WorkspaceOperationNativeSourceEvidence = Readonly<{
   semanticProof: string;
   evidenceProof: string;
 }>;
+export type WorkspaceOperationNativeSourceEvidenceV2 = Readonly<Omit<WorkspaceOperationNativeSourceEvidenceV1, 'evidenceVersion'> & {
+  evidenceVersion: 2;
+  semanticCatalogueProof: string;
+}>;
+export type WorkspaceOperationNativeSourceEvidence = WorkspaceOperationNativeSourceEvidenceV1 | WorkspaceOperationNativeSourceEvidenceV2;
 export class WorkspaceOperationNativeSourceEvidenceError extends Error {
   readonly status = 409;
   constructor(readonly code: 'NATIVE_SOURCE_EVIDENCE_INVALID' | 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE'
@@ -57,7 +63,7 @@ const representations = ['plain_text', 'tiptap_xml', 'tiptap_blocks'];
 type RecordValue = Record<string, unknown>;
 
 function record(value: unknown, required: readonly string[], optional: readonly string[] = []): RecordValue {
-  if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype) fail();
+  if (!value || typeof value !== 'object' || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) fail();
   const keys = Reflect.ownKeys(value);
   if (keys.length > required.length + optional.length || required.some(key => !Object.hasOwn(value, key))
     || keys.some(key => typeof key !== 'string' || !required.includes(key) && !optional.includes(key))) fail();
@@ -70,7 +76,7 @@ function record(value: unknown, required: readonly string[], optional: readonly 
   return captured;
 }
 function list(value: unknown, maximum: number): unknown[] {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) fail();
+  if (types.isProxy(value) || !Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) fail();
   const length = Object.getOwnPropertyDescriptor(value, 'length')?.value;
   if (!integer(length) || length > maximum || Reflect.ownKeys(value).length !== length + 1) fail();
   const copied: unknown[] = [];
@@ -111,7 +117,7 @@ function plainJson(value: unknown, budget: JsonBudget = { remaining: MAX_EVIDENC
       charge(jsonStringBytes(item)); if (Buffer.from(item).toString('utf8') !== item) fail();
       return item;
     }
-    if (!item || typeof item !== 'object' || ancestors.has(item)) fail();
+    if (!item || typeof item !== 'object' || types.isProxy(item) || ancestors.has(item)) fail();
     ancestors.add(item);
     if (Array.isArray(item)) {
       const values = list(item, 50_000); charge(2 + Math.max(values.length - 1, 0));
@@ -148,6 +154,21 @@ function semanticBody(value: Pick<WorkspaceOperationNativeSourceEvidence, 'works
     }
     return entry;
   }) }, nativeBindings: value.nativeBindings };
+}
+function semanticBodyV2(value: Pick<WorkspaceOperationNativeSourceEvidenceV2,
+  'workspaceScope' | 'stage' | 'nativeBindings' | 'semanticCatalogueProof'>): unknown {
+  const normalized = semanticBody(value) as {
+    workspaceScope: WorkspaceOperationJobScope;
+    stage: Omit<NativeStage, 'stageProof'>;
+    nativeBindings: readonly WorkspaceNativeSourceBinding[];
+  };
+  return { semanticVersion: 2, ...normalized,
+    stage: { ...normalized.stage, catalogueProof: value.semanticCatalogueProof },
+    // V2 capture bound every one of these documents to its complete original
+    // catalogue row before deriving either replaceable registry clock.
+    nativeBindings: normalized.nativeBindings.map(binding => ({ ...binding,
+      expected: { ...binding.expected, registryStateVersion: 0 },
+      registry: { ...binding.registry, stateVersion: 0 } })) };
 }
 function vector(value: unknown, maximum = MAX_VECTOR_BYTES): Uint8Array {
   if (typeof value !== 'string' || !value.length || value.length > Math.ceil(maximum / 3) * 4
@@ -229,12 +250,15 @@ function inspectInventory(inventory: NativeDocumentLinkInventory): void {
   }
 }
 function inspect(value: WorkspaceOperationNativeSourceEvidence, verifyProofs = true): void {
-  record(value, ['evidenceVersion', 'workspaceScope', 'stage', 'nativeBindings', 'semanticProof', 'evidenceProof']);
+  record(value, ['evidenceVersion', 'workspaceScope', 'stage', 'nativeBindings', 'semanticProof', 'evidenceProof',
+    ...(value.evidenceVersion === 2 ? ['semanticCatalogueProof'] : [])]);
   const { workspaceScope: scope, stage, nativeBindings: bindings } = value;
   parseWorkspaceOperationJobScope(scope);
   record(stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace', 'sources', 'scope', 'coverage', 'readiness', 'executionReady', 'stageProof']);
   record(stage.scope, ['kind', 'excludedPaths']); complete(stage.coverage);
-  if (value.evidenceVersion !== 1 || scope.legacy !== false || !canonicalPath(scope.rootRelativePath)
+  if (value.evidenceVersion !== 1 && value.evidenceVersion !== 2
+    || value.evidenceVersion === 2 && !digest(value.semanticCatalogueProof)
+    || scope.legacy !== false || !canonicalPath(scope.rootRelativePath)
     || !id(scope.workspaceId) || ![scope.organizationId, scope.customerId, scope.projectId, scope.ownerUserId].every(nullableId)
     || stage.stageVersion !== 1 || stage.workspaceId !== scope.workspaceId || stage.organizationId !== scope.organizationId
     || !digest(stage.catalogueProof) || stage.executionReady !== false || !stage.coverage?.complete || stage.coverage.gaps.length
@@ -322,13 +346,16 @@ function inspect(value: WorkspaceOperationNativeSourceEvidence, verifyProofs = t
     if (entry?.documentId !== binding.expected.documentId || entry.kind !== 'file') fail();
   }
   if (!verifyProofs) return;
-  if (nativeLinkJsonProof(semanticBody(value)) !== value.semanticProof) fail();
+  if (nativeLinkJsonProof(value.evidenceVersion === 2 ? semanticBodyV2(value) : semanticBody(value)) !== value.semanticProof) fail();
   const { evidenceProof, ...body } = value;
   if (nativeLinkJsonProof(body) !== evidenceProof) fail();
 }
 
 /** Pure historical facts. A freshly collected same-B observation is still
  * required before every mutation; this decoder does not create a capability. */
+export function decodeWorkspaceOperationNativeSourceEvidence(input: WorkspaceOperationNativeSourceEvidenceV1): WorkspaceOperationNativeSourceEvidenceV1;
+export function decodeWorkspaceOperationNativeSourceEvidence(input: WorkspaceOperationNativeSourceEvidenceV2): WorkspaceOperationNativeSourceEvidenceV2;
+export function decodeWorkspaceOperationNativeSourceEvidence(input: unknown): WorkspaceOperationNativeSourceEvidence;
 export function decodeWorkspaceOperationNativeSourceEvidence(input: unknown): WorkspaceOperationNativeSourceEvidence {
   try {
     const value = plainJson(input) as WorkspaceOperationNativeSourceEvidence;
@@ -372,7 +399,7 @@ function captureState(input: unknown, budget: { remaining: number }, jsonBudget:
   return { ...data, yjsState, stateVector };
 }
 export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOperationJobScope,
-  observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidence {
+  observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidenceV1 {
   try {
     const observationData = record(observation, ['stage', 'nativeBindings', 'privateNativeStates'], ['privateCatalogue']);
     const stageData = record(observationData.stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace',
@@ -422,9 +449,45 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
     return evidence;
   } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
 }
+/** V2 requires the actual complete transient catalogue. Its raw scope, stage,
+ * bindings and native bytes still pass the unchanged V1 capture first. */
+export function captureWorkspaceOperationNativeSourceEvidenceV2(scope: WorkspaceOperationJobScope,
+  observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidenceV2 {
+  try {
+    const captured = record(observation, ['stage', 'nativeBindings', 'privateNativeStates', 'privateCatalogue']);
+    const legacy = captureWorkspaceOperationNativeSourceEvidence(scope, {
+      stage: captured.stage, nativeBindings: captured.nativeBindings, privateNativeStates: captured.privateNativeStates,
+    } as WorkspaceLinkSourceAuthorityObservation);
+    const witness = captureWorkspaceOperationNativeCatalogueWitness(captured.privateCatalogue, legacy.workspaceScope,
+      legacy.stage.catalogueProof!, legacy.nativeBindings, reason => fail(reason === 'too-large'
+        ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID'));
+    const facts = { evidenceVersion: 2 as const, workspaceScope: legacy.workspaceScope,
+      stage: legacy.stage, nativeBindings: legacy.nativeBindings, semanticCatalogueProof: witness.semanticCatalogueProof };
+    const body = { ...facts, semanticProof: nativeLinkJsonProof(semanticBodyV2(facts)) };
+    return decodeWorkspaceOperationNativeSourceEvidence({ ...body, evidenceProof: nativeLinkJsonProof(body) });
+  } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
+}
 export function assertWorkspaceOperationNativeSourceEvidenceCurrent(expected: WorkspaceOperationNativeSourceEvidence,
   observation: WorkspaceLinkSourceAuthorityObservation, scope: WorkspaceOperationJobScope): void {
   const original = decodeWorkspaceOperationNativeSourceEvidence(expected);
+  if (original.evidenceVersion === 2) {
+    try {
+      const captured = record(observation, ['stage', 'nativeBindings', 'privateNativeStates'], ['privateCatalogue']);
+      if (Object.hasOwn(captured, 'privateCatalogue')) {
+        const current = captureWorkspaceOperationNativeSourceEvidenceV2(scope, captured as WorkspaceLinkSourceAuthorityObservation);
+        if (original.semanticProof !== current.semanticProof) fail('NATIVE_SOURCE_EVIDENCE_CHANGED');
+        return;
+      }
+      // Historical Stage/Records replay has no catalogue witness. It may only
+      // reproduce all original raw facts, after validating the actual bytes;
+      // absence never enables projection or registry-clock tolerance.
+      const current = captureWorkspaceOperationNativeSourceEvidence(scope, captured as WorkspaceLinkSourceAuthorityObservation);
+      const raw = (value: WorkspaceOperationNativeSourceEvidence) => ({ workspaceScope: value.workspaceScope,
+        stage: value.stage, nativeBindings: value.nativeBindings });
+      if (nativeLinkJsonProof(raw(original)) !== nativeLinkJsonProof(raw(current))) fail('NATIVE_SOURCE_EVIDENCE_CHANGED');
+      return;
+    } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
+  }
   const current = captureWorkspaceOperationNativeSourceEvidence(scope, observation);
   if (original.semanticProof !== current.semanticProof) fail('NATIVE_SOURCE_EVIDENCE_CHANGED');
 }
