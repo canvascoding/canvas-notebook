@@ -1,4 +1,4 @@
-/** Run a bounded document-read integration suite as one real-source ESM graph. */
+/** Run a bounded document-authority integration suite as one real-source ESM graph. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -11,15 +11,21 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
-assert(['scripts/document-read-tool-dispatch-postgres-test.ts',
-  'scripts/native-docx-file-read-postgres-test.ts'].includes(entryPoint), 'Unknown document-read integration suite.');
-const criticalInputs = entryPoint === 'scripts/native-docx-file-read-postgres-test.ts'
-  ? [entryPoint, 'app/lib/collaboration/workspace-native-file-read.ts',
+const criticalInputsByEntryPoint = {
+  'scripts/native-docx-file-read-postgres-test.ts': [entryPoint, 'app/lib/collaboration/workspace-native-file-read.ts',
     'app/lib/files/collaboration-repository/index.ts', 'app/lib/office/document-service.ts',
-    'app/lib/filesystem/workspace-files.ts', 'app/lib/db/index.ts']
-  : [entryPoint, 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
-  'app/lib/pi/tool-registry.ts', 'app/lib/pi/agent-tool-invocation.ts',
-  'app/lib/documents/service.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/db/index.ts'];
+    'app/lib/filesystem/workspace-files.ts', 'app/lib/db/index.ts'],
+  'scripts/document-read-tool-dispatch-postgres-test.ts': [entryPoint, 'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'app/lib/pi/tool-registry.ts', 'app/lib/pi/agent-tool-invocation.ts',
+    'app/lib/documents/service.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-scene-catalogue-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/collaboration/workspace-scene-catalogue.ts', 'app/lib/db/index.ts'],
+  'scripts/excalidraw-lifecycle-availability-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/excalidraw-collaboration/lifecycle-availability.ts', 'app/lib/excalidraw-collaboration/scene-service.ts',
+    'app/lib/excalidraw-collaboration/portable-import.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts', 'app/lib/db/index.ts'],
+};
+assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
+const criticalInputs = criticalInputsByEntryPoint[entryPoint];
 let stage = 'preflight';
 let temporaryDirectory;
 let temporaryIdentity;

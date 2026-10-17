@@ -13,6 +13,7 @@ import { validateExcalidrawElements, validateExcalidrawSceneReferences, validate
 import { ExcalidrawDocumentError, getExcalidrawDocument, type ExcalidrawDocumentActor } from './scene-service';
 import { assertExcalidrawProviderAvailable } from './provider';
 import { withExcalidrawImportPublication } from './publication-context';
+import { assertExcalidrawLifecycleAvailable } from './lifecycle-availability';
 
 export function validatePortableExcalidrawScene(content: string) {
   if (Buffer.byteLength(content) > EXCALIDRAW_PORTABLE_MAX_BYTES) {
@@ -74,6 +75,7 @@ export async function importExcalidrawDocumentFile(input: {
   const parsed = validatePortableExcalidrawScene(content);
   return withWorkspaceMutationLock(input.workspace.workspaceId, async () => {
     await input.beforeApply?.();
+    await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, path);
     const existing = await getFileCollaborationState({ workspace: input.workspace, path, ensureDocument: false });
     if (existing.document?.status === 'active') throw new ExcalidrawDocumentError('PATH_EXISTS', 409,
       'This path already belongs to an Excalidraw document. Restore its checkpoint or choose another path.');
