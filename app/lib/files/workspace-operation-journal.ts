@@ -535,6 +535,26 @@ export class WorkspaceOperationJournal {
     return this.read(database => readCapturedJournalOnConnection(database, operationId));
   }
 
+  /** Legacy single Undo reserved this exact digest of its original operation
+   * ID, but persisted no inverse/original backreference. Search every header:
+   * actor, status and paths can never make an existing reserved ID available.
+   * to_json quotes the original text exactly, without array-formatter spaces. */
+  async isSingleUndoOperation(operationId: string): Promise<boolean> {
+    checkedText(operationId, 'operationId', 128, 16);
+    if (!/^[a-f0-9]{64}$/u.test(operationId)) return false;
+    return this.read(async database => {
+      const result = await database.get(`SELECT EXISTS (
+        SELECT 1 FROM workspace_file_operations
+        WHERE pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+          '["workspace-operation-undo-v1",' || pg_catalog.to_json(operation_id)::text || ']', 'UTF8')), 'hex')=$1
+      ) AS is_undo`, [operationId]) as { is_undo?: unknown } | undefined;
+      if (!result || typeof result.is_undo !== 'boolean') {
+        throw new WorkspaceOperationJournalConflictError('Original Undo operation identity could not be checked.');
+      }
+      return result.is_undo;
+    });
+  }
+
   async prepare(input: PrepareInput): Promise<WorkspaceOperationRecord> {
     const expected = capturePrepare(input);
     return this.mutate(database => prepareCapturedOnConnection(database, expected), async () => {

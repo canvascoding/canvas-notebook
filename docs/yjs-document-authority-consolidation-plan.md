@@ -427,6 +427,8 @@ Ein Projector darf nach Delete weder den alten Pfad wieder anlegen noch ein spä
 
 Der langfristige Dateiaktionsvertrag war allgemein für Dateien und Ordner vorgesehen; der erste native Versuch deckte nur Delete/Restore eines einzelnen Notebook-/Markdown-Dokuments ab. Ein späterer allgemeiner Undo benötigt zusätzliche Belege für Assets, Ordner, mehrere Auswahlwurzeln und Linkänderungen. Das Rückgängigmachen eigener Texteingaben im Editor hat einen getrennten Yjs-/Editorverlauf und wird durch die Dateiaktionssperre nicht abgeschaltet.
 
+Der [Nachtrag zur historischen Einzel-Recovery](./workspace-file-undo-disabled.md#nachtrag-historische-einzel-recovery-und-feste-identität) schließt außerdem die gespeicherten alten inversen Move-/Rename-Aufträge am allgemeinen Executor. Ihre Originalzuordnung wird exakt geprüft; ein fester Recovery-Identitätssnapshot verhindert einen Wechsel während dieser Prüfung. 37 lokale gezielte und angrenzende Fälle sowie die ursprüngliche Journalfolge bestehen. Eine Reparatur des ursprünglichen Restorefehlers oder eine Veröffentlichung ist damit nicht verbunden.
+
 Undo ist eine neue auditierte Operation mit aktuellem Actor, aktuellen Rechten und neuen Receipts. Inhalts-Undo wendet bedingte inverse Zieloperationen an; Pfad-Undo benutzt die bestehenden Identitäts-/Namespace-Belege. Unabhängige spätere Nutzeränderungen bleiben bestehen.
 
 Veränderte Linkziele, entfernte Blöcke, neue Backlinks, Pfadkollisionen, alte oder fehlende Belege können Undo blockieren. Eine komplette historische Markdown-Fassung darf nicht als bequemer Ersatz über einen aktuellen Rich-Zustand geschrieben werden.

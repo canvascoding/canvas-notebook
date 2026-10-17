@@ -15,6 +15,7 @@ import type {
 } from './workspace-operation-journal';
 import type { WorkspaceOperationStage, WorkspaceOperationStaging } from './workspace-operation-staging';
 import { serializeWorkspaceOperationRequest } from './workspace-operation-journal';
+import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 
 export type WorkspaceOperationProbe = 'before' | 'after' | 'unknown';
 export type WorkspaceOperationExecutionStatus = 'complete' | 'needs_recovery' | 'failed';
@@ -32,7 +33,8 @@ type StageIdentity = WorkspaceOperationStage['identity'];
 type OriginalDocument = WorkspaceOperationStage['originalDocuments'][number];
 type PathSelection = WorkspaceOperationRequest['selections'][number];
 type JournalPort = Pick<WorkspaceOperationJournal,
-  'get' | 'prepare' | 'beginStep' | 'finishStep' | 'complete' | 'fail' | 'resume'>;
+  'get' | 'prepare' | 'beginStep' | 'finishStep' | 'complete' | 'fail' | 'resume'>
+  & Partial<Pick<WorkspaceOperationJournal, 'isSingleUndoOperation'>>;
 type StagingPort = Pick<WorkspaceOperationStaging, 'stage' | 'load' | 'removeCompleted'>;
 
 export type WorkspaceOperationExecutorAdapters = {
@@ -346,6 +348,27 @@ export function createWorkspaceFileOperationExecutor(input: {
   };
 
   const recover = async (identity: StageIdentity): Promise<WorkspaceOperationExecutionResult> => {
+    if (!identity || Object.getPrototypeOf(identity) !== Object.prototype || Reflect.ownKeys(identity).length !== 4) {
+      throw new WorkspaceOperationExecutorConflictError('OPERATION_ID_CONFLICT', 'Recovery identity must contain only original data.');
+    }
+    const field = (name: keyof StageIdentity): string => {
+      const property = Object.getOwnPropertyDescriptor(identity, name);
+      if (!property?.enumerable || !Object.hasOwn(property, 'value') || typeof property.value !== 'string') {
+        throw new WorkspaceOperationExecutorConflictError('OPERATION_ID_CONFLICT', 'Recovery identity must contain only original data.');
+      }
+      return property.value;
+    };
+    identity = Object.freeze({ operationId: field('operationId'), planId: field('planId'),
+      sourceWorkspaceId: field('sourceWorkspaceId'), destinationWorkspaceId: field('destinationWorkspaceId') });
+    // The original single-Undo writer used a reserved lowercase SHA-256 ID.
+    // Old injected non-digest ports remain usable; a digest requires the exact
+    // durable lookup and never falls back to treating a missing check as false.
+    if (/^[a-f0-9]{64}$/u.test(identity.operationId)) {
+      if (!journal.isSingleUndoOperation) {
+        throw new WorkspaceOperationExecutorConflictError('OPERATION_ID_CONFLICT', 'Original Undo operation identity lookup is required.');
+      }
+      if (await journal.isSingleUndoOperation(identity.operationId)) assertWorkspaceFileUndoEnabled();
+    }
     const record = await journal.get(identity.operationId);
     if (!record || record.planId !== identity.planId
       || record.sourceWorkspaceId !== identity.sourceWorkspaceId

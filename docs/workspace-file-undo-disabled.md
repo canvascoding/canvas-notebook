@@ -1,6 +1,6 @@
 # Dateiaktions-Undo vorerst ausgeschaltet
 
-Stand: 16. Oktober 2026. Der Nutzer hat die Reparatur von Dateiaktions-Undo zurückgestellt und stattdessen die ausdrückliche Abschaltung verlangt. Die verbleibende Datei-/Link-/Dokument-API-Arbeit wird dadurch nicht aufgeschoben. Der ursprüngliche Desktop-Restorefehler ist nicht behoben und wird nicht als abgeschlossen ausgewiesen. Review Center bleibt ausgeschaltet.
+Stand: 17. Oktober 2026. Der Nutzer hat die Reparatur von Dateiaktions-Undo zurückgestellt und stattdessen die ausdrückliche Abschaltung verlangt. Die verbleibende Datei-/Link-/Dokument-API-Arbeit wird dadurch nicht aufgeschoben. Der ursprüngliche Desktop-Restorefehler ist nicht behoben und wird nicht als abgeschlossen ausgewiesen. Review Center bleibt ausgeschaltet.
 
 ## Geltungsbereich
 
@@ -14,10 +14,19 @@ Die aktuelle feste Policy `WORKSPACE_FILE_UNDO_ENABLED = false` gilt für alle D
 - Direkte und historische Batch-Endpunkte verweigern neues Undo und Resume eines gespeicherten Undo-Jobs mit HTTP 409 und `FILE_OPERATION_UNDO_DISABLED`. Der Store wiederholt die Entscheidung an der tatsächlichen gesperrten Zeile; ein alter Serviceread kann kein Undo einreihen.
 - Der Worker beendet historische queued/reclaimed Undo-Jobs nach echtem Claim vor Timer, Scope-/Dateiarbeit und Executor mit `needs_recovery/recovery` und dem ausdrücklichen Disabled-Code. Ein gegebenenfalls bereits begonnener Zustand bleibt unbestätigt; kein Restore wird erneut ausgeführt und kein `undone` erfunden.
 - Executor-Undo und Undo-Availability sind vor dem Native-/Legacy-Dispatch gesperrt. Der alte Einzeloperationsdienst bietet keine Undo-Fähigkeit und mutiert nicht.
+- Auch die allgemeine Einzeloperations-Recovery verweigert historische inverse Move-/Rename-Aufträge. Ihr alter Header enthielt keinen Undo-Modus: Die neue Journalabfrage erkennt stattdessen exakt die ursprüngliche `operationUndoId`-Ableitung über alle vorhandenen Originalheader, ohne Status-, Actor-, Workspace- oder Pfadfilter. Die Sperre greift vor Stage-Lesen, Cleanup, Resume und Mutationen sowie über `execute(existing)`. Gewöhnliche Aufträge mit einer anderen, ebenfalls 64-stelligen Hex-ID bleiben erlaubt. Fehler oder ein fehlender Lookup werden nicht als Freigabe behandelt.
 - Der physische Toast-Fallback `POST /api/files/trash/{entryId}/restore` ist ebenfalls gesperrt. Mobile exportiert denselben Handler. Ein alter Toast kann damit die Abschaltung nicht umgehen. Diese bewusste Grenze betrifft die Datei-Papierkorbwiederherstellung, nicht unabhängige Dokumentversions-/Backup-Restores.
 - Öffentliche `undoAvailable`, `recovery.canUndo`, `undo.available` und Resume für Undo-Jobs bleiben false. Statusreads und gewöhnliches Apply-Resume bleiben erreichbar; Apply/Delete/Move/Copy erhalten keinen Undo-Guard.
 
 ## Prüfung und verbleibende Grenze
+
+### Nachtrag: historische Einzel-Recovery und feste Identität
+
+Die Gegenprüfung am 17. Oktober findet eine Restlücke in der vorherigen pauschalen Aussage zu gespeicherten Undo-Aufträgen: Der allgemeine Recovery-Endpunkt konnte alte Einzel-Undo-Header wie gewöhnliche inverse Move-/Rename-Aufträge behandeln. Der zentrale Executor prüft nun die exakte dauerhafte Originalzuordnung. Alle vier Recovery-Identitätsfelder werden synchron vor dem ersten Await über eigene Datenfelder erfasst und eingefroren; Accessors werden abgewiesen. Eine während des Lookups veränderte Caller-ID kann damit kein ungeprüftes Undo auswählen.
+
+Die neue SQL-/Executorfolge besteht mit 8/8, einschließlich tatsächlicher eingebetteter PGlite-Abfrage und Gleichheit zur JavaScript-Hashableitung für Unicode, Zeilentrenner, Anführungszeichen, Backslashes und Steuerzeichen. Die unveränderten Executor16 und CopyOrigin7 bestehen ebenfalls, ebenso die originale Journalfolge. Bericht: `/private/tmp/canvas-single-undo-guard-fllzdc66/results.json`, SHA-256 `e305b070febca05e50151d2ddd325bca086273919906a2049925fca2543a1e93`.
+
+Eine unabhängige identische Folge mit sechs Barrier-/Accessor-Gegenfällen scheitert vollständig am zuvor gesicherten Produktstand und besteht vollständig mit dem festen Identitätssnapshot. Der frühere CJS-Transformfehler dieser neuen Testharness bleibt separat erhalten und wird nicht als Produktgegenbeweis gezählt. Finaler Bericht: `/private/tmp/cn-single-undo-identity-vvhroazt/results.json`, SHA-256 `0b2b05fbb314eb93ec87809aec387ae3aca8cb021a2d511a63acc29b0786791f`; eigener Ressourcenabschluss `closure.json`, SHA-256 `16b401da7ff16406370351104737e1a3d8036cb3d533ec3fbbf08c12d73ab070`. Insgesamt bestehen 37 gezielte und angrenzende Fälle ohne Skip. Scoped-Lint besteht. Diese neue Ergänzung ist keine frische tatsächliche PostgreSQL-18-, HTTP- oder Browserabnahme und kein Produktionsrollout; die nachfolgenden Browserbelege gehören zu ihren jeweiligen historischen Heads.
 
 Der neue echte React-/Sonner-Hooktest prüft zehn Desktop-/Mobile-Fälle: Legacy- und Batch-Delete, partielle Fehler, keine Trash-Einträge und gewöhnlichen Fehler. Delete-Dispatch und Erfolgsmeldung bleiben erhalten, ein Undo-Button oder Restore-Netzwerkaufruf entsteht nicht.
 
