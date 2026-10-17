@@ -27,7 +27,7 @@ export type PreparedPathCopyPayload = Readonly<{ kind: 'regular_file'; identity:
 export type PreparedPathCopyRoot = Readonly<{ resolvedPath: string; identity: PreparedPathCopyIdentity }>;
 /** Mechanical original observations only. Journal provenance, current actor,
  * native projection membership and SQL/namespace admission belong to the owner. */
-export type PreparedWorkspacePathCopyOriginal = Readonly<{
+export type PreparedWorkspacePathCopyOriginalV1 = Readonly<{
   version: 1; sourceWorkspace: WorkspaceOperationJobScope; destinationWorkspace: WorkspaceOperationJobScope;
   sourcePath: string; destinationPath: string; budget: PreparedPathCopyBudget; projectionPaths: readonly string[];
   filesystem: Readonly<{ sourceRoot: PreparedPathCopyRoot; destinationRoot: PreparedPathCopyRoot;
@@ -35,6 +35,12 @@ export type PreparedWorkspacePathCopyOriginal = Readonly<{
   source: PreparedPathCopySource;
   staging: Readonly<{ relativePath: string; identity: PreparedPathCopyIdentity; payload: PreparedPathCopyPayload }> | null;
 }>;
+/** Only exact owner-bound native projection leaves are replaceable. Their
+ * original observations remain part of the immutable mechanical proof. */
+export type PreparedWorkspacePathCopyOriginalV2 = Readonly<Omit<PreparedWorkspacePathCopyOriginalV1, 'version'> & {
+  version: 2; sourceProjectionPolicy: 'native-derived-leaves-v2';
+}>;
+export type PreparedWorkspacePathCopyOriginal = PreparedWorkspacePathCopyOriginalV1 | PreparedWorkspacePathCopyOriginalV2;
 export type PreparedWorkspacePathCopyParentReceipt = Readonly<{ version: 1; originalProof: string;
   relativePath: string; identity: PreparedPathCopyIdentity }>;
 export type PreparedWorkspacePathCopyReceipt = Readonly<{ version: 1; original: PreparedWorkspacePathCopyOriginal;
@@ -53,6 +59,7 @@ export type PreparedWorkspacePathCopyInput = Readonly<{
   sourceKind: 'regular_file' | 'directory' | 'projection_absent'; budget?: PreparedPathCopyBudget;
   /** Exact owner-proven native paths, never globs, extensions or a permission. */
   projectionPaths?: readonly string[];
+  sourceProjectionPolicy?: 'native-derived-leaves-v2';
 }>;
 export type RecoveredWorkspacePathCopyInput = Readonly<{
   sourceWorkspace: WorkspaceContext; destinationWorkspace: WorkspaceContext; original: PreparedWorkspacePathCopyOriginal;
@@ -110,7 +117,7 @@ function projections(value: unknown, sourcePath: string, kind: string): readonly
   return Object.freeze(paths.sort());
 }
 export function capturePathCopyRequest(input: PreparedWorkspacePathCopyInput) {
-  if (Reflect.ownKeys(input ?? {}).some(key => !['sourceWorkspace', 'destinationWorkspace', 'sourcePath', 'destinationPath', 'sourceKind', 'budget', 'projectionPaths'].includes(key as string))) copyFailure('invalid-input');
+  if (Reflect.ownKeys(input ?? {}).some(key => !['sourceWorkspace', 'destinationWorkspace', 'sourcePath', 'destinationPath', 'sourceKind', 'budget', 'projectionPaths', 'sourceProjectionPolicy'].includes(key as string))) copyFailure('invalid-input');
   let sourceWorkspace: WorkspaceOperationJobScope, destinationWorkspace: WorkspaceOperationJobScope;
   try {
     sourceWorkspace = captureWorkspaceOperationJobScope(copyData(input, 'sourceWorkspace') as WorkspaceContext);
@@ -122,9 +129,12 @@ export function capturePathCopyRequest(input: PreparedWorkspacePathCopyInput) {
   if (sourceWorkspace.workspaceId !== destinationWorkspace.workspaceId && sourceWorkspace.rootPath === destinationWorkspace.rootPath) copyFailure('invalid-input');
   const sourceKind = copyData(input, 'sourceKind');
   if (!['regular_file', 'directory', 'projection_absent'].includes(sourceKind as string)) copyFailure('invalid-input');
+  const sourceProjectionPolicy = copyData(input, 'sourceProjectionPolicy', true);
+  if (Object.hasOwn(input, 'sourceProjectionPolicy') && sourceProjectionPolicy !== 'native-derived-leaves-v2') copyFailure('invalid-input');
   return freezeCopyData({ sourceWorkspace, destinationWorkspace, sourcePath, destinationPath,
     sourceKind: sourceKind as PreparedWorkspacePathCopyInput['sourceKind'], budget: budget(copyData(input, 'budget', true)),
-    projectionPaths: projections(copyData(input, 'projectionPaths', true), sourcePath, sourceKind as string) });
+    projectionPaths: projections(copyData(input, 'projectionPaths', true), sourcePath, sourceKind as string),
+    ...(sourceProjectionPolicy === undefined ? {} : { sourceProjectionPolicy: 'native-derived-leaves-v2' as const }) });
 }
 function identity(value: unknown): PreparedPathCopyIdentity {
   const data = record(value, ['device', 'inode', 'mode', 'uid', 'gid', 'linkCount', 'size', 'birthtimeNs', 'mtimeNs', 'ctimeNs']);
@@ -203,7 +213,19 @@ export function assertPathCopyPayload(source: PreparedPathCopySource, payload: P
   entries.forEach((entry, index) => compare(entry, payload.entries[index]));
 }
 export function decodePreparedWorkspacePathCopyOriginal(input: unknown): PreparedWorkspacePathCopyOriginal {
-  const data = record(captureWorkspaceOperationNativePlanData(input, reason => copyFailure(reason === 'too-large' ? 'budget-exceeded' : 'invalid-input')),
+  const captured = captureWorkspaceOperationNativePlanData(input, reason => copyFailure(reason === 'too-large' ? 'budget-exceeded' : 'invalid-input'));
+  if (copyData(captured, 'version') === 2) {
+    const value = record(captured,
+      ['version', 'sourceWorkspace', 'destinationWorkspace', 'sourcePath', 'destinationPath', 'budget', 'projectionPaths', 'filesystem', 'source', 'staging', 'sourceProjectionPolicy']);
+    if (value.sourceProjectionPolicy !== 'native-derived-leaves-v2') copyFailure('invalid-input');
+    const { sourceProjectionPolicy: _policy, ...legacy } = value;
+    const original = decodePreparedWorkspacePathCopyOriginalV1({ ...legacy, version: 1 });
+    return freezeCopyData({ ...original, version: 2 as const, sourceProjectionPolicy: 'native-derived-leaves-v2' as const });
+  }
+  return decodePreparedWorkspacePathCopyOriginalV1(captured);
+}
+function decodePreparedWorkspacePathCopyOriginalV1(input: unknown): PreparedWorkspacePathCopyOriginalV1 {
+  const data = record(input,
     ['version', 'sourceWorkspace', 'destinationWorkspace', 'sourcePath', 'destinationPath', 'budget', 'projectionPaths', 'filesystem', 'source', 'staging']);
   if (data.version !== 1) copyFailure('invalid-input');
   let sourceWorkspace: WorkspaceOperationJobScope, destinationWorkspace: WorkspaceOperationJobScope;
@@ -229,7 +251,7 @@ export function decodePreparedWorkspacePathCopyOriginal(input: unknown): Prepare
     if (payload.kind !== source.kind) copyFailure('invalid-input');
     assertPathCopyPayload(source, payload as PreparedPathCopyPayload);
   }
-  return freezeCopyData(data as unknown as PreparedWorkspacePathCopyOriginal);
+  return freezeCopyData(data as unknown as PreparedWorkspacePathCopyOriginalV1);
 }
 export function preparedWorkspacePathCopyProof(value: PreparedWorkspacePathCopyOriginal): string {
   const canonical = (data: unknown): string => Array.isArray(data) ? '[' + data.map(canonical).join(',') + ']'

@@ -12,7 +12,7 @@ import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases,
 import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection,
   type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
-import { createWorkspaceOperationNativeCopyPlan, type WorkspaceOperationNativeCopyPlan,
+import { createWorkspaceOperationNativeCopyPlanV2, type WorkspaceOperationNativeCopyPlan,
   type WorkspaceOperationNativeCopySelection } from './workspace-operation-native-copy-plan';
 import { decodeWorkspaceOperationCopyOrigin, assertWorkspaceOperationCopyOriginCurrent,
   type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
@@ -277,7 +277,7 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
       }
       return { sourcePath: selection.sourcePath, destinationPath };
     });
-    const plan = createWorkspaceOperationNativeCopyPlan({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
+    const plan = createWorkspaceOperationNativeCopyPlanV2({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
       destinationScope: { workspace: current.destinationWorkspace, fileOptions: {} }, selections: resolved,
       sourceObservation: source, destinationObservation: destination });
     return { plan, source, destination, current };
@@ -396,7 +396,8 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
       const sourceKind = entry.filesystemIdentity === null ? 'projection_absent' : entry.kind === 'directory' ? 'directory' : 'regular_file';
       const projectionPaths = observed.plan.sourceEvidence.nativeBindings.map(binding => binding.expected.path)
         .filter(path => path === selected.sourcePath || entry.kind === 'directory' && path.startsWith(selected.sourcePath + '/'));
-      await withPreparedWorkspacePathCopy({ ...spaces, ...selected, sourceKind, projectionPaths }, async cap => {
+      await withPreparedWorkspacePathCopy({ ...spaces, ...selected, sourceKind, projectionPaths,
+        ...(observed.plan.version === 2 ? { sourceProjectionPolicy: 'native-derived-leaves-v2' as const } : {}) }, async cap => {
         physical.push({ selectionIndex, original: readPreparedWorkspacePathCopy(cap) });
       });
       await verify(owner);

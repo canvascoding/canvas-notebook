@@ -102,6 +102,11 @@ function physicals(input: unknown, plan: WorkspaceOperationNativeCopyPlan): read
     const item = object(value, ['selectionIndex', 'original']), selected = plan.selections[index];
     if (item.selectionIndex !== index) fail();
     const original = decodePreparedWorkspacePathCopyOriginal(item.original);
+    if (plan.version === 1) {
+      if (original.version !== 1 || Object.hasOwn(original, 'sourceProjectionPolicy')) fail();
+    } else if (plan.version === 2) {
+      if (original.version !== 2 || original.sourceProjectionPolicy !== 'native-derived-leaves-v2') fail();
+    } else fail();
     if (!equal(original.sourceWorkspace, plan.sourceScope) || !equal(original.destinationWorkspace, plan.destinationScope)
       || original.sourcePath !== selected.sourcePath || original.destinationPath !== selected.destinationPath) fail();
     const under = (pathname: string) => pathname === selected.sourcePath || pathname.startsWith(selected.sourcePath + '/');

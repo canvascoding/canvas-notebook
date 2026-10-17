@@ -12,15 +12,17 @@ import type { WorkspaceOperationBatchScope, WorkspaceOperationJobScope } from '.
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent, captureWorkspaceOperationNativeSourceEvidence,
+  captureWorkspaceOperationNativeSourceEvidenceV2,
   decodeWorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceError,
-  type WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+  type WorkspaceOperationNativeSourceEvidence, type WorkspaceOperationNativeSourceEvidenceV1,
+  type WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
 
 export type WorkspaceOperationNativeCopySelection = Readonly<{ sourcePath: string; destinationPath: string }>;
 /** Historical private planning data for the existing Copy coordinator. Virtual
  * clone requirements confer neither durable clone identities nor permission.
  * No native bytes, Markdown projections or executable clone references persist. */
-export type WorkspaceOperationNativeCopyPlan = Readonly<{
-  version: 1;
+type WorkspaceOperationNativeCopyPlanFields = Readonly<{
   kind: 'native-copy';
   planId: string;
   readiness: 'ready' | 'requires-clone-rebinding';
@@ -28,13 +30,23 @@ export type WorkspaceOperationNativeCopyPlan = Readonly<{
   sourceScope: WorkspaceOperationJobScope;
   destinationScope: WorkspaceOperationJobScope;
   selections: readonly WorkspaceOperationNativeCopySelection[];
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence;
-  destinationEvidence: WorkspaceOperationNativeSourceEvidence;
   nativePathPlan: NativeWorkspaceFileOperationPlan;
   compilerPlanProof: string;
   finalGraphProof: string;
   cloneRequirements: NativeMixedBatchPlan['cloneRequirements'];
 }>;
+export type WorkspaceOperationNativeCopyPlanV1 = WorkspaceOperationNativeCopyPlanFields & Readonly<{
+  version: 1;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV1;
+  destinationEvidence: WorkspaceOperationNativeSourceEvidenceV1;
+}>;
+export type WorkspaceOperationNativeCopyPlanV2 = WorkspaceOperationNativeCopyPlanFields & Readonly<{
+  version: 2;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+  destinationEvidence: WorkspaceOperationNativeSourceEvidenceV2;
+  integrityProof: string;
+}>;
+export type WorkspaceOperationNativeCopyPlan = WorkspaceOperationNativeCopyPlanV1 | WorkspaceOperationNativeCopyPlanV2;
 type Code = 'NATIVE_COPY_PLAN_INVALID' | 'NATIVE_COPY_PLAN_TOO_LARGE' | 'NATIVE_COPY_PLAN_UNSUPPORTED' | 'NATIVE_COPY_PLAN_CHANGED';
 export class WorkspaceOperationNativeCopyPlanError extends Error {
   readonly status = 409;
@@ -49,13 +61,13 @@ function capture(input: unknown): unknown {
     ? 'NATIVE_COPY_PLAN_TOO_LARGE' : 'NATIVE_COPY_PLAN_INVALID'));
 }
 function field(input: unknown, key: string): unknown {
-  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype) fail();
+  if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype) fail();
   const property = Object.getOwnPropertyDescriptor(input, key);
   if (!property?.enumerable || !Object.hasOwn(property, 'value')) fail();
   return property.value;
 }
 function exact(input: unknown, expected: readonly string[]): void {
-  if (!input || typeof input !== 'object' || Object.getPrototypeOf(input) !== Object.prototype
+  if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype
     || Reflect.ownKeys(input).length !== expected.length || expected.some(key => !Object.hasOwn(input, key))) fail();
   for (const key of expected) field(input, key);
 }
@@ -138,13 +150,21 @@ function cloneRequirements(original: NativeWorkspaceLinkSnapshot, destination: W
   return result;
 }
 type CapturedObservation = { evidence: WorkspaceOperationNativeSourceEvidence; observation: WorkspaceLinkSourceAuthorityObservation };
-function observed(scope: WorkspaceOperationJobScope, observation: WorkspaceLinkSourceAuthorityObservation): CapturedObservation {
-  const evidence = captureWorkspaceOperationNativeSourceEvidence(scope, observation);
+function observed(scope: WorkspaceOperationJobScope, observation: WorkspaceLinkSourceAuthorityObservation,
+  version: 1 | 2 = 1): CapturedObservation {
+  const withCatalogue = version === 2 && observation !== null && typeof observation === 'object'
+    && !types.isProxy(observation) && Object.hasOwn(observation, 'privateCatalogue');
+  const evidence = withCatalogue ? captureWorkspaceOperationNativeSourceEvidenceV2(scope, observation)
+    : captureWorkspaceOperationNativeSourceEvidence(scope, observation);
   // Evidence capture validates all state descriptors/typed-array bounds before
   // cloning. Compile only these detached bytes, never a later caller read.
   const states = structuredClone(field(observation, 'privateNativeStates')) as PersistedCollaborationState[];
-  const detached = { stage: evidence.stage, nativeBindings: evidence.nativeBindings, privateNativeStates: states };
-  captureWorkspaceOperationNativeSourceEvidence(scope, detached);
+  const replay = { stage: evidence.stage, nativeBindings: evidence.nativeBindings, privateNativeStates: states };
+  const detached: WorkspaceLinkSourceAuthorityObservation = withCatalogue ? { ...replay,
+    privateCatalogue: captureWorkspaceOperationNativeCatalogueWitness(field(observation, 'privateCatalogue'), evidence.workspaceScope,
+      evidence.stage.catalogueProof!, evidence.nativeBindings, reason => fail(reason === 'too-large'
+        ? 'NATIVE_COPY_PLAN_TOO_LARGE' : 'NATIVE_COPY_PLAN_INVALID')).entries } : replay;
+  captureWorkspaceOperationNativeSourceEvidence(scope, replay);
   return { evidence, observation: detached };
 }
 function compile(source: WorkspaceOperationJobScope, destination: WorkspaceOperationJobScope,
@@ -159,17 +179,31 @@ function compile(source: WorkspaceOperationJobScope, destination: WorkspaceOpera
 }
 export function computeWorkspaceOperationNativeCopyPlanId(plan: Omit<WorkspaceOperationNativeCopyPlan, 'planId'>): string {
   const { planId: _historical, ...body } = capture(plan) as WorkspaceOperationNativeCopyPlan;
+  if (body.version === 2) return nativeLinkJsonProof({ version: 2, kind: body.kind, readiness: body.readiness,
+    executionReady: body.executionReady, sourceScope: body.sourceScope, destinationScope: body.destinationScope,
+    selections: body.selections, sourceSemanticProof: body.sourceEvidence.semanticProof,
+    destinationSemanticProof: body.destinationEvidence.semanticProof });
+  if (body.version !== 1) fail();
   return nativeLinkJsonProof(body);
+}
+/** V2 public identity is semantic. This separate historical proof still binds
+ * every raw field, including the semantic ID and opaque compiler assertions. */
+export function computeWorkspaceOperationNativeCopyPlanIntegrityProof(plan: Omit<WorkspaceOperationNativeCopyPlanV2, 'integrityProof'>): string {
+  const { integrityProof: _historical, ...body } = capture(plan) as WorkspaceOperationNativeCopyPlanV2;
+  return nativeLinkJsonProof({ integrityVersion: 2, plan: body });
 }
 function decodeWorkspaceOperationNativeCopyPlanRaw(input: unknown): WorkspaceOperationNativeCopyPlan {
   return guarded(() => {
     const value = capture(input) as WorkspaceOperationNativeCopyPlan;
-    exact(value, keys);
-    if (value.version !== 1 || value.kind !== 'native-copy' || value.executionReady !== false
+    exact(value, value.version === 2 ? [...keys, 'integrityProof'] : keys);
+    if (value.version !== 1 && value.version !== 2 || value.kind !== 'native-copy' || value.executionReady !== false
       || !digest(value.planId) || !digest(value.compilerPlanProof) || !digest(value.finalGraphProof)) fail();
+    if (value.version === 2 && (!digest(value.integrityProof)
+      || computeWorkspaceOperationNativeCopyPlanIntegrityProof(value) !== value.integrityProof)) fail();
     const sourceScope = parseWorkspaceOperationJobScope(value.sourceScope), destinationScope = parseWorkspaceOperationJobScope(value.destinationScope);
     const source = decodeWorkspaceOperationNativeSourceEvidence(value.sourceEvidence);
     const destination = decodeWorkspaceOperationNativeSourceEvidence(value.destinationEvidence);
+    if (source.evidenceVersion !== value.version || destination.evidenceVersion !== value.version) fail();
     if (!isDeepStrictEqual(sourceScope, source.workspaceScope) || !isDeepStrictEqual(destinationScope, destination.workspaceScope)) fail();
     const selected = selections(value.selections), original = snapshots(source, destination);
     const planned = pathPlan(sourceScope, destinationScope, selected, original);
@@ -220,27 +254,41 @@ export function decodeWorkspaceOperationNativeCopyPlan(input: unknown): Workspac
   if (historicalValidation && historicalValidation.size < 8) historicalValidation.add(value);
   return value;
 }
-export function createWorkspaceOperationNativeCopyPlan(input: {
+type NativeCopyPlanInput = {
   sourceScope: WorkspaceOperationBatchScope; destinationScope: WorkspaceOperationBatchScope;
   selections: readonly WorkspaceOperationNativeCopySelection[];
   sourceObservation: WorkspaceLinkSourceAuthorityObservation; destinationObservation: WorkspaceLinkSourceAuthorityObservation;
-}): WorkspaceOperationNativeCopyPlan {
+};
+function createPlan(input: NativeCopyPlanInput, version: 1 | 2): WorkspaceOperationNativeCopyPlan {
   return guarded(() => {
     exact(input, ['sourceScope', 'destinationScope', 'selections', 'sourceObservation', 'destinationObservation']);
     const selected = selections(capture(field(input, 'selections')));
-    const sourceScope = captureWorkspaceOperationJobScope(field(field(input, 'sourceScope'), 'workspace') as WorkspaceOperationBatchScope['workspace']);
-    const destinationScope = captureWorkspaceOperationJobScope(field(field(input, 'destinationScope'), 'workspace') as WorkspaceOperationBatchScope['workspace']);
-    const source = observed(sourceScope, field(input, 'sourceObservation') as WorkspaceLinkSourceAuthorityObservation);
-    const destination = observed(destinationScope, field(input, 'destinationObservation') as WorkspaceLinkSourceAuthorityObservation);
+    const sourceWorkspace = field(field(input, 'sourceScope'), 'workspace');
+    const destinationWorkspace = field(field(input, 'destinationScope'), 'workspace');
+    if (types.isProxy(sourceWorkspace) || types.isProxy(destinationWorkspace)) fail();
+    const sourceScope = captureWorkspaceOperationJobScope(sourceWorkspace as WorkspaceOperationBatchScope['workspace']);
+    const destinationScope = captureWorkspaceOperationJobScope(destinationWorkspace as WorkspaceOperationBatchScope['workspace']);
+    const source = observed(sourceScope, field(input, 'sourceObservation') as WorkspaceLinkSourceAuthorityObservation, version);
+    const destination = observed(destinationScope, field(input, 'destinationObservation') as WorkspaceLinkSourceAuthorityObservation, version);
+    if (source.evidence.evidenceVersion !== version || destination.evidence.evidenceVersion !== version) fail();
     const original = snapshots(source.evidence, destination.evidence);
     const nativePathPlan = pathPlan(sourceScope, destinationScope, selected, original);
     const compiled = compile(sourceScope, destinationScope, selected, original, source.observation, destination.observation);
-    const body: Omit<WorkspaceOperationNativeCopyPlan, 'planId'> = { version: 1, kind: 'native-copy', readiness: compiled.readiness as WorkspaceOperationNativeCopyPlan['readiness'],
+    const body: Omit<WorkspaceOperationNativeCopyPlan, 'planId'> = { version, kind: 'native-copy', readiness: compiled.readiness as WorkspaceOperationNativeCopyPlan['readiness'],
       executionReady: false, sourceScope, destinationScope, selections: selected, sourceEvidence: source.evidence,
       destinationEvidence: destination.evidence, nativePathPlan, compilerPlanProof: compiled.planId,
       finalGraphProof: compiled.finalGraphProof!, cloneRequirements: compiled.cloneRequirements };
-    return decodeWorkspaceOperationNativeCopyPlan({ ...body, planId: computeWorkspaceOperationNativeCopyPlanId(body) });
+    const planned = { ...body, planId: computeWorkspaceOperationNativeCopyPlanId(body) };
+    return decodeWorkspaceOperationNativeCopyPlan(version === 1 ? planned : { ...planned,
+      integrityProof: computeWorkspaceOperationNativeCopyPlanIntegrityProof(planned as Omit<WorkspaceOperationNativeCopyPlanV2, 'integrityProof'>) });
   });
+}
+export function createWorkspaceOperationNativeCopyPlan(input: NativeCopyPlanInput): WorkspaceOperationNativeCopyPlanV1 {
+  return createPlan(input, 1) as WorkspaceOperationNativeCopyPlanV1;
+}
+/** New plans require both complete transient catalogue witnesses. */
+export function createWorkspaceOperationNativeCopyPlanV2(input: NativeCopyPlanInput): WorkspaceOperationNativeCopyPlanV2 {
+  return createPlan(input, 2) as WorkspaceOperationNativeCopyPlanV2;
 }
 /** Requires genuine caller-held authority/fences. Replays the original complete
  * namespace against freshly verified source AND destination native bytes.
@@ -252,11 +300,13 @@ export function assertWorkspaceOperationNativeCopyPlanCurrent(plan: WorkspaceOpe
   return guarded(() => {
     const original = decodeWorkspaceOperationNativeCopyPlan(plan);
     exact(input, ['sourceScope', 'destinationScope', 'sourceObservation', 'destinationObservation']);
-    const sourceScope = parseWorkspaceOperationJobScope(field(input, 'sourceScope'));
-    const destinationScope = parseWorkspaceOperationJobScope(field(input, 'destinationScope'));
+    const rawSourceScope = field(input, 'sourceScope'), rawDestinationScope = field(input, 'destinationScope');
+    if (types.isProxy(rawSourceScope) || types.isProxy(rawDestinationScope)) fail();
+    const sourceScope = parseWorkspaceOperationJobScope(rawSourceScope);
+    const destinationScope = parseWorkspaceOperationJobScope(rawDestinationScope);
     if (!isDeepStrictEqual(sourceScope, original.sourceScope) || !isDeepStrictEqual(destinationScope, original.destinationScope)) fail('NATIVE_COPY_PLAN_CHANGED');
-    const source = observed(sourceScope, field(input, 'sourceObservation') as WorkspaceLinkSourceAuthorityObservation);
-    const destination = observed(destinationScope, field(input, 'destinationObservation') as WorkspaceLinkSourceAuthorityObservation);
+    const source = observed(sourceScope, field(input, 'sourceObservation') as WorkspaceLinkSourceAuthorityObservation, original.version);
+    const destination = observed(destinationScope, field(input, 'destinationObservation') as WorkspaceLinkSourceAuthorityObservation, original.version);
     assertWorkspaceOperationNativeSourceEvidenceCurrent(original.sourceEvidence, source.observation, sourceScope);
     assertWorkspaceOperationNativeSourceEvidenceCurrent(original.destinationEvidence, destination.observation, destinationScope);
     snapshots(source.evidence, destination.evidence);

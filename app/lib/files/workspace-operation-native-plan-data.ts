@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { types } from 'node:util';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import type { NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
@@ -15,7 +16,8 @@ export function captureWorkspaceOperationNativePlanData(input: unknown,
     if (value === null || typeof value === 'boolean') return value;
     if (typeof value === 'number') { if (!Number.isFinite(value)) reject('invalid'); return value; }
     if (typeof value === 'string') { bytes += Buffer.byteLength(value); if (bytes > MAX_PLAN_BYTES) reject('too-large'); return value; }
-    if (!value || typeof value !== 'object' || !Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype) reject('invalid');
+    if (!value || typeof value !== 'object' || types.isProxy(value)
+      || !Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype) reject('invalid');
     if (Array.isArray(value)) {
       if (value.length > 100_000 || Reflect.ownKeys(value).length !== value.length + 1) reject('invalid');
       return Array.from({ length: value.length }, (_, index) => {

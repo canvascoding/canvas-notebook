@@ -188,6 +188,21 @@ function sameSnapshot(a: PreparedPathCopySource, b: PreparedPathCopySource, root
   if (a.kind === 'directory' || b.kind === 'directory') return false;
   return sameIdentity(a.identity, b.identity, rootCtime) && (a.kind !== 'regular_file' || b.kind === 'regular_file' && a.sha256 === b.sha256);
 }
+function sameNativeProjectionSnapshot(original: PreparedWorkspacePathCopyOriginal, observed: PreparedPathCopySource): boolean {
+  if (original.source.kind !== 'directory' || observed.kind !== 'directory') return sameSnapshot(observed, original.source);
+  const before = original.source.entries.filter(entry => entry.kind !== 'projection_file');
+  const after = observed.entries.filter(entry => entry.kind !== 'projection_file');
+  return before.length === after.length && before.every((entry, index) => {
+    const actual = after[index];
+    if (entry.relativePath !== actual.relativePath || entry.kind !== actual.kind) return false;
+    const pathname = entry.relativePath ? original.sourcePath + '/' + entry.relativePath : original.sourcePath;
+    if (entry.kind === 'directory' && original.projectionPaths.some(projected => projected.startsWith(pathname + '/'))) {
+      return sameNode(entry.identity, actual.identity) && entry.identity.linkCount === actual.identity.linkCount;
+    }
+    return sameIdentity(entry.identity, actual.identity)
+      && (entry.kind !== 'regular_file' || actual.kind === 'regular_file' && entry.sha256 === actual.sha256);
+  });
+}
 async function snapshot(stage: Stage, fd: number, kind: 'regular_file' | 'directory', source: boolean): Promise<PreparedPathCopySource> {
   const projected = (relative: string) => source && stage.request.projectionPaths.includes(relative ? stage.request.sourcePath + '/' + relative : stage.request.sourcePath);
   if (kind === 'regular_file') {
@@ -325,6 +340,7 @@ function verifyContainer(stage: Stage, missingAllowed: boolean, cleanup = false)
   } finally { dispose(stage, entry); }
 }
 async function verifySource(stage: Stage): Promise<void> {
+  if (stage.facts!.version === 2) return verifyNativeProjectionSource(stage);
   const original = stage.facts!, source = original.source;
   if (source.kind === 'projection_absent') { assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return; }
   const entry = leafEntry(stage, stage.source!, original.sourcePath);
@@ -335,6 +351,47 @@ async function verifySource(stage: Stage): Promise<void> {
       || !sameNode(identity(stat(stage.sourceFd)), entry.identity)) throw failure(stage, 'source-changed');
     const observed = await snapshot(stage, stage.sourceFd, entry.kind, true);
     if (!sameSnapshot(observed, source)) throw failure(stage, 'source-changed');
+    const final = leafEntry(stage, stage.source!, original.sourcePath);
+    try { if (!exactLeaf(stage, stage.source!, original.sourcePath) || !final?.identity || !sameIdentity(final.identity, rootIdentity(observed)!)) throw failure(stage, 'source-changed'); }
+    finally { dispose(stage, final); }
+  } finally { dispose(stage, entry); }
+}
+async function verifyNativeProjectionSource(stage: Stage): Promise<void> {
+  const original = stage.facts!, source = original.source;
+  // A missing original parent remains missing. This policy never adopts newly
+  // materialized directories or changes the bound source ancestry.
+  if (source.kind === 'projection_absent' && !original.projectionPaths.includes(original.sourcePath)) {
+    assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return;
+  }
+  if (original.projectionPaths.includes(original.sourcePath)) {
+    if (original.filesystem.sourceParents.missingPrefix !== null) {
+      assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return;
+    }
+    const entry = leafEntry(stage, stage.source!, original.sourcePath);
+    try {
+      if (!entry) {
+        if (exactLeaf(stage, stage.source!, original.sourcePath)) throw failure(stage, 'source-changed');
+        return;
+      }
+      if (!exactLeaf(stage, stage.source!, original.sourcePath) || entry.kind !== 'regular_file'
+        || entry.fd === undefined || !entry.identity) throw failure(stage, 'source-changed');
+      own(stage, stat(entry.fd), false);
+      const final = leafEntry(stage, stage.source!, original.sourcePath);
+      try {
+        if (!exactLeaf(stage, stage.source!, original.sourcePath) || !final?.identity || final.kind !== 'regular_file'
+          || !sameIdentity(final.identity, identity(stat(entry.fd)))) throw failure(stage, 'source-changed');
+      } finally { dispose(stage, final); }
+    } finally { dispose(stage, entry); }
+    return;
+  }
+  const entry = leafEntry(stage, stage.source!, original.sourcePath);
+  try {
+    if (!exactLeaf(stage, stage.source!, original.sourcePath) || !entry || entry.fd === undefined || !entry.identity
+      || entry.kind === 'other' || source.kind === 'projection_absent' || entry.kind !== source.kind
+      || !sameNode(entry.identity, rootIdentity(source)!) || stage.sourceFd === undefined
+      || !sameNode(identity(stat(stage.sourceFd)), entry.identity)) throw failure(stage, 'source-changed');
+    const observed = await snapshot(stage, stage.sourceFd, entry.kind, true);
+    if (!sameNativeProjectionSnapshot(original, observed)) throw failure(stage, 'source-changed');
     const final = leafEntry(stage, stage.source!, original.sourcePath);
     try { if (!exactLeaf(stage, stage.source!, original.sourcePath) || !final?.identity || !sameIdentity(final.identity, rootIdentity(observed)!)) throw failure(stage, 'source-changed'); }
     finally { dispose(stage, final); }
@@ -395,7 +452,9 @@ async function initialize(stage: Stage): Promise<void> {
     stage.sourceFd = entry.fd; source = await snapshot(stage, entry.fd, entry.kind, true);
   }
   const payload = await build(stage, source);
-  stage.facts = decodePreparedWorkspacePathCopyOriginal({ version: 1, sourceWorkspace: stage.request.sourceWorkspace, destinationWorkspace: stage.request.destinationWorkspace,
+  stage.facts = decodePreparedWorkspacePathCopyOriginal({ version: stage.request.sourceProjectionPolicy ? 2 : 1,
+    ...(stage.request.sourceProjectionPolicy ? { sourceProjectionPolicy: stage.request.sourceProjectionPolicy } : {}),
+    sourceWorkspace: stage.request.sourceWorkspace, destinationWorkspace: stage.request.destinationWorkspace,
     sourcePath: stage.request.sourcePath, destinationPath: stage.request.destinationPath, budget: stage.request.budget, projectionPaths: stage.request.projectionPaths,
     filesystem: { sourceRoot: { resolvedPath: stage.source.resolved, identity: stage.source.root.identity },
       destinationRoot: { resolvedPath: stage.destination.resolved, identity: stage.destination.root.identity }, sourceParents, destinationParents }, source,
@@ -488,7 +547,8 @@ async function recover(stage: Stage, original: PreparedWorkspacePathCopyOriginal
   sameParents(stage, parents(stage, stage.destination, original.destinationPath), expectedParents(stage));
   if (!original.staging) {
     if (created.length) throw failure(stage, 'recovery-conflict');
-    if (original.source.kind !== 'projection_absent') {
+    if (original.source.kind !== 'projection_absent'
+      && !(original.version === 2 && original.projectionPaths.includes(original.sourcePath))) {
       const source = leafEntry(stage, stage.source, original.sourcePath);
       if (!source || source.fd === undefined || source.kind !== 'regular_file') { dispose(stage, source); throw failure(stage, 'recovery-conflict'); }
       stage.sourceFd = source.fd;
@@ -635,7 +695,8 @@ export async function withRecoveredWorkspacePathCopy<T>(input: RecoveredWorkspac
     const request = capturePathCopyRequest({ sourceWorkspace: copyData(input, 'sourceWorkspace') as PreparedWorkspacePathCopyInput['sourceWorkspace'],
       destinationWorkspace: copyData(input, 'destinationWorkspace') as PreparedWorkspacePathCopyInput['destinationWorkspace'],
       sourcePath: original.sourcePath, destinationPath: original.destinationPath,
-      sourceKind: original.source.kind === 'projection_file' ? 'regular_file' : original.source.kind, budget: original.budget, projectionPaths: original.projectionPaths });
+      sourceKind: original.source.kind === 'projection_file' ? 'regular_file' : original.source.kind, budget: original.budget, projectionPaths: original.projectionPaths,
+      ...(original.version === 2 ? { sourceProjectionPolicy: original.sourceProjectionPolicy } : {}) });
     if (!isDeepStrictEqual(request.sourceWorkspace, original.sourceWorkspace) || !isDeepStrictEqual(request.destinationWorkspace, original.destinationWorkspace)) throw failure(undefined, 'scope-changed');
     const shared = capturePathCopySharedParents(copyData(input, 'sharedParents', true), original);
     const created = capturePathCopyParentReceipts(copyData(input, 'createdParents', true), original, shared);
