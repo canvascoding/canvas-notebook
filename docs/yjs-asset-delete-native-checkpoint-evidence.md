@@ -118,3 +118,7 @@ Der zusätzliche ältere modellierte Executor-Test bleibt ausdrücklich rot. Roo
 | `ready.json` | `1c8c5e7ad917a0df57ae998b7c1c3a2d6b4ecf7604f9535dcc37833de2efb801` |
 | `results.json` | `572f2476a2ef5aedd1fd9e4a4c9c8557280e95524b8a16f2eae81f51a69526b4` |
 | `independent-closure.json` | `3f78f8c9684fcb5ea1ce39eec834673e137352461c3b8b1aad414c9b22b7eff0` |
+
+### Getrennt bestätigte Aufbauursache des älteren Tests
+
+Die zusätzliche private Diagnose `76237` endet mit demselben tatsächlichen Exit 1 und unveränderten Testassertions. Ausschließlich ein Catch-Beobachter an der vollständigen alten Executorquelle zeichnet sichere Fehlercodes und Dateiframes auf. Der erste Fehler lautet tatsächlich `DatabaseProviderRuntimeError / postgres_missing_database_url`, aus `assertRuntimeDatabaseProviderSupported` → `openDb` → echtem `withWorkspaceFileLifecycleGuard`, vor Manifestanlage und erster Dateimutation. Der ursprüngliche Test modelliert den Checkpointadapter, besitzt aber keinen isolierten Datenbankaufbau für diese echte Grenze. Dies ist ein fehlgeschlagener Testaufbau und kein Beleg für eine Receiptfix-Regression; der Test ist weiterhin nicht bestanden und benötigt einen passenden eigenständigen Aufbau. Originaltest und unveränderte alte Baseline bleiben erhalten. Es wurden ausschließlich feste fehlende Env-Namen aufgezeichnet, keine Werte. Diagnoselog: `/private/tmp/cn-legacy-batch-51head-cause-offline-bryh3otb/actual-diagnosis.log`, SHA `03f43e2ecc33f35a5e05e84b46d1df3d10941a9ad3380dea7816f71b4415d65c`.
