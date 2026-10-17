@@ -299,7 +299,10 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
   const root = path.join(repo, '.next'), digest = createHash('sha256');
   const stat = await fs.lstat(root); assert(stat.isDirectory() && !stat.isSymbolicLink());
   const buildId = (await fs.readFile(path.join(root, 'BUILD_ID'), 'utf8')).trim(); assert(buildId && buildId.length < 256);
-  let visited = 0;
+  // Bound the compiled tree and all external package contents separately. A
+  // legitimate build may approach the compiled cap before external bytes are
+  // included; packages share one budget, including repeated logical aliases.
+  const visited = { compiled: 0, external: 0 };
   async function* visit(directory: string, logical = '', linkedPackage = false): AsyncGenerator<FingerprintEntry> {
     const names = (await fs.readdir(directory)).sort().filter(name => {
       const relative = path.posix.join(logical, name);
@@ -307,7 +310,10 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
         || /^trace(?:-|$)/u.test(name))) return false;
       return true;
     });
-    for await (const { name, filename: file, stat: current } of orderedFingerprintStats(directory, names, () => { assert(++visited < 100_000); })) {
+    for await (const { name, filename: file, stat: current } of orderedFingerprintStats(directory, names, () => {
+      if (linkedPackage) assert(++visited.external < 100_000, 'External package artifact visit limit exceeded.');
+      else assert(++visited.compiled < 100_000, 'Compiled artifact visit limit exceeded.');
+    })) {
       const relative = path.posix.join(logical, name);
       if (current.isSymbolicLink()) {
         // Turbopack external packages use these exact aliases. Bind both their

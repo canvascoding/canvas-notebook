@@ -74,6 +74,8 @@ Die ursprünglichen generischen Views-Runner-/Sealer-/Starter-/ENV-Dateien bleib
 
 ## Weitere Abnahme
 
+Der erste neue Originalbuild kompiliert erfolgreich, endet jedoch in der abschließenden QA-Artefaktinventur tatsächlich mit Exit 1; keine Browserfälle starten. Die aktuelle vollständige Inventur überschreitet mit 90.096 Build- und 10.213 Paketeinträgen die kombinierte 100k-Grenze. Die enge getrennte Budgetierung besteht nach ursprünglichem RED in den neuen und unveränderten gezielten Gegenproben sowie vollständigem TypeScript/Lint. Ein lesender Durchlauf des echten Artefakts besteht ohne Erzeugung eines Erfolgsbelegs. [Originale, Grenzen und nächster echter Build](./yjs-authority-artifact-budget-evidence.md).
+
 Die aktuellen Copy25/Metadaten13/Views6-Abschlüsse und der zusätzliche tatsächliche Move-B2-ACK-Verlust ergänzen die oben getrennt gebundenen ursprünglichen Move-/Delete-/Linkfolgen. Jetzt folgen neuer Originalbuild und die gemeinsame Browsermatrix mit Copy6, Herkunft2, UndoOFF2, Native-Move4 und Native-Delete-Links2 (16 Fälle). Alte positive Datei-Undo-Gruppen sind bei der ausdrücklich ausgeschalteten Funktion kein unverändert grünes Releasegate. Keine Undo-Sperre wird umgangen. Review Center bleibt aus.
 
 Gemeinsame API und versionsgebundene ID-Zugriffe, progressive Suche, externes Python-SDK, Standard-Skill-Auslieferung, PDF-Erstanlage und vollständige Sandboxmatrix bleiben Bestandteil des Gesamtauftrags und durch diese Dateiaktionsnachweise unvollständig.
