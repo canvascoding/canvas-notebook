@@ -179,7 +179,14 @@ test.describe('owned copy origin UI and fresh member-session status', () => {
           const response = await fresh.request.post(`/api/files/operations/${operation.operationId}`);
           expect(response.status()).toBe(200);
           const body = await response.json(); copyOriginPublicPrivacy(body);
-          expect(body).toMatchObject({ success: true, operation, linkStatus: 'complete' });
+          expect(body).toMatchObject({ success: true, linkStatus: 'complete' });
+          const historical = body.operation as Operation;
+          for (const result of [historical, operation]) {
+            expect(new Set(result.completedSteps).size).toBe(result.completedSteps.length);
+          }
+          expect(historical.completedSteps).toHaveLength(operation.completedSteps.length);
+          expect({ ...historical, completedSteps: [...historical.completedSteps].sort() })
+            .toEqual({ ...operation, completedSteps: [...operation.completedSteps].sort() });
           expect(await copyOriginStatus(fresh.request, operation, source.id, destination.id, file.path, `${folder}/${file.path}`)).toEqual(beforeStatus[index]);
           await copyOriginBytes(fresh.request, source.id, file.path, file.content);
           await copyOriginBytes(fresh.request, destination.id, `${folder}/${file.path}`, file.content);
