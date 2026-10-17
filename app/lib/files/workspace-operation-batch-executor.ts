@@ -16,7 +16,8 @@ import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-fil
 import { renameWorkspacePath } from './rename-service';
 import { captureWorkspaceOperationBackup } from './workspace-operation-backup';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
-import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import { withWorkspaceFileLifecycleGuard, WorkspaceFileLifecycleBusyError } from './workspace-file-lifecycle-guard';
+import { getWorkspaceFileLifecycleLeases } from '@/app/lib/collaboration/file-lifecycle-admission-context';
 import { readWorkspaceOperationBatchClaimBinding, WorkspaceOperationBatchStore,
   type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
@@ -534,7 +535,14 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     const legacyInput: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan } = { ...input, plan: input.plan };
     return executeLegacy(legacyInput);
   };
-  const executeLegacy = async (input: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan }): Promise<WorkspaceOperationBatchExecutionResult> => withPathLifecycle(input.scope, input.plan, async () => {
+  const executeLegacy = async (input: ExecuteInput & { plan: WorkspaceOperationLegacyBatchPlan }): Promise<WorkspaceOperationBatchExecutionResult> => withLock(input.scope, async () => {
+    // A caller's retained EXCLUSIVE session would survive our own guard's
+    // finally and block the later Shared publication guard. Reject it before
+    // any backup, journal or mutation. Lease absence grants no authority: the
+    // real lifecycle and publication guards still acquire their own locks.
+    if (getWorkspaceFileLifecycleLeases()?.get(input.scope.workspace.workspaceId)?.active === true) {
+      throw new WorkspaceFileLifecycleBusyError();
+    }
     assertAccess(input);
     let manifest = await load(input.batchId);
     if (manifest && (manifest.workspaceId !== input.scope.workspace.workspaceId || manifest.actorUserId !== input.actorUserId
@@ -545,77 +553,85 @@ export function createWorkspaceOperationBatchExecutor(dependencies: Dependencies
     if (manifest?.status === 'applied') return result(manifest);
     if (manifest && ['undoing', 'undone'].includes(manifest.status)) throw new Error('BATCH_ALREADY_REVERTED');
     try {
-      if (!manifest) {
-        if (input.plan.workspaceId !== input.scope.workspace.workspaceId || input.plan.readiness !== 'ready'
-          || input.plan.issues.length || computeWorkspaceOperationBatchPlanId(input.plan) !== input.plan.planId) throw new Error('BATCH_PLAN_BLOCKED');
-        const fresh = await rebuild({ scope: input.scope, actions: input.plan.actions });
-        if (fresh.version !== 1 || fresh.readiness !== 'ready' || fresh.planId !== input.plan.planId) throw Object.assign(new Error('BATCH_PLAN_STALE'), { status: 409 });
-        manifest = { version: 1, batchId: input.batchId, workspaceId: fresh.workspaceId, actorUserId: input.actorUserId,
-          actorId: input.actorId ?? input.actorUserId, actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
-          plan: fresh, status: 'preparing', beforeTrees: {}, backupIds: [], linkPreflight: null, steps: [], undoSteps: [], undoPlan: null, undoPreflight: null, errorCode: null };
-        for (const step of fresh.pathSteps) manifest.beforeTrees[step.sourcePath] = (await pathTree(input.scope, step.sourcePath))!;
-        const groups = groupWorkspaceLinkWrites(fresh.linkPlan);
-        manifest.linkPreflight = groups.length ? await preflight(linkInput(input, manifest)) : null;
-        await progress(input, manifest, 'preparing');
-        // Capture every destructive source and every backlink before the first mutation.
-        const backupPaths = [...new Set([...fresh.pathSteps.map((step) => step.sourcePath), ...fresh.originalDocuments.map((doc) => doc.path)])]
-          .filter((candidate, _, all) => !all.some((other) => candidate !== other && samePath(candidate, other)));
-        for (const sourcePath of backupPaths) {
-          const captured = await backup({ workspace: input.scope.workspace, path: sourcePath, operationId: input.batchId });
-          manifest.backupIds.push(captured.backupId);
-        }
-        await save(manifest);
-      }
-      if (['preparing', 'failed', 'needs_review', 'needs_recovery'].includes(manifest.status)) manifest.status = 'applying';
-      if (!manifest.steps.some((step) => step.key.startsWith('path:') && step.receipt)) {
-        const fresh = await rebuild({ scope: input.scope, actions: manifest.plan.actions });
-        if (fresh.readiness !== 'ready' || fresh.planId !== manifest.plan.planId) throw new Error('BATCH_PLAN_STALE');
-      }
-      for (const [index, step] of manifest.plan.pathSteps.entries()) {
-        const key = `path:${index}`;
-        let durable = manifest.steps.find((entry) => entry.key === key);
-        const observed = await pathProbe(input, manifest, index);
-        if (durable?.state === 'applied') { if (observed !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RECEIPT'); continue; }
-        if (durable?.receipt && observed === 'after' && step.kind === 'delete') {
-          await progress(input, manifest, 'paths');
-          await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: String(durable.receipt.trashEntryId) }] });
-          await sharesDeleted([step.sourcePath], input.scope.workspace);
-          durable.state = 'applied'; await save(manifest); continue;
-        }
-        if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
-        await progress(input, manifest, 'paths');
-        if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
-        await htmlEvidenceCurrent(manifest.plan, input.scope);
-        if (step.kind === 'delete') {
-          const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
-          if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');
-          const entry = trashed.trashed[0];
-          // Persist physical receipt before retrying idempotent projection services.
-          durable.receipt = { trashEntryId: entry.id, afterTree: await treeAt(path.join(resolveWorkspaceDataRoot(), entry.trashRelativePath)) };
+      await withPathLifecycle(input.scope, input.plan, async () => {
+        if (!manifest) {
+          if (input.plan.workspaceId !== input.scope.workspace.workspaceId || input.plan.readiness !== 'ready'
+            || input.plan.issues.length || computeWorkspaceOperationBatchPlanId(input.plan) !== input.plan.planId) throw new Error('BATCH_PLAN_BLOCKED');
+          const fresh = await rebuild({ scope: input.scope, actions: input.plan.actions });
+          if (fresh.version !== 1 || fresh.readiness !== 'ready' || fresh.planId !== input.plan.planId) throw Object.assign(new Error('BATCH_PLAN_STALE'), { status: 409 });
+          manifest = { version: 1, batchId: input.batchId, workspaceId: fresh.workspaceId, actorUserId: input.actorUserId,
+            actorId: input.actorId ?? input.actorUserId, actorType: input.actorType ?? 'user', actorSessionId: input.actorSessionId,
+            plan: fresh, status: 'preparing', beforeTrees: {}, backupIds: [], linkPreflight: null, steps: [], undoSteps: [], undoPlan: null, undoPreflight: null, errorCode: null };
+          for (const step of fresh.pathSteps) manifest.beforeTrees[step.sourcePath] = (await pathTree(input.scope, step.sourcePath))!;
+          const groups = groupWorkspaceLinkWrites(fresh.linkPlan);
+          manifest.linkPreflight = groups.length ? await preflight(linkInput(input, manifest)) : null;
+          await progress(input, manifest, 'preparing');
+          // Capture every destructive source and every backlink before the first mutation.
+          const backupPaths = [...new Set([...fresh.pathSteps.map((step) => step.sourcePath), ...fresh.originalDocuments.map((doc) => doc.path)])]
+            .filter((candidate, _, all) => !all.some((other) => candidate !== other && samePath(candidate, other)));
+          for (const sourcePath of backupPaths) {
+            const captured = await backup({ workspace: input.scope.workspace, path: sourcePath, operationId: input.batchId });
+            manifest.backupIds.push(captured.backupId);
+          }
           await save(manifest);
-          await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: entry.id }] });
-          await sharesDeleted([step.sourcePath], input.scope.workspace);
-        } else {
-          const renamed = await rename({ workspace: input.scope.workspace, oldPath: step.sourcePath, newPath: step.destinationPath!, overwrite: false, fileOptions: input.scope.fileOptions });
-          durable.receipt = { mutationId: renamed.mutation.operationId, afterTree: await pathTree(input.scope, step.destinationPath!) };
         }
-        durable.state = 'applied';
-        await save(manifest);
-        if (await pathProbe(input, manifest, index) !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RESULT');
-      }
-      for (const [index, group] of groupWorkspaceLinkWrites(manifest.plan.linkPlan).entries()) {
-        const key = `link:${index}`;
-        let durable = manifest.steps.find((entry) => entry.key === key);
-        const observed = await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
-        if (observed === 'unknown' || durable?.state === 'applied' && observed !== 'after'
-          || !durable && observed !== 'before') throw new Error('BATCH_UNPROVEN_LINK_STATE');
-        if (durable?.state === 'applied') continue;
-        await progress(input, manifest, 'links');
-        if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
-        if (observed === 'before') durable.receipt = await applyLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
-        if (await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined }) !== 'after') throw new Error('BATCH_UNPROVEN_LINK_RESULT');
-        durable.state = 'applied'; await save(manifest);
-      }
+        if (['preparing', 'failed', 'needs_review', 'needs_recovery'].includes(manifest.status)) manifest.status = 'applying';
+        if (!manifest.steps.some((step) => step.key.startsWith('path:') && step.receipt)) {
+          const fresh = await rebuild({ scope: input.scope, actions: manifest.plan.actions });
+          if (fresh.readiness !== 'ready' || fresh.planId !== manifest.plan.planId) throw new Error('BATCH_PLAN_STALE');
+        }
+        for (const [index, step] of manifest.plan.pathSteps.entries()) {
+          const key = `path:${index}`;
+          let durable = manifest.steps.find((entry) => entry.key === key);
+          const observed = await pathProbe(input, manifest, index);
+          if (durable?.state === 'applied') { if (observed !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RECEIPT'); continue; }
+          if (durable?.receipt && observed === 'after' && step.kind === 'delete') {
+            await progress(input, manifest, 'paths');
+            await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: String(durable.receipt.trashEntryId) }] });
+            await sharesDeleted([step.sourcePath], input.scope.workspace);
+            durable.state = 'applied'; await save(manifest); continue;
+          }
+          if (observed !== 'before') throw new Error('BATCH_UNPROVEN_PATH_INTENT');
+          await progress(input, manifest, 'paths');
+          if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+          await htmlEvidenceCurrent(manifest.plan, input.scope);
+          if (step.kind === 'delete') {
+            const trashed = await trash({ workspace: input.scope.workspace, paths: [step.sourcePath], deletedByUserId: input.actorUserId });
+            if (trashed.failed.length || trashed.trashed.length !== 1) throw new Error('BATCH_TRASH_FAILED');
+            const entry = trashed.trashed[0];
+            // Persist physical receipt before retrying idempotent projection services.
+            durable.receipt = { trashEntryId: entry.id, afterTree: await treeAt(path.join(resolveWorkspaceDataRoot(), entry.trashRelativePath)) };
+            await save(manifest);
+            await archive({ workspace: input.scope.workspace, paths: [{ path: step.sourcePath, trashEntryId: entry.id }] });
+            await sharesDeleted([step.sourcePath], input.scope.workspace);
+          } else {
+            const renamed = await rename({ workspace: input.scope.workspace, oldPath: step.sourcePath, newPath: step.destinationPath!, overwrite: false, fileOptions: input.scope.fileOptions });
+            durable.receipt = { mutationId: renamed.mutation.operationId, afterTree: await pathTree(input.scope, step.destinationPath!) };
+          }
+          durable.state = 'applied';
+          await save(manifest);
+          if (await pathProbe(input, manifest, index) !== 'after') throw new Error('BATCH_UNPROVEN_PATH_RESULT');
+        }
+        for (const [index, group] of groupWorkspaceLinkWrites(manifest.plan.linkPlan).entries()) {
+          const key = `link:${index}`;
+          let durable = manifest.steps.find((entry) => entry.key === key);
+          const observed = await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
+          if (observed === 'unknown' || durable?.state === 'applied' && observed !== 'after'
+            || !durable && observed !== 'before') throw new Error('BATCH_UNPROVEN_LINK_STATE');
+          if (durable?.state === 'applied') continue;
+          await progress(input, manifest, 'links');
+          if (!durable) { durable = { key, state: 'intent', receipt: null }; manifest.steps.push(durable); await save(manifest); }
+          if (observed === 'before') durable.receipt = await applyLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined });
+          if (await probeLink(linkInput(input, manifest), group, { preflight: manifest.linkPreflight ?? undefined }) !== 'after') throw new Error('BATCH_UNPROVEN_LINK_RESULT');
+          durable.state = 'applied'; await save(manifest);
+        }
+      });
+      // Every path/link receipt above is durably saved before the EXCLUSIVE
+      // lifecycle session closes. Keep the outer kernel/copy fences through
+      // publication and all final checks, including recovery from this phase.
+      // The projector must acquire its actual Shared session; no inherited
+      // lease or historical receipt can bypass that publication guard.
+      if (!manifest) throw new Error('BATCH_JOURNAL_UNAVAILABLE');
       for (const group of groupWorkspaceLinkWrites(manifest.plan.linkPlan)) {
         await progress(input, manifest, 'links');
         const documentId = manifest.linkPreflight?.sources.find((source) => source.sourcePathBefore === group.sourcePathBefore)?.documentId ?? null;

@@ -1,8 +1,8 @@
 # Move/Delete: ursprüngliches Preview nach reiner Quellenprojektion
 
-Stand: 17. Oktober 2026. Die beiden tatsächlichen Gegenproben bestätigen denselben Fehler bei Move und Delete: Ein Checkpoint eines **nicht ausgewählten nativen Dokuments mit eingehendem Link** verändert nur abgeleitete Projektions-/Registrydaten. Trotzdem kann der vorher erstellte ursprüngliche Plan anschließend nicht angewendet werden. Je Operation bestehen beide Kontrollen mit Exit 0; der unveränderte Originalplanfall endet tatsächlich mit **Exit 1 und `NATIVE_SOURCE_EVIDENCE_CHANGED`**. Die unabhängigen Ressourcenprüfungen bestehen und ändern diese roten Produktergebnisse nicht.
+Stand: 17. Oktober 2026. Die ursprünglichen Gegenproben unten bestätigen denselben Fehler bei Move und Delete: Ein Checkpoint eines **nicht ausgewählten nativen Dokuments mit eingehendem Link** verändert nur abgeleitete Projektions-/Registrydaten. Trotzdem kann der vorher erstellte ursprüngliche Plan anschließend nicht angewendet werden. Je Operation bestehen beide Kontrollen mit Exit 0; der unveränderte Originalplanfall endet tatsächlich mit **Exit 1 und `NATIVE_SOURCE_EVIDENCE_CHANGED`**. Die unabhängigen Ressourcenprüfungen bestehen und ändern diese roten Produktergebnisse nicht.
 
-Die neue gemeinsame Move/Delete-V2-Implementierung wird zum Zeitpunkt dieser Dokumentation im Root-Worktree bearbeitet. Diese Originale belegen ihren Fehler vor der Änderung; sie sind **kein V2-Runtime-Erfolgsnachweis**. Die bereits lokal bestandene [Copy10-Abnahme](./yjs-native-copy-browser-pass-evidence.md) bleibt davon getrennt und unverändert gültig für ihre dort bezeichnete Matrix.
+Die gemeinsame Move/Delete-V2-Implementierung ist auf Root `d8e3d5500583e5d99a454723a930bed0a6cc79b3` / QA `9d4327e72e788d267d34f14af1bdc09330606d2d` implementiert. Die frische Wiederholung besteht **jeweils 3/3** einschließlich des unveränderten ursprünglichen Plans; beide unabhängigen Ressourcenabschlüsse bestehen. Der neue Nachweis folgt unten. Die ursprünglichen roten Artefakte bleiben unverändert erhalten. Die bereits lokal bestandene [Copy10-Abnahme](./yjs-native-copy-browser-pass-evidence.md) bleibt davon getrennt und unverändert gültig für ihre dort bezeichnete Matrix.
 
 ## Gebundene Quellen und tatsächlicher Ausführungsumfang
 
@@ -72,9 +72,9 @@ Die unabhängige Move-Prüfung endet um 11:40:53.191 UTC, die Delete-Prüfung um
 
 Alle eigenen Launcher, Runner, Kindprozesse und Prozessgruppen sind geschlossen. Eigene PG-Schemas samt OIDs und beobachtete Sitzungen samt Backendidentitäten sind nicht mehr vorhanden; Clients, Fixture- und Auditpools sind geschlossen, der Runlock entfernt. Die drei Kind-Fixtures je Operation melden entfernte eigene Daten und `fetches: 0`. Vier vorhandene Container und vier vorhandene Listener bleiben unverändert; die drei bezeichneten HTTP-Gesundheitsprüfungen melden jeweils 200. Die äußeren privaten `t`-/`c`-/`data`-Verzeichnisse mit Caches und Diagnoseartefakten bleiben ausdrücklich erhalten. „Ressourcenabschluss“ bedeutet hier nicht, dass diese erhaltenen Originalbelege gelöscht wurden.
 
-## Noch erforderliche V2-Abnahme
+## Vollständige V2-Abnahmeanforderungen
 
-Dieser Bericht schließt ausschließlich die rote Gegenprobe und ihren Ressourcenabschluss ab. Der gemeinsame Produktschnitt muss weiterhin vollständig nachweisen:
+Die historische rote Gegenprobe ist durch den nachfolgenden frischen 3/3-Nachweis ergänzt. Die vollständige Integration muss weiterhin alle folgenden Anforderungen erfüllen; insbesondere Post-B1-Recovery, ursprüngliche Regressionen und Transport/UI sind noch nicht vollständig abgenommen:
 
 1. Das ursprüngliche Preview A lässt sich nach einer reinen Quellenprojektion mit demselben semantischen Auftrag anwenden. Ein automatisch ersetztes Preview B erfüllt diese Anforderung nicht.
 2. Der neue klar versionierte Plan-/Originalarm verwendet echte vollständige SourceEvidence-V2-/Current-Witnesses. Aktuelle Registry-CAS und echte FD-/Inode-/Hash-/Parent-/Vacancy-Belege bleiben exakt gebunden. Legacy-Pläne, gespeicherte Jobs und historische Rawhash-Verträge werden nicht umgedeutet.
@@ -83,4 +83,28 @@ Dieser Bericht schließt ausschließlich die rote Gegenprobe und ihren Ressource
 5. Finale Prüfung bindet den vollständigen tatsächlichen nativen Zustand einschließlich Binär-/Vektorhash, Sequenz, Persistenzzeit, Linkreceipts, unmutierter Nachbardokumente und vollständigem Finalgraphen – auch bei Delete ohne eingehende Linkänderungen. Ein inhaltsfreier Yjs-Snapshot aus Vector/DeleteSet ersetzt keinen Fullbinary-Beleg.
 6. Negative Gegenproben für echte Inhalts-/Identitäts-/Scope-/Rechte-/Asset-/Namespaceänderungen und die ursprünglichen Legacy-Regressionen bleiben streng. Bestehende Intent-/Completionbudgets werden nicht still erhöht; ein sauberer Vorab-Abbruch über dem Budget ersetzt kein noch offenes Lastgate. Keine Assertion, Zeitgrenze oder ursprüngliche Erfolgserwartung wird abgeschwächt.
 
-Erst frische tatsächliche PG-/Transport-/UI-Nachweise auf den dann gebundenen Produktquellen können diesen Anschluss abnehmen. Dateiaktions-Undo, Review Center und allgemeines Aktivierungsgate bleiben ausgeschaltet. Diese Dokumentation behauptet weder einen neuen Build noch einen V2-Runtimepass, Produktionsänderungen oder eine Veröffentlichung.
+Erst frische tatsächliche PG-/Transport-/UI-Nachweise auf den dann gebundenen Produktquellen können diesen Anschluss abnehmen. Dateiaktions-Undo, Review Center und allgemeines Aktivierungsgate bleiben ausgeschaltet. Der nachfolgende V2-Runtimepass belegt ausschließlich seine bezeichneten sechs Varianten; er ist kein neuer Build-, Browser-, Produktions- oder Veröffentlichungsnachweis.
+
+## Frische V2-Wiederholung: Move 3/3 und Delete 3/3
+
+Beide tatsächlichen seriellen Runner binden die oben genannten sauberen Root-/QA-Commits und Control Plane `27c8ce37da082244f006ca376068cde6b98845d5`. Je Operation sind 6.916 Repositoryquellen, 87 explizite Produktpins und sechs native Pins gebunden. Die originale 180-Sekunden-Grenze bleibt unverändert. Move verwendet exakt dieselbe private Probe wie im ursprünglichen RED; bei Delete wurde ausschließlich die explizite erwartete Completionversion von 2 auf 3 aktualisiert, entsprechend dem neuen Originalarm. Es gibt keine gelockerte Erfolgsassertion oder Ersatz des ursprünglichen Plans durch ein neues Preview.
+
+| Tatsächliche Variante | Move | Delete |
+| --- | --- | --- |
+| Ohne zusätzliche Projektion, ursprünglicher Plan A | Exit 0 | Exit 0 |
+| Quellenprojektion, frischer Kontrollplan B | Exit 0 | Exit 0 |
+| Quellenprojektion, weiterhin ursprünglicher Plan A | Exit 0 | Exit 0 |
+
+Im entscheidenden Originalplanfall bleiben native Bytes, Vector, Sequenz, Linkinventar und das ausgewählte Ziel unverändert. Die Quellenprojektion verändert physische Bytes, Registry und Checkpointbelege. Preview A und B behalten nun dieselbe semantische Plan-ID, während rohe Evidenz und Compiler-/Finalgraphbelege ihre tatsächlichen Unterschiede ausweisen. Der Owner übernimmt echte aktuelle B1-Witnesses, ohne das ursprüngliche Preview umzuschreiben. Im Journal stehen Move-Intentversion 2 beziehungsweise Delete-Intent-/Completionversion 3. Die Operation und ihre zentralen Linkänderungen schließen tatsächlich ab.
+
+Die privaten Wiederholungen liegen unter `/private/tmp/cn-move-delete-source-projection-v2-repeat-draft-kirgezj7/{move,delete}`. Beide Originalrunner enden mit Exit 0, drei tatsächlichen Kindern und null Timeout/Signal. Die unabhängigen Abschlussprüfungen lesen unveränderte Quellen, geschlossene eigene Prozesse/Gruppen und nicht mehr vorhandene eigene Schema-OIDs/Backends; verwaltete Container, Listener und Gesundheitsprüfungen bleiben erhalten. Äußere Cache-/Belegverzeichnisse bleiben ausdrücklich bestehen.
+
+| Artefakt relativ zum jeweiligen Operationsverzeichnis | Move SHA-256 | Delete SHA-256 |
+| --- | --- | --- |
+| `manifest.json` | `0ad2e7c920e0c43d788af6aff82677eb475d434f2f82dcbfee45a465b41a5b61` | `a7523e252daa756dcc5aa2819e6f3d5b626c0e689f37cb8d53a472d8a49c0da9` |
+| `ready.json` | `37cdac0b88212069d6a240b2c948cc696cf53db396868a6748179c04ea73eec3` | `b80328c19bc63bac24f88206a3b6a073e1ab56a4b6ff36973fb7e6637a1dff21` |
+| `results.json` | `7576d7df57d2255ad07bb33f7d9edf0a948c6d58f66f4a8a040188693d745ded` | `35a8b2c27a830eff4e7ef995001ff48ad9f314f7cdec43b1cd3d369d7aa77f76` |
+| `cases/projector-original-plan/projector-original-plan-observations.json` | `176ace5e3e50c9f8b3c5fdd429308c1e7ed5a74f2d8a27aee5da00704b41688b` | `4aea462d1f86ef179061652e757ab66d7baeeea1c89e0065d3ab8dca890ae078` |
+| `independent-closure.json` | `61d6a537dd3ead1ceee576e112f49638cc3877f92a9c4a075c86e1228e25d487` | `c7612cfce8280148ce2a2784cb89a982f3eb824e907cf4a8c2e341df6ba2ca56` |
+
+Dieser Durchstich beweist die ursprüngliche Preview-Anwendbarkeit nach reiner Quellenprojektion. Post-B1-ACK-Verlust/Ownerverlust, historische Recovery, vollständige ursprüngliche Negativ-/Lastregressionen und frische gemeinsame Transport-/UI-Abnahme bleiben offen. Der zusätzlich reproduzierte ältere Asset-Delete-/Native-Backlink-Konflikt wird separat korrigiert; diese sechs nativen Ownerfälle beweisen dessen Abschluss nicht. Dateiaktions-Undo, Review Center und allgemeine Aktivierung bleiben aus.
