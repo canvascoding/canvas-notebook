@@ -12,6 +12,20 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/direct-mcp-native-copy-owner-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/mcp/server/access-token-verifier.ts',
+    'app/lib/mcp/server/config.ts', 'app/lib/mcp/server/runtime-settings.ts',
+    'app/lib/workspaces/copy-principal.ts', 'app/lib/workspaces/postgres-runtime.ts',
+    'app/lib/files/workspace-operation-copy-origin.ts', 'app/lib/files/workspace-operation-native-copy-owner.ts',
+    'app/lib/files/workspace-operation-native-copy-phase.ts', 'app/lib/files/workspace-operation-native-copy-phase-contract.ts',
+    'app/lib/files/workspace-operation-native-copy-phase-read.ts', 'app/lib/files/workspace-operation-native-copy-metadata.ts',
+    'app/lib/files/workspace-operation-native-copy-stage.ts', 'app/lib/files/workspace-operation-managed-copy-stage.ts',
+    'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-journal.ts',
+    'app/lib/collaboration/native-copy-persistence.ts', 'app/lib/collaboration/native-copy-historical-receipt.ts',
+    'app/lib/excalidraw-collaboration/copy-domain.ts', 'app/lib/excalidraw-collaboration/copy-asset-publication.ts',
+    'app/lib/filesystem/prepared-workspace-path-copy.ts', 'app/lib/license/seat-limit.ts',
+    'app/lib/db/index.ts', 'app/lib/db/postgres.ts'],
   'scripts/direct-mcp-workspace-copy-principal-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts',
     'app/lib/mcp/server/document-read-principal.ts', 'app/lib/mcp/server/access-token-verifier.ts',

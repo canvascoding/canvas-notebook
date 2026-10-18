@@ -136,8 +136,12 @@ function alive(phase: Phase): void {
   if (!phase.active || !phase.capture.active || phases.get(phase.connection) !== phase) fail('MCP_READ_PRINCIPAL_REQUIRED');
   if (phase.failure !== undefined) throw phase.failure;
   if (phase.capture.failure !== undefined) throw phase.capture.failure;
-  if (performance.now() > phase.deadline || phase.capture.claims.expiresAt * 1000 <= Date.now()) fail('MCP_READ_PRINCIPAL_EXPIRED');
-  const license = phase.capture.license;
+  if (performance.now() > phase.deadline) fail('MCP_READ_PRINCIPAL_EXPIRED');
+  assertCaptureUnexpired(phase.capture);
+}
+function assertCaptureUnexpired(capture: Capture): void {
+  if (capture.claims.expiresAt * 1000 <= Date.now()) fail('MCP_READ_PRINCIPAL_EXPIRED');
+  const license = capture.license;
   if (license.licensed && ['active', 'grace'].includes(license.licenseState)) {
     const expiry = Date.parse(license.licenseState === 'grace' ? license.graceExpiresAt ?? '' : license.expiresAt ?? '');
     if (!Number.isFinite(expiry) || expiry <= Date.now()) fail('MCP_READ_PRINCIPAL_EXPIRED');
@@ -363,6 +367,29 @@ export async function withDirectMcpWorkspaceCopyPrincipal<T>(authInfo: AuthInfo,
   return withFixedPrincipalCapture(authInfo, Object.freeze({ kind: 'copy', source, destination }),
     Object.freeze({ kind: 'copy', tool: 'copy_knowledge_source' }),
     principal => operation(principal as DirectMcpWorkspaceCopyPrincipal));
+}
+
+/** Registry/lifetime preflight before a Copy owner borrows B. This confirms
+ * only the actual current capture and its fixed selections, never SQL rights.
+ * Call outside its authority phase; every B still needs the full current
+ * workspace/grant/session check. The handle must never enter stored history. */
+export function assertDirectMcpWorkspaceCopyPrincipalCaptured(principal: DirectMcpWorkspaceCopyPrincipal,
+  options: Readonly<{ sourceWorkspaceId: string; destinationWorkspaceId: string }>): void {
+  const capture = captures.get(principal);
+  if (!capture?.active || !capture.accepting) {
+    fail('MCP_READ_PRINCIPAL_REQUIRED');
+  }
+  if (capture.failure !== undefined) throw capture.failure;
+  try {
+    if (capture.policy.kind !== 'copy' || capture.slots.kind !== 'copy') fail('MCP_READ_PRINCIPAL_REQUIRED');
+    if (capture.busy) fail('MCP_READ_PRINCIPAL_REENTRANT');
+    const sourceWorkspaceId = own(options, 'sourceWorkspaceId'), destinationWorkspaceId = own(options, 'destinationWorkspaceId');
+    if (!validId(sourceWorkspaceId) || !validId(destinationWorkspaceId)
+      || sourceWorkspaceId !== capture.slots.source.workspaceId || destinationWorkspaceId !== capture.slots.destination.workspaceId) {
+      fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+    }
+    assertCaptureUnexpired(capture);
+  } catch (error) { capture.failure ??= primary(error); throw capture.failure; }
 }
 
 /** Private fixed policy mechanics; callers cannot supply rights or auth readers. */

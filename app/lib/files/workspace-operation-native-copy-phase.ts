@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isDeepStrictEqual as equal } from 'node:util';
+import { isDeepStrictEqual as equal, types } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../db';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
@@ -12,7 +12,10 @@ import { reserveCollaborationAdmissionOnConnection } from '../collaboration/room
 import { captureCollaborationAdmissionRequest, collaborationAdmissionLockKey, type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { proveCollaborationAdmissionQuiescenceOnConnection } from '../collaboration/room-admission-quiescence';
 import { executeCollaborationAdmissionHandoffOnConnection } from '../collaboration/room-admission-handoff';
-import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection, type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
+import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection, withWorkspaceCopyMcpOnConnection,
+  type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
+import { assertDirectMcpWorkspaceCopyPrincipalCaptured,
+  type DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { prepareNativeCopyLinkUpdates } from '../markdown/workspace-native-copy-link-updates';
 import { nativeLinkPreparedIntentProof, persistPreparedNativeLinkMutationOnConnection } from '../markdown/native-link-mutation-persistence';
@@ -49,7 +52,7 @@ import type { ExcalidrawCopyAssetOriginal, ExcalidrawCopyAssetReceipt, Excalidra
 
 export { NativeCopyPhaseError, nativeCopyPhaseParentSteps } from './workspace-operation-native-copy-phase-contract';
 export type NativeCopyPhaseInput = Readonly<{ stage: WorkspaceOperationOwnedCopyStage; request?: NextRequest;
-  assetOriginal?: ExcalidrawCopyAssetOriginal }>;
+  mcpPrincipal?: DirectMcpWorkspaceCopyPrincipal; assetOriginal?: ExcalidrawCopyAssetOriginal }>;
 export type NativeCopyPhaseResult = Readonly<{
   disposition: 'prepared' | 'already-prepared' | 'completed'; operation: WorkspaceOperationRecord;
   nativeReceipt: NativeCopyReceipt; admissions: readonly CollaborationAdmissionRequest[]; linkReceipts: readonly NativeCopyPhaseLinkReceipt[];
@@ -119,15 +122,34 @@ export function assertNativeCopyManagedSceneCompletionOnConnection(database: Sql
   return assertManagedScenePhase(database, stage, 'completion');
 }
 
+/** Preserve only an own data field, without reading a caller getter or cloning
+ * the opaque handle. Wrapper inputs carry additional domain-only fields. */
+function captureMcpPrincipalField(input: NativeCopyPhaseInput): Pick<NativeCopyPhaseInput, 'mcpPrincipal'> {
+  if (!input || typeof input !== 'object' || types.isProxy(input)) copyPhaseChanged();
+  const principal = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
+  if (!principal) return {};
+  if (!principal.enumerable || !Object.hasOwn(principal, 'value')) copyPhaseChanged();
+  return { mcpPrincipal: principal.value };
+}
 function capture(input: NativeCopyPhaseInput): Captured {
+  const principal = captureMcpPrincipalField(input);
   if (!input || Object.getPrototypeOf(input) !== Object.prototype || Reflect.ownKeys(input).some(key => {
     const property = Object.getOwnPropertyDescriptor(input, key);
-    return typeof key !== 'string' || !['stage', 'request', 'assetOriginal'].includes(key) || !property?.enumerable || !Object.hasOwn(property, 'value');
+    return typeof key !== 'string' || !['stage', 'request', 'mcpPrincipal', 'assetOriginal'].includes(key) || !property?.enumerable || !Object.hasOwn(property, 'value');
   })) copyPhaseChanged();
   const stage = captureNativeCopyPhaseStage(input.stage);
   const assetOriginal = input.assetOriginal === undefined ? undefined :
     captureWorkspaceOperationNativePlanData(input.assetOriginal, copyPhaseChanged) as ExcalidrawCopyAssetOriginal;
   if (stage.version !== 4 && assetOriginal !== undefined) copyPhaseChanged();
+  if (stage.origin.version === 2) {
+    if (input.request !== undefined || principal.mcpPrincipal === undefined) copyPhaseChanged();
+    // capture() precedes current(): the helper rejects an already-busy phase.
+    // SQL authority is obtained only by the fixed current() composition below.
+    assertDirectMcpWorkspaceCopyPrincipalCaptured(principal.mcpPrincipal,
+      { sourceWorkspaceId: stage.origin.sourceScope.workspaceId, destinationWorkspaceId: stage.origin.destinationScope.workspaceId });
+    return { stage, mcpPrincipal: principal.mcpPrincipal, ...(assetOriginal === undefined ? {} : { assetOriginal }) };
+  }
+  if (Object.hasOwn(principal, 'mcpPrincipal')) copyPhaseChanged();
   const request = input.request === undefined ? undefined : new NextRequest(input.request.url,
     { method: input.request.method, headers: new Headers(input.request.headers), signal: input.request.signal });
   if (stage.origin.actor.type === 'user' && !request || stage.origin.actor.type === 'agent' && request) copyPhaseChanged();
@@ -135,9 +157,11 @@ function capture(input: NativeCopyPhaseInput): Captured {
 }
 function current<T>(database: SqlConnection, input: Captured,
   operation: (access: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
-  return input.stage.origin.actor.type === 'user'
-    ? withWorkspaceCopyRequestOnConnection(database, input.request!, input.stage.origin, operation)
-    : withWorkspaceCopyAgentOnConnection(database, input.stage.origin, operation);
+  return input.stage.origin.version === 2
+    ? withWorkspaceCopyMcpOnConnection(database, input.mcpPrincipal!, input.stage.origin, operation)
+    : input.stage.origin.actor.type === 'user'
+      ? withWorkspaceCopyRequestOnConnection(database, input.request!, input.stage.origin, operation)
+      : withWorkspaceCopyAgentOnConnection(database, input.stage.origin, operation);
 }
 async function owner(database: SqlConnection, stage: WorkspaceOperationOwnedCopyStage): Promise<void> {
   await assertNativeCopySessionOnConnection(database, stage.origin);
@@ -417,9 +441,10 @@ export function prepareNativeCopyPhaseOnConnection(database: SqlConnection, inpu
 
 export function recordNativeCopyParentOnConnection(database: SqlConnection,
   input: NativeCopyPhaseInput & Readonly<{ selectionIndex: number; receipt: PreparedWorkspacePathCopyParentReceipt }>): Promise<void> {
+  const principal = captureMcpPrincipalField(input);
   const receipt = captureWorkspaceOperationNativePlanData(input.receipt, copyPhaseChanged) as PreparedWorkspacePathCopyParentReceipt;
   const selectionIndex = input.selectionIndex;
-  return phase(database, { stage: input.stage, request: input.request }, async captured => {
+  return phase(database, { stage: input.stage, request: input.request, ...principal }, async captured => {
     const step = assertNativeCopyPhaseParent(captured.stage, selectionIndex, receipt);
     await write(database, captured, async () => {
       const prior = await existing(database, captured) ?? copyPhaseChanged();
@@ -492,9 +517,10 @@ async function finishPath(database: SqlConnection, captured: Captured, value: Na
  * its exact original birth. Actual FD publication stays with the fixed runner. */
 export function recordNativeCopyPathOnConnection(database: SqlConnection,
   input: NativeCopyPhaseInput & NativeCopyPhasePathReceipt): Promise<void> {
+  const principal = captureMcpPrincipalField(input);
   const stage = captureNativeCopyPhaseStage(input.stage);
   const value = physicalReceipts(stage, [{ selectionIndex: input.selectionIndex, receipt: input.receipt }], false)[0];
-  return phase(database, { stage, request: input.request }, async captured => {
+  return phase(database, { stage, request: input.request, ...principal }, async captured => {
     await write(database, captured, async () => { if (!await existing(database, captured)) copyPhaseChanged(); });
     await finishPath(database, captured, value);
   });
@@ -506,11 +532,13 @@ export function recordNativeCopyPathOnConnection(database: SqlConnection,
 export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
   input: NativeCopyPhaseInput & Readonly<{ pathReceipts: readonly NativeCopyPhasePathReceipt[];
     assetReceipt?: ExcalidrawCopyAssetReceipt }>): Promise<NativeCopyPhaseCompletionResult> {
+  const principal = captureMcpPrincipalField(input);
   const initialStage = captureNativeCopyPhaseStage(input.stage), receipts = physicalReceipts(initialStage, input.pathReceipts);
   const assetReceipt = input.assetReceipt === undefined ? undefined :
     captureWorkspaceOperationNativePlanData(input.assetReceipt, copyPhaseChanged) as ExcalidrawCopyAssetReceipt;
   if (initialStage.version !== 4 && assetReceipt !== undefined) copyPhaseChanged();
-  return phase(database, { stage: initialStage, request: input.request, ...(input.assetOriginal ? { assetOriginal: input.assetOriginal } : {}) }, async captured => {
+  return phase(database, { stage: initialStage, request: input.request, ...principal,
+    ...(input.assetOriginal ? { assetOriginal: input.assetOriginal } : {}) }, async captured => {
     const stage = captured.stage;
     const before = await write(database, captured, () => existing(database, captured)) ?? copyPhaseChanged();
     if (before.disposition === 'completed') return { ...before, publication: 'historical' as const };

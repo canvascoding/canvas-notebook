@@ -27,6 +27,7 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
     const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
     const pool = getPostgresRuntimeQueryable(); assert(pool);
     const { withDirectMcpWorkspaceCopyPrincipal: capture, withDirectMcpWorkspaceCopyPrincipalOnConnection: phase,
+      assertDirectMcpWorkspaceCopyPrincipalCaptured: preflight,
       withDirectMcpDocumentReadPrincipal: captureRead, withDirectMcpDocumentReadPrincipalOnConnection: readPhase } =
       await import('../app/lib/mcp/server/document-read-principal');
     const { withWorkspaceCopyMcpOnConnection: domainPhase } = await import('../app/lib/workspaces/copy-principal');
@@ -353,10 +354,56 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
         }), expectedCode('MCP_READ_PRINCIPAL_DETACHED'));
       } finally { await Promise.allSettled(pending); }
     });
+    await check('registry preflight rejects wrong scopes, busy, escaped and expired captures without borrowing B', async () => {
+      let acquisitions = 0;
+      const acquired = () => { acquisitions++; };
+      pool.on('acquire', acquired);
+      try {
+        let escaped: DirectMcpWorkspaceCopyPrincipal | undefined;
+        await capture(authInfo(), selection, async principal => {
+          escaped = principal; const before = acquisitions;
+          preflight(principal, selection); assert.equal(acquisitions, before);
+          assert.throws(() => preflight(Object.freeze({}) as DirectMcpWorkspaceCopyPrincipal, selection),
+            expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+          assert.equal(acquisitions, before);
+        });
+        assert(escaped); const closed = escaped, before = acquisitions;
+        assert.throws(() => preflight(closed, selection), expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+        assert.equal(acquisitions, before);
+        await assert.rejects(captureRead(authInfo(), { workspaceId: sourceWorkspaceId, purpose: 'read' }, () => undefined,
+          async principal => {
+            const before = acquisitions;
+            assert.throws(() => preflight(principal as unknown as DirectMcpWorkspaceCopyPrincipal, selection),
+              expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+            assert.equal(acquisitions, before);
+          }), expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+        await assert.rejects(capture(authInfo(), selection, async principal => {
+          const before = acquisitions;
+          assert.throws(() => preflight(principal, { sourceWorkspaceId: destinationWorkspaceId, destinationWorkspaceId }),
+            expectedCode('MCP_READ_PRINCIPAL_SCOPE_CHANGED'));
+          assert.throws(() => preflight(principal, selection), expectedCode('MCP_READ_PRINCIPAL_SCOPE_CHANGED'));
+          assert.equal(acquisitions, before);
+        }), expectedCode('MCP_READ_PRINCIPAL_SCOPE_CHANGED'));
+        await assert.rejects(capture(authInfo(), selection, principal => transaction(db => phase(db, principal, async () => {
+          const before = acquisitions;
+          assert.throws(() => preflight(principal, selection), expectedCode('MCP_READ_PRINCIPAL_REENTRANT'));
+          assert.equal(acquisitions, before);
+        }))), expectedCode('MCP_READ_PRINCIPAL_REENTRANT'));
+        const expiry = Math.floor(Date.now() / 1000) + 5;
+        const shortToken = await fixture.issue({ scope: 'knowledge:write', exp: expiry }); let entered = false;
+        await assert.rejects(capture(authInfo(shortToken), selection, async principal => {
+          entered = true; const before = acquisitions; preflight(principal, selection);
+          await new Promise(resolve => setTimeout(resolve, Math.max(0, expiry * 1000 - Date.now()) + 25));
+          assert.throws(() => preflight(principal, selection), expectedCode('MCP_READ_PRINCIPAL_EXPIRED'));
+          assert.equal(acquisitions, before);
+        }), expectedCode('MCP_READ_PRINCIPAL_EXPIRED'));
+        assert.equal(entered, true, 'The real JWT must enter its capture before expiring; no substituted clock or claims.');
+      } finally { pool.off('acquire', acquired); }
+    });
     assert.deepEqual(await fixture.snapshot(), domainBefore, 'Principal and absent-tool probes do not write document/history/projection state.');
   });
-  assert.equal(passed, 8); completed = true;
-  console.log(`Direct MCP Workspace Copy principal PostgreSQL: ${passed}/8 genuine current JWT/PG/lifetime families; no Copy handler or file publication acceptance.`);
+  assert.equal(passed, 9); completed = true;
+  console.log(`Direct MCP Workspace Copy principal PostgreSQL: ${passed}/9 genuine current JWT/PG/lifetime families; no Copy handler or file publication acceptance.`);
 }
 
 void directMcpWorkspaceCopyPrincipalPostgresTest().catch(error => {

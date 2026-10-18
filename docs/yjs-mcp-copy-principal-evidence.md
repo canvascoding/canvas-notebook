@@ -1,5 +1,7 @@
 # MCP-Copy: tatsächliche aktuelle Zwei-Workspace-Autorität
 
+Dieser quellengebundene Nachweis beschreibt die Autoritätsgrundlage vor dem anschließenden [regulären Owner-/Phasenanschluss](./yjs-mcp-native-copy-owner-evidence.md). Seine ursprünglichen Prüfungen und damaligen offenen Grenzen bleiben unverändert erhalten.
+
 Stand: 18. Oktober 2026. Die eigene aktuelle MCP-Copy-Autorität und ihr Domainadapter sind implementiert und tatsächlich geprüft. Der reguläre Copy-Owner, öffentliche Dateiaktionstools, reine Status-/Recoveryadapter und SDK-Dateiaktionsmethoden sind noch anzuschließen. Diese Abnahme ist kein fertiger öffentlicher Copy-Zugang und keine Gesamtfreigabe.
 
 ## Vertrag und Umsetzung
