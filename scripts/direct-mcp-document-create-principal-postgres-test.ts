@@ -103,6 +103,34 @@ export async function directMcpDocumentCreatePrincipalPostgresTest(): Promise<vo
       }
     });
 
+    await check('only Create pins the fixed receipt schema path after validating original caller B', async () => {
+      const source = (await pool.query(`SELECT current_schema() AS schema,current_setting('search_path') AS path`)).rows[0];
+      for (const tool of tools) {
+        let actualOrigin: DirectMcpDocumentCreateCurrentOrigin | undefined;
+        await create(async (access, _db, client) => {
+          const row = (await client.query(`SELECT current_setting('search_path') AS path,
+            quote_ident(current_schema())||', pg_catalog, pg_temp' AS receipt_path`)).rows[0];
+          assert.equal(row.path, row.receipt_path, 'Create must enter the actual fixed receipt-trigger schema path.');
+          assert(actualOrigin); assert.equal(actualOrigin.searchPath, source.path);
+          await client.query(`SELECT set_config('search_path',quote_ident(current_schema())||', pg_catalog, pg_temp',true)`);
+          await access.assertCurrent();
+          assert.equal((await client.query(`SELECT current_setting('search_path') AS path`)).rows[0].path, row.path);
+        }, tool, token, origin => { actualOrigin = origin; });
+        await assert.rejects(capture(authInfo(), { workspaceId, tool }, () => undefined,
+          principal => transaction(async db => {
+            await db.run('SET LOCAL search_path=pg_catalog');
+            return phase(db, principal, async () => assert.fail('Canonical selection cannot hide a wrong original B realm.'));
+          })), expectedCode('MCP_READ_PRINCIPAL_SCOPE_CHANGED'));
+      }
+      assert.deepEqual((await pool.query(`SELECT current_schema() AS schema,current_setting('search_path') AS path`)).rows[0], source,
+        'SET LOCAL must leave the actual factory source realm unchanged after caller COMMIT.');
+      await captureRead(authInfo(), { workspaceId, purpose: 'read' }, () => undefined,
+        principal => transaction(db => readPhase(db, principal, async () => {
+          assert.equal((await db.get(`SELECT current_setting('search_path') AS path`))?.path, source.path,
+            'Read keeps its existing exact source path policy.');
+        })));
+    });
+
     await check('Write is neither Read/Search scope nor an interchangeable opaque handle', async () => {
       for (const purpose of ['read', 'search'] as const) {
         await assert.rejects(create(async () => assert.fail('Read/Search token is not Write.'), tools[0],
@@ -274,8 +302,8 @@ export async function directMcpDocumentCreatePrincipalPostgresTest(): Promise<vo
     });
     assert.deepEqual(await fixture.snapshot(), domainBefore, 'Principal probes never mutate native documents/history/projections.');
   });
-  assert.equal(passed, 7); completed = true;
-  console.log(`Direct MCP Create principal PostgreSQL: ${passed}/7 genuine JWT/SQL/lifetime families; no native Create, HTTP, browser or host acceptance.`);
+  assert.equal(passed, 8); completed = true;
+  console.log(`Direct MCP Create principal PostgreSQL: ${passed}/8 genuine JWT/SQL/lifetime families; no native Create, HTTP, browser or host acceptance.`);
 }
 
 directMcpDocumentCreatePrincipalPostgresTest().catch(error => {

@@ -67,7 +67,7 @@ type Capture = {
 };
 type Phase = {
   capture: Capture; connection: SqlConnection; active: boolean; accepting: boolean; checking: boolean;
-  identity?: Identity; failure?: unknown; deadline: number; pending: Set<Promise<unknown>>;
+  identity?: Identity; writeRealm?: OriginalRealm; failure?: unknown; deadline: number; pending: Set<Promise<unknown>>;
 };
 const captures = new WeakMap<SharedPrincipal, Capture>();
 const phases = new WeakMap<SqlConnection, Phase>();
@@ -133,13 +133,30 @@ async function identity(phase: Phase): Promise<Identity> {
     pg_catalog.current_setting('session_replication_role') AS replication
     FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`) as Row | undefined;
   alive(phase); const realm = parseRealm(row);
-  if (!row || !isDeepStrictEqual(realm, phase.capture.realm) || !integer(row.backend)
+  if (!row || !isDeepStrictEqual(realm, phase.writeRealm ?? phase.capture.realm) || !integer(row.backend)
     || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
     || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)
     || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   const result = Object.freeze({ ...realm, backend: Number(row.backend), start: row.start, xid: row.xid });
   if (phase.identity && !isDeepStrictEqual(result, phase.identity)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   return result;
+}
+/** Create alone enters the existing receipt triggers' fixed schema path.
+ * The caller's original B/realm is checked first. The same backend/start/XID
+ * must then confirm this one fixed transition before any consumer runs.
+ * Historical origin continues to describe the actual source factory realm. */
+async function pinCreateReceiptRealm(phase: Phase): Promise<void> {
+  if (phase.capture.policy.kind !== 'create' || !phase.identity || phase.writeRealm) fail('MCP_READ_PRINCIPAL_INVALID');
+  const before = phase.identity;
+  const row = await phase.connection.get(`SELECT pg_catalog.set_config('search_path',
+    pg_catalog.quote_ident($1::text)||', pg_catalog, pg_temp',true) AS search_path`,
+  [phase.capture.realm.schema]) as Row | undefined;
+  alive(phase);
+  const realm = parseRealm({ schema: phase.capture.realm.schema, schema_oid: phase.capture.realm.schemaOid,
+    database_oid: phase.capture.realm.databaseOid, search_path: row?.search_path });
+  phase.writeRealm = realm;
+  phase.identity = Object.freeze({ ...before, searchPath: realm.searchPath });
+  await identity(phase); await schema(phase);
 }
 async function schema(phase: Phase): Promise<void> {
   await identity(phase);
@@ -330,6 +347,7 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
       await connection.run("SET LOCAL lock_timeout='50ms'");
       await connection.run("SET LOCAL transaction_timeout='5s'");
       await schema(phase);
+      if (capture.policy.kind === 'create') await pinCreateReceiptRealm(phase);
       // SHARE table locks cover absent rows and latest-consent phantoms too.
       await connection.run(`LOCK TABLE ${tables.map(name => `${quote(capture.realm.schema)}.${quote(name)}`).join(',')} IN SHARE MODE NOWAIT`);
       await schema(phase); const workspace = await current(phase);
