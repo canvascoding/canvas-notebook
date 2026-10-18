@@ -121,6 +121,16 @@ test('real native clients retain exact extension references and agent choices ac
       finally { await owner.setExtraHTTPHeaders({ Origin: fixture.baseURL }); }
     }
     const headers = { 'x-canvas-workspace-id': workspaceId };
+    const relativeFilesResponse = await owner.request.get('/api/mobile/v1/files?directory=.&filter=all&limit=50', { headers });
+    const relativeFiles = await json<{ success: boolean; directory: string; items: unknown[] }>(relativeFilesResponse, 'Actual relative Files root');
+    assert.equal(relativeFiles.success, true); assert.equal(relativeFiles.directory, '.'); assert(Array.isArray(relativeFiles.items));
+    const absoluteFilesResponse = await owner.request.get('/api/mobile/v1/files?directory=%2F&filter=all&limit=50', { headers });
+    const absoluteFiles = await json<{ success: boolean; code: string }>(absoluteFilesResponse, 'Reject actual absolute Files root', 400);
+    assert.equal(absoluteFiles.success, false); assert.equal(absoluteFiles.code, 'INVALID_FILE_PATH');
+    await fs.writeFile(path.join(fixture.root, 'native-files-root-preflight.json'), JSON.stringify({
+      relative: { status: relativeFilesResponse.status(), code: null },
+      absolute: { status: absoluteFilesResponse.status(), code: absoluteFiles.code },
+    }), { mode: 0o600, flag: 'wx' });
     await json(await owner.request.get('/api/composio/profiles', { headers }), 'Default profile initialization');
     const profileId = (await json<{ profile: { id: string } }>(await owner.request.post('/api/composio/profiles', { headers, data: { name: `Native exact profile ${suffix}` } }), 'Create own profile', 201)).profile.id;
     for (let index = 0; index < 2; index++) {
