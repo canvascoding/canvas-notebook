@@ -126,7 +126,9 @@ export async function directMcpDocumentCreatePrincipalPostgresTest(): Promise<vo
         'SET LOCAL must leave the actual factory source realm unchanged after caller COMMIT.');
       await captureRead(authInfo(), { workspaceId, purpose: 'read' }, () => undefined,
         principal => transaction(db => readPhase(db, principal, async () => {
-          assert.equal((await db.get(`SELECT current_setting('search_path') AS path`))?.path, source.path,
+          const row = await db.get(`SELECT current_setting('search_path') AS path`);
+          assert(row && typeof row === 'object' && 'path' in row);
+          assert.equal(row.path, source.path,
             'Read keeps its existing exact source path policy.');
         })));
     });

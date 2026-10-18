@@ -10,6 +10,13 @@ import { DirectMcpIngestValidationError, encodeDirectMcpTextContent, isDirectMcp
 import { parseDirectMcpEditIdempotencyKey } from './document-edit-contract';
 import { directMcpToolAuthorizationError } from './tool-auth';
 import type { DirectMcpToolDescriptor } from './tool-descriptor';
+import { persistAndProjectDirectMcpMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
+import { MarkdownCreateBirthError } from '@/app/lib/files/markdown-create-birth';
+import { DirectMcpDocumentReadPrincipalError } from './document-read-principal';
+import { WorkspaceFileLifecycleBusyError } from '@/app/lib/files/workspace-file-lifecycle-guard';
+import { WorkspaceMutationLockError } from '@/app/lib/files/workspace-mutation-lock';
 
 type IngestTool = 'create_knowledge_source' | 'import_knowledge_file';
 const securitySchemes = [{ type: 'oauth2' as const, scopes: ['knowledge:write'] }];
@@ -99,6 +106,14 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
   }
   if (!authInfo?.token) return directMcpToolAuthorizationError(undefined, 'knowledge:write');
   try {
+    if (authenticatedNativeTextSessionEnabled() && /\.(?:md|markdown)$/iu.test(destination)) {
+      const native = await persistAndProjectDirectMcpMarkdownCreate(authInfo,
+        isImport ? { tool: 'import_knowledge_file', workspaceId, path: destination, idempotencyKey: key, file: file! }
+          : { tool: 'create_knowledge_source', workspaceId, path: destination, idempotencyKey: key, content: text! }, signal);
+      if (native.kind === 'native') return { content: [{ type: 'text', text: JSON.stringify(native.receipt) }], structuredContent: native.receipt };
+      // A retained legacy original remains on its actual legacy validation and
+      // no-download receipt path; no native Origin or Birth is manufactured.
+    }
     const authority = await createDirectMcpIngestAuthority({ token: authInfo.token, tool: id, workspaceId });
     // A fresh temporary URL may replace an expired one for the same host file.
     // Never persist a download URL, bearer token, or submitted content in the receipt journal.
@@ -117,10 +132,13 @@ export async function executeDirectMcpIngestTool(id: IngestTool, raw: unknown, a
     return { content: [{ type: 'text', text: JSON.stringify(receipt) }], structuredContent: receipt };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:write');
-    const known = error instanceof DirectMcpFileIngestError || error instanceof DirectMcpIngestValidationError
+    const native = error instanceof MarkdownFileImportError || error instanceof MarkdownCreateBirthError
+      || error instanceof DirectMcpDocumentReadPrincipalError || error instanceof WorkspaceFileLifecycleBusyError
+      || error instanceof WorkspaceMutationLockError;
+    const known = native || error instanceof DirectMcpFileIngestError || error instanceof DirectMcpIngestValidationError
       || error instanceof DirectMcpIngestDownloadError;
     const detail = { code: known ? error.code : 'MCP_INGEST_FAILED',
-      message: known ? error.message : 'The file could not be imported. The destination may require inspection before retrying.' };
+      message: native ? error.code : known ? error.message : 'The file could not be imported. The destination may require inspection before retrying.' };
     return { isError: true, content: [{ type: 'text', text: JSON.stringify(detail) }], structuredContent: detail };
   }
 }

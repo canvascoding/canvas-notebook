@@ -37,7 +37,7 @@ declare const createPrincipalBrand: unique symbol;
 export type DirectMcpDocumentCreatePrincipal = Readonly<{ [createPrincipalBrand]: never }>;
 export type DirectMcpDocumentCreateTool = 'create_knowledge_source' | 'import_knowledge_file';
 export type DirectMcpDocumentCreateCurrentOrigin = DirectMcpDocumentReadHistoricalOrigin
-  & Readonly<{ tool: DirectMcpDocumentCreateTool }>;
+  & Readonly<{ workspaceType: WorkspaceContext['workspaceType']; tool: DirectMcpDocumentCreateTool }>;
 export type DirectMcpDocumentCreatePrincipalAccess = DirectMcpDocumentReadPrincipalAccess
   & Readonly<{ tool: DirectMcpDocumentCreateTool }>;
 type FixedPolicy = Readonly<{ kind: 'read'; purpose: DirectMcpDocumentReadPurpose }>
@@ -260,7 +260,13 @@ export async function withDirectMcpDocumentCreatePrincipal<T>(authInfo: AuthInfo
   const policy = Object.freeze({ kind: 'create' as const, tool: tool as DirectMcpDocumentCreateTool });
   return withFixedPrincipalCapture(authInfo, workspaceId, policy,
     // Preserve the actual return: current() must still reject async observers.
-    origin => observeCurrent(Object.freeze({ ...origin, tool: policy.tool })),
+    origin => {
+      const workspaceType = origin.workspaceType;
+      if (workspaceType !== 'personal' && workspaceType !== 'organization' && workspaceType !== 'team' && workspaceType !== 'project') {
+        fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+      }
+      return observeCurrent(Object.freeze({ ...origin, workspaceType, tool: policy.tool }));
+    },
     principal => operation(principal as DirectMcpDocumentCreatePrincipal));
 }
 

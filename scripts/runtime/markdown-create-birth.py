@@ -358,6 +358,55 @@ def assert_parents(root, target, opened):
         parent = child
 
 
+def direct_mcp_attribution(intent):
+    """Exact original metadata only; real authorization belongs to Node A/D."""
+    selected, origin = intent.get('source'), intent.get('origin')
+    keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'clientId', 'tool',
+            'operationId', 'requestId', 'ingestRequestFingerprint', 'sourceHash', 'sourceBytes', 'fileId', 'declaredMimeType', 'ingestValidationJson'}
+    def length(value):
+        return len(value.encode('utf-16-le', errors='surrogatepass')) // 2
+    def bounded(value, maximum=200):
+        return isinstance(value, str) and 0 < length(value) <= maximum
+    if not isinstance(selected, dict) or set(selected) != keys or not isinstance(origin, dict) \
+            or selected.get('kind') != 'direct-mcp-markdown-v1' or selected.get('tool') not in ('create_knowledge_source', 'import_knowledge_file') \
+            or not bounded(selected.get('workspaceId')) or not all(bounded(selected.get(key), 256) for key in ['actorUserId', 'actorSessionId', 'clientId']) \
+            or not all(isinstance(selected.get(key), str) and re.fullmatch('[a-f0-9]{64}', selected[key]) for key in ['operationId', 'ingestRequestFingerprint', 'sourceHash']) \
+            or selected['requestId'] != 'mcp-create:' + selected['operationId'] or selected['operationId'] != intent.get('operationId') \
+            or any(selected.get(key) != origin.get(other) for key, other in [('workspaceId', 'workspaceId'), ('actorUserId', 'userId'),
+                       ('actorSessionId', 'sessionId'), ('clientId', 'clientId'), ('tool', 'tool')]) \
+            or not bounded(selected.get('targetPath'), 1024) or selected['targetPath'] != intent.get('targetPath') \
+            or not re.search(r'\.(?:md|markdown)$', selected['targetPath'], re.IGNORECASE) \
+            or any(not name or name.startswith('.') or re.search(r'[\\\x00-\x1f\x7f]', name) for name in selected['targetPath'].split('/')) \
+            or type(selected.get('sourceBytes')) is not int or not 0 <= selected['sourceBytes'] <= 512 * 1024:
+        fail('SOURCE_CHANGED')
+    if selected['tool'] == 'create_knowledge_source':
+        if selected['fileId'] is not None or selected['declaredMimeType'] is not None:
+            fail('SOURCE_CHANGED')
+    elif not bounded(selected['fileId']) or selected['declaredMimeType'] is not None and \
+            not bounded(selected['declaredMimeType']):
+        fail('SOURCE_CHANGED')
+    raw = selected['ingestValidationJson']
+    if not isinstance(raw, str) or len(raw.encode('utf-8')) > 32 * 1024:
+        fail('SOURCE_CHANGED')
+    validation = decode(raw.encode('utf-8'))
+    if not isinstance(validation, dict) or set(validation) != {'mimeType', 'markdown', 'warnings'} \
+            or json.dumps(validation, separators=(',', ':'), ensure_ascii=False) != raw \
+            or not isinstance(validation['mimeType'], str) or length(validation['mimeType']) > 200 \
+            or not re.fullmatch(r'[a-z0-9!#$&^_.+-]+/[a-z0-9!#$&^_.+-]+', validation['mimeType']) \
+            or not isinstance(validation['warnings'], list) or len(validation['warnings']) > 64:
+        fail('SOURCE_CHANGED')
+    markdown = validation['markdown']
+    if markdown is not None and (not isinstance(markdown, dict) or 'mode' not in markdown or set(markdown) - {'mode', 'reason'} \
+            or markdown['mode'] not in ('rich', 'normalizable', 'source') \
+            or 'reason' in markdown and (not isinstance(markdown['reason'], str) or length(markdown['reason']) > 200)):
+        fail('SOURCE_CHANGED')
+    for warning in validation['warnings']:
+        if not isinstance(warning, dict) or set(warning) != {'code', 'message'} or not bounded(warning.get('code')) \
+                or not isinstance(warning.get('message'), str) or length(warning['message']) > 4096:
+            fail('SOURCE_CHANGED')
+    return dict(selected)
+
+
 def current_source(intent):
     """Read the real original staging leaf, never the retained snapshot.
 
@@ -368,6 +417,8 @@ def current_source(intent):
     """
     selected = intent['source']
     if 'kind' in selected:
+        if selected.get('kind') == 'direct-mcp-markdown-v1':
+            return direct_mcp_attribution(intent)
         keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'}
         origin = intent.get('origin')
         if not isinstance(selected, dict) or set(selected) != keys or selected.get('kind') != 'manual-empty-v1' \
@@ -454,6 +505,12 @@ def run(message):
     target = intent['targetPath']
     if not isinstance(target, str) or len(target) > 4096 or any(part in ('', '.', '..') for part in target.split('/')) or re.search(r'[\\\x00-\x1f\x7f]', target):
         fail('INVALID_INPUT')
+    if not isinstance(intent.get('source'), dict):
+        fail('SOURCE_CHANGED')
+    if 'kind' in intent['source']:
+        # Fixed source kinds are attribution, not upload manifests or grants.
+        # Validate them before even initializing the private claim namespace.
+        current_source(intent)
     store_name, store = claim_store(3)
     claim = None
     try:
@@ -531,7 +588,7 @@ def run(message):
                 content = base64.b64decode(message['bytes'], validate=True)
                 if len(content) > LIMIT or digest(content) != message['serializedHash']:
                     fail('INVALID_INPUT')
-                if 'kind' in intent['source'] and content != b'':
+                if intent['source'].get('kind') == 'manual-empty-v1' and content != b'':
                     fail('SOURCE_CHANGED')
                 if prepared is None:
                     fd = os.open('content.tmp', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=claim)

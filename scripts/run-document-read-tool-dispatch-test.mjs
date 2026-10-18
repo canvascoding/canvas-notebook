@@ -12,6 +12,21 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/direct-mcp-native-markdown-create-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/mcp/server/ingest-tools.ts', 'app/lib/mcp/server/file-ingest.ts', 'app/lib/mcp/server/ingest-authority.ts',
+    'app/lib/mcp/server/ingest-validation.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/direct-server.ts',
+    'app/lib/mcp/server/ingest-download.ts', 'app/lib/security/safe-external-fetch.ts', 'app/lib/document-review-availability.ts',
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/files/markdown-create-birth.ts',
+    'app/lib/documents/service.ts', 'app/lib/documents/read-json-schema.ts', 'app/lib/file-version-center/history-service.ts',
+    'app/lib/files/workspace-file-lifecycle-guard.ts', 'app/lib/secrets/file-mutation-lock.ts',
+    'app/lib/db/index.ts', 'scripts/run-yjs-authority-e2e.ts'],
+  'scripts/manual-markdown-create-birth-entry-test.ts': [entryPoint,
+    'app/lib/files/markdown-create-birth.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts'],
+  'scripts/authenticated-markdown-first-projection-postgres-test.ts': [entryPoint,
+    'app/lib/files/markdown-create-birth.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts', 'app/lib/db/index.ts'],
+  'scripts/authenticated-manual-markdown-create-postgres-test.ts': [entryPoint,
+    'app/lib/files/markdown-create-birth.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts', 'app/lib/db/index.ts'],
   'scripts/direct-mcp-document-create-principal-postgres-test.ts': [entryPoint,
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/mcp/server/document-read-principal.ts',
     'app/lib/mcp/server/access-token-verifier.ts', 'app/lib/mcp/server/runtime-settings.ts',
