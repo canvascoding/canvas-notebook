@@ -4,13 +4,14 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import fs, { constants, type BigIntStats } from 'node:fs';
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { getFdDirectoryInventoryBackend, getFdPathMoveBackend, getFdPublicationBackend,
   type FdDirectoryInventoryBackend, type FdPathMoveBackend, type FdPublicationBackend } from '../files/fd-publication';
 import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
-import { assertPathCopyPayload, capturePathCopyParentReceipts, capturePathCopySharedParents, capturePathCopyRequest, copyData, copyPath,
+import { assertPathCopyPayload, assertPathCopyProviderPayload, pathCopyProviderPayloadPlan, readPathCopyDerivedFileBytes,
+  capturePathCopyRecoveryRequest, capturePathCopyParentReceipts, capturePathCopySharedParents, capturePathCopyRequest, copyData, copyPath,
   decodePreparedWorkspacePathCopyOriginal, freezeCopyData, preparedWorkspacePathCopyProof, PreparedWorkspacePathCopyError,
-  type PreparedPathCopyDirectory, type PreparedPathCopyEntry, type PreparedPathCopyErrorCode, type PreparedPathCopyIdentity,
+  type PreparedPathCopyDerivedFile, type PreparedPathCopyDirectory, type PreparedPathCopyEntry, type PreparedPathCopyErrorCode, type PreparedPathCopyIdentity,
   type PreparedPathCopyParents, type PreparedPathCopyPayload, type PreparedPathCopySource,
   type PreparedWorkspacePathCopyInput, type PreparedWorkspacePathCopyOriginal, type PreparedWorkspacePathCopyParentReceipt,
   type PreparedWorkspacePathCopyReceipt, type PreparedWorkspacePathCopySharedParent, type RecoveredWorkspacePathCopyInput } from './prepared-workspace-path-copy-contract';
@@ -196,15 +197,19 @@ function sameNativeProjectionSnapshot(original: PreparedWorkspacePathCopyOrigina
     const actual = after[index];
     if (entry.relativePath !== actual.relativePath || entry.kind !== actual.kind) return false;
     const pathname = entry.relativePath ? original.sourcePath + '/' + entry.relativePath : original.sourcePath;
-    if (entry.kind === 'directory' && original.projectionPaths.some(projected => projected.startsWith(pathname + '/'))) {
+    if (entry.kind === 'directory' && sourceProjectionPaths(original).some(projected => projected.startsWith(pathname + '/'))) {
       return sameNode(entry.identity, actual.identity) && entry.identity.linkCount === actual.identity.linkCount;
     }
     return sameIdentity(entry.identity, actual.identity)
       && (entry.kind !== 'regular_file' || actual.kind === 'regular_file' && entry.sha256 === actual.sha256);
   });
 }
+function sourceProjectionPaths(value: { projectionPaths: readonly string[]; derivedFiles?: readonly PreparedPathCopyDerivedFile[] }): readonly string[] {
+  return [...value.projectionPaths, ...(value.derivedFiles ?? []).map(file => file.path)];
+}
 async function snapshot(stage: Stage, fd: number, kind: 'regular_file' | 'directory', source: boolean): Promise<PreparedPathCopySource> {
-  const projected = (relative: string) => source && stage.request.projectionPaths.includes(relative ? stage.request.sourcePath + '/' + relative : stage.request.sourcePath);
+  const projections = sourceProjectionPaths(stage.request);
+  const projected = (relative: string) => source && projections.includes(relative ? stage.request.sourcePath + '/' + relative : stage.request.sourcePath);
   if (kind === 'regular_file') {
     own(stage, stat(fd), false, !source);
     return projected('') ? freezeCopyData({ kind: 'projection_file' as const, identity: identity(stat(fd)) })
@@ -274,7 +279,111 @@ async function copyFile(stage: Stage, sourceFd: number, parent: Pin, name: strin
     stage.built.set(relative, { kind: 'regular_file', identity: hashed.identity });
   } finally { dispose(stage, observed); }
 }
+async function writeProviderFile(stage: Stage, parent: Pin, name: string, relative: string,
+  descriptor: PreparedPathCopyDerivedFile, bytes: Uint8Array): Promise<void> {
+  if (bytes.byteLength !== descriptor.sizeBytes || createHash('sha256').update(bytes).digest('hex') !== descriptor.sha256) throw failure(stage, 'staging-changed');
+  const fd = owned(stage, stage.io.openFileAt(parent.fd, name, 'private-wx'));
+  stage.built.set(relative, { kind: 'regular_file', identity: identity(stat(fd)) });
+  try {
+    own(stage, stat(fd), false, true);
+    let position = 0;
+    while (position < bytes.byteLength) {
+      internal(stage);
+      const count = await new Promise<number>((resolve, reject) => fs.write(fd, bytes, position,
+        Math.min(chunkBytes, bytes.byteLength - position), position, (error, written) => error ? reject(error) : resolve(written)));
+      internal(stage); if (!count) throw failure(stage, 'staging-changed'); position += count;
+    }
+    await sync(stage, fd);
+  } finally { close(stage, fd); }
+  const observed = openEntry(stage, parent, name);
+  try {
+    if (!observed || observed.kind !== 'regular_file' || observed.fd === undefined || !observed.identity
+      || !stage.io.hasExactNameAt(parent.fd, name) || !sameNode(observed.identity, stage.built.get(relative)!.identity)) throw failure(stage, 'staging-changed');
+    const hashed = await hashFile(stage, observed.fd, BigInt(descriptor.sizeBytes), true);
+    if (hashed.identity.size !== String(descriptor.sizeBytes) || hashed.sha256 !== descriptor.sha256) throw failure(stage, 'staging-changed');
+    stage.built.set(relative, { kind: 'regular_file', identity: hashed.identity });
+  } finally { dispose(stage, observed); }
+}
+async function buildProviderDerived(stage: Stage, source: PreparedPathCopySource): Promise<PreparedPathCopyPayload | null> {
+  const derivedFiles = stage.request.derivedFiles!, plan = pathCopyProviderPayloadPlan(source, stage.request.sourcePath, derivedFiles, stage.request.budget);
+  if (!plan.length) return null;
+  const bytes = new Map<string, Uint8Array>();
+  for (const [index, descriptor] of derivedFiles.entries()) {
+    const captured = readPathCopyDerivedFileBytes(stage.request, index);
+    if (captured.byteLength !== descriptor.sizeBytes || createHash('sha256').update(captured).digest('hex') !== descriptor.sha256) throw failure(stage, 'staging-changed');
+    bytes.set(descriptor.path, captured);
+  }
+  // Validate all output paths and the combined byte/node budget before the
+  // first private staging node is created. Neither projection list is read.
+  for (const entry of plan) {
+    const suffix = entry.relativePath ? '/' + entry.relativePath : '';
+    copyPath(stage.request.sourcePath + suffix); copyPath(stage.request.destinationPath + suffix);
+    if (isInternalWorkspaceStagingPath(stage.request.sourcePath + suffix)
+      || isInternalWorkspaceStagingPath(stage.request.destinationPath + suffix)) throw failure(stage, 'unsafe-path');
+  }
+  const destination = stage.destination!, facts = parents(stage, destination, stage.request.destinationPath);
+  const base = destination.anchors.get(facts.directories.at(-1)?.relativePath ?? '')!, name = `.canvas-create-${randomUUID()}.tmp`;
+  stage.io.mkdirAt(base.fd, name, 0o700);
+  const fd = owned(stage, stage.io.openDirectoryAt(base.fd, name)); own(stage, stat(fd), true, true);
+  stage.container = { fd, relativePath: base.relativePath ? base.relativePath + '/' + name : name,
+    identity: identity(stat(fd)), parent: base, name }; stage.bornHere = true;
+  if (!stage.io.hasExactNameAt(base.fd, name)) throw failure(stage, 'staging-changed');
+  const physical = new Map(source.kind === 'directory' ? source.entries.map(entry => [entry.relativePath, entry] as const) : []);
+  const copyPhysical = async (entry: Extract<PreparedPathCopyEntry, { kind: 'regular_file' }>, targetParent: Pin, targetName: string): Promise<void> => {
+    if (source.kind === 'regular_file') { await copyFile(stage, stage.sourceFd!, targetParent, targetName, '', entry); return; }
+    if (source.kind !== 'directory' || stage.sourceFd === undefined) throw failure(stage, 'source-changed');
+    const opened: number[] = [];
+    let parent: Pin = { fd: stage.sourceFd, relativePath: '', identity: source.entries[0].identity };
+    try {
+      if (!sameIdentity(identity(stat(parent.fd)), parent.identity)) throw failure(stage, 'source-changed');
+      const parts = entry.relativePath.split('/');
+      for (let index = 0; index < parts.length - 1; index++) {
+        const relative = parts.slice(0, index + 1).join('/'), expected = physical.get(relative), observed = openEntry(stage, parent, parts[index]);
+        if (!expected || expected.kind !== 'directory' || !observed || observed.kind !== 'directory' || observed.fd === undefined
+          || !observed.identity || !stage.io.hasExactNameAt(parent.fd, parts[index]) || !sameIdentity(observed.identity, expected.identity)) {
+          dispose(stage, observed); throw failure(stage, 'source-changed');
+        }
+        own(stage, stat(observed.fd), true); opened.push(observed.fd);
+        parent = { fd: observed.fd, relativePath: relative, identity: observed.identity };
+      }
+      const file = openEntry(stage, parent, parts.at(-1)!);
+      try {
+        if (!file || file.kind !== 'regular_file' || file.fd === undefined || !stage.io.hasExactNameAt(parent.fd, parts.at(-1)!)) throw failure(stage, 'source-changed');
+        await copyFile(stage, file.fd, targetParent, targetName, entry.relativePath, entry);
+      } finally { dispose(stage, file); }
+    } finally { for (const openedFd of opened.reverse()) close(stage, openedFd); }
+  };
+  const children = new Map<string, typeof plan[number][]>();
+  for (const entry of plan) if (entry.relativePath) {
+    const key = parentPath(entry.relativePath), values = children.get(key) ?? []; values.push(entry); children.set(key, values);
+  }
+  const visit = async (parent: Pin, targetName: string, entry: typeof plan[number]): Promise<void> => {
+    internal(stage);
+    if (entry.kind === 'regular_file') {
+      if (entry.derived) await writeProviderFile(stage, parent, targetName, entry.relativePath, entry.derived, bytes.get(entry.derived.path)!);
+      else await copyPhysical(entry.source as Extract<PreparedPathCopyEntry, { kind: 'regular_file' }>, parent, targetName);
+      return;
+    }
+    stage.io.mkdirAt(parent.fd, targetName, 0o700);
+    const nextFd = owned(stage, stage.io.openDirectoryAt(parent.fd, targetName)); own(stage, stat(nextFd), true, true);
+    const target: Pin = { fd: nextFd, relativePath: entry.relativePath, identity: identity(stat(nextFd)) };
+    stage.built.set(entry.relativePath, { kind: 'directory', identity: target.identity });
+    try {
+      if (!stage.io.hasExactNameAt(parent.fd, targetName)) throw failure(stage, 'staging-changed');
+      for (const child of children.get(entry.relativePath) ?? []) await visit(target, leaf(child.relativePath), child);
+      await sync(stage, nextFd);
+    } finally { close(stage, nextFd); }
+  };
+  await visit(stage.container, 'payload', plan[0]);
+  const payload = openEntry(stage, stage.container, 'payload');
+  if (!payload || payload.fd === undefined || payload.kind !== plan[0].kind) { dispose(stage, payload); throw failure(stage, 'staging-changed'); }
+  stage.payloadFd = payload.fd;
+  const observed = await snapshot(stage, payload.fd, payload.kind, false) as PreparedPathCopyPayload;
+  assertPathCopyProviderPayload(source, observed, stage.request.sourcePath, derivedFiles, stage.request.budget);
+  await sync(stage, payload.fd); await sync(stage, fd); await sync(stage, base.fd); return observed;
+}
 async function build(stage: Stage, source: PreparedPathCopySource): Promise<PreparedPathCopyPayload | null> {
+  if (stage.request.sourceProjectionPolicy === 'provider-derived-files-v3') return buildProviderDerived(stage, source);
   if (source.kind === 'projection_absent' || source.kind === 'projection_file') return null;
   const destination = stage.destination!, facts = parents(stage, destination, stage.request.destinationPath);
   const base = destination.anchors.get(facts.directories.at(-1)?.relativePath ?? '')!, name = `.canvas-create-${randomUUID()}.tmp`;
@@ -340,7 +449,7 @@ function verifyContainer(stage: Stage, missingAllowed: boolean, cleanup = false)
   } finally { dispose(stage, entry); }
 }
 async function verifySource(stage: Stage): Promise<void> {
-  if (stage.facts!.version === 2) return verifyNativeProjectionSource(stage);
+  if (stage.facts!.version === 2 || stage.facts!.version === 3) return verifyNativeProjectionSource(stage);
   const original = stage.facts!, source = original.source;
   if (source.kind === 'projection_absent') { assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return; }
   const entry = leafEntry(stage, stage.source!, original.sourcePath);
@@ -357,13 +466,13 @@ async function verifySource(stage: Stage): Promise<void> {
   } finally { dispose(stage, entry); }
 }
 async function verifyNativeProjectionSource(stage: Stage): Promise<void> {
-  const original = stage.facts!, source = original.source;
+  const original = stage.facts!, source = original.source, projections = sourceProjectionPaths(original);
   // A missing original parent remains missing. This policy never adopts newly
   // materialized directories or changes the bound source ancestry.
-  if (source.kind === 'projection_absent' && !original.projectionPaths.includes(original.sourcePath)) {
+  if (source.kind === 'projection_absent' && !projections.includes(original.sourcePath)) {
     assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return;
   }
-  if (original.projectionPaths.includes(original.sourcePath)) {
+  if (projections.includes(original.sourcePath)) {
     if (original.filesystem.sourceParents.missingPrefix !== null) {
       assertAbsent(stage, stage.source!, original.sourcePath, original.filesystem.sourceParents, 'source-changed'); return;
     }
@@ -452,8 +561,9 @@ async function initialize(stage: Stage): Promise<void> {
     stage.sourceFd = entry.fd; source = await snapshot(stage, entry.fd, entry.kind, true);
   }
   const payload = await build(stage, source);
-  stage.facts = decodePreparedWorkspacePathCopyOriginal({ version: stage.request.sourceProjectionPolicy ? 2 : 1,
+  stage.facts = decodePreparedWorkspacePathCopyOriginal({ version: stage.request.sourceProjectionPolicy === 'provider-derived-files-v3' ? 3 : stage.request.sourceProjectionPolicy ? 2 : 1,
     ...(stage.request.sourceProjectionPolicy ? { sourceProjectionPolicy: stage.request.sourceProjectionPolicy } : {}),
+    ...(stage.request.sourceProjectionPolicy === 'provider-derived-files-v3' ? { derivedFiles: stage.request.derivedFiles } : {}),
     sourceWorkspace: stage.request.sourceWorkspace, destinationWorkspace: stage.request.destinationWorkspace,
     sourcePath: stage.request.sourcePath, destinationPath: stage.request.destinationPath, budget: stage.request.budget, projectionPaths: stage.request.projectionPaths,
     filesystem: { sourceRoot: { resolvedPath: stage.source.resolved, identity: stage.source.root.identity },
@@ -548,7 +658,7 @@ async function recover(stage: Stage, original: PreparedWorkspacePathCopyOriginal
   if (!original.staging) {
     if (created.length) throw failure(stage, 'recovery-conflict');
     if (original.source.kind !== 'projection_absent'
-      && !(original.version === 2 && original.projectionPaths.includes(original.sourcePath))) {
+      && !((original.version === 2 || original.version === 3) && sourceProjectionPaths(original).includes(original.sourcePath))) {
       const source = leafEntry(stage, stage.source, original.sourcePath);
       if (!source || source.fd === undefined || source.kind !== 'regular_file') { dispose(stage, source); throw failure(stage, 'recovery-conflict'); }
       stage.sourceFd = source.fd;
@@ -572,9 +682,11 @@ async function recover(stage: Stage, original: PreparedWorkspacePathCopyOriginal
       keep = target!.fd; stage.payloadFd = keep; stage.disposition = 'already_published'; stage.containerRemoved = !container;
     } else if (atStage && !target && staged!.fd !== undefined && staged!.kind === original.staging.payload.kind) {
       keep = staged!.fd; stage.payloadFd = keep; stage.disposition = 'pending';
-      const source = leafEntry(stage, stage.source, original.sourcePath);
-      if (!source || source.fd === undefined || source.kind !== original.staging.payload.kind) { dispose(stage, source); throw failure(stage, 'recovery-conflict'); }
-      stage.sourceFd = source.fd;
+      if (!(original.version === 3 && (original.source.kind === 'projection_absent' || original.source.kind === 'projection_file'))) {
+        const source = leafEntry(stage, stage.source, original.sourcePath);
+        if (!source || source.fd === undefined || source.kind !== original.staging.payload.kind) { dispose(stage, source); throw failure(stage, 'recovery-conflict'); }
+        stage.sourceFd = source.fd;
+      }
     } else throw failure(stage, 'recovery-conflict');
     await verifyCurrent(stage);
   } finally { if (target?.fd !== undefined && target.fd !== keep) close(stage, target.fd); if (staged?.fd !== undefined && staged.fd !== keep) close(stage, staged.fd); }
@@ -690,13 +802,12 @@ export async function withPreparedWorkspacePathCopy<T>(input: PreparedWorkspaceP
 export async function withRecoveredWorkspacePathCopy<T>(input: RecoveredWorkspacePathCopyInput,
   callback: (cap: PreparedWorkspacePathCopy) => Promise<T>): Promise<T> {
   try {
-    if (Reflect.ownKeys(input ?? {}).some(key => !['sourceWorkspace', 'destinationWorkspace', 'original', 'createdParents', 'sharedParents'].includes(key as string))) throw failure(undefined, 'invalid-input');
+    if (types.isProxy(input) || !input || typeof input !== 'object'
+      || Reflect.ownKeys(input).some(key => !['sourceWorkspace', 'destinationWorkspace', 'original', 'createdParents', 'sharedParents'].includes(key as string))) throw failure(undefined, 'invalid-input');
     const original = decodePreparedWorkspacePathCopyOriginal(copyData(input, 'original'));
-    const request = capturePathCopyRequest({ sourceWorkspace: copyData(input, 'sourceWorkspace') as PreparedWorkspacePathCopyInput['sourceWorkspace'],
-      destinationWorkspace: copyData(input, 'destinationWorkspace') as PreparedWorkspacePathCopyInput['destinationWorkspace'],
-      sourcePath: original.sourcePath, destinationPath: original.destinationPath,
-      sourceKind: original.source.kind === 'projection_file' ? 'regular_file' : original.source.kind, budget: original.budget, projectionPaths: original.projectionPaths,
-      ...(original.version === 2 ? { sourceProjectionPolicy: original.sourceProjectionPolicy } : {}) });
+    const request = capturePathCopyRecoveryRequest(original,
+      copyData(input, 'sourceWorkspace') as PreparedWorkspacePathCopyInput['sourceWorkspace'],
+      copyData(input, 'destinationWorkspace') as PreparedWorkspacePathCopyInput['destinationWorkspace']);
     if (!isDeepStrictEqual(request.sourceWorkspace, original.sourceWorkspace) || !isDeepStrictEqual(request.destinationWorkspace, original.destinationWorkspace)) throw failure(undefined, 'scope-changed');
     const shared = capturePathCopySharedParents(copyData(input, 'sharedParents', true), original);
     const created = capturePathCopyParentReceipts(copyData(input, 'createdParents', true), original, shared);

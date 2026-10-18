@@ -1,12 +1,13 @@
 import 'server-only';
 
-import { isDeepStrictEqual as equal } from 'node:util';
+import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { SqlConnection } from '../db';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { decodePreparedWorkspacePathCopyOriginal } from '../filesystem/prepared-workspace-path-copy-contract';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeCopyPlan, type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
+import { decodeWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
 import type { WorkspaceOperationNativeCopyPhysical, WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
 
 export type NativeCopyMetadataRow = Readonly<{ path: string; title: string | null; createdAt: number; updatedAt: number }>;
@@ -21,7 +22,8 @@ export type NativeCopyMetadataCompletionWitness = NativeCopyMetadataWitness & Re
 export type NativeCopyMetadataStage = Omit<WorkspaceOperationNativeCopyStage, 'version'> & Readonly<{
   version: 3; metadata: NativeCopyMetadataSnapshot; coreV2StageDigest: string;
 }>;
-type Input = Readonly<{ plan: WorkspaceOperationNativeCopyPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
+type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan;
+type Input = Readonly<{ plan: MetadataPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
 type Row = Record<string, unknown>;
 const MAX_ROWS = 2048;
 const MAX_BYTES = 1024 * 1024;
@@ -75,7 +77,11 @@ function title(value: unknown): string | null {
   return value;
 }
 function context(input: Input) {
-  const fields = object(input, ['plan', 'physical']), plan = decodeWorkspaceOperationNativeCopyPlan(fields.plan);
+  const fields = object(input, ['plan', 'physical']), supplied = fields.plan;
+  const managed = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
+    && Object.getPrototypeOf(supplied) === Object.prototype
+    && Object.getOwnPropertyDescriptor(supplied, 'version')?.value === 3;
+  const plan = managed ? decodeWorkspaceOperationManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
   const physical = list(fields.physical, 1000).map((value, index) => {
     const item = object(value, ['selectionIndex', 'original']), selected = plan.selections[index];
     const original = decodePreparedWorkspacePathCopyOriginal(item.original);
@@ -204,7 +210,7 @@ async function storage(database: SqlConnection): Promise<Storage> {
     || !equal(row.columns, expected[String(row.relname)]))) fail('NATIVE_COPY_METADATA_CHANGED');
   return { schema: rows[0].schema as string, proof: proof(rows) };
 }
-type ReadContext = Readonly<{ plan: WorkspaceOperationNativeCopyPlan; sourcePaths: readonly string[];
+type ReadContext = Readonly<{ plan: MetadataPlan; sourcePaths: readonly string[];
   vacancyScopes: readonly string[]; exactVacancyPaths: readonly string[]; mappingsProof: string }>;
 async function sourceRows(database: SqlConnection, bound: ReadContext, pin: Storage): Promise<NativeCopyMetadataRow[]> {
   // Count, byte and scalar checks share this statement's snapshot with payload

@@ -19,8 +19,28 @@ import { NATIVE_RECOVERY_PAYLOAD_LIMIT } from '../collaboration/native-document-
 import { captureNativeCopyStageIdentity, decodeNativeCopyStage, prepareNativeCopyStage, assertNativeCopyStageManifestDigest, NativeCopyStageDataError,
   NATIVE_COPY_STAGE_MANIFEST_LIMIT, type WorkspaceOperationNativeCopyStage,
   type WorkspaceOperationNativeCopyStageIdentity, type WorkspaceOperationNativeCopyStageInput } from './workspace-operation-native-copy-stage';
+import { prepareManagedCopyStage, decodeManagedCopyStage, assertManagedCopyStageManifestDigest,
+  MANAGED_COPY_SCENE_RECORDS_LIMIT, MANAGED_COPY_SCENE_ASSETS_LIMIT,
+  type WorkspaceOperationManagedCopyStageInput, type WorkspaceOperationManagedCopyStageV4 } from './workspace-operation-managed-copy-stage';
 export type { WorkspaceOperationNativeCopyStage, WorkspaceOperationNativeCopyStageIdentity,
   WorkspaceOperationNativeCopyStageInput, WorkspaceOperationNativeCopyPhysical } from './workspace-operation-native-copy-stage';
+export type { WorkspaceOperationManagedCopyStageInput, WorkspaceOperationManagedCopyStageV4 } from './workspace-operation-managed-copy-stage';
+
+type StoredCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationManagedCopyStageV4;
+type PreparedCopyStage = ReturnType<typeof prepareNativeCopyStage> | ReturnType<typeof prepareManagedCopyStage>;
+const copyStageFileNames = (managed: boolean): readonly string[] => managed
+  ? ['manifest.json', 'native-records.bin', 'scene-assets.bin', 'scene-records.json'] : ['manifest.json', 'native-records.bin'];
+function assertCopyStageFormat(value: StoredCopyStage, managed: boolean): void {
+  if ((value.version === 4) !== managed) fail('STAGE_CONFLICT', 'Recovery stage requires its original provider format.');
+}
+function managedPayloadMaximum(manifest: Record<string, unknown>, key: string, maximum: number): number {
+  const descriptor = manifest[key];
+  const value = descriptor !== null && typeof descriptor === 'object' ? Reflect.get(descriptor, 'sizeBytes') : undefined;
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > maximum) {
+    fail('CORRUPT_STAGE', 'Managed payload descriptor exceeds its read budget.');
+  }
+  return value;
+}
 
 const DOCUMENT_LIMIT = 4 * 1024 * 1024;
 const TOTAL_LIMIT = 64 * 1024 * 1024;
@@ -393,27 +413,35 @@ function nativeJson(bytes: Buffer): Record<string, unknown> {
     return value as Record<string, unknown>;
   } catch { return fail('CORRUPT_STAGE', 'Native manifest is invalid JSON.'); }
 }
-async function nativeLoad(root: NativeDirectoryPin, identity: WorkspaceOperationNativeCopyStageIdentity, name = identity.operationId): Promise<WorkspaceOperationNativeCopyStage | null> {
+async function nativeLoad(root: NativeDirectoryPin, identity: WorkspaceOperationNativeCopyStageIdentity, name = identity.operationId): Promise<StoredCopyStage | null> {
   const directory = nativeOpenDirectory(root, name); if (!directory) return null;
   try {
     const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
     if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
-    assertNativeCopyStageManifestDigest(manifest);
+    const managed = manifest.version === 4;
+    if (managed) assertManagedCopyStageManifestDigest(manifest); else assertNativeCopyStageManifestDigest(manifest);
     const actualIdentity = captureNativeCopyStageIdentity(manifest.identity);
     if ((['operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'kind', 'canonicalRequestHash'] as const)
       .some(key => actualIdentity[key] !== identity[key])) fail('STAGE_CONFLICT', 'Native stage belongs to a different original request.');
-    if ([...getFdDirectoryInventoryBackend().listDirectoryAt(directory.fd)].sort().join(',') !== 'manifest.json,native-records.bin') fail('CORRUPT_STAGE', 'Native stage contains unexpected files.');
-    const bytes = await nativeReadFile(directory, 'native-records.bin', NATIVE_RECOVERY_PAYLOAD_LIMIT);
+    if ([...getFdDirectoryInventoryBackend().listDirectoryAt(directory.fd)].sort().join(',') !== copyStageFileNames(managed).join(',')) fail('CORRUPT_STAGE', 'Native stage contains unexpected files.');
+    const bytes = await nativeReadFile(directory, 'native-records.bin', managed
+      ? managedPayloadMaximum(manifest, 'records', NATIVE_RECOVERY_PAYLOAD_LIMIT) : NATIVE_RECOVERY_PAYLOAD_LIMIT);
+    if (managed) {
+      const sceneRecordsBytes = await nativeReadFile(directory, 'scene-records.json', managedPayloadMaximum(manifest, 'sceneRecords', MANAGED_COPY_SCENE_RECORDS_LIMIT));
+      const sceneAssetsBytes = await nativeReadFile(directory, 'scene-assets.bin', managedPayloadMaximum(manifest, 'sceneAssets', MANAGED_COPY_SCENE_ASSETS_LIMIT));
+      nativeCheckDirectory(directory);
+      return decodeManagedCopyStage(manifest, { recordsBytes: bytes, sceneRecordsBytes, sceneAssetsBytes }, identity);
+    }
     nativeCheckDirectory(directory); return decodeNativeCopyStage(manifest, bytes, identity);
   } catch (error) { return nativeStageError(error); }
   finally { nativeFs.closeSync(directory.fd); }
 }
 /** API3 has no rmdir primitive. The private Store's exact directory namespace
  * is checked immediately before named rmdir; this is observational, not CAS. */
-async function nativeRemoveDirectory(directory: NativeDirectoryPin, expected?: Map<string, BigIntStats>): Promise<void> {
+async function nativeRemoveDirectory(directory: NativeDirectoryPin, expected?: Map<string, BigIntStats>, managed = false): Promise<void> {
   nativeCheckDirectory(directory); const io = getFdPublicationBackend();
   const names = getFdDirectoryInventoryBackend().listDirectoryAt(directory.fd);
-  if (names.some(name => !['manifest.json', 'native-records.bin'].includes(name))) fail('UNSAFE_STORAGE', 'Unexpected native staging node is retained.');
+  if (names.some(name => !copyStageFileNames(managed).includes(name))) fail('UNSAFE_STORAGE', 'Unexpected native staging node is retained.');
   for (const name of names) {
     nativeCheckDirectory(directory); const fd = io.openFileAt(directory.fd, name, 'readonly');
     try {
@@ -593,12 +621,29 @@ export class WorkspaceOperationStaging {
    * Original intent capture completes synchronously before any storage await. */
   async stageNativeCopy(input: WorkspaceOperationNativeCopyStageInput): Promise<WorkspaceOperationNativeCopyStage> {
     try {
-      const prepared = prepareNativeCopyStage(input), identity = prepared.manifest.identity;
+      const result = await this.stagePreparedCopy(prepareNativeCopyStage(input));
+      if (result.version === 4) fail('STAGE_CONFLICT', 'Managed stage cannot replace a historical native stage.');
+      return result;
+    } catch (error) { return nativeStageError(error); }
+  }
+
+  async stageManagedCopy(input: WorkspaceOperationManagedCopyStageInput): Promise<WorkspaceOperationManagedCopyStageV4> {
+    try {
+      const result = await this.stagePreparedCopy(prepareManagedCopyStage(input));
+      if (result.version !== 4) fail('STAGE_CONFLICT', 'Managed stage requires its original provider format.');
+      return result;
+    } catch (error) { return nativeStageError(error); }
+  }
+
+  private async stagePreparedCopy(prepared: PreparedCopyStage): Promise<StoredCopyStage> {
+    try {
+      const identity = prepared.manifest.identity, managed = prepared.manifest.version === 4;
       const root = nativeRoot(await this.root()); let temporary: NativeDirectoryPin | null = null;
       const born = new Map<string, BigIntStats>();
       try {
         const existing = await nativeLoad(root, identity);
         if (existing) {
+          assertCopyStageFormat(existing, managed);
           if (existing.payloadSha256 !== prepared.manifest.payloadSha256) fail('STAGE_CONFLICT', 'Native operation ID already has a different original.');
           return existing;
         }
@@ -607,6 +652,10 @@ export class WorkspaceOperationStaging {
         temporary = nativeOpenDirectory(root, name);
         if (!temporary) fail('UNSAFE_STORAGE', 'Native staging birth could not be confirmed.');
         await nativeWriteFile(temporary, 'native-records.bin', prepared.recordsBytes, born);
+        if ('sceneRecordsBytes' in prepared) {
+          await nativeWriteFile(temporary, 'scene-records.json', prepared.sceneRecordsBytes, born);
+          await nativeWriteFile(temporary, 'scene-assets.bin', prepared.sceneAssetsBytes, born);
+        }
         await nativeWriteFile(temporary, 'manifest.json', prepared.manifestBytes, born);
         await nativeSync(temporary); nativeCheckDirectory(root); nativeCheckDirectory(temporary);
         try { getFdPathMoveBackend().renameNoReplaceAt(root.fd, name, root.fd, identity.operationId); }
@@ -614,6 +663,7 @@ export class WorkspaceOperationStaging {
           if (!hasCode(error, 'EEXIST') && !hasCode(error, 'ENOTEMPTY')) throw error;
           const concurrent = await nativeLoad(root, identity);
           if (!concurrent || concurrent.payloadSha256 !== prepared.manifest.payloadSha256) fail('STAGE_CONFLICT', 'Concurrent native staging has a different original.');
+          assertCopyStageFormat(concurrent, managed);
           return concurrent;
         }
         // The original temporary name is gone. Do not use its old named pin
@@ -621,6 +671,7 @@ export class WorkspaceOperationStaging {
         await nativeSync(root);
         const result = await nativeLoad(root, identity);
         if (!result || result.payloadSha256 !== prepared.manifest.payloadSha256) fail('CORRUPT_STAGE', 'Published native stage differs.');
+        assertCopyStageFormat(result, managed);
         return result;
       } finally {
         try {
@@ -629,7 +680,7 @@ export class WorkspaceOperationStaging {
             if (named) {
               try {
                 if (!nativeNode(named.identity, temporary.identity)) fail('UNSAFE_STORAGE', 'Foreign temporary staging is retained.');
-                await nativeRemoveDirectory(named, born);
+                await nativeRemoveDirectory(named, born, managed);
               } finally { nativeFs.closeSync(named.fd); }
             }
           }
@@ -639,11 +690,24 @@ export class WorkspaceOperationStaging {
   }
 
   async loadNativeCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<WorkspaceOperationNativeCopyStage> {
+    const result = await this.loadStoredCopy(input, false);
+    if (result.version === 4) fail('STAGE_CONFLICT', 'Managed stage requires its original provider format.');
+    return result;
+  }
+
+  async loadManagedCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<WorkspaceOperationManagedCopyStageV4> {
+    const result = await this.loadStoredCopy(input, true);
+    if (result.version !== 4) fail('STAGE_CONFLICT', 'Managed stage requires its original provider format.');
+    return result;
+  }
+
+  private async loadStoredCopy(input: WorkspaceOperationNativeCopyStageIdentity, managed: boolean): Promise<StoredCopyStage> {
     try {
       const identity = captureNativeCopyStageIdentity(input), root = nativeRoot(await this.root());
       try {
         const result = await nativeLoad(root, identity);
-        if (!result) fail('CORRUPT_STAGE', 'Native recovery stage is missing.'); return result;
+        if (!result) fail('CORRUPT_STAGE', 'Native recovery stage is missing.');
+        assertCopyStageFormat(result, managed); return result;
       } finally { nativeFs.closeSync(root.fd); }
     } catch (error) { return nativeStageError(error); }
   }
@@ -652,6 +716,18 @@ export class WorkspaceOperationStaging {
    * This reads immutable data; current C2/principal/plan admission belongs to
    * the fixed owner and no identity or new destination is synthesized here. */
   async loadNativeCopyByOperationId(operationId: string): Promise<WorkspaceOperationNativeCopyStage | null> {
+    const result = await this.loadStoredCopyByOperationId(operationId, false);
+    if (result?.version === 4) fail('STAGE_CONFLICT', 'Managed stage requires its original provider format.');
+    return result;
+  }
+
+  async loadManagedCopyByOperationId(operationId: string): Promise<WorkspaceOperationManagedCopyStageV4 | null> {
+    const result = await this.loadStoredCopyByOperationId(operationId, true);
+    if (result && result.version !== 4) fail('STAGE_CONFLICT', 'Managed stage requires its original provider format.');
+    return result;
+  }
+
+  private async loadStoredCopyByOperationId(operationId: string, managed: boolean): Promise<StoredCopyStage | null> {
     if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)) fail('STAGE_CONFLICT', 'Invalid operation ID.');
     const captured = operationId, root = nativeRoot(await this.root());
     try {
@@ -659,12 +735,14 @@ export class WorkspaceOperationStaging {
       try {
         const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
         if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
-        if (manifest.version !== 2 && manifest.version !== 3 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
+        if (manifest.version !== 2 && manifest.version !== 3 && manifest.version !== 4 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
+        if ((manifest.version === 4) !== managed) fail('STAGE_CONFLICT', 'Recovery stage requires its original provider format.');
         const identity = captureNativeCopyStageIdentity(manifest.identity);
         if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage operation identity differs.');
         nativeCheckDirectory(directory);
         const original = await nativeLoad(root, identity);
         if (!original) fail('CORRUPT_STAGE', 'Original native stage disappeared during recovery.');
+        assertCopyStageFormat(original, managed);
         // Keep the first manifest's actual directory pin throughout nativeLoad;
         // an identical-byte replacement directory must not be silently adopted.
         nativeCheckDirectory(directory); return original;
@@ -681,10 +759,10 @@ export class WorkspaceOperationStaging {
       const directory = nativeOpenDirectory(root, captured); if (!directory) return null;
       try {
         const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
-        if ((manifest.version === 2 || manifest.version === 3) && manifest.kind === 'native-copy') {
+        if ((manifest.version === 2 || manifest.version === 3 || manifest.version === 4) && manifest.kind === 'native-copy') {
           const identity = captureNativeCopyStageIdentity(manifest.identity);
           if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage identity differs.');
-          assertNativeCopyStageManifestDigest(manifest);
+          if (manifest.version === 4) assertManagedCopyStageManifestDigest(manifest); else assertNativeCopyStageManifestDigest(manifest);
           return 'native-copy';
         }
         const keys = ['version', 'operationId', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'preview', 'documents', 'linkPreflight', 'payloadSha256'];
@@ -699,6 +777,14 @@ export class WorkspaceOperationStaging {
   }
 
   async removeCompletedNativeCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<void> {
+    return this.removeCompletedCopy(input, false);
+  }
+
+  async removeCompletedManagedCopy(input: WorkspaceOperationNativeCopyStageIdentity): Promise<void> {
+    return this.removeCompletedCopy(input, true);
+  }
+
+  private async removeCompletedCopy(input: WorkspaceOperationNativeCopyStageIdentity, managed: boolean): Promise<void> {
     try {
       const identity = captureNativeCopyStageIdentity(input), operation = await this.completionLookup(identity.operationId);
       if (!operation || operation.operationId !== identity.operationId || operation.status !== 'completed' || operation.planId !== identity.planId
@@ -711,11 +797,15 @@ export class WorkspaceOperationStaging {
           if (!name.startsWith(prefix) || !/^[a-f0-9-]{36}$/u.test(name.slice(prefix.length))) continue;
           // Original C1/C2 and every native binary are checked before deleting
           // even a previously retired private directory after a restart.
-          await nativeLoad(root, identity, name);
+          const original = await nativeLoad(root, identity, name);
+          if (!original) fail('CORRUPT_STAGE', 'Retired recovery stage disappeared.');
+          assertCopyStageFormat(original, managed);
           const retired = nativeOpenDirectory(root, name);
-          if (retired) try { await nativeRemoveDirectory(retired); } finally { nativeFs.closeSync(retired.fd); }
+          if (retired) try { await nativeRemoveDirectory(retired, undefined, managed); } finally { nativeFs.closeSync(retired.fd); }
         }
-        if (!await nativeLoad(root, identity)) { await nativeSync(root); return; }
+        const original = await nativeLoad(root, identity);
+        if (!original) { await nativeSync(root); return; }
+        assertCopyStageFormat(original, managed);
         const directory = nativeOpenDirectory(root, identity.operationId);
         if (!directory) fail('CORRUPT_STAGE', 'Native stage disappeared before retirement.');
         try {
@@ -726,7 +816,7 @@ export class WorkspaceOperationStaging {
           if (!retiring) fail('CORRUPT_STAGE', 'Retired native stage disappeared.');
           try {
             if (!nativeNode(retiring.identity, directory.identity)) fail('UNSAFE_STORAGE', 'Foreign retired native stage is retained.');
-            await nativeRemoveDirectory(retiring);
+            await nativeRemoveDirectory(retiring, undefined, managed);
           } finally { nativeFs.closeSync(retiring.fd); }
         } finally { nativeFs.closeSync(directory.fd); }
       } finally { nativeFs.closeSync(root.fd); }

@@ -31,6 +31,18 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-copy-source-observation.ts',
     'app/lib/excalidraw-collaboration/workspace-scene-snapshot.ts', 'app/lib/excalidraw-collaboration/readonly-assets.ts',
     'app/lib/markdown/workspace-native-mixed-batch-compiler.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-managed-copy-stage-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/files/workspace-operation-managed-copy-stage.ts', 'app/lib/files/workspace-operation-staging.ts',
+    'app/lib/excalidraw-collaboration/portable-serialization.ts', 'app/lib/excalidraw-collaboration/readonly-assets.ts',
+    'app/lib/filesystem/prepared-workspace-path-copy.ts', 'app/lib/filesystem/prepared-workspace-path-copy-contract.ts',
+    'app/lib/files/workspace-operation-native-copy-metadata.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-operation-native-copy-owner-postgres-test.ts': [entryPoint,
+    'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-phase.ts',
+    'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts',
+    'app/lib/collaboration/native-copy-persistence.ts', 'app/lib/filesystem/prepared-workspace-path-copy.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-operation-native-copy-metadata-owner-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-metadata.ts',
+    'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts', 'app/lib/db/index.ts'],
 };
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];
