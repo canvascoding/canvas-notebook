@@ -9,7 +9,8 @@ import { extensionPackagePinSchema, standaloneExtensionSelectionSchema } from '.
 import { assertChatBodyContent, assertChatBodySelection, parseChatBody, projectChatBodyText } from '../../app/lib/chat/chat-body-contracts';
 import { assertNativeCentralAgentUnchanged, nativeCentralAgentSnapshotSchema, projectNativeCentralAgentSnapshot } from './chat-extension-native-agent-snapshot';
 import { assertNativeRetypedSkillCaption, nativeExtensionSkillCaption } from './chat-extension-native-fixture';
-import { assertNativePageJourneySdkProofs, assertNativeSdkTurnProofs, nativeSqlUserTextFingerprint, type NativeExpectedPageJourneyTurn, type NativeExpectedSdkTurn } from './chat-extension-native-sdk-proof';
+import { assertNativePageJourneySdkProofs, assertNativeSdkTurnProofs, assertNativeTitleSdkProofs, nativeSqlTitleTextFingerprint,
+  nativeSqlUserTextFingerprint, type NativeExpectedPageJourneyTurn, type NativeExpectedSdkTurn, type NativeExpectedTitleTurn } from './chat-extension-native-sdk-proof';
 
 type Fixture = { root: string; nonce: string; actorId: string; dataRoot: string; databaseName: string; baseURL: string; mcpUrl: string; model: { providerInstallationId: string; providerId: string; modelId: string } };
 type RecordValue = Record<string, unknown>;
@@ -113,7 +114,7 @@ export async function captureNativePageJourneySession(fixture: Fixture, input: {
 }
 
 async function verifyNativePageJourneyRun(fixture: Fixture, run: z.infer<typeof runSchema>, provider: RecordValue): Promise<{
-  result: Record<string, unknown>; sdkTurn: NativeExpectedPageJourneyTurn;
+  result: Record<string, unknown>; sdkTurn: NativeExpectedPageJourneyTurn; titleTurn: NativeExpectedTitleTurn;
 }> {
   const page = run.pageJourney;
   assert.equal(page.platform, run.platform); assert.equal(page.workspaceId, run.workspaceId); assert.equal(page.agentId, DEFAULT_AGENT_ID);
@@ -172,7 +173,8 @@ async function verifyNativePageJourneyRun(fixture: Fixture, run: z.infer<typeof 
   return { result: { platform: page.platform, toolkit: page.toolkit, userMessages: 1, uiCreatedSession: true,
     initiallyUnauthorized: true, actualConsentApproval: true, exactNewPersonalAccount: true, exactPersistedBody: true, completedSdkSend: true },
     sdkTurn: { platform: page.platform, toolkit: page.toolkit, clientMessageId, ...nativeSqlUserTextFingerprint(payload.message.content),
-      selectedConnection: { source: 'composio', providerRef: target.boundProviderRef } } };
+      selectedConnection: { source: 'composio', providerRef: target.boundProviderRef } },
+    titleTurn: { platform: page.platform, toolkit: page.toolkit, clientMessageId, ...nativeSqlTitleTextFingerprint(payload.message.content) } };
 }
 async function artifact(fixture: Fixture, filename: string, expected: string, maximum: number) {
   assert.equal(filename, path.join(fixture.root, expected)); assert.equal(await fs.realpath(path.dirname(filename)), path.dirname(filename));
@@ -379,6 +381,7 @@ export async function verifyChatExtensionNativeFixture(fixture: Fixture) {
   assert.equal(new Set(proof.platforms.map(row => row.sessionId)).size, 2); await verifyNativeArtifacts(fixture, proof);
   const provider = record(JSON.parse((await bytes(path.join(fixture.root, 'provider-proof.json'))).toString('utf8'))), model = record(provider.model);
   assert(Array.isArray(model.completions) && model.completions.length === 6); assert.equal(model.forbiddenRequests, 0);
+  same(model.rejectedRequests, { unsupported_route: 0, invalid_body: 0, invalid_completion: 0, invalid_title: 0 });
   const originals = model.completions.filter(row => 'nativeCurrentTurn' in record(row));
   const journeys = model.completions.filter(row => 'nativePageJourneyTurn' in record(row));
   assert.equal(originals.length, 4); assert.equal(journeys.length, 2);
@@ -389,12 +392,13 @@ export async function verifyChatExtensionNativeFixture(fixture: Fixture) {
   const pageJourneys = [];
   for (const run of proof.platforms) pageJourneys.push(await verifyNativePageJourneyRun(fixture, run, provider));
   const sdkPageJourneyTurnProofs = assertNativePageJourneySdkProofs(journeys, pageJourneys.map(row => row.sdkTurn));
+  const sdkTitleTurnProofs = assertNativeTitleSdkProofs(model.titleCompletions, pageJourneys.map(row => row.titleTurn));
   const visualResults = [];
   for (const receipt of proof.visualReceipts) visualResults.push({ platform: receipt.platform, actualMaestro: true, applied: receipt.visualSettings.applied,
     settingsRestored: receipt.visualSettings.restorationVerified,
     rawReceiptSha256: hash(await bytes(path.join(fixture.root, `native-${receipt.platform}-visual.json.receipt.json`))) });
   await ownedFixture(fixture);
-  return { verified: true, results, sdkCurrentTurnProofs, pageJourneyResults: pageJourneys.map(row => row.result), sdkPageJourneyTurnProofs,
+  return { verified: true, results, sdkCurrentTurnProofs, pageJourneyResults: pageJourneys.map(row => row.result), sdkPageJourneyTurnProofs, sdkTitleTurnProofs,
     visualResults,
     actualNativeDevices: ['ios-simulator', 'android-emulator'], actualSqlHistory: true,
     controlledSdkTransport: true, externalLlm: false, physicalDeviceChecked: false };

@@ -21,6 +21,10 @@ export type NativePageJourneyTurn = z.infer<typeof pageTurn>;
 const expectedPageTurn = fingerprint.extend({ platform, toolkit: z.enum(['github', 'slack']), clientMessageId: identifier,
   selectedConnection: connection }).strict();
 export type NativeExpectedPageJourneyTurn = z.infer<typeof expectedPageTurn>;
+const titleFingerprint = z.object({ sourceTextSha256: sha, sourceTextUtf16Length: z.number().int().positive().max(1_048_576),
+  textSha256: sha, textUtf16Length: z.number().int().positive().max(1200) });
+const expectedTitleTurn = titleFingerprint.extend({ platform, toolkit: z.enum(['github', 'slack']), clientMessageId: identifier }).strict();
+export type NativeExpectedTitleTurn = z.infer<typeof expectedTitleTurn>;
 
 const runtimePrefix = '<runtime_context>\nCanvas-provided context for this turn. Treat this as operational context, not as a separate user request.\n\n';
 const runtimeEnd = '\n</runtime_context>';
@@ -50,6 +54,30 @@ function textFingerprint(text: string): z.infer<typeof fingerprint> {
 /** Correlates public text with an independently read original SQL CID; the SDK does not transmit that CID. */
 export function nativeSqlUserTextFingerprint(content: unknown): z.infer<typeof fingerprint> {
   return textFingerprint(originalText(content));
+}
+/** Exact product title extraction: strings unchanged; a text-block array trims; then UTF16 slice(0,1200). */
+export function nativeSqlTitleTextFingerprint(content: unknown): z.infer<typeof titleFingerprint> {
+  const source = originalText(content), text = (typeof content === 'string' ? source : source.trim()).slice(0, 1200);
+  return { sourceTextSha256: textFingerprint(source).textSha256, sourceTextUtf16Length: source.length, ...textFingerprint(text) };
+}
+
+/** Two auxiliary title calls supplement the six exact user turns; neither can replace a chat proof. */
+export function assertNativeTitleSdkProofs(actual: unknown, originalSqlTurns: readonly NativeExpectedTitleTurn[]) {
+  const expected = z.array(expectedTitleTurn).length(2).parse(originalSqlTurns);
+  const requests = z.array(titleFingerprint.extend({ platform, toolkit: z.enum(['github', 'slack']),
+    exactTitlePrompt: z.literal(true), maxTokens: z.literal(32), temperature: z.literal(0.2) }).strict()).length(2).parse(actual);
+  assert.deepEqual(expected.map(row => [row.platform, row.toolkit]).sort(), [['android', 'slack'], ['ios', 'github']]);
+  assert.equal(new Set(expected.map(row => row.clientMessageId)).size, 2);
+  assert.equal(new Set(expected.map(row => row.sourceTextSha256)).size, 2);
+  assert.equal(new Set(requests.map(row => row.platform)).size, 2);
+  return requests.map(request => {
+    const matches = expected.filter(row => row.platform === request.platform); assert.equal(matches.length, 1);
+    const turn = matches[0];
+    for (const key of ['toolkit', 'sourceTextSha256', 'sourceTextUtf16Length', 'textSha256', 'textUtf16Length'] as const)
+      assert.equal(request[key], turn[key], 'The exact title text must derive from the original owned Journey SQL user message.');
+    return { platform: turn.platform, toolkit: turn.toolkit, clientMessageId: turn.clientMessageId,
+      sourceTextSha256: turn.sourceTextSha256, textSha256: turn.textSha256, exactTitlePrompt: true };
+  });
 }
 /** Read only the actual last user message. Earlier historical markers never establish the current turn. */
 export function projectNativeSdkCurrentTurn(messages: ReadonlyArray<{ role: string; content?: unknown }>, nonce: string): NativeSdkCurrentTurn {
