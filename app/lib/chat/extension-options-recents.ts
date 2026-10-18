@@ -15,7 +15,8 @@ import { inspectCapabilityResource } from '@/app/lib/capabilities/resources/acti
 import { authorizeChatExtensionSharedOption } from './extension-options-context';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { ExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
-type Filters = Pick<ChatExtensionSearchRequest, 'types' | 'stock' | 'source' | 'scope' | 'audience' | 'teamId'>;
+type Filters = Pick<ChatExtensionSearchRequest, 'types' | 'stock' | 'source' | 'scope' | 'audience' | 'teamId'>
+  & { phase?: ChatExtensionSearchRequest['phase'] };
 async function matchesFilters(context: ChatExtensionOptionsContext, selection: ExtensionSelection, filters?: Filters): Promise<boolean> {
   if (!filters) return true;
   const type = selection.kind === 'composio' ? 'integration' : selection.kind==='core_plugin'?'plugin':selection.kind==='core_skill'?'skill':selection.kind;
@@ -97,6 +98,11 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
       const selection = bundle.primary.selection, identity = createHash('sha256').update(extensionSelectionIdentity(selection)).digest('hex');
       stoppedAt = { at: Number(row.created_at), session: row.session_id, client: row.client_message_id, bundle: bundleIndex };
       if (seen.has(identity)) continue;
+      // A historical personal no-auth claim still needs fresh provider metadata.
+      // Defer this complete intent to Connected rather than hold up local rows or
+      // infer current authorization from its earlier accepted message.
+      if (filters?.phase === 'local' && [bundle.primary, ...bundle.supporting].some(entry => entry.selection.kind === 'composio'
+        && entry.selection.target.kind === 'personal' && entry.selection.target.accountBinding === 'no_auth')) continue;
       try {
         const eligibility = isCoreExtensionSelection(selection)?await chatCorePluginSelectionEligibility(context,selection):selection.kind === 'plugin' || selection.kind === 'skill' ? await chatPackageSelectionEligibility(context, selection)
           : { action: 'select' as const };
@@ -107,7 +113,10 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
           else await validateChatConnectionMetadata(context, entry, signal, undefined, false);
         }
         if (eligibility.action === 'unavailable' || !await matchesFilters(context, selection, filters)) continue;
-        const publicIcon = await presentChatExtensionIcon(context, selection, signal).catch(() => undefined);
+        // Composio logos require provider catalogue I/O. Local keeps initials;
+        // Connected/presentation may enrich them after the usable local response.
+        const publicIcon = filters?.phase === 'local' && selection.kind === 'composio' ? undefined
+          : await presentChatExtensionIcon(context, selection, signal).catch(() => undefined);
         const accountConfirmation = [bundle.primary, ...bundle.supporting].some(entry => entry.selection.kind === 'composio'
           && entry.selection.target.kind === 'personal' && entry.selection.target.accountBinding === 'account');
         const item: ChatExtensionRecentItem = { bodyBundle: bundle, lastAcceptedAt: Number(row.created_at),
