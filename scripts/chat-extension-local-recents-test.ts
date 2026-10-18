@@ -42,7 +42,7 @@ async function main() {
   const contextBoundary = { resolveChatExtensionOptionsContext: async () => context, chatExtensionOptionsHeader: () => header,
     revalidateChatExtensionOptionsContext: async () => { revalidations++; }, authorizeChatExtensionSharedOption: forbidden };
   const eligibilityBoundary = { chatCorePluginSelectionEligibility: async () => { coreChecks++; return { action: coreAllowed ? 'select' : 'unavailable' }; },
-    chatPackageSelectionEligibility: async () => { packageChecks++; return { action: 'select' }; }, chatPackageBinding: forbidden, chatPermittedPackageRoots: forbidden,
+    chatPackageSelectionEligibility: async () => { packageChecks++; return { action: 'select' }; }, chatPackageBinding: () => undefined, chatPermittedPackageRoots: forbidden,
     chatStandaloneEligibility: () => ({ action: 'select' }), chatStandaloneToolCap: () => null, intersectChatCaps: (_allowed: unknown, requested: unknown) => requested,
     resolveChatConnectionScope: async () => ({ allowed: null, personal: [{}], alternatives: [], toolCap: null }) };
   const inventoryBoundary = { readAgentComposioOptionsCatalogue: async () => { catalogueCalls++; return catalogue.promise; },
@@ -55,6 +55,10 @@ async function main() {
     if (/\/app\/lib\/chat\/(?:extension-options|extension-options-recents|extension-options-presentation|extension-options-validation)\.ts$/u.test(filename)) {
       if (name === './extension-options-context') return contextBoundary;
       if (name === './extension-options-eligibility') return eligibilityBoundary;
+      if (name === './extension-options-package-readiness') return {
+        prepareChatPackageReadinessDescriptor: async (source: { metadata: object }) => ({ metadata: source.metadata, templates: {}, legacyRequired: [] }),
+        chatPackageConnectionsReady: async () => false,
+      };
       if (name === '@/app/lib/db') return { openDb: async () => ({ all: async () => rows, close: async () => undefined }) };
       if (name === '@/app/lib/agents/extension-options-inventory') return inventoryBoundary;
       if (name === '@/app/lib/composio/composio-profiles') return { listExistingComposioProfiles: async () => [{ id: 'own-profile', ownerUserId: actor.userId, status: 'active' }] };
@@ -64,7 +68,8 @@ async function main() {
       if (name === '@/app/lib/capabilities/resources/store') return { findCapabilityResourceRecord: forbidden };
       if (name === '@/app/lib/agents/extension-package-options') return { readAgentExtensionPackageVersion: async (_actor: unknown, exact: unknown) => {
         assert.ok(JSON.stringify(exact) === JSON.stringify(pin) || JSON.stringify(exact) === JSON.stringify(noAuthPin));
-        packageSourceReads++; return { metadata: { kind: 'plugin' }, source: { manifest: { interface: { logo: 'assets/logo.svg' } } } };
+        packageSourceReads++; return { metadata: { ...(exact as typeof pin), kind: 'plugin', skillRoots: [], declarations: [] },
+          source: { manifest: { interface: { logo: 'assets/logo.svg' } } } };
       } };
       if (name === '@/app/lib/integration-tools/connections/store') return { authorizeIntegrationConnection: forbidden };
       if (name === '@/app/lib/composio/composio-shared-account-reference') return { readPersonalComposioAccountReference: forbidden };

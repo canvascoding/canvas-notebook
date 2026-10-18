@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { authorizeIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
 import { listExistingComposioProfiles } from '@/app/lib/composio/composio-profiles';
 import { readAgentComposioOptionsCatalogue, readAgentOwnMcpOptionMetadata, readAgentSharedMcpOptionMetadata } from '@/app/lib/agents/extension-options-inventory';
-import { readAgentExtensionPackageVersion } from '@/app/lib/agents/extension-package-options';
+import { readAgentExtensionPackageVersion, type AgentExtensionPackageVersionSource } from '@/app/lib/agents/extension-package-options';
 import { agentExtensionPackageIcon } from '@/app/lib/agents/extension-options-icons';
 import { mcpIconSourceBinding } from '@/app/lib/mcp/icon-source';
 import { mcpPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
@@ -15,7 +15,7 @@ import { installedPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension
 
 /** Historical presentation reads the exact identity; absence is initials, never a replacement selection. */
 export async function presentChatExtensionIcon(context: ChatExtensionOptionsContext, selection: ExtensionSelection,
-  signal: AbortSignal): Promise<PluginExtensionIcon | undefined> {
+  signal: AbortSignal, options: { packageSource?: AgentExtensionPackageVersionSource } = {}): Promise<PluginExtensionIcon | undefined> {
   await revalidateChatExtensionOptionsContext(context);
   let icon: PluginExtensionIcon | undefined;
   if(selection.kind==='core_plugin') {
@@ -25,7 +25,9 @@ export async function presentChatExtensionIcon(context: ChatExtensionOptionsCont
       skill.interface?.iconSmall || skill.interface?.iconLarge
         ? installedPluginExtensionIcon(selection.coreSource.resourceRef,1,context.actor.workspaceId) : undefined);
   } else if (selection.kind === 'plugin' || selection.kind === 'skill') {
-    const source = await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package, { allowPersonalPackages: true });
+    const source = options.packageSource ?? await readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, selection.package, { allowPersonalPackages: true });
+    if (source.metadata.resourceRef !== selection.package.resourceRef || source.metadata.publishedRevisionRef !== selection.package.publishedRevisionRef
+      || source.metadata.checksum !== selection.package.checksum) return;
     if (selection.kind === 'plugin' && source.metadata.kind !== 'plugin' || selection.kind === 'skill'
       && (selection.origin === 'plugin_child' ? source.metadata.kind !== 'plugin' : source.metadata.kind !== 'skill')) return;
     const child = selection.kind === 'skill' ? source.source.skills.find(value => value.relativeRoot === selection.relativeRoot)?.skill : undefined;

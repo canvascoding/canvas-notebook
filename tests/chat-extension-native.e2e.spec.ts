@@ -14,6 +14,7 @@ import type { ExtensionPackagePin } from '../app/lib/capabilities/extensions/con
 import { nativeExtensionPluginFiles, nativeExtensionStandaloneSkillContent, nativePreparationFailureDiagnostic, nativeExtensionSkillCaption } from '../scripts/helpers/chat-extension-native-fixture';
 import { assertNativePreparedSessionIdentity, captureNativePageJourneySession } from '../scripts/helpers/chat-extension-native-proof';
 import { assertNativeCentralAgentUnchanged, captureNativeCentralAgentSnapshot } from '../scripts/helpers/chat-extension-native-agent-snapshot';
+import { captureNativeSearchFailureDiagnostics } from '../scripts/helpers/chat-extension-native-failure-diagnostic';
 
 test.describe.configure({ retries: 0, timeout: 40 * 60_000 });
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
@@ -183,7 +184,22 @@ test('real native clients retain exact extension references and agent choices ac
         pageJourneyToolkit: platform === 'ios' ? 'github' : 'slack' };
       const execute = async (phase: string, extra: Record<string, unknown> = {}) => {
         const inputPath = path.join(fixture.root, `native-${platform}-${phase}.json`); await fs.writeFile(inputPath, JSON.stringify({ ...common, ...extra, phase }), { mode: 0o600, flag: 'wx' });
-        receipts.push(await runNative(mobileRepo, inputPath, fixture));
+        try { receipts.push(await runNative(mobileRepo, inputPath, fixture)); }
+        catch (error) {
+          // A separate, post-failure request preserves useful evidence before normal DB cleanup.
+          // It is never attributed to the original response or counted as Native acceptance.
+          await captureNativeSearchFailureDiagnostics({ root: fixture.root, platform,
+            failedPhase: phase as 'chat' | 'agent-create' | 'agent-edit' | 'agent-package-policy' | 'my-connection', expectedPackages: [pluginPin, skillPin],
+            request: async (searchPhase, timeoutMs) => {
+              const response = await owner.request.post('/api/mobile/v1/chat/extension-options', { headers, timeout: timeoutMs, maxRetries: 0, data: {
+                contractVersion: 2, operation: 'search', target: { kind: 'turn', sessionId: session.id, expectedAgentId: agentId, expectedWorkspaceId: workspaceId },
+                q: '', types: ['plugin', 'skill', 'integration', 'mcp'], stock: 'all', source: 'all', scope: 'all', audience: null,
+                teamId: null, selected: null, phase: searchPhase, cursor: null, limit: 50,
+              } });
+              return { status: response.status(), serverTiming: response.headers()['server-timing'] ?? null, bytes: await response.body() };
+            } }).catch(() => { /* A diagnostic failure must not replace the actual Native error. */ });
+          throw error;
+        }
       };
       const pageJourneyToolkit = platform === 'ios' ? 'github' : 'slack';
       const beforeJourney = await json<{ toolkit: { connected: boolean } }>(await owner.request.get(

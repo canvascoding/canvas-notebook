@@ -7,14 +7,62 @@ import { AgentWorkflowError } from '@/app/lib/agents/workflow-contracts';
 import { parseChatBody, type ChatReferenceBundleV1 } from './chat-body-contracts';
 import { revalidateChatExtensionOptionsContext, type ChatExtensionOptionsContext } from './extension-options-context';
 import type { ChatExtensionRecentItem, ChatExtensionOptionsRequest, ChatExtensionSearchRequest } from './extension-options-contracts';
-import { chatCorePluginSelectionEligibility, chatPackageSelectionEligibility } from './extension-options-eligibility';
+import { chatCorePluginSelectionEligibility, chatPackageSelectionEligibility, chatPackageBinding, intersectChatCaps } from './extension-options-eligibility';
 import { presentChatExtensionIcon } from './extension-options-presentation';
 import { validateChatConnectionMetadata } from './extension-options-validation';
+import { readAgentExtensionPackageVersion, type AgentExtensionPackageVersionSource } from '@/app/lib/agents/extension-package-options';
+import { chatPackageConnectionsReady, prepareChatPackageReadinessDescriptor } from './extension-options-package-readiness';
+import type { PluginExtensionItem } from '@/app/lib/plugins/plugin-extension-contracts';
 
 import { inspectCapabilityResource } from '@/app/lib/capabilities/resources/actions';
 import { authorizeChatExtensionSharedOption } from './extension-options-context';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import type { ExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
+type PackageDescriptor = Awaited<ReturnType<typeof prepareChatPackageReadinessDescriptor>>;
+/** Server-only, request-local evidence. Never part of the recent DTO or a retained Use grant. */
+export type ChatRecentPackageReadiness = Map<ChatExtensionRecentItem, boolean>;
+const packageKey = (pin: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }>['package']) =>
+  JSON.stringify([pin.resourceRef, pin.publishedRevisionRef, pin.checksum]);
+
+async function validateRecentBundleConnections(context: ChatExtensionOptionsContext, bundle: ChatReferenceBundleV1,
+  signal: AbortSignal, descriptor?: PackageDescriptor): Promise<void> {
+  const primary = bundle.primary.selection;
+  if (descriptor && (primary.kind === 'plugin' || primary.kind === 'skill')) {
+    const roots = primary.kind === 'skill' ? [primary.relativeRoot] : primary.skillSelection.kind === 'all'
+      ? descriptor.metadata.skillRoots.map(root => root.relativeRoot) : primary.skillSelection.relativeRoots;
+    const configuration = chatPackageBinding(context, primary.package)?.configuration;
+    for (const declaration of descriptor.metadata.declarations) {
+      if (declaration.declarationPath !== '.canvas-plugin/plugin.json'
+        && !roots.some(root => declaration.declarationPath === (root ? `${root}/agents/canvas.yaml` : 'agents/canvas.yaml'))) continue;
+      for (const capability of declaration.workflow.integrationCapabilities) {
+        const required = capability.required || configuration?.declarations.find(value => value.declarationPath === declaration.declarationPath)
+          ?.capabilities.find(value => value.capabilityId === capability.id)?.required === true;
+        if (required && !bundle.packageConnections.some(mapping => mapping.declarationPath === declaration.declarationPath
+          && mapping.capabilityId === capability.id)) {
+          throw new AgentWorkflowError('CHAT_EXTENSION_REQUIREMENT_MISSING', 'Choose an exact source for every required package capability.', 409);
+        }
+      }
+    }
+  }
+  for (const entry of [bundle.primary, ...bundle.supporting]) {
+    if (entry.selection.kind !== 'mcp' && entry.selection.kind !== 'composio') continue;
+    const mappings = bundle.packageConnections.filter(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(entry.selection));
+    if (!mappings.length) await validateChatConnectionMetadata(context, entry, signal, undefined, false);
+    else for (const mapping of mappings) {
+      const proof = await validateChatConnectionMetadata(context, entry, signal, mapping, false, descriptor
+        ? { packageMetadata: descriptor.metadata, mcpTemplates: descriptor.templates } : {});
+      const alternative = descriptor?.metadata.declarations.find(value => value.declarationPath === mapping.declarationPath)
+        ?.workflow.integrationCapabilities.find(value => value.id === mapping.capabilityId)?.alternatives.find(value =>
+          mapping.alternativeKey === (value.source === 'mcp' ? `mcp:${value.connector}` : `composio:${value.toolkit}`));
+      // The metadata validator returns the final connection/entry cap. Package
+      // caps still intersect it; an accepted historical intent cannot widen it.
+      const tools = intersectChatCaps(proof.toolCap, bundle.primary.toolCap);
+      if (tools !== null && alternative?.requiredTools?.some(tool => !tools.includes(tool))) {
+        throw new AgentWorkflowError('CHAT_EXTENSION_SOURCE_UNAVAILABLE', 'The exact selection no longer permits every required tool.', 409);
+      }
+    }
+  }
+}
 type Filters = Pick<ChatExtensionSearchRequest, 'types' | 'stock' | 'source' | 'scope' | 'audience' | 'teamId'>
   & { phase?: ChatExtensionSearchRequest['phase'] };
 async function matchesFilters(context: ChatExtensionOptionsContext, selection: ExtensionSelection, filters?: Filters): Promise<boolean> {
@@ -35,7 +83,8 @@ async function matchesFilters(context: ChatExtensionOptionsContext, selection: E
 type RecentRequest = Extract<ChatExtensionOptionsRequest, { operation: 'recents' }>;
 /** Admission is the recorder: retries, settlement and rejected sends never create a new last-used event. */
 export async function readChatExtensionRecents(context: ChatExtensionOptionsContext, request: Pick<RecentRequest, 'limit' | 'cursor'>,
-  signal: AbortSignal, filters?: Filters) {
+  signal: AbortSignal, filters?: Filters,
+  options: { packageReadiness?: ChatRecentPackageReadiness; connections?: readonly PluginExtensionItem[] } = {}) {
   await revalidateChatExtensionOptionsContext(context);
   const binding = createHash('sha256').update(JSON.stringify([context.contextKey, request.limit, filters ?? null])).digest('base64url');
   let previousIdentities: string[] = [];
@@ -70,6 +119,21 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
     [context.actor.userId, context.actor.workspaceId, ...(position ? [position.at, position.session, position.client] : [])]) as Row[];
   } finally { await database.close(); }
   const items: ChatExtensionRecentItem[] = [], seen = new Set<string>(previousIdentities);
+  const sources = new Map<string, Promise<{ source: AgentExtensionPackageVersionSource; descriptor: PackageDescriptor }>>();
+  const freshSources = new Map<string, Promise<AgentExtensionPackageVersionSource>>();
+  const descriptors = new Map<ChatExtensionRecentItem, PackageDescriptor>();
+  const readiness = new Map<ChatExtensionRecentItem, boolean>();
+  const readSource = (pin: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }>['package']) =>
+    readAgentExtensionPackageVersion({ userId: context.actor.userId, workspaceId: context.actor.workspaceId }, pin, { allowPersonalPackages: true });
+  const initialSource = (pin: Extract<ExtensionSelection, { kind: 'plugin' | 'skill' }>['package']) => {
+    const key = packageKey(pin);
+    let source = sources.get(key);
+    if (!source) {
+      source = readSource(pin).then(async value => ({ source: value, descriptor: await prepareChatPackageReadinessDescriptor(value, pin) }));
+      sources.set(key, source);
+    }
+    return source;
+  };
   let examined = 0, resultBytes = 0, boundedStop = false, stoppedAt: { at: number; session: string; client: string; bundle: number } | null = null;
   outer: for (const row of rows.slice(0, 20)) {
     signal.throwIfAborted(); examined++;
@@ -104,19 +168,15 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
       if (filters?.phase === 'local' && [bundle.primary, ...bundle.supporting].some(entry => entry.selection.kind === 'composio'
         && entry.selection.target.kind === 'personal' && entry.selection.target.accountBinding === 'no_auth')) continue;
       try {
-        const eligibility = isCoreExtensionSelection(selection)?await chatCorePluginSelectionEligibility(context,selection):selection.kind === 'plugin' || selection.kind === 'skill' ? await chatPackageSelectionEligibility(context, selection)
+        const source = selection.kind === 'plugin' || selection.kind === 'skill' ? await initialSource(selection.package) : undefined;
+        const eligibility = isCoreExtensionSelection(selection)?await chatCorePluginSelectionEligibility(context,selection):selection.kind === 'plugin' || selection.kind === 'skill' ? await chatPackageSelectionEligibility(context, selection, source?.source)
           : { action: 'select' as const };
-        for (const entry of [bundle.primary, ...bundle.supporting]) {
-          if (entry.selection.kind === 'plugin' || entry.selection.kind === 'skill'||isCoreExtensionSelection(entry.selection)) continue;
-          const mappings = bundle.packageConnections.filter(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(entry.selection));
-          if (mappings.length) for (const mapping of mappings) await validateChatConnectionMetadata(context, entry, signal, mapping, false);
-          else await validateChatConnectionMetadata(context, entry, signal, undefined, false);
-        }
+        await validateRecentBundleConnections(context, bundle, signal, source?.descriptor);
         if (eligibility.action === 'unavailable' || !await matchesFilters(context, selection, filters)) continue;
         // Composio logos require provider catalogue I/O. Local keeps initials;
         // Connected/presentation may enrich them after the usable local response.
         const publicIcon = filters?.phase === 'local' && selection.kind === 'composio' ? undefined
-          : await presentChatExtensionIcon(context, selection, signal).catch(() => undefined);
+          : await presentChatExtensionIcon(context, selection, signal, { packageSource: source?.source }).catch(() => undefined);
         const accountConfirmation = [bundle.primary, ...bundle.supporting].some(entry => entry.selection.kind === 'composio'
           && entry.selection.target.kind === 'personal' && entry.selection.target.accountBinding === 'account');
         const item: ChatExtensionRecentItem = { bodyBundle: bundle, lastAcceptedAt: Number(row.created_at),
@@ -126,6 +186,7 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
         if (bytes > EXTENSION_SELECTION_LIMITS.bytes) continue;
         if (resultBytes + bytes > EXTENSION_SELECTION_LIMITS.bytes) { stoppedAt.bundle--; boundedStop = true; break outer; }
         resultBytes += bytes; seen.add(identity); items.push(item);
+        if (source) descriptors.set(item, source.descriptor);
       } catch { /* A revoked/unavailable exact source is not a usable recent reference. */ }
       if (items.length >= request.limit || seen.size >= 128) break outer;
     }
@@ -135,15 +196,27 @@ export async function readChatExtensionRecents(context: ChatExtensionOptionsCont
   // Optional logo IO is complete: recheck all exact sources before returning metadata.
   for (let index = items.length - 1; index >= 0; index--) try {
     const item = items[index]!, primary = item.bodyBundle.primary.selection;
+    const descriptor = descriptors.get(item);
+    if (descriptor && (primary.kind === 'plugin' || primary.kind === 'skill') && options.connections) {
+      readiness.set(item, await chatPackageConnectionsReady(context, primary, descriptor, options.connections, signal));
+    }
+    await validateRecentBundleConnections(context, item.bodyBundle, signal, descriptor);
     if(isCoreExtensionSelection(primary)&&(await chatCorePluginSelectionEligibility(context,primary)).action!=='select')throw new Error('changed');
-    if ((primary.kind === 'plugin' || primary.kind === 'skill') && (await chatPackageSelectionEligibility(context, primary)).action !== 'select') throw new Error('changed');
-    for (const entry of [item.bodyBundle.primary, ...item.bodyBundle.supporting]) if (entry.selection.kind === 'mcp' || entry.selection.kind === 'composio') {
-      const mappings = item.bodyBundle.packageConnections.filter(mapping => JSON.stringify(mapping.connectionSelection) === JSON.stringify(entry.selection));
-      if (mappings.length) for (const mapping of mappings) await validateChatConnectionMetadata(context, entry, signal, mapping, false);
-      else await validateChatConnectionMetadata(context, entry, signal, undefined, false);
+    if (primary.kind === 'plugin' || primary.kind === 'skill') {
+      // Readiness, optional presentation and connection metadata I/O precede
+      // this independent final full Pin/Use/snapshot proof. Only immutable bytes
+      // were shared with the first pass, never its authority decisions.
+      const key = packageKey(primary.package);
+      let fresh = freshSources.get(key);
+      if (!fresh) { fresh = readSource(primary.package); freshSources.set(key, fresh); }
+      if ((await chatPackageSelectionEligibility(context, primary, await fresh)).action !== 'select') throw new Error('changed');
     }
   } catch { items.splice(index, 1); }
   await revalidateChatExtensionOptionsContext(context);
+  for (const item of items) {
+    const ready = readiness.get(item);
+    if (ready !== undefined) options.packageReadiness?.set(item, ready);
+  }
   const hasNextPage = Boolean(seen.size < 128 && stoppedAt && (boundedStop || items.length >= request.limit || resultBytes >= EXTENSION_SELECTION_LIMITS.bytes || examined < rows.length || rows.length > 20));
   return { items, pagination: { nextCursor: hasNextPage ? Buffer.from(JSON.stringify({ v: 1, binding,
     position: stoppedAt, seen: [...seen] })).toString('base64url') : null,
