@@ -24,6 +24,13 @@ from canvas_notebook import CanvasMcpTransport, CanvasNotebook, CanvasOAuth, Mem
 logging.disable(logging.CRITICAL)
 VERSION = re.compile(r"canvas-document-v1:[a-f0-9]{64}\Z")
 reader: asyncio.StreamReader
+PROBE_STAGES = frozenset((
+    "startup", "configuration", "wheel", "connection", "workspace_result",
+    "workspace_shape", "storage", "redirect_binding", "token_claims", "document_tools",
+    "search_read", "create", "editor_open", "edit", "editor_verified",
+    "transport_closed",
+))
+probe_stage = "startup"
 
 
 def emit(event: str, **facts: object) -> None:
@@ -58,12 +65,14 @@ def jwt_claims(token: str) -> dict:
 
 
 async def main() -> None:
-    global reader
+    global reader, probe_stage
     reader = asyncio.StreamReader(limit=32768)
     input_transport, _ = await asyncio.get_running_loop().connect_read_pipe(
         lambda: asyncio.StreamReaderProtocol(reader), sys.stdin.buffer)
     try:
+        probe_stage = "configuration"
         config = await receive("configure")
+        probe_stage = "wheel"
         assert sys.prefix != sys.base_prefix, "Use the Root-owned installed-wheel virtual environment."
         distribution = importlib.metadata.distribution("canvas-notebook-python")
         module = pathlib.Path(canvas_notebook.__file__).resolve()
@@ -113,15 +122,21 @@ async def main() -> None:
 
         oauth = CanvasOAuth(scopes=requested, storage=storage, redirect_uri=redirect_uri,
             authorization_handler=authorize, callback_timeout=75)
+        probe_stage = "connection"
         async with CanvasMcpTransport(endpoint, oauth=oauth, read_timeout=90) as transport:
             # Catalog discovery is public. This actual protected operation must
             # receive the server's HTTP401 and complete official OAuth replay.
             notebook = CanvasNotebook(transport)
-            workspaces = success(await notebook.list_workspaces())["workspaces"]
+            probe_stage = "workspace_result"
+            workspaces = (await notebook.list_workspaces()).require_success()["workspaces"]
+            probe_stage = "workspace_shape"
             assert any(value["id"] == workspace for value in workspaces)
+            probe_stage = "storage"
             info, tokens = await storage.get_client_info(), await storage.get_tokens()
             assert info is not None and tokens is not None and info.client_id == registered_client
+            probe_stage = "redirect_binding"
             assert info.redirect_uris is not None and [str(value) for value in info.redirect_uris] == [redirect_uri]
+            probe_stage = "token_claims"
             claims = jwt_claims(tokens.access_token)
             audiences = claims["aud"] if isinstance(claims["aud"], list) else [claims["aud"]]
             assert claims["iss"] == config["issuer"] and claims["azp"] == registered_client
@@ -130,8 +145,10 @@ async def main() -> None:
             emit("authenticated", clientId=registered_client, userId=claims["sub"], sessionId=claims["sid"],
                 issuerAndResourceBound=True, realPkceExchangeCompleted=True)
             tokens, claims = None, {}
+            probe_stage = "document_tools"
             names = {tool.name for tool in await transport.list_tools()}
             assert {"list_workspaces", "search_knowledge", "read_knowledge_source", "create_knowledge_source", "edit_knowledge_source"} <= names
+            probe_stage = "search_read"
             search = success(await notebook.search_documents(workspace, config["query"], max_results=25))
             assert search["coverage"]["globalCurrentContent"] == "not_certified"
             hit = next(value for value in search["hits"] if value["document"]["documentId"] == config["seedDocumentId"])
@@ -145,13 +162,16 @@ async def main() -> None:
             emit("searched_and_read", document=complete.document, pageCount=len(complete.pages),
                 bodySha256=hashlib.sha256(complete.body.encode("utf-8")).hexdigest())
 
+            probe_stage = "create"
             created = success(await notebook.create_markdown(workspace, config["createPath"], config["source"], idempotency_key=config["createKey"]))
             assert created["outcome"] == "created" and created["document"]["representation"] == "tiptap_blocks"
             before = await notebook.read_all(workspace, created["document"]["documentId"],
                 expected_version=created["document"]["version"], max_bytes=256, max_pages=64, max_total_bytes=16384)
             assert before.document == created["document"] and config["oldText"] in before.body
             emit("created", result=created, body=before.body, pageCount=len(before.pages))
+            probe_stage = "editor_open"
             await receive("editor_open")
+            probe_stage = "edit"
             edited = success(await notebook.edit_document(workspace, created["document"]["documentId"],
                 expected_version=before.document["version"], idempotency_key=config["editKey"],
                 patch={"kind": "native_text_replace", "edits": [{"oldText": config["oldText"], "newText": config["newText"], "expectedOccurrences": 1}]}))
@@ -163,7 +183,9 @@ async def main() -> None:
             assert config["newText"] in after.body and config["oldText"] not in after.body
             assert success(await notebook.edit_status(workspace, edited["operationId"])) == edited
             emit("edited", result=edited, document=after.document, body=after.body, pageCount=len(after.pages))
+            probe_stage = "editor_verified"
             await receive("editor_verified")
+        probe_stage = "transport_closed"
         emit("complete", installedWheel=True, officialMcpVersion="2.3.0", actualOAuth=True, authorizations=authorizations,
             actualSearchReadCreateEditStatus=True, transportClosed=True)
     finally:
@@ -177,5 +199,5 @@ if __name__ == "__main__":
         # Never print raw OAuth/HTTP exception messages, URLs, callback queries,
         # content or credentials. The original error still causes actual Exit1.
         name = type(error).__name__
-        emit("failed", errorType=name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", name) else "UnknownError")
+        emit("failed", stage=probe_stage if probe_stage in PROBE_STAGES else "unknown", errorType=name if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,79}", name) else "UnknownError")
         sys.exit(1)

@@ -698,6 +698,17 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
         const message = messages.shift()!;
         // Never expose a raw protocol message (which may be the authorization
         // URL) in an assertion, stack, reporter or attachment.
+        if (message.event === 'failed') {
+          const stages = new Set([
+            'startup', 'configuration', 'wheel', 'connection', 'workspace_result', 'workspace_shape', 'storage',
+            'redirect_binding', 'token_claims', 'document_tools', 'search_read', 'create', 'editor_open', 'edit',
+            'editor_verified', 'transport_closed',
+          ]);
+          const stage = typeof message.stage === 'string' && stages.has(message.stage) ? message.stage : 'unknown';
+          const errorType = typeof message.errorType === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,79}$/u.test(message.errorType)
+            ? message.errorType : 'UnknownError';
+          throw new Error(`Installed-wheel OAuth probe failed at ${stage} (${errorType}).`);
+        }
         if (message.event !== expected) throw new Error('Unexpected installed-wheel OAuth protocol step.');
         return message;
       };
