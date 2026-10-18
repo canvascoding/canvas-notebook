@@ -171,7 +171,8 @@ async function runWorkspaceCopyPrincipalPostgresFixture(): Promise<void> {
       return new NextRequest('http://localhost/api/files/copy', { method: 'POST', headers });
     };
     const { auth } = await import('../app/lib/auth');
-    const { captureWorkspaceOperationCopyOrigin } = await import('../app/lib/files/workspace-operation-copy-origin');
+    const { captureWorkspaceOperationCopyOrigin, captureWorkspaceOperationCopyMcpOrigin } =
+      await import('../app/lib/files/workspace-operation-copy-origin');
     const { withWorkspaceCopyRequestOnConnection: memberCopy, withWorkspaceCopyAgentOnConnection: agentCopy } = await import('../app/lib/workspaces/copy-principal');
     const memberOrigin = (a = source, b = destination) => captureWorkspaceOperationCopyOrigin({
       actor: { type: 'user', userId: 'member', actorId: 'member', sessionId: 'original-member-session' }, sourceWorkspace: a, destinationWorkspace: b,
@@ -201,6 +202,23 @@ async function runWorkspaceCopyPrincipalPostgresFixture(): Promise<void> {
     };
     const absent = async (id: string) => assert.equal((await admin.query('SELECT count(*)::integer AS count FROM copy_principal_writes WHERE id=$1', [id])).rows[0].count, 0);
     const phases = (sql: string[]) => sql.filter(s => /^SET LOCAL statement_timeout=/u.test(s)).length;
+    await check('MCP history cannot borrow a Web or PI principal before any SQL or writer runs', async () => {
+      // Historical DTO only: this is deliberately not an OAuth authorization test.
+      const original = captureWorkspaceOperationCopyMcpOrigin({ userId: 'member', clientId: 'copy-fixture-client',
+        sessionId: 'original-mcp-session', sourceWorkspace: source, destinationWorkspace: source });
+      const before = JSON.stringify(original), actual = await request(); let calls = 0;
+      await transaction(async (database, _client, sql) => {
+        for (const apply of [
+          () => memberCopy(database, actual, original, async () => { calls++; }),
+          () => agentCopy(database, original, async () => { calls++; }),
+        ]) {
+          await assert.rejects(apply(), error => error instanceof Error && Reflect.get(error, 'code') === 'COPY_ORIGIN_CHANGED');
+        }
+        assert.equal(calls, 0); assert.deepEqual(sql, []);
+      });
+      assert.equal(JSON.stringify(original), before);
+      assert.equal((await admin.query('SELECT count(*)::integer AS count FROM copy_principal_writes')).rows[0].count, 0);
+    });
     await check('real Cookie and Bearer allow a read-only source and a different writable destination on one B', async () => {
       for (const cookie of [false, true]) {
         const actual = await request(cookie), original = memberOrigin(), proof = JSON.stringify(original), id = `member-${cookie}`;
@@ -510,7 +528,7 @@ async function runWorkspaceCopyPrincipalPostgresFixture(): Promise<void> {
       }
       assert.equal((await admin.query("SELECT archived_at FROM pi_sessions WHERE session_id='pi-current-special'")).rows[0].archived_at, null);
     });
-    assert.equal(groups, 16); assert.equal(fetches, 0);
+    assert.equal(groups, 17); assert.equal(fetches, 0);
   } catch (error) { failed = true; primary = error; }
   finally {
     globalThis.fetch = originalFetch;

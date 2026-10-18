@@ -78,6 +78,9 @@ const assetRetirement = new AsyncLocalStorage<{ owner: Owner; original: Excalidr
 function problem(code: NativeCopyOwnerError['code'] = 'NATIVE_COPY_OWNER_CHANGED'): never { throw new NativeCopyOwnerError(code); }
 function captureInvocation(input: Invocation): Invocation {
   const origin = decodeWorkspaceOperationCopyOrigin(input.origin);
+  // MCP history must not enter the legacy user/PI authority routes. Its live
+  // principal is connected separately; historical actor scalars are no grant.
+  if (origin.version !== 1) problem('NATIVE_COPY_INVALID_REQUEST');
   // Normalize real framework requests across compiled NextRequest constructors;
   // current authentication still runs on the local copy in every owner phase.
   if (origin.actor.type === 'user' ? !(input.request instanceof Request) : input.request !== undefined) problem('NATIVE_COPY_INVALID_REQUEST');

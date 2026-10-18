@@ -48,7 +48,7 @@ function access(origin: WorkspaceOperationCopyOrigin, sourceWorkspace: Workspace
 export async function withWorkspaceCopyRequestOnConnection<T>(database: SqlConnection, request: NextRequest,
   original: WorkspaceOperationCopyOrigin, operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
   const origin = decodeWorkspaceOperationCopyOrigin(original);
-  if (origin.actor.type !== 'user') changed();
+  if (origin.version !== 1 || origin.actor.type !== 'user') changed();
   if (!(request instanceof NextRequest) || typeof operation !== 'function') throw new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID');
   // Freeze the actual request's authentication/selectors before any await.
   const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
@@ -87,7 +87,7 @@ export async function withWorkspaceCopyRequestOnConnection<T>(database: SqlConne
 export async function withWorkspaceCopyAgentOnConnection<T>(database: SqlConnection,
   original: WorkspaceOperationCopyOrigin, operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
   const origin = decodeWorkspaceOperationCopyOrigin(original);
-  if (origin.actor.type !== 'agent') changed();
+  if (origin.version !== 1 || origin.actor.type !== 'agent') changed();
   if (origin.sourceScope.workspaceId !== origin.destinationScope.workspaceId) throw new WorkspaceRequestPrincipalError('PRINCIPAL_ACCESS_DENIED');
   if (typeof operation !== 'function') throw new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID');
   return withWorkspaceAgentToolPrincipal({ permission: 'canWrite', workspaceId: origin.sourceScope.workspaceId },

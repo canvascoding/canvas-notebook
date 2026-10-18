@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
-import { captureWorkspaceOperationCopyOrigin, decodeWorkspaceOperationCopyOrigin,
+import { captureWorkspaceOperationCopyOrigin, captureWorkspaceOperationCopyMcpOrigin, decodeWorkspaceOperationCopyOrigin,
   assertWorkspaceOperationCopyOriginCurrent, WorkspaceOperationCopyOriginError,
   type WorkspaceOperationCopyActor, type WorkspaceOperationCopyOrigin } from '../app/lib/files/workspace-operation-copy-origin';
 
@@ -240,4 +241,116 @@ test('Current strictly validates both original and fresh envelopes before compar
   assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(invalid, original), copyOriginInvalid());
   assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(original, invalid), copyOriginInvalid());
   assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(undefined, original), copyOriginInvalid());
+});
+
+function copyMcpOriginFixture(clientId = 'oauth-client', sessionId = 'original-oauth-session') {
+  const { sourceWorkspace, destinationWorkspace } = copyOriginFixture('agent');
+  return { userId: 'initiating-user', clientId, sessionId, sourceWorkspace, destinationWorkspace };
+}
+
+test('the existing V1 primitive envelope remains byte-identical without MCP fields or reordered keys', () => {
+  const scope = '{"version":1,"workspaceId":"w","workspaceType":"personal","organizationId":null,"customerId":null,'
+    + '"projectId":null,"ownerUserId":"u","rootPath":"/w","rootRelativePath":"users/u","legacy":false}';
+  const expected = '{"version":1,"actor":{"type":"agent","userId":"u","actorId":"a","sessionId":"s"},'
+    + `"sourceScope":${scope},"destinationScope":${scope}}`;
+  assert.equal(JSON.stringify(decodeWorkspaceOperationCopyOrigin(JSON.parse(expected))), expected);
+});
+
+test('MCP history explicitly binds the actual client and canonical agent actor without credentials', () => {
+  const input = copyMcpOriginFixture('client-🧪'), before = structuredClone(input);
+  const origin = captureWorkspaceOperationCopyMcpOrigin(input);
+  assert.deepEqual(origin, { version: 2, transport: 'direct-mcp', clientId: input.clientId,
+    actor: { type: 'agent', userId: input.userId, sessionId: input.sessionId,
+      actorId: `direct-mcp:${createHash('sha256').update(input.clientId).digest('hex').slice(0, 32)}` },
+    sourceScope: captureWorkspaceOperationJobScope(input.sourceWorkspace),
+    destinationScope: captureWorkspaceOperationJobScope(input.destinationWorkspace) });
+  assert.deepEqual(input, before);
+  assert.deepEqual(decodeWorkspaceOperationCopyOrigin(JSON.parse(JSON.stringify(origin))), origin);
+  assert.deepEqual(Object.keys(origin).sort(), ['actor', 'clientId', 'destinationScope', 'sourceScope', 'transport', 'version']);
+  copyOriginFrozen(origin);
+  input.clientId = 'later-client'; input.sessionId = 'later-session'; input.sourceWorkspace.rootPath = '/later';
+  assert.equal(origin.clientId, 'client-🧪'); assert.equal(origin.actor.sessionId, 'original-oauth-session');
+  assert.equal(origin.sourceScope.rootPath, before.sourceWorkspace.rootPath);
+});
+
+test('same-client MCP renewal returns OriginalA and leaves current SID_B unchanged', () => {
+  const original = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture('client', 'SID_A'));
+  const current = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture('client', 'SID_B'));
+  const before = JSON.stringify(original), currentBefore = JSON.stringify(current);
+  const retained = assertWorkspaceOperationCopyOriginCurrent(original, current);
+  assert.deepEqual(retained, original); assert.notEqual(retained, original);
+  assert.equal(retained.actor.sessionId, 'SID_A'); assert.equal(current.actor.sessionId, 'SID_B');
+  assert.equal(JSON.stringify(original), before); assert.equal(JSON.stringify(current), currentBefore);
+  copyOriginFrozen(retained);
+});
+
+test('MCP cannot downgrade to PI or upgrade PI history even when all actor scalars coincide', () => {
+  const mcp = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture());
+  const legacy = decodeWorkspaceOperationCopyOrigin({ version: 1, actor: mcp.actor,
+    sourceScope: mcp.sourceScope, destinationScope: mcp.destinationScope });
+  assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(mcp, legacy), copyOriginInvalid('COPY_ORIGIN_CHANGED'));
+  assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(legacy, mcp), copyOriginInvalid('COPY_ORIGIN_CHANGED'));
+});
+
+test('a renewed MCP session cannot change client, initiating user or either workspace scope', () => {
+  const original = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture());
+  const otherClient = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture('another-client', 'SID_B'));
+  assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(original, otherClient), copyOriginInvalid('COPY_ORIGIN_CHANGED'));
+  for (const mutate of [
+    (input: ReturnType<typeof copyMcpOriginFixture>) => { input.userId = 'another-user'; },
+    (input: ReturnType<typeof copyMcpOriginFixture>) => { input.sourceWorkspace.rootPath = '/another-source'; },
+    (input: ReturnType<typeof copyMcpOriginFixture>) => { input.destinationWorkspace.workspaceId = 'another-destination'; },
+  ]) {
+    const input = copyMcpOriginFixture('oauth-client', 'SID_B'); mutate(input);
+    const current = captureWorkspaceOperationCopyMcpOrigin(input);
+    assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(original, current), copyOriginInvalid('COPY_ORIGIN_CHANGED'));
+  }
+});
+
+test('MCP rejects malformed clients, missing sessions, forged actor IDs and transport aliases', () => {
+  const original = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture());
+  const mutations: Array<(value: Record<string, unknown>) => void> = [
+    value => { value.transport = 'pi'; }, value => { delete value.transport; },
+    value => { value.clientId = 'another-client'; }, value => { delete value.clientId; },
+    value => { (value.actor as Record<string, unknown>).type = 'user'; },
+    value => { (value.actor as Record<string, unknown>).actorId = 'direct-mcp:caller-selected'; },
+    value => { (value.actor as Record<string, unknown>).sessionId = null; },
+    value => { (value.actor as Record<string, unknown>).userId = ' initiating-user'; },
+    value => { value.token = 'must-not-be-journaled'; },
+  ];
+  for (const mutate of mutations) {
+    const malformed = JSON.parse(JSON.stringify(original)) as Record<string, unknown>; mutate(malformed);
+    assert.throws(() => decodeWorkspaceOperationCopyOrigin(malformed), copyOriginInvalid());
+  }
+  for (const field of ['userId', 'clientId', 'sessionId'] as const) {
+    for (const value of [null, '', ' ', '\u0000', 'unpaired-\ud800', 'x'.repeat(257), 1]) {
+      const malformed = { ...copyMcpOriginFixture(), [field]: value };
+      assert.throws(() => captureWorkspaceOperationCopyMcpOrigin(malformed as never), copyOriginInvalid(), field);
+    }
+  }
+});
+
+test('MCP exact historical envelopes reject hidden fields, accessors and proxies without invoking them', () => {
+  const origin = captureWorkspaceOperationCopyMcpOrigin(copyMcpOriginFixture()); let calls = 0;
+  const malformed = JSON.parse(JSON.stringify(origin));
+  Object.defineProperty(malformed, 'clientId', { enumerable: true, get() { calls++; return 'oauth-client'; } });
+  assert.throws(() => decodeWorkspaceOperationCopyOrigin(malformed), copyOriginInvalid());
+  const proxy = new Proxy(origin, { get() { calls++; throw new Error('proxy getter'); },
+    getPrototypeOf() { calls++; throw new Error('proxy prototype'); } });
+  assert.throws(() => decodeWorkspaceOperationCopyOrigin(proxy), copyOriginInvalid());
+  const hidden = JSON.parse(JSON.stringify(origin)); Object.defineProperty(hidden, 'credential', { value: 'hidden' });
+  assert.throws(() => decodeWorkspaceOperationCopyOrigin(hidden), copyOriginInvalid());
+  const input = copyMcpOriginFixture(); Object.defineProperty(input, 'clientId', { enumerable: true,
+    get() { calls++; return 'oauth-client'; } });
+  assert.throws(() => captureWorkspaceOperationCopyMcpOrigin(input), copyOriginInvalid());
+  const proxyInput = new Proxy(copyMcpOriginFixture(), { getPrototypeOf() { calls++; throw new Error('input proxy'); } });
+  assert.throws(() => captureWorkspaceOperationCopyMcpOrigin(proxyInput), copyOriginInvalid());
+  const revoked = Proxy.revocable(copyMcpOriginFixture(), {}); revoked.revoke();
+  assert.throws(() => captureWorkspaceOperationCopyMcpOrigin(revoked.proxy), copyOriginInvalid());
+  for (const side of ['sourceWorkspace', 'destinationWorkspace'] as const) {
+    const malformedInput = copyMcpOriginFixture();
+    malformedInput[side] = new Proxy(malformedInput[side], { getPrototypeOf() { calls++; throw new Error('workspace proxy'); } });
+    assert.throws(() => captureWorkspaceOperationCopyMcpOrigin(malformedInput), copyOriginInvalid());
+  }
+  assert.equal(calls, 0);
 });

@@ -64,6 +64,7 @@ function ownerDiagnostic(error: unknown): Record<string, unknown> {
 async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
   const sourceFiles = ['scripts/workspace-operation-native-copy-owner-postgres-test.ts',
     'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-phase.ts',
+    'app/lib/files/workspace-operation-copy-origin.ts',
     'app/lib/files/workspace-operation-native-copy-phase-contract.ts', 'app/lib/files/workspace-operation-native-copy-phase-read.ts',
     'app/lib/files/workspace-operation-native-copy-metadata.ts',
     'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts',
@@ -1349,7 +1350,126 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_native_link_mutation_receipts WHERE document_id=ANY($1::text[])', [ids])).rows[0].n, 0);
       await missing(path.join(destination.rootPath, targetPath));
     });
-    assert.equal(groups, 25); assert.equal(fetches, 0); assertClosedFds();
+    await group('MCP V2 preview, fresh execution and genuine pending recovery are rejected before any owner checkout or domain change', async () => {
+      const { captureWorkspaceOperationCopyMcpOrigin } = await import('../app/lib/files/workspace-operation-copy-origin');
+      const { NativeCopyOwnerError } = await import('../app/lib/files/workspace-operation-native-copy-owner');
+      // This is deliberately historical data, with no OAuth token, MCP grant or
+      // constructed current principal. It must be rejected before authority is
+      // selected; this group proves no successful MCP file-action integration.
+      // Reuse the unchanged preceding group's genuinely committed C3 and
+      // durable Web recovery. This group creates no new fault, journal or stage.
+      const candidates = (await admin.query(`SELECT operation_id,status,actor_type,actor_id,
+        source_workspace_id,destination_workspace_id,plan_id,request_hash,octet_length(request_json) AS request_bytes,
+        CASE WHEN octet_length(request_json)<=65536 THEN request_json END AS request_json
+        FROM workspace_file_operations WHERE status='recovery_required' AND actor_type='user' AND actor_id='member'
+          AND source_workspace_id=$1 AND destination_workspace_id=$1 AND request_json LIKE $2
+        ORDER BY operation_id COLLATE "C" LIMIT 2`, [destination.workspaceId, '%"destinationPath":"prior-birth-%'])).rows;
+      assert.equal(candidates.length, 1, 'The unchanged original C3 group leaves exactly one identifiable pending Web job.');
+      const header = candidates[0]; assert.equal(typeof header.request_json, 'string');
+      assert(Number.isSafeInteger(header.request_bytes) && header.request_bytes > 0 && header.request_bytes <= 65536);
+      assert.match(header.operation_id, /^copy-owner-[a-f0-9-]{36}$/u); assert.equal(header.status, 'recovery_required');
+      assert.equal(header.actor_type, 'user'); assert.equal(header.actor_id, 'member');
+      assert.equal(header.source_workspace_id, destination.workspaceId); assert.equal(header.destination_workspace_id, destination.workspaceId);
+      const originalRequest = JSON.parse(header.request_json);
+      const encoded = serializeWorkspaceOperationRequest(originalRequest);
+      assert.equal(encoded.requestJson, header.request_json); assert.equal(encoded.requestHash, header.request_hash);
+      assert.equal(originalRequest.kind, 'copy'); assert.equal(originalRequest.selections.length, 1);
+      assert.match(originalRequest.selections[0].destinationPath, /^prior-birth-[a-f0-9-]{36}$/u);
+      const originalStage = await staging.loadManagedCopyByOperationId(header.operation_id); assert(originalStage);
+      assert.equal(originalStage.version, 4); assert.equal(originalStage.kind, 'native-copy');
+      assert.equal(originalStage.identity.operationId, header.operation_id); assert.equal(originalStage.identity.planId, header.plan_id);
+      assert.equal(originalStage.identity.canonicalRequestHash, header.request_hash); assert.equal(originalStage.plan.planId, header.plan_id);
+      assert.equal(originalStage.identity.sourceWorkspaceId, header.source_workspace_id);
+      assert.equal(originalStage.identity.destinationWorkspaceId, header.destination_workspace_id);
+      assert.deepEqual(originalStage.request, originalRequest); assert.deepEqual(originalStage.origin, originalRequest.origin);
+      assert.equal(originalStage.origin.version, 1); assert.equal(originalStage.origin.actor.type, 'user');
+      assert.equal(originalStage.origin.actor.userId, 'member'); assert.equal(originalStage.origin.actor.actorId, 'member');
+      assert.deepEqual(originalStage.origin, captureWorkspaceOperationCopyOrigin({ actor: originalStage.origin.actor,
+        sourceWorkspace: destination, destinationWorkspace: destination }));
+      assert.deepEqual(originalStage.origin.sourceScope, originalStage.plan.sourceScope);
+      assert.deepEqual(originalStage.origin.destinationScope, originalStage.plan.destinationScope);
+      const recovery: Job = { operationId: header.operation_id, origin: originalStage.origin,
+        selections: originalRequest.selections.map((selection: { sourcePath: string; destinationPath: string }) => ({ ...selection })),
+        expectedPlanId: originalStage.plan.planId, plan: originalStage.plan };
+      // New ID with the identical original request inputs exercises only the
+      // entry guard. This does not claim that today's preview would be ready.
+      const fresh: Job = { ...recovery, operationId: `copy-owner-${crypto.randomUUID()}` };
+      const pending = await journal.get(recovery.operationId); assert(pending);
+      assert.equal(pending.status, 'recovery_required');
+      assert.equal(await staging.readKind(recovery.operationId), 'native-copy');
+      assert.deepEqual(await stateCounts(recovery.operationId), { operations: 1, steps: 0, receipts: 1 });
+      assert.equal((await ledger(recovery.operationId)).publication_status, 'native_committed');
+      assert.deepEqual(await stateCounts(fresh.operationId), { operations: 0, steps: 0, receipts: 0 });
+      const mcpOrigin = captureWorkspaceOperationCopyMcpOrigin({ userId: 'member',
+        clientId: `mcp-denial-${crypto.randomUUID()}`, sessionId: currentMemberSessionId,
+        sourceWorkspace: destination, destinationWorkspace: destination });
+      assert.equal(mcpOrigin.version, 2); assert.equal(mcpOrigin.transport, 'direct-mcp');
+      const denied = (error: unknown) => error instanceof NativeCopyOwnerError
+        && error.code === 'NATIVE_COPY_INVALID_REQUEST' && error.status === 409;
+      // Inspect every actual private-schema table, including original native,
+      // link, import, Scene, asset, admission and journal data. Hash full JSONB
+      // row bytes on PG18, retaining each tuple's xmin and physical table OID;
+      // no document bytes or credentials are emitted in the test output.
+      const databaseSnapshot = async () => {
+        const tables = (await admin.query(`SELECT c.relname,c.oid::text AS oid FROM pg_catalog.pg_class c
+          JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname=$1 AND c.relkind IN ('r','p') ORDER BY c.relname COLLATE "C"`, [schema])).rows;
+        assert(tables.length > 0 && tables.length <= 1024);
+        const result: Array<{ name: string; oid: string; rows: Array<{ row_hash: string; xmin: string }> }> = [];
+        for (const table of tables) {
+          assert.equal(typeof table.relname, 'string'); assert.match(table.oid, /^[1-9][0-9]*$/u);
+          const quoted = `"${schema.replaceAll('"', '""')}"."${table.relname.replaceAll('"', '""')}"`;
+          const rows = (await admin.query(`SELECT row_hash,xmin FROM (SELECT
+            pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text,'UTF8')),'hex') AS row_hash,
+            t.xmin::text AS xmin FROM ${quoted} t) observed ORDER BY row_hash COLLATE "C",xmin COLLATE "C"`)).rows;
+          for (const row of rows) { assert.match(row.row_hash, /^[a-f0-9]{64}$/u); assert.match(row.xmin, /^[0-9]+$/u); }
+          result.push({ name: table.relname, oid: table.oid, rows });
+        }
+        return result;
+      };
+      const filesystemSnapshot = async () => {
+        const result: Array<Record<string, string>> = [];
+        const visit = async (filename: string, relative: string): Promise<void> => {
+          const info = await lstat(filename, { bigint: true });
+          const entry: Record<string, string> = { path: relative, dev: String(info.dev), ino: String(info.ino),
+            mode: String(info.mode), uid: String(info.uid), gid: String(info.gid), size: String(info.size),
+            nlink: String(info.nlink), mtimeNs: String(info.mtimeNs), ctimeNs: String(info.ctimeNs) };
+          if (info.isFile()) entry.sha256 = crypto.createHash('sha256').update(await readFile(filename)).digest('hex');
+          else if (info.isSymbolicLink()) entry.target = io.readlinkSync(filename);
+          else assert(info.isDirectory(), 'Only the owned fixture regular files, directories and symlinks are inspected.');
+          result.push(entry);
+          if (info.isDirectory()) for (const name of (await readdir(filename)).sort()) {
+            await visit(path.join(filename, name), relative ? `${relative}/${name}` : name);
+          }
+        };
+        // Access time is excluded: the snapshot's own reads can update it.
+        await visit(dataRoot, ''); return result;
+      };
+      const databaseBefore = await databaseSnapshot(), filesBefore = await filesystemSnapshot();
+      const writesBefore = writeWitnesses.length, transactionsBefore = measurementSequence;
+      const attempts: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
+        ['preview', () => preview({ origin: mcpOrigin, selections: fresh.selections })],
+        ['fresh execute', () => run({ ...fresh, origin: mcpOrigin, request: undefined })],
+        ['pending recovery', () => run({ ...recovery, origin: mcpOrigin, request: undefined })],
+      ];
+      for (const [name, attempt] of attempts) {
+        let acquisitions = 0, queries = 0;
+        const onDeniedAcquire = () => { acquisitions++; };
+        actualPool.on('acquire', onDeniedAcquire);
+        try { await withProbe(async () => { queries++; }, () => assert.rejects(attempt, denied, name)); }
+        finally { actualPool.removeListener('acquire', onDeniedAcquire); }
+        assert.equal(acquisitions, 0, `${name} never checks out an Owner/domain backend.`);
+        assert.equal(queries, 0, `${name} executes no observed product SQL.`);
+        assert.equal(writeWitnesses.length, writesBefore); assert.equal(measurementSequence, transactionsBefore);
+        assert.deepEqual(await databaseSnapshot(), databaseBefore, `${name} preserves all rows, xmins and table identities.`);
+        assert.deepEqual(await filesystemSnapshot(), filesBefore, `${name} preserves all owned file bytes, identities and stage paths.`);
+      }
+      assert.deepEqual(await journal.get(recovery.operationId), pending);
+      assert.deepEqual(await stateCounts(fresh.operationId), { operations: 0, steps: 0, receipts: 0 });
+      assert.equal(await staging.readKind(fresh.operationId), null);
+      for (const job of [fresh, recovery]) await missing(path.join(destination.rootPath, job.selections[0].destinationPath));
+    });
+    assert.equal(groups, 26); assert.equal(fetches, 0); assertClosedFds();
     console.log(JSON.stringify({ assertions: 'workspace-operation-native-copy-owner', groups, actualWriteWitnesses: writeWitnesses.length,
       actualBackendCount: new Set(writeWitnesses.map(value => value.pid)).size, initialReceiptBodies: initialBodies.size,
       measuredTransactions: measurementSequence, transactionCountUnit: 'actual-query-dispatch', timingBucketsOverlap: true,

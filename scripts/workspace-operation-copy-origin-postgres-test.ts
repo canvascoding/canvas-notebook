@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 
 import type { SqlConnection } from '../app/lib/db';
 import { WORKSPACE_OPERATION_JOURNAL_STATEMENTS } from '../app/lib/db/workspace-operation-journal-migration';
-import { assertWorkspaceOperationCopyOriginCurrent, captureWorkspaceOperationCopyOrigin,
+import { assertWorkspaceOperationCopyOriginCurrent, captureWorkspaceOperationCopyOrigin, captureWorkspaceOperationCopyMcpOrigin,
   type WorkspaceOperationCopyOrigin } from '../app/lib/files/workspace-operation-copy-origin';
 import { serializeWorkspaceOperationRequest, WorkspaceOperationJournal, WorkspaceOperationJournalConflictError,
   WorkspaceOperationJournalUncertainCommitError, type WorkspaceOperationRequest } from '../app/lib/files/workspace-operation-journal';
@@ -284,6 +284,32 @@ async function main(): Promise<void> {
       assert.deepEqual(await h.journal.prepare(candidate), prepared);
       await assert.rejects(h.journal.prepare({ ...candidate, request: { ...candidate.request, origin: original.request.origin } }),
         WorkspaceOperationJournalConflictError, 'A later retry cannot upgrade a legacy durable request by inventing origin.');
+    });
+
+    await group('MCP journal retry retains OriginalA, full client identity and every stored byte including xmin', async () => {
+      const makeMcpOrigin = (sessionId: string, clientId = 'copy-origin-oauth-client') => captureWorkspaceOperationCopyMcpOrigin({
+        userId: 'copy-origin-user', clientId, sessionId, sourceWorkspace: h.source, destinationWorkspace: h.destination });
+      const candidate = input(h.source, h.destination); candidate.request.origin = makeMcpOrigin('SID_A');
+      const serialized = serializeWorkspaceOperationRequest(candidate.request);
+      await h.journal.prepare(candidate);
+      const snapshot = async () => (await h.pool.query('SELECT *,xmin::text AS xmin FROM workspace_file_operations WHERE operation_id=$1',
+        [candidate.operationId])).rows;
+      const before = await snapshot(); assert.equal(before.length, 1);
+      const stored = JSON.parse(before[0].request_json) as WorkspaceOperationRequest;
+      const retained = assertWorkspaceOperationCopyOriginCurrent(stored.origin, makeMcpOrigin('SID_B'));
+      assert.equal(retained.version, 2); assert.equal(retained.actor.sessionId, 'SID_A');
+      const retried = await h.journal.prepare({ ...candidate, request: { ...stored, origin: retained } });
+      assert.equal(retried.requestJson, serialized.requestJson); assert.equal(retried.requestHash, serialized.requestHash);
+      assert.deepEqual(await snapshot(), before);
+      // A fresh SID is current authorization data, not a replacement for the
+      // immutable journal intent. This proves data binding, not OAuth rights.
+      await assert.rejects(h.journal.prepare({ ...candidate, request: { ...stored, origin: makeMcpOrigin('SID_B') } }),
+        WorkspaceOperationJournalConflictError);
+      await assert.rejects(h.journal.prepare({ ...candidate, request: { ...stored, origin: makeMcpOrigin('SID_A', 'foreign-client') } }),
+        WorkspaceOperationJournalConflictError);
+      assert.throws(() => assertWorkspaceOperationCopyOriginCurrent(stored.origin, makeMcpOrigin('SID_B', 'foreign-client')),
+        { code: 'COPY_ORIGIN_CHANGED' });
+      assert.deepEqual(await snapshot(), before);
     });
     return groups;
   });
