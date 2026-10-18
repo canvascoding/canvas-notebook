@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/native-document-edit-preparation-test.ts': [entryPoint,
+    'app/lib/documents/edit-contracts.ts', 'app/lib/documents/read-version.ts',
+    'app/lib/collaboration/native-document-edit-preparation.ts',
+    'app/lib/collaboration/native-document-edit-validation.ts',
+    'app/lib/collaboration/agent-operations.ts', 'app/lib/collaboration/agent-block-edits.ts',
+    'app/lib/collaboration/document-snapshot.ts', 'app/lib/collaboration/native-document-schema.ts',
+    'app/lib/collaboration/native-inspection-schema.ts', 'app/lib/collaboration/native-search-budget.ts',
+    'app/lib/collaboration/state-proof.ts', 'scripts/helpers/rich-markdown-projection-fixtures.ts'],
   'scripts/document-create-mutation-result-contracts-test.ts': [entryPoint,
     'app/lib/documents/create-mutation-result.ts', 'app/lib/documents/create-mutation-result-json-schema.ts',
     'app/lib/documents/contracts.ts', 'app/lib/documents/read-version.ts', 'app/lib/documents/read-json-schema.ts',
