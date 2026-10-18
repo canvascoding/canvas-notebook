@@ -4,6 +4,8 @@ import { lstat, open, readFile, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import type { FileCollaborationState } from '../app/lib/files/types';
+import { canonicalSceneHash } from '../app/lib/excalidraw-collaboration/scene';
+import { EXCALIDRAW_FILE_SOURCE } from '../app/lib/excalidraw-file';
 import type { WorkspaceOperationNativeCopyPreviewPublic } from '../app/lib/files/workspace-operation-native-copy-public';
 import type { ExcalidrawAssetMetadata, ExcalidrawElementRecord, ExcalidrawSharedAppState } from '../app/lib/excalidraw-collaboration/protocol';
 import { assertOwnedRoot, requireOwnedYjsQaTarget, type OwnedYjsReceipt } from '../scripts/lib/owned-yjs-authority-qa';
@@ -28,7 +30,7 @@ type FileRead = { path: string; content: string; collaboration: FileCollaboratio
   documentId?: string; lifecycleGeneration?: number; sceneSequence?: number };
 const headers = (workspaceId: string) => ({ 'x-canvas-workspace-id': workspaceId });
 const sha = (bytes: Buffer) => createHash('sha256').update(bytes).digest('hex');
-const canvas = '.excalidraw canvas.excalidraw__canvas.interactive';
+const canvas = '.excalidraw canvas.excalidraw__canvas.static';
 const editor = '.tiptap-editor-shell .ProseMirror';
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
 
@@ -46,7 +48,7 @@ async function reviewOff(request: APIRequestContext) {
 }
 async function withFixture(browser: Browser, profile: Profile, run: (f: Fixture) => Promise<void>) {
   const owned = await requireOwnedYjsQaTarget(); expect(owned.activeSpec).toBe(spec);
-  const context = await createAuthenticatedContext(browser, { viewport: profile.viewport, isMobile: profile.mobile, hasTouch: profile.mobile });
+  const context = await createAuthenticatedContext(browser, { viewport: profile.viewport, isMobile: profile.mobile, hasTouch: profile.mobile, colorScheme: 'light' });
   const f: Fixture = { owned, context, workspaces: [], profile }; let failed = false, primary: unknown;
   const cleanup: unknown[] = [];
   try {
@@ -110,10 +112,17 @@ async function initializedScene(request: APIRequestContext, workspaceId: string,
     observedSceneSequence: initial.sceneSequence, actions: [{ type: 'create', element }], idempotencyKey: randomUUID(),
   } });
   expect(changed.status()).toBe(200); expect((await changed.json()).operation).toMatchObject({
-    status: 'applied', reviewRequired: false, reviewAvailable: false, checkpoint: { status: 'saved' } });
+    documentId: initial.documentId, workspaceId, lifecycleGeneration: initial.lifecycleGeneration, observedSceneSequence: 0,
+    status: 'applied', sceneSequence: 1, result: { sceneSequence: 1, elementIds: [element.id] },
+    reviewRequired: false, reviewAvailable: false, checkpoint: { status: 'saved' } });
   const current = await sceneRead(request, workspaceId, initial.documentId);
   expect(current.sceneSequence).toBe(1); expect(current.canonicalHash).not.toBe(initial.canonicalHash);
-  expect(current.elements).toEqual([element]); return current;
+  expect(current.elements).toHaveLength(1);
+  const nonce = current.elements[0].versionNonce;
+  expect(Number.isSafeInteger(nonce)).toBe(true); expect(nonce).toBeGreaterThanOrEqual(1); expect(nonce).toBeLessThan(0x7fffffff);
+  expect(current.elements).toEqual([{ ...element, versionNonce: nonce }]);
+  expect(current.canonicalHash).toBe(canonicalSceneHash({ elements: current.elements, appState: current.appState, assets: current.assets }));
+  return current;
 }
 async function download(request: APIRequestContext, workspaceId: string, file: string) {
   const response = await request.get('/api/files/download', { headers: headers(workspaceId), params: { path: file } });
@@ -150,10 +159,42 @@ async function removeOwnProjection(f: Fixture, workspace: Workspace, file: strin
     expect(sha(await handle.readFile())).toBe(sha(expected)); sameNode(held, await handle.stat({ bigint: true }));
     sameNode(parent, await lstat(root, { bigint: true })); sameNode(held, await lstat(absolute, { bigint: true }));
     await assertOwnedRoot(f.owned); expect(await realpath(root)).toBe(root); await unlink(absolute);
-    await expect(lstat(absolute)).rejects.toMatchObject({ code: 'ENOENT' });
+    const afterUnlink = await lstat(root, { bigint: true });
+    for (const field of ['dev', 'ino', 'uid', 'mode'] as const) expect(afterUnlink[field]).toBe(parent[field]);
+    // Bind a read-only absence witness to this exact workspace, parent and leaf.
+    // Directory timestamps legitimately changed at unlink and are not identity fields.
+    const assertAbsent = async () => {
+      await assertOwnedRoot(f.owned); expect(process.env.DATA).toBe(f.owned.dataRoot);
+      expect(f.workspaces).toContain(workspace);
+      const actual = await f.context.request.get('/api/workspaces'); expect(actual.status()).toBe(200);
+      expect((await actual.json()).workspaces.find((value: Workspace) => value.id === workspace.id)).toMatchObject({
+        id: workspace.id, name: workspace.name, type: workspace.type, rootRelativePath: workspace.rootRelativePath,
+        permissions: { canManageWorkspace: true } });
+      expect(path.resolve(f.owned.dataRoot, workspace.rootRelativePath)).toBe(root);
+      inside(f.owned.dataRoot, root); inside(root, absolute); expect(await realpath(root)).toBe(root);
+      const namedParent = await lstat(root, { bigint: true });
+      expect(namedParent.isDirectory() && !namedParent.isSymbolicLink()).toBe(true);
+      for (const field of ['dev', 'ino', 'uid', 'mode'] as const) expect(namedParent[field]).toBe(afterUnlink[field]);
+      await expect(lstat(absolute)).rejects.toMatchObject({ code: 'ENOENT' });
+    };
+    await assertAbsent(); return assertAbsent;
   } finally { await handle.close(); }
 }
-async function copyInUi(page: Page, f: Fixture, source: Workspace, destination: Workspace, selected: string, info: TestInfo) {
+/** Attach rejection handlers immediately, then report all navigation/observer failures. */
+async function observedResponses<T>(observers: readonly Promise<T>[], trigger: () => Promise<unknown>): Promise<T[]> {
+  const observed = Promise.allSettled(observers);
+  const [action, responses] = await Promise.allSettled([Promise.resolve().then(trigger), observed] as const);
+  const failures: unknown[] = [], values: T[] = [];
+  if (action.status === 'rejected') failures.push(action.reason);
+  if (responses.status === 'rejected') failures.push(responses.reason);
+  else for (const response of responses.value) {
+    if (response.status === 'rejected') failures.push(response.reason); else values.push(response.value);
+  }
+  if (failures.length) throw new AggregateError(failures, 'Scene Copy navigation or genuine response observation failed.');
+  return values;
+}
+async function copyInUi(page: Page, f: Fixture, source: Workspace, destination: Workspace, selected: string, info: TestInfo,
+  beforeApply?: () => Promise<void>) {
   await page.goto(`/en/files?workspaceId=${source.id}`);
   await page.getByRole('navigation', { name: 'Current folder path', exact: true })
     .getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
@@ -170,8 +211,8 @@ async function copyInUi(page: Page, f: Fixture, source: Workspace, destination: 
       && body.sourceWorkspaceId === source.id && body.targetWorkspaceId === destination.id && body.destDir === '.'
       && JSON.stringify(body.sources) === JSON.stringify([selected]);
   };
-  const previewResponse = page.waitForResponse(response => matches(response, true));
-  await dialog.getByRole('button', { name: 'Preview links', exact: true }).click(); const response = await previewResponse;
+  const [response] = await observedResponses([page.waitForResponse(value => matches(value, true))],
+    () => dialog.getByRole('button', { name: 'Preview links', exact: true }).click());
   expect(response.status()).toBe(200); const preview = await response.json() as { plan: WorkspaceOperationNativeCopyPreviewPublic };
   noPrivateCopyFields(preview); expect(preview).toMatchObject({ success: true, dryRun: true, requiresRevalidation: true,
     plan: { version: 4, kind: 'native-copy', sourceWorkspaceId: source.id, destinationWorkspaceId: destination.id, readiness: 'ready', issues: [] } });
@@ -182,8 +223,9 @@ async function copyInUi(page: Page, f: Fixture, source: Workspace, destination: 
   expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(f.profile.viewport.width + 1);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   await dialog.screenshot({ path: info.outputPath('managed-scene-copy-preview.png'), animations: 'disabled' });
-  const appliedResponse = page.waitForResponse(value => matches(value, false), { timeout: 90_000 });
-  await dialog.getByRole('button', { name: 'Copy', exact: true }).click(); const applied = await appliedResponse;
+  if (beforeApply) await beforeApply();
+  const [applied] = await observedResponses([page.waitForResponse(value => matches(value, false), { timeout: 90_000 })],
+    () => dialog.getByRole('button', { name: 'Copy', exact: true }).click());
   if (applied.status() !== 200) await info.attach('managed-scene-copy-failure', { body: await applied.body(), contentType: 'application/json' });
   expect(applied.status()).toBe(200); expect(applied.request().postDataJSON().planId).toBe(preview.plan.planId);
   const result = await applied.json(); noPrivateCopyFields(result);
@@ -194,6 +236,7 @@ async function copyInUi(page: Page, f: Fixture, source: Workspace, destination: 
   const status = await page.request.get(`/api/files/operations/${result.operation.operationId}`); expect(status.status()).toBe(200);
   const statusBody = await status.json(); noPrivateCopyFields(statusBody);
   expect(statusBody.operation).toMatchObject({ operationId: result.operation.operationId, status: 'completed', errorCode: null });
+  expect(statusBody.operation.steps.length).toBeGreaterThan(0);
   expect(statusBody.operation.steps.every((step: { status: string }) => step.status === 'applied')).toBe(true);
   await info.attach('managed-scene-copy-public-result', { body: JSON.stringify({ preview, result, status: statusBody }), contentType: 'application/json' });
   return preview.plan;
@@ -207,19 +250,50 @@ async function destinationScene(page: Page, workspace: Workspace, file: string, 
   const uiSession = () => page.waitForResponse(response => new URL(response.url()).pathname === '/api/files/collaboration/session'
     && response.request().method() === 'POST' && response.request().headers()['x-canvas-workspace-id'] === workspace.id
     && response.request().postDataJSON()?.path === file && response.request().postDataJSON()?.provider === 'excalidraw');
-  const initialSession = uiSession();
-  await page.goto(`/en/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(file)}`);
-  const connected = await initialSession; expect(connected.status()).toBe(200);
-  expect(await connected.json()).toMatchObject({ success: true, provider: 'excalidraw', documentId: expected.documentId,
-    lifecycleGeneration: expected.lifecycleGeneration, permission: 'write' });
-  await expect(page.locator(canvas)).toBeVisible({ timeout: 45_000 }); await expect(page.getByTestId('document-header')).toContainText(file);
+  const navigateAndObserve = async (navigate: () => Promise<unknown>) => {
+    const session = uiSession().then(async response => {
+      expect(response.status()).toBe(200); expect(await response.json()).toMatchObject({ success: true, provider: 'excalidraw',
+        documentId: expected.documentId, lifecycleGeneration: expected.lifecycleGeneration, permission: 'write' });
+    });
+    // Observe the initial browser asset load, within the normal 15-second local
+    // request window. A later periodic scene resync must not hide a missed mount.
+    // APIRequestContext reads cannot satisfy these browser-page observers.
+    const assetResponses = expected.assets.map(metadata => page.waitForResponse(response =>
+      new URL(response.url()).pathname === `/api/files/excalidraw-assets/${encodeURIComponent(metadata.fileId)}`
+      && response.request().method() === 'GET' && response.request().headers()['x-canvas-workspace-id'] === workspace.id,
+    { timeout: 15_000 }).then(async response => {
+      expect(metadata).toMatchObject({ mimeType: 'image/png', contentHash: sha(png), sizeBytes: png.length });
+      expect(response.status()).toBe(200); const responseHeaders = response.headers();
+      expect(responseHeaders['content-type'].split(';')[0]).toBe(metadata.mimeType);
+      expect(responseHeaders['etag']).toBe(`"${metadata.contentHash}"`);
+      expect(responseHeaders['content-length']).toBe(String(metadata.sizeBytes));
+      const actual = await response.body(); expect(actual.length).toBe(metadata.sizeBytes);
+      expect(sha(actual)).toBe(metadata.contentHash); expect(actual).toEqual(png);
+    }));
+    await observedResponses([session, ...assetResponses], navigate);
+    const staticCanvas = page.locator(canvas); await expect(staticCanvas).toHaveCount(1);
+    await expect(staticCanvas).toBeVisible({ timeout: 45_000 });
+    await expect(page.getByTestId('document-header')).toContainText(file);
+    const target = expected.assets.length ? [0, 0, 0] : [165, 216, 255];
+    // Read the actual static scene bitmap. A gray image placeholder or an empty
+    // interactive overlay cannot provide 100 opaque PNG-black/rectangle-blue pixels.
+    await expect.poll(() => staticCanvas.evaluate((element, color) => {
+      if (!(element instanceof HTMLCanvasElement)) throw new Error('The static scene must be a canvas.');
+      const context = element.getContext('2d');
+      if (!context || element.width < 1 || element.height < 1) return 0;
+      const pixels = context.getImageData(0, 0, element.width, element.height).data;
+      let count = 0;
+      for (let offset = 0; offset < pixels.length; offset += 4) {
+        if (pixels[offset + 3] >= 250 && Math.abs(pixels[offset] - color[0]) <= 3
+          && Math.abs(pixels[offset + 1] - color[1]) <= 3 && Math.abs(pixels[offset + 2] - color[2]) <= 3) count++;
+      }
+      return count;
+    }, target), { timeout: 45_000 }).toBeGreaterThanOrEqual(100);
+  };
+  await navigateAndObserve(() => page.goto(`/en/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(file)}`));
   const shown = await sceneRead(page.request, workspace.id, expected.documentId);
   expect(shown.elements.map(element => element.id)).toEqual(expected.elements.map(element => element.id)); expect(shown.assets).toEqual(expected.assets);
-  const reloadSession = uiSession(); await page.reload(); const reconnected = await reloadSession;
-  expect(reconnected.status()).toBe(200); expect(await reconnected.json()).toMatchObject({ success: true,
-    provider: 'excalidraw', documentId: expected.documentId, lifecycleGeneration: expected.lifecycleGeneration, permission: 'write' });
-  await expect(page.locator(canvas)).toBeVisible({ timeout: 45_000 });
-  await expect(page.getByTestId('document-header')).toContainText(file);
+  await navigateAndObserve(() => page.reload());
   expect((await sceneRead(page.request, workspace.id, expected.documentId)).elements.map(element => element.id)).toEqual(expected.elements.map(element => element.id));
   await page.screenshot({ path: info.outputPath('managed-scene-copy-reloaded.png'), animations: 'disabled' });
 }
@@ -232,9 +306,12 @@ test.describe('owned managed Scene Copy with Review disabled', () => {
         const [source, destination] = f.workspaces, page = await f.context.newPage(), file = `copy-scene-${randomUUID()}.excalidraw`;
         const current = await initializedScene(page.request, source.id, file), before = await fileRead(page.request, source.id, file);
         expect(before.documentId).toBe(current.documentId); expect(before.sceneSequence).toBe(1);
-        const projection = await download(page.request, source.id, file); expect(JSON.parse(projection.toString()).elements).toEqual(current.elements);
-        await removeOwnProjection(f, source, file, projection);
-        const plan = await copyInUi(page, f, source, destination, file, info);
+        const projection = await download(page.request, source.id, file);
+        expect(JSON.parse(projection.toString())).toEqual({ type: 'excalidraw', version: 2, source: EXCALIDRAW_FILE_SOURCE,
+          elements: current.elements, appState: current.appState, files: {} });
+        const assertAbsent = await removeOwnProjection(f, source, file, projection);
+        const plan = await copyInUi(page, f, source, destination, file, info, assertAbsent);
+        await assertAbsent();
         expect(plan.pathMappings.map(value => value.sourcePath)).toEqual([file]);
         const copied = await fileRead(page.request, destination.id, file); clonedIdentity(before, copied, 'excalidraw');
         expect(copied.documentId).toBe(copied.collaboration.document!.id); expect(copied.lifecycleGeneration).toBe(1); expect(copied.sceneSequence).toBe(0);
@@ -242,6 +319,7 @@ test.describe('owned managed Scene Copy with Review disabled', () => {
         expect(clone.canonicalHash).toBe(current.canonicalHash); expect(clone.elements).toEqual(current.elements);
         expect(clone.appState).toEqual(current.appState); expect(clone.assets).toEqual([]);
         await destinationScene(page, destination, file, clone, info);
+        await assertAbsent();
         expect(sceneContent(await sceneRead(page.request, source.id, current.documentId))).toEqual(sceneContent(current));
         const original = await fileRead(page.request, source.id, file);
         expect(original.content).toBe(before.content); expect(original.collaboration.lineageId).toBe(before.collaboration.lineageId);

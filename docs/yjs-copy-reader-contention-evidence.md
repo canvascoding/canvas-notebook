@@ -1,6 +1,6 @@
 # Copy wartet begrenzt auf reguläre Workspace-Reader
 
-Stand: 18. Oktober 2026. Lokale Korrektur innerhalb des weiterhin offenen Copy-/Dokumentauftrags. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben ausgeschaltet.
+Stand: 18. Oktober 2026. Lokale Korrektur innerhalb des weiterhin offenen Copy-/Dokumentauftrags. Im neuen kompilierten Lauf bestehen alle sechs ursprünglichen Copy-Fälle; die vollständige erweiterte Folge bleibt mit 18/20 fehlgeschlagen. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben ausgeschaltet.
 
 ## Ausgangsbefund
 
@@ -33,9 +33,14 @@ Die vier Sekunden gelten **pro Key**. Eine Kopie zwischen zwei Workspaces kann d
 | Bestehende vollständige Owner-Folge | 25/25, tatsächlicher Exit 0 nach 619,060 Sekunden |
 | Gemischte Managed-Owner-Folge | 7/7, tatsächlicher Exit 0 nach 166,759 Sekunden |
 | Unabhängiger Abschluss der beiden Regressionsprogramme | Zwei weitere Schemanamen/OIDs und Sessions sowie zwei weitere DATA- und Bundleverzeichnisse abwesend; vier verwaltete Dienste unverändert gesund |
-| Neuer Originalbuild und vollständige Browserfolge 20/20 | Noch ausstehend |
+| Vierter Originalbuild und unabhängiger Artefaktabgleich | Tatsächlich jeweils Exit 0 auf Root `ef5ec183e` / QA `e1ea0fa8a`; Build 405,788 Sekunden, Compile 327 Sekunden, Generate 14 Sekunden, Release-Typecheck bestanden |
+| Neue kompilierte ursprüngliche Copy-Folge | 6/6 einschließlich des vormals mobilen Busy-Falls bestanden |
+| Vollständige erweiterte Browserfolge | 18/20; zwei Scene-Fixtures scheitern vor Entfernen/Copy am serverseitig normalisierten Nonce, Runtime und Postcheck jeweils Exit 1; kein vollständiger gemeinsamer PASS |
+| Separater tatsächlicher Abschluss dieses Browserlaufs | Exit 0; eigene DBs/OIDs, DATA/TMP, beobachtete Prozesse/Gruppen/Ports und Runlock geschlossen, Originale und vier gesunde verwaltete Dienste erhalten |
 
 Der unabhängige Codereview bestätigt den einzelnen Funktionshunk, enge Fehlerzuordnung, erhaltene Sortierung, Sessionentsorgung und aktuelle Rechteprüfung. Er ersetzt keine Laufprüfung. Die neue Dienstfolge ist kein HTTP-/Browsernachweis und beweist den ursprünglichen mobilen Lockhalter weiterhin nicht.
+
+Der neue kompilierte Lauf ist an Root `ef5ec183ee14172fbe122ea0dcd771e0effbbe93` / QA `e1ea0fa8ac709d83e614f8e8f343841a384be31b` gebunden. Die übrigen bisherigen Herkunft-, UndoOFF-, Move- und Delete-Links-Fälle bestehen ebenfalls; die beiden gemischten Scene-/PNG-/PDF-Kopien bestehen per UI/API. Ihre Reload-Screenshots zeigen jedoch einen Bildplatzhalter trotz korrekter API-Assetbytes. Mangels Trace der erfolgreichen Fälle ist tatsächliches Browser-Assetladen nicht nachträglich belegt; eine plausible API-Bereitschafts-Race ist noch kein bewiesener Fix. Der aktuelle Testentwurf schließt zusätzlich die ENOENT-Prüfung nach Preview, tatsächliches Assetladen/Canvas-Pixel und nichtleere Schritte ein; neue Läufe fehlen. [Vollständige aktuelle Matrix, Artefaktbindung und separat bestätigtes Cleanup](./yjs-scene-document-tree-evidence.md#vierter-build-und-vollständige-browserfolge-1820). Der frühere Busy-Lauf und sein unbekannter ursprünglicher Lockhalter bleiben getrennte historische Befunde.
 
 Der erste reine Ressourcenbeobachter erwartete zunächst acht statt der tatsächlich zwei neu angelegten Fixtures und stoppte vor dem Datenbankzugriff. Beide Originalprogramme legen jeweils genau eine Fixture für sämtliche ihrer Gruppen an. Nach Abgleich mit diesen Quellen und den tatsächlichen Anlagebelegen prüft der korrigierte Beobachter genau die beiden ursprünglichen Namen/OIDs sowie deren Prozesse, Verzeichnisse und Bundles erfolgreich. Die Produkt- und Testprogramme werden dafür nicht geändert oder wiederholt.
 
