@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, Check, Cloud, CloudOff, Code2, LoaderCircle, RefreshCw, UsersRound, Workflow } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
@@ -58,6 +58,21 @@ interface SceneBounds {
   maxX: number;
   maxY: number;
 }
+
+type EditorApiScope = Readonly<{ key: string; visible: boolean }>;
+type EditorApiLifetime = { scope: EditorApiScope; active: boolean };
+type EditorApiObservation = {
+  api: ExcalidrawImperativeAPI;
+  elements: readonly OrderedExcalidrawElement[];
+  appState: AppState;
+  files: BinaryFiles;
+};
+type EditorApiBinding = {
+  scope: EditorApiScope;
+  lifetime: EditorApiLifetime;
+  api: ExcalidrawImperativeAPI;
+  pendingAssets: Map<string, { proof: string }>;
+};
 
 const MERMAID_PLACEHOLDER = `flowchart TD
   A[Request] --> B{Authenticated?}
@@ -201,7 +216,12 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
     });
   }, [workspaceId, collaboration, collaborationEnabled, path, t]);
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
-  const loadingAssetsRef = useRef(new Set<string>());
+  const apiCandidatesRef = useRef(new WeakMap<EditorApiScope, Set<ExcalidrawImperativeAPI>>());
+  const apiObservationsRef = useRef(new WeakMap<EditorApiScope, EditorApiObservation>());
+  const apiLifetimeRef = useRef<EditorApiLifetime | null>(null);
+  const liveApiBindingRef = useRef<EditorApiBinding | null>(null);
+  const assetWitnessRef = useRef<{ scope: EditorApiScope; proofs: ReadonlyMap<string, string> } | null>(null);
+  const [readyApi, setReadyApi] = useState<EditorApiBinding | null>(null);
   const lastSerializedRef = useRef(value);
   const activePathRef = useRef(path);
   const [textModePath, setTextModePath] = useState<string | null>(null);
@@ -219,6 +239,73 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
   const session = useMemo(() => parseExcalidrawContent(effectiveContent), [effectiveContent]);
   const resetNonce = contentOverride?.path === path ? contentOverride.nonce : 0;
   const isTextMode = textModePath === path;
+
+  const collaborationIdentity = collaborationEnabled && collaboration?.session
+    ? JSON.stringify([collaboration.registryKey, collaboration.session.documentId, collaboration.session.lifecycleGeneration])
+    : null;
+  const editorKey = JSON.stringify([workspaceId, documentIdentity ?? path, resetNonce, collaborationEnabled, collaborationIdentity]);
+  const canvasVisible = !isTextMode && !(session.invalid && !collaborationEnabled)
+    && (!collaborationEnabled || Boolean(collaboration?.initialSnapshot));
+  const apiScope = useMemo<EditorApiScope>(() => ({ key: editorKey, visible: canvasVisible }), [editorKey, canvasVisible]);
+  const remoteUpdate = collaboration?.remoteUpdate ?? null;
+  const assetWitness = useMemo(() => ({ scope: apiScope, proofs: new Map((remoteUpdate?.assets ?? []).map((asset) =>
+    [asset.fileId, JSON.stringify([asset.contentHash, asset.mimeType, asset.sizeBytes, asset.version, asset.createdAt])])) }),
+  [apiScope, remoteUpdate]);
+  useLayoutEffect(() => {
+    assetWitnessRef.current = assetWitness;
+    return () => { if (assetWitnessRef.current === assetWitness) assetWitnessRef.current = null; };
+  }, [assetWitness]);
+
+  const acceptApi = useCallback((scope: EditorApiScope, observed: EditorApiObservation) => {
+    const lifetime = apiLifetimeRef.current;
+    const { api, elements, appState, files } = observed;
+    if (!scope.visible || !lifetime?.active || lifetime.scope !== scope
+      || apiObservationsRef.current.get(scope) !== observed || api.getAppState() !== appState
+      || api.getFiles() !== files || api.getSceneElementsIncludingDeleted() !== elements) return;
+    const previous = liveApiBindingRef.current;
+    if (previous?.api === api && previous.lifetime === lifetime) return;
+    previous?.pendingAssets.clear();
+    const binding: EditorApiBinding = { scope, lifetime, api, pendingAssets: new Map() };
+    liveApiBindingRef.current = binding;
+    apiRef.current = api;
+    setReadyApi(binding);
+  }, []);
+
+  useLayoutEffect(() => {
+    const lifetime: EditorApiLifetime = { scope: apiScope, active: true };
+    apiLifetimeRef.current = lifetime;
+    const observed = apiObservationsRef.current.get(apiScope);
+    if (observed) acceptApi(apiScope, observed);
+    return () => {
+      lifetime.active = false;
+      if (apiLifetimeRef.current === lifetime) apiLifetimeRef.current = null;
+      // Keep the read-only observation for layout replay; setup rechecks all getters.
+      const binding = liveApiBindingRef.current;
+      if (binding?.lifetime !== lifetime) return;
+      binding.pendingAssets.clear();
+      liveApiBindingRef.current = null;
+      if (apiRef.current === binding.api) apiRef.current = null;
+    };
+  }, [acceptApi, apiScope]);
+
+  const captureApi = useCallback((api: ExcalidrawImperativeAPI) => {
+    const candidates = apiCandidatesRef.current.get(apiScope) ?? new Set<ExcalidrawImperativeAPI>();
+    candidates.add(api);
+    apiCandidatesRef.current.set(apiScope, candidates);
+  }, [apiScope]);
+
+  const observeApi = useCallback((elements: readonly OrderedExcalidrawElement[], appState: AppState, files: BinaryFiles) => {
+    if (appState.isLoading) return;
+    // props.onChange is emitted after the actual App commit. Match its objects
+    // to the emitting API; a constructor callback alone cannot establish this.
+    for (const api of apiCandidatesRef.current.get(apiScope) ?? []) {
+      if (api.getAppState() !== appState || api.getFiles() !== files || api.getSceneElementsIncludingDeleted() !== elements) continue;
+      const observed: EditorApiObservation = { api, elements, appState, files };
+      apiObservationsRef.current.set(apiScope, observed);
+      acceptApi(apiScope, observed);
+      break;
+    }
+  }, [acceptApi, apiScope]);
 
   useEffect(() => {
     if (activePathRef.current !== path) {
@@ -274,8 +361,13 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
 
   useEffect(() => {
     if (!collaborationEnabled || !collaboration?.remoteUpdate) return;
-    const api = apiRef.current;
-    if (!api) return;
+    const binding = readyApi;
+    if (!binding || binding.scope !== apiScope) return;
+    const isCurrent = () => binding.lifetime.active && liveApiBindingRef.current === binding
+      && apiLifetimeRef.current === binding.lifetime && apiRef.current === binding.api
+      && apiObservationsRef.current.get(apiScope)?.api === binding.api;
+    if (!isCurrent()) return;
+    const api = binding.api;
     const remote = collaboration.remoteUpdate;
     const reconciled = reconcileElements(
       api.getSceneElementsIncludingDeleted(),
@@ -289,25 +381,36 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
     });
     const localFiles = api.getFiles();
     for (const asset of remote.assets) {
-      if (localFiles[asset.fileId as keyof BinaryFiles] || loadingAssetsRef.current.has(asset.fileId)) continue;
-      loadingAssetsRef.current.add(asset.fileId);
+      const proof = JSON.stringify([asset.contentHash, asset.mimeType, asset.sizeBytes, asset.version, asset.createdAt]);
+      const currentAsset = () => {
+        const witness = assetWitnessRef.current;
+        return witness?.scope === apiScope && witness.proofs.get(asset.fileId) === proof;
+      };
+      if (!currentAsset() || localFiles[asset.fileId as keyof BinaryFiles]
+        || binding.pendingAssets.get(asset.fileId)?.proof === proof) continue;
+      const flight = { proof };
+      binding.pendingAssets.set(asset.fileId, flight);
+      const canApply = () => isCurrent() && currentAsset() && binding.pendingAssets.get(asset.fileId) === flight;
       void collaboration.loadAsset(asset)
-        .then((file) => api.addFiles([file]))
-        .catch((error) => api.setToast({
-          message: error instanceof Error ? error.message : t('collaboration.degraded'),
-          duration: 4000,
-        }))
-        .finally(() => loadingAssetsRef.current.delete(asset.fileId));
+        .then((file) => { if (canApply()) api.addFiles([file]); })
+        .catch((error) => {
+          if (canApply()) api.setToast({
+            message: error instanceof Error ? error.message : t('collaboration.degraded'), duration: 4000,
+          });
+        })
+        .finally(() => {
+          if (binding.pendingAssets.get(asset.fileId) === flight) binding.pendingAssets.delete(asset.fileId);
+        });
     }
-    // Presence emits independently at pointer frequency. Only a new scene
-    // revision may trigger the comparatively expensive element reconciliation.
+    // Presence alone must not reconcile elements or refetch assets. The actual
+    // committed API must also consume an already received scene revision.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [collaborationEnabled, remoteSceneRevision, t]);
+  }, [apiScope, readyApi, collaborationEnabled, remoteSceneRevision, t]);
 
   useEffect(() => {
     if (!collaborationEnabled) return;
     apiRef.current?.updateScene({ collaborators: collaboratorMap, captureUpdate: CaptureUpdateAction.NEVER });
-  }, [collaborationEnabled, collaboratorMap]);
+  }, [collaborationEnabled, collaboratorMap, readyApi]);
 
   const langCode = useMemo(() => (
     locale.toLowerCase().startsWith('de') ? 'de-DE' : 'en'
@@ -318,6 +421,7 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
     appState: AppState,
     files: BinaryFiles
   ) => {
+    observeApi(elements, appState, files);
     const serialized = serializeCanvasNotebookScene(elements, appState, files);
     if (collaborationEnabled && collaboration) {
       if (serialized !== lastSerializedRef.current) { lastSerializedRef.current = serialized; onChange(serialized); }
@@ -328,7 +432,7 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
     if (serialized === lastSerializedRef.current) return;
     lastSerializedRef.current = serialized;
     onChange(serialized);
-  }, [collaboration, collaborationEnabled, onChange]);
+  }, [collaboration, collaborationEnabled, observeApi, onChange]);
 
   const collaborationInitialData = useMemo<ExcalidrawInitialDataState | null>(() => {
     if (!collaborationEnabled) return session.initialData;
@@ -490,8 +594,8 @@ export function ExcalidrawEditor({ path, workspaceId: providedWorkspaceId, value
     <>
       <div className="relative h-full min-h-0 bg-background">
         <Excalidraw
-          key={`${documentIdentity ?? path}:${resetNonce}`}
-          excalidrawAPI={(api) => { apiRef.current = api; }}
+          key={editorKey}
+          excalidrawAPI={captureApi}
           initialData={collaborationInitialData}
           onChange={handleExcalidrawChange}
           onPointerUpdate={(payload) => collaboration?.sendPointer(payload)}
