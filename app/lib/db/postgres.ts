@@ -35,6 +35,7 @@ import { migrateSharedComposioProfiles } from './composio-shared-profile-migrati
 import { MOBILE_MCP_APP_CALL_STATEMENTS } from './mobile-mcp-app-call-migration';
 import { WORKSPACE_STARTER_INITIALIZATION_STATEMENTS } from '../workspaces/starter-document-initialization-store';
 import { EXCALIDRAW_SCENE_SERVICE_STATEMENTS } from './excalidraw-scene-service-migration';
+import { EXCALIDRAW_COPY_STATEMENTS } from './excalidraw-copy-migration';
 import { runChatMessageAdmissionMigration } from './chat-message-admission-migration';
 import { runChatMessageQueueMigration } from './chat-message-queue-migration';
 import { runChatMessageTelegramSourceMigration } from './chat-message-telegram-source-migration';
@@ -1498,6 +1499,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_agent_status ON collaboration_excalidraw_agent_operations (document_id, status, updated_at)');
   for (const statement of EXCALIDRAW_SCENE_SERVICE_STATEMENTS) await pool.query(statement);
+  for (const statement of EXCALIDRAW_COPY_STATEMENTS) await pool.query(statement);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (

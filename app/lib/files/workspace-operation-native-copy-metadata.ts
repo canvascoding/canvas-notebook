@@ -9,6 +9,7 @@ import { captureWorkspaceOperationNativePlanData } from './workspace-operation-n
 import { decodeWorkspaceOperationNativeCopyPlan, type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
 import { decodeWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
 import type { WorkspaceOperationNativeCopyPhysical, WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
+import type { WorkspaceOperationManagedCopyStageV4, WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
 
 export type NativeCopyMetadataRow = Readonly<{ path: string; title: string | null; createdAt: number; updatedAt: number }>;
 export type NativeCopyMetadataSnapshot = Readonly<{
@@ -22,6 +23,7 @@ export type NativeCopyMetadataCompletionWitness = NativeCopyMetadataWitness & Re
 export type NativeCopyMetadataStage = Omit<WorkspaceOperationNativeCopyStage, 'version'> & Readonly<{
   version: 3; metadata: NativeCopyMetadataSnapshot; coreV2StageDigest: string;
 }>;
+type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationManagedCopyStageV4;
 type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan;
 type Input = Readonly<{ plan: MetadataPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
 type Row = Record<string, unknown>;
@@ -263,23 +265,28 @@ export async function captureNativeCopyMetadataSnapshotOnConnection(database: Sq
     mappingsProof: bound.mappingsProof, vacancyScopes: bound.vacancyScopes, exactVacancyPaths: bound.exactVacancyPaths,
     sourceRows: rows }, { plan: bound.plan, physical: bound.physical });
 }
-function capturedStage(stage: WorkspaceOperationNativeCopyStage): NativeCopyMetadataStage {
-  object(stage, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256', 'metadata', 'coreV2StageDigest']);
-  if (stage.version !== 3) fail();
+function capturedStage(stage: WorkspaceOperationOwnedCopyStage): NativeCopyMetadataOwnedStage {
+  if (!stage || typeof stage !== 'object' || types.isProxy(stage) || Object.getPrototypeOf(stage) !== Object.prototype) fail();
+  const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value')
+    || discriminator.value !== 3 && discriminator.value !== 4) fail();
+  object(stage, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256', 'metadata',
+    ...(discriminator.value === 4 ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest'])]);
+  if (stage.version !== 3 && stage.version !== 4) fail();
   // The actual phase checker below requires this exact fully captured Stage
   // and checks its complete original pin. Do not rebuild C1/native snapshots
   // inside every short SQL boundary or treat a matching digest as authority.
   return stage;
 }
-async function guarded<T>(database: SqlConnection, stage: NativeCopyMetadataStage, operation: () => Promise<T>): Promise<T> {
+async function guarded<T>(database: SqlConnection, stage: NativeCopyMetadataOwnedStage, operation: () => Promise<T>): Promise<T> {
   const { assertNativeCopyMetadataPhaseOnConnection } = await import('./workspace-operation-native-copy-phase');
   await assertNativeCopyMetadataPhaseOnConnection(database, stage);
   const result = await operation();
   await assertNativeCopyMetadataPhaseOnConnection(database, stage); return result;
 }
 export async function assertNativeCopyMetadataBeforeOnConnection(database: SqlConnection,
-  input: Readonly<{ stage: WorkspaceOperationNativeCopyStage }>): Promise<void> {
-  const fields = object(input, ['stage']), stage = capturedStage(fields.stage as WorkspaceOperationNativeCopyStage);
+  input: Readonly<{ stage: WorkspaceOperationOwnedCopyStage }>): Promise<void> {
+  const fields = object(input, ['stage']), stage = capturedStage(fields.stage as WorkspaceOperationOwnedCopyStage);
   const bound: ReadContext = { plan: stage.plan, sourcePaths: stage.plan.nativePathPlan.pathMappings.map(mapping => mapping.source.path),
     vacancyScopes: stage.metadata.vacancyScopes, exactVacancyPaths: stage.metadata.exactVacancyPaths, mappingsProof: stage.metadata.mappingsProof };
   const pin = await guarded(database, stage, () => storage(database));
@@ -289,8 +296,8 @@ export async function assertNativeCopyMetadataBeforeOnConnection(database: SqlCo
   if (!equal(await guarded(database, stage, () => storage(database)), pin)) fail('NATIVE_COPY_METADATA_CHANGED');
 }
 export async function applyNativeCopyMetadataOnConnection(database: SqlConnection,
-  input: Readonly<{ stage: WorkspaceOperationNativeCopyStage; copyCreatedAt: number }>): Promise<NativeCopyMetadataCompletionWitness> {
-  const fields = object(input, ['stage', 'copyCreatedAt']), stage = capturedStage(fields.stage as WorkspaceOperationNativeCopyStage);
+  input: Readonly<{ stage: WorkspaceOperationOwnedCopyStage; copyCreatedAt: number }>): Promise<NativeCopyMetadataCompletionWitness> {
+  const fields = object(input, ['stage', 'copyCreatedAt']), stage = capturedStage(fields.stage as WorkspaceOperationOwnedCopyStage);
   const copyCreatedAt = fields.copyCreatedAt;
   if (!clock(copyCreatedAt) || copyCreatedAt === 0) fail();
   const completion = nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt);

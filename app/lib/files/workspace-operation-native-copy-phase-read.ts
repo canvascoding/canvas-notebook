@@ -11,12 +11,14 @@ import type { NativeLinkMutationReceipt } from '../markdown/native-link-mutation
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { serializeWorkspaceOperationRequest, readWorkspaceOperationJournalOnConnection,
   type WorkspaceOperationWithSteps } from './workspace-operation-journal';
-import type { WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
+import type { WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
 import { assertNativeCopyPhaseReceipt, copyPhaseChanged, NativeCopyPhaseError, nativeCopyPhaseExpectedLinks,
   nativeCopyPhaseSha, nativeCopyPhaseStepCount } from './workspace-operation-native-copy-phase-contract';
 import { NATIVE_COPY_COMPLETION_STEP_KEY, nativeCopyPhaseReceiptProof, nativeCopyPhaseCompletionFence } from './workspace-operation-native-copy-phase-contract';
 import type { WorkspaceOperationRecord } from './workspace-operation-journal';
 import { decodeNativeCopyMetadataCompletionWitness, nativeCopyMetadataCompositeDigest } from './workspace-operation-native-copy-metadata';
+import { readHistoricalExcalidrawCopyOnConnection } from '../excalidraw-collaboration/copy-domain';
+import type { ExcalidrawCopyBirthReceipt, ExcalidrawCopyReceiptStorageIdentity } from '../excalidraw-collaboration/copy-contract';
 
 type Row = Record<string, unknown>;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
@@ -42,7 +44,7 @@ function array(value: unknown, maximum: number): unknown[] {
     if (!property?.enumerable || !Object.hasOwn(property, 'value')) copyPhaseChanged(); return property.value;
   });
 }
-function receiptBody(input: unknown, stage: WorkspaceOperationNativeCopyStage, status: NativeCopyReceipt['publicationStatus']): NativeCopyReceipt {
+function receiptBody(input: unknown, stage: WorkspaceOperationOwnedCopyStage, status: NativeCopyReceipt['publicationStatus']): NativeCopyReceipt {
   const body = object(input, ['version', 'operationId', 'workspaceId', 'requestFingerprint', 'documents']);
   const documents = array(body.documents, 10_000).map(value => {
     const document = object(value, ['version', 'source', 'clone', 'blockIdMapping']);
@@ -85,7 +87,7 @@ async function journalHeaderWitness(database: SqlConnection): Promise<string> {
  * it neither opens another borrower nor allocates an XID or reads step bodies.
  * Its data is never an ACL, mutation, resume or COMMIT capability. */
 export async function readNativeCopyPhaseJournalHeaderOnConnection(database: SqlConnection,
-  stage: WorkspaceOperationNativeCopyStage): Promise<WorkspaceOperationRecord | null> {
+  stage: WorkspaceOperationOwnedCopyStage): Promise<WorkspaceOperationRecord | null> {
   const origin = decodeWorkspaceOperationCopyOrigin(stage.origin), serialized = serializeWorkspaceOperationRequest(stage.request);
   const expected = Object.freeze({ operationId: stage.identity.operationId, planId: stage.plan.planId,
     requestHash: stage.identity.canonicalRequestHash, requestJson: serialized.requestJson,
@@ -122,7 +124,7 @@ export async function readNativeCopyPhaseJournalHeaderOnConnection(database: Sql
 /** Header-first bounded journal view. Cooperating step writers lock this same
  * operation header first; byte sums precede the original payload reader. */
 export async function readNativeCopyPhaseJournalOnConnection(database: SqlConnection,
-  stage: WorkspaceOperationNativeCopyStage): Promise<WorkspaceOperationWithSteps | null> {
+  stage: WorkspaceOperationOwnedCopyStage): Promise<WorkspaceOperationWithSteps | null> {
   const header = await database.get('SELECT operation_id,octet_length(request_json) AS request_bytes FROM workspace_file_operations WHERE operation_id=$1 FOR UPDATE',
   [stage.identity.operationId]) as Row | undefined;
   if (!header) return null;
@@ -148,7 +150,7 @@ export async function readNativeCopyPhaseJournalOnConnection(database: SqlConnec
 
 /** Immutable original C3 body only. No current registry/Yjs/lineage rescan and
  * no permission, resume grant, transaction or connection ownership. */
-export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnection, stage: WorkspaceOperationNativeCopyStage): Promise<{
+export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnection, stage: WorkspaceOperationOwnedCopyStage): Promise<{
   receipt: NativeCopyReceipt; xmin: string; createdAt: number;
 } | null> {
   const header = await database.get(`SELECT workspace_id,operation_id,organization_id,actor_user_id,actor_session_id,version,kind,
@@ -163,7 +165,7 @@ export async function readNativeCopyPhaseLedgerOnConnection(database: SqlConnect
     || !hash(header.request_fingerprint) || header.publication_fingerprint !== stage.payloadSha256
     || !['native_committed', 'published'].includes(String(header.publication_status)) || typeof header.xmin !== 'string'
     || !bounded(header.result_bytes, 16 * 1024 * 1024) || !bounded(header.scope_bytes, 128 * 1024)
-    || stage.version === 3 && (!bounded(Number(header.created_at), Number.MAX_SAFE_INTEGER - 1) || Number(header.created_at) < 1)) copyPhaseChanged();
+    || stage.version !== 2 && (!bounded(Number(header.created_at), Number.MAX_SAFE_INTEGER - 1) || Number(header.created_at) < 1)) copyPhaseChanged();
   const row = await database.get(`SELECT private_result,scope_paths FROM collaboration_native_copy_receipts
     WHERE workspace_id=$1 AND operation_id=$2 AND octet_length(private_result::text)<=$3 AND octet_length(scope_paths::text)<=$4`,
   [stage.identity.destinationWorkspaceId, stage.identity.operationId, 16 * 1024 * 1024, 128 * 1024]) as Row | undefined;
@@ -183,7 +185,7 @@ export function nativeCopyPhaseLinkReceiptProof(receipt: NativeLinkMutationRecei
     afterSnapshotHash: nativeCopyPhaseSha(receipt.afterStateSnapshot), inverseProof: proof(receipt.inverseRecipes) });
 }
 export async function readNativeCopyPhaseLinkReceiptsOnConnection(database: SqlConnection,
-  stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt): Promise<readonly NativeCopyPhaseLinkReceipt[]> {
+  stage: WorkspaceOperationOwnedCopyStage, receipt: NativeCopyReceipt): Promise<readonly NativeCopyPhaseLinkReceipt[]> {
   const expected = nativeCopyPhaseExpectedLinks(stage, receipt), ids = expected.map(link => link.mutationId);
   const header = await database.get(`SELECT count(*)::integer AS count,
     coalesce(sum(octet_length(after_state_snapshot)+octet_length(after_state_vector)+octet_length(before_state_vector)
@@ -225,6 +227,7 @@ export async function readNativeCopyPhaseLinkReceiptsOnConnection(database: SqlC
 
 export type CompletedNativeCopyHistoryInput = Readonly<{
   operationId: string; origin: WorkspaceOperationCopyOrigin; requestHash: string; planId: string; storage: NativeCopyReceiptStorageIdentity;
+  sceneStorage?: ExcalidrawCopyReceiptStorageIdentity;
 }>;
 async function historyWitness(database: SqlConnection): Promise<string> {
   const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,a.backend_start::text AS start,
@@ -257,9 +260,11 @@ async function historyRelations(database: SqlConnection, storage: NativeCopyRece
  * actual fixed owner before this caller-held RR/RO/no-XID read. An immutable
  * published receipt and original completion never authorize another mutation. */
 export async function readCompletedNativeCopyHistoryOnConnection(database: SqlConnection,
-  input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt }> | null> {
-  const value = object(captureWorkspaceOperationNativePlanData(input, copyPhaseChanged),
-    ['operationId', 'origin', 'requestHash', 'planId', 'storage']) as unknown as CompletedNativeCopyHistoryInput;
+  input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
+    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+  const captured = captureWorkspaceOperationNativePlanData(input, copyPhaseChanged);
+  const value = object(captured, ['operationId', 'origin', 'requestHash', 'planId', 'storage',
+    ...(captured && typeof captured === 'object' && Object.hasOwn(captured, 'sceneStorage') ? ['sceneStorage'] : [])]) as unknown as CompletedNativeCopyHistoryInput;
   const origin = decodeWorkspaceOperationCopyOrigin(value.origin);
   if (typeof value.operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(value.operationId)
     || !hash(value.requestHash) || !hash(value.planId)) copyPhaseChanged();
@@ -298,12 +303,13 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
   const parsed: unknown = JSON.parse(step.receipt_json);
   const version = parsed && typeof parsed === 'object' ? Object.getOwnPropertyDescriptor(parsed, 'version')?.value : undefined;
   const completed = object(parsed, ['version', 'kind', 'canonicalRequestHash', 'planId', 'stageDigest',
-    'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof', ...(version === 2 ? ['coreV2StageDigest', 'metadata'] : [])]);
-  if (completed.version !== 1 && completed.version !== 2 || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
+    'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof', ...(version === 2 ? ['coreV2StageDigest', 'metadata'] : []),
+    ...(version === 3 ? ['metadata', 'sceneIntentProof', 'sceneBirthProof', 'assetReceiptProof'] : [])]);
+  if (![1, 2, 3].includes(completed.version as number) || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
     || completed.planId !== value.planId || completed.stageDigest !== step.after_fence
     || ![completed.stageDigest, completed.nativeRequestFingerprint, completed.copyReceiptProof, completed.admissionsProof].every(hash)) copyPhaseChanged();
-  const metadata = completed.version === 2 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
-  if (metadata && (!hash(completed.coreV2StageDigest)
+  const metadata = completed.version === 2 || completed.version === 3 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
+  if (completed.version === 2 && metadata && (!hash(completed.coreV2StageDigest)
     || nativeCopyMetadataCompositeDigest(completed.coreV2StageDigest, { version: metadata.version, kind: metadata.kind,
       snapshotProof: metadata.snapshotProof, sourceRowCount: metadata.sourceRowCount, copiedTitleCount: metadata.copiedTitleCount }) !== completed.stageDigest)) copyPhaseChanged();
   if (step.before_fence !== nativeCopyPhaseCompletionFence({ canonicalRequestHash: value.requestHash, planId: value.planId,
@@ -317,6 +323,16 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
     operationId: value.operationId, actorUserId: origin.actor.userId, actorSessionId: origin.actor.sessionId,
     kind: 'native_clone', requestFingerprint: completed.nativeRequestFingerprint as string, publicationFingerprint: completed.stageDigest as string });
   if (!nativeReceipt || nativeReceipt.publicationStatus !== 'published' || nativeCopyPhaseReceiptProof(nativeReceipt) !== completed.copyReceiptProof) copyPhaseChanged();
+  let managedReceipt: ExcalidrawCopyBirthReceipt | undefined;
+  if (completed.version === 3) {
+    if (!value.sceneStorage || ![completed.sceneIntentProof, completed.sceneBirthProof, completed.assetReceiptProof].every(hash)) copyPhaseChanged();
+    const scene = await readHistoricalExcalidrawCopyOnConnection(database, { operationId: value.operationId,
+      stageDigest: completed.stageDigest as string, requestHash: value.requestHash, origin, storage: value.sceneStorage });
+    if (!scene || scene.intent.nativeRequestFingerprint !== nativeReceipt.requestFingerprint
+      || scene.intent.nativeReceiptProof !== nativeCopyPhaseReceiptProof(nativeReceipt) || scene.intent.intentDigest !== completed.sceneIntentProof
+      || scene.receiptProof !== completed.sceneBirthProof || scene.assetReceipt.receiptProof !== completed.assetReceiptProof) copyPhaseChanged();
+    managedReceipt = scene;
+  }
   const scopes = await database.get(`SELECT CASE WHEN octet_length(scope_paths::text)<=131072 THEN scope_paths END AS scopes${metadata ? ',created_at' : ''}
     FROM collaboration_native_copy_receipts WHERE workspace_id=$1 AND operation_id=$2`,
   [origin.destinationScope.workspaceId, value.operationId]) as Row | undefined;
@@ -327,5 +343,6 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
   return { operation: { operationId: value.operationId, planId: value.planId, requestHash: value.requestHash, requestJson: header.request_json,
     actor: { type: origin.actor.type, id: origin.actor.userId }, sourceWorkspaceId: origin.sourceScope.workspaceId,
     destinationWorkspaceId: origin.destinationScope.workspaceId, expectedStepCount: Number(header.expected_step_count), status: 'completed', phase: 'completed',
-    revision: Number(header.revision), errorCode: header.error_code as string | null, createdAt: Number(header.created_at), updatedAt: Number(header.updated_at) }, nativeReceipt };
+    revision: Number(header.revision), errorCode: header.error_code as string | null, createdAt: Number(header.created_at), updatedAt: Number(header.updated_at) }, nativeReceipt,
+    stageVersion: completed.version === 3 ? 4 : completed.version === 2 ? 3 : 2, ...(managedReceipt ? { managedReceipt } : {}) };
 }

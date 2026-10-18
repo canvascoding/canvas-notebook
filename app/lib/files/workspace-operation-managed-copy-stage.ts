@@ -22,6 +22,7 @@ import { serializeWorkspaceOperationRequest, type WorkspaceOperationRequest } fr
 import { decodeNativeCopyMetadataSnapshot, type NativeCopyMetadataSnapshot } from './workspace-operation-native-copy-metadata';
 import { captureNativeCopyStageIdentity, NativeCopyStageDataError, NATIVE_COPY_STAGE_MANIFEST_LIMIT,
   type WorkspaceOperationNativeCopyStageIdentity } from './workspace-operation-native-copy-stage';
+import type { WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
 
 export const MANAGED_COPY_SCENE_RECORDS_LIMIT = 128 * 1024 * 1024;
 export const MANAGED_COPY_SCENE_ASSETS_LIMIT = 50 * 1024 * 1024;
@@ -56,6 +57,7 @@ export type WorkspaceOperationManagedCopyStageV4 = Readonly<Omit<ManagedCopyStag
   nativeRecords: readonly NativeRecoveryRecord[]; sceneRecords: readonly WorkspaceSceneSnapshotRecord[];
   sceneAssets: readonly WorkspaceOperationManagedCopyAsset[];
 }>;
+export type WorkspaceOperationOwnedCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationManagedCopyStageV4;
 export type ManagedCopyStagePayloads = Readonly<{ recordsBytes: Buffer; sceneRecordsBytes: Buffer; sceneAssetsBytes: Buffer }>;
 const fail = (code: NativeCopyStageDataError['code'] = 'STAGE_CONFLICT'): never => { throw new NativeCopyStageDataError(code); };
 const hash = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex');
@@ -123,7 +125,7 @@ function evidences(plan: WorkspaceOperationManagedCopyPlan) {
 }
 
 /** Historical raw equality, never an assertion of current SQL/principal facts. */
-function replay(plan: WorkspaceOperationManagedCopyPlan, records: readonly NativeRecoveryRecord[]): void {
+function replay(plan: WorkspaceOperationManagedCopyPlan, records: readonly NativeRecoveryRecord[]) {
   const components = evidences(plan), expected = new Map(components.flatMap(evidence => evidence.nativeBindings
     .map(binding => [binding.expected.documentId, binding] as const)));
   if (records.length !== expected.size) return fail();
@@ -143,7 +145,10 @@ function replay(plan: WorkspaceOperationManagedCopyPlan, records: readonly Nativ
       selections: plan.selections.map(selection => ({ ...selection })) }], states: [...states.values()] });
   if (compiled.issues.length || compiled.executionReady !== false || compiled.planId !== plan.compilerPlanProof
     || compiled.finalGraphProof !== plan.finalGraphProof || !equal(compiled.cloneRequirements, plan.cloneRequirements)) return fail();
+  return compiled;
 }
+/** Historical mathematics only; current owner and SQL observations are separate. */
+export const replayManagedCopyStageCompiler = replay;
 function nativeBytes(input: unknown, plan: WorkspaceOperationManagedCopyPlan): Buffer {
   const records = list(input, 10_000).map(raw => {
     const value = object(raw, ['lineageId', 'state']);

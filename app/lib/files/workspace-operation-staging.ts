@@ -727,7 +727,13 @@ export class WorkspaceOperationStaging {
     return result;
   }
 
-  private async loadStoredCopyByOperationId(operationId: string, managed: boolean): Promise<StoredCopyStage | null> {
+  /** One manifest-version routing read for the fixed owner. This returns
+   * original data only; strict provider-specific APIs remain unchanged. */
+  async loadOwnedCopyByOperationId(operationId: string): Promise<StoredCopyStage | null> {
+    return this.loadStoredCopyByOperationId(operationId);
+  }
+
+  private async loadStoredCopyByOperationId(operationId: string, managed?: boolean): Promise<StoredCopyStage | null> {
     if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)) fail('STAGE_CONFLICT', 'Invalid operation ID.');
     const captured = operationId, root = nativeRoot(await this.root());
     try {
@@ -736,13 +742,13 @@ export class WorkspaceOperationStaging {
         const manifest = nativeJson(await nativeReadFile(directory, 'manifest.json', NATIVE_COPY_STAGE_MANIFEST_LIMIT));
         if (manifest.version === 1) fail('STAGE_CONFLICT', 'Operation ID belongs to a legacy stage.');
         if (manifest.version !== 2 && manifest.version !== 3 && manifest.version !== 4 || manifest.kind !== 'native-copy') fail('CORRUPT_STAGE', 'Unknown native recovery stage.');
-        if ((manifest.version === 4) !== managed) fail('STAGE_CONFLICT', 'Recovery stage requires its original provider format.');
+        if (managed !== undefined && (manifest.version === 4) !== managed) fail('STAGE_CONFLICT', 'Recovery stage requires its original provider format.');
         const identity = captureNativeCopyStageIdentity(manifest.identity);
         if (identity.operationId !== captured) fail('CORRUPT_STAGE', 'Native stage operation identity differs.');
         nativeCheckDirectory(directory);
         const original = await nativeLoad(root, identity);
         if (!original) fail('CORRUPT_STAGE', 'Original native stage disappeared during recovery.');
-        assertCopyStageFormat(original, managed);
+        if (managed !== undefined) assertCopyStageFormat(original, managed);
         // Keep the first manifest's actual directory pin throughout nativeLoad;
         // an identical-byte replacement directory must not be silently adopted.
         nativeCheckDirectory(directory); return original;

@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { NativeCopyViewOutcome } from '../app/lib/files/workspace-operation-copy-view-finalizer';
-import type { WorkspaceOperationNativeCopyPlan } from '../app/lib/files/workspace-operation-native-copy-plan';
+import type { WorkspaceOperationManagedCopyPlan } from '../app/lib/files/workspace-operation-managed-copy-plan';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 // Actual authenticated Service/Owner, full PG18 migrations and FD stages.
@@ -49,10 +49,11 @@ async function nativeCopyViewsPostgresTest(): Promise<void> {
       sourceWorkspace: h.source, destinationWorkspace: h.destination });
     const sourcePath = `views-source-${crypto.randomUUID()}.md`, sourceBytes = Buffer.from('# View source\n\nGenuine imported content.\n');
     const source = await h.upload(sourcePath, sourceBytes); await h.metadata(h.source, sourcePath, { title: 'Shared source title' });
-    type Job = { operationId: string; selections: Array<{ sourcePath: string; destinationPath: string }>; plan: WorkspaceOperationNativeCopyPlan };
+    type Job = { operationId: string; selections: Array<{ sourcePath: string; destinationPath: string }>; plan: WorkspaceOperationManagedCopyPlan };
     const newJob = async (): Promise<Job> => {
       const selections = [{ sourcePath, destinationPath: `views-copy-${crypto.randomUUID()}.md` }];
       const plan = await previewWorkspaceNativeCopyOperation({ origin, request: await h.request(h.destination, 'member', true), selections });
+      assert.equal(plan.version, 3);
       return { operationId: crypto.randomUUID(), selections, plan };
     };
     const service = async (job: Job) => executeWorkspaceFileOperationService({ kind: 'copy', operationId: job.operationId,
@@ -72,7 +73,7 @@ async function nativeCopyViewsPostgresTest(): Promise<void> {
       value: { publishMutation: (value: { workspace: { workspaceId: string }; relativePath: string; type: string }) => {
         events.push({ workspaceId: value.workspace.workspaceId, path: value.relativePath, type: value.type });
       } } });
-    const references = Reflect.get(globalThis, Symbol.for('canvas.file-reference-cache.v1')) as {
+    const references = Reflect.get(globalThis, Symbol.for('canvas.file-reference-cache.v2')) as {
       cacheEntries: Map<string, { entries: unknown[]; expiresAt: number }>; pendingBuilds: Map<string, Promise<unknown[]>> };
     assert(references?.cacheEntries instanceof Map); assert(references.pendingBuilds instanceof Map);
     const foreignWorkspaceId = `unrelated-view-${crypto.randomUUID()}`, workspaceIds = [h.source.workspaceId, h.destination.workspaceId, foreignWorkspaceId];
@@ -171,6 +172,7 @@ async function nativeCopyViewsPostgresTest(): Promise<void> {
         const childBefore = (await h.admin.query('SELECT yjs_state,state_vector,document_sequence,status FROM collaboration_yjs_states WHERE document_id=$1', [child.documentId])).rows[0];
         const selections = [{ sourcePath: folder, destinationPath: destination }];
         const plan = await previewWorkspaceNativeCopyOperation({ origin, request: await h.request(h.destination, 'member', true), selections });
+        assert.equal(plan.version, 3);
         const job: Job = { operationId: crypto.randomUUID(), selections, plan }, before = events.length;
         const result = await owner(job), outcome = readWorkspaceNativeCopyViewOutcome(result);
         assert.equal(result.execution.status, 'complete'); const birth = await ledger(job), completion = await receipt(job);

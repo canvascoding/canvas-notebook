@@ -11,18 +11,26 @@ import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases,
   type WorkspaceFileLifecycleLease } from '../collaboration/file-lifecycle-admission-context';
 import { withWorkspaceCopyRequestOnConnection, withWorkspaceCopyAgentOnConnection,
   type WorkspaceCopyPrincipalAccess } from '../workspaces/copy-principal';
-import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
-import { createWorkspaceOperationNativeCopyPlanV2, type WorkspaceOperationNativeCopyPlan,
-  type WorkspaceOperationNativeCopySelection } from './workspace-operation-native-copy-plan';
+import { readWorkspaceCopySourceObservationOnConnection } from './workspace-operation-copy-source-observation';
+import { readWorkspaceSceneCatalogue } from '../collaboration/workspace-scene-catalogue';
+import type { WorkspaceOperationNativeCopyPlan, WorkspaceOperationNativeCopySelection } from './workspace-operation-native-copy-plan';
+import { createWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
+import { readExcalidrawAssetsOnConnection } from '../excalidraw-collaboration/readonly-assets';
+import { serializePortableExcalidrawSceneFromReadonlyAssets } from '../excalidraw-collaboration/portable-serialization';
+import { readOriginalExcalidrawCopyOnConnection, readExcalidrawCopyReceiptStorageIdentityOnConnection } from '../excalidraw-collaboration/copy-domain';
+import { withPreparedExcalidrawCopyAssets, withRecoveredExcalidrawCopyAssets, readPreparedExcalidrawCopyAssets,
+  assertPreparedExcalidrawCopyAssetsCurrent, publishPreparedExcalidrawCopyAssets, retireExcalidrawCopyAssetOriginal,
+  type PreparedExcalidrawCopyAssets } from '../excalidraw-collaboration/copy-asset-publication';
+import { ExcalidrawCopyError, type ExcalidrawCopyAssetOriginal, type ExcalidrawCopyBirthReceipt } from '../excalidraw-collaboration/copy-contract';
 import { decodeWorkspaceOperationCopyOrigin, assertWorkspaceOperationCopyOriginCurrent,
   type WorkspaceOperationCopyOrigin } from './workspace-operation-copy-origin';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import type { WorkspaceContext } from '../workspaces/types';
-import type { WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
+import type { WorkspaceOperationOwnedCopyStage, WorkspaceOperationManagedCopyPhysical, WorkspaceOperationManagedCopyStageV4 } from './workspace-operation-managed-copy-stage';
 import { withRecoveredWorkspacePathCopy, withPreparedWorkspacePathCopy, readPreparedWorkspacePathCopy,
   publishPreparedWorkspacePathCopy, discardPreparedWorkspacePathCopy, assertPreparedWorkspacePathCopyCurrent,
   assertPreparedWorkspacePathCopyReceiptCurrent, preparedWorkspacePathCopyProof,
-  type PreparedWorkspacePathCopyOriginal, type PreparedWorkspacePathCopyParentReceipt,
+  type PreparedWorkspacePathCopyParentReceipt,
   type PreparedWorkspacePathCopySharedParent } from '../filesystem/prepared-workspace-path-copy';
 import { WorkspaceOperationStaging } from './workspace-operation-staging';
 import { serializeWorkspaceOperationRequest, prepareWorkspaceOperationOnConnection,
@@ -61,10 +69,12 @@ type Owner = {
   leases: ReadonlyMap<string, WorkspaceFileLifecycleLease>; identity?: Identity;
   active: boolean; phase: 'idle' | 'write' | 'history'; failure?: Error;
   workspaces?: Readonly<{ source: WorkspaceContext; destination: WorkspaceContext }>;
-  stage?: WorkspaceOperationNativeCopyStage;
+  stage?: WorkspaceOperationOwnedCopyStage;
+  assetPublication?: Readonly<{ stageDigest: string; originalProof: string }>;
 };
 const context = new AsyncLocalStorage<Owner>();
 const ownedConnections = new WeakMap<SqlConnection, Owner>();
+const assetRetirement = new AsyncLocalStorage<{ owner: Owner; original: ExcalidrawCopyAssetOriginal; birth: ExcalidrawCopyBirthReceipt; active: boolean }>();
 function problem(code: NativeCopyOwnerError['code'] = 'NATIVE_COPY_OWNER_CHANGED'): never { throw new NativeCopyOwnerError(code); }
 function captureInvocation(input: Invocation): Invocation {
   const origin = decodeWorkspaceOperationCopyOrigin(input.origin);
@@ -124,7 +134,7 @@ export async function assertNativeCopySessionOnConnection(database: SqlConnectio
 /** Fixed phase-only check of the actual retained FD payloads. This is not a
  * caller-mintable proof: only execute sets stage on the private session frame. */
 export async function assertNativeCopyPhysicalStageOnConnection(database: SqlConnection,
-  stage: WorkspaceOperationNativeCopyStage): Promise<void> {
+  stage: WorkspaceOperationOwnedCopyStage): Promise<void> {
   await assertNativeCopySessionOnConnection(database, stage.origin);
   const owner = context.getStore()!;
   if (owner.phase !== 'write' || !owner.workspaces || !owner.stage || owner.stage.payloadSha256 !== stage.payloadSha256
@@ -208,8 +218,8 @@ async function transaction<T>(owner: Owner, mode: 'write' | 'history', operation
 }
 /** Detach original data before BEGIN. Current authority, B/XID and every write
  * remain inside the fixed phase; this pure frame ends with this one TX. */
-function copyPhaseTransaction<T>(owner: Owner, stage: WorkspaceOperationNativeCopyStage,
-  operation: (detached: WorkspaceOperationNativeCopyStage) => Promise<T>, onCommitted?: (result: T) => void): Promise<T> {
+function copyPhaseTransaction<T>(owner: Owner, stage: WorkspaceOperationOwnedCopyStage,
+  operation: (detached: WorkspaceOperationOwnedCopyStage) => Promise<T>, onCommitted?: (result: T) => void): Promise<T> {
   return withCapturedNativeCopyPhaseStage(stage, detached => transaction(owner, 'write', () => operation(detached), onCommitted));
 }
 
@@ -223,6 +233,46 @@ async function principal<T>(owner: Owner, operation: (current: WorkspaceCopyPrin
     ? await withWorkspaceCopyRequestOnConnection(owner.database, owner.invocation.request!, owner.invocation.origin, use)
     : await withWorkspaceCopyAgentOnConnection(owner.database, owner.invocation.origin, use);
   await verify(owner); return result;
+}
+
+/** Data-only Stage/Workspace DTOs cannot mint an asset writer. Only the fixed
+ * execute continuation sets the original Stage on this actual private owner. */
+export function assertNativeCopyManagedAssetOwner(stage: WorkspaceOperationManagedCopyStageV4): void {
+  const owner = context.getStore();
+  if (!owner) problem('NATIVE_COPY_OWNER_REQUIRED');
+  current(owner);
+  if (owner.phase === 'history' || !owner.workspaces || owner.stage?.version !== 4
+    || owner.stage.payloadSha256 !== stage.payloadSha256 || !equal(owner.stage.identity, stage.identity)
+    || !equal(owner.stage.origin, stage.origin) || !equal(owner.invocation.origin, stage.origin)) problem();
+}
+/** The original asset proof is bound only after the genuine B1 COMMIT ACK.
+ * A cap or a caller-provided historical receipt cannot create that binding. */
+export function assertNativeCopyManagedAssetPublication(stage: WorkspaceOperationManagedCopyStageV4,
+  original: ExcalidrawCopyAssetOriginal): void {
+  assertNativeCopyManagedAssetOwner(stage);
+  const owner = context.getStore()!;
+  if (owner.phase !== 'idle' || !owner.assetPublication || owner.assetPublication.stageDigest !== stage.payloadSha256
+    || owner.assetPublication.originalProof !== original.originalProof || original.stageDigest !== stage.payloadSha256
+    || original.operationId !== stage.identity.operationId || !equal(original.destinationScope, stage.origin.destinationScope)) problem();
+}
+
+/** Only the fixed post-ACK or pinned-history owner continuation enters this
+ * private lifetime. A serialized receipt alone cannot retire recovery originals. */
+export async function assertNativeCopyManagedAssetRetirement(original: ExcalidrawCopyAssetOriginal,
+  birth: ExcalidrawCopyBirthReceipt): Promise<void> {
+  const frame = assetRetirement.getStore(), owner = context.getStore();
+  if (!frame?.active || !owner || frame.owner !== owner || owner.phase !== 'idle'
+    || !equal(frame.original, original) || !equal(frame.birth, birth)
+    || !equal(original, birth.intent.assetOriginal) || !equal(birth.intent.origin, owner.invocation.origin)) problem();
+  await verify(owner);
+  await transaction(owner, 'write', () => principal(owner, async () => undefined));
+  if (!frame.active || assetRetirement.getStore() !== frame || context.getStore() !== owner) problem();
+  await verify(owner);
+}
+async function retireConfirmedAssets(owner: Owner, birth: ExcalidrawCopyBirthReceipt): Promise<void> {
+  const frame = { owner, original: birth.intent.assetOriginal, birth, active: true };
+  try { await assetRetirement.run(frame, () => retireExcalidrawCopyAssetOriginal(frame.original, birth)); }
+  finally { frame.active = false; }
 }
 
 export type NativeCopyPreviewInput = Invocation & Readonly<{
@@ -259,9 +309,17 @@ function captureSelections(input: NativeCopyPreviewInput): WorkspaceOperationNat
 async function observe(owner: Owner, selections: readonly WorkspaceOperationNativeCopySelection[], renameOnCollision: boolean,
   destinationDirectory?: string) {
   return principal(owner, async current => {
-    const source = await readWorkspaceLinkSourceAuthorityOnConnection(owner.database, current.sourceWorkspace);
+    const workspaces = current.sourceWorkspace.workspaceId === current.destinationWorkspace.workspaceId
+      ? [current.sourceWorkspace] : [current.sourceWorkspace, current.destinationWorkspace];
+    const sceneIds = new Set<string>();
+    for (const workspace of workspaces) for (const header of await readWorkspaceSceneCatalogue(owner.database, workspace)) sceneIds.add(header.id);
+    for (const id of [...sceneIds].sort()) {
+      await owner.database.get('SELECT pg_advisory_xact_lock(hashtext($1))', [`excalidraw:${id}`]);
+      await owner.database.get('SELECT document_id FROM collaboration_excalidraw_states WHERE document_id=$1 FOR UPDATE', [id]);
+    }
+    const source = await readWorkspaceCopySourceObservationOnConnection(owner.database, current.sourceWorkspace);
     const destination = current.sourceWorkspace.workspaceId === current.destinationWorkspace.workspaceId ? source
-      : await readWorkspaceLinkSourceAuthorityOnConnection(owner.database, current.destinationWorkspace);
+      : await readWorkspaceCopySourceObservationOnConnection(owner.database, current.destinationWorkspace);
     if (destinationDirectory !== undefined && destinationDirectory !== '') {
       const directory = destination.stage.namespace.find(entry => entry.path === destinationDirectory);
       if (!directory) throw new NativeCopyDestinationError('DESTINATION_NOT_FOUND');
@@ -277,7 +335,7 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
       }
       return { sourcePath: selection.sourcePath, destinationPath };
     });
-    const plan = createWorkspaceOperationNativeCopyPlanV2({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
+    const plan = createWorkspaceOperationManagedCopyPlan({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
       destinationScope: { workspace: current.destinationWorkspace, fileOptions: {} }, selections: resolved,
       sourceObservation: source, destinationObservation: destination });
     return { plan, source, destination, current };
@@ -286,7 +344,7 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
 
 /** Server-side preview through genuine current Web/PI principals on the same
  * actual dedicated B. Private plan data must be projected before an HTTP reply. */
-export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPreviewInput): Promise<WorkspaceOperationNativeCopyPlan> {
+export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPreviewInput): Promise<WorkspaceOperationManagedCopyPlan> {
   const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
   const destinationDirectory = captureDestinationDirectory(supplied);
   return withSession(invocation, owner => transaction(owner, 'write', async () => (await observe(owner, selections, renameOnCollision, destinationDirectory)).plan));
@@ -294,7 +352,7 @@ export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPr
 
 export type NativeCopyExecutionInput = NativeCopyPreviewInput & Readonly<{ operationId: string; expectedPlanId?: string }>;
 export type NativeCopyExecutionResult = Readonly<{
-  execution: WorkspaceOperationExecutionResult; plan: WorkspaceOperationNativeCopyPlan | null;
+  execution: WorkspaceOperationExecutionResult; plan: WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan | null;
   copied: string[]; alreadyKnown: boolean;
 }>;
 const copyViewOutcomes = new WeakMap<object, NativeCopyViewOutcome>();
@@ -358,15 +416,18 @@ function executionResult(operationId: string, planId: string, complete: boolean,
   return { operationId, planId, status: complete ? 'complete' : 'needs_recovery',
     completedSteps: [...completed], pendingSteps: [...pending], errorCode };
 }
-async function completedHistory(owner: Owner, header: WorkspaceOperationRecord, request: WorkspaceOperationRequest): Promise<NativeCopyExecutionResult> {
+async function completedHistory(owner: Owner, header: WorkspaceOperationRecord, request: WorkspaceOperationRequest): Promise<Readonly<{
+  result: NativeCopyExecutionResult; stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt;
+}>> {
   const storage = await transaction(owner, 'write', () => principal(owner, async () => {
     const schema = await owner.database.get('SELECT pg_catalog.current_schema() AS name') as { name?: string } | undefined;
     if (typeof schema?.name !== 'string') problem();
-    return readNativeCopyReceiptStorageIdentityOnConnection(owner.database, schema.name);
+    return { native: await readNativeCopyReceiptStorageIdentityOnConnection(owner.database, schema.name),
+      scene: await readExcalidrawCopyReceiptStorageIdentityOnConnection(owner.database, schema.name) };
   }));
   const history = await transaction(owner, 'history', async () => {
     const historical = await readCompletedNativeCopyHistoryOnConnection(owner.database, { operationId: header.operationId,
-      origin: owner.invocation.origin, requestHash: header.requestHash, planId: header.planId, storage });
+      origin: owner.invocation.origin, requestHash: header.requestHash, planId: header.planId, storage: storage.native, sceneStorage: storage.scene });
     if (!historical) problem('NATIVE_COPY_INVALID_REQUEST');
     const rows = await owner.database.all(`SELECT step_key,status FROM workspace_file_operation_steps
       WHERE operation_id=$1 ORDER BY step_key LIMIT 10001`, [header.operationId]) as Array<{ step_key: string; status: string }>;
@@ -376,18 +437,33 @@ async function completedHistory(owner: Owner, header: WorkspaceOperationRecord, 
   // Authorization is current on both sides of the read-only historical phase.
   // Historical initial receipts never become permission for another mutation.
   await transaction(owner, 'write', () => principal(owner, async () => undefined));
-  return { execution: executionResult(header.operationId, header.planId, true, history.steps, [], null),
-    plan: null, copied: request.selections.map(selection => selection.destinationPath), alreadyKnown: true };
+  return { result: { execution: executionResult(header.operationId, header.planId, true, history.steps, [], null),
+    plan: null, copied: request.selections.map(selection => selection.destinationPath), alreadyKnown: true },
+    stageVersion: history.historical.stageVersion, ...(history.historical.managedReceipt ? { managedReceipt: history.historical.managedReceipt } : {}) };
 }
 async function createStage(owner: Owner, store: WorkspaceOperationStaging, operationId: string,
   selections: readonly WorkspaceOperationNativeCopySelection[], renameOnCollision: boolean,
-  expectedPlanId?: string, destinationDirectory?: string): Promise<WorkspaceOperationNativeCopyStage> {
-  const observed = await transaction(owner, 'write', () => observe(owner, selections, renameOnCollision, destinationDirectory));
+  expectedPlanId?: string, destinationDirectory?: string): Promise<WorkspaceOperationOwnedCopyStage> {
+  const observed = await transaction(owner, 'write', async () => {
+    const observation = await observe(owner, selections, renameOnCollision, destinationDirectory);
+    const selected = new Set(observation.plan.sceneCopyRequirements.map(row => row.sourceDocumentId));
+    const sceneRecords = observation.source.privateSceneSnapshots.filter(row => selected.has(row.header.id));
+    const metadata = new Map<string, (typeof sceneRecords)[number]['scene']['assets'][number]>();
+    for (const record of sceneRecords) for (const asset of record.scene.assets) {
+      const prior = metadata.get(asset.fileId);
+      if (prior && !equal(prior, asset)) problem('NATIVE_COPY_PLAN_CHANGED');
+      metadata.set(asset.fileId, asset);
+    }
+    const assets = await principal(owner, () => readExcalidrawAssetsOnConnection(owner.database,
+      observation.current.sourceWorkspace.workspaceId, [...metadata.values()]));
+    const sceneAssets = assets.map(asset => ({ workspaceId: observation.current.sourceWorkspace.workspaceId, asset }));
+    return { ...observation, sceneRecords, sceneAssets };
+  });
   if (expectedPlanId !== undefined && observed.plan.planId !== expectedPlanId) problem('NATIVE_COPY_PLAN_CHANGED');
   if (observed.current.currentActor.sessionId !== owner.invocation.origin.actor.sessionId) problem('NATIVE_COPY_INVALID_REQUEST');
   const spaces = { sourceWorkspace: observed.current.sourceWorkspace, destinationWorkspace: observed.current.destinationWorkspace };
-  const physical: Array<{ selectionIndex: number; original: PreparedWorkspacePathCopyOriginal }> = [];
-  let persisted = false;
+  const physical: WorkspaceOperationManagedCopyPhysical[] = [];
+  let persisted = false, derivedBytes = 0;
   try {
     for (const [selectionIndex, selected] of observed.plan.selections.entries()) {
       await transaction(owner, 'write', () => principal(owner, async () => undefined));
@@ -396,9 +472,25 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
       const sourceKind = entry.filesystemIdentity === null ? 'projection_absent' : entry.kind === 'directory' ? 'directory' : 'regular_file';
       const projectionPaths = observed.plan.sourceEvidence.nativeBindings.map(binding => binding.expected.path)
         .filter(path => path === selected.sourcePath || entry.kind === 'directory' && path.startsWith(selected.sourcePath + '/'));
+      const derivedFiles = [];
+      for (const row of observed.sceneRecords) {
+        if (row.header.path !== selected.sourcePath
+          && !(entry.kind === 'directory' && row.header.path.startsWith(selected.sourcePath + '/'))) continue;
+        const portable = serializePortableExcalidrawSceneFromReadonlyAssets({ elements: row.scene.elements,
+          appState: row.scene.appState, assets: row.scene.assets, canonicalHash: row.scene.canonicalHash }, observed.sceneAssets
+          .filter(asset => row.scene.assets.some(metadata => equal(metadata, asset.asset.metadata)))
+          .map(({ asset }) => ({ metadata: asset.metadata, bytes: asset.bytes })));
+        derivedBytes += Buffer.byteLength(portable);
+        if (derivedBytes > 128 * 1024 * 1024) throw new ExcalidrawCopyError('EXCALIDRAW_COPY_TOO_LARGE');
+        derivedFiles.push({ path: row.header.path, provider: 'excalidraw' as const, documentId: row.header.id,
+          lineageId: row.header.lineage_id, lifecycleGeneration: row.header.lifecycle_generation!,
+          sourceContentProof: row.contentProof, bytes: Buffer.from(portable) });
+      }
       await withPreparedWorkspacePathCopy({ ...spaces, ...selected, sourceKind, projectionPaths,
-        ...(observed.plan.version === 2 ? { sourceProjectionPolicy: 'native-derived-leaves-v2' as const } : {}) }, async cap => {
-        physical.push({ selectionIndex, original: readPreparedWorkspacePathCopy(cap) });
+        sourceProjectionPolicy: 'provider-derived-files-v3', derivedFiles }, async cap => {
+        const original = readPreparedWorkspacePathCopy(cap);
+        if (original.version !== 3) problem();
+        physical.push({ selectionIndex, original });
       });
       await verify(owner);
     }
@@ -410,8 +502,8 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
     }));
     const metadata = await transaction(owner, 'write', () => principal(owner,
       () => captureNativeCopyMetadataSnapshotOnConnection(owner.database, { plan: observed.plan, physical })));
-    const stage = await store.stageNativeCopy({ operationId, plan: observed.plan,
-      request: { kind: 'copy', origin: owner.invocation.origin, selections: observed.plan.selections }, physical, nativeRecords, metadata });
+    const stage = await store.stageManagedCopy({ operationId, plan: observed.plan,
+      request: { kind: 'copy', origin: owner.invocation.origin, selections: observed.plan.selections }, physical, nativeRecords, sceneRecords: observed.sceneRecords, sceneAssets: observed.sceneAssets, metadata });
     persisted = true; return stage;
   } catch (error) {
     // No publication occurred. Only exact preparations born here may be
@@ -430,7 +522,7 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
 }
 
 type BornParent = { selectionIndex: number; parent: PreparedWorkspacePathCopyParentReceipt };
-function readParents(stage: WorkspaceOperationNativeCopyStage, journal: WorkspaceOperationWithSteps): BornParent[] {
+function readParents(stage: WorkspaceOperationOwnedCopyStage, journal: WorkspaceOperationWithSteps): BornParent[] {
   const births: BornParent[] = [];
   for (const expected of nativeCopyPhaseParentSteps(stage)) {
     const row = journal.steps.find(step => step.stepKey === expected.stepKey);
@@ -444,7 +536,7 @@ function readParents(stage: WorkspaceOperationNativeCopyStage, journal: Workspac
   }
   return births;
 }
-function sharedParents(stage: WorkspaceOperationNativeCopyStage, selectionIndex: number,
+function sharedParents(stage: WorkspaceOperationOwnedCopyStage, selectionIndex: number,
   journal: WorkspaceOperationWithSteps, receipts: readonly NativeCopyPhasePathReceipt[], births: readonly BornParent[]): PreparedWorkspacePathCopySharedParent[] {
   const steps = nativeCopyPhaseParentSteps(stage), paths = nativeCopyPhasePathSteps(stage);
   return births.filter(birth => birth.selectionIndex !== selectionIndex
@@ -462,7 +554,7 @@ function sharedParents(stage: WorkspaceOperationNativeCopyStage, selectionIndex:
         producerReceipt: producer.receipt, parentReceipt: birth.parent };
     });
 }
-async function publishPaths(owner: Owner, stage: WorkspaceOperationNativeCopyStage): Promise<NativeCopyPhasePathReceipt[]> {
+async function publishPaths(owner: Owner, stage: WorkspaceOperationOwnedCopyStage): Promise<NativeCopyPhasePathReceipt[]> {
   const receipts: NativeCopyPhasePathReceipt[] = [];
   // Physical producers run before logical absence observations, including a
   // projection-only selection that appeared first in the original request.
@@ -512,7 +604,7 @@ function authenticationError(error: unknown): boolean {
   return error instanceof Error && ([401, 403].includes(Number(Reflect.get(error, 'status')))
     || ['PRINCIPAL_AUTH_REVOKED', 'PRINCIPAL_ACCESS_DENIED', 'AGENT_ACTOR_CONTEXT_DENIED'].includes(String(Reflect.get(error, 'code'))));
 }
-async function recordRecovery(invocation: Invocation, stage: WorkspaceOperationNativeCopyStage, code: string): Promise<void> {
+async function recordRecovery(invocation: Invocation, stage: WorkspaceOperationOwnedCopyStage, code: string): Promise<void> {
   // This is a new actual checkout after the uncertain owner was discarded.
   // It records recovery status only; it never retries native or FS mutations.
   await withSession({ origin: stage.origin, request: invocation.request }, owner => transaction(owner, 'write', async () => {
@@ -532,9 +624,9 @@ async function recordRecovery(invocation: Invocation, stage: WorkspaceOperationN
 }
 
 /** Fixed native Copy owner. Durable original staging precedes B0; all native
- * clone births and link mutations commit together in B1. Atomic FD publication
+ * Yjs clone births, fixed Scene intents and link mutations commit in B1. Atomic FD publication
  * runs outside transactions while this actual session holds workspace keys.
- * B2 confirms the full graph, publishes the original receipt and closes all
+ * B2 creates the fixed Scene/asset rows, confirms the graph and original receipt, and closes all
  * reservations. Unknown acknowledgements retain the original operation ID. */
 export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInput): Promise<NativeCopyExecutionResult> {
   const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
@@ -542,7 +634,7 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
   const operationId = supplied.operationId, expectedPlanId = supplied.expectedPlanId;
   if (typeof operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(operationId)
     || expectedPlanId !== undefined && (typeof expectedPlanId !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedPlanId))) problem('NATIVE_COPY_INVALID_REQUEST');
-  let durable: WorkspaceOperationNativeCopyStage | undefined, alreadyKnown = false;
+  let durable: WorkspaceOperationOwnedCopyStage | undefined, alreadyKnown = false;
   let completedSteps: string[] = [], pendingSteps: string[] = [];
   let viewOutcome: NativeCopyViewOutcome | null = null;
   const bindViews = <T extends object>(value: T): T => {
@@ -560,19 +652,22 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
       const header = await transaction(owner, 'write', () => operationHeader(owner, operationId));
       const request = header ? bindHeader(owner, header, selections, renameOnCollision, expectedPlanId) : null;
       if (header?.status === 'completed') {
-        const result = await completedHistory(owner, header, request!);
+        const history = await completedHistory(owner, header, request!);
         viewOutcome = Object.freeze({ kind: 'historical', destinationWorkspaceId: header.destinationWorkspaceId });
         // A lost B2 acknowledgement may leave the original private Stage after
         // a proven completion. Retire that exact Stage without reading D2.
-        const retained = await store.loadNativeCopyByOperationId(operationId);
+        const retained = await store.loadOwnedCopyByOperationId(operationId);
         if (retained) {
           if (retained.identity.canonicalRequestHash !== header.requestHash || retained.plan.planId !== header.planId
             || !equal(retained.origin, owner.invocation.origin)) problem();
-          await store.removeCompletedNativeCopy(retained.identity);
+          if (retained.version !== history.stageVersion) problem();
+          if (retained.version === 4) await store.removeCompletedManagedCopy(retained.identity);
+          else await store.removeCompletedNativeCopy(retained.identity);
         }
-        return result;
+        if (history.managedReceipt) await retireConfirmedAssets(owner, history.managedReceipt);
+        return history.result;
       }
-      const original = await store.loadNativeCopyByOperationId(operationId);
+      const original = await store.loadOwnedCopyByOperationId(operationId);
       if (original) {
         bindOriginal(owner, original.origin); assertRequestedCopy(original.request, original.origin, selections, renameOnCollision);
         if (expectedPlanId !== undefined && expectedPlanId !== original.plan.planId
@@ -591,34 +686,53 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
           actor: { type: stage.origin.actor.type, id: stage.origin.actor.userId },
           sourceWorkspaceId: stage.identity.sourceWorkspaceId, destinationWorkspaceId: stage.identity.destinationWorkspaceId,
           expectedStepCount: nativeCopyPhaseStepCount(stage) })));
-      const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
-        { stage: detached, request: owner.invocation.request }));
-      pendingSteps.push(...prepared.linkReceipts.map(link => link.stepKey), 'copy-completion');
-      const pathReceipts = await publishPaths(owner, stage);
-      const entries = new Map(stage.plan.nativePathPlan.pathMappings.map(mapping => [mapping.destinationPath,
-        Object.freeze({ path: mapping.destinationPath, type: mapping.source.kind === 'directory' ? 'addDir' as const : 'add' as const })]));
-      for (const path of pathReceipts) for (const parent of path.receipt.createdParents) {
-        entries.set(parent.relativePath, Object.freeze({ path: parent.relativePath, type: 'addDir' }));
-      }
-      const publishedViews: NativeCopyViewOutcome = Object.freeze({ kind: 'published',
-        destinationWorkspaceId: stage.identity.destinationWorkspaceId,
-        entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
-      const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
-        { stage: detached, request: owner.invocation.request, pathReceipts }), committed => {
-        if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
-          viewOutcome = committed.publication === 'published' ? publishedViews
-            : Object.freeze({ kind: 'historical', destinationWorkspaceId: stage.identity.destinationWorkspaceId });
+      const publish = async (assetCap?: PreparedExcalidrawCopyAssets): Promise<NativeCopyExecutionResult> => {
+        const prepared = await copyPhaseTransaction(owner, stage, detached => prepareNativeCopyPhaseOnConnection(owner.database,
+          { stage: detached, request: owner.invocation.request, ...(assetCap ? { assetOriginal: readPreparedExcalidrawCopyAssets(assetCap) } : {}) }));
+        if (stage.version === 4) {
+          if (!prepared.managedIntent) problem();
+          owner.assetPublication = Object.freeze({ stageDigest: stage.payloadSha256,
+            originalProof: prepared.managedIntent.assetOriginal.originalProof });
         }
-      });
-      if (result.disposition !== 'completed' || result.operation.status !== 'completed') problem();
-      const journal = await transaction(owner, 'write', () => principal(owner, async () =>
-        await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
-      completedSteps = journal.steps.filter(step => step.status === 'applied').map(step => step.stepKey);
-      pendingSteps = journal.steps.filter(step => step.status !== 'applied').map(step => step.stepKey);
-      if (pendingSteps.length || completedSteps.length !== nativeCopyPhaseStepCount(stage)) problem();
-      await store.removeCompletedNativeCopy(stage.identity);
-      return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
-        copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
+        pendingSteps.push(...prepared.linkReceipts.map(link => link.stepKey), 'copy-completion');
+        if (assetCap) await assertPreparedExcalidrawCopyAssetsCurrent(assetCap);
+        const assetReceipt = assetCap ? await publishPreparedExcalidrawCopyAssets(assetCap) : undefined;
+        const pathReceipts = await publishPaths(owner, stage);
+        const entries = new Map(stage.plan.nativePathPlan.pathMappings.map(mapping => [mapping.destinationPath,
+          Object.freeze({ path: mapping.destinationPath, type: mapping.source.kind === 'directory' ? 'addDir' as const : 'add' as const })]));
+        for (const path of pathReceipts) for (const parent of path.receipt.createdParents) {
+          entries.set(parent.relativePath, Object.freeze({ path: parent.relativePath, type: 'addDir' }));
+        }
+        const publishedViews: NativeCopyViewOutcome = Object.freeze({ kind: 'published',
+          destinationWorkspaceId: stage.identity.destinationWorkspaceId,
+          entries: Object.freeze([...entries.values()].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) });
+        const result = await copyPhaseTransaction(owner, stage, detached => completeNativeCopyPhaseOnConnection(owner.database,
+          { stage: detached, request: owner.invocation.request, pathReceipts, ...(assetReceipt ? { assetReceipt } : {}) }), committed => {
+          if (committed.disposition === 'completed' && committed.operation.status === 'completed') {
+            viewOutcome = committed.publication === 'published' ? publishedViews
+              : Object.freeze({ kind: 'historical', destinationWorkspaceId: stage.identity.destinationWorkspaceId });
+          }
+        });
+        if (result.disposition !== 'completed' || result.operation.status !== 'completed') problem();
+        const journal = await transaction(owner, 'write', () => principal(owner, async () =>
+          await readNativeCopyPhaseJournalOnConnection(owner.database, stage) ?? problem()));
+        completedSteps = journal.steps.filter(step => step.status === 'applied').map(step => step.stepKey);
+        pendingSteps = journal.steps.filter(step => step.status !== 'applied').map(step => step.stepKey);
+        if (pendingSteps.length || completedSteps.length !== nativeCopyPhaseStepCount(stage)) problem();
+        if (stage.version === 4) {
+          if (!result.managedReceipt) problem();
+          await retireConfirmedAssets(owner, result.managedReceipt);
+          await store.removeCompletedManagedCopy(stage.identity);
+        } else await store.removeCompletedNativeCopy(stage.identity);
+        return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
+          copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };
+      };
+      if (stage.version !== 4) return publish();
+      const saved = await transaction(owner, 'write', () => principal(owner, () => readOriginalExcalidrawCopyOnConnection(owner.database, { stage })));
+      const destinationWorkspace = owner.workspaces!.destination;
+      return saved
+        ? withRecoveredExcalidrawCopyAssets({ stage, destinationWorkspace, original: saved.intent.assetOriginal }, publish)
+        : withPreparedExcalidrawCopyAssets({ stage, destinationWorkspace }, publish);
     }));
   } catch (error) {
     if (!durable || authenticationError(error)) throw bindViewError(error);

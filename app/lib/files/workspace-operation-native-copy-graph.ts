@@ -1,7 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
-import { isDeepStrictEqual as equal } from 'node:util';
+import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { JSONContent } from '@tiptap/core';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import type { NativeCopyDocumentReceipt, NativeCopyReceipt } from '../collaboration/native-copy-persistence';
@@ -10,6 +10,17 @@ import type { NativeDocumentLinkInventory, NativeNamespaceEntry, NativeWorkspace
 import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
 import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
+import { captureWorkspaceSceneSnapshot, captureWorkspaceSceneSnapshotHeader,
+  type WorkspaceSceneSnapshotRecord } from '../excalidraw-collaboration/workspace-scene-snapshot';
+import type { WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-scene-catalogue';
+import type { WorkspaceSceneSourceBinding } from './workspace-operation-copy-source-observation';
+import type { ExcalidrawCopyBirthReceipt } from '../excalidraw-collaboration/copy-contract';
+
+export type NativeCopyFinalManagedScenes = Readonly<{
+  originalBindings: readonly WorkspaceSceneSourceBinding[];
+  finalSnapshots: readonly WorkspaceSceneSnapshotRecord[];
+  receipt: ExcalidrawCopyBirthReceipt;
+}>;
 
 export class NativeCopyFinalGraphError extends Error {
   readonly status = 409;
@@ -52,6 +63,106 @@ function normalizedCloneContent(state: PersistedCollaborationState, receipt: Nat
   return content;
 }
 
+function sceneSemantics(header: Readonly<WorkspaceSceneCatalogueEntry>) {
+  return { documentId: header.id, lineageId: header.lineage_id, workspaceId: header.workspace_id,
+    workspaceType: header.workspace_type, organizationId: header.organization_id,
+    customerId: header.customer_id, projectId: header.project_id, path: header.path,
+    lifecycleGeneration: header.lifecycle_generation, sceneSchemaVersion: header.scene_schema_version,
+    excalidrawVersion: header.excalidraw_version, sceneSequence: header.scene_sequence, canonicalHash: header.canonical_hash };
+}
+function sceneArray<T>(input: readonly T[]): readonly T[] {
+  if (!Array.isArray(input) || types.isProxy(input) || Object.getPrototypeOf(input) !== Array.prototype
+    || input.length > 20_000 || Reflect.ownKeys(input).length !== input.length + 1) fail();
+  return Array.from({ length: input.length }, (_, index) => {
+    const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
+    if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail(); return descriptor.value as T;
+  });
+}
+function sceneField(input: unknown, name: string): unknown {
+  if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype) fail();
+  const descriptor = Object.getOwnPropertyDescriptor(input, name);
+  if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail(); return descriptor.value;
+}
+/** Additional Scene postconditions within the same complete graph comparison.
+ * Scene identities remain provider facts, never fabricated Yjs inventories. */
+function assertManagedScenes(input: NativeCopyFinalManagedScenes | undefined,
+  originals: readonly NativeWorkspaceLinkSnapshot[], final: readonly NativeWorkspaceLinkSnapshot[], compiled: NativeMixedBatchPlan): void {
+  const originalEntries = originals.flatMap(snapshot => snapshot.namespace).filter(entry => entry.provider === 'excalidraw');
+  const finalEntries = final.flatMap(snapshot => snapshot.namespace).filter(entry => entry.provider === 'excalidraw');
+  if (!input) { if (originalEntries.length || finalEntries.length) fail(); return; }
+  const originalFacts = new Map<string, WorkspaceSceneSourceBinding>(), originalIds = new Set<string>(), originalLineages = new Set<string>();
+  for (const binding of sceneArray(input.originalBindings)) {
+    const header = captureWorkspaceSceneSnapshotHeader(sceneField(binding, 'header')), identity = key(header.workspace_id, header.path);
+    const contentProof = sceneField(binding, 'contentProof');
+    if (sceneField(binding, 'provider') !== 'excalidraw' || typeof contentProof !== 'string' || !/^[a-f0-9]{64}$/u.test(contentProof) || originalFacts.has(identity)
+      || originalIds.has(header.id) || originalLineages.has(header.lineage_id)) fail();
+    originalFacts.set(identity, { provider: 'excalidraw', header, contentProof });
+    originalIds.add(header.id); originalLineages.add(header.lineage_id);
+  }
+  if (originalFacts.size !== originalEntries.length) fail();
+  for (const entry of originalEntries) {
+    const binding = originalFacts.get(key(entry.workspaceId, entry.path));
+    if (!binding || entry.kind !== 'file' || entry.documentId !== null || entry.lifecycleGeneration !== null
+      || entry.identity !== `scene:${binding.header.id}:${binding.header.lifecycle_generation}:${binding.contentProof}`) fail();
+  }
+  const finalFacts = new Map<string, WorkspaceSceneSnapshotRecord>(), finalIds = new Set<string>(), finalLineages = new Set<string>();
+  let remaining = 384 * 1024 * 1024;
+  for (const raw of sceneArray(input.finalSnapshots)) {
+    const header = captureWorkspaceSceneSnapshotHeader(sceneField(raw, 'header'));
+    const charge = header.elements_bytes! + header.shared_app_state_bytes! + header.assets_bytes!;
+    if (charge > remaining) fail();
+    const record = captureWorkspaceSceneSnapshot(raw, { maxTotalBytes: Math.min(remaining, 128 * 1024 * 1024) });
+    const actualCharge = Math.max(charge, Buffer.byteLength(JSON.stringify(record)));
+    if (actualCharge > remaining) fail(); remaining -= actualCharge;
+    const identity = key(record.header.workspace_id, record.header.path);
+    if (finalFacts.has(identity) || finalIds.has(record.header.id) || finalLineages.has(record.header.lineage_id)) fail();
+    finalFacts.set(identity, record); finalIds.add(record.header.id); finalLineages.add(record.header.lineage_id);
+  }
+  if (finalFacts.size !== finalEntries.length) fail();
+  for (const entry of finalEntries) {
+    const record = finalFacts.get(key(entry.workspaceId, entry.path));
+    if (!record || entry.kind !== 'file' || entry.documentId !== null || entry.lifecycleGeneration !== null
+      || entry.identity !== `scene:${record.header.id}:${record.header.lifecycle_generation}:${record.contentProof}`) fail();
+  }
+  for (const [identity, before] of originalFacts) {
+    const current = finalFacts.get(identity);
+    // Checkpoint clocks/projection bytes may advance; actual content and IDs may not.
+    if (!current || !equal(sceneSemantics(before.header), sceneSemantics(current.header))) fail();
+    finalFacts.delete(identity);
+  }
+  const receipt = input.receipt, intents = sceneArray(receipt.intent.documents), births = sceneArray(receipt.documents);
+  if (receipt.version !== 1 || receipt.intent.version !== 1 || receipt.stageDigest !== receipt.intent.stageDigest
+    || receipt.operationId !== receipt.intent.operationId || !/^[a-f0-9]{64}$/u.test(receipt.receiptProof)
+    || intents.length !== births.length || births.length !== finalFacts.size) fail();
+  const cloneIds = new Set<string>(), cloneLineages = new Set<string>();
+  for (const intent of intents) {
+    const source = originalFacts.get(key(intent.sourceWorkspaceId, intent.sourcePath));
+    const current = finalFacts.get(key(intent.destinationWorkspaceId, intent.destinationPath));
+    const birth = births.find(value => value.documentId === intent.documentId);
+    const entity = compiled.finalNamespace.find(value => value.workspaceId === intent.destinationWorkspaceId && value.path === intent.destinationPath);
+    if (!source || !current || !birth || !entity || entity.binding.kind !== 'unbound-copy'
+      || entity.contentBasisProof !== null || originalIds.has(intent.documentId) || originalLineages.has(intent.lineageId)
+      || cloneIds.has(intent.documentId) || cloneLineages.has(intent.lineageId)
+      || intent.sourceDocumentId !== source.header.id || intent.sourceLineageId !== source.header.lineage_id
+      || intent.sourceGeneration !== source.header.lifecycle_generation || intent.sourceSceneSequence !== source.header.scene_sequence
+      || intent.sourceCanonicalHash !== source.header.canonical_hash || intent.sourceContentProof !== source.contentProof
+      || entity.binding.sourceEntityKey !== entityKey(originalEntries.find(entry => entry.workspaceId === intent.sourceWorkspaceId
+        && entry.path === intent.sourcePath) ?? fail())
+      || current.header.id !== intent.documentId || current.header.lineage_id !== intent.lineageId
+      || current.header.lifecycle_generation !== 1 || current.header.scene_sequence !== 0 || current.header.checkpoint_sequence !== 0
+      || current.header.state_version !== 0 || current.scene.checkpointRevisionId !== null || current.scene.checkpointContentHash !== null
+      || current.scene.checkpointedAt !== null || current.scene.degradedReason !== null
+      || current.header.scene_schema_version !== source.header.scene_schema_version || current.header.excalidraw_version !== source.header.excalidraw_version
+      || current.header.canonical_hash !== source.header.canonical_hash || birth.documentId !== current.header.id
+      || birth.lineageId !== current.header.lineage_id || birth.workspaceId !== current.header.workspace_id || birth.path !== current.header.path
+      || birth.lifecycleGeneration !== 1 || birth.sceneSequence !== 0 || birth.canonicalHash !== current.header.canonical_hash
+      || birth.persistedAt !== current.scene.persistedAt) fail();
+    cloneIds.add(intent.documentId); cloneLineages.add(intent.lineageId);
+    finalFacts.delete(key(intent.destinationWorkspaceId, intent.destinationPath));
+  }
+  if (finalFacts.size) fail();
+}
+
 /** Pure postcondition, never an authority/ownership or COMMIT check. The fixed
  * Copy owner must supply its freshly replayed C1 compiler result, original
  * snapshots, immutable initial copy receipt, actual complete final inventories
@@ -67,6 +178,7 @@ export function assertNativeCopyFinalGraph(input: {
   states: readonly PersistedCollaborationState[];
   physicalCopies: readonly Readonly<{ entityKey: string; entry: NativeNamespaceEntry }>[];
   createdParents: readonly NativeNamespaceEntry[];
+  managedScenes?: NativeCopyFinalManagedScenes;
 }): void {
   try { assertCopyGraph(input); }
   catch (error) { if (error instanceof NativeCopyFinalGraphError) throw error; fail(); }
@@ -88,6 +200,7 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
     if (snapshot.contractVersion !== 2 || !snapshot.coverage.complete || snapshot.coverage.gaps.length
       || snapshotProof !== proof(body) || snapshot.namespace.some(entry => entry.workspaceId !== snapshot.workspaceId)) fail();
   }
+  assertManagedScenes(input.managedScenes, originals, final, compiled);
   if (!equal(originals.map(snapshot => ({ workspaceId: snapshot.workspaceId, proof: snapshot.snapshotProof }))
     .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
   [...compiled.snapshotProofs].sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)))) fail();
@@ -150,6 +263,8 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
         if (entry.kind === 'directory') {
           if (directoryKey(entry) !== directoryKey(original)
             && !(implied(original) && equal(entry, parents.get(id)))) fail();
+        } else if (original.provider === 'excalidraw' && input.managedScenes) {
+          if (entry.provider !== 'excalidraw') fail();
         } else if (entry.documentId ? entry.identity !== original.identity : !equal(entry, original)) fail();
       } else {
         original = originalEntries.get(entity.binding.sourceEntityKey);

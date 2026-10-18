@@ -1,6 +1,6 @@
 # Dauerhafte Kopierdaten für Yjs, Scenes und Assets
 
-Stand: 18. Oktober 2026. Die neue V4-Stage und vorbereitete V3-Dateiveröffentlichung sind lokal geprüft. Der reguläre Copy-Owner ist noch nicht auf den zusammengesetzten Plan umgestellt. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben aus.
+Historischer Fundamentschnitt vom 18. Oktober 2026 auf Root `e367589` / QA `58f6db9`: Die neue V4-Stage und vorbereitete V3-Dateiveröffentlichung sind lokal geprüft. In diesem damaligen Schnitt war der reguläre Copy-Owner noch nicht auf den zusammengesetzten Plan umgestellt. Dieser Anschluss ist inzwischen implementiert und wird im [aktuellen Owner-Nachweis](./yjs-managed-copy-owner-evidence.md) gemeinsam abgenommen. Die folgenden Angaben beschreiben weiterhin ausschließlich den Fundamentschnitt. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben aus.
 
 ## Implementierung
 

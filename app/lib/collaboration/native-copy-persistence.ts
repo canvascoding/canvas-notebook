@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
+import { types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -38,6 +39,9 @@ export type NativeCopyRequest = {
   sourceWorkspace: WorkspaceContext;
   targetWorkspace: WorkspaceContext;
   targetScopes: readonly string[];
+  /** Managed copy leaves whose fresh Scene lineage is deferred to B2. The
+   * complete original target scopes still govern admission and the receipt. */
+  deferredScenePaths?: readonly string[];
   copies: readonly { source: NativeRecoveryRecord; targetPath: string }[];
   /** Exact catalogue observed before replacement, including pristine registry entries. */
   expectedTargets: readonly CopyTargetExpectation[];
@@ -57,7 +61,28 @@ const inScope = (path: string, scopes: readonly string[]) => scopes.some(scope =
 const validId = (value: unknown): value is string => typeof value === 'string' && value.length > 0
   && value.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(value);
 function unavailable(): never { throw new NativeDocumentRecoveryError(); }
+function captureDeferredScenePaths(input: NativeCopyRequest): readonly string[] | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(input, 'deferredScenePaths');
+  if (!descriptor || descriptor.value === undefined && Object.hasOwn(descriptor, 'value')) return undefined;
+  if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) unavailable();
+  const paths = descriptor.value;
+  if (input.kind !== 'native_clone' || input.expectedTargets.length || !Array.isArray(paths) || types.isProxy(paths)
+    || Object.getPrototypeOf(paths) !== Array.prototype || paths.length > 10_000
+    || Reflect.ownKeys(paths).length !== paths.length + 1) unavailable();
+  const captured = Array.from({ length: paths.length }, (_, index) => {
+    const property = Object.getOwnPropertyDescriptor(paths, String(index));
+    if (!property?.enumerable || !Object.hasOwn(property, 'value')) unavailable();
+    const name = property.value;
+    if (!isCanonicalAdmissionPath(name) || !name.toLowerCase().endsWith('.excalidraw')
+      || name.split('/').at(-1)!.toLowerCase() === '.excalidraw' || !inScope(name, input.targetScopes)
+      || input.copies.some(copy => copy.targetPath === name)) unavailable();
+    return name;
+  });
+  if (new Set(captured).size !== captured.length) unavailable();
+  return Object.freeze(captured.sort());
+}
 function assertAccess(input: NativeCopyRequest): void {
+  if (types.isProxy(input)) unavailable();
   if (!input.sourceWorkspace.permissions.canRead || !input.targetWorkspace.permissions.canWrite
     || !input.targetWorkspace.permissions.canRead
     || [input.sourceWorkspace, input.targetWorkspace].some(workspace => workspace.status !== undefined && workspace.status !== 'active')
@@ -73,6 +98,7 @@ function assertAccess(input: NativeCopyRequest): void {
       && input.copies.some(copy => inScope(copy.source.state.path, input.targetScopes))
     || input.kind === 'native_restore' && (input.sourceWorkspace.workspaceId !== input.targetWorkspace.workspaceId
       || input.sourceWorkspace.organizationId !== input.targetWorkspace.organizationId)) unavailable();
+  captureDeferredScenePaths(input);
 }
 
 async function ledger(connection: SqlConnection, workspaceId: string, operationId: string): Promise<LedgerRow | undefined> {
@@ -176,13 +202,16 @@ export type NativeCopyPublicationRequest = {
 type CapturedNativeCopy = { input: NativeCopyRequest; fingerprint: string };
 function captureNativeCopyRequest(input: NativeCopyRequest): CapturedNativeCopy {
   assertAccess(input);
+  const deferredScenePaths = captureDeferredScenePaths(input);
   // Capture all binary input before asynchronous admission. No mutable caller state crosses the fence.
   const frozen = deserializeNativeRecoveryPayload(serializeNativeRecoveryPayload(input.copies.map(copy => copy.source)));
   input = { ...input, sourceWorkspace: structuredClone(input.sourceWorkspace), targetWorkspace: structuredClone(input.targetWorkspace),
     targetScopes: [...new Set(input.targetScopes)].sort(), expectedTargets: structuredClone(input.expectedTargets),
+    ...(deferredScenePaths === undefined ? {} : { deferredScenePaths }),
     copies: input.copies.map((copy, index) => ({ targetPath: copy.targetPath, source: frozen[index] })) };
-  const fingerprint = digest(JSON.stringify({ version: 1, kind: input.kind, workspaceId: input.targetWorkspace.workspaceId,
+  const fingerprint = digest(JSON.stringify({ version: deferredScenePaths === undefined ? 1 : 2, kind: input.kind, workspaceId: input.targetWorkspace.workspaceId,
     organizationId: input.targetWorkspace.organizationId ?? null, scopes: input.targetScopes,
+    ...(deferredScenePaths === undefined ? {} : { deferredScenePaths }),
     expectedTargets: input.expectedTargets, publicationFingerprint: input.publicationFingerprint, copies: input.copies.map(copy => ({ targetPath: copy.targetPath,
       sourceDocumentId: copy.source.state.documentId, sourceLineageId: copy.source.lineageId,
       sourceWorkspaceId: copy.source.state.workspaceId, sourceOrganizationId: copy.source.state.organizationId,
@@ -209,6 +238,15 @@ async function persistCapturedNativeWorkspaceCopiesOnConnection(connection: SqlC
   // Recheck after acquiring the shared scopes; a racing same operation may have committed while waiting.
   const raced = await ledger(connection, input.targetWorkspace.workspaceId, input.operationId);
   if (raced) return validateCommittedReceipt(connection, input, fingerprint, raced);
+  if (input.deferredScenePaths !== undefined) {
+    // Managed copy is create-only across every provider. The legacy Yjs
+    // catalogue alone cannot authorize an archiving scope over a Scene.
+    const occupied = await connection.get(`SELECT EXISTS(SELECT 1 FROM collaboration_documents d
+      WHERE d.workspace_id=$1 AND d.status='active' AND EXISTS(SELECT 1 FROM unnest($2::text[]) scope(path)
+        WHERE d.path=scope.path OR left(d.path,length(scope.path)+1)=scope.path||'/')) AS occupied`,
+    [input.targetWorkspace.workspaceId, input.targetScopes]) as { occupied?: boolean } | undefined;
+    if (occupied?.occupied !== false) unavailable();
+  }
   await assertExpectedTargets(connection, input);
   const sourceCatalogue = input.kind === 'native_clone' && input.copies.length
     ? await readWorkspaceDocumentCatalogue(connection, input.sourceWorkspace, { paths: input.copies.map(copy => copy.source.state.path) }) : [];
@@ -222,8 +260,9 @@ async function persistCapturedNativeWorkspaceCopiesOnConnection(connection: SqlC
       || authoritativeNativeCollaborationSnapshot(current).version.stateProof !== expected.version.stateProof) unavailable();
   }
   const now = Date.now();
+  const deferred = new Set(input.deferredScenePaths ?? []);
   await initializeCopiedFileCollaborationPathScopes(connection, { workspace: input.targetWorkspace,
-    paths: [...input.targetScopes], nowMs: now, createLineageId: () => `file-lineage-${randomUUID()}` });
+    paths: input.targetScopes.filter(path => !deferred.has(path)), nowMs: now, createLineageId: () => `file-lineage-${randomUUID()}` });
   const receipts: NativeCopyDocumentReceipt[] = [];
   for (const copy of input.copies) {
     const source = authoritativeNativeCollaborationSnapshot(copy.source.state);

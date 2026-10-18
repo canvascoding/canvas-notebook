@@ -11,6 +11,7 @@ import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../app/lib/mark
 import { createWorkspaceOperationNativeCopyPlan } from '../app/lib/files/workspace-operation-native-copy-plan';
 import { captureWorkspaceOperationCopyOrigin } from '../app/lib/files/workspace-operation-copy-origin';
 import { prepareNativeCopyStage, decodeNativeCopyStage, type WorkspaceOperationNativeCopyStage } from '../app/lib/files/workspace-operation-native-copy-stage';
+import type { WorkspaceOperationOwnedCopyStage } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import { captureNativeCopyPhaseStage, NativeCopyPhaseError, nativeCopyPhaseCompiler,
   nativeCopyPhaseSha, withNativeCopyPhaseCompilation, withCapturedNativeCopyPhaseStage } from '../app/lib/files/workspace-operation-native-copy-phase-contract';
 import type { NativeMixedBatchPlan } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
@@ -245,10 +246,11 @@ test('captured-data callback completion detects binary drift even without anothe
 });
 
 test('a genuinely deferred captured-data child is inactive after callback success', async () => {
-  const original = nativeCopyPhaseFixture(); let release!: () => void, child!: Promise<WorkspaceOperationNativeCopyStage>;
-  let held!: WorkspaceOperationNativeCopyStage;
+  const original = nativeCopyPhaseFixture(); let release!: () => void, child!: Promise<WorkspaceOperationOwnedCopyStage>;
+  let held!: WorkspaceOperationOwnedCopyStage;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await withCapturedNativeCopyPhaseStage(original, detached => {
+    assert.equal(detached.version, original.version);
     held = detached; child = (async () => { await gate; return captureNativeCopyPhaseStage(detached); })();
     assert.equal(captureNativeCopyPhaseStage(detached), detached);
   });
@@ -258,9 +260,10 @@ test('a genuinely deferred captured-data child is inactive after callback succes
 
 test('callback failure preserves its primary error and deactivates genuinely deferred captured-data children', async () => {
   const original = nativeCopyPhaseFixture(), primary = new Error('captured-data callback primary failure');
-  let release!: () => void, child!: Promise<WorkspaceOperationNativeCopyStage>, held!: WorkspaceOperationNativeCopyStage;
+  let release!: () => void, child!: Promise<WorkspaceOperationOwnedCopyStage>, held!: WorkspaceOperationOwnedCopyStage;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await assert.rejects(withCapturedNativeCopyPhaseStage(original, detached => {
+    assert.equal(detached.version, original.version);
     held = detached; child = (async () => { await gate; return captureNativeCopyPhaseStage(detached); })(); throw primary;
   }), error => error === primary);
   release(); await assert.rejects(child, changed);

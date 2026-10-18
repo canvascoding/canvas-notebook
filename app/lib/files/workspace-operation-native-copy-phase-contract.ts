@@ -12,9 +12,12 @@ import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-ba
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeCopyPlanCurrent } from './workspace-operation-native-copy-plan';
-import { prepareNativeCopyStage, decodeNativeCopyStage, type WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
+import { prepareNativeCopyStage, decodeNativeCopyStage } from './workspace-operation-native-copy-stage';
+import { prepareManagedCopyStage, decodeManagedCopyStage, replayManagedCopyStageCompiler,
+  type WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
 import { preparedWorkspacePathCopyProof, type PreparedWorkspacePathCopyParentReceipt } from '../filesystem/prepared-workspace-path-copy-contract';
 import { nativeCopyMetadataCompletionWitness } from './workspace-operation-native-copy-metadata';
+import type { ExcalidrawCopyBirthReceipt } from '../excalidraw-collaboration/copy-contract';
 
 export class NativeCopyPhaseError extends Error {
   readonly status = 409;
@@ -25,10 +28,26 @@ export class NativeCopyPhaseError extends Error {
 }
 export function copyPhaseChanged(): never { throw new NativeCopyPhaseError(); }
 export const nativeCopyPhaseSha = (value: string | Uint8Array) => createHash('sha256').update(value).digest('hex');
-function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationNativeCopyStage): WorkspaceOperationNativeCopyStage {
+function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationOwnedCopyStage): WorkspaceOperationOwnedCopyStage {
   if (!stage || Object.getPrototypeOf(stage) !== Object.prototype) copyPhaseChanged();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
-  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || discriminator.value !== 2 && discriminator.value !== 3) copyPhaseChanged();
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || ![2, 3, 4].includes(discriminator.value)) copyPhaseChanged();
+  if (discriminator.value === 4) {
+    const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'metadata',
+      'nativeRecords', 'sceneRecords', 'sceneAssets', 'payloadSha256'];
+    if (Reflect.ownKeys(stage).length !== expected.length || expected.some(key => {
+      const property = Object.getOwnPropertyDescriptor(stage, key);
+      return !property?.enumerable || !Object.hasOwn(property, 'value');
+    }) || stage.version !== 4) copyPhaseChanged();
+    const prepared = prepareManagedCopyStage({ operationId: stage.identity.operationId, request: stage.request, plan: stage.plan,
+      physical: stage.physical, nativeRecords: stage.nativeRecords, sceneRecords: stage.sceneRecords,
+      sceneAssets: stage.sceneAssets, metadata: stage.metadata });
+    if (stage.kind !== 'native-copy' || prepared.manifest.payloadSha256 !== stage.payloadSha256
+      || !equal(stage.origin, prepared.manifest.origin) || !equal(stage.identity, prepared.manifest.identity)) copyPhaseChanged();
+    return decodeManagedCopyStage(prepared.manifest, { recordsBytes: prepared.recordsBytes,
+      sceneRecordsBytes: prepared.sceneRecordsBytes, sceneAssetsBytes: prepared.sceneAssetsBytes }, prepared.manifest.identity);
+  }
+  if (stage.version !== 2 && stage.version !== 3) copyPhaseChanged();
   const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256',
     ...(discriminator.value === 3 ? ['coreV2StageDigest', 'metadata'] : [])];
   if (!stage || Object.getPrototypeOf(stage) !== Object.prototype || Reflect.ownKeys(stage).length !== expected.length
@@ -43,32 +62,35 @@ function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationNativeCopyStage
   return decodeNativeCopyStage(prepared.manifest, prepared.recordsBytes, prepared.manifest.identity);
 }
 type CapturedStageFrame = {
-  stage: WorkspaceOperationNativeCopyStage | null; pin: string | null; active: boolean;
+  stage: WorkspaceOperationOwnedCopyStage | null; pin: string | null; active: boolean;
   failure: unknown; failed: boolean;
 };
 const capturedStages = new AsyncLocalStorage<CapturedStageFrame>();
-export function captureNativeCopyPhaseStage(stage: WorkspaceOperationNativeCopyStage): WorkspaceOperationNativeCopyStage {
+export function captureNativeCopyPhaseStage(stage: WorkspaceOperationOwnedCopyStage): WorkspaceOperationOwnedCopyStage {
   const frame = capturedStages.getStore();
   if (frame && !frame.active) copyPhaseChanged();
   if (frame?.stage === stage) { assertCapturedStagePin(frame); return stage; }
   return captureNativeCopyPhaseStageRaw(stage);
 }
-export function nativeCopyPhaseOriginals(stage: WorkspaceOperationNativeCopyStage) {
+export function nativeCopyPhaseOriginals(stage: WorkspaceOperationOwnedCopyStage) {
   return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
     ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence])
     .map(evidence => workspaceOperationNativePlanSnapshot(evidence, copyPhaseChanged));
 }
 type CompilationFrame = {
-  stage: WorkspaceOperationNativeCopyStage | null; pin: string | null; active: boolean;
+  stage: WorkspaceOperationOwnedCopyStage | null; pin: string | null; active: boolean;
   compiled: NativeMixedBatchPlan | null; failure: unknown; failed: boolean;
 };
 const compilations = new AsyncLocalStorage<CompilationFrame>();
 /** Pin every original data descriptor, including native lineage/state metadata.
  * Hash the actual binary views directly instead of JSON-expanding their bytes.
  * This is only an integrity observation of an already detached frozen Stage. */
-function compilationPin(stage: WorkspaceOperationNativeCopyStage): string {
+function compilationPin(stage: WorkspaceOperationOwnedCopyStage): string {
   const hash = createHash('sha256'), parents = new Set<object>();
   let nodes = 0, metadataBytes = 0, binaryBytes = 0;
+  const maximumMetadataBytes = (stage.version === 4 ? 384 : 64) * 1024 * 1024;
+  const maximumBinaryBytes = (stage.version === 4 ? 178 : 128) * 1024 * 1024;
+  const maximumNodes = stage.version === 4 ? maximumMetadataBytes : 1_000_000;
   const pending: string[] = [];
   let pendingBytes = 0;
   const flush = () => {
@@ -77,7 +99,7 @@ function compilationPin(stage: WorkspaceOperationNativeCopyStage): string {
   const add = (value: string) => {
     const bytes = Buffer.byteLength(value);
     metadataBytes += bytes;
-    if (metadataBytes > 64 * 1024 * 1024) copyPhaseChanged();
+    if (metadataBytes > maximumMetadataBytes) copyPhaseChanged();
     // Each value is a whole JSON token or an ASCII marker. Keep their exact
     // UTF-8 byte order while avoiding a native Hash.update call per token.
     // Never split UTF-16 strings; an oversized token is hashed intact.
@@ -86,14 +108,14 @@ function compilationPin(stage: WorkspaceOperationNativeCopyStage): string {
     else { pending.push(value); pendingBytes += bytes; }
   };
   const visit = (value: unknown, depth: number): void => {
-    if (++nodes > 1_000_000 || depth > 64) copyPhaseChanged();
+    if (++nodes > maximumNodes || depth > 64) copyPhaseChanged();
     if (value === null || typeof value === 'boolean' || typeof value === 'string'
       || typeof value === 'number' && Number.isFinite(value)) { add(JSON.stringify(value)); return; }
     if (value instanceof Uint8Array) {
       // Native buffers remain mutable even though their enclosing data is frozen.
       // Include view length and digest, never its numeric JSON representation.
       binaryBytes += value.byteLength;
-      if (binaryBytes > 128 * 1024 * 1024) copyPhaseChanged();
+      if (binaryBytes > maximumBinaryBytes) copyPhaseChanged();
       add(`bytes:${value.byteLength}:${nativeCopyPhaseSha(value)}`); return;
     }
     if (!value || typeof value !== 'object' || !Object.isFrozen(value) || parents.has(value)
@@ -130,8 +152,8 @@ function assertCapturedStagePin(frame: CapturedStageFrame): void {
 /** Detach and fully validate the original data before one caller-owned phase.
  * This frame retains no compiler result, SQL observation, principal or lease.
  * Each invocation captures afresh, even inside another active data frame. */
-export async function withCapturedNativeCopyPhaseStage<T>(stage: WorkspaceOperationNativeCopyStage,
-  operation: (detached: WorkspaceOperationNativeCopyStage) => T | Promise<T>): Promise<T> {
+export async function withCapturedNativeCopyPhaseStage<T>(stage: WorkspaceOperationOwnedCopyStage,
+  operation: (detached: WorkspaceOperationOwnedCopyStage) => T | Promise<T>): Promise<T> {
   const inherited = capturedStages.getStore();
   if (inherited) assertCapturedStagePin(inherited);
   const detached = captureNativeCopyPhaseStageRaw(stage);
@@ -151,7 +173,7 @@ function assertCompilationPin(frame: CompilationFrame): void {
 /** Pure mathematical reuse within one fully awaited phase callback. This does
  * not retain SQL/current ACL/FS/receipt/final-graph observations or grant access.
  * The caller first captures its original Stage and owns all transaction bounds. */
-export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperationNativeCopyStage,
+export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperationOwnedCopyStage,
   operation: () => T | Promise<T>): Promise<T> {
   const frame: CompilationFrame = { stage, pin: compilationPin(stage), active: true, compiled: null, failure: undefined, failed: false };
   try {
@@ -160,11 +182,21 @@ export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperatio
     });
   } finally { frame.active = false; frame.compiled = null; frame.stage = null; frame.pin = null; }
 }
-export function nativeCopyPhaseCompiler(stage: WorkspaceOperationNativeCopyStage): NativeMixedBatchPlan {
+export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan {
   const frame = compilations.getStore();
   if (frame && !frame.active) copyPhaseChanged();
   const current = frame?.stage === stage ? frame : null;
   if (current) { assertCompilationPin(current); if (current.compiled) return current.compiled; }
+  if (stage.version === 4) {
+    try {
+      const compiled = replayManagedCopyStageCompiler(stage.plan, stage.nativeRecords);
+      if (current) { assertCompilationPin(current); current.compiled = compiled; }
+      return compiled;
+    } catch (error) {
+      if (current) { current.failed = true; current.failure = error; }
+      throw error;
+    }
+  }
   const states = new Map(stage.nativeRecords.map(record => [record.state.documentId, record.state]));
   const observation = (evidence: typeof stage.plan.sourceEvidence) => ({ stage: evidence.stage,
     nativeBindings: evidence.nativeBindings, privateNativeStates: evidence.nativeBindings.map(binding =>
@@ -186,8 +218,8 @@ export function nativeCopyPhaseCompletionFence(input: Readonly<{ canonicalReques
   return proof({ version: 1, kind: 'native-copy-completion', canonicalRequestHash: input.canonicalRequestHash,
     planId: input.planId, stageDigest: input.stageDigest });
 }
-export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt,
-  admissions: readonly CollaborationAdmissionRequest[], copyCreatedAt?: number) {
+export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationOwnedCopyStage, receipt: NativeCopyReceipt,
+  admissions: readonly CollaborationAdmissionRequest[], copyCreatedAt?: number, managedReceipt?: ExcalidrawCopyBirthReceipt | null) {
   const original = { version: 1, kind: 'native-copy-completion', canonicalRequestHash: stage.identity.canonicalRequestHash,
     planId: stage.plan.planId, stageDigest: stage.payloadSha256, nativeRequestFingerprint: receipt.requestFingerprint,
     copyReceiptProof: nativeCopyPhaseReceiptProof(receipt), admissionsProof: proof(admissions.map(request => {
@@ -196,20 +228,28 @@ export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationNative
     })) } as const;
   if (stage.version === 2) return original;
   if (copyCreatedAt === undefined) copyPhaseChanged();
+  if (stage.version === 4) {
+    if (!managedReceipt || managedReceipt.operationId !== stage.identity.operationId || managedReceipt.stageDigest !== stage.payloadSha256
+      || managedReceipt.intent.nativeRequestFingerprint !== receipt.requestFingerprint
+      || managedReceipt.intent.nativeReceiptProof !== nativeCopyPhaseReceiptProof(receipt)) copyPhaseChanged();
+    return { ...original, version: 3 as const, metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt),
+      sceneIntentProof: managedReceipt.intent.intentDigest, sceneBirthProof: managedReceipt.receiptProof,
+      assetReceiptProof: managedReceipt.assetReceipt.receiptProof };
+  }
   return { ...original, version: 2 as const, coreV2StageDigest: stage.coreV2StageDigest,
     metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt) };
 }
 export type NativeCopyPhaseParent = NativeCopyPhaseStep & Readonly<{
   path: string; producerSelectionIndex: number; consumerSelectionIndexes: readonly number[];
 }>;
-export function nativeCopyPhasePathSteps(stage: WorkspaceOperationNativeCopyStage): readonly NativeCopyPhaseStep[] {
+export function nativeCopyPhasePathSteps(stage: WorkspaceOperationOwnedCopyStage): readonly NativeCopyPhaseStep[] {
   return stage.physical.map(({ selectionIndex, original }) => ({ stepKey: `copy-path:${selectionIndex}`,
     beforeFence: preparedWorkspacePathCopyProof(original), afterFence: proof({ stage: stage.payloadSha256,
       destinationPath: original.destinationPath, payload: original.staging?.payload ?? null }) }));
 }
 /** Global producer/consumer map. No receipt is rewritten to impersonate another
  * original. Projection-only selections cannot produce a physical parent. */
-export function nativeCopyPhaseParentSteps(stage: WorkspaceOperationNativeCopyStage): readonly NativeCopyPhaseParent[] {
+export function nativeCopyPhaseParentSteps(stage: WorkspaceOperationOwnedCopyStage): readonly NativeCopyPhaseParent[] {
   const consumers = new Map<string, number[]>();
   const producers = new Map<string, number>();
   for (const { selectionIndex, original } of stage.physical) {
@@ -228,14 +268,14 @@ export function nativeCopyPhaseParentSteps(stage: WorkspaceOperationNativeCopySt
       afterFence: proof({ stage: stage.payloadSha256, path: pathname, producerSelectionIndex, consumerSelectionIndexes: indexes }) });
   });
 }
-export function nativeCopyPhaseLinkId(stage: WorkspaceOperationNativeCopyStage, documentId: string): string {
+export function nativeCopyPhaseLinkId(stage: WorkspaceOperationOwnedCopyStage, documentId: string): string {
   return `copy-link:${proof({ operationId: stage.identity.operationId, stage: stage.payloadSha256, documentId })}`;
 }
 export function nativeCopyPhaseReceiptProof(receipt: NativeCopyReceipt): string {
   const { publicationStatus: _status, ...original } = receipt;
   return proof(original);
 }
-function cloneBindings(stage: WorkspaceOperationNativeCopyStage, compiled = nativeCopyPhaseCompiler(stage)) {
+function cloneBindings(stage: WorkspaceOperationOwnedCopyStage, compiled = nativeCopyPhaseCompiler(stage)) {
   const entities = new Map(compiled.finalNamespace.map(entity => [entity.entityKey, entity]));
   const sources = new Map(stage.plan.sourceEvidence.stage.namespace.map(entry => [proof({ workspaceId: entry.workspaceId, identity: entry.identity }), entry]));
   return compiled.cloneRequirements.map(requirement => {
@@ -245,7 +285,7 @@ function cloneBindings(stage: WorkspaceOperationNativeCopyStage, compiled = nati
     return { ...requirement, destinationPath: entity.path, sourceDocumentId: source.documentId };
   });
 }
-export function nativeCopyPhaseExpectedLinks(stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt) {
+export function nativeCopyPhaseExpectedLinks(stage: WorkspaceOperationOwnedCopyStage, receipt: NativeCopyReceipt) {
   const compiled = nativeCopyPhaseCompiler(stage);
   const entities = new Set(compiled.steps[0].linkIntents.map(intent => intent.entityKey));
   const requirements = new Map(cloneBindings(stage, compiled).map(requirement => [requirement.entityKey, requirement]));
@@ -260,7 +300,7 @@ export function nativeCopyPhaseExpectedLinks(stage: WorkspaceOperationNativeCopy
 }
 /** Actual requests partition disjoint selected destination roots; no scope or
  * expected document is omitted to fit the existing admission protocol. */
-export function nativeCopyPhaseAdmissions(stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt): readonly CollaborationAdmissionRequest[] {
+export function nativeCopyPhaseAdmissions(stage: WorkspaceOperationOwnedCopyStage, receipt: NativeCopyReceipt): readonly CollaborationAdmissionRequest[] {
   const groups: Array<{ scopes: CollaborationAdmissionScope[]; indexes: number[]; count: number }> = [];
   for (const [index, selected] of stage.plan.selections.entries()) {
     const source = stage.plan.sourceEvidence.stage.namespace.find(entry => entry.path === selected.sourcePath) ?? copyPhaseChanged();
@@ -294,7 +334,7 @@ export function nativeCopyPhaseAdmissions(stage: WorkspaceOperationNativeCopySta
       }) }).request;
   });
 }
-export function assertNativeCopyPhaseReceipt(stage: WorkspaceOperationNativeCopyStage, receipt: NativeCopyReceipt): void {
+export function assertNativeCopyPhaseReceipt(stage: WorkspaceOperationOwnedCopyStage, receipt: NativeCopyReceipt): void {
   if (receipt.version !== 1 || receipt.operationId !== stage.identity.operationId || receipt.workspaceId !== stage.identity.destinationWorkspaceId
     || !/^[a-f0-9]{64}$/u.test(receipt.requestFingerprint) || !['native_committed', 'published'].includes(receipt.publicationStatus)) copyPhaseChanged();
   const expected = new Map(cloneBindings(stage).map(requirement => [requirement.destinationPath, requirement]));
@@ -316,7 +356,7 @@ export function assertNativeCopyPhaseReceipt(stage: WorkspaceOperationNativeCopy
   }
   if (expected.size) copyPhaseChanged();
 }
-export function assertNativeCopyPhaseParent(stage: WorkspaceOperationNativeCopyStage, selectionIndex: number,
+export function assertNativeCopyPhaseParent(stage: WorkspaceOperationOwnedCopyStage, selectionIndex: number,
   receipt: PreparedWorkspacePathCopyParentReceipt): NativeCopyPhaseParent {
   if (!receipt || Object.getPrototypeOf(receipt) !== Object.prototype
     || Object.keys(receipt).sort().join(',') !== 'identity,originalProof,relativePath,version') copyPhaseChanged();
@@ -333,7 +373,7 @@ export function assertNativeCopyPhaseParent(stage: WorkspaceOperationNativeCopyS
     || receipt.originalProof !== preparedWorkspacePathCopyProof(stage.physical[selectionIndex]?.original)) copyPhaseChanged();
   return expected;
 }
-export function nativeCopyPhaseStepCount(stage: WorkspaceOperationNativeCopyStage): number {
+export function nativeCopyPhaseStepCount(stage: WorkspaceOperationOwnedCopyStage): number {
   const compiled = nativeCopyPhaseCompiler(stage);
   const count = 1 + stage.physical.length + nativeCopyPhaseParentSteps(stage).length
     + new Set(compiled.steps[0].linkIntents.map(intent => intent.entityKey)).size;

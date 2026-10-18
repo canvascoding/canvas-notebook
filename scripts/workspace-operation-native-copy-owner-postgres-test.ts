@@ -15,8 +15,8 @@ import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-contex
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import type { NativeCopyReceipt } from '../app/lib/collaboration/native-copy-persistence';
-import type { WorkspaceOperationNativeCopyPlan } from '../app/lib/files/workspace-operation-native-copy-plan';
-import type { WorkspaceOperationNativeCopyStage } from '../app/lib/files/workspace-operation-native-copy-stage';
+import type { WorkspaceOperationManagedCopyPlan } from '../app/lib/files/workspace-operation-managed-copy-plan';
+import type { WorkspaceOperationManagedCopyStageV4 } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import type { JSONContent } from '@tiptap/core';
 
 // Genuine, standalone PG18 auth fixture. Only its private schema and generated
@@ -68,6 +68,11 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
     'app/lib/files/workspace-operation-native-copy-metadata.ts',
     'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts',
     'app/lib/files/workspace-operation-native-copy-plan.ts', 'app/lib/files/workspace-operation-native-copy-graph.ts',
+    'app/lib/files/workspace-operation-managed-copy-plan.ts', 'app/lib/files/workspace-operation-managed-copy-stage.ts',
+    'app/lib/files/workspace-operation-copy-source-observation.ts', 'app/lib/excalidraw-collaboration/copy-contract.ts',
+    'app/lib/excalidraw-collaboration/copy-data.ts', 'app/lib/excalidraw-collaboration/copy-domain.ts',
+    'app/lib/excalidraw-collaboration/copy-history.ts', 'app/lib/excalidraw-collaboration/copy-asset-publication.ts',
+    'app/lib/db/excalidraw-copy-migration.ts',
     'app/lib/files/workspace-operation-journal.ts', 'app/lib/workspaces/copy-principal.ts',
     'app/lib/collaboration/native-copy-persistence.ts', 'app/lib/markdown/native-link-mutation-persistence.ts',
     'app/lib/markdown/workspace-native-copy-link-updates.ts', 'app/lib/markdown/workspace-source-authority-stage.ts',
@@ -226,6 +231,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
     const { WorkspaceOperationJournal, serializeWorkspaceOperationRequest } = await import('../app/lib/files/workspace-operation-journal');
     const { WorkspaceOperationStaging } = await import('../app/lib/files/workspace-operation-staging');
     const { nativeCopyPhaseAdmissions, nativeCopyPhaseReceiptProof } = await import('../app/lib/files/workspace-operation-native-copy-phase-contract');
+    const { captureExcalidrawCopyIntent, captureExcalidrawCopyBirthReceipt } = await import('../app/lib/excalidraw-collaboration/copy-data');
     const { captureCollaborationAdmissionRequest } = await import('../app/lib/collaboration/room-admission-contract');
     const { readHistoricalCollaborationAdmissionOutcomeOnConnection } = await import('../app/lib/collaboration/room-admission-outcome');
     const journal = new WorkspaceOperationJournal(), staging = new WorkspaceOperationStaging();
@@ -234,12 +240,12 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
     type SqlEvent = { text: string; values: unknown[]; client: PoolClient; result: QueryResult;
       raw: (text: string, values?: unknown[]) => Promise<QueryResult> };
     type Job = { operationId: string; origin: WorkspaceOperationCopyOrigin; request?: NextRequest;
-      selections: Array<{ sourcePath: string; destinationPath: string }>; expectedPlanId: string; plan: WorkspaceOperationNativeCopyPlan };
+      selections: Array<{ sourcePath: string; destinationPath: string }>; expectedPlanId: string; plan: WorkspaceOperationManagedCopyPlan };
     let probe: ((event: SqlEvent) => Promise<void>) | undefined;
     let beforeCommit: ((event: Omit<SqlEvent, 'result'>) => Promise<void>) | undefined;
     const observedClients = new Map<PoolClient, PropertyDescriptor | undefined>();
     const initialBodies = new Map<string, Omit<NativeCopyReceipt, 'publicationStatus'>>();
-    const initialStages = new Map<string, WorkspaceOperationNativeCopyStage>();
+    const initialStages = new Map<string, WorkspaceOperationManagedCopyStageV4>();
     const birthWitnesses = new Map<string, { pid: number; xid: string }>();
     const publicationWitnesses = new Map<string, { pid: number; xid: string }>();
     const completionWitnesses = new Map<string, { pid: number; xid: string }>();
@@ -369,7 +375,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
               assert(row); initialBodies.set(operationId, structuredClone(row.private_result));
               const metric = activeMeasurements.get(client), startedAt = performance.now(), cpu = process.cpuUsage();
               try {
-                const originalStage = await staging.loadNativeCopyByOperationId(operationId); assert(originalStage);
+                const originalStage = await staging.loadManagedCopyByOperationId(operationId); assert(originalStage);
                 assert.equal(originalStage.identity.operationId, operationId); initialStages.set(operationId, originalStage);
               } finally { if (metric) addTiming(metric.stageAcknowledgement, startedAt, cpu); }
               const witness = (await raw('SELECT pg_backend_pid() AS pid,pg_current_xact_id_if_assigned()::text AS xid')).rows[0];
@@ -494,9 +500,10 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       // Diagnostic reads use only this fixture's real private-schema rows and
       // current physical paths. These pure planning observations grant no
       // principal, session owner or mutation authority to the actual runner.
-      const sourceObservation = await readWorkspaceLinkSourceAuthorityOnConnection(rawConnection(admin), a);
+      const { readWorkspaceCopySourceObservationOnConnection } = await import('../app/lib/files/workspace-operation-copy-source-observation');
+      const sourceObservation = await readWorkspaceCopySourceObservationOnConnection(rawConnection(admin), a);
       const destinationObservation = a.workspaceId === b.workspaceId ? sourceObservation
-        : await readWorkspaceLinkSourceAuthorityOnConnection(rawConnection(admin), b);
+        : await readWorkspaceCopySourceObservationOnConnection(rawConnection(admin), b);
       const facts = (observation: typeof sourceObservation) => ({ workspaceId: observation.stage.workspaceId,
         readiness: observation.stage.readiness, coverage: { complete: observation.stage.coverage.complete,
           gapCount: observation.stage.coverage.gaps.length,
@@ -510,10 +517,10 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
           coverage: value.inventory.coverage.complete, gapCount: value.inventory.coverage.gaps.length })) });
       const diagnostic: Record<string, unknown> = { diagnostic: 'native-copy-owner-before-preview',
         source: facts(sourceObservation), destination: facts(destinationObservation), selections: selected };
-      const { createWorkspaceOperationNativeCopyPlan } = await import('../app/lib/files/workspace-operation-native-copy-plan');
-      let isolatedPlan: WorkspaceOperationNativeCopyPlan | undefined;
+      const { createWorkspaceOperationManagedCopyPlan } = await import('../app/lib/files/workspace-operation-managed-copy-plan');
+      let isolatedPlan: WorkspaceOperationManagedCopyPlan | undefined;
       try {
-        isolatedPlan = createWorkspaceOperationNativeCopyPlan({ sourceScope: { workspace: a, fileOptions: { workspace: a } },
+        isolatedPlan = createWorkspaceOperationManagedCopyPlan({ sourceScope: { workspace: a, fileOptions: { workspace: a } },
           destinationScope: { workspace: b, fileOptions: { workspace: b } }, selections: selected, sourceObservation, destinationObservation });
         diagnostic.isolatedC1 = { planId: isolatedPlan.planId, readiness: isolatedPlan.readiness, cloneCount: isolatedPlan.cloneRequirements.length };
       } catch (error) { diagnostic.isolatedC1 = { name: error instanceof Error ? error.name : 'NonError',
@@ -588,7 +595,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
           console.log(JSON.stringify({ diagnostic: 'native-copy-owner-before-complete-unavailable', name: error instanceof Error ? error.name : 'NonError' }));
         }
       }
-      assert.equal(result.execution.status, 'complete'); assert.equal(result.execution.operationId, job.operationId);
+      assert.equal(result.execution.status, 'complete', JSON.stringify(result.execution)); assert.equal(result.execution.operationId, job.operationId);
       assert.deepEqual(result.copied, job.selections.map(value => value.destinationPath));
       const operation = await journal.get(job.operationId); assert(operation); assert.equal(operation.status, 'completed');
       const serialized = serializeWorkspaceOperationRequest({ kind: 'copy', selections: job.selections, origin: job.origin });
@@ -609,9 +616,24 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal(completedRows.length, 2); assert(completedRows.every(value => value.xmin === completionXmin));
       const originalStage = initialStages.get(job.operationId), initialBody = initialBodies.get(job.operationId);
       assert(originalStage); assert(initialBody);
+      assert.equal(originalStage.version, 4); assert.equal(originalStage.plan.version, 3);
       assert.equal(originalStage.identity.canonicalRequestHash, serialized.requestHash);
       assert.equal(originalStage.plan.planId, job.expectedPlanId);
       const originalReceipt: NativeCopyReceipt = { ...initialBody, publicationStatus: 'native_committed' };
+      const sceneRows = (await admin.query('SELECT *,xmin::text AS xmin FROM collaboration_excalidraw_copy_receipts WHERE operation_id=$1', [job.operationId])).rows;
+      assert.equal(sceneRows.length, 1); const sceneRow = sceneRows[0];
+      const sceneIntent = captureExcalidrawCopyIntent(sceneRow.intent_json), sceneBirth = captureExcalidrawCopyBirthReceipt(sceneRow.birth_json);
+      assert.deepEqual(sceneBirth.intent, sceneIntent);
+      assert.deepEqual(sceneIntent.documents, []); assert.deepEqual(sceneBirth.documents, []);
+      assert.deepEqual(sceneIntent.assetOriginal.metadata, []); assert.deepEqual(sceneBirth.assetReceipt.blobs, []);
+      assert.deepEqual(originalStage.sceneRecords, []); assert.deepEqual(originalStage.sceneAssets, []);
+      assert.equal(sceneIntent.nativeReceiptProof, nativeCopyPhaseReceiptProof(originalReceipt));
+      assert.equal(sceneIntent.stageDigest, originalStage.payloadSha256); assert.equal(sceneRow.xmin, completionXmin);
+      assert.equal((BigInt(sceneBirth.b2TransactionId) % BigInt('4294967296')).toString(), completionXmin);
+      const completionStep = operation.steps.find(step => step.stepKey === 'copy-completion'); assert(completionStep?.receiptJson);
+      const completedBody = JSON.parse(completionStep.receiptJson); assert.equal(completedBody.version, 3);
+      assert.equal(completedBody.sceneIntentProof, sceneIntent.intentDigest); assert.equal(completedBody.sceneBirthProof, sceneBirth.receiptProof);
+      assert.equal(completedBody.assetReceiptProof, sceneBirth.assetReceipt.receiptProof);
       const admissions = nativeCopyPhaseAdmissions(originalStage, originalReceipt);
       assert(admissions.length > 0, 'Every actual original selection belongs to an exact publication admission.');
       // Exact original Stage/receipt data is retained only as fixture evidence.
@@ -743,11 +765,11 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal(await staging.readKind(job.operationId), null, 'Completed stages retire only after real SQL completion.');
       return row.private_result;
     };
-    const nativeStage = async (job: Job): Promise<WorkspaceOperationNativeCopyStage> => {
+    const nativeStage = async (job: Job): Promise<WorkspaceOperationManagedCopyStageV4> => {
       const manifest = JSON.parse(await readFile(path.join(dataRoot, 'workspace-operation-staging', job.operationId, 'manifest.json'), 'utf8'));
-      assert.equal(manifest.version, 3); assert.equal(manifest.kind, 'native-copy');
+      assert.equal(manifest.version, 4); assert.equal(manifest.kind, 'native-copy');
       assert.equal(manifest.identity.operationId, job.operationId);
-      const value = await staging.loadNativeCopy(manifest.identity);
+      const value = await staging.loadManagedCopy(manifest.identity);
       assert.equal(value.identity.canonicalRequestHash, serializeWorkspaceOperationRequest(value.request).requestHash);
       assert.deepEqual(value.origin, job.origin); return value;
     };
@@ -815,7 +837,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       const writesBefore = writeWitnesses.length;
       await assert.rejects(preview({ origin, request: actual,
         selections: [{ sourcePath: WORKSPACE_STARTER_DOCUMENT_NAME, destinationPath: 'copied-starter.md' }] }),
-      error => error instanceof Error && Reflect.get(error, 'code') === 'NATIVE_COPY_PLAN_UNSUPPORTED');
+      error => error instanceof Error && Reflect.get(error, 'code') === 'MANAGED_COPY_PLAN_UNSUPPORTED');
       assert.equal(writeWitnesses.length, writesBefore, 'Preview rejection performs no clone, link, Journal or physical staging mutation.');
       assert.deepEqual(io.existsSync(privateStageRoot) ? await readdir(privateStageRoot) : null, stagesBefore);
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_native_copy_receipts')).rows[0].n, 0);
@@ -1195,10 +1217,13 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       await seedNative(destination, nativeName, 'plain_text', 'Linkless original native'); await put(destination, assetName, 'Shared parent asset');
       const job = await prepareJob([{ sourcePath: nativeName, destinationPath: `${targetPath}/native.md` },
         { sourcePath: assetName, destinationPath: `${targetPath}/asset.pdf` }]);
-      let actualStage: WorkspaceOperationNativeCopyStage | undefined;
+      let actualStage: WorkspaceOperationManagedCopyStageV4 | undefined;
       await withProbe(async event => {
         if (actualStage || !/^\s*INSERT INTO collaboration_native_copy_receipts\b/iu.test(event.text)) return;
-        actualStage = await nativeStage(job);
+        // The global C3 observer decoded this actual stage in this same SQL
+        // acknowledgement before dispatching the local probe.
+        actualStage = initialStages.get(job.operationId); assert(actualStage);
+        assert.equal(actualStage.identity.operationId, job.operationId);
         const { nativeCopyPhaseParentSteps } = await import('../app/lib/files/workspace-operation-native-copy-phase-contract');
         const parents = nativeCopyPhaseParentSteps(actualStage);
         assert.equal(parents.length, 1); assert.equal(parents[0].producerSelectionIndex, 1);
@@ -1249,7 +1274,8 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal(job.plan.nativePathPlan.mutations.length, 0); let checked = false;
       await withProbe(async event => {
         if (checked || !/^\s*INSERT INTO collaboration_native_copy_receipts\b/iu.test(event.text)) return;
-        const stageData = await nativeStage(job);
+        const stageData = initialStages.get(job.operationId); assert(stageData);
+        assert.equal(stageData.identity.operationId, job.operationId);
         const row = (await event.raw('SELECT private_result FROM collaboration_native_copy_receipts WHERE operation_id=$1', [job.operationId])).rows[0]; assert(row);
         const receipt: NativeCopyReceipt = { ...structuredClone(row.private_result), publicationStatus: 'native_committed' };
         assert.equal(receipt.documents[0].source.documentId, original.state.documentId);
@@ -1289,12 +1315,28 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
         try {
           priorXid = (await event.raw('SELECT pg_current_xact_id()::text AS xid')).rows[0].xid;
           const current = await workspace(destination.workspaceId);
+          const copies = stageData.plan.nativePathPlan.pathMappings.filter(value => value.source.documentId !== null).map(value => {
+            const source = records.get(value.source.documentId!); assert(source); return { source, targetPath: value.destinationPath };
+          });
+          const deferredScenePaths = stageData.plan.sceneCopyRequirements.map(required => required.destinationPath);
           inserted = await persistNativeWorkspaceCopiesOnConnection(connection, { operationId: job.operationId,
             actorUserId: job.origin.actor.userId, actorSessionId: job.origin.actor.sessionId, kind: 'native_clone',
             sourceWorkspace: current, targetWorkspace: current, targetScopes: job.selections.map(value => value.destinationPath),
-            copies: job.plan.nativePathPlan.pathMappings.filter(value => value.source.documentId !== null).map(value => {
-              const source = records.get(value.source.documentId!); assert(source); return { source, targetPath: value.destinationPath };
-            }), expectedTargets: [], publicationFingerprint: stageData.payloadSha256 });
+            copies, deferredScenePaths, expectedTargets: [], publicationFingerprint: stageData.payloadSha256 });
+          const scopes = [...new Set(stageData.plan.selections.map(value => value.destinationPath))].sort();
+          const expectedFingerprint = crypto.createHash('sha256').update(JSON.stringify({ version: 2, kind: 'native_clone',
+            workspaceId: current.workspaceId, organizationId: current.organizationId ?? null, scopes, deferredScenePaths: [...deferredScenePaths].sort(),
+            expectedTargets: [], publicationFingerprint: stageData.payloadSha256, copies: copies.map(copy => ({ targetPath: copy.targetPath,
+              sourceDocumentId: copy.source.state.documentId, sourceLineageId: copy.source.lineageId,
+              sourceWorkspaceId: copy.source.state.workspaceId, sourceOrganizationId: copy.source.state.organizationId,
+              sourcePath: copy.source.state.path, sourceRepresentation: copy.source.state.representation, sourceSchemaVersion: copy.source.state.schemaVersion,
+              sourceGeneration: copy.source.state.lifecycleGeneration, sourceSequence: copy.source.state.documentSequence,
+              nativeHash: crypto.createHash('sha256').update(copy.source.state.yjsState).digest('hex'),
+              newlineStyle: copy.source.state.newlineStyle, hasBom: copy.source.state.hasBom })) })).digest('hex');
+          assert.equal(inserted.requestFingerprint, expectedFingerprint, 'The adversarial C3 uses the current Stage4 fingerprint contract, including empty deferred Scene paths.');
+          const binding = (await event.raw('SELECT request_fingerprint,publication_fingerprint,scope_paths FROM collaboration_native_copy_receipts WHERE operation_id=$1', [job.operationId])).rows[0];
+          assert.equal(binding.request_fingerprint, expectedFingerprint); assert.equal(binding.publication_fingerprint, stageData.payloadSha256);
+          assert.deepEqual(binding.scope_paths, scopes);
           await event.raw('COMMIT'); committed = true;
         } finally { if (!committed) await event.raw('ROLLBACK'); }
       }, () => interrupted(job, 'NATIVE_COPY_PHASE_CHANGED'));

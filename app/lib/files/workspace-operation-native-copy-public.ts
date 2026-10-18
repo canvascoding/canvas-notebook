@@ -1,11 +1,13 @@
 import 'server-only';
 
+import { types } from 'node:util';
 import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-operation-planner';
 import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeCopyPlan, WorkspaceOperationNativeCopyPlanError,
   type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
+import { decodeWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
 
 /** Display data only. The fixed Copy owner performs fresh clone rebinding;
  * this summary never exposes a native identity, recipe or mutation capability. */
@@ -32,8 +34,11 @@ export type WorkspaceOperationNativeCopyPreviewPublic = {
   issues: [];
 };
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan): WorkspaceOperationNativeCopyPreviewPublic {
-  const plan = decodeWorkspaceOperationNativeCopyPlan(input);
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan): WorkspaceOperationNativeCopyPreviewPublic {
+  const managed = input !== null && typeof input === 'object' && !types.isProxy(input)
+    && Object.getPrototypeOf(input) === Object.prototype
+    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 3;
+  const plan = managed ? decodeWorkspaceOperationManagedCopyPlan(input) : decodeWorkspaceOperationNativeCopyPlan(input);
   const evidence = plan.sourceScope.workspaceId === plan.destinationScope.workspaceId
     ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence];
   const graphs = evidence.map(original => buildWorkspaceNativeLinkGraph(workspaceOperationNativePlanSnapshot(original,

@@ -152,6 +152,9 @@ export function createWorkspaceOperationManagedCopyPlan(input: WorkspaceManagedC
   const selections = selected(field(input, 'selections'));
   const sourceObservation = field(input, 'sourceObservation') as WorkspaceLinkSourceAuthorityObservation;
   const destinationObservation = field(input, 'destinationObservation') as WorkspaceLinkSourceAuthorityObservation;
+  for (const observation of [sourceObservation, destinationObservation]) {
+    if (field(field(observation, 'stage'), 'readiness') !== 'native-coordinator-required') return fail('MANAGED_COPY_PLAN_UNSUPPORTED');
+  }
   const source = captureWorkspaceOperationCopySourceEvidenceV3(sourceScope, sourceObservation), destination = captureWorkspaceOperationCopySourceEvidenceV3(destinationScope, destinationObservation);
   const originals = snapshots(source, destination), paths = pathPlan(sourceScope, destinationScope, selections, originals);
   const compiled = compiler(sourceScope, destinationScope, selections, originals, sourceObservation, destinationObservation);
