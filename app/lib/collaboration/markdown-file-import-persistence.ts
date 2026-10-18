@@ -29,6 +29,8 @@ import { DirectMcpFileIngestError, directMcpIngestFingerprint, normalizeDirectMc
 import { downloadDirectMcpFile, type DirectMcpFileReference } from '../mcp/server/ingest-download';
 import { encodeDirectMcpTextContent, validateDirectMcpIngestContent, type DirectMcpIngestContentValidation } from '../mcp/server/ingest-validation';
 import { parseDirectMcpEditIdempotencyKey } from '../mcp/server/document-edit-contract';
+import type { DocumentCreateMutationResultV1 } from '../documents/contracts';
+import { encodeDocumentCreateMutationResultV1 } from '../documents/create-mutation-result';
 import { withDirectMcpDocumentCreatePrincipal, withDirectMcpDocumentCreatePrincipalOnConnection,
   type DirectMcpDocumentCreatePrincipal, type DirectMcpDocumentCreateCurrentOrigin,
   type DirectMcpDocumentCreatePrincipalAccess } from '../mcp/server/document-read-principal';
@@ -323,11 +325,13 @@ async function assertBootstrapNativeRealm(database: SqlConnection, frame: Bootst
   if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
     return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   }
-  if (lock) await database.run(`LOCK TABLE ${bootstrapRelations.map(name => `${quoteBootstrap(frame.realm.schema)}.${quoteBootstrap(name)}`).join(',')}
+  const relations = frame.kind === 'direct-mcp' && frame.invocation.apiVersion === 1
+    ? [...bootstrapRelations, 'workspace_file_metadata'] : bootstrapRelations;
+  if (lock) await database.run(`LOCK TABLE ${relations.map(name => `${quoteBootstrap(frame.realm.schema)}.${quoteBootstrap(name)}`).join(',')}
     IN ROW EXCLUSIVE MODE NOWAIT`);
   const rows = await database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
-    FROM unnest($2::text[]) names(name)`, [quoteBootstrap(frame.realm.schema), bootstrapRelations]) as Array<{ same: boolean }>;
-  if (rows.length !== bootstrapRelations.length || rows.some(row => row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    FROM unnest($2::text[]) names(name)`, [quoteBootstrap(frame.realm.schema), relations]) as Array<{ same: boolean }>;
+  if (rows.length !== relations.length || rows.some(row => row.same !== true)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
 }
 async function assertBootstrapScope(database: SqlConnection, input: Captured, scope: OriginalBootstrapScope): Promise<void> {
   if (!scope.active || scope.database !== database || originalBootstrapScopes.get(input) !== scope
@@ -814,13 +818,15 @@ const uploadIntentKeys = ['uploadSessionId', 'fileId', 'workspaceId', 'targetPat
 export type DirectMcpMarkdownCreateSelection = Readonly<{ workspaceId: string; path: string; idempotencyKey: string } & (
   { tool: 'create_knowledge_source'; content: string }
   | { tool: 'import_knowledge_file'; file: DirectMcpFileReference })>;
-export type DirectMcpNativeCreateDispatchResult = Readonly<{ kind: 'native'; receipt: DirectMcpFileReceipt }>
+export type DirectMcpNativeCreateDispatchResult = Readonly<{ kind: 'native'; receipt: DirectMcpFileReceipt;
+  mutationResult?: DocumentCreateMutationResultV1 }>
   | Readonly<{ kind: 'legacy-original' }>;
 type DirectMcpCreateInvocation = {
   active: boolean; principal: DirectMcpDocumentCreatePrincipal; selection: DirectMcpMarkdownCreateSelection;
   operationId: string; fingerprint: string; current?: DirectMcpDocumentCreateCurrentOrigin;
   original: DirectMcpDocumentCreateCurrentOrigin; birth: MarkdownCreateBirthOriginal | null;
   binding?: DirectMcpMarkdownCreateSourceBinding; receipt?: DirectMcpFileReceipt; signal?: AbortSignal;
+  apiVersion?: 1; mutationResult?: DocumentCreateMutationResultV1;
   liveSource?: AuthenticatedCreateSource;
 };
 const directMcpInvocations = new WeakSet<DirectMcpCreateInvocation>();
@@ -1028,8 +1034,41 @@ function bindMcpBirthOriginal(actual: DirectMcpCreateInvocation, birth: Markdown
   }
   actual.original = original; actual.birth = birth; actual.binding = binding;
 }
+/** Bounded actual metadata from this principal's already pinned native realm.
+ * No ReadPhase/admission or read grant is borrowed to describe a write result. */
+async function readMcpCreateResultMetadata(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>,
+  target: MarkdownFileImportReceipt['target']): Promise<{ title: string | null; revision: number | null }> {
+  const schema = quoteBootstrap(frame.realm.schema), original = frame.originalOrigin;
+  const rows = await database.all(`SELECT m.workspace_id IS NOT NULL AS metadata_present,
+    CASE WHEN octet_length(m.title)<=16384 THEN m.title END AS metadata_title,
+    m.updated_at AS metadata_revision,COALESCE(octet_length(m.title),0)>16384 AS metadata_oversized
+    FROM ${schema}.collaboration_documents d
+    JOIN ${schema}.collaboration_yjs_states s ON s.document_id=d.id
+    JOIN ${schema}.file_collaboration_lineages l ON l.id=d.lineage_id
+    LEFT JOIN ${schema}.workspace_file_metadata m ON m.workspace_id=d.workspace_id AND m.path=d.path
+    WHERE d.id=$1 AND d.workspace_id=$2 AND d.path=$3 AND d.lineage_id=$4
+      AND d.organization_id IS NOT DISTINCT FROM $5 AND d.provider='yjs' AND d.status='active'
+      AND d.yjs_state_lifecycle='initialized' AND d.workspace_type=$9
+      AND d.customer_id IS NOT DISTINCT FROM $10 AND d.project_id IS NOT DISTINCT FROM $11
+      AND s.workspace_id=d.workspace_id AND s.organization_id IS NOT DISTINCT FROM d.organization_id AND s.path=d.path
+      AND s.status='active' AND s.lifecycle_generation=$6 AND s.representation=$7 AND s.schema_version=$8
+      AND l.workspace_id=d.workspace_id AND l.organization_id IS NOT DISTINCT FROM d.organization_id AND l.path=d.path
+      AND l.workspace_type=d.workspace_type AND l.customer_id IS NOT DISTINCT FROM d.customer_id
+      AND l.project_id IS NOT DISTINCT FROM d.project_id AND l.status='active' AND l.archived_at IS NULL LIMIT 2`,
+  [target.documentId, target.workspaceId, target.path, target.lineageId, target.organizationId, target.lifecycleGeneration,
+    target.representation, target.schemaVersion, original.workspaceType, original.customerId, original.projectId]) as Array<Record<string, unknown>>;
+  if (rows.length !== 1) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  const row = rows[0], title = row.metadata_title, revision = row.metadata_revision;
+  const safeRevision = (typeof revision === 'number' || typeof revision === 'string' && /^(?:0|[1-9][0-9]*)$/u.test(revision))
+    && Number.isSafeInteger(Number(revision)) && Number(revision) >= 0;
+  if (typeof row.metadata_present !== 'boolean' || row.metadata_oversized !== false
+    || title !== null && (typeof title !== 'string' || title.length > 4096)
+    || (row.metadata_present ? !safeRevision : title !== null || revision !== null)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  return Object.freeze({ title: title as string | null, revision: revision === null ? null : Number(revision) });
+}
 async function observeMcpNativeCompletion(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>,
-  access: AuthenticatedCreateAccess): Promise<{ result: MarkdownFileImportResult; receipt: DirectMcpFileReceipt } | null> {
+  access: AuthenticatedCreateAccess, outcome: 'created' | 'already_created' = 'already_created'):
+  Promise<{ result: MarkdownFileImportResult; receipt: DirectMcpFileReceipt; mutationResult?: DocumentCreateMutationResultV1 } | null> {
   const actual = currentMcpInvocation(frame), binding = actual.binding;
   await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
   await assertMarkdownBirthRealm(database, frame);
@@ -1040,6 +1079,7 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
   if (rows.length !== 1 || !binding || !actual.birth) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   const receipt = rows[0].private_result as MarkdownFileImportReceipt;
   if (!receipt || !validIdentity(receipt.target)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  const metadata = actual.apiVersion === 1 ? await readMcpCreateResultMetadata(database, frame, receipt.target) : undefined;
   const expected: RetryExpectation = { workspace: access.workspace, path: binding.targetPath, operationId: binding.operationId,
     requestId: binding.requestId, actorUserId: binding.actorUserId, actorSessionId: binding.actorSessionId,
     expectedTarget: { kind: 'absent' }, fingerprint: createFingerprint(binding, frame.originalOrigin, receipt.target),
@@ -1063,6 +1103,9 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
   const state = await loadCollaborationStateOnConnection(authenticatedUploadReads(database), receipt.target.documentId, true);
   if (!state || state.documentSequence !== receipt.target.initialSequence || state.serializedHash !== birth.serialized_hash
     || state.checkpointSequence !== state.documentSequence || state.checkpointedAt === null) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  if (metadata && authoritativeNativeCollaborationSnapshot(state).version.stateProof !== prior.currentObservation.stateProof) {
+    return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  }
   const { authoritativeCollaborationSnapshot } = await import('./checkpoint');
   const { serializeCanonicalText } = await import('./persistence');
   const serialized = serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state);
@@ -1084,11 +1127,25 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
     ...directMcpFileLinkFields({ workspaceId: binding.workspaceId, path: binding.targetPath,
       documentId: receipt.target.documentId, lineageId: receipt.target.lineageId }), markdown: validation.markdown, warnings: validation.warnings };
   await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame);
-  return { result: { disposition: 'already-applied', ...prior }, receipt: result };
+  let mutationResult: DocumentCreateMutationResultV1 | undefined;
+  if (metadata) {
+    if (!isDeepStrictEqual(metadata, await readMcpCreateResultMetadata(database, frame, receipt.target))) {
+      throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'Document metadata changed during completion.');
+    }
+    const target = receipt.target;
+    mutationResult = encodeDocumentCreateMutationResultV1({ operationId: binding.operationId, outcome,
+      workspaceId: target.workspaceId, organizationId: target.organizationId, documentId: target.documentId,
+      lineageId: target.lineageId, lifecycleGeneration: target.lifecycleGeneration, representation: target.representation,
+      schemaVersion: target.schemaVersion, fullStateProof: prior.currentObservation.stateProof, path: target.path,
+      metadataTitle: metadata.title, metadataRevision: metadata.revision, persistedSequence: state.documentSequence,
+      persistedAt: state.persistedAt, checkpointSequence: state.checkpointSequence, checkpointedAt: state.checkpointedAt });
+  }
+  return { result: { disposition: 'already-applied', ...prior }, receipt: result, ...(mutationResult ? { mutationResult } : {}) };
 }
 /** Fixed real MCP entry. Content/URL IO is deliberately after both original lookups. */
 export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInfo, selection: DirectMcpMarkdownCreateSelection,
-  signal?: AbortSignal): Promise<DirectMcpNativeCreateDispatchResult> {
+  signal?: AbortSignal, apiVersion?: 1): Promise<DirectMcpNativeCreateDispatchResult> {
+  if (apiVersion !== undefined && apiVersion !== 1) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   if (!authenticatedNativeTextSessionEnabled()) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
   const selected = captureMcpSelection(selection);
   if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
@@ -1117,7 +1174,7 @@ export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInf
         if (legacy === 'fingerprint-conflict') throw new DirectMcpFileIngestError('MCP_INGEST_IDEMPOTENCY_CONFLICT', 'This idempotency_key belongs to a different import request.');
         if (legacy === 'legacy-original') return { kind: 'legacy-original' as const };
         const actual: DirectMcpCreateInvocation = { active: true, principal, selection: selected, operationId, fingerprint,
-          current, original: current, birth: null, signal };
+          current, original: current, birth: null, signal, ...(apiVersion === 1 ? { apiVersion } : {}) };
         if (birth) bindMcpBirthOriginal(actual, birth);
         directMcpInvocations.add(actual);
         try {
@@ -1125,7 +1182,9 @@ export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInf
             actorUserId: origin.userId, actorSessionId: origin.sessionId, requestId: `mcp-create:${operationId}`, operationId };
           await persistAuthenticatedCreateEngine(actual, intent, origin, null, { openConnection: openDb }, true);
           if (!actual.receipt) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-          return { kind: 'native' as const, receipt: actual.receipt };
+          if (apiVersion === 1 && !actual.mutationResult) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          return { kind: 'native' as const, receipt: actual.receipt,
+            ...(actual.mutationResult ? { mutationResult: actual.mutationResult } : {}) };
         } finally {
           actual.active = false; directMcpInvocations.delete(actual); if (actual.liveSource) createSources.delete(actual.liveSource);
         }
@@ -1545,7 +1604,10 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
             return withAuthenticatedCreatePrincipalOnConnection(database, frame, access => observeMcpNativeCompletion(database, frame, access));
           }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
-        if (completed) { frame.invocation.receipt = completed.receipt; return completed.result; }
+        if (completed) {
+          frame.invocation.receipt = completed.receipt; frame.invocation.mutationResult = completed.mutationResult;
+          return completed.result;
+        }
       }
       const source = frame.kind === 'direct-mcp' ? await loadDirectMcpCreateSource(frame) : providedSource!;
       const persist = async (birth?: MarkdownCreateBirthClaim) => {
@@ -1654,10 +1716,11 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         const completed = await executeLifecycleTransaction({ openConnection: openPhase,
           execute: async database => {
             await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-            return withAuthenticatedCreatePrincipalOnConnection(database, frame, access => observeMcpNativeCompletion(database, frame, access));
+            return withAuthenticatedCreatePrincipalOnConnection(database, frame, access => observeMcpNativeCompletion(database, frame, access, 'created'));
           }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') });
         if (!completed) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
         frame.invocation.receipt = { ...completed.receipt, status: 'created' };
+        frame.invocation.mutationResult = completed.mutationResult;
       }
       return projected;
     }, openOwner);

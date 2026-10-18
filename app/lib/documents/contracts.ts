@@ -40,6 +40,17 @@ export type DocumentProjectionV1 = Readonly<{
   errorCode?: string;
 }>;
 
+/** Confirmed native creation comparison data only. The caller publishes this
+ * only after its real COMMIT/recovery and connection cleanup have completed. */
+export type DocumentCreateMutationResultV1 = Readonly<{
+  apiVersion: 1;
+  operationId: string;
+  outcome: 'created' | 'already_created';
+  document: NativeDocumentRefV1;
+  currency: DocumentCurrencyV1;
+  projection: DocumentProjectionV1;
+}>;
+
 export type DocumentReadRequestV1 = Readonly<{
   apiVersion: 1;
   workspaceId: string;

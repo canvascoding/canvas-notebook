@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import type { DirectMcpFileReference } from '../app/lib/mcp/server/ingest-download';
-import type { DocumentReadPageV1 } from '../app/lib/documents/contracts';
+import type { DocumentCreateMutationResultV1, DocumentReadPageV1 } from '../app/lib/documents/contracts';
 import { withDocumentReadToolDispatchFixture } from './helpers/document-read-tool-dispatch-fixture';
 import { signalOwnChild, ownedGroupEmpty } from './run-yjs-authority-e2e';
 
@@ -281,6 +281,35 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
       const body = object(JSON.parse(page.fragment)); assert.equal(body.bodyVersion, 1); assert(object(body.content));
       assert.equal(Object.hasOwn(page, 'sha256'), false); return page;
     };
+    const mutationV1 = (result: ObjectValue): DocumentCreateMutationResultV1 => {
+      assert.notEqual(result.isError, true); const value = object(result.structuredContent);
+      assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'operationId', 'outcome', 'document', 'currency', 'projection'].sort());
+      assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
+      assert.deepEqual(JSON.parse(String(object(result.content[0]).text)), value);
+      assert.equal(value.apiVersion, 1); assert.equal(typeof value.operationId, 'string'); assert(value.operationId);
+      assert(['created', 'already_created'].includes(String(value.outcome)));
+      const document = object(value.document), currency = object(value.currency), projection = object(value.projection);
+      assert.equal(document.kind, 'native_document'); assert.equal(document.workspaceId, workspaceId);
+      assert.equal(document.lifecycleGeneration, 1); assert.equal(document.schemaVersion, 1);
+      assert.match(String(document.version), /^canvas-document-v1:[a-f0-9]{64}$/u);
+      assert.match(String(document.metadataVersion), /^canvas-document-metadata-v1:[a-f0-9]{64}$/u);
+      assert.equal(currency.source, 'persisted_yjs'); assert.equal(currency.observedDurable, true);
+      assert.equal(currency.observedVersion, document.version); assert.equal(currency.durableVersion, document.version);
+      assert.equal(currency.durableSequence, 0); assert.equal(projection.checkpointSequence, 0); assert.equal(projection.status, 'current');
+      assert(Number.isSafeInteger(currency.persistedAt) && Number(currency.persistedAt) >= 0);
+      assert(Number.isSafeInteger(projection.checkpointedAt) && Number(projection.checkpointedAt) >= 0);
+      return value as unknown as DocumentCreateMutationResultV1;
+    };
+    const mutationRead = async (value: DocumentCreateMutationResultV1, actualToken = token): Promise<DocumentReadPageV1> => {
+      const result = await call(actualToken, 'read_knowledge_source', { workspace_id: workspaceId,
+        document_id: value.document.documentId, format: 'native', max_bytes: 262144, expected_version: value.document.version });
+      assert.notEqual(result.isError, true); const page = object(result.structuredContent) as unknown as DocumentReadPageV1;
+      assert.deepEqual(page.document, value.document); assert.deepEqual(page.currency, value.currency); assert.deepEqual(page.projection, value.projection);
+      assert.equal(page.complete, true); assert.equal(page.nextCursor, null); assert.equal(page.byteOffset, 0);
+      assert.equal(page.byteLength, Buffer.byteLength(page.fragment)); assert.equal(page.totalBytes, page.byteLength);
+      assert.equal(object(JSON.parse(page.fragment)).bodyVersion, 1); return page;
+    };
+    let v1Imported: Readonly<{ selection: ObjectValue; result: DocumentCreateMutationResultV1 }> | undefined;
 
     type GuardedChild = Parameters<typeof signalOwnChild>[0];
     type OwnedWorker = { entry: GuardedChild; name: string; closed: Promise<void>; result: Promise<ObjectValue>;
@@ -689,6 +718,164 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
         assert.deepEqual(await snapshotBoth(), before); await assertRecord(record);
         await fs.unlink(record.recordPath); classification(result, 'MCP_INGEST_RECOVERY_REQUIRED');
       });
+      await check('registered api_version 1 fresh Create and HTTPS Import exactly match full ID-read versions', async () => {
+        const listed = await rpc(token, 'tools/list', {}); assert(Array.isArray(listed.tools));
+        for (const name of ['create_knowledge_source', 'import_knowledge_file']) {
+          const tool = object(listed.tools.find(value => object(value).name === name));
+          assert(Object.hasOwn(object(object(tool.inputSchema).properties), 'api_version'));
+        }
+        const key = crypto.randomUUID(), source = '# Shared mutation result\n\nReal 🦊 content.\n', target = 'result-v1/fresh.md';
+        const selection = args(target, source, key);
+        const created = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }));
+        assert.equal(created.outcome, 'created'); assert.equal(created.operationId, keyFor(key));
+        assert((await mutationRead(created)).fragment.includes('Shared mutation result'));
+        const before = { domain: await fixture.snapshot(), rows: await nativeRows(created.operationId), claim: await observe(created.operationId) };
+        const legacy = receipt(await call(token, 'create_knowledge_source', selection));
+        assert.equal(legacy.status, 'already_created'); assert.equal(legacy.operation_id, created.operationId);
+        assert.equal(legacy.document_id, created.document.documentId); assert.equal(legacy.lineage_id, created.document.lineageId);
+        assert.equal(Object.hasOwn(legacy, 'apiVersion'), false); await verify(legacy, source);
+        assert.deepEqual({ domain: await fixture.snapshot(), rows: await nativeRows(created.operationId), claim: await observe(created.operationId) }, before);
+        const importKey = crypto.randomUUID(), importPath = 'result-v1/imported.md';
+        const importSelection = { workspace_id: workspaceId, path: importPath,
+          idempotency_key: importKey, api_version: 1,
+          file: { download_url: sourceUrl, file_id: 'result-v1-readme', file_name: 'README.md', mime_type: 'text/markdown' } };
+        const imported = mutationV1(await call(token, 'import_knowledge_file', importSelection));
+        assert.equal(imported.outcome, 'created'); assert.equal(imported.operationId, keyFor(importKey));
+        assert((await mutationRead(imported)).fragment.includes('Model Context Protocol'));
+        assert.deepEqual(await fs.readFile(path.join(workspaceRoot, importPath)), originalBytes);
+        v1Imported = { selection: importSelection, result: imported };
+      });
+      await check('api_version 1 renewed actual SID B retains original A identity history and full versions', async () => {
+        assert(v1Imported); const imported = v1Imported;
+        const key = crypto.randomUUID(), source = '# V1 original A\n', target = 'result-v1/renewed.md', selection = args(target, source, key);
+        const legacy = receipt(await call(token, 'create_knowledge_source', selection)); await verify(legacy, source);
+        const initial = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }));
+        assert.equal(initial.outcome, 'already_created'); assert.equal(initial.operationId, legacy.operation_id); await mutationRead(initial);
+        const before = { domain: await fixture.snapshot(), rows: await nativeRows(legacy.operation_id), claim: await observe(legacy.operation_id),
+          file: await fs.readFile(path.join(workspaceRoot, target)), importRows: await nativeRows(imported.result.operationId),
+          importClaim: await observe(imported.result.operationId), importFile: await fs.readFile(path.join(workspaceRoot, imported.result.document.path)) };
+        assert.equal(before.importRows.receipt[0].actor_session_id, 'reader-session'); assert(before.importClaim);
+        assert.equal(object(before.importClaim.intent.origin).sessionId, 'reader-session');
+        const sid = `mcp-result-v1-${crypto.randomUUID()}`;
+        await admin.query(`INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at)
+          VALUES($1,$2,'reader',$3,$4,$4)`, [sid, crypto.randomBytes(32).toString('hex'), Date.now() + 3600000, Date.now()]);
+        const fresh = await fixture.issue({ sid, scope: 'knowledge:read knowledge:write' });
+        await admin.query(`UPDATE "session" SET expires_at=1 WHERE id='reader-session'`);
+        try {
+          const retried = mutationV1(await call(fresh, 'create_knowledge_source', { ...selection, api_version: 1 }));
+          assert.deepEqual(retried, initial); await mutationRead(retried, fresh); await verify(legacy, source);
+          const importRetry = mutationV1(await call(fresh, 'import_knowledge_file', { ...imported.selection,
+            file: { ...object(imported.selection.file), download_url: 'https://127.0.0.1:1/expired-result-v1-reference' } }));
+          assert.deepEqual(importRetry, { ...imported.result, outcome: 'already_created' }); await mutationRead(importRetry, fresh);
+          assert.deepEqual({ domain: await fixture.snapshot(), rows: await nativeRows(legacy.operation_id), claim: await observe(legacy.operation_id),
+            file: await fs.readFile(path.join(workspaceRoot, target)), importRows: await nativeRows(imported.result.operationId),
+            importClaim: await observe(imported.result.operationId), importFile: await fs.readFile(path.join(workspaceRoot, imported.result.document.path)) }, before);
+        } finally { await fixture.restoreReaderSession(); await admin.query('DELETE FROM "session" WHERE id=$1', [sid]); }
+      });
+      await check('real write-only OAuth scope returns V1 without manufacturing a native read grant', async () => {
+        const authorization = async () => ({
+          consent: (await admin.query('SELECT *,xmin::text AS original_xmin FROM oauth_consent WHERE client_id=$1 AND user_id=$2', [clientId, 'reader'])).rows,
+          grants: (await admin.query('SELECT *,xmin::text AS original_xmin FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id=$2', [clientId, 'reader'])).rows,
+        });
+        const before = await authorization(), writeOnly = await fixture.issue({ scope: 'knowledge:write' });
+        const created = mutationV1(await call(writeOnly, 'create_knowledge_source', { ...args('result-v1/write-only.md', '# Write only\n'), api_version: 1 }));
+        assert.equal(created.outcome, 'created');
+        const domain = await fixture.snapshot();
+        const denied = await call(writeOnly, 'read_knowledge_source', { workspace_id: workspaceId,
+          document_id: created.document.documentId, format: 'native' });
+        assert.equal(denied.isError, true); assert.equal(Object.hasOwn(denied, 'structuredContent'), false);
+        const challenges = object(denied._meta)['mcp/www_authenticate']; assert(Array.isArray(challenges)); assert.equal(challenges.length, 1);
+        assert(String(challenges[0]).includes('error="insufficient_scope"')); assert(String(challenges[0]).includes('knowledge:read'));
+        assert.deepEqual(await fixture.snapshot(), domain); assert.deepEqual(await authorization(), before);
+        await mutationRead(created); // The separate original read/write token can read the same identity.
+      });
+      await check('V1 metadata follows actual row absence null titles revisions and Unicode independently of content', async () => {
+        const key = crypto.randomUUID(), target = 'result-v1/metadata.md', source = '# Metadata identity\n', selection = args(target, source, key);
+        const legacy = receipt(await call(token, 'create_knowledge_source', selection));
+        assert.equal((await admin.query('SELECT count(*)::int AS count FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [workspaceId, target])).rows[0].count, 0);
+        const absent = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 })); await mutationRead(absent);
+        const rows = await nativeRows(legacy.operation_id), original = await observe(legacy.operation_id);
+        let previous = absent;
+        for (const [title, revision] of [[null, 2101], ['Übersicht 🦊 漢字', 2102], ['Übersicht 🦊 漢字', 2103]] as const) {
+          await admin.query(`INSERT INTO workspace_file_metadata(workspace_id,path,title,created_at,updated_at)
+            VALUES($1,$2,$3,100,$4) ON CONFLICT(workspace_id,path) DO UPDATE SET title=excluded.title,updated_at=excluded.updated_at`,
+          [workspaceId, target, title, revision]);
+          const before = await fixture.snapshot();
+          const current = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 })); await mutationRead(current);
+          assert.equal(current.document.title, title ?? absent.document.title); assert.equal(current.document.version, absent.document.version);
+          assert.notEqual(current.document.metadataVersion, previous.document.metadataVersion);
+          assert.deepEqual(current.currency, absent.currency); assert.deepEqual(current.projection, absent.projection);
+          assert.deepEqual(await nativeRows(legacy.operation_id), rows); assert.deepEqual(await observe(legacy.operation_id), original);
+          assert.deepEqual(await fixture.snapshot(), before); previous = current;
+        }
+        for (const title of ['漢'.repeat(4097), 'x'.repeat(16_385)]) {
+          await admin.query('UPDATE workspace_file_metadata SET title=$3,updated_at=2104 WHERE workspace_id=$1 AND path=$2', [workspaceId, target, title]);
+          const before = await fixture.snapshot();
+          failure(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }), 'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          assert.deepEqual(await fixture.snapshot(), before); assert.deepEqual(await nativeRows(legacy.operation_id), rows);
+        }
+        await admin.query('UPDATE workspace_file_metadata SET title=$3,updated_at=2105 WHERE workspace_id=$1 AND path=$2', [workspaceId, target, 'Before real metadata drift']);
+        const beforeDrift = object(await fixture.snapshot()), originalBytes = await fs.readFile(path.join(workspaceRoot, target));
+        const { Client } = await import('pg'), rawQuery = Client.prototype.query;
+        let observedReads = 0, changed = false, driftResult: ObjectValue | undefined;
+        // Observe actual SQL acknowledgements and change the real row through
+        // the separate fixture-admin connection. Every product query and row
+        // result remains genuine; no returned metadata is synthesized.
+        Client.prototype.query = function (this: InstanceType<typeof Client>, ...queryArgs: unknown[]) {
+          if (this === admin || queryArgs.some(argument => typeof argument === 'function')) return Reflect.apply(rawQuery, this, queryArgs);
+          const sql = typeof queryArgs[0] === 'string' ? queryArgs[0].trim() : '', values = queryArgs[1];
+          if (!sql.startsWith('SELECT m.workspace_id IS NOT NULL AS metadata_present,') || !Array.isArray(values)
+            || values[0] !== legacy.document_id || values[1] !== workspaceId || values[2] !== target || values[3] !== legacy.lineage_id) {
+            return Reflect.apply(rawQuery, this, queryArgs);
+          }
+          return (async () => {
+            const actual = await Reflect.apply(rawQuery, this, queryArgs); observedReads++;
+            if (!changed) {
+              changed = true;
+              assert.equal((await admin.query('UPDATE workspace_file_metadata SET title=$3,updated_at=2106 WHERE workspace_id=$1 AND path=$2',
+                [workspaceId, target, 'Actually changed between the two original SELECTs'])).rowCount, 1);
+            }
+            return actual;
+          })();
+        } as typeof Client.prototype.query;
+        try { driftResult = await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }); }
+        finally { Client.prototype.query = rawQuery; }
+        assert(changed); assert.equal(observedReads, 2); assert(driftResult);
+        failure(driftResult, 'MCP_INGEST_DESTINATION_CHANGED');
+        assert.deepEqual(await nativeRows(legacy.operation_id), rows); assert.deepEqual(await observe(legacy.operation_id), original);
+        const afterDrift = object(await fixture.snapshot());
+        for (const field of ['documents', 'lineages', 'states', 'revisions', 'projections']) assert.deepEqual(afterDrift[field], beforeDrift[field]);
+        assert.deepEqual(await fs.readFile(path.join(workspaceRoot, target)), originalBytes);
+        const actualMetadata = (await admin.query('SELECT title,updated_at FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [workspaceId, target])).rows;
+        assert.equal(actualMetadata.length, 1); assert.equal(actualMetadata[0].title, 'Actually changed between the two original SELECTs');
+        assert.equal(Number(actualMetadata[0].updated_at), 2106);
+        const current = mutationV1(await call(token, 'create_knowledge_source', { ...selection, api_version: 1 }));
+        assert.equal(current.document.title, actualMetadata[0].title); assert.equal(current.document.version, absent.document.version); await mutationRead(current);
+      });
+      await check('V1 requires an enabled native Markdown result and never upgrades a retained physical original', async () => {
+        for (const gate of ['off', 'non-markdown'] as const) {
+          const target = gate === 'off' ? 'result-v1/gate-off.md' : 'result-v1/not-native.txt', key = crypto.randomUUID();
+          const before = await fixture.snapshot();
+          try {
+            if (gate === 'off') process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0';
+            failure(await call(token, 'create_knowledge_source', { ...args(target, 'No physical fallback\n', key), api_version: 1 }), 'MCP_INGEST_NATIVE_DOCUMENT_REQUIRED');
+          } finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+          await noTarget(target); assert.equal(await observe(keyFor(key)), null); assert.deepEqual(await nativeRows(keyFor(key)), { receipt: [], birth: [], history: [] });
+          assert.deepEqual(await fixture.snapshot(), before);
+        }
+        const key = crypto.randomUUID(), target = 'result-v1/retained-legacy.md', source = '# Actual retained legacy\n';
+        let legacy: DirectMcpFileReceipt;
+        try { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '0'; legacy = await create(target, source, key); }
+        finally { process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; }
+        assert.equal(legacy.status, 'created'); assert.equal(await observe(legacy.operation_id), null);
+        assert.deepEqual(await nativeRows(legacy.operation_id), { receipt: [], birth: [], history: [] });
+        const before = { domain: await fixture.snapshot(), rows: await nativeRows(legacy.operation_id),
+          journal: await fs.readFile(journal(legacy.operation_id)), bytes: await fs.readFile(path.join(workspaceRoot, target)) };
+        failure(await call(token, 'create_knowledge_source', { ...args(target, source, key), api_version: 1 }), 'MCP_INGEST_NATIVE_DOCUMENT_REQUIRED');
+        assert.equal(await observe(legacy.operation_id), null);
+        assert.deepEqual({ domain: await fixture.snapshot(), rows: await nativeRows(legacy.operation_id),
+          journal: await fs.readFile(journal(legacy.operation_id)), bytes: await fs.readFile(path.join(workspaceRoot, target)) }, before);
+      });
     } catch (error) { primary = error; hasPrimary = true; }
     finally {
       const errors: unknown[] = [];
@@ -701,8 +888,8 @@ export async function directMcpNativeMarkdownCreatePostgresTest(): Promise<void>
     }
     if (hasPrimary) throw primary;
   });
-  assert.equal(passed, 10); completed = true;
-  console.log(`Direct MCP Native Markdown Create PostgreSQL: ${passed}/10 genuine registered/SQL/FD/process/HTTPS families; OAuth issuance, compiled HTTP and host/browser acceptance remain separate.`);
+  assert.equal(passed, 15); completed = true;
+  console.log(`Direct MCP Native Markdown Create PostgreSQL: ${passed}/15 genuine registered/SQL/FD/process/HTTPS families; OAuth issuance, compiled HTTP and host/browser acceptance remain separate.`);
 }
 
 const descriptor = process.env.CANVAS_NATIVE_MCP_CREATE_CHILD;

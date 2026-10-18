@@ -12,7 +12,13 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/document-create-mutation-result-contracts-test.ts': [entryPoint,
+    'app/lib/documents/create-mutation-result.ts', 'app/lib/documents/create-mutation-result-json-schema.ts',
+    'app/lib/documents/contracts.ts', 'app/lib/documents/read-version.ts', 'app/lib/documents/read-json-schema.ts',
+    'app/lib/collaboration/state-proof.ts', 'app/lib/workspaces/path-identity.ts', 'app/lib/files/display-name.ts'],
   'scripts/direct-mcp-native-markdown-create-postgres-test.ts': [entryPoint,
+    'app/lib/documents/create-mutation-result.ts',
+    'app/lib/documents/contracts.ts', 'app/lib/documents/read-version.ts',
     'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/collaboration/markdown-file-import-persistence.ts',
     'app/lib/mcp/server/ingest-tools.ts', 'app/lib/mcp/server/file-ingest.ts', 'app/lib/mcp/server/ingest-authority.ts',
     'app/lib/mcp/server/ingest-validation.ts', 'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/direct-server.ts',

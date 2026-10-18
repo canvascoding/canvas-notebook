@@ -6,7 +6,7 @@ import path from 'node:path';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { test, type APIResponse, type BrowserContext, type TestInfo } from '@playwright/test';
-import type { DocumentReadPageV1 } from '../app/lib/documents/contracts';
+import type { DocumentCreateMutationResultV1, DocumentReadPageV1 } from '../app/lib/documents/contracts';
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import { authorizeIngestE2EMcp, type IngestE2EToolResult } from '../scripts/mcp-file-ingest-e2e-helpers';
 import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjsQaTarget,
@@ -23,12 +23,12 @@ type Row = Record<string, unknown>;
 type Mcp = Awaited<ReturnType<typeof authorizeIngestE2EMcp>>;
 type Identity = Readonly<{ userId: string; sessionId: string }>;
 type Workspace = Readonly<{ id: string; name: string; rootRelativePath: string }>;
-type Original = Readonly<{ receipt: DirectMcpFileReceipt; source: Buffer; native: DocumentReadPageV1 }>;
+type Original = Readonly<{ receipt: DirectMcpFileReceipt; mutation: DocumentCreateMutationResultV1; source: Buffer; native: DocumentReadPageV1 }>;
 type Probe = Readonly<{ backendPid: number; readOnly: true; xidUnassigned: true; closed: true }>;
 const contexts: BrowserContext[] = [], signedOut = new Set<BrowserContext>();
 let owned: OwnedYjsReceipt, contextA: BrowserContext | undefined, contextB: BrowserContext | undefined;
 let mcpA: Mcp | undefined, mcpB: Mcp | undefined, identityA: Identity | undefined, identityB: Identity | undefined;
-let workspace: Workspace | undefined, protocol = '', issuer = '', importArgs: Row | undefined;
+let workspace: Workspace | undefined, protocol = '', issuer = '', importArgs: Row | undefined, generatedArgs: Row | undefined;
 let initialSettings: { enabled: boolean; tools: string[] } | undefined;
 let originals: Original[] = [], before: Row[] | undefined;
 const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
@@ -58,6 +58,20 @@ function fileReceipt(result: IngestE2EToolResult): DirectMcpFileReceipt {
   }
   assert(['created', 'already_created'].includes(String(value.status))); assert.match(String(value.sha256), /^[a-f0-9]{64}$/u);
   assert(Number.isSafeInteger(value.size) && Number(value.size) >= 0); return value as DirectMcpFileReceipt;
+}
+function mutationResult(result: IngestE2EToolResult): DocumentCreateMutationResultV1 {
+  const value = success(result); assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
+  assert.deepEqual(JSON.parse(result.content[0].text ?? ''), value);
+  assert.deepEqual(Object.keys(value).sort(), ['apiVersion', 'operationId', 'outcome', 'document', 'currency', 'projection'].sort());
+  assert.equal(value.apiVersion, 1); assert(typeof value.operationId === 'string' && value.operationId);
+  assert(['created', 'already_created'].includes(String(value.outcome)));
+  assert.match(String(object(value.document).version), /^canvas-document-v1:[a-f0-9]{64}$/u);
+  assert.match(String(object(value.document).metadataVersion), /^canvas-document-metadata-v1:[a-f0-9]{64}$/u);
+  return value as unknown as DocumentCreateMutationResultV1;
+}
+function mutationMatchesRead(mutation: DocumentCreateMutationResultV1, receipt: DirectMcpFileReceipt, page: DocumentReadPageV1): void {
+  assert.equal(mutation.operationId, receipt.operation_id);
+  assert.deepEqual(mutation.document, page.document); assert.deepEqual(mutation.currency, page.currency); assert.deepEqual(mutation.projection, page.projection);
 }
 async function login(context: BrowserContext): Promise<Identity> {
   const email = process.env.TEST_LOGIN_EMAIL, password = process.env.TEST_LOGIN_PASSWORD; assert(email && password);
@@ -263,9 +277,11 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     const listing = await mcpA.rpc('tools/list'); assert(Array.isArray(listing.tools));
     for (const name of tools) assert(listing.tools.some(value => object(value).name === name));
     const generated = Buffer.from('# Native compiled MCP\n\nReal complete **content**.\n');
-    const generatedReceipt = fileReceipt(await mcpA.call('create_knowledge_source', { workspace_id: workspace.id,
-      path: 'oauth/generated.md', content: generated.toString('utf8'), idempotency_key: `generated-${randomUUID()}` }));
+    generatedArgs = { workspace_id: workspace.id, path: 'oauth/generated.md', content: generated.toString('utf8'), idempotency_key: `generated-${randomUUID()}` };
+    const generatedReceipt = fileReceipt(await mcpA.call('create_knowledge_source', generatedArgs));
     assert.equal(generatedReceipt.status, 'created');
+    const generatedMutation = mutationResult(await mcpA.call('create_knowledge_source', { ...generatedArgs, api_version: 1 }));
+    assert.equal(generatedMutation.outcome, 'already_created');
     const source = await fetch(sourceUrl, { credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(30_000) }); assert(source.body);
     const reader = source.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
     try { assert.equal(source.status, 200); assert.equal(source.url, sourceUrl);
@@ -276,15 +292,22 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     assert(Buffer.from(sourceText).equals(sourceBytes)); assert(sourceText.includes('# Model Context Protocol (MCP)'));
     importArgs = { workspace_id: workspace.id, path: 'oauth/imported.md', idempotency_key: `imported-${randomUUID()}`,
       file: { download_url: sourceUrl, file_id: 'official-mcp-readme-c518f7a9', file_name: 'README.md', mime_type: 'text/markdown' } };
-    const imported = fileReceipt(await mcpA.call('import_knowledge_file', importArgs)); assert.equal(imported.status, 'created');
-    originals = [{ receipt: generatedReceipt, source: generated, native: await nativeRead(mcpA, generatedReceipt) },
-      { receipt: imported, source: sourceBytes, native: await nativeRead(mcpA, imported) }];
+    const importedMutation = mutationResult(await mcpA.call('import_knowledge_file', { ...importArgs, api_version: 1 }));
+    assert.equal(importedMutation.outcome, 'created');
+    const imported = fileReceipt(await mcpA.call('import_knowledge_file', importArgs)); assert.equal(imported.status, 'already_created');
+    originals = [{ receipt: generatedReceipt, mutation: generatedMutation, source: generated,
+      native: await nativeRead(mcpA, generatedReceipt, generatedMutation.document.version) },
+    { receipt: imported, mutation: importedMutation, source: sourceBytes,
+      native: await nativeRead(mcpA, imported, importedMutation.document.version) }];
+    for (const original of originals) mutationMatchesRead(original.mutation, original.receipt, original.native);
     const captured = await snapshotOriginals(); before = captured.rows; await reviewOff(contextA);
     await evidence(info, { scope: 'actual compiled HTTP and real authorization-code session A', count: originals.length,
-      sourceSha256: sha(sourceBytes), sourceBytes: sourceBytes.length, nativeVersions: originals.map(value => value.native.document.version), readOnlyProbe: captured.probe });
+      sourceSha256: sha(sourceBytes), sourceBytes: sourceBytes.length, nativeVersions: originals.map(value => value.native.document.version), readOnlyProbe: captured.probe,
+      mutationApiVersion: 1, metadataVersions: originals.map(value => value.mutation.document.metadataVersion),
+      mutationOutcomes: originals.map(value => value.mutation.outcome), sameKeyLegacyReceiptsRetained: true });
   });
   test('2: fresh browser login B reauthorizes the SAME client while the unchanged A token is rejected', async ({ browser }, info) => {
-    assert(contextA && mcpA && identityA && workspace && originals.length === 2);
+    assert(contextA && mcpA && identityA && workspace && generatedArgs && originals.length === 2);
     const signed = await ok(await contextA.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Revoke actual session A');
     assert.equal(signed.success, true); signedOut.add(contextA);
     const rejected = await mcpA.call('auth_probe', {}); assert.equal(rejected.isError, true);
@@ -295,22 +318,29 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     assert.deepEqual(mcpB.registration, mcpA.registration); tokenIdentity(mcpB, identityB);
     assert.equal(success(await mcpB.call('auth_probe', {})).authenticated, true);
     const stillA = await mcpA.call('auth_probe', {}); assert.equal(stillA.isError, true); assert.equal(stillA.structuredContent?.http_status, 401);
+    const renewedMutation = mutationResult(await mcpB.call('create_knowledge_source', { ...generatedArgs, api_version: 1 }));
+    assert.deepEqual(renewedMutation, originals[0].mutation);
     for (const original of originals) {
-      const current = await nativeRead(mcpB, original.receipt, original.native.document.version);
+      const mutation = original === originals[0] ? renewedMutation : original.mutation;
+      const current = await nativeRead(mcpB, original.receipt, mutation.document.version);
+      mutationMatchesRead(mutation, original.receipt, current);
       assert.deepEqual(current.document, original.native.document); assert.equal(current.fragment, original.native.fragment);
     }
     await reviewOff(contextB); await evidence(info, { scope: 'new real login/code exchange B, same registration, A HTTP401', sameClient: true,
-      differentRealSessions: true, oldTokenRejectedBeforeAndAfterB: true });
+      differentRealSessions: true, oldTokenRejectedBeforeAndAfterB: true, mutationApiVersion: 1, renewedMutationResultIdentical: true });
   });
   test('3: session B completed Bad-URL retry preserves original A native identity, full version and all original xmin', async ({ browser: _browser }, info) => {
     assert(contextB && mcpB && mcpA && identityA && identityB && workspace && importArgs && before && originals.length === 2);
     const imported = originals[1], replacement = { ...importArgs, file: { ...object(importArgs.file), download_url: 'https://127.0.0.1:1/expired-reference' } };
+    const retryMutation = mutationResult(await mcpB.call('import_knowledge_file', { ...replacement, api_version: 1 }));
+    assert.deepEqual(retryMutation, { ...imported.mutation, outcome: 'already_created' });
     const retry = fileReceipt(await mcpB.call('import_knowledge_file', replacement));
     assert.deepEqual(retry, { ...imported.receipt, status: 'already_created' });
-    const current = await nativeRead(mcpB, retry, imported.native.document.version);
+    const current = await nativeRead(mcpB, retry, retryMutation.document.version); mutationMatchesRead(retryMutation, retry, current);
     assert.deepEqual(current.document, imported.native.document); assert.deepEqual(current.currency, imported.native.currency); assert.equal(current.fragment, imported.native.fragment);
     const after = await snapshotOriginals(); assert.deepEqual(after.rows, before);
     await reviewOff(contextB); await evidence(info, { scope: 'completed original source/history untouched by B with unusable URL', originalRowsUnchanged: true,
-      noDownloadRequired: true, historySource: 'external_import', historyAttributedToOriginalA: true, fullVersion: current.document.version, readOnlyProbe: after.probe });
+      noDownloadRequired: true, historySource: 'external_import', historyAttributedToOriginalA: true, fullVersion: current.document.version, readOnlyProbe: after.probe,
+      mutationApiVersion: 1, metadataVersion: current.document.metadataVersion, legacySameKeyReceiptUnchanged: true });
   });
 });
