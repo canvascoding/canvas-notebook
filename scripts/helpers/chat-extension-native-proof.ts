@@ -4,18 +4,22 @@ import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { DEFAULT_AGENT_ID } from '../../app/lib/channels/constants';
 import { extensionPackagePinSchema, standaloneExtensionSelectionSchema } from '../../app/lib/capabilities/extensions/contracts';
 import { assertChatBodyContent, assertChatBodySelection, parseChatBody, projectChatBodyText } from '../../app/lib/chat/chat-body-contracts';
 import { assertNativeCentralAgentUnchanged, nativeCentralAgentSnapshotSchema, projectNativeCentralAgentSnapshot } from './chat-extension-native-agent-snapshot';
 import { assertNativeRetypedSkillCaption, nativeExtensionSkillCaption } from './chat-extension-native-fixture';
-import { assertNativeSdkTurnProofs, nativeSqlUserTextFingerprint, type NativeExpectedSdkTurn } from './chat-extension-native-sdk-proof';
+import { assertNativePageJourneySdkProofs, assertNativeSdkTurnProofs, nativeSqlUserTextFingerprint, type NativeExpectedPageJourneyTurn, type NativeExpectedSdkTurn } from './chat-extension-native-sdk-proof';
 
 type Fixture = { root: string; nonce: string; actorId: string; dataRoot: string; databaseName: string; baseURL: string; mcpUrl: string; model: { providerInstallationId: string; providerId: string; modelId: string } };
 type RecordValue = Record<string, unknown>;
 const identifier = z.string().min(1).max(256), sha = z.string().regex(/^[a-f0-9]{64}$/u);
+const pageJourneySchema = z.object({ platform: z.enum(['ios', 'android']), toolkit: z.enum(['github', 'slack']), sessionId: identifier,
+  agentId: identifier, workspaceId: identifier, profileId: identifier, marker: identifier }).strict();
 const runSchema = z.object({ platform: z.enum(['ios', 'android']), sessionId: identifier, agentId: identifier, workspaceId: identifier,
   marker: identifier, createdAgentId: identifier, selectedAccount: standaloneExtensionSelectionSchema,
   pluginPin: extensionPackagePinSchema, skillPin: extensionPackagePinSchema, skillCaption: identifier, mcpRef: identifier, standaloneMcpRef: identifier, packageMcpToolCap: z.array(identifier).nullable(), capabilityKey: identifier,
+  pageJourney: pageJourneySchema,
   centralAgentSnapshots: z.object({ before: nativeCentralAgentSnapshotSchema, after: nativeCentralAgentSnapshotSchema }).strict() }).strict();
 const receiptSchema = z.object({ version: z.literal(1), status: z.literal('passed'), nonce: identifier, platform: z.enum(['ios', 'android']),
   phase: z.enum(['chat', 'agent-create', 'agent-edit', 'agent-package-policy', 'my-connection']), device: identifier, deviceOwnershipPath: z.string(),
@@ -26,8 +30,12 @@ const receiptSchema = z.object({ version: z.literal(1), status: z.literal('passe
   featureFiles: z.record(z.string(), sha), featureSourceSha256: sha, featureSourceSha256After: sha,
   actualMaestro: z.literal(true), physicalDeviceChecked: z.literal(false), junitPath: z.string(), hierarchyPath: z.string(), screenshotPath: z.string(),
   exitCode: z.literal(0), timedOut: z.literal(false) }).passthrough();
+const visualReceiptSchema = receiptSchema.extend({ phase: z.literal('visual'), visualSettings: z.object({
+  before: z.record(z.string(), z.unknown()), applied: z.record(z.string(), z.unknown()), restored: z.record(z.string(), z.unknown()),
+  restorationVerified: z.literal(true) }).strict() });
 const proofSchema = z.object({ version: z.literal(1), nonce: identifier, actorId: identifier, platforms: z.array(runSchema).length(2),
-  receipts: z.array(receiptSchema).length(10), controlledSdkTransport: z.literal(true), externalLlm: z.literal(false), actualNativeCompletion: z.literal(true) }).strict();
+  receipts: z.array(receiptSchema).length(10), visualReceipts: z.array(visualReceiptSchema).length(2),
+  controlledSdkTransport: z.literal(true), externalLlm: z.literal(false), actualNativeCompletion: z.literal(true) }).strict();
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const same = (left: unknown, right: unknown) => { assert.deepEqual(left, right); };
 function record(value: unknown): RecordValue { assert(value && typeof value === 'object' && !Array.isArray(value)); return value as RecordValue; }
@@ -75,6 +83,97 @@ export async function assertNativePreparedSessionIdentity(fixture: Fixture, expe
     assert.equal(row.user_id, fixture.actorId); assert.equal(row.owner_user_id, fixture.actorId); assert.equal(row.status, 'active');
   } finally { await database.close(); }
 }
+
+/** Locate the conversation created by the actual page Use action; never prepare it through an API. */
+export async function captureNativePageJourneySession(fixture: Fixture, input: { platform: 'ios' | 'android'; workspaceId: string; profileId: string }) {
+  await ownedFixture(fixture);
+  const toolkit = input.platform === 'ios' ? 'github' : 'slack';
+  const marker = `PAGE-NATIVE-${fixture.nonce}-${input.platform}-${toolkit}`;
+  const { openDb } = await import('../../app/lib/db'); const database = await openDb();
+  try {
+    const sessions = await database.all('SELECT id,session_id FROM pi_sessions WHERE user_id=$1 AND workspace_id=$2 AND agent_id=$3 ORDER BY id LIMIT 33',
+      [fixture.actorId, input.workspaceId, DEFAULT_AGENT_ID]) as Array<{ id: string | number; session_id: string }>;
+    assert(sessions.length < 33);
+    const found: string[] = [];
+    for (const session of sessions) {
+      const rows = await database.all('SELECT content FROM pi_messages WHERE pi_session_db_id=$1 ORDER BY sequence,id LIMIT 17', [session.id]) as Array<{ content: string }>;
+      assert(rows.length < 17);
+      const users = rows.map(row => record(JSON.parse(row.content))).filter(row => row.role === 'user');
+      if (users.some(row => {
+        const text = typeof row.content === 'string' ? row.content : Array.isArray(row.content) && row.content.length === 1
+          && record(row.content[0]).type === 'text' ? record(row.content[0]).text : null;
+        return typeof text === 'string' && (text === marker || text.startsWith(`${marker} `));
+      })) {
+        assert.equal(users.length, 1); found.push(session.session_id);
+      }
+    }
+    assert.equal(found.length, 1, 'Exactly one real page-created conversation must contain this UI-sent task.');
+    return pageJourneySchema.parse({ ...input, toolkit, sessionId: found[0], agentId: DEFAULT_AGENT_ID, marker });
+  } finally { await database.close(); }
+}
+
+async function verifyNativePageJourneyRun(fixture: Fixture, run: z.infer<typeof runSchema>, provider: RecordValue): Promise<{
+  result: Record<string, unknown>; sdkTurn: NativeExpectedPageJourneyTurn;
+}> {
+  const page = run.pageJourney;
+  assert.equal(page.platform, run.platform); assert.equal(page.workspaceId, run.workspaceId); assert.equal(page.agentId, DEFAULT_AGENT_ID);
+  assert.equal(page.toolkit, page.platform === 'ios' ? 'github' : 'slack');
+  assert.equal(page.marker, `PAGE-NATIVE-${fixture.nonce}-${page.platform}-${page.toolkit}`); assert.notEqual(page.sessionId, run.sessionId);
+  await assertNativePreparedSessionIdentity(fixture, page);
+  const { openDb } = await import('../../app/lib/db'); const database = await openDb();
+  let clientMessageId: string, message: RecordValue, storedPayload: unknown, storedIntentHash: string;
+  try {
+    const session = record(await database.get('SELECT * FROM pi_sessions WHERE session_id=$1 AND user_id=$2 AND workspace_id=$3 AND agent_id=$4',
+      [page.sessionId, fixture.actorId, page.workspaceId, page.agentId]));
+    assert.equal(session.provider, fixture.model.providerId); assert.equal(session.model, fixture.model.modelId);
+    assert.equal(session.runtime_provider_installation_id, fixture.model.providerInstallationId); assert.equal(session.archived_at, null);
+    const receipts = await database.all('SELECT client_message_id,private_payload,payload_hash FROM pi_message_delivery_receipts WHERE pi_session_db_id=$1', [session.id]) as Array<RecordValue>;
+    assert.equal(receipts.length, 1); assert.equal(typeof receipts[0].client_message_id, 'string'); clientMessageId = receipts[0].client_message_id as string;
+    storedPayload = JSON.parse(String(receipts[0].private_payload)); storedIntentHash = String(receipts[0].payload_hash);
+    const rows = await database.all('SELECT content FROM pi_messages WHERE pi_session_db_id=$1 ORDER BY sequence,id LIMIT 17', [session.id]) as Array<{ content: string }>;
+    assert(rows.length < 17); const history = rows.map(row => record(JSON.parse(row.content)));
+    const users = history.filter(row => row.role === 'user'); assert.equal(users.length, 1); message = users[0];
+    assert.equal(message.clientMessageId, clientMessageId); assert(history.some(row => row.role === 'assistant' && JSON.stringify(row.content).includes('Inline context received.')));
+    const usage = record(await database.get('SELECT COUNT(*) AS count,SUM(total_tokens) AS tokens FROM pi_usage_events WHERE user_id=$1 AND session_id=$2 AND agent_id=$3 AND workspace_id=$4 AND provider=$5 AND model=$6',
+      [fixture.actorId, page.sessionId, page.agentId, page.workspaceId, fixture.model.providerId, fixture.model.modelId]));
+    assert(Number(usage.count) >= 1 && Number(usage.tokens) > 0);
+  } finally { await database.close(); }
+  const identity = { userId: fixture.actorId, sessionId: page.sessionId, clientMessageId, expectedAgentId: page.agentId, expectedWorkspaceId: page.workspaceId };
+  const { readOwnedAcceptedChatMessage, readOwnedChatMessageExecutionSnapshot } = await import('../../app/lib/pi/durable-message-admission');
+  const owned = await readOwnedAcceptedChatMessage(identity); assert(owned); const snapshot = readOwnedChatMessageExecutionSnapshot(owned);
+  assert.equal(snapshot.phase, 'succeeded'); assert(snapshot.executionRevision >= 4 && snapshot.runtimeToken !== 'unclaimed');
+  const payload = snapshot.payload; same(payload, storedPayload); same(payload.message.content, message.content); same(payload.body, message.body);
+  assert.equal(payload.serverMessageId, message.serverMessageId); assert.equal(payload.message.timestamp, message.timestamp);
+  assert(payload.body && payload.extensionSelection); const body = parseChatBody(payload.body);
+  assertChatBodyContent(body, payload.message.content); assertChatBodySelection(body, payload.extensionSelection.publicSelection);
+  assert(projectChatBodyText(body).startsWith(`${page.marker} `));
+  assert.equal(body.bundles.length, 1); assert.equal(body.parts.filter(part => part.type === 'extension_reference').length, 1);
+  const bundle = body.bundles[0]; assert.equal(bundle.supporting.length, 0); assert.equal(bundle.packageConnections.length, 0);
+  const selection = bundle.primary.selection; assert(selection.kind === 'composio' && selection.toolkit === page.toolkit
+    && selection.target.kind === 'personal' && selection.target.accountBinding === 'account' && selection.target.profileId === page.profileId);
+  const selectedAccountId = selection.target.accountId;
+  const bindings = payload.extensionSelection.privateFixedBindings; assert.equal(bindings.length, 1);
+  const target = bindings[0].entry.target; assert(target.kind === 'personal' && target.ownerUserId === fixture.actorId && target.source === 'composio'
+    && target.personalBinding?.source === 'composio' && target.personalBinding.profileId === page.profileId
+    && target.personalBinding.connectedAccountId === selection.target.accountId && target.personalBinding.accountBinding === 'account'
+    && target.personalBinding.toolkit === page.toolkit && typeof target.boundProviderRef === 'string');
+  const { resolveBoundComposioContext } = await import('../../app/lib/composio/composio-context');
+  const context = await resolveBoundComposioContext({ userId: fixture.actorId, workspaceId: page.workspaceId, profileId: page.profileId });
+  const { getGatewayStatus } = await import('../../app/lib/composio/composio-gateway'); const status = await getGatewayStatus(context);
+  assert(status.providerHealthy && status.connectedAccounts.some(account => account.id === selectedAccountId && account.toolkit.slug === page.toolkit && account.status === 'ACTIVE'));
+  assert(Array.isArray(provider.nativePageJourneys)); const flows = provider.nativePageJourneys.filter(row => record(row).toolkit === page.toolkit);
+  assert.equal(flows.length, 1); const flow = record(flows[0]);
+  assert.equal(flow.accountSha256, hash(selection.target.accountId)); assert.equal(flow.profileEntitySha256, hash(context.composioUserId));
+  assert.equal(flow.initiallyUnauthorized, true); assert.equal(flow.approvals, 1); assert.equal(flow.callbackRedirects, 1);
+  const { canonicalAcceptedMessageIntentHash } = await import('../../app/lib/chat/durable-message-contracts');
+  assert.equal(storedIntentHash, canonicalAcceptedMessageIntentHash({ content: payload.message.content, context: payload.context, mode: payload.mode,
+    selection: payload.extensionSelection.publicSelection, body: payload.body }));
+  const after = await readOwnedAcceptedChatMessage(identity); assert(after); same(readOwnedChatMessageExecutionSnapshot(after), snapshot);
+  return { result: { platform: page.platform, toolkit: page.toolkit, userMessages: 1, uiCreatedSession: true,
+    initiallyUnauthorized: true, actualConsentApproval: true, exactNewPersonalAccount: true, exactPersistedBody: true, completedSdkSend: true },
+    sdkTurn: { platform: page.platform, toolkit: page.toolkit, clientMessageId, ...nativeSqlUserTextFingerprint(payload.message.content),
+      selectedConnection: { source: 'composio', providerRef: target.boundProviderRef } } };
+}
 async function artifact(fixture: Fixture, filename: string, expected: string, maximum: number) {
   assert.equal(filename, path.join(fixture.root, expected)); assert.equal(await fs.realpath(path.dirname(filename)), path.dirname(filename));
   const stat = await fs.lstat(path.dirname(filename)); assert(stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o777) === 0o700);
@@ -92,8 +191,9 @@ async function verifyNativeArtifacts(fixture: Fixture, proof: z.infer<typeof pro
   for (const [platform, fields] of [['ios', ['udid', 'name']], ['android', ['serial', 'avdName', 'adbServerPort']]] as const)
     for (const field of fields) assert.equal(record(config[platform])[field], record(devices[platform])[field]);
   assert.equal(new Set(proof.receipts.map(row => `${row.platform}:${row.phase}`)).size, 10);
-  assert.equal(new Set(proof.receipts.map(row => row.featureSourceSha256)).size, 1, 'Every platform and phase must use identical frozen feature sources.');
-  for (const receipt of proof.receipts) {
+  assert.equal(new Set([...proof.receipts, ...proof.visualReceipts].map(row => row.featureSourceSha256)).size, 1, 'Every platform and phase must use identical frozen feature sources.');
+  same(proof.visualReceipts.map(row => row.platform).sort(), ['android', 'ios']);
+  for (const receipt of [...proof.receipts, ...proof.visualReceipts]) {
     assert.equal(receipt.deviceOwnershipPath, config.deviceOwnershipPath); assert.equal(receipt.initialAppStateReset, receipt.phase === 'chat');
     assert.equal(receipt.initialIosDeviceKeychainReset, receipt.platform === 'ios' && receipt.phase === 'chat');
     const device = record(config[receipt.platform]); assert.equal(receipt.device, device.udid ?? device.serial); assert.equal(receipt.deviceName, device.name ?? device.avdName);
@@ -122,6 +222,17 @@ async function verifyNativeArtifacts(fixture: Fixture, proof: z.infer<typeof pro
     for (const field of ['device', 'deviceName', 'nativeBuild', 'nativeVersion', 'metroPid', 'metroPort'] as const) assert.equal(new Set(receipts.map(row => row[field])).size, 1);
   }
   assert.notEqual(proof.receipts.find(row => row.platform === 'ios')!.device, proof.receipts.find(row => row.platform === 'android')!.device);
+  for (const receipt of proof.visualReceipts) {
+    const settings = receipt.visualSettings; same(settings.before, settings.restored); assert.equal(settings.restorationVerified, true);
+    if (receipt.platform === 'ios') {
+      assert.equal(settings.applied.appearance, 'dark'); assert.equal(settings.applied.contentSize, 'accessibility-large'); assert.equal(settings.applied.reduceMotion, true);
+    } else {
+      assert.equal(settings.applied.nightMode, 'yes'); assert.equal(settings.applied.fontScale, '1.3');
+      const animation = record(settings.applied.animation); same(Object.keys(animation).sort(), ['animator_duration_scale', 'transition_animation_scale', 'window_animation_scale']);
+      assert(Object.values(animation).every(value => value === '0'));
+      assert(typeof settings.applied.viewportWidthDp === 'number' && Math.abs(settings.applied.viewportWidthDp - 320) <= 0.5);
+    }
+  }
 }
 async function verifyRun(fixture: Fixture, run: z.infer<typeof runSchema>, expectedSdkTurns: NativeExpectedSdkTurn[]) {
   const { canonicalAcceptedMessageIntentHash } = await import('../../app/lib/chat/durable-message-contracts');
@@ -267,11 +378,24 @@ export async function verifyChatExtensionNativeFixture(fixture: Fixture) {
   assert.equal(proof.nonce, fixture.nonce); assert.equal(proof.actorId, fixture.actorId); same(proof.platforms.map(row => row.platform).sort(), ['android', 'ios']);
   assert.equal(new Set(proof.platforms.map(row => row.sessionId)).size, 2); await verifyNativeArtifacts(fixture, proof);
   const provider = record(JSON.parse((await bytes(path.join(fixture.root, 'provider-proof.json'))).toString('utf8'))), model = record(provider.model);
-  assert(Array.isArray(model.completions) && model.completions.length === 4); assert.equal(model.forbiddenRequests, 0);
+  assert(Array.isArray(model.completions) && model.completions.length === 6); assert.equal(model.forbiddenRequests, 0);
+  const originals = model.completions.filter(row => 'nativeCurrentTurn' in record(row));
+  const journeys = model.completions.filter(row => 'nativePageJourneyTurn' in record(row));
+  assert.equal(originals.length, 4); assert.equal(journeys.length, 2);
+  assert(model.completions.every(row => ('nativeCurrentTurn' in record(row)) !== ('nativePageJourneyTurn' in record(row))));
   const expectedSdkTurns: NativeExpectedSdkTurn[] = [], results = [];
   for (const run of proof.platforms) results.push(await verifyRun(fixture, run, expectedSdkTurns));
-  const sdkCurrentTurnProofs = assertNativeSdkTurnProofs(model.completions, expectedSdkTurns);
+  const sdkCurrentTurnProofs = assertNativeSdkTurnProofs(originals, expectedSdkTurns);
+  const pageJourneys = [];
+  for (const run of proof.platforms) pageJourneys.push(await verifyNativePageJourneyRun(fixture, run, provider));
+  const sdkPageJourneyTurnProofs = assertNativePageJourneySdkProofs(journeys, pageJourneys.map(row => row.sdkTurn));
+  const visualResults = [];
+  for (const receipt of proof.visualReceipts) visualResults.push({ platform: receipt.platform, actualMaestro: true, applied: receipt.visualSettings.applied,
+    settingsRestored: receipt.visualSettings.restorationVerified,
+    rawReceiptSha256: hash(await bytes(path.join(fixture.root, `native-${receipt.platform}-visual.json.receipt.json`))) });
   await ownedFixture(fixture);
-  return { verified: true, results, sdkCurrentTurnProofs, actualNativeDevices: ['ios-simulator', 'android-emulator'], actualSqlHistory: true,
+  return { verified: true, results, sdkCurrentTurnProofs, pageJourneyResults: pageJourneys.map(row => row.result), sdkPageJourneyTurnProofs,
+    visualResults,
+    actualNativeDevices: ['ios-simulator', 'android-emulator'], actualSqlHistory: true,
     controlledSdkTransport: true, externalLlm: false, physicalDeviceChecked: false };
 }

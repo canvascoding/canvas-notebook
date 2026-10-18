@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { projectNativeSdkCurrentTurn, type NativeSdkCurrentTurn } from './chat-extension-native-sdk-proof';
+import { projectNativePageJourneyCurrentTurn, projectNativeSdkCurrentTurn, type NativePageJourneyTurn, type NativeSdkCurrentTurn } from './chat-extension-native-sdk-proof';
 
 export type ChatInlineFixtureModel = {
   providerInstallationId: string;
@@ -15,7 +15,7 @@ export type ChatInlineFixtureModel = {
 export type ChatInlineCompletion = { hasSkillSentinel: boolean; hasSkillLocation: boolean; toolCount: number; messageCount: number;
   selectedPackages: Array<{ resourceRef: string; publishedRevisionRef: string; checksum: string }>;
   selectedConnections: Array<{ source: string; providerRef: string }>; nativePlatforms: Array<'ios' | 'android'>;
-  nativeCurrentTurn?: NativeSdkCurrentTurn };
+  nativeCurrentTurn?: NativeSdkCurrentTurn; nativePageJourneyTurn?: NativePageJourneyTurn };
 export type ChatInlineModelFixture = {
   model: ChatInlineFixtureModel;
   origin: string;
@@ -72,9 +72,11 @@ async function requireOwnedChatModelFixture(input: { nonce: string; organization
  * This proves transport and context delivery; it is not live LLM/provider evidence.
  * The Stage 3 metadata-only model fixture remains separate and unchanged. */
 export async function createChatInlineModelFixture(input: {
-  nonce: string; organizationId: string; actorUserId: string;
+  nonce: string; organizationId: string; actorUserId: string; nativePageJourneys?: boolean;
 }): Promise<ChatInlineModelFixture> {
   await requireOwnedChatModelFixture(input);
+  assert(input.nativePageJourneys === undefined || typeof input.nativePageJourneys === 'boolean');
+  if (input.nativePageJourneys) assert.equal(process.env.CANVAS_CHAT_NATIVE_E2E, '1');
   const { discoverOllamaModels } = await import('../../app/lib/agent-runtime-policy/ollama-discovery-service');
   const { loadAiCatalogDiscovery } = await import('../../app/lib/agent-runtime-policy/catalog-discovery');
   const { parseAiCatalogUpdate, replaceAiAppRuntimeCatalog } = await import('../../app/lib/agent-runtime-policy/catalog-service');
@@ -113,10 +115,12 @@ export async function createChatInlineModelFixture(input: {
           if (connectionLine) { const metadata = JSON.parse(connectionLine[1]!) as Record<string, unknown>;
             if (typeof metadata.source === 'string' && typeof metadata.providerRef === 'string') selectedConnections.push({ source: metadata.source, providerRef: metadata.providerRef }); }
         }
-        const nativeCurrentTurn = process.env.CANVAS_CHAT_NATIVE_E2E === '1' ? projectNativeSdkCurrentTurn(body.messages, input.nonce) : undefined;
+        const nativePageJourneyTurn = input.nativePageJourneys ? projectNativePageJourneyCurrentTurn(body.messages, input.nonce) : null;
+        const nativeCurrentTurn = process.env.CANVAS_CHAT_NATIVE_E2E === '1' && !nativePageJourneyTurn ? projectNativeSdkCurrentTurn(body.messages, input.nonce) : undefined;
         completions.push({ hasSkillSentinel: system.includes('INLINE_CONTEXT_SENTINEL'), hasSkillLocation: system.includes('SKILL.md'),
           toolCount: body.tools?.length ?? 0, messageCount: body.messages.length, selectedPackages, selectedConnections,
           ...(nativeCurrentTurn ? { nativeCurrentTurn } : {}),
+          ...(nativePageJourneyTurn ? { nativePageJourneyTurn } : {}),
           nativePlatforms: (['ios', 'android'] as const).filter(platform => body.messages!.some(message => message.role === 'user'
             && (typeof message.content === 'string' ? [message.content] : Array.isArray(message.content) ? message.content.flatMap(block =>
               block && typeof block === 'object' && typeof block.text === 'string' ? [block.text] : []) : [])
@@ -170,7 +174,8 @@ export async function createChatInlineModelFixture(input: {
     // stored installation's credential check. This is not model verification.
     await requireOwnedChatModelFixture(input);
     await replaceAiAppRuntimeCatalog({ organizationId: input.organizationId, actorUserId: input.actorUserId,
-      update: parseAiCatalogUpdate({ ...update, expectedRevision: installed.revision }), discovery,
+      update: parseAiCatalogUpdate({ ...update, expectedRevision: installed.revision,
+        defaultSelection: input.nativePageJourneys ? { providerInstallationId: installation.installationId, providerId: 'ollama', modelId, thinkingLevel: 'off' } : null }), discovery,
       migrationState: 'configured', readyInstallationIds: new Set([installation.installationId]) });
     const catalog = await readAppRuntimeCatalog(input.organizationId);
     const ready = catalog.providers.find(provider => provider.installationId === installation.installationId);
@@ -178,7 +183,8 @@ export async function createChatInlineModelFixture(input: {
     assert.equal(ready.config.ollamaHost, origin);
     const model = ready.models.find(model => model.enabled && model.id === modelId);
     assert(model && model.thinkingLevels.includes('off')); assert.equal(forbiddenRequests, 0);
-    assert.equal(catalog.defaultSelection, null, 'The fixture provides selectable overrides without changing the application default.');
+    if (input.nativePageJourneys) assert.deepEqual(catalog.defaultSelection, { providerInstallationId: ready.installationId, providerId: 'ollama', modelId, thinkingLevel: 'off' });
+    else assert.equal(catalog.defaultSelection, null, 'The fixture provides selectable overrides without changing the application default.');
     return { origin, model: { providerInstallationId: ready.installationId, providerId: 'ollama', providerName: ready.name,
       modelId: model.id, modelName: model.name, thinkingLevel: 'off', expectedCatalogRevision: catalog.revision },
       counts: () => ({ catalogReads, forbiddenRequests, completions: structuredClone(completions) }), close };

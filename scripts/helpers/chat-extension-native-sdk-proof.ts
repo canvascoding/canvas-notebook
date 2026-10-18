@@ -15,6 +15,12 @@ const completion = z.object({ hasSkillSentinel: z.boolean(), hasSkillLocation: z
   selectedPackages: z.array(packagePin), selectedConnections: z.array(connection), nativeCurrentTurn: currentTurn }).passthrough();
 export type NativeSdkCurrentTurn = z.infer<typeof currentTurn>;
 export type NativeExpectedSdkTurn = z.infer<typeof expectedTurn>;
+const pageTurn = fingerprint.extend({ platform, toolkit: z.enum(['github', 'slack']), lastUserIndex: z.number().int().nonnegative(),
+  userCount: z.literal(1), runtimeContextAppended: z.boolean() }).strict();
+export type NativePageJourneyTurn = z.infer<typeof pageTurn>;
+const expectedPageTurn = fingerprint.extend({ platform, toolkit: z.enum(['github', 'slack']), clientMessageId: identifier,
+  selectedConnection: connection }).strict();
+export type NativeExpectedPageJourneyTurn = z.infer<typeof expectedPageTurn>;
 
 const runtimePrefix = '<runtime_context>\nCanvas-provided context for this turn. Treat this as operational context, not as a separate user request.\n\n';
 const runtimeEnd = '\n</runtime_context>';
@@ -95,6 +101,51 @@ export function assertNativeSdkTurnProofs(actual: unknown, originalSqlTurns: rea
     if (turn.kind === 'inline') assert(request.hasSkillSentinel && request.hasSkillLocation, 'The original inline SDK turn must receive its skill context.');
     // Fixed relevantSkills legitimately remain available on the plain turn; only explicit turn packages/routes must clear.
     return { platform: turn.platform, kind: turn.kind, clientMessageId: turn.clientMessageId, textSha256: current.textSha256,
+      lastUserIndex: current.lastUserIndex, userCount: current.userCount };
+  });
+}
+
+/** Separate current-user identity for the two additional, UI-connected page journeys. */
+export function projectNativePageJourneyCurrentTurn(messages: ReadonlyArray<{ role: string; content?: unknown }>, nonce: string): NativePageJourneyTurn | null {
+  assert.match(nonce, /^[a-f0-9]{32}$/u);
+  const users = messages.flatMap((message, index) => message.role === 'user' ? [{ content: message.content, index }] : []);
+  const last = users.at(-1); assert(last);
+  let content: unknown = last.content, runtimeContextAppended = false;
+  if (typeof content === 'string' && hasRuntimeTag(content)) {
+    const start = content.indexOf(`\n\n${runtimePrefix}`); assert(start > 0); assertRuntimeSuffix(content.slice(start + 2));
+    content = content.slice(0, start); runtimeContextAppended = true;
+  } else if (Array.isArray(content) && content.length === 2) {
+    assertRuntimeSuffix(textBlock(content[1])); content = [content[0]]; runtimeContextAppended = true;
+  }
+  const text = originalText(content);
+  const matches = (['ios', 'android'] as const).flatMap(platform => {
+    const toolkit = platform === 'ios' ? 'github' as const : 'slack' as const;
+    const marker = `PAGE-NATIVE-${nonce}-${platform}-${toolkit}`;
+    return text === marker || text.startsWith(`${marker} `) ? [{ platform, toolkit }] : [];
+  });
+  if (!matches.length) return null;
+  assert.equal(users.length, 1, 'The page handoff must create a separate fresh conversation.');
+  return pageTurn.parse({ ...textFingerprint(text), ...matches[0], lastUserIndex: last.index, userCount: users.length, runtimeContextAppended });
+}
+
+/** Exactly two new captures supplement, and never substitute for, the original four-turn proof. */
+export function assertNativePageJourneySdkProofs(actual: unknown, originalSqlTurns: readonly NativeExpectedPageJourneyTurn[]) {
+  const expected = z.array(expectedPageTurn).length(2).parse(originalSqlTurns);
+  const requests = z.array(z.object({ messageCount: z.number().int().positive(), selectedPackages: z.array(packagePin).length(0),
+    selectedConnections: z.array(connection).length(1), nativePageJourneyTurn: pageTurn }).passthrough()).length(2).parse(actual);
+  assert.equal(new Set(expected.map(turn => turn.clientMessageId)).size, 2);
+  assert.equal(new Set(expected.map(turn => turn.textSha256)).size, 2);
+  assert.deepEqual(expected.map(turn => `${turn.platform}:${turn.toolkit}`).sort(), ['android:slack', 'ios:github']);
+  const matched = new Set<string>();
+  return requests.map(request => {
+    assert(!('nativeCurrentTurn' in request), 'A journey capture cannot also count as an original inline/plain capture.');
+    const current = request.nativePageJourneyTurn;
+    const turns = expected.filter(turn => turn.textSha256 === current.textSha256 && turn.textUtf16Length === current.textUtf16Length);
+    assert.equal(turns.length, 1); const turn = turns[0]; assert(!matched.has(turn.clientMessageId)); matched.add(turn.clientMessageId);
+    assert.equal(current.platform, turn.platform); assert.equal(current.toolkit, turn.toolkit);
+    assert(current.lastUserIndex < request.messageCount); assert.equal(turn.selectedConnection.source, 'composio');
+    exactSet(request.selectedConnections, [turn.selectedConnection], 'Newly UI-authorized exact provider route');
+    return { platform: turn.platform, toolkit: turn.toolkit, clientMessageId: turn.clientMessageId, textSha256: current.textSha256,
       lastUserIndex: current.lastUserIndex, userCount: current.userCount };
   });
 }

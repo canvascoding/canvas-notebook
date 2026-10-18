@@ -12,7 +12,7 @@ import type { AgentExtensionOptionsResponse } from '../app/lib/agents/extension-
 import type { ChatExtensionOptionsResponse } from '../app/lib/chat/extension-options-contracts';
 import type { ExtensionPackagePin } from '../app/lib/capabilities/extensions/contracts';
 import { nativeExtensionPluginFiles, nativeExtensionStandaloneSkillContent, nativePreparationFailureDiagnostic, nativeExtensionSkillCaption } from '../scripts/helpers/chat-extension-native-fixture';
-import { assertNativePreparedSessionIdentity } from '../scripts/helpers/chat-extension-native-proof';
+import { assertNativePreparedSessionIdentity, captureNativePageJourneySession } from '../scripts/helpers/chat-extension-native-proof';
 import { assertNativeCentralAgentUnchanged, captureNativeCentralAgentSnapshot } from '../scripts/helpers/chat-extension-native-agent-snapshot';
 
 test.describe.configure({ retries: 0, timeout: 40 * 60_000 });
@@ -59,6 +59,7 @@ async function runNative(mobileRepo: string, inputPath: string, fixture: Fixture
     stdio: ['ignore', log.fd, log.fd], env: { NODE_ENV: 'test', ...Object.fromEntries(Object.entries({ PATH: process.env.PATH, HOME: process.env.HOME, LANG: process.env.LANG,
       JAVA_HOME: process.env.JAVA_HOME, ANDROID_HOME: process.env.ANDROID_HOME, ANDROID_SDK_ROOT: process.env.ANDROID_SDK_ROOT,
       CANVAS_CHAT_NATIVE_E2E: '1', CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG: process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG,
+      CANVAS_CHAT_NATIVE_VISUAL_E2E: process.env.CANVAS_CHAT_NATIVE_VISUAL_E2E,
       CANVAS_NATIVE_EXTENSION_INPUT: inputPath, CANVAS_NATIVE_EXTENSION_ROOT: fixture.root }).filter((row): row is [string, string] => typeof row[1] === 'string')) } });
   await log.close(); let timer: ReturnType<typeof setTimeout> | undefined;
   try { const result = await Promise.race([new Promise<number>((resolve, reject) => { child.once('error', reject); child.once('close', code => resolve(code ?? 1)); }),
@@ -121,6 +122,7 @@ test('real native clients retain exact extension references and agent choices ac
       finally { await owner.setExtraHTTPHeaders({ Origin: fixture.baseURL }); }
     }
     const headers = { 'x-canvas-workspace-id': workspaceId };
+    assert.equal(process.env.CANVAS_CHAT_NATIVE_VISUAL_E2E, '1');
     const relativeFilesResponse = await owner.request.get('/api/mobile/v1/files?directory=.&filter=all&limit=50', { headers });
     const relativeFiles = await json<{ success: boolean; directory: string; items: unknown[] }>(relativeFilesResponse, 'Actual relative Files root');
     assert.equal(relativeFiles.success, true); assert.equal(relativeFiles.directory, '.'); assert(Array.isArray(relativeFiles.items));
@@ -131,7 +133,8 @@ test('real native clients retain exact extension references and agent choices ac
       relative: { status: relativeFilesResponse.status(), code: null },
       absolute: { status: absoluteFilesResponse.status(), code: absoluteFiles.code },
     }), { mode: 0o600, flag: 'wx' });
-    await json(await owner.request.get('/api/composio/profiles', { headers }), 'Default profile initialization');
+    const defaultProfile = await json<{ effectiveProfile: { id: string } }>(await owner.request.get('/api/composio/profiles', { headers }), 'Default profile initialization');
+    assert(defaultProfile.effectiveProfile.id);
     const profileId = (await json<{ profile: { id: string } }>(await owner.request.post('/api/composio/profiles', { headers, data: { name: `Native exact profile ${suffix}` } }), 'Create own profile', 201)).profile.id;
     for (let index = 0; index < 2; index++) {
       const auth = await json<{ redirectUrl: string }>(await owner.request.post('/api/composio/connect/canva', { headers, data: { profileId, returnPath: `/en/settings?${new URLSearchParams({ workspaceId })}` } }), 'Actual Composio authorization');
@@ -167,7 +170,7 @@ test('real native clients retain exact extension references and agent choices ac
     const accountId = selectedAccount.selection.target.accountId;
     const savedAccountLabel = `canva · Native exact profile ${suffix} · Account ${createHash('sha256').update(accountId).digest('hex').slice(0, 10)}`;
     const credentialsPath = path.join(fixture.root, 'native-credentials.json'); await fs.writeFile(credentialsPath, JSON.stringify({ email: process.env.TEST_LOGIN_EMAIL, password: process.env.TEST_LOGIN_PASSWORD }), { mode: 0o600, flag: 'wx' });
-    // Android has passed all phases; exercise the remaining iOS form paths first, then require Android again.
+    const visualInputs: Record<string, unknown>[] = [], visualReceipts: unknown[] = [];
     for (const platform of ['ios', 'android'] as const) {
       const session = (await json<{ session: { id: string; agentId: string } }>(await owner.request.post('/api/mobile/v1/sessions', { headers, data: { agentId, title: `Native ${platform} ${suffix}` } }), 'Create real native session', 201)).session;
       assert.equal(session.agentId, agentId);
@@ -176,12 +179,19 @@ test('real native clients retain exact extension references and agent choices ac
       const common: Record<string, unknown> = { version: 1, nonce: fixture.nonce, root: fixture.root, actorId: fixture.actorId, workspaceId, agentId, sessionId: session.id,
         baseURL: fixture.baseURL, credentialsPath, platform, pluginName, skillName, skillCaption, mcpName: standaloneMcpName, pluginPin, skillPin, mcpRef, standaloneMcpRef, mcpRowId: mcpRow.id, standaloneMcpRowId: standaloneMcpRow.id, connector,
         ids, profileId, accountId, accountLabel: savedAccountLabel, accountSelection: selectedAccount.selection,
-        marker, newAgentName };
+        marker, newAgentName, pageJourneyProfileId: defaultProfile.effectiveProfile.id,
+        pageJourneyToolkit: platform === 'ios' ? 'github' : 'slack' };
       const execute = async (phase: string, extra: Record<string, unknown> = {}) => {
         const inputPath = path.join(fixture.root, `native-${platform}-${phase}.json`); await fs.writeFile(inputPath, JSON.stringify({ ...common, ...extra, phase }), { mode: 0o600, flag: 'wx' });
         receipts.push(await runNative(mobileRepo, inputPath, fixture));
       };
-      await execute('chat'); await execute('agent-create');
+      const pageJourneyToolkit = platform === 'ios' ? 'github' : 'slack';
+      const beforeJourney = await json<{ toolkit: { connected: boolean } }>(await owner.request.get(
+        `/api/mobile/v1/integrations/composio/toolkits/${pageJourneyToolkit}`, { headers }), 'Unconnected page journey precondition');
+      assert.equal(beforeJourney.toolkit.connected, false, 'This toolkit must first be connected by its real native UI journey.');
+      await execute('chat');
+      const pageJourney = await captureNativePageJourneySession(fixture, { platform, workspaceId, profileId: defaultProfile.effectiveProfile.id });
+      await execute('agent-create');
       const agents = await json<{ data: { agents: Array<{ agentId: string; name: string }> } }>(await owner.request.get(`/api/agents?${new URLSearchParams({ workspaceId })}`), 'Actual UI-created agent lookup');
       const created: Array<{ agentId: string; name: string }> = agents.data.agents.filter(row => row.name === newAgentName);
       if (created.length !== 1) {
@@ -227,11 +237,19 @@ test('real native clients retain exact extension references and agent choices ac
       const centralAgentBefore = await centralAgent();
       await execute('my-connection', { createdAgentId: created[0].agentId, capabilityKey: slot.capabilityKey });
       const centralAgentAfter = await centralAgent(); assertNativeCentralAgentUnchanged(centralAgentBefore, centralAgentAfter);
+      visualInputs.push(common);
       platforms.push({ platform, sessionId: session.id, agentId, workspaceId, marker, createdAgentId: created[0].agentId,
         selectedAccount: selectedAccount.selection, pluginPin, skillPin, skillCaption, mcpRef, standaloneMcpRef, packageMcpToolCap: agentMcpRow.allowedToolNames, capabilityKey: slot.capabilityKey,
-        centralAgentSnapshots: { before: centralAgentBefore, after: centralAgentAfter } });
+        pageJourney, centralAgentSnapshots: { before: centralAgentBefore, after: centralAgentAfter } });
+    }
+    // These two additional visual gates run after all ten functional phases.
+    // Their settings inventory/restoration and receipts stay separate from the original matrix.
+    for (const common of visualInputs) {
+      const inputPath = path.join(fixture.root, `native-${common.platform}-visual.json`);
+      await fs.writeFile(inputPath, JSON.stringify({ ...common, phase: 'visual', visualGate: true }), { mode: 0o600, flag: 'wx' });
+      visualReceipts.push(await runNative(mobileRepo, inputPath, fixture));
     }
     await fs.writeFile(path.join(fixture.root, 'chat-extension-native-ui-proof.json'), JSON.stringify({ version: 1, nonce: fixture.nonce, actorId: fixture.actorId,
-      platforms, receipts, controlledSdkTransport: true, externalLlm: false, actualNativeCompletion: true }), { mode: 0o600, flag: 'wx' });
+      platforms, receipts, visualReceipts, controlledSdkTransport: true, externalLlm: false, actualNativeCompletion: true }), { mode: 0o600, flag: 'wx' });
   } finally { await owner.close(); }
 });
