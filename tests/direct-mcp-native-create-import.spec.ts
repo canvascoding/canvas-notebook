@@ -561,7 +561,19 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     const bearerSession = await ok(await rest.get('/api/auth/get-session'), 'Cookie-free actual Bearer identity');
     assert.equal(object(bearerSession.user).id, restIdentity.userId); assert.equal(object(bearerSession.session).id, restIdentity.sessionId);
     assert.deepEqual((await rest.storageState()).cookies, []); assert.deepEqual((await rest.storageState()).origins, []);
-    const beforeRest = await editRead(mcpB), restRequest = { apiVersion: 1, workspaceId: workspace.id, documentId: editCreated.document.documentId,
+    const beforeRest = await editRead(mcpB);
+    const searchRequest = { apiVersion: 1, workspaceId: workspace.id, query: 'Keep final tail', limit: 25 };
+    const searchResponse = await rest.post('/api/documents/search', { data: searchRequest });
+    const searchPage = await ok(searchResponse, 'Compiled cookie-free REST native search');
+    assert.equal(searchResponse.headers()['cache-control'], 'no-store'); assert(Array.isArray(searchPage.hits));
+    const hit = searchPage.hits.find(value => object(object(value).document).documentId === editCreated!.document.documentId);
+    assert(hit, 'Actual REST search must find the created native document.');
+    assert.equal(object(object(hit).document).version, beforeRest.document.version);
+    const restReadRequest = { apiVersion: 1, workspaceId: workspace.id, documentId: editCreated.document.documentId,
+      format: 'native', expectedVersion: beforeRest.document.version };
+    const restRead = await ok(await rest.post('/api/documents/read', { data: restReadRequest }), 'Compiled cookie-free version-bound ID read');
+    assert.deepEqual(restRead.document, beforeRest.document);
+    const restRequest = { apiVersion: 1, workspaceId: workspace.id, documentId: editCreated.document.documentId,
       expectedVersion: beforeRest.document.version, idempotencyKey: `public-rest-edit-${randomUUID()}`,
       patch: { kind: 'native_text_replace', edits: [{ oldText: 'Keep final tail', newText: 'REST changed final tail', expectedOccurrences: 1 }] } };
     const response = await rest.post('/api/documents/edit', { data: restRequest }); assert.equal(response.status(), 200);
@@ -575,13 +587,15 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     assert.deepEqual((await releasedEditRows()).rows, prior.rows);
     const signed = await ok(await web.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Revoke actual REST Bearer source session');
     assert.equal(signed.success, true); signedOut.add(web);
-    for (const [route, selection] of [['/api/documents/edit', restRequest], ['/api/documents/edit/status', restStatus]] as const) {
+    for (const [route, selection] of [['/api/documents/edit', restRequest], ['/api/documents/edit/status', restStatus],
+      ['/api/documents/search', searchRequest], ['/api/documents/read', restReadRequest]] as const) {
       const rejected = await rest.post(route, { data: selection }); assert.equal(rejected.status(), 401);
       const denied = await json(rejected, 'Revoked REST native request'); assert.deepEqual(denied, { apiVersion: 1, success: false, code: 'AUTHENTICATION_REQUIRED' });
     }
     const after = await releasedEditRows(); assert.deepEqual(after.rows, prior.rows); await reviewOff(contextB);
     await evidence(info, { scope: 'compiled REST native Edit/Status with actual issued Session Bearer and actual session sign-out',
-      cookieFreeBearerConfirmed: true, actualRequestOriginAttribution: true, sameKeyNoReplay: true, pureStatusRowsUnchanged: true,
+      cookieFreeBearerConfirmed: true, actualRestSearchAndVersionBoundIdRead: true, revokedSearchAndRead401: true,
+      actualRequestOriginAttribution: true, sameKeyNoReplay: true, pureStatusRowsUnchanged: true,
       revokedEditAndStatus401: true, operationId: edited.operationId, fullVersion: edited.effect!.afterVersion, readOnlyProbe: after.probe });
   });
 });

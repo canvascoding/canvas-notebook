@@ -296,11 +296,11 @@ export const config = {
     // stream reader. Excluding exactly those routes prevents Next.js proxy
     // from cloning each body into the separate 256 MiB upload buffer first.
     // Their handlers repeat the full session check before reading.
-    // Native document read owns Cookie/Bearer authentication and a 32 KiB
-    // selection reader; keep its exact route outside proxy body buffering.
+    // Native document handlers own Cookie/Bearer authentication and bounded
+    // body readers; keep only their exact routes outside proxy body buffering.
     // Public setup/invitation handlers enforce their own token/setup checks,
     // shared abuse limits and 16 KiB body reader before consuming input.
-    '/api/((?!documents/read$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
+    '/api/((?!documents/(?:read|search|edit(?:/status)?)$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
     // Localized page URLs can contain dots. They still need locale forwarding
     // for the global 404; root-level public asset URLs remain excluded above.

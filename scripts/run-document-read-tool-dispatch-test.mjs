@@ -12,6 +12,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/document-read-http-boundary-test.ts': [entryPoint, 'proxy.ts',
+    'app/api/documents/read/route.ts', 'app/lib/documents/service.ts', 'app/lib/api/route-helpers.ts'],
   "scripts/mcp-server-document-edit-contract-test.ts": ["scripts/mcp-server-document-edit-contract-test.ts", "app/lib/mcp/server/workspace-tools.ts", "app/lib/mcp/server/document-edit-contract.ts", "app/lib/documents/edit-tool-contract.ts", "app/lib/documents/edit-result-contract.ts"],
   "scripts/native-document-edit-tool-dispatch-postgres-test.ts": [
     "scripts/native-document-edit-tool-dispatch-postgres-test.ts",
@@ -461,6 +463,11 @@ try {
     plugins: [{
       name: 'actual-next-and-commonjs-constructor-entries',
       setup(build) {
+        // This matcher test imports the real proxy. Bundle next-intl's actual
+        // ESM entry so its extensionless next/* imports use the resolver below.
+        if (entryPoint === 'scripts/document-read-http-boundary-test.ts') {
+          build.onResolve({ filter: /^next-intl(?:\/|$)/ }, args => ({ path: requireFromRoot.resolve(args.path) }));
+        }
         build.onResolve({ filter: /^next\// }, args => {
           const actual = requireFromRoot.resolve(args.path);
           resolvedNext.push({ request: args.path, path: actual });
@@ -509,7 +516,9 @@ try {
 
   stage = 'test';
   outcome = await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['--conditions=react-server', bundle], {
+    const nextBaseline = entryPoint === 'scripts/document-read-http-boundary-test.ts'
+      ? ['--require', requireFromRoot.resolve('next/dist/server/node-environment-baseline')] : [];
+    const child = spawn(process.execPath, ['--conditions=react-server', ...nextBaseline, bundle], {
       cwd: root, env: { ...process.env }, stdio: 'inherit',
     });
     child.once('error', reject);

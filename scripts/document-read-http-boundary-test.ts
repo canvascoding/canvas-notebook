@@ -8,9 +8,13 @@ import { unstable_doesMiddlewareMatch } from 'next/dist/experimental/testing/ser
 async function main(): Promise<void> {
   const { config } = await import('../proxy');
   const matches = (pathname: string) => unstable_doesMiddlewareMatch({ config, url: `http://localhost:3000${pathname}` });
-  assert.equal(matches('/api/documents/read'), false);
-  assert.equal(matches('/api/documents/read?selection=1'), false);
-  for (const pathname of ['/api/documents/read/extra', '/api/documents/read-extra', '/api/documents/reader',
+  for (const pathname of ['/api/documents/read', '/api/documents/search', '/api/documents/edit', '/api/documents/edit/status']) {
+    assert.equal(matches(pathname), false, `${pathname}: the bounded handler owns actual Cookie/Bearer authentication`);
+    assert.equal(matches(`${pathname}?selection=1`), false);
+    assert.equal(matches(`${pathname}/extra`), true, `${pathname}: extra segments keep the proxy guard`);
+  }
+  for (const pathname of ['/api/documents/read-extra', '/api/documents/reader', '/api/documents/search-extra',
+    '/api/documents/edit-extra', '/api/documents/edit-status', '/api/documents/edit/status-extra',
     '/api/documents', '/api/files', '/api/agents', '/api/mobile/v1/bootstrap']) {
     assert.equal(matches(pathname), true, `${pathname}: neighboring routes retain their existing proxy guard`);
   }
@@ -40,7 +44,7 @@ async function main(): Promise<void> {
   const limited = await POST(request('')); headers(limited);
   assert.equal(limited.status, 429); assert.match(limited.headers.get('retry-after') ?? '', /^[1-9][0-9]*$/u);
   assert.deepEqual(await limited.json(), { success: false, error: 'Too many requests' });
-  console.log('Document read HTTP boundary: exact matcher, protected neighbors, bounded actual POST errors and original rate-limit denial passed. No session/PG/transport acceptance claim.');
+  console.log('Document HTTP boundary: four exact handler-owned routes, protected neighbors, bounded actual read POST errors and original rate-limit denial passed. No session/PG/transport acceptance claim.');
 }
 
 main().catch(error => { console.error(error); process.exitCode = 1; });
