@@ -197,6 +197,9 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
   assert.equal(process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START, '1', 'Root must explicitly coordinate the integrated runtime start.');
   assert.match(expectedCpHead, /^[a-f0-9]{40}$/u);
   assert.match(expectedNotebookHead, /^[a-f0-9]{40}$/u); assert.match(expectedSourceFingerprint, /^[a-f0-9]{64}$/u);
+  const nativeMcpSpec = 'tests/direct-mcp-native-create-import.spec.ts';
+  const nativeMcpAcceptance = specs.includes(nativeMcpSpec);
+  if (nativeMcpAcceptance) assert.deepEqual(specs, [nativeMcpSpec], 'The MCP settings/shadow fixture must run as its sole selected spec.');
   const proof = await assertBuildProof(repo);
   assert.equal(proof.head, expectedNotebookHead, 'The explicitly selected integrated Notebook commit differs from the sealed build.');
   assert.equal(proof.sourceFingerprint, expectedSourceFingerprint, 'The explicitly selected integrated source snapshot differs from the sealed build.');
@@ -248,6 +251,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     BETTER_AUTH_SECRET: randomBytes(48).toString('base64url'), INTEGRATIONS_ENV_MASTER_KEY: randomBytes(32).toString('base64url'),
     CANVAS_INSTANCE_ID: `agent-settings-browser-${nonce}`, CANVAS_ORGANIZATION_ID: randomUUID(), CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
     CANVAS_TEAM_LICENSE_REFRESH_ENABLED: 'false', CANVAS_TEAM_LICENSE_LIFECYCLE_ENABLED: 'false', CANVAS_MCP_DIRECT_ENABLED: 'false', QMD_ENABLED: 'false',
+    ...(nativeMcpAcceptance ? { CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'settings', FILE_VERSION_CENTER_MODE: 'shadow' } : {}),
     ONBOARDING: 'false', ONBOARDING_HINTS: 'false', COLLABORATION_E2E: '1', E2E_EXTERNAL_SERVER: '1', CANVAS_YJS_AUTHORITY_E2E: '1',
     CANVAS_YJS_QA_RECEIPT: receiptPath, CANVAS_YJS_QA_RESULTS: results, CANVAS_YJS_QA_NONCE: nonce,
     CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', AGENT_SETTINGS_TOOLS_BROWSER_FIXTURE: receiptPath,

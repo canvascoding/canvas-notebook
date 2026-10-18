@@ -7,6 +7,8 @@ type JsonRecord = Record<string, unknown>;
 export type IngestE2EWorkspace = { id: string; rootRelativePath: string; name: string };
 export type IngestE2EToolResult = { isError?: boolean; content?: Array<{ type: string; text?: string }>;
   structuredContent?: JsonRecord; _meta?: JsonRecord };
+export type IngestE2EClientRegistration = Readonly<{ clientId: string; clientName: string; redirectUri: string }>;
+export type IngestE2EObservedTokenIdentity = Readonly<{ clientId: string; userId: string; sessionId: string; issuer: string; audiences: readonly string[] }>;
 
 export async function requireIngestE2EJson<T>(response: APIResponse, label: string): Promise<T> {
   assert.ok(response.ok(), `${label}: HTTP ${response.status()}`);
@@ -15,26 +17,38 @@ export async function requireIngestE2EJson<T>(response: APIResponse, label: stri
 
 /** A public client uses real browser consent and PKCE, then ordinary workspace grants. */
 export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: string, workspaceId: string, protocolVersion: string,
-  options: { scopes?: readonly string[]; clientNamePrefix?: string; onConnection?: (connectionId: string) => void } = {}) {
+  options: { scopes?: readonly string[]; clientNamePrefix?: string; onConnection?: (connectionId: string) => void;
+    registration?: IngestE2EClientRegistration } = {}) {
   const scopes = options.scopes?.join(' ') ?? SCOPES;
   const metadata = await requireIngestE2EJson<{ issuer: string; registration_endpoint: string;
     authorization_endpoint: string; token_endpoint: string }>(
     await owner.request.get('/.well-known/oauth-authorization-server/api/auth'), 'OAuth discovery');
-  const clientName = `${options.clientNamePrefix ?? 'MCP file ingest E2E'} ${randomUUID()}`;
-  const redirectUri = `http://127.0.0.1:32199/mcp-file-ingest/${randomUUID()}`;
-  const registered = await fetch(metadata.registration_endpoint, {
-    method: 'POST', headers: { Origin: baseURL, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(90_000), body: JSON.stringify({ client_name: clientName,
-      application_type: 'native', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none',
-      grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: scopes }),
-  });
-  assert.ok(registered.ok, `Public OAuth registration: HTTP ${registered.status}`);
-  const registration = await registered.json() as { client_id: string };
-  assert.equal(typeof registration.client_id, 'string');
+  const clientName = options.registration?.clientName ?? `${options.clientNamePrefix ?? 'MCP file ingest E2E'} ${randomUUID()}`;
+  const redirectUri = options.registration?.redirectUri ?? `http://127.0.0.1:32199/mcp-file-ingest/${randomUUID()}`;
+  let clientId: string;
+  if (options.registration) {
+    const previous = options.registration, redirect = new URL(previous.redirectUri);
+    assert(typeof previous.clientId === 'string' && previous.clientId.length > 0 && previous.clientId.length <= 256);
+    assert(typeof previous.clientName === 'string' && previous.clientName.length > 0 && previous.clientName.length <= 256);
+    assert.equal(redirect.origin, 'http://127.0.0.1:32199'); assert(!redirect.username && !redirect.password && !redirect.search && !redirect.hash);
+    assert.match(redirect.pathname, /^\/mcp-file-ingest\/[a-f0-9-]{36}$/u);
+    clientId = previous.clientId;
+  } else {
+    const registered = await fetch(metadata.registration_endpoint, {
+      method: 'POST', headers: { Origin: baseURL, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(90_000), body: JSON.stringify({ client_name: clientName,
+        application_type: 'native', redirect_uris: [redirectUri], token_endpoint_auth_method: 'none',
+        grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], scope: scopes }),
+    });
+    assert.ok(registered.ok, `Public OAuth registration: HTTP ${registered.status}`);
+    const created = await registered.json() as { client_id: string };
+    assert.equal(typeof created.client_id, 'string'); clientId = created.client_id;
+  }
+  const registration: IngestE2EClientRegistration = Object.freeze({ clientId, clientName, redirectUri });
   const verifier = randomBytes(32).toString('base64url');
   const state = randomUUID();
   const authorization = new URL(metadata.authorization_endpoint);
-  authorization.search = new URLSearchParams({ response_type: 'code', client_id: registration.client_id,
+  authorization.search = new URLSearchParams({ response_type: 'code', client_id: registration.clientId,
     redirect_uri: redirectUri, scope: scopes, resource: `${baseURL}/mcp`, state,
     code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' }).toString();
   const page = await owner.newPage();
@@ -53,14 +67,15 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
     });
     await page.goto(authorization.toString(), { timeout: 180_000 });
     const accept = page.locator('button[name="accept"][value="true"]');
-    await expect(accept).toBeVisible({ timeout: 90_000 });
-    await accept.click();
+    // A previously consented SAME client may produce its real callback directly.
+    await expect.poll(async () => Boolean(callback) || await accept.isVisible(), { timeout: 90_000 }).toBe(true);
+    if (!callback) await accept.click();
     await expect.poll(() => Boolean(callback), { timeout: 90_000 }).toBe(true);
     assert.equal(callback!.searchParams.get('state'), state);
     assert.equal(callback!.searchParams.get('iss'), metadata.issuer);
     assert.ok(callback!.searchParams.get('code'), 'Real consent must return an authorization code.');
     const exchanged = await requireIngestE2EJson<{ access_token: string }>(await owner.request.post(metadata.token_endpoint, {
-      headers: { Origin: baseURL }, form: { grant_type: 'authorization_code', client_id: registration.client_id,
+      headers: { Origin: baseURL }, form: { grant_type: 'authorization_code', client_id: registration.clientId,
         code: callback!.searchParams.get('code')!, redirect_uri: redirectUri, code_verifier: verifier,
         resource: `${baseURL}/mcp` }, timeout: 90_000,
     }), 'PKCE exchange');
@@ -125,6 +140,24 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
   return {
     connectionId,
     clientName,
+    registration,
+    // Observation only. The caller must bind these IDs to the SAME token's
+    // actual successful HTTP MCP authorization; decoding grants no authority.
+    observeTokenIdentity(): IngestE2EObservedTokenIdentity {
+      let claims: JsonRecord;
+      try {
+        assert(accessToken.length <= 32 * 1024); const parts = accessToken.split('.'); assert.equal(parts.length, 3);
+        const value: unknown = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        assert(value && typeof value === 'object' && !Array.isArray(value)); claims = value as JsonRecord;
+        for (const key of ['sub', 'azp', 'sid']) assert(typeof claims[key] === 'string' && (claims[key] as string).length > 0
+          && (claims[key] as string).length <= 256);
+        assert(typeof claims.iss === 'string' && claims.iss.length > 0 && claims.iss.length <= 2048);
+        assert(typeof claims.aud === 'string' && claims.aud.length <= 2048 || Array.isArray(claims.aud) && claims.aud.length <= 4
+          && claims.aud.every(value => typeof value === 'string' && value.length <= 2048));
+      } catch { throw new Error('The actual issued access token has no bounded observable identity.'); }
+      return Object.freeze({ clientId: String(claims.azp), userId: String(claims.sub), sessionId: String(claims.sid),
+        issuer: String(claims.iss), audiences: Object.freeze(typeof claims.aud === 'string' ? [claims.aud] : [...claims.aud as string[]]) });
+    },
     rpc,
     call: async (name: string, args: JsonRecord) => await rpc('tools/call', { name, arguments: args }) as IngestE2EToolResult,
     async revoke() {
