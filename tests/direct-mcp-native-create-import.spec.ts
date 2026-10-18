@@ -18,6 +18,12 @@ import { readNativeRichCandidate } from './helpers/native-rich-candidate';
 import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjsQaTarget,
   type DatabaseIdentity, type OwnedYjsReceipt } from '../scripts/lib/owned-yjs-authority-qa';
 
+// Artifact options are worker-scoped and must be set at file level. This
+// serial workflow shares manually created authenticated contexts; keep OAuth
+// URLs out of automatic artifacts in all seven cases. Explicit safe editor
+// screenshots remain available and all domain assertions are unchanged.
+test.use({ trace: 'off', screenshot: 'off', video: 'off' });
+
 // The existing supervisor alone owns the actual compiled production host,
 // issuer, DB and browser process. Every write/authorization crosses real HTTP.
 const spec = 'tests/direct-mcp-native-create-import.spec.ts';
@@ -602,10 +608,6 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       revokedEditAndStatus401: true, operationId: edited.operationId, fullVersion: edited.effect!.afterVersion, readOnlyProbe: after.probe });
   });
   test.describe('Installed Python wheel and genuine SDK OAuth', () => {
-    // Authorization and callback URLs must remain only in the private IPC and
-    // browser memory, including when this new test fails. Existing six cases
-    // retain their original configuration and exact domain assertions.
-    test.use({ trace: 'off', screenshot: 'off', video: 'off' });
     test('7: installed Python wheel completes real OAuth PKCE and search/read/create/edit reaches the visible editor and reload', async ({ browser: _browser }, info) => {
       assert(contextB && mcpB && identityB && workspace && editCreated);
       const active = contextB, identity = identityB, selected = workspace;
