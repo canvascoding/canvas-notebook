@@ -15,8 +15,9 @@ import { nativeExtensionPluginFiles, nativeExtensionStandaloneSkillContent, nati
 import { assertNativePreparedSessionIdentity, captureNativePageJourneySession } from '../scripts/helpers/chat-extension-native-proof';
 import { assertNativeCentralAgentUnchanged, captureNativeCentralAgentSnapshot } from '../scripts/helpers/chat-extension-native-agent-snapshot';
 import { captureNativeSearchFailureDiagnostics } from '../scripts/helpers/chat-extension-native-failure-diagnostic';
+import { nativeAcceptanceBudgets, nativeOuterPhaseTimeoutMs } from '../scripts/helpers/chat-extension-native-budgets.mjs';
 
-test.describe.configure({ retries: 0, timeout: 40 * 60_000 });
+test.describe.configure({ retries: 0, timeout: nativeAcceptanceBudgets.testMs });
 test.use({ trace: 'off', video: 'off', screenshot: 'off' });
 type Fixture = { version: number; nonce: string; repo: string; root: string; dataRoot: string; databaseName: string; actorId: string; baseURL: string; buildId: string;
   mcpUrl: string; composioOrigin: string; model: { providerInstallationId: string; providerId: string; modelId: string; thinkingLevel: string; expectedCatalogRevision: number } };
@@ -55,6 +56,7 @@ async function publish(owner: BrowserContext, workspaceId: string, name: string,
   return { resourceRef: draft.resourceRef, publishedRevisionRef: published.revisionRef, checksum: published.checksum };
 }
 async function runNative(mobileRepo: string, inputPath: string, fixture: Fixture) {
+  const timeoutMs = nativeOuterPhaseTimeoutMs((await privateJson(inputPath)).phase);
   const log = await fs.open(`${inputPath}.log`, 'wx', 0o600);
   const child = spawn(process.execPath, [path.join(mobileRepo, 'scripts/chat-extension-native-e2e.mjs'), '--execute'], { cwd: mobileRepo, detached: true,
     stdio: ['ignore', log.fd, log.fd], env: { NODE_ENV: 'test', ...Object.fromEntries(Object.entries({ PATH: process.env.PATH, HOME: process.env.HOME, LANG: process.env.LANG,
@@ -64,7 +66,7 @@ async function runNative(mobileRepo: string, inputPath: string, fixture: Fixture
       CANVAS_NATIVE_EXTENSION_INPUT: inputPath, CANVAS_NATIVE_EXTENSION_ROOT: fixture.root }).filter((row): row is [string, string] => typeof row[1] === 'string')) } });
   await log.close(); let timer: ReturnType<typeof setTimeout> | undefined;
   try { const result = await Promise.race([new Promise<number>((resolve, reject) => { child.once('error', reject); child.once('close', code => resolve(code ?? 1)); }),
-    new Promise<never>((_, reject) => { timer = setTimeout(() => { try { process.kill(-child.pid!, 'SIGTERM'); } catch {} reject(new Error('The owned native phase exceeded its deadline.')); }, 12 * 60_000); })]);
+    new Promise<never>((_, reject) => { timer = setTimeout(() => { try { process.kill(-child.pid!, 'SIGTERM'); } catch {} reject(new Error('The owned native phase exceeded its deadline.')); }, timeoutMs); })]);
     assert.equal(result, 0, 'The actual native phase must pass. Inspect the private native artifacts.'); }
   finally { if (timer) clearTimeout(timer); if (child.exitCode === null && child.signalCode === null) {
     try { process.kill(-child.pid!, 'SIGTERM'); } catch {}

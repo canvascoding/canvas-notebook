@@ -637,7 +637,7 @@ async function runFixture() {
     }
     console.log(`PLUGIN_EXTENSION_E2E_BROWSER ${root}`);
     const browser = start(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--config', 'tests/playwright/playwright.plugin-extensions.config.ts'], 'browser', {PLUGIN_EXTENSION_E2E_MCP_SPKI: mcpSpki}); receipt.browserPid = browser.pid; await persist();
-    const browserCode = await wait(browser, (chatNative ? 45 : 20) * 60_000);
+    const browserCode = await wait(browser, chatNative ? (await import('./helpers/chat-extension-native-budgets.mjs')).nativeAcceptanceBudgets.launcherMs : 20 * 60_000);
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
       ...(chatNative ? { nativePageJourneys: consent.readPageJourneyEvidence() } : {}),
       model: modelFixture.counts(),
