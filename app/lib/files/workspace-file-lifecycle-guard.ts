@@ -237,11 +237,29 @@ function capturePaths(workspaceId: string, paths: readonly string[]): string[] {
 
 /** Retain the admission guard through the caller's SQL transaction. */
 export async function assertWorkspaceFileLifecycleSqlAvailable(database: SqlConnection,
-  workspaceId: string, inputPaths: readonly string[]): Promise<void> {
+  workspaceId: string, inputPaths: readonly string[], options: { admissionLock?: 'try' | 'wait' } = {}): Promise<void> {
   const paths = capturePaths(workspaceId, inputPaths);
+  const admissionLock = options.admissionLock ?? 'try';
+  if (admissionLock !== 'try' && admissionLock !== 'wait') throw new Error('Invalid workspace file lifecycle admission mode.');
   const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
   if (!lease || !await lease.verify()) {
-    const acquired = await database.get('SELECT pg_try_advisory_xact_lock($1::bigint) AS locked', [collaborationAdmissionLockKey(workspaceId)]) as { locked?: boolean } | undefined;
+    if (admissionLock === 'wait') {
+      await database.run("SET LOCAL lock_timeout='4s'");
+      await database.run("SET LOCAL statement_timeout='5s'");
+    }
+    let acquired: { locked?: boolean } | undefined;
+    try {
+      acquired = await database.get(admissionLock === 'wait'
+        ? 'SELECT pg_advisory_xact_lock($1::bigint), true AS locked'
+        : 'SELECT pg_try_advisory_xact_lock($1::bigint) AS locked',
+      [collaborationAdmissionLockKey(workspaceId)]) as { locked?: boolean } | undefined;
+    } catch (error) {
+      // Only this acquisition timeout is an ordinary availability denial.
+      if (admissionLock === 'wait' && error instanceof Error && 'code' in error && error.code === '55P03') {
+        throw Object.assign(new WorkspaceFileLifecycleBusyError(), { cause: error });
+      }
+      throw error;
+    }
     if (acquired?.locked !== true) throw new WorkspaceFileLifecycleBusyError();
   }
   for (const path of paths) {

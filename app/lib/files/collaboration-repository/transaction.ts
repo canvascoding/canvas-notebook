@@ -26,22 +26,53 @@ async function openRuntimeDatabaseConnection(): Promise<SqlConnection> {
 export async function withFileCollaborationTransaction<T>(
   callback: (transaction: FileCollaborationTransaction) => Promise<T>,
   openConnection: () => Promise<SqlConnection> = openRuntimeDatabaseConnection,
+  options: { strictCleanup?: boolean } = {},
 ): Promise<T> {
+  const strictCleanup = options.strictCleanup === true;
   const connection = await openConnection();
+  let operationFailed = false;
+  let operationFailure: unknown;
+  let rollbackFailed = false;
+  let rollbackFailure: unknown;
+  let discardError: Error | undefined;
   try {
     await connection.run('BEGIN');
     const result = await callback(connection);
     await connection.run('COMMIT');
     return result;
   } catch (error) {
+    operationFailed = true;
+    operationFailure = error;
     try {
       await connection.run('ROLLBACK');
-    } catch {
-      // Preserve the original operation or commit error.
+    } catch (rollbackError) {
+      // Legacy callers preserve their original operation or commit error.
+      if (strictCleanup) {
+        rollbackFailed = true;
+        rollbackFailure = rollbackError;
+        discardError = new AggregateError(
+          [error, rollbackError],
+          'File collaboration transaction rollback failed.',
+        );
+      }
     }
+    if (discardError) throw discardError;
     throw error;
   } finally {
-    await connection.close();
+    if (!strictCleanup) {
+      await connection.close();
+    } else {
+      try {
+        // A failed rollback must request pg pool discard rather than ordinary
+        // release. Await the adapter call; this is not a backend-death receipt.
+        await connection.close(discardError);
+      } catch (closeError) {
+        const causes: unknown[] = operationFailed ? [operationFailure] : [];
+        if (rollbackFailed) causes.push(rollbackFailure);
+        causes.push(closeError);
+        throw new AggregateError(causes, 'File collaboration transaction cleanup failed.');
+      }
+    }
   }
 }
 

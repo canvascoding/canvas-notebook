@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/file-collaboration-strict-cleanup-test.ts': [entryPoint,
+    'app/lib/files/collaboration-repository/transaction.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts',
+    'app/lib/excalidraw-collaboration/lifecycle-availability.ts'],
+  'scripts/excalidraw-read-admission-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/excalidraw-collaboration/scene-service.ts', 'app/lib/excalidraw-collaboration/lifecycle-availability.ts',
+    'app/lib/excalidraw-collaboration/portable-import.ts', 'app/lib/files/workspace-file-lifecycle-guard.ts',
+    'app/lib/files/collaboration-repository/transaction.ts', 'app/lib/collaboration/room-admission-contract.ts',
+    'app/lib/workspaces/postgres-runtime.ts', 'app/lib/db/index.ts'],
   'scripts/workspace-document-tree-test.ts': [entryPoint, 'app/lib/files/workspace-document-tree.ts',
     'app/lib/collaboration/workspace-native-file-read.ts', 'app/lib/collaboration/workspace-document-catalogue.ts',
     'app/lib/collaboration/workspace-scene-catalogue.ts'],

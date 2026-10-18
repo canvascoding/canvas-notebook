@@ -121,7 +121,10 @@ export async function getExcalidrawDocument(input: {
       } finally { await database.close(); }
     }
     if (!path) throw new ExcalidrawDocumentError('INVALID_EXCALIDRAW_REQUEST', 400, 'Document ID or path is required.');
-    await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, path);
+    // Wait only when this caller can refresh authority after acquisition and
+    // before inspection/bootstrap DML. A captured workspace alone stays fail-fast.
+    await assertExcalidrawLifecycleAvailable(input.workspace.workspaceId, path,
+      { admissionLock: input.beforeRead ? 'wait' : 'try' });
     let collaboration = await getFileCollaborationState({ workspace: input.workspace, path, ensureDocument: false });
     if (!collaboration.sceneCapable) {
       throw new ExcalidrawDocumentError('EXCALIDRAW_PROVIDER_UNAVAILABLE', 503, 'This workspace does not provide Excalidraw scene collaboration.');

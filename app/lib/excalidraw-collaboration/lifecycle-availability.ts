@@ -17,10 +17,14 @@ export class ExcalidrawLifecycleUnavailableError extends Error {
  * before bootstrap, create-journal or portable-file publication. A durable
  * reservation survives release of that kernel lock after an interrupted action.
  * This helper grants no exemption to an internal Copy phase. */
-export async function assertExcalidrawLifecycleAvailable(workspaceId: string, path: string): Promise<void> {
+export async function assertExcalidrawLifecycleAvailable(workspaceId: string, path: string,
+  options: Parameters<typeof assertWorkspaceFileLifecycleSqlAvailable>[3] = {}): Promise<void> {
   try {
-    await withFileCollaborationTransaction(transaction =>
-      assertWorkspaceFileLifecycleSqlAvailable(transaction, workspaceId, [path]));
+    await withFileCollaborationTransaction(
+      transaction => assertWorkspaceFileLifecycleSqlAvailable(transaction, workspaceId, [path], options),
+      undefined,
+      { strictCleanup: options.admissionLock === 'wait' },
+    );
   } catch (error) {
     if (error instanceof WorkspaceFileLifecycleBusyError) throw new ExcalidrawLifecycleUnavailableError(error);
     throw error;
