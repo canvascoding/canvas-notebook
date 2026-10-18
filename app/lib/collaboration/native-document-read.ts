@@ -1,6 +1,7 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual, types } from 'node:util';
 import type { SqlConnection } from '../db';
 import { DocumentReadError } from '../documents/contracts';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -16,6 +17,7 @@ import type { ExistingNativeSessionIdentity } from './native-session-state-reade
 import type { PersistedCollaborationState } from './persistence';
 import { assertCollaborationAdmissionOpen } from './room-admission';
 import { CollaborationAdmissionError, collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
+import { assertNativeDocumentWithinReadBudget, captureNativeDocumentReadBudget, type NativeDocumentReadBudget } from './native-search-budget';
 
 type Row = Record<string, unknown>;
 type Realm = Readonly<{ schema: string; schemaOid: string; searchPath: string; database: string;
@@ -117,7 +119,8 @@ async function assertSharedFence(connection: SqlConnection, realm: Realm, worksp
   if (!rows.some(row => row.mode === 'ShareLock') || rows.some(row => row.mode !== 'ShareLock')) fail('DOCUMENT_SCOPE_CHANGED');
 }
 
-async function readHeader(connection: SqlConnection, realm: Realm, workspace: WorkspaceContext, documentId: string): Promise<Row> {
+async function readHeader(connection: SqlConnection, realm: Realm, workspace: WorkspaceContext, documentId: string,
+  budget?: NativeDocumentReadBudget): Promise<Row> {
   const schema = quote(realm.schema);
   const rows = await connection.all(`SELECT ${headerTextColumns.map(boundedText).join(',')},d.state_version,
     l.archived_at AS lineage_archived_at,
@@ -160,7 +163,8 @@ async function readHeader(connection: SqlConnection, realm: Realm, workspace: Wo
   }
   validateRawState(Object.fromEntries(stateFields.map(field => [field, row[`state_${field}`]])));
   if (!integer(row.state_bytes, 1) || !integer(row.vector_bytes, 1)) fail('DOCUMENT_STATE_INVALID');
-  if (Number(row.state_bytes) > MAX_STATE_BYTES || Number(row.vector_bytes) > MAX_VECTOR_BYTES) fail('DOCUMENT_TOO_LARGE');
+  if (Number(row.state_bytes) > (budget?.maxStateBytes ?? MAX_STATE_BYTES)
+    || Number(row.vector_bytes) > (budget?.maxVectorBytes ?? MAX_VECTOR_BYTES)) fail('DOCUMENT_TOO_LARGE');
   if (Number(row.state_version) > Number(row.state_document_sequence)) fail('DOCUMENT_STATE_INVALID');
   if (row.metadata_revision === null ? row.metadata_title !== null
     : !integer(row.metadata_revision) || row.metadata_title !== null && (typeof row.metadata_title !== 'string'
@@ -189,12 +193,28 @@ function freezeObservation<T extends object>(value: T): T {
  * This acquires the shared lifecycle fence; it never seeds, migrates, exports
  * Markdown, touches disk, or changes native content. Registry ID is the selector. */
 export async function readNativeDocumentByIdOnConnection(connection: SqlConnection,
-  input: { workspace: WorkspaceContext; documentId: string }): Promise<NativeDocumentReadObservation> {
+  input: { workspace: WorkspaceContext; documentId: string; budget?: NativeDocumentReadBudget;
+    expectedPersistedBinary?: Readonly<{ stateSha256: string; vectorSha256: string }> }): Promise<NativeDocumentReadObservation> {
   const previous = reads.get(connection);
   if (previous) {
     const error = new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); previous.poison(error); throw error;
   }
   const workspace = structuredClone(input.workspace), documentId = input.documentId;
+  const budget = input.budget === undefined ? undefined : captureNativeDocumentReadBudget(input.budget);
+  let expectedBinary: Readonly<{ stateSha256: string; vectorSha256: string }> | undefined;
+  if (input.expectedPersistedBinary !== undefined) {
+    const value = input.expectedPersistedBinary;
+    if (!value || typeof value !== 'object' || types.isProxy(value) || Object.getPrototypeOf(value) !== Object.prototype) fail('INVALID_REQUEST');
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const stateDescriptor = Object.prototype.hasOwnProperty.call(descriptors, 'stateSha256') ? descriptors.stateSha256 : undefined;
+    const vectorDescriptor = Object.prototype.hasOwnProperty.call(descriptors, 'vectorSha256') ? descriptors.vectorSha256 : undefined;
+    const stateSha256: unknown = stateDescriptor?.value, vectorSha256: unknown = vectorDescriptor?.value;
+    if (Reflect.ownKeys(descriptors).length !== 2 || !stateDescriptor?.enumerable || !vectorDescriptor?.enumerable
+      || !Object.prototype.hasOwnProperty.call(stateDescriptor, 'value') || !Object.prototype.hasOwnProperty.call(vectorDescriptor, 'value')
+      || typeof stateSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(stateSha256)
+      || typeof vectorSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(vectorSha256)) fail('INVALID_REQUEST');
+    expectedBinary = Object.freeze({ stateSha256, vectorSha256 });
+  }
   if (!validId(documentId) || !validId(workspace.workspaceId) || workspace.legacy || workspace.status !== 'active'
     || !workspace.permissions.canRead || typeof workspace.rootRelativePath !== 'string'
     || !workspace.rootRelativePath || workspace.rootRelativePath.length > 4096) fail('INVALID_REQUEST');
@@ -213,14 +233,14 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
       IN ACCESS SHARE MODE NOWAIT`);
     await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
     await assertWorkspaceScope(connection, realm, workspace);
-    const initial = await readHeader(connection, realm, workspace, documentId);
+    const initial = await readHeader(connection, realm, workspace, documentId, budget);
     const loadState = (selectedId: string): Promise<PersistedCollaborationState> => {
       if (!active || pending || selectedId !== documentId || failure !== undefined || ++loadCount !== 1) {
         failure ??= new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); return Promise.reject(failure);
       }
       const operation = (async () => {
         await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
-        const header = await readHeader(connection, realm, workspace, documentId);
+        const header = await readHeader(connection, realm, workspace, documentId, budget);
         if (stableHeaderFields.some(field => !Object.is(header[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
         // Exclude unneeded owner/cause/hash columns. Bound every selected text
         // before PG sends it, including growth after the header observation.
@@ -231,12 +251,15 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
             AND octet_length(s.yjs_state) BETWEEN 1 AND $4 AND octet_length(s.state_vector) BETWEEN 1 AND $5
             AND NOT (${oversizedText(Object.entries(stateTextLimits).map(([field, limit]) => [`s.${field}`, field, limit] as const))})
             AND (SELECT count(*) FROM ${quote(realm.schema)}.collaboration_yjs_states WHERE document_id=$1)=1 LIMIT 2`,
-        [documentId, Number(header.state_bytes), Number(header.vector_bytes), MAX_STATE_BYTES, MAX_VECTOR_BYTES]) as Row[];
+        [documentId, Number(header.state_bytes), Number(header.vector_bytes),
+          budget?.maxStateBytes ?? MAX_STATE_BYTES, budget?.maxVectorBytes ?? MAX_VECTOR_BYTES]) as Row[];
         if (rows.length !== 1) fail('DOCUMENT_VERSION_CONFLICT');
         const raw = rows[0];
         if (!(raw.yjs_state instanceof Uint8Array) || !(raw.state_vector instanceof Uint8Array)
           || raw.yjs_state.byteLength !== Number(header.state_bytes) || raw.state_vector.byteLength !== Number(header.vector_bytes)
           || stateFields.some(field => !Object.is(raw[field], header[`state_${field}`]))) fail('DOCUMENT_VERSION_CONFLICT');
+        if (expectedBinary && (createHash('sha256').update(raw.yjs_state).digest('hex') !== expectedBinary.stateSha256
+          || createHash('sha256').update(raw.state_vector).digest('hex') !== expectedBinary.vectorSha256)) fail('DOCUMENT_VERSION_CONFLICT');
         const state = await mapValidatedNativeStateRow(raw, documentId);
         if (!state || state.documentId !== documentId || state.workspaceId !== workspace.workspaceId
           || state.organizationId !== (workspace.organizationId ?? null) || state.path !== initial.path
@@ -250,8 +273,8 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
         // there is no extra persisted decode and no Markdown serialization.
         try { validatedState = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
           assertNativeDocumentSchema(doc, state.representation, inspectionSchema); return snapshot;
-        }); }
-        catch { fail('DOCUMENT_STATE_INVALID'); }
+        }, budget); }
+        catch (error) { if (error instanceof DocumentReadError) throw error; fail('DOCUMENT_STATE_INVALID'); }
         loadedState = state;
         return state;
       })();
@@ -267,6 +290,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
             fail('DOCUMENT_SCOPE_CHANGED');
           }
           const { version, source: _source, content: _content, ...snapshot } = validatedState;
+          if (budget) assertNativeDocumentWithinReadBudget(doc, budget);
           assertNativeDocumentSchema(doc, state.representation, inspectionSchema);
           const current = inspectNativeDocument(doc, state.representation);
           const durable = current.version.stateProof === version.stateProof;
@@ -291,7 +315,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
       fail('DOCUMENT_SCOPE_CHANGED');
     }
     await assertWorkspaceScope(connection, realm, workspace);
-    const final = await readHeader(connection, realm, workspace, documentId);
+    const final = await readHeader(connection, realm, workspace, documentId, budget);
     if (stableHeaderFields.some(field => !Object.is(final[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
     await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
     if (failure !== undefined) throw failure;

@@ -23,6 +23,10 @@ import { encodeDocumentReadBodyV1 } from './read-body';
 import { decodeDocumentReadContinuationV1, encodeDocumentReadContinuationV1 } from './read-continuation';
 import { documentMetadataVersionV1, documentVersionV1 } from './read-version';
 import { sliceDocumentUtf8PageV1 } from './utf8-page';
+import { prepareNativeDocumentSearchOnConnection } from '../collaboration/native-document-search';
+import { withPreparedDocumentSearchToolPolicy, PublicShareToolPolicyError } from '../public-sharing/tool-policy';
+import { decodeDocumentSearchRequestV1, DocumentSearchError, type DecodedDocumentSearchRequestV1,
+  type DocumentSearchPageV1 } from './search-contract';
 
 type HistoricalScope = Pick<WorkspaceRequestHistoricalOrigin, 'workspaceId' | 'workspaceType' | 'organizationId'
   | 'customerId' | 'projectId' | 'ownerUserId' | 'rootPath' | 'rootRelativePath' | 'legacy' | 'status'
@@ -191,7 +195,8 @@ async function readPage(phase: ReadPhase, selection: DecodedDocumentReadRequestV
 }
 
 function normalizeError(error: unknown): Error {
-  if (error instanceof DocumentReadError || error instanceof DirectMcpAuthorizationError) return error;
+  if (error instanceof DocumentReadError || error instanceof DocumentSearchError
+    || error instanceof PublicShareToolPolicyError || error instanceof DirectMcpAuthorizationError) return error;
   if (error instanceof SeatLimitGuardError) return new DocumentReadError('ACCESS_DENIED');
   if (error instanceof AgentToolInvocationError) return new DocumentReadError(error.code === 'AGENT_TOOL_INVOCATION_ABORTED'
     || error.code === 'AGENT_TOOL_INVOCATION_ORIGIN_CHANGED' ? 'DOCUMENT_SCOPE_CHANGED' : 'AUTHENTICATION_REQUIRED');
@@ -294,4 +299,89 @@ export async function readDocumentForDirectMcp(authInfo: AuthInfo, input: unknow
         connection, access.workspace, value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection));
       return finish(held);
     })); } catch (error) { throw normalizeError(error); }
+}
+
+type HeldSearch = Readonly<{ phase: ReadPhase;
+  prepared: Awaited<ReturnType<typeof prepareNativeDocumentSearchOnConnection>> }>;
+
+async function consumeSearch<T>(source: { value?: T }, connection: SqlConnection, workspace: WorkspaceContext,
+  toOrigin: (value: T) => Origin, selection: DecodedDocumentSearchRequestV1): Promise<HeldSearch> {
+  if (source.value === undefined) changed();
+  const phase = await phaseFor(connection, workspace, toOrigin(source.value));
+  try {
+    const prepared = await prepareNativeDocumentSearchOnConnection(connection, { workspace: phase.workspace,
+      authorityScopeSha256: phase.authorityScopeSha256, selection });
+    await assertBinding(phase);
+    return { phase, prepared };
+  } catch (error) { phase.active = false; throw error; }
+}
+
+/** Runs after the actual Principal's final check, on the same still-held B.
+ * Only this private binding and kernel observation survive that phase. */
+async function finishSearch(held: HeldSearch): Promise<DocumentSearchPageV1> {
+  try {
+    await assertBinding(held.phase);
+    await held.prepared.assertCurrent();
+    await assertBinding(held.phase);
+    return held.prepared.page;
+  } finally { held.phase.active = false; }
+}
+
+function normalizeSearchError(error: unknown): Error {
+  if (error instanceof PublicShareToolPolicyError) {
+    return new DocumentReadError(error.code === 'TOOL_POLICY_DENIED' ? 'ACCESS_DENIED'
+      : error.code === 'TOOL_POLICY_CHANGED' ? 'DOCUMENT_SCOPE_CHANGED' : 'DOCUMENT_READ_UNAVAILABLE');
+  }
+  return normalizeError(error);
+}
+
+/** Genuine original request only; a cursor, scope or hit never grants access. */
+export async function searchDocumentsForRequest(request: Request, input: unknown): Promise<DocumentSearchPageV1> {
+  const selection = decodeDocumentSearchRequestV1(input);
+  if (!(request instanceof Request)) throw new DocumentSearchError('INVALID_SEARCH_REQUEST');
+  const captured = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const historical: { value?: WorkspaceRequestHistoricalOrigin } = {};
+  try { return await withWorkspaceRequestPrincipalOriginalOrigin(captured,
+    { workspaceId: selection.workspaceId, permission: 'canRead' }, value => observe(historical, value),
+    principal => transaction(async connection => {
+      const held = await withWorkspaceRequestPrincipalOnConnection(connection, principal, async access => {
+        const prepared = await consumeSearch(historical, connection, access.workspace,
+          value => origin(value, ['request', value.userId, value.sessionId, value.impersonatedBy ?? '']), selection);
+        try { await access.assertCurrent(); return prepared; }
+        catch (error) { prepared.phase.active = false; throw error; }
+      });
+      return finishSearch(held);
+    })); } catch (error) { throw normalizeSearchError(error); }
+}
+
+/** Actual offered PI search_documents invocation plus fresh fixed tool use. */
+export async function searchDocumentsForAgentTool(input: unknown): Promise<DocumentSearchPageV1> {
+  const selection = decodeDocumentSearchRequestV1(input), historical: { value?: WorkspaceAgentToolHistoricalOrigin } = {};
+  try { return await withPreparedDocumentSearchToolPolicy(policy => withWorkspaceAgentToolPrincipalOriginalOrigin(
+    { workspaceId: selection.workspaceId, permission: 'canRead' }, value => observe(historical, value),
+    principal => transaction(async connection => {
+      const held = await withWorkspaceAgentToolPrincipalOnConnection(connection, principal, async access => {
+        await policy.assertCurrent(connection, access);
+        const prepared = await consumeSearch(historical, connection, access.workspace,
+          value => origin(value, ['agent_tool', value.userId, value.agentId, value.piSessionId, value.toolName]), selection);
+        try { await policy.assertCurrent(connection, access); return prepared; }
+        catch (error) { prepared.phase.active = false; throw error; }
+      });
+      return finishSearch(held);
+    }))); } catch (error) { throw normalizeSearchError(error); }
+}
+
+/** Genuine /mcp knowledge:search capture; it never delegates knowledge:read. */
+export async function searchDocumentsForDirectMcp(authInfo: AuthInfo, input: unknown): Promise<DocumentSearchPageV1> {
+  const selection = decodeDocumentSearchRequestV1(input), historical: { value?: DirectMcpDocumentReadHistoricalOrigin } = {};
+  try { return await withDirectMcpDocumentReadPrincipal(authInfo, { workspaceId: selection.workspaceId, purpose: 'search' },
+    value => observe(historical, value), principal => transaction(async connection => {
+      const held = await withDirectMcpDocumentReadPrincipalOnConnection(connection, principal, async access => {
+        const prepared = await consumeSearch(historical, connection, access.workspace,
+          value => origin(value, ['direct_mcp', value.userId, value.clientId, value.sessionId]), selection);
+        try { await access.assertCurrent(); return prepared; }
+        catch (error) { prepared.phase.active = false; throw error; }
+      });
+      return finishSearch(held);
+    })); } catch (error) { throw normalizeSearchError(error); }
 }

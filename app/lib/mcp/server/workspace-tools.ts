@@ -13,7 +13,10 @@ import {
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { DocumentReadError } from '@/app/lib/documents/contracts';
-import { readDocumentForDirectMcp } from '@/app/lib/documents/service';
+import { readDocumentForDirectMcp, searchDocumentsForDirectMcp } from '@/app/lib/documents/service';
+import { DocumentSearchError } from '@/app/lib/documents/search-contract';
+import { DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1, DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1 } from '@/app/lib/documents/search-json-schema';
+import { decodeDirectMcpDocumentSearchSelection, DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES } from './document-search-tool-contract';
 import { DOCUMENT_READ_ERROR_JSON_SCHEMA_V1, DOCUMENT_READ_PAGE_JSON_SCHEMA_V1 } from '@/app/lib/documents/read-json-schema';
 import { decodeDirectMcpDocumentReadSelection, DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES } from './document-read-tool-contract';
 import {
@@ -393,26 +396,34 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Search workspace files',
-      description: 'Searches text files in an accessible workspace and returns short matching excerpts.',
+      description: 'Use api_version:1 to search visible initialized native text documents with stable IDs, full versions, bounded snippets, explicit coverage and continuation. Read a selected hit with read_knowledge_source using document_id and expected_version; knowledge:read is independently required. Ranking is within each bounded scan window; remote live coverage remains unknown. Physical files, Scenes and PDF bodies are outside V1. Omit all native-only fields to retain legacy physical/native path-based text excerpts.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           query: { type: 'string', minLength: 2, description: 'Text to search for.' },
-          path: { type: 'string', description: 'Optional workspace-relative starting path. Defaults to the workspace root.' },
-          max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum matches. Defaults to 10.' },
+          path: { type: 'string', description: 'Workspace-relative starting scope. Defaults to ".".' },
+          max_results: { type: 'integer', minimum: 1, maximum: MAX_SEARCH_RESULTS, description: 'Maximum whole hits. Defaults to 8 for native V1, 10 for legacy excerpts.' },
+          ...DIRECT_MCP_NATIVE_DOCUMENT_SEARCH_PROPERTIES,
         },
         required: ['workspace_id', 'query'],
+        oneOf: [
+          { not: { anyOf: ['api_version', 'cursor'].map(key => ({ required: [key] })) } },
+          { properties: { api_version: { const: 1 }, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } },
+            required: ['api_version'] },
+        ],
         additionalProperties: false,
       },
       outputSchema: {
         type: 'object' as const,
-        properties: {
-          results: { type: 'array', items: { type: 'object' } },
-          truncated: { type: 'boolean' },
-        },
-        required: ['results', 'truncated'],
-        additionalProperties: false,
+        oneOf: [
+          { type: 'object', additionalProperties: false,
+            properties: { workspace_id: { type: 'string' }, query: { type: 'string' },
+              results: { type: 'array', items: { type: 'object' } }, truncated: { type: 'boolean' } },
+            required: ['workspace_id', 'query', 'results', 'truncated'] },
+          DOCUMENT_SEARCH_PAGE_JSON_SCHEMA_V1,
+          DOCUMENT_SEARCH_ERROR_JSON_SCHEMA_V1,
+        ],
       },
       annotations: {
         readOnlyHint: true,
@@ -978,6 +989,30 @@ async function executeSearchKnowledge(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpDocumentSearchSelection>;
+  try { nativeSelection = decodeDirectMcpDocumentSearchSelection(args); }
+  catch { invalidParams('Native search V1 requires api_version:1 and only workspace_id, query, path, max_results and cursor with valid values. Invalid native fields never fall back to legacy file search.'); }
+  if (nativeSelection) {
+    const authorization = await authenticateForTool(authInfo, 'knowledge:search');
+    if ('result' in authorization) return authorization.result;
+    if (!authInfo) return directMcpToolAuthorizationError(undefined, 'knowledge:search');
+    try {
+      const page = await searchDocumentsForDirectMcp(authInfo, nativeSelection);
+      // Audit identity only: the service independently validated actual B and
+      // completed its transaction. Preserve the exact already budgeted page.
+      const workspace = await readableWorkspace(authorization.principal, nativeSelection.workspaceId);
+      await auditWorkspaceToolCall({ principal: authorization.principal, tool: 'search_knowledge',
+        workspace, resultCount: page.hits.length });
+      return { content: [{ type: 'text', text: JSON.stringify(page) }], structuredContent: page };
+    } catch (error) {
+      if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, 'knowledge:search');
+      if (error instanceof DocumentSearchError || error instanceof DocumentReadError) {
+        const failure = { apiVersion: 1, success: false, code: error.code };
+        return { isError: true, content: [{ type: 'text', text: JSON.stringify(failure) }], structuredContent: failure };
+      }
+      return errorResult('Could not search the Canvas native documents.');
+    }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const query = requiredString(parsed, 'query', 200);

@@ -15,6 +15,8 @@ import { richDocumentFormat } from './rich-document';
 import { Y } from './server-runtime';
 import { collaborationStateProof } from './state-proof';
 import { COLLABORATION_SCHEMA_VERSION } from './types';
+import { assertNativeDocumentWithinReadBudget, captureNativeDocumentReadBudget, type NativeDocumentReadBudget } from './native-search-budget';
+import { DocumentReadError } from '../documents/contracts';
 
 export type NativeCollaborationContent =
   | { kind: 'plain_text'; text: string }
@@ -131,13 +133,18 @@ function assertNativeState(state: PersistedCollaborationState): void {
 export function inspectPersistedNativeCollaborationSnapshot<T>(
   state: PersistedCollaborationState,
   inspect: (doc: YTypes.Doc, snapshot: NativeCollaborationSnapshot) => T,
+  budget?: NativeDocumentReadBudget,
 ): T {
   assertNativeState(state);
+  const selectedBudget = budget === undefined ? undefined : captureNativeDocumentReadBudget(budget);
+  if (selectedBudget && (state.yjsState.byteLength > selectedBudget.maxStateBytes
+    || state.stateVector.byteLength > selectedBudget.maxVectorBytes)) throw new DocumentReadError('DOCUMENT_TOO_LARGE');
   const doc = new Y.Doc({ gc: true });
   try {
     const decoder = decoding.createDecoder(state.yjsState);
     Y.readUpdate(decoder, doc);
     if (decoding.hasContent(decoder)) throw new Error('Persisted collaboration state contains trailing bytes.');
+    if (selectedBudget) assertNativeDocumentWithinReadBudget(doc, selectedBudget);
     const native = inspectNativeDocument(doc, state.representation);
     if (native.version.stateVector !== Buffer.from(state.stateVector).toString('base64')) {
       throw new Error('Persisted collaboration state and state vector do not match.');

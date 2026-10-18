@@ -93,9 +93,21 @@ async function assertConfig(captures: readonly ConfigCapture[]): Promise<void> {
  * Principal factory; operation retains that factory through COMMIT and cleanup.
  * public_share_file is a direct tool, not a progressive gateway operation. */
 export async function withPreparedPublicShareToolPolicy<T>(operation: (policy: Policy) => Promise<T>): Promise<T> {
+  return withPreparedFixedDocumentToolPolicy(PUBLIC_TOOL, operation);
+}
+
+/** Fixed read-only tool-use policy. This supplies no workspace or SQL grant. */
+export async function withPreparedDocumentSearchToolPolicy<T>(operation: (policy: Policy) => Promise<T>): Promise<T> {
+  return withPreparedFixedDocumentToolPolicy('search_documents', operation);
+}
+
+/** The two public wrappers fix the operation; callers cannot select a policy,
+ * provide an authorization reader or expand this private set. */
+async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_file' | 'search_documents',
+  operation: (policy: Policy) => Promise<T>): Promise<T> {
   const invocation = captureCurrentAgentToolInvocation();
   return withCapturedAgentToolInvocation(invocation,async assertInvocation => {
-    if (typeof operation !== 'function' || assertInvocation().toolName !== PUBLIC_TOOL) fail('TOOL_POLICY_DENIED');
+    if (typeof operation !== 'function' || assertInvocation().toolName !== toolName) fail('TOOL_POLICY_DENIED');
     const handles: FileHandle[] = [], captures: ConfigCapture[] = [];
     const pending = new Set<Promise<void>>();
     let accepting = true, active = true, checking = false, failure: {error:unknown} | undefined;
@@ -115,7 +127,7 @@ export async function withPreparedPublicShareToolPolicy<T>(operation: (policy: P
             if (!active || !accepting || checking || failure) fail('TOOL_POLICY_CHANGED');
             checking = true;
             const origin = assertInvocation();
-            if (origin.toolName !== PUBLIC_TOOL || access.toolName !== PUBLIC_TOOL || access.toolCallId !== origin.toolCallId
+            if (origin.toolName !== toolName || access.toolName !== toolName || access.toolCallId !== origin.toolCallId
               || access.userId !== origin.userId || access.agentId !== normalizeManagedAgentId(origin.agentId)
               || access.piSessionId !== origin.sessionId || access.workspace.workspaceId !== origin.workspaceId) fail('TOOL_POLICY_DENIED');
             await access.assertCurrent(); await assertConfig(captures); assertInvocation();
@@ -124,9 +136,9 @@ export async function withPreparedPublicShareToolPolicy<T>(operation: (policy: P
             const configured = normalizeEnabledToolsConfig(resolveEffectiveProviderConfig(preparedMainConfig,before,
               access.agentId === DEFAULT_MANAGED_AGENT_ID ? 'main' : 'special').providerConfig.enabledTools);
             if (configured.includes(DISABLED_ALL_TOOLS_SENTINEL)) fail('TOOL_POLICY_DENIED');
-            const names = [PUBLIC_TOOL];
+            const names = [toolName];
             const enabled = isDefaultToolsConfig(configured) ? getDefaultEnabledToolNames(names) : resolveEnabledToolNames(names,configured);
-            if (!enabled.has(PUBLIC_TOOL)) fail('TOOL_POLICY_DENIED');
+            if (!enabled.has(toolName)) fail('TOOL_POLICY_DENIED');
             await assertConfig(captures);
             const after = await readAgentProfileOnConnection(database,access.agentId);
             if (!after || JSON.stringify(before) !== JSON.stringify(after)) fail('TOOL_POLICY_CHANGED');

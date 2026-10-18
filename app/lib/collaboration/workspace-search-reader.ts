@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { constants, promises as fs } from 'node:fs';
+import { types } from 'node:util';
 import { getSchema } from '@tiptap/core';
 import { openDb, type SqlConnection } from '../db';
 import { filesystemFileVersion } from '../filesystem/file-version';
@@ -11,6 +12,8 @@ import { richMarkdownSchemaExtensions } from './markdown-state';
 import { loadCollaborationStateOnConnection } from './persistence';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
 import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
+import { DocumentReadError } from '../documents/contracts';
+import { assertNativeSearchContentWithinBudget } from './native-search-budget';
 
 export class WorkspaceSearchReadError extends Error {
   constructor(readonly code: 'SOURCE_UNAVAILABLE' | 'SOURCE_TOO_LARGE' | 'SOURCE_BINARY') {
@@ -36,7 +39,44 @@ export type WorkspaceSearchText = {
 };
 
 /** Semantic text for retrieval. This is deliberately not a Markdown export. */
-export function nativeCollaborationSearchText(content: NativeCollaborationContent): string {
+export function nativeCollaborationSearchText(content: NativeCollaborationContent, options?: Readonly<{ maxBytes: number }>): string {
+  if (options !== undefined) {
+    if (!options || typeof options !== 'object' || types.isProxy(options)
+      || Object.getPrototypeOf(options) !== Object.prototype) throw new DocumentReadError('INVALID_REQUEST');
+    const descriptor = options && typeof options === 'object' ? Object.getOwnPropertyDescriptor(options, 'maxBytes') : undefined;
+    if (!descriptor?.enumerable || !Object.prototype.hasOwnProperty.call(descriptor, 'value')
+      || !Number.isSafeInteger(descriptor.value) || descriptor.value < 1 || descriptor.value > 256 * 1024
+      || Reflect.ownKeys(options).length !== 1) throw new DocumentReadError('INVALID_REQUEST');
+    const maxBytes = descriptor.value as number, pieces: string[] = [];
+    let bytes = 0;
+    const append = (value: string) => {
+      if (value.length > maxBytes - bytes) throw new DocumentReadError('DOCUMENT_TOO_LARGE');
+      bytes += Buffer.byteLength(value, 'utf8');
+      if (bytes > maxBytes) throw new DocumentReadError('DOCUMENT_TOO_LARGE');
+      pieces.push(value);
+    };
+    assertNativeSearchContentWithinBudget(content);
+    if (content.kind === 'plain_text') { append(content.text); return pieces.join(''); }
+    const document = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(content.document);
+    document.check();
+    append(content.frontmatter);
+    let first = true;
+    document.nodesBetween(0, document.content.size, node => {
+      let text = node.isText ? node.text! : '';
+      if (!node.isText && node.isLeaf) {
+        if (node.type.name === 'hardBreak') text = '\n';
+        else if (node.type.name === 'markdownMention') text = `@${node.attrs.label ?? ''}`;
+        else for (const key of ['label', 'alt', 'target', 'latex']) {
+          if (typeof node.attrs[key] === 'string' && node.attrs[key]) { text = node.attrs[key]; break; }
+        }
+      }
+      if (node.isBlock && (node.isLeaf && text || node.isTextblock)) {
+        if (first) first = false; else append('\n');
+      }
+      append(text);
+    });
+    return pieces.join('');
+  }
   if (content.kind === 'plain_text') return content.text;
   const document = getSchema(richMarkdownSchemaExtensions()).nodeFromJSON(content.document);
   document.check();

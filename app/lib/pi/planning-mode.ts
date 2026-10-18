@@ -34,6 +34,7 @@ export const PLANNING_MODE_ALLOWED_TOOLS = new Set([
   'ls',
   'read',
   'read_document',
+  'search_documents',
   'get_excalidraw_scene',
   'inspect_document_relations',
   'list_file_snapshots',

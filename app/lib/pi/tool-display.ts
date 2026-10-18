@@ -68,6 +68,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   list_file_snapshots: { label: 'Listed file snapshots', labelDe: 'Datei-Snapshots geladen', tone: 'file' },
   restore_file_snapshot: { label: 'Restored a file', labelDe: 'Datei wiederhergestellt', tone: 'file' },
   rg: { label: 'Searched the workspace', labelDe: 'Workspace durchsucht', tone: 'search' },
+  search_documents: { label: 'Searched native documents', labelDe: 'Notizbuchdokumente durchsucht', tone: 'search' },
   grep: { label: 'Searched the workspace', labelDe: 'Workspace durchsucht', tone: 'search' },
   glob: { label: 'Browsed files', labelDe: 'Dateien durchsucht', tone: 'file' },
   ls: { label: 'Browsed files', labelDe: 'Dateien durchsucht', tone: 'file' },
