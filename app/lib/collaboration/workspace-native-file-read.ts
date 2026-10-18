@@ -146,7 +146,7 @@ export type NativeWorkspaceFilesReadScope = {
  * cross-document collaborative snapshot or a Markdown initialization path. */
 export async function withNativeWorkspaceFilesRead<T>(input: {
   workspace: WorkspaceContext; paths: readonly string[]; maxEntries: number;
-}, consume: (scope: NativeWorkspaceFilesReadScope) => Promise<T>, dependencies: Dependencies = {}): Promise<T> {
+}, consume: (scope: NativeWorkspaceFilesReadScope, connection: SqlConnection) => Promise<T>, dependencies: Dependencies = {}): Promise<T> {
   const workspace = structuredClone(input.workspace), paths = [...input.paths], maxEntries = input.maxEntries;
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') {
     throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
@@ -189,7 +189,7 @@ export async function withNativeWorkspaceFilesRead<T>(input: {
         return read;
       },
     });
-    const consumed = await consume(scope);
+    const consumed = await consume(scope, connection);
     active = false;
     if (inFlight.size) {
       await Promise.allSettled([...inFlight]);

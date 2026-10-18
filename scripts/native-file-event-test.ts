@@ -68,9 +68,10 @@ function fixture(documents: WorkspaceDocumentCatalogueEntry[] = []) {
   } as unknown as SqlConnection;
   const withNamespaceRead: typeof withNativeWorkspaceFilesRead = (input, consume) => {
     assert.equal(input.maxEntries, 1); assert.equal(input.paths.length, 1);
-    return withNativeWorkspaceFilesRead(input, async scope => {
+    return withNativeWorkspaceFilesRead(input, async (scope, actualConnection) => {
       assert(controls.active && controls.fenced, 'classification callback runs inside the genuine helper fence');
-      const result = await consume(scope);
+      assert.equal(actualConnection, connection);
+      const result = await consume(scope, actualConnection);
       assert(controls.active && controls.fenced, 'classification cannot end or release the shared read fence');
       return result;
     }, {

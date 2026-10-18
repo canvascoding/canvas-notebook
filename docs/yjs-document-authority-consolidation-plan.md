@@ -37,6 +37,8 @@ Das Kandidatenpaket `75718fc` ist bisher unregistriert, nicht als Core aktiv und
 
 Dateiaktions-Undo bleibt für alle Dateitypen einschließlich historischer Jobs ausgeschaltet; Text-Undo im Editor bleibt getrennt. Review Center bleibt ausgeschaltet und außerhalb dieses Auftrags. Die ursprünglichen Produktionsdateien wurden nur gelesen; ihre ursprüngliche Dateiaktionsblockade ist nicht als behoben nachgewiesen.
 
+**Zusätzlicher Copy-UI-Anschluss für Scenes:** Die Dateiliste enthielt bislang nur den Yjs-Katalog und physische Dateien. Der [Scene-Dateibaumanschluss](./yjs-scene-document-tree-evidence.md) ergänzt echte Scene-Header auf derselben bestehenden READ-ONLY-Verbindung, vereinigt beide Namensräume mit gemeinsamem Limit und vergleicht den vollständigen Scene-Katalog nach dem Dateisystemlesen erneut. Datei-Vorfahren aller Provider bleiben Konflikte; Inhalte und Assets werden für die Liste nicht geladen. 24 Tree-, fünf bestehende Dateileser-, 14 Dateievent- und sechs echte PG18-Gruppen sowie Scoped-Lint bestehen. Der vollständige Typvergleich bestätigt bytegleich die 69 geerbten Main-Testdiagnosen ohne zusätzliche Diagnose; drei private Fixtures, sechs Bundles und zehn Quellenpins sind unabhängig abgeschlossen. Die erweiterte kompilierte Browserfolge steht noch aus. Vier neue Browserfälle für Desktop/Mobil sind geschrieben; zusammen mit den bisherigen 16 Fällen müssen sie erst tatsächlich durchlaufen.
+
 ## Quellengebundene Historie der Umsetzung und Nachweise
 
 Die folgenden Zwischenstände bleiben als Nachweis erhalten. Aussagen wie „aktuell“, „als nächstes“ oder „offen“ beschreiben dort den jeweils genannten Commit und ersetzen nicht den verbindlichen Status oben. Insbesondere sind frühere Browserpässe keine aktuelle Gesamtfreigabe.

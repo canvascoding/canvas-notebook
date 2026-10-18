@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { readWorkspaceDocumentCatalogue, type WorkspaceDocumentCatalogueEntry } from '../app/lib/collaboration/workspace-document-catalogue';
+import type { WorkspaceSceneCatalogueEntry } from '../app/lib/collaboration/workspace-scene-catalogue';
 import { createPlainTextYDoc, createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { Y } from '../app/lib/collaboration/server-runtime';
 import type { SqlConnection } from '../app/lib/db';
@@ -25,6 +26,21 @@ function row(filePath: string, authority: Row['authority'] = 'initialized', id =
     has_state_history: authority !== 'pristine', lifecycle_generation: initialized ? 1 : null, authority,
     state_status: initialized ? 'active' : null, state_path: initialized ? filePath : null,
     state_workspace_id: initialized ? 'native-tree-test' : null, state_organization_id: null };
+}
+function sceneRow(filePath: string, authority: WorkspaceSceneCatalogueEntry['authority'] = 'initialized'): WorkspaceSceneCatalogueEntry {
+  const id = `scene:${filePath}`, lineage = `lineage:${id}`, initialized = authority === 'initialized';
+  return { id, lineage_id: lineage, path: filePath, workspace_id: 'native-tree-test', workspace_type: 'personal',
+    organization_id: null, customer_id: null, project_id: null, provider: 'excalidraw', status: 'active', state_version: 0,
+    has_persisted_state: initialized, authority, state_document_id: initialized ? id : null,
+    state_workspace_id: initialized ? 'native-tree-test' : null, state_organization_id: null,
+    state_path: initialized ? filePath : null, state_status: initialized ? 'active' : null,
+    lifecycle_generation: initialized ? 1 : null, scene_schema_version: initialized ? 1 : null,
+    excalidraw_version: initialized ? '0.18.1' : null, scene_sequence: initialized ? 2 : null,
+    checkpoint_sequence: initialized ? 1 : null, canonical_hash: initialized ? 'a'.repeat(64) : null,
+    elements_bytes: initialized ? 2 : null, shared_app_state_bytes: initialized ? 2 : null, assets_bytes: initialized ? 2 : null,
+    lineage_row_id: lineage, lineage_workspace_id: 'native-tree-test', lineage_workspace_type: 'personal', lineage_organization_id: null,
+    lineage_customer_id: null, lineage_project_id: null, lineage_path: filePath, lineage_status: 'active',
+    lineage_archived_at: null, lineage_trash_entry_id: null };
 }
 const file = (filePath: string, stats = false): FileNode => ({ path: filePath, name: path.posix.basename(filePath), type: 'file',
   ...(stats ? { size: 19, modified: 100, created: 90, permissions: '100600' } : {}) });
@@ -103,13 +119,18 @@ test('canonical scope, duplicate identity, malformed physical hierarchy and boun
 async function fixture(representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks' = 'plain_text') {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-document-tree-')), ws = workspace(root);
   const rows: Row[] = [], states = new Map<string, Uint8Array>(), commands: string[] = [];
-  const controls = { active: false, closed: 0, checkouts: 0, catalogueReads: 0, stateReads: 0, physicalReads: 0, drift: false, unknownSql: false };
+  const controls = { active: false, closed: 0, checkouts: 0, catalogueReads: 0, stateReads: 0, physicalReads: 0,
+    drift: false, unknownSql: false, ancestorPath: null as string | null };
   const connection: SqlConnection = {
     run: async sql => { commands.push(sql); assert(!/^\s*(INSERT|UPDATE|DELETE)/u.test(sql));
       if (sql === 'BEGIN READ ONLY') { assert(!controls.active); controls.active = true; }
       if (sql === 'COMMIT' || sql === 'ROLLBACK') { assert(controls.active); controls.active = false; } },
     get: async sql => {
       assert(controls.active); commands.push(sql);
+      if (sql.includes('UNION ALL SELECT s.path FROM collaboration_excalidraw_states')) {
+        assert.doesNotMatch(sql, /d\.provider\s*=/u);
+        return controls.ancestorPath ? { path: controls.ancestorPath } : undefined;
+      }
       if (sql.includes('pg_advisory_xact_lock_shared') || sql.includes('LEFT JOIN collaboration_documents') || sql.includes('SELECT d.path FROM collaboration_documents')) return undefined;
       throw new Error('Unexpected SQL read.');
     },
@@ -128,6 +149,7 @@ async function fixture(representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blo
     openConnection: async () => { controls.checkouts++; return connection; },
     // Real catalogue validation/classification, including final namespace pin.
     readCatalogue: readWorkspaceDocumentCatalogue,
+    readSceneCatalogue: async () => [],
     loadState: async () => { controls.stateReads++; throw new Error('A namespace read must never load native state.'); },
     buildPhysicalTree: async (...args) => { assert(controls.active); controls.physicalReads++; return buildFileTree(...args); },
   };
@@ -138,7 +160,7 @@ async function fixture(representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blo
       try { states.set(d.id, Y.encodeStateAsUpdate(native)); } finally { native.destroy(); }
     }
   };
-  return { root, workspace: ws, rows, states, commands, controls, dependencies, add,
+  return { root, workspace: ws, rows, states, commands, controls, dependencies, add, connection,
     cleanup: async () => { assert(!controls.active); await fs.rm(root, { recursive: true, force: true }); } };
 }
 
@@ -251,4 +273,101 @@ test('physical file parents, native-directory projections and aliases cannot aut
       assert.equal(f.controls.stateReads, 0); assert(f.commands.includes('ROLLBACK'));
     } finally { await f.cleanup(); }
   }
+});
+
+test('Scene headers establish native-only names and parents with the same visibility, depth and detached-stat rules', () => {
+  const scenes = [sceneRow('virtual/deep/drawing.excalidraw'), sceneRow('lost.bin', 'missing-state'),
+    sceneRow('.git/private.excalidraw'), sceneRow('.canvas-skill-drafts/private.excalidraw')];
+  const physical = [file('lost.bin', true)], before = structuredClone(physical);
+  assert.deepEqual(mergeWorkspaceDocumentTree(physical, scenes, '.', 2), [
+    directory('virtual', [directory('virtual/deep', [file('virtual/deep/drawing.excalidraw')])]), file('lost.bin')]);
+  assert.deepEqual(physical, before);
+  assert.deepEqual(mergeWorkspaceDocumentTree([], [scenes[0]], 'virtual', 0), [directory('virtual/deep')]);
+  assert.deepEqual(mergeWorkspaceDocumentTree([], [scenes[0]], 'virtual/deep', 0), [file('virtual/deep/drawing.excalidraw')]);
+});
+
+test('Yjs and Scene headers form one namespace with shared identity, parent, case and total-entry conflicts', () => {
+  assert.deepEqual(mergeWorkspaceDocumentTree([], [row('folder/note.md'), sceneRow('folder/drawing.excalidraw')], '.', 1),
+    [directory('folder', [file('folder/drawing.excalidraw'), file('folder/note.md')])]);
+  assert.throws(() => mergeWorkspaceDocumentTree([], [row('same.md'), sceneRow('same.md')], '.', 1), { code: 'TREE_SOURCE_CHANGED' });
+  assert.throws(() => mergeWorkspaceDocumentTree([], [row('note.md'), { ...sceneRow('drawing.excalidraw'), id: 'document:note.md' }], '.', 1),
+    { code: 'TREE_SOURCE_CHANGED' });
+  assert.throws(() => mergeWorkspaceDocumentTree([], [sceneRow('parent.bin'), row('parent.bin/child.md')], '.', 1), { code: 'TREE_NAME_CONFLICT' });
+  assert.throws(() => mergeWorkspaceDocumentTree([], [row('parent.md'), sceneRow('parent.md/child.excalidraw')], '.', 1), { code: 'TREE_NAME_CONFLICT' });
+  assert.throws(() => mergeWorkspaceDocumentTree([], [row('Drawing.excalidraw'), sceneRow('drawing.excalidraw')], '.', 1), { code: 'TREE_NAME_CONFLICT' });
+  assert.throws(() => mergeWorkspaceDocumentTree([], [row('é.md'), sceneRow('e\u0301.md')], '.', 1), { code: 'TREE_NAME_CONFLICT' });
+  const yjs = Array.from({ length: 5_001 }, (_, index) => row(`note-${index}.md`));
+  const scenes = Array.from({ length: 5_000 }, (_, index) => sceneRow(`drawing-${index}.excalidraw`));
+  assert.throws(() => mergeWorkspaceDocumentTree([], [...yjs, ...scenes], '.', 0), { code: 'NATIVE_CATALOGUE_TOO_LARGE', status: 413 });
+});
+
+test('Scene tree reads borrow the exact active read-only connection and compare both full catalogues without content reads', async () => {
+  const f = await fixture(), scene = sceneRow('virtual/deep/drawing.excalidraw'); let sceneReads = 0;
+  try {
+    f.add('note.md');
+    const dependencies: WorkspaceDocumentTreeDependencies = { ...f.dependencies,
+      readSceneCatalogue: async (connection, current, options) => {
+        assert.equal(connection, f.connection); assert(f.controls.active); assert(f.commands.includes('BEGIN READ ONLY'));
+        assert.equal(current.workspaceId, f.workspace.workspaceId); assert.deepEqual(options, { paths: ['.'], maxEntries: 10_000 });
+        sceneReads++; return structuredClone([scene]);
+      } };
+    assert.deepEqual(await readWorkspaceDocumentTree(f.workspace, '.', 2, { includeMetadata: false }, dependencies),
+      [directory('virtual', [directory('virtual/deep', [file(scene.path)])]), file('note.md')]);
+    assert.equal(sceneReads, 2); assert.equal(f.controls.catalogueReads, 2); assert.equal(f.controls.checkouts, 1);
+    assert.equal(f.controls.closed, 1); assert.equal(f.controls.stateReads, 0); assert.equal(f.commands.at(-1), 'COMMIT');
+    assert(!f.commands.some(sql => /^\s*(INSERT|UPDATE|DELETE|CREATE|ALTER)/u.test(sql)));
+  } finally { await f.cleanup(); }
+});
+
+test('selected Scene-only logical folders need no physical tree or projection and preserve missing-state entries', async () => {
+  const f = await fixture();
+  try {
+    let reads = 0;
+    const dependencies: WorkspaceDocumentTreeDependencies = { ...f.dependencies,
+      readSceneCatalogue: async (connection, _workspace, options) => {
+        assert.equal(connection, f.connection); assert(f.controls.active); assert.deepEqual(options?.paths, ['virtual']); reads++;
+        return [sceneRow('virtual/deep/drawing.excalidraw'), sceneRow('virtual/lost.bin', 'missing-state')];
+      } };
+    assert.deepEqual(await readWorkspaceDocumentTree(f.workspace, 'virtual', 1, {}, dependencies), [
+      directory('virtual/deep', [file('virtual/deep/drawing.excalidraw')]), file('virtual/lost.bin')]);
+    assert.equal(reads, 2); assert.equal(f.controls.physicalReads, 0); assert.equal(f.controls.stateReads, 0);
+    await assert.rejects(fs.lstat(path.join(f.root, 'virtual')), { code: 'ENOENT' });
+  } finally { await f.cleanup(); }
+});
+
+test('full Scene-header drift, failed catalogue and foreign scope reject without content or physical fallback', async () => {
+  for (const fault of ['checkpoint-drift', 'sql', 'workspace', 'organization', 'path'] as const) {
+    const f = await fixture(); let reads = 0;
+    try {
+      const dependencies: WorkspaceDocumentTreeDependencies = { ...f.dependencies,
+        readSceneCatalogue: async connection => {
+          assert.equal(connection, f.connection); assert(f.controls.active); reads++;
+          if (fault === 'sql') throw new Error('Unknown Scene catalogue failure.');
+          const scene = sceneRow(fault === 'path' ? 'outside/drawing.excalidraw' : 'drawing.excalidraw');
+          if (fault === 'checkpoint-drift' && reads === 2) scene.checkpoint_sequence = 2;
+          if (fault === 'workspace') scene.workspace_id = 'foreign-workspace';
+          if (fault === 'organization') scene.organization_id = 'foreign-organization';
+          return [scene];
+        } };
+      // The path fault is requested from a distinct existing directory, so it
+      // cannot be mistaken for an absent selected directory.
+      if (fault === 'path') await fs.mkdir(path.join(f.root, 'inside'));
+      await assert.rejects(readWorkspaceDocumentTree(f.workspace, fault === 'path' ? 'inside' : '.', 1, {}, dependencies),
+        fault === 'sql' ? /Unknown Scene catalogue failure/u : { code: 'TREE_SOURCE_CHANGED' });
+      assert.equal(f.controls.stateReads, 0); assert(f.commands.includes('ROLLBACK')); assert(!f.commands.includes('COMMIT'));
+      if (['sql', 'workspace', 'organization'].includes(fault)) assert.equal(f.controls.physicalReads, 0);
+    } finally { await f.cleanup(); }
+  }
+});
+
+test('an active Scene or other-provider file ancestor blocks selected folders on the same read transaction', async () => {
+  const f = await fixture();
+  try {
+    f.controls.ancestorPath = 'drawing.excalidraw';
+    await assert.rejects(readWorkspaceDocumentTree(f.workspace, 'drawing.excalidraw/child', 0, {}, f.dependencies),
+      { code: 'ARCHIVE_NAME_CONFLICT', status: 409 });
+    assert.equal(f.controls.physicalReads, 0); assert.equal(f.controls.stateReads, 0);
+    assert(f.commands.some(sql => sql.includes('UNION ALL SELECT s.path FROM collaboration_excalidraw_states')));
+    assert(f.commands.includes('ROLLBACK')); assert(!f.commands.includes('COMMIT'));
+  } finally { await f.cleanup(); }
 });

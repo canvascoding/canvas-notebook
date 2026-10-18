@@ -1,6 +1,6 @@
 # Reguläre gemischte Kopie mit Yjs, Scenes und Assets
 
-Stand: 18. Oktober 2026. Der reguläre Copy-Owner verwendet für neue Vorgänge den Managed-Plan V3 und die dauerhafte Stage V4. Die gemeinsame lokale PG-/FS-/Typabnahme ist abgeschlossen; GitNexus, lokaler Commit und QA-Integration folgen. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben ausgeschaltet.
+Stand: 18. Oktober 2026. Der reguläre Copy-Owner verwendet für neue Vorgänge den Managed-Plan V3 und die dauerhafte Stage V4. Die gemeinsame lokale PG-/FS-/Typabnahme ist abgeschlossen; Root `331502731` und QA `b20d60efe` enthalten diesen Backend-Schnitt. Bei der anschließenden UI-Vorbereitung wurde ein fehlender Scene-Anschluss im Dateibaum erkannt; dessen [eigene Prüfung](./yjs-scene-document-tree-evidence.md) und die neue kompilierte Browserabnahme bleiben getrennte Nachweise. Allgemeine Aktivierung, Dateiaktions-Undo und Review Center bleiben ausgeschaltet.
 
 ## Gemeinsamer Ablauf
 

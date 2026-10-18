@@ -5,6 +5,7 @@ import path from 'node:path';
 import { withNativeWorkspaceFilesRead } from '../collaboration/workspace-native-file-read';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import type { WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
+import { readWorkspaceSceneCatalogue } from '../collaboration/workspace-scene-catalogue';
 import { buildFileTree } from '../filesystem/workspace-files';
 import { assertWorkspacePathHasNoAliases, normalizeWorkspaceRelativePath, resolveWorkspacePath } from '../workspaces/path-guard';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -17,11 +18,15 @@ const MAX_TREE_DEPTH = 64;
 // descendant must not make private implementation directories visible again.
 const IGNORED_DIRECTORIES = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand', '.canvas-copy-backups']);
 const HIDDEN_FILES = new Set(['.gitkeep', '.keep']);
-type CatalogueDocument = Readonly<WorkspaceDocumentCatalogueEntry>;
+// Only these namespace facts are shared. A scene header is never a Yjs state
+// or a text-export capability.
+type CatalogueDocument = Readonly<Pick<WorkspaceDocumentCatalogueEntry,
+  'id' | 'path' | 'workspace_id' | 'organization_id' | 'status' | 'state_version' | 'authority'>>;
 
 export type WorkspaceDocumentTreeDependencies = NonNullable<Parameters<typeof withNativeWorkspaceFilesRead>[2]> & {
   /** May return cached physical nodes; the merge never mutates that cache. */
   buildPhysicalTree?: typeof buildFileTree;
+  readSceneCatalogue?: typeof readWorkspaceSceneCatalogue;
 };
 export type WorkspaceDocumentTreeOptions = { includeMetadata?: boolean };
 
@@ -150,8 +155,29 @@ export async function readWorkspaceDocumentTree(
   dependencies: WorkspaceDocumentTreeDependencies = {},
 ): Promise<FileNode[]> {
   workspace = structuredClone(workspace); directory = canonicalDirectory(directory); assertDepth(depth);
-  return withNativeWorkspaceFilesRead({ workspace, paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES }, async scope => {
-    for (const document of scope.documents) {
+  return withNativeWorkspaceFilesRead({ workspace, paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES }, async (scope, connection) => {
+    // This is a namespace-only check. Keep it here rather than changing the
+    // text export scope's Yjs semantics for ZIP/download consumers.
+    if (directory !== '.') {
+      const ancestor = await connection.get(`SELECT d.path FROM collaboration_documents d
+        WHERE d.workspace_id=$1 AND d.status='active'
+          AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(path) WHERE left(p.path,length(d.path)+1)=d.path||'/')
+        UNION ALL SELECT s.path FROM collaboration_excalidraw_states s
+        WHERE s.workspace_id=$1 AND s.status='active'
+          AND EXISTS(SELECT 1 FROM unnest($2::text[]) p(path) WHERE left(p.path,length(s.path)+1)=s.path||'/') LIMIT 1`,
+      [workspace.workspaceId, [directory]]);
+      if (ancestor) throw Object.assign(new Error('A native document conflicts with the requested directory.'), {
+        status: 409, code: 'ARCHIVE_NAME_CONFLICT',
+      });
+    }
+    const sceneCatalogue = await (dependencies.readSceneCatalogue ?? readWorkspaceSceneCatalogue)(connection, workspace,
+      { paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES });
+    const beforeScenes = JSON.stringify(sceneCatalogue);
+    const documents: readonly CatalogueDocument[] = [...scope.documents, ...sceneCatalogue];
+    if (documents.length > MAX_CATALOGUE_ENTRIES) {
+      throw Object.assign(new Error('Too many native documents in this tree scope.'), { status: 413, code: 'NATIVE_CATALOGUE_TOO_LARGE' });
+    }
+    for (const document of documents) {
       if (document.workspace_id !== workspace.workspaceId || document.organization_id !== (workspace.organizationId ?? null)) {
         throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The native tree catalogue belongs to another workspace.');
       }
@@ -170,9 +196,9 @@ export async function readWorkspaceDocumentTree(
         throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The workspace root changed while reading its tree.');
       }
     };
-    const nativeChildren = scope.documents.some(document => document.authority !== 'pristine'
+    const nativeChildren = documents.some(document => document.authority !== 'pristine'
       && document.path !== directory && inScope(document.path, directory) && visible(document.path, 'file'));
-    if (scope.documents.some(document => document.path === directory && document.authority !== 'pristine')) conflict();
+    if (documents.some(document => document.path === directory && document.authority !== 'pristine')) conflict();
     let logicalDirectory = false;
     try {
       await assertWorkspacePathHasNoAliases(workspace, directory, { readOnly: true });
@@ -189,7 +215,7 @@ export async function readWorkspaceDocumentTree(
     }
     // A missing suffix is valid; an actual file/alias in a native parent's
     // location is not. These are path/type observations, never text reads.
-    for (const document of scope.documents) {
+    for (const document of documents) {
       if (!visible(document.path, 'file')) continue;
       try {
         await assertWorkspacePathHasNoAliases(workspace, document.path, { readOnly: true });
@@ -208,8 +234,13 @@ export async function readWorkspaceDocumentTree(
       }
       throw error;
     });
-    const merged = mergeWorkspaceDocumentTree(physical, scope.documents, directory, depth);
+    const merged = mergeWorkspaceDocumentTree(physical, documents, directory, depth);
     await assertRoot();
+    const currentScenes = await (dependencies.readSceneCatalogue ?? readWorkspaceSceneCatalogue)(connection, workspace,
+      { paths: [directory], maxEntries: MAX_CATALOGUE_ENTRIES });
+    if (JSON.stringify(currentScenes) !== beforeScenes) {
+      throw new WorkspaceDocumentTreeError('TREE_SOURCE_CHANGED', 'The scene tree catalogue changed while reading its namespace.');
+    }
     return merged;
   }, dependencies);
 }
