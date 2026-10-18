@@ -1,0 +1,200 @@
+---
+title: Python SDK
+description: Connect an external Python client to native Canvas documents using authorized MCP tools, stable IDs, and full document versions.
+section: Developers
+sectionOrder: 11
+order: 2
+locale: en
+translationKey: developers.python-sdk
+updatedAt: 2026-10-18
+---
+
+# Python SDK
+
+**Development preview.** `canvas-notebook-python` is currently an unpublished `0.1.0.dev0` package in the Notebook repository. These instructions use a locally built wheel, not a PyPI release. They require a compatible development Notebook with the native document tools enabled; they do not imply that a public deployment already provides this API.
+
+The SDK calls Canvas's central document services. Canvas owns Yjs state, document identities, versions and authorized mutations. Do not write `.md` projections directly or construct raw Yjs updates in your script. The [Document API reference](/docs/developers/document-api) describes the underlying requests and results.
+
+## Install a development wheel
+
+Use Python 3.10 or later. From the matching Notebook repository checkout:
+
+```sh
+python -m venv .venv-sdk
+. .venv-sdk/bin/activate
+python -m pip install build
+python -m build --wheel --outdir sdk-dist packages/canvas-notebook-python
+python -m pip install './sdk-dist/canvas_notebook_python-0.1.0.dev0-py3-none-any.whl[mcp,keyring]'
+```
+
+The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.0` and matching MCP types. `keyring` adds supported OS credential storage. The core `CanvasNotebook` facade and DTO/error types have no runtime MCP dependency; a controlled agent-runtime adapter is a separate, currently unimplemented connection.
+
+## Authorize and read progressively
+
+Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit and Edit status require `knowledge:write` and their current server-side access checks.
+
+This script opens the actual authorization-code/PKCE flow in your browser, searches progressively and reads one hit by stable ID and full version:
+
+```python
+import argparse
+import asyncio
+import json
+
+from canvas_notebook import (
+    CanvasMcpTransport, CanvasNotebook, CanvasOAuth, KeyringTokenStorage,
+)
+
+
+async def read_first_hit(notebook, workspace_id, query):
+    cursor = None
+    while True:
+        page = (await notebook.search_documents(
+            workspace_id, query, cursor=cursor,
+        )).require_success()
+        if page["hits"]:
+            ref = page["hits"][0]["document"]
+            return await notebook.read_all(
+                workspace_id, ref["documentId"],
+                expected_version=ref["version"],
+            )
+        cursor = page["nextCursor"]
+        if cursor is None:
+            return None
+
+
+async def main(endpoint, workspace_id, query):
+    oauth = CanvasOAuth(
+        scopes=("openid", "offline_access", "workspace:list",
+                "knowledge:tree", "knowledge:search", "knowledge:read",
+                "knowledge:write"),
+        storage=KeyringTokenStorage(endpoint, profile="document-script"),
+        redirect_uri="http://127.0.0.1:8765/oauth/callback",
+    )
+    async with CanvasMcpTransport(endpoint, oauth=oauth) as transport:
+        notebook = CanvasNotebook(transport)
+        available = (await notebook.list_workspaces()).require_success()
+        if not any(item["id"] == workspace_id for item in available["workspaces"]):
+            raise RuntimeError("Select a workspace available to this connection.")
+        complete = await read_first_hit(notebook, workspace_id, query)
+        if complete is not None:
+            native_body = json.loads(complete.body)
+            print(complete.document["documentId"], native_body["representation"])
+        else:
+            print("No hit in the inspected native search corpus.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("endpoint")
+    parser.add_argument("workspace_id")
+    parser.add_argument("query")
+    args = parser.parse_args()
+    asyncio.run(main(args.endpoint, args.workspace_id, args.query))
+```
+
+Choose a free explicit loopback callback port. Keep the same endpoint, credential profile and redirect URI when reauthorizing. The callback listener starts only when interactive authorization is needed and closes with the connection lifetime. Tokens and client registration are stored together in the supported OS credential system; no plaintext fallback is selected. Use one active client per profile.
+
+For a temporary in-process session, use `MemoryTokenStorage(endpoint)` instead. Restarting loses its tokens and client registration; a new client identity cannot automatically resume operations owned by the previous client. The OS store preserves registration across restarts. `clear_tokens()` removes local tokens while retaining registration; it does not revoke the server grant.
+
+An already issued MCP resource token can instead be supplied as `CanvasMcpTransport(endpoint, access_token=token)`, with no automatic refresh in that mode. Obtain it through the actual supported authorization flow. A Better Auth REST Session Bearer is a different credential and cannot be substituted here. Keep credentials and authorization/callback URLs out of logs, document contents and agent sandboxes.
+
+Search pages retain the server's coverage information. A page can have no hits and still have a continuation. Native search does not search physical files, Scenes or PDFs, and remote live completeness is not certified. The example stops at the first hit; follow every continuation if your task needs the rest of the search results.
+
+`read_all` follows version-bound byte pages, checks identity and metadata consistency, and stops on conflicts or local budgets. It does not silently restart at a newer version or return a partial body as complete. Native JSON may be split across pages, so parse only the assembled `complete.body`. Every actual result page remains available in `complete.pages` with its currency and projection facts. Use `read_page` for explicit page handling and `format="text"` or `format="markdown"` only when that representation is needed and available.
+
+## Create an empty or populated document
+
+Keep a caller-selected idempotency key with each exact request before sending it. The SDK never generates or replaces mutation keys. Use a new destination path; Create does not overwrite an existing document.
+
+```python
+async def create_note(notebook, workspace_id, caller_key):
+    created = (await notebook.create_markdown(
+        workspace_id, "notes/sdk-example.md", "SDK example text.\n",
+        idempotency_key=caller_key,
+    )).require_success()
+    # Use content="" above for an empty document.
+    print(created["outcome"])  # created or already_created
+    return created
+```
+
+The result carries the actual document ID, lineage, full content version, metadata version, currency and projection. An exact completed retry retains the original creation; it is not a request to replace content. Keep the same key and request for that retry.
+
+## Import an existing Markdown file reference
+
+Pass the actual host-issued file reference, containing `download_url` and `file_id`, with optional `mime_type` and `file_name`. The SDK does not upload a local path or manufacture a download URL.
+
+```python
+async def import_note(notebook, workspace_id, file_reference, caller_key):
+    return (await notebook.import_markdown(
+        workspace_id, "notes/imported.md", file_reference,
+        idempotency_key=caller_key,
+    )).require_success()
+```
+
+Native Create/Import requires a `.md` or `.markdown` destination and the server's enabled native-document feature. A completed import retry can skip a replacement download only when the original destination is still confirmed. A changed destination can return `MCP_INGEST_DESTINATION_CHANGED`; pending recovery may need the original source again. There is currently no general Create-status method.
+
+## Edit by full version and inspect status
+
+Use the document's complete opaque `version`, not its path, Markdown SHA or state vector. This function replaces one exact visible text target and preserves the actual conflict or unknown-outcome error:
+
+```python
+from canvas_notebook import CanvasMutationOutcomeUnknown, CanvasToolError
+
+
+async def edit_note(notebook, workspace_id, ref, caller_key):
+    try:
+        result = await notebook.edit_document(
+            workspace_id, ref["documentId"],
+            expected_version=ref["version"],
+            idempotency_key=caller_key,
+            patch={
+                "kind": "native_text_replace",
+                "edits": [{"oldText": "SDK example text.",
+                           "newText": "Updated example text.",
+                           "expectedOccurrences": 1}],
+            },
+        )
+        edited = result.require_success()
+    except CanvasToolError as error:
+        if error.code == "DOCUMENT_VERSION_CONFLICT":
+            # Read the current document and review the intended change.
+            # Do not reuse this operation's key for a different request.
+            print("The document version changed.")
+        raise
+    except CanvasMutationOutcomeUnknown:
+        # Retain caller_key. No result is not proof that no write occurred.
+        raise
+    if (edited["state"] == "confirmed"
+            and edited["persistence"]["status"] == "confirmed"):
+        print("The recorded edit is durably confirmed.")
+    else:
+        print("Inspect the recorded operation status before assuming success.")
+    return edited
+
+
+async def inspect_edit(notebook, workspace_id, operation_id):
+    return (await notebook.edit_status(
+        workspace_id, operation_id,
+    )).require_success()
+```
+
+`native_blocks` patches use the actual IDs and guards from an explicit native read with `include_edit_targets=True`. This option is valid only for `format="native"`. Keep the returned targets and full version together; the [API reference](/docs/developers/document-api) describes the supported block-operation shapes. The SDK passes these camelCase patch fields through unchanged.
+
+`.require_success()` rejects returned tool errors; it does not turn a pending, conflict or failed Edit state into success. Status observes historical operation facts under the same current Write/owner policy and never reapplies the edit. Its recorded After version is not necessarily the document's current version. A renewed session for the same authorized user/client can inspect a prior operation without changing its original attribution.
+
+`CanvasToolError` retains a bounded `.code`, optional `.operation_id` and the original result. If a mutation receives no result, `CanvasMutationOutcomeUnknown` retains the caller key and original cause; no automatic application retry or status polling follows. Task cancellation still propagates and may also leave an unknown outcome. Do not dump raw causes or results into application logs.
+
+The official transport may resend the same HTTP request after OAuth 401/insufficient-scope authorization and may retry once after modern `HEADER_MISMATCH`. The SDK snapshots arguments so those protocol paths keep the caller key and patch. InputRequired rounds are disabled. This is not a promise of exactly one physical HTTP request; timeouts, disconnects and application errors do not trigger a new SDK mutation attempt.
+
+## Current surface
+
+| Python method | Purpose |
+| --- | --- |
+| `list_workspaces`, `get_workspace_overview` | Discover authorized workspaces and their overview |
+| `list_tree` | One bounded navigation page; expand or continue explicitly |
+| `search_documents` | Native search page with coverage and stable document references |
+| `read_page`, `read_all` | Stable-ID, full-version document reads |
+| `create_markdown`, `import_markdown` | New native Markdown document and confirmed creation identity |
+| `edit_document`, `edit_status` | Guarded native mutation and historical operation status |
+
+SDK Copy, Move and Delete methods, central PDF conversion and the controlled agent-runtime bridge are still absent. This client does not substitute raw filesystem writes for those missing connections. Package publication and public deployment are separate release steps.
