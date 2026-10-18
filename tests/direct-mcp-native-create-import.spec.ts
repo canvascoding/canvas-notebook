@@ -244,7 +244,12 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     await ok(await contextA.request.put('/api/integrations/mcp-server/workspaces', { data: { workspaceId: workspace.id, enabled: true } }), 'Opt in owned workspace');
     mcpA = await authorizeIngestE2EMcp(contextA, origin, workspace.id, protocol, { scopes, clientNamePrefix: 'Owned native MCP compiled' });
     tokenIdentity(mcpA, identityA); assert.equal(success(await mcpA.call('auth_probe', {})).authenticated, true);
-    const initialized = await mcpA.rpc('initialize', { protocolVersion: protocol, capabilities: {}, clientInfo: { name: 'owned-native-create-import', version: '1' } }); assert(object(initialized.serverInfo));
+    const discovered = await mcpA.rpc('server/discover');
+    assert.notEqual(discovered.isError, true, 'Modern MCP discovery must succeed.');
+    assert(Array.isArray(discovered.supportedVersions) && discovered.supportedVersions.every(value => typeof value === 'string'));
+    assert(discovered.supportedVersions.includes(protocol));
+    assert(object(object(discovered.capabilities).tools));
+    assert.equal(object(object(discovered._meta)['io.modelcontextprotocol/serverInfo']).name, 'canvas-notebook-direct-mcp');
     const listing = await mcpA.rpc('tools/list'); assert(Array.isArray(listing.tools));
     for (const name of tools) assert(listing.tools.some(value => object(value).name === name));
     const generated = Buffer.from('# Native compiled MCP\n\nReal complete **content**.\n');
