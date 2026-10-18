@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
 import { expect, request as apiRequest, test, type APIRequestContext, type APIResponse, type BrowserContext, type TestInfo } from '@playwright/test';
@@ -597,5 +600,218 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       cookieFreeBearerConfirmed: true, actualRestSearchAndVersionBoundIdRead: true, revokedSearchAndRead401: true,
       actualRequestOriginAttribution: true, sameKeyNoReplay: true, pureStatusRowsUnchanged: true,
       revokedEditAndStatus401: true, operationId: edited.operationId, fullVersion: edited.effect!.afterVersion, readOnlyProbe: after.probe });
+  });
+  test.describe('Installed Python wheel and genuine SDK OAuth', () => {
+    // Authorization and callback URLs must remain only in the private IPC and
+    // browser memory, including when this new test fails. Existing six cases
+    // retain their original configuration and exact domain assertions.
+    test.use({ trace: 'off', screenshot: 'off', video: 'off' });
+    test('7: installed Python wheel completes real OAuth PKCE and search/read/create/edit reaches the visible editor and reload', async ({ browser: _browser }, info) => {
+      assert(contextB && mcpB && identityB && workspace && editCreated);
+      const active = contextB, identity = identityB, selected = workspace;
+      await reviewOff(active);
+      const binding = object(JSON.parse((await privateBytes(path.join(owned.fixtureRoot, 'python-sdk-binding.json'))).toString('utf8')));
+      assert.equal(binding.version, 1); assert.equal(typeof binding.python, 'string'); assert(path.isAbsolute(binding.python as string));
+      assert.equal(binding.wheelSha256, 'a49b1910b15a915fb1059fe184c28e6db436f7c7a68418e10fe794ac8ad82b7c');
+      assert.equal(typeof binding.wheelUri, 'string');
+      const wheelUrl = new URL(binding.wheelUri as string); assert.equal(wheelUrl.protocol, 'file:');
+      assert(!wheelUrl.host && !wheelUrl.search && !wheelUrl.hash);
+      const wheel = fileURLToPath(wheelUrl), wheelStat = await fs.lstat(wheel);
+      assert(wheelStat.isFile() && !wheelStat.isSymbolicLink() && wheelStat.uid === process.getuid?.() && wheelStat.size <= 2 * 1024 * 1024);
+      assert.equal(await fs.realpath(wheel), wheel); assert.equal(sha(await fs.readFile(wheel)), binding.wheelSha256);
+      const helper = path.join(owned.repo, 'scripts/helpers/python_sdk_oauth_browser_probe.py');
+      assert.equal(await fs.realpath(helper), helper); assert.equal(sha(await fs.readFile(helper)), binding.helperSha256);
+      const settings = object((await ok(await active.request.get('/api/integrations/mcp-server'), 'Observe SDK test settings')).data);
+      assert(Array.isArray(settings.capabilities));
+      const restore = { enabled: settings.desiredEnabled === true,
+        tools: settings.capabilities.filter(value => object(value).enabled === true).map(value => String(object(value).id)) };
+      const connections = async (): Promise<Row[]> => {
+        const data = object((await ok(await active.request.get('/api/integrations/mcp-server/connections'), 'Observe own SDK connection')).data);
+        assert(Array.isArray(data.connections)); return data.connections.map(value => object(value));
+      };
+      const priorIds = new Set((await connections()).map(value => String(value.connectionId)));
+      const probePort = net.createServer();
+      await new Promise<void>((resolve, reject) => { probePort.once('error', reject); probePort.listen(0, '127.0.0.1', resolve); });
+      const address = probePort.address(); assert(address && typeof address === 'object');
+      const callbackPort = address.port;
+      await new Promise<void>((resolve, reject) => probePort.close(error => error ? reject(error) : resolve()));
+      const redirect = `http://127.0.0.1:${callbackPort}/canvas-sdk-oauth/${randomUUID()}`;
+      const metadata = await ok(await active.request.get('/.well-known/oauth-authorization-server/api/auth'), 'Actual SDK authorization metadata');
+      assert.equal(metadata.issuer, issuer); assert.equal(typeof metadata.authorization_endpoint, 'string');
+      const resource = await ok(await active.request.get('/.well-known/oauth-protected-resource/mcp'), 'Actual SDK resource metadata');
+      assert.equal(resource.resource, `${origin}/mcp`);
+      assert(Array.isArray(resource.scopes_supported) && resource.scopes_supported.every(scope => typeof scope === 'string'));
+      assert(Array.isArray(metadata.scopes_supported) && metadata.scopes_supported.every(scope => typeof scope === 'string'));
+      const effectiveScopes = [...new Set([...resource.scopes_supported as string[],
+        ...(metadata.scopes_supported.includes('offline_access') ? ['offline_access'] : [])])];
+      const seed = await editRead(mcpB);
+      const oldText = 'Python OAuth original target 😀', newText = 'Python OAuth changed target 🧪';
+      const createPath = `oauth/python-sdk-${randomUUID()}.md`;
+      const configuration = { event: 'configure', endpoint: `${origin}/mcp`, issuer, authorizationEndpoint: metadata.authorization_endpoint,
+        workspaceId: selected.id, userId: identity.userId, sessionId: identity.sessionId, redirectUri: redirect,
+        seedDocumentId: seed.document.documentId, seedVersion: seed.document.version, query: 'REST changed final tail',
+        createPath, source: `# Python SDK OAuth\n\n${oldText}.\n\nStable SDK final tail.\n`, oldText, newText,
+        createKey: `sdk-oauth-create-${randomUUID()}`, editKey: `sdk-oauth-edit-${randomUUID()}`,
+        wheelUri: binding.wheelUri, wheelSha256: binding.wheelSha256, effectiveScopes };
+      let sdkConnectionId: string | undefined, created: DocumentCreateMutationResultV1 | undefined;
+      let edited: DocumentEditOperationResultV1 | undefined, authenticated: Row | undefined, complete: Row | undefined;
+      const childEnv = Object.fromEntries(['PATH', 'HOME', 'LANG', 'LC_ALL', 'TZ'].flatMap(name => process.env[name] ? [[name, process.env[name]!]] : []));
+      const child = spawn(binding.python as string, ['-I', '-B', helper], {
+        cwd: owned.fixtureRoot, env: { ...childEnv, NODE_ENV: 'test' }, stdio: ['pipe', 'pipe', 'pipe'], detached: false,
+      });
+      let closed = false, status: number | null = null, termination: NodeJS.Signals | null = null;
+      let buffered = Buffer.alloc(0), stdoutBytes = 0, stderrBytes = 0, failure: Error | undefined;
+      const messages: Row[] = [];
+      let receiver: (() => void) | undefined;
+      const fail = () => { failure ??= new Error('The private installed-wheel OAuth probe failed.'); receiver?.(); };
+      child.once('error', fail);
+      child.stdin.on('error', fail); child.stdout.on('error', fail); child.stderr.on('error', fail);
+      const ended = new Promise<void>(resolve => child.once('close', (exitCode, signal) => {
+        closed = true; status = exitCode; termination = signal; receiver?.(); resolve();
+      }));
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdoutBytes += chunk.length;
+        if (stdoutBytes > 256 * 1024 || buffered.length + chunk.length > 128 * 1024) { fail(); return; }
+        buffered = Buffer.concat([buffered, chunk]);
+        for (;;) {
+          const end = buffered.indexOf(10); if (end < 0) break;
+          const line = buffered.subarray(0, end); buffered = buffered.subarray(end + 1);
+          if (line.length > 65536) { fail(); continue; }
+          try { messages.push(object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(line)))); }
+          catch { fail(); }
+        }
+        if (messages.length > 16 || buffered.length > 65536) fail(); receiver?.();
+      });
+      child.stderr.on('data', (chunk: Buffer) => { stderrBytes += chunk.length; if (stderrBytes > 8192) fail(); });
+      const next = async (expected: string): Promise<Row> => {
+        const deadline = Date.now() + 90000;
+        while (!messages.length) {
+          if (failure || closed || Date.now() >= deadline) throw new Error('The installed-wheel OAuth probe did not produce its expected bounded step.');
+          await new Promise<void>(resolve => {
+            const timer = setTimeout(() => { receiver = undefined; resolve(); }, Math.min(1000, Math.max(1, deadline - Date.now())));
+            receiver = () => { clearTimeout(timer); receiver = undefined; resolve(); };
+          });
+        }
+        if (failure) throw failure;
+        const message = messages.shift()!;
+        // Never expose a raw protocol message (which may be the authorization
+        // URL) in an assertion, stack, reporter or attachment.
+        if (message.event !== expected) throw new Error('Unexpected installed-wheel OAuth protocol step.');
+        return message;
+      };
+      const send = async (value: Row): Promise<void> => {
+        const bytes = Buffer.from(`${JSON.stringify(value)}\n`, 'utf8'); assert(bytes.length <= 32768);
+        await new Promise<void>((resolve, reject) => child.stdin.write(bytes, error => error ? reject(new Error('Private SDK input failed.')) : resolve()));
+      };
+      const timeout = setTimeout(() => { fail(); child.kill('SIGTERM'); }, 165000);
+      let page: Awaited<ReturnType<BrowserContext['newPage']>> | undefined, consent: Awaited<ReturnType<BrowserContext['newPage']>> | undefined;
+      const errors: unknown[] = [];
+      try {
+        const configured = object((await ok(await active.request.patch('/api/integrations/mcp-server', {
+          data: { enabled: true, tools: [...new Set([...restore.tools, 'list_workspaces', 'search_knowledge'])] },
+        }), 'Enable real SDK discovery and search')).data); assert.equal(configured.runtimeEnabled, true);
+        await send(configuration);
+        const wheelProof = await next('wheel_verified'); assert.equal(wheelProof.sha256, binding.wheelSha256); assert.equal(wheelProof.mcpVersion, '2.3.0');
+        const authorization = await next('authorize');
+        // URLs and SDK state are kept out of assertions and artifacts. Any
+        // browser error from this private OAuth step is sanitized at the edge.
+        try {
+          assert(typeof authorization.url === 'string' && authorization.url.length <= 16384);
+          const target = new URL(authorization.url), declared = new URL(String(metadata.authorization_endpoint));
+          assert.equal(target.origin, declared.origin); assert.equal(target.pathname, declared.pathname);
+          assert.equal(target.searchParams.get('redirect_uri'), redirect); assert.equal(target.searchParams.get('resource'), `${origin}/mcp`);
+          assert.equal(target.searchParams.get('code_challenge_method'), 'S256');
+          const redirectUrl = new URL(redirect);
+          consent = await active.newPage();
+          const callback = consent.waitForResponse(response => {
+            const actual = new URL(response.url()); return actual.origin === redirectUrl.origin && actual.pathname === redirectUrl.pathname;
+          }, { timeout: 75000 }).catch(() => undefined);
+          // The actual callback request reaches CanvasOAuth's real listener.
+          // No route interception, callback emulation or manual token exchange.
+          await consent.goto(authorization.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+          const accept = consent.locator('button[name="accept"][value="true"]');
+          await expect(accept).toBeVisible({ timeout: 45000 }); await accept.click();
+          const delivered = await callback; assert(delivered); assert.equal(delivered.status(), 200); await delivered.finished();
+          await expect(consent.getByText('Authorization received. You may close this window.', { exact: true })).toBeVisible();
+          const added = (await connections()).filter(value => !priorIds.has(String(value.connectionId)));
+          assert.equal(added.length, 1); assert.equal(added[0].clientName, 'Canvas Notebook Python');
+          assert(typeof added[0].connectionId === 'string'); sdkConnectionId = added[0].connectionId;
+          await ok(await active.request.put('/api/integrations/mcp-server/connections/workspaces', {
+            data: { connectionId: sdkConnectionId, workspaceIds: [selected.id] },
+          }), 'Grant only owned SDK workspace');
+          await send({ event: 'authorized' });
+        } catch { throw new Error('Actual SDK OAuth browser consent or callback failed.'); }
+        finally { authorization.url = undefined; if (consent) { await consent.close(); consent = undefined; } }
+        authenticated = await next('authenticated');
+        assert.equal(authenticated.userId, identity.userId); assert.equal(authenticated.sessionId, identity.sessionId);
+        assert.equal(authenticated.issuerAndResourceBound, true); assert.equal(authenticated.realPkceExchangeCompleted, true);
+        assert(typeof authenticated.clientId === 'string' && authenticated.clientId.length > 0);
+        const searched = await next('searched_and_read'); assert.deepEqual(searched.document, seed.document);
+        assert(Number.isSafeInteger(searched.pageCount) && Number(searched.pageCount) > 1);
+        assert.equal(searched.bodySha256, sha(seed.fragment));
+        const createdMessage = await next('created'); created = object(createdMessage.result) as unknown as DocumentCreateMutationResultV1;
+        assert.equal(created.apiVersion, 1); assert.equal(created.outcome, 'created'); assert.equal(created.document.workspaceId, selected.id);
+        assert.equal(created.document.path, createPath); assert.equal(created.document.representation, 'tiptap_blocks');
+        assert.match(created.document.version, /^canvas-document-v1:[a-f0-9]{64}$/u);
+        assert.equal(typeof createdMessage.body, 'string');
+        const beforeBody = object(JSON.parse(createdMessage.body as string));
+        assert.equal(beforeBody.bodyVersion, 1); assert.equal(object(beforeBody.content).kind, 'rich_text');
+        const beforeJson = object(object(beforeBody.content).document);
+        page = await active.newPage();
+        await page.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: selected.id, host: origin });
+        await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(selected.id)}&path=${encodeURIComponent(created.document.path)}`, { waitUntil: 'domcontentloaded' });
+        let editor = page.locator(editorSelector); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 });
+        await expect(editor).toBeVisible(); await expect(editor).toContainText(oldText);
+        await expect.poll(async () => (await readNativeRichCandidate(page!, editorSelector)).document, { timeout: 30000 }).toEqual(beforeJson);
+        await send({ event: 'editor_open' });
+        const changed = await next('edited'); edited = editResultValue(changed.result);
+        assert.equal(edited.document.documentId, created.document.documentId); assert.equal(edited.effect!.beforeVersion, created.document.version);
+        const afterDocument = object(changed.document); assert.equal(afterDocument.version, edited.effect!.afterVersion);
+        assert.equal(afterDocument.documentId, created.document.documentId); assert.equal(typeof changed.body, 'string');
+        const afterBody = object(JSON.parse(changed.body as string)), afterJson = object(object(afterBody.content).document);
+        await expect(editor).toBeVisible(); await expect(editor).toContainText(newText); await expect(editor).not.toContainText(oldText);
+        await expect.poll(async () => (await readNativeRichCandidate(page!, editorSelector)).document, { timeout: 30000 }).toEqual(afterJson);
+        await page.reload({ waitUntil: 'domcontentloaded' }); editor = page.locator(editorSelector);
+        await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 }); await expect(editor).toBeVisible();
+        await expect(editor).toContainText(newText); await expect(editor).not.toContainText(oldText);
+        await expect.poll(async () => (await readNativeRichCandidate(page!, editorSelector)).document, { timeout: 30000 }).toEqual(afterJson);
+        await page.screenshot({ path: info.outputPath('python-sdk-oauth-visible-editor-reloaded.png'), animations: 'disabled' });
+        await send({ event: 'editor_verified' }); complete = await next('complete');
+        child.stdin.end(); await ended;
+        assert.equal(status, 0); assert.equal(termination, null); assert.equal(stderrBytes, 0); assert.equal(buffered.length, 0); assert.equal(messages.length, 0);
+        assert.equal(complete.actualOAuth, true); assert.equal(complete.authorizations, 1); assert.equal(complete.transportClosed, true);
+      } catch (error) { errors.push(error); }
+      finally {
+        clearTimeout(timeout); child.stdin.end();
+        if (!closed) {
+          child.kill('SIGTERM');
+          await Promise.race([ended, new Promise<void>(resolve => setTimeout(resolve, 3000))]);
+          if (!closed) { child.kill('SIGKILL'); await Promise.race([ended, new Promise<void>(resolve => setTimeout(resolve, 3000))]); }
+        }
+        if (!closed) errors.push(new Error('The owned Python SDK child did not close.'));
+        for (const opened of [consent, page]) if (opened) { try { await opened.close(); } catch { errors.push(new Error('Own SDK browser page did not close.')); } }
+        try {
+          const added = (await connections()).filter(value => !priorIds.has(String(value.connectionId)));
+          if (!sdkConnectionId && added.length === 1 && added[0].clientName === 'Canvas Notebook Python') sdkConnectionId = String(added[0].connectionId);
+          assert(added.every(value => value.connectionId === sdkConnectionId), 'Unexpected additional OAuth connection; preserve its identity.');
+          if (sdkConnectionId && added.some(value => value.connectionId === sdkConnectionId)) {
+            await ok(await active.request.delete('/api/integrations/mcp-server/connections', { data: { connectionId: sdkConnectionId } }), 'Revoke only the actual SDK connection');
+          }
+          assert(!(await connections()).some(value => value.connectionId === sdkConnectionId));
+        } catch { errors.push(new Error('Own SDK OAuth connection cleanup remained unconfirmed.')); }
+        try {
+          await ok(await active.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore SDK test MCP settings');
+          await ok(await active.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore exact SDK test capability selection');
+          await reviewOff(active);
+        } catch { errors.push(new Error('Own SDK test settings restore remained unconfirmed.')); }
+      }
+      if (errors.length) throw new AggregateError(errors, 'Installed-wheel OAuth browser acceptance or own cleanup failed.');
+      assert(created && edited && authenticated && complete && sdkConnectionId);
+      await evidence(info, { scope: 'installed Python wheel + official MCP2.3 OAuthCode/PKCE + compiled Canvas + visible native editor/reload',
+        installedWheelSha256: binding.wheelSha256, officialMcpVersion: '2.3.0', actualOAuth: true, actualCallbackReceiver: true,
+        currentSessionBinding: true, issuerAndResourceBound: true, workspaceGrantBound: true, progressiveSearchAndMultipageIdRead: true,
+        actualNativeCreateAndEditStatus: true, visibleEditorAndReloadMatchNativeJson: true, ownPythonClosed: true,
+        ownSdkConnectionRevoked: true, operationId: edited.operationId, documentId: created.document.documentId, fullVersion: edited.effect!.afterVersion });
+    });
   });
 });

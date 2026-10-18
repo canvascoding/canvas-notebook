@@ -91,13 +91,13 @@ async function rpcRequest(
   return resultFromRpc(body);
 }
 
-async function modernRpcRequest(
+async function modernHttpRequest(
   origin: string,
   id: number,
   method: string,
   params: JsonRecord = {},
   name?: string,
-): Promise<{ response: Response; result: JsonRecord }> {
+): Promise<{ response: Response; body: JsonRecord }> {
   const headers: Record<string, string> = {
     accept: MCP_ACCEPT,
     'content-type': 'application/json',
@@ -106,7 +106,7 @@ async function modernRpcRequest(
   };
   if (name) headers['mcp-name'] = name;
 
-  const { response, body } = await requestJson(origin, '/mcp', {
+  return requestJson(origin, '/mcp', {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -126,6 +126,16 @@ async function modernRpcRequest(
       },
     }),
   });
+}
+
+async function modernRpcRequest(
+  origin: string,
+  id: number,
+  method: string,
+  params: JsonRecord = {},
+  name?: string,
+): Promise<{ response: Response; result: JsonRecord }> {
+  const { response, body } = await modernHttpRequest(origin, id, method, params, name);
   assert.equal(response.status, 200, `${method} must return HTTP 200.`);
   assert.equal(response.headers.get('mcp-session-id'), null);
   return { response, result: resultFromRpc(body) };
@@ -245,20 +255,25 @@ async function main(): Promise<void> {
   assert.equal(modernToolsResult.cacheScope, 'private');
   assert.equal(modernToolsResult.ttlMs, 0);
 
-  const modernProbeResult = (
-    await modernRpcRequest(
-      origin,
-      102,
-      'tools/call',
-      { name: 'auth_probe', arguments: {} },
-      'auth_probe',
-    )
-  ).result;
-  assert.equal(modernProbeResult.isError, true);
-  const modernChallenge = (
-    modernProbeResult._meta as JsonRecord
-  )['mcp/www_authenticate'] as string[];
-  assert.ok(modernChallenge[0].includes('error="invalid_token"'));
+  const modernProbe = await modernHttpRequest(
+    origin,
+    102,
+    'tools/call',
+    { name: 'auth_probe', arguments: {} },
+    'auth_probe',
+  );
+  assert.equal(modernProbe.response.status, 401);
+  assert.equal(modernProbe.response.headers.get('mcp-session-id'), null);
+  assert.equal(modernProbe.response.headers.get('cache-control'), 'no-store');
+  assert.equal(modernProbe.body.error, 'invalid_token');
+  assert.equal(Object.hasOwn(modernProbe.body, 'result'), false);
+  const modernChallenge = modernProbe.response.headers.get('www-authenticate');
+  assert.ok(modernChallenge);
+  assert.match(modernChallenge, /^Bearer /u);
+  assert.ok(modernChallenge.includes(
+    `resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
+  ));
+  assert.ok(modernChallenge.includes('error="invalid_token"'));
 
   const unsupportedGet = await request(origin, '/mcp');
   assert.equal(unsupportedGet.status, 405);

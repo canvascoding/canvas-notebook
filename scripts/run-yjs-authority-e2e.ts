@@ -1,6 +1,6 @@
 /** Owned production-host QA. This file never manages Docker/container lifecycle. */
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -200,6 +200,24 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
   const nativeMcpSpec = 'tests/direct-mcp-native-create-import.spec.ts';
   const nativeMcpAcceptance = specs.includes(nativeMcpSpec);
   if (nativeMcpAcceptance) assert.deepEqual(specs, [nativeMcpSpec], 'The MCP settings/shadow fixture must run as its sole selected spec.');
+  // Capture the explicit, non-secret installed-SDK binding before the runtime
+  // environment is replaced. Copy these held bytes, never a later path read.
+  let pythonSdkBinding: Buffer | undefined;
+  if (nativeMcpAcceptance) {
+    const filename = process.env.CANVAS_PYTHON_SDK_QA_BINDING;
+    const expected = process.env.CANVAS_PYTHON_SDK_QA_BINDING_SHA256;
+    assert(filename && path.isAbsolute(filename), 'The native MCP suite requires an explicit private Python SDK binding.');
+    assert(expected && /^[a-f0-9]{64}$/u.test(expected), 'The Python SDK binding requires an explicit source hash.');
+    pythonSdkBinding = await privateBytes(filename, 4096);
+    assert.equal(createHash('sha256').update(pythonSdkBinding).digest('hex'), expected);
+    const binding = JSON.parse(pythonSdkBinding.toString('utf8'));
+    assert(binding && typeof binding === 'object' && !Array.isArray(binding));
+    assert.deepEqual(Object.keys(binding).sort(), ['version', 'python', 'wheelUri', 'wheelSha256', 'helperSha256'].sort());
+    assert.equal(binding.version, 1); assert(typeof binding.python === 'string' && path.isAbsolute(binding.python));
+    assert(typeof binding.wheelUri === 'string' && binding.wheelUri.startsWith('file:///'));
+    assert(typeof binding.wheelSha256 === 'string' && /^[a-f0-9]{64}$/u.test(binding.wheelSha256));
+    assert(typeof binding.helperSha256 === 'string' && /^[a-f0-9]{64}$/u.test(binding.helperSha256));
+  }
   const proof = await assertBuildProof(repo);
   assert.equal(proof.head, expectedNotebookHead, 'The explicitly selected integrated Notebook commit differs from the sealed build.');
   assert.equal(proof.sourceFingerprint, expectedSourceFingerprint, 'The explicitly selected integrated source snapshot differs from the sealed build.');
@@ -318,6 +336,11 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     assert(healthy); await assertOwnServer(); receipt.phase = 'browser'; await persist();
   };
   try {
+    if (pythonSdkBinding) {
+      const filename = path.join(root, 'python-sdk-binding.json');
+      await fs.writeFile(filename, pythonSdkBinding, { mode: 0o600, flag: 'wx' });
+      assert((await privateBytes(filename, 4096)).equals(pythonSdkBinding));
+    }
     console.log(`[yjs-qa] private fixture ${root}; foreign services preserved`);
     assert.equal((await administration.query('SHOW server_version_num')).rows[0].server_version_num.startsWith('18'), true);
     assert.equal((await administration.query('SELECT datname FROM pg_database WHERE datname=$1', [receipt.databaseName])).rowCount, 0);

@@ -59,7 +59,7 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
     await withDocumentReadToolDispatchFixture(async fixture => {
       const { admin, workspaceId, clientId } = fixture;
       process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; process.env.FILE_VERSION_CENTER_MODE = 'shadow';
-      process.env.CANVAS_MCP_DIRECT_TOOLS = 'list_workspaces,read_knowledge_source,search_knowledge,create_knowledge_source,edit_knowledge_source';
+      process.env.CANVAS_MCP_DIRECT_TOOLS = 'auth_probe,list_workspaces,read_knowledge_source,search_knowledge,create_knowledge_source,edit_knowledge_source';
       assert.equal(process.env.BASE_URL, origin); assert.equal(process.env.BETTER_AUTH_BASE_URL, origin);
       assert.equal((await admin.query(`UPDATE organization_user_permissions SET can_write_team_workspace=1
         WHERE organization_id='tool-dispatch-org' AND user_id='reader' AND status='active' RETURNING user_id`)).rowCount, 1);
@@ -186,6 +186,63 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
         const seedText = `SDKNeedle start. ${'Bounded UTF8 😀🧪 stable segment. '.repeat(64)}End.`;
         const seed = await fixture.seed({ filePath: 'sdk-seed.bin', text: seedText });
         await assert.rejects(lstat(path.join(fixture.workspaceRoot, seed.filePath)), { code: 'ENOENT' });
+        const beforeAnonymous = await rows();
+        let anonymousRequestId = 0;
+        const anonymousRpc = async (method: string, params: Row, modern: boolean) => {
+          const protocol = modern ? '2026-07-28' : '2025-06-18';
+          const headers: Record<string, string> = { accept: 'application/json, text/event-stream',
+            'content-type': 'application/json', 'mcp-protocol-version': protocol };
+          // Legacy metadata-free calls can carry mcp-method too: use the real
+          // protocol envelope, not that header alone, to classify requests.
+          if (modern || method === 'tools/call') headers['mcp-method'] = method;
+          if (method === 'tools/call') { assert(typeof params.name === 'string'); headers['mcp-name'] = params.name; }
+          const body = JSON.stringify({ jsonrpc: '2.0', id: ++anonymousRequestId, method, params: modern ? { ...params,
+            _meta: { 'io.modelcontextprotocol/protocolVersion': protocol,
+              'io.modelcontextprotocol/clientInfo': { name: 'canvas-sdk-anonymous-boundary', version: '1.0.0' },
+              'io.modelcontextprotocol/clientCapabilities': {} } } : params });
+          const abort = new AbortController(), deadline = setTimeout(() => abort.abort(), 12000);
+          try {
+            const response = await new Promise<http.IncomingMessage>((resolve, reject) => {
+              const request = http.request(new URL('/mcp', origin), { method: 'POST', headers, signal: abort.signal }, resolve);
+              request.once('error', reject); request.end(body);
+            });
+            const chunks: Buffer[] = []; let size = 0;
+            for await (const chunk of response) { const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+              size += bytes.length; assert(size <= 65536); chunks.push(bytes); }
+            const parsed = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))));
+            return { status: response.statusCode, headers: response.headers, body: parsed };
+          } finally { clearTimeout(deadline); abort.abort(); }
+        };
+        const discovery = await anonymousRpc('server/discover', {}, true);
+        assert.equal(discovery.status, 200); assert.equal(discovery.body.jsonrpc, '2.0');
+        const discovered = object(discovery.body.result);
+        assert(Array.isArray(discovered.supportedVersions) && discovered.supportedVersions.includes('2026-07-28'));
+        assert(object(object(discovered.capabilities).tools));
+        assert.equal(object(object(discovered._meta)['io.modelcontextprotocol/serverInfo']).name, 'canvas-notebook-direct-mcp');
+        const listing = await anonymousRpc('tools/list', {}, true);
+        assert.equal(listing.status, 200); const listed = object(listing.body.result); assert(Array.isArray(listed.tools));
+        assert(listed.tools.some(value => object(value).name === 'list_workspaces'));
+        assert.equal(listed.cacheScope, 'private'); assert.equal(listed.ttlMs, 0);
+        const initialized = await anonymousRpc('initialize', { protocolVersion: '2025-06-18', capabilities: {},
+          clientInfo: { name: 'canvas-sdk-legacy-probe', version: '1.0.0' } }, false);
+        assert.equal(initialized.status, 200);
+        assert.equal(object(object(initialized.body.result).serverInfo).name, 'canvas-notebook-direct-mcp');
+        const probe = await anonymousRpc('tools/call', { name: 'auth_probe', arguments: {} }, false);
+        assert.equal(probe.status, 200); const probeResult = object(probe.body.result); assert.equal(probeResult.isError, true);
+        const legacyChallenges = object(probeResult._meta)['mcp/www_authenticate'];
+        assert(Array.isArray(legacyChallenges) && legacyChallenges.length === 1 && typeof legacyChallenges[0] === 'string');
+        assert(legacyChallenges[0].includes(`resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`));
+        assert(legacyChallenges[0].includes('error="invalid_token"'));
+        const denied = await anonymousRpc('tools/call', { name: 'list_workspaces', arguments: {} }, true);
+        assert.deepEqual(await rows(), beforeAnonymous);
+        console.log(JSON.stringify({ boundary: 'anonymous-modern-tool-call', observedHttpStatus: denied.status,
+          originalDomainRowsUnchanged: true, modernDiscoveryAndList: true, legacyHeaderProbePreserved: true }));
+        assert.equal(denied.status, 401, 'Anonymous modern tools/call must return a real HTTP 401.');
+        assert.equal(denied.body.error, 'invalid_token'); assert.equal(denied.body.result, undefined);
+        const challenge = denied.headers['www-authenticate']; assert(typeof challenge === 'string');
+        assert.match(challenge, /^Bearer /u);
+        assert(challenge.includes(`resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`));
+        assert.equal(denied.headers['cache-control'], 'no-store'); assert.equal(denied.headers['x-content-type-options'], 'nosniff');
         const token = await fixture.issue({ scope: 'workspace:list knowledge:read knowledge:search knowledge:write' });
         const scopeToken = await fixture.issue({ scope: 'workspace:list knowledge:read knowledge:search' });
         child = spawn(python, ['-I', pythonProbe], {
@@ -214,7 +271,8 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
         assert.equal(createHash('sha256').update(await readFile(pythonProbe)).digest('hex'), pythonProbeSha256);
         assert.equal(createHash('sha256').update(await readFile(wheel)).digest('hex'), wheelSha256);
         assert.deepEqual(await rows(), beforeRetries); assert.equal(readDocumentReviewAvailability().documentReviewEnabled, false);
-        console.log(JSON.stringify({ suite: 'python-sdk-document-postgres', groups: cases.size, wheelSha256, pythonProbeSha256,
+        console.log(JSON.stringify({ suite: 'python-sdk-document-postgres', groups: cases.size + 1, sdkGroups: cases.size,
+          anonymousHttpBoundary: true, anonymousBoundaryRequests: anonymousRequestId, wheelSha256, pythonProbeSha256,
           installedWheel: true, actualTcpHttpRequests: actualHttpRequests, revokedOriginalHandler401: rejectedAfterRevocation,
           originalRowsUnchangedByRetryStatusConflictAndDenials: true, oauthIssuance: false, compiledNext: false,
           pythonStderrBytes: stderrBytes, pythonStderrSha256: stderrDigest.digest('hex') }));

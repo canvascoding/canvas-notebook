@@ -257,7 +257,14 @@ export async function nativeDocumentEditToolDispatchPostgresTest(): Promise<void
         const writeOnly = await fixture.issue({ scope: 'knowledge:write' }); assert.deepEqual(result(await call('edit_knowledge_source', args, writeOnly)), first);
         const deniedRead = await call('read_knowledge_source', { workspace_id: workspaceId, document_id: plain.documentId }, writeOnly);
         assert.equal(deniedRead.isError, true); const readChallenges = object(deniedRead._meta)['mcp/www_authenticate']; assert(Array.isArray(readChallenges)); assert(String(readChallenges[0]).includes('knowledge:read'));
-        for (const selection of [args, deniedEdit]) challenge(await call('edit_knowledge_source', selection, null), 'AUTHENTICATION_REQUIRED', 'invalid_token');
+        for (const selection of [args, deniedEdit]) {
+          const denied = await rpc('tools/call', { name: 'edit_knowledge_source', arguments: selection }, null);
+          assert.equal(denied.response.status, 401); assert.equal(denied.body.error, 'invalid_token');
+          assert.equal(Object.hasOwn(denied.body, 'result'), false);
+          const value = denied.response.headers.get('www-authenticate'); assert(value);
+          assert(value.includes('error="invalid_token"'));
+          assert(value.includes('resource_metadata="http://localhost/.well-known/oauth-protected-resource/mcp"'));
+        }
         await admin.query('DELETE FROM mcp_direct_workspace_grant WHERE workspace_id=$1 AND client_id=$2', [workspaceId, clientId]);
         try { for (const selection of [args, deniedEdit]) failure(await call('edit_knowledge_source', selection), 'ACCESS_DENIED'); }
         finally { await admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at) VALUES($1,'reader',$2,100,100)`, [clientId, workspaceId]); }

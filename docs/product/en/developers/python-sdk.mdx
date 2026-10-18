@@ -94,6 +94,8 @@ if __name__ == "__main__":
 
 Choose a free explicit loopback callback port. Keep the same endpoint, credential profile and redirect URI when reauthorizing. The callback listener starts only when interactive authorization is needed and closes with the connection lifetime. Tokens and client registration are stored together in the supported OS credential system; no plaintext fallback is selected. Use one active client per profile.
 
+Tool-catalog discovery is public. For a connection without valid tokens, the first protected operation, such as `list_workspaces`, triggers the actual HTTP OAuth challenge. The official MCP provider selects effective scopes from the challenge or published server metadata; constructor scopes are initial client metadata, not a maximum grant. Review the actual consent permissions. Server-side tool and workspace grants still limit every operation.
+
 For a temporary in-process session, use `MemoryTokenStorage(endpoint)` instead. Restarting loses its tokens and client registration; a new client identity cannot automatically resume operations owned by the previous client. The OS store preserves registration across restarts. `clear_tokens()` removes local tokens while retaining registration; it does not revoke the server grant.
 
 An already issued MCP resource token can instead be supplied as `CanvasMcpTransport(endpoint, access_token=token)`, with no automatic refresh in that mode. Obtain it through the actual supported authorization flow. A Better Auth REST Session Bearer is a different credential and cannot be substituted here. Keep credentials and authorization/callback URLs out of logs, document contents and agent sandboxes.
