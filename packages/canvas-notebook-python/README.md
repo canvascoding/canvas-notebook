@@ -1,12 +1,12 @@
 # Canvas Notebook Python
 
-Unreleased `0.1.0.dev0` development SDK. Wheel/source builds, fresh installations, 26 local tests and five actual MCP HTTP/PostgreSQL integration families have passed on Python 3.14. Browser OAuth authorization and credential-store integration remain to be verified. This package is not published. It targets the native document tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
+Unreleased `0.1.0.dev0` development SDK. Wheel/source builds, fresh installations, 26 local tests and five actual MCP HTTP/PostgreSQL integration families have passed on Python 3.14.3. A later compiled local seven-case browser suite passed, including the SDK OAuth/document/editor case. A separate macOS Keychain check passed persistence, endpoint/profile isolation and cleanup across three processes; it was not a combined persistent-store OAuth run. This package is not published. It targets the native document tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
 
 The package delegates document identity, versions, permissions, Yjs edits, history and link handling to Canvas. It never edits a workspace `.md` projection or constructs Yjs updates.
 
 ## Installation layout
 
-The proposed repository install for the external MCP client is:
+The repository install for the external development MCP client is:
 
 ```sh
 python -m pip install './packages/canvas-notebook-python[mcp,keyring]'
@@ -20,7 +20,7 @@ The test suite uses `unittest` and the `mcp` extra. After installing the built w
 python -I -m unittest discover -s packages/canvas-notebook-python/tests -v
 ```
 
-The core-import test also runs in an environment containing only the base wheel. Python 3.10 syntax is checked; other Python runtimes and OS credential stores have not yet been exercised.
+The core-import test also runs in an environment containing only the base wheel. Python 3.10 syntax is checked; execution has been tested on Python 3.14.3. Credential-store acceptance covers macOS Keychain separately; other Python runtimes and OS credential stores have not yet been exercised.
 
 The base package has no runtime dependencies. `CanvasNotebook`, DTOs and errors can be imported without MCP, OAuth or keyring. `CanvasMcpTransport`, `CanvasOAuth` and credential-store exports load their external dependencies when explicitly imported. A structural transport implements one asynchronous method:
 
@@ -148,4 +148,4 @@ SDK error messages omit document contents and credentials. Original results and 
 
 Copy, Move, Delete, recovery tools, native PDF conversion and a controlled runtime bridge are not exposed by this candidate. They must be connected to real server capabilities before SDK methods or public instructions claim them. This is not completion of the broader document/API plan.
 
-Wheel and source builds, fresh installations, all 26 local tests, strict static typing and five actual MCP HTTP/PostgreSQL integration families pass. The HTTP integration uses genuinely signed fixture tokens with current SQL grants and a real document owner; it does not exercise browser OAuth issuance. Other Python runtimes, browser OAuth, real credential stores and publication remain pending. Local transport and cancellation tests do not establish live OAuth behavior.
+Wheel and source builds, fresh installations, all 26 local tests, strict static typing and five actual MCP HTTP/PostgreSQL integration families pass. Those HTTP families use genuinely signed fixture tokens with current SQL grants and a real document owner; they do not exercise browser OAuth issuance. The later compiled seven-case browser suite includes an actual SDK authorization-code/PKCE flow, progressive reads, creation, editing, status and editor state after reload. The separate macOS Keychain check covers dummy credential persistence across processes, not a combined OAuth flow using persistent storage. These results remain bound to their recorded source versions and artifacts. Other Python runtimes, other credential stores, public website delivery and package publication remain pending. Local transport and cancellation tests alone do not establish live OAuth behavior.
