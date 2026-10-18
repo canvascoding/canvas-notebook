@@ -32,6 +32,19 @@ export type DirectMcpDocumentReadHistoricalOrigin = Readonly<{
 }>;
 /** Synchronous, idempotent sink, called before the first B consumer and on rechecks. */
 export type DirectMcpDocumentReadHistoricalOriginObserver = (origin: DirectMcpDocumentReadHistoricalOrigin) => void;
+declare const createPrincipalBrand: unique symbol;
+/** Actual current MCP write capture; original operation attribution stays data. */
+export type DirectMcpDocumentCreatePrincipal = Readonly<{ [createPrincipalBrand]: never }>;
+export type DirectMcpDocumentCreateTool = 'create_knowledge_source' | 'import_knowledge_file';
+export type DirectMcpDocumentCreateCurrentOrigin = DirectMcpDocumentReadHistoricalOrigin
+  & Readonly<{ tool: DirectMcpDocumentCreateTool }>;
+export type DirectMcpDocumentCreatePrincipalAccess = DirectMcpDocumentReadPrincipalAccess
+  & Readonly<{ tool: DirectMcpDocumentCreateTool }>;
+type FixedPolicy = Readonly<{ kind: 'read'; purpose: DirectMcpDocumentReadPurpose }>
+  | Readonly<{ kind: 'create'; tool: DirectMcpDocumentCreateTool }>;
+type SharedPrincipal = DirectMcpDocumentReadPrincipal | DirectMcpDocumentCreatePrincipal;
+type AccessFor<Kind extends FixedPolicy['kind']> = Kind extends 'create'
+  ? DirectMcpDocumentCreatePrincipalAccess : DirectMcpDocumentReadPrincipalAccess;
 type ErrorCode = 'MCP_READ_PRINCIPAL_REQUIRED' | 'MCP_READ_PRINCIPAL_INVALID' | 'MCP_READ_PRINCIPAL_BUSY'
   | 'MCP_READ_PRINCIPAL_SCOPE_CHANGED' | 'MCP_READ_PRINCIPAL_ACCESS_DENIED' | 'MCP_READ_PRINCIPAL_SCHEMA_INVALID'
   | 'MCP_READ_PRINCIPAL_DETACHED' | 'MCP_READ_PRINCIPAL_REENTRANT' | 'MCP_READ_PRINCIPAL_EXPIRED';
@@ -48,7 +61,7 @@ type OriginalRealm = Readonly<{ schema: string; schemaOid: number; databaseOid: 
 type Identity = OriginalRealm & Readonly<{ backend: number; start: string; xid: string }>;
 type Capture = {
   active: boolean; accepting: boolean; busy: boolean; failure?: unknown; pending: Set<Promise<unknown>>;
-  token: string; claims: DirectMcpJwtClaims; purpose: DirectMcpDocumentReadPurpose; workspaceId: string;
+  token: string; claims: DirectMcpJwtClaims; policy: FixedPolicy; workspaceId: string;
   realm: OriginalRealm; license: LicenseStatus; issuer: string; resource: string;
   observe: DirectMcpDocumentReadHistoricalOriginObserver; original?: DirectMcpDocumentReadHistoricalOrigin;
 };
@@ -56,7 +69,7 @@ type Phase = {
   capture: Capture; connection: SqlConnection; active: boolean; accepting: boolean; checking: boolean;
   identity?: Identity; failure?: unknown; deadline: number; pending: Set<Promise<unknown>>;
 };
-const captures = new WeakMap<DirectMcpDocumentReadPrincipal, Capture>();
+const captures = new WeakMap<SharedPrincipal, Capture>();
 const phases = new WeakMap<SqlConnection, Phase>();
 const MAX_PHASE_MS = 5000;
 const tables = ['canvas_organization_settings', 'team_memberships', 'team_membership_sync_state', 'user', 'session',
@@ -141,7 +154,8 @@ async function runtime(capture: Capture): Promise<void> {
   const config = resolveDirectMcpOAuthConfig();
   if (config.issuer !== capture.issuer || config.resource !== capture.resource) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   const settings = await getDirectMcpRuntimeSettings();
-  const tool = capture.purpose === 'read' ? 'read_knowledge_source' : 'search_knowledge';
+  const tool = capture.policy.kind === 'create' ? capture.policy.tool
+    : capture.policy.purpose === 'read' ? 'read_knowledge_source' : 'search_knowledge';
   if (settings.enabled !== true || !settings.tools.includes(tool)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
 }
 function historical(workspace: WorkspaceContext, capture: Capture): DirectMcpDocumentReadHistoricalOrigin {
@@ -189,7 +203,9 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
   await assertUserSeatAccess({ userId: capture.claims.subject, database: connection, licenseStatus: capture.license }); alive(phase);
   const workspace = await readPostgresWorkspaceForActorOnConnection(connection,
     resolveWorkspaceActor({ id: capture.claims.subject, email: raw.email, role: raw.role as string | null }), capture.workspaceId);
-  alive(phase); if (!workspace || workspace.permissions.canRead !== true) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
+  alive(phase); if (!workspace || workspace.permissions.canRead !== true
+    || capture.policy.kind === 'create' && (workspace.permissions.canWrite !== true
+      || workspace.permissions.canRunAgent !== true)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
   const origin = historical(workspace, capture);
   if (capture.original && !isDeepStrictEqual(origin, capture.original)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   capture.original ??= origin;
@@ -207,23 +223,52 @@ export async function withDirectMcpDocumentReadPrincipal<T>(authInfo: AuthInfo,
   options: { workspaceId: string; purpose: DirectMcpDocumentReadPurpose },
   observe: DirectMcpDocumentReadHistoricalOriginObserver,
   operation: (principal: DirectMcpDocumentReadPrincipal) => Promise<T>): Promise<T> {
-  const token = own(authInfo, 'token'), workspaceId = own(options, 'workspaceId'), purpose = own(options, 'purpose');
+  const workspaceId = own(options, 'workspaceId'), purpose = own(options, 'purpose');
+  if (!['read', 'search'].includes(purpose as string) || typeof observe !== 'function' || typeof operation !== 'function') {
+    fail('MCP_READ_PRINCIPAL_INVALID');
+  }
+  return withFixedPrincipalCapture(authInfo, workspaceId,
+    Object.freeze({ kind: 'read', purpose: purpose as DirectMcpDocumentReadPurpose }), observe,
+    principal => operation(principal as DirectMcpDocumentReadPrincipal));
+}
+
+/** Actual current origin only; no stored original session enters this factory. */
+export async function withDirectMcpDocumentCreatePrincipal<T>(authInfo: AuthInfo,
+  options: { workspaceId: string; tool: DirectMcpDocumentCreateTool },
+  observeCurrent: (origin: DirectMcpDocumentCreateCurrentOrigin) => void,
+  operation: (principal: DirectMcpDocumentCreatePrincipal) => Promise<T>): Promise<T> {
+  const workspaceId = own(options, 'workspaceId'), tool = own(options, 'tool');
+  if (!['create_knowledge_source', 'import_knowledge_file'].includes(tool as string)
+    || typeof observeCurrent !== 'function' || typeof operation !== 'function') fail('MCP_READ_PRINCIPAL_INVALID');
+  const policy = Object.freeze({ kind: 'create' as const, tool: tool as DirectMcpDocumentCreateTool });
+  return withFixedPrincipalCapture(authInfo, workspaceId, policy,
+    // Preserve the actual return: current() must still reject async observers.
+    origin => observeCurrent(Object.freeze({ ...origin, tool: policy.tool })),
+    principal => operation(principal as DirectMcpDocumentCreatePrincipal));
+}
+
+/** Private fixed policy mechanics; callers cannot supply rights or auth readers. */
+async function withFixedPrincipalCapture<T>(authInfo: AuthInfo, workspaceId: unknown, policy: FixedPolicy,
+  observe: DirectMcpDocumentReadHistoricalOriginObserver,
+  operation: (principal: SharedPrincipal) => Promise<T>): Promise<T> {
+  const token = own(authInfo, 'token');
   if (typeof token !== 'string' || !token.trim() || token.length > 16384 || !validId(workspaceId)
-    || !['read', 'search'].includes(purpose as string) || typeof observe !== 'function' || typeof operation !== 'function') fail('MCP_READ_PRINCIPAL_INVALID');
+    || typeof observe !== 'function' || typeof operation !== 'function') fail('MCP_READ_PRINCIPAL_INVALID');
   // The runtime realm is observed BEFORE JWT/JWKS, license or settings capture.
   const realm = await sourceRealm();
   const config = resolveDirectMcpOAuthConfig();
   const claims = freeze(structuredClone(await verifyDirectMcpJwtClaims(token)));
   if (![claims.subject, claims.clientId, claims.sessionId].every(validId)) fail('MCP_READ_PRINCIPAL_INVALID');
-  const requiredScope = purpose === 'read' ? 'knowledge:read' : 'knowledge:search';
+  const requiredScope = policy.kind === 'create' ? 'knowledge:write'
+    : policy.purpose === 'read' ? 'knowledge:read' : 'knowledge:search';
   if (!claims.scopes.includes(requiredScope)) throw new DirectMcpAuthorizationError('insufficient_scope', 403,
     'Additional authorization is required.', { challengeError: 'insufficient_scope', scope: requiredScope });
   const capture: Capture = { active: true, accepting: true, busy: false, pending: new Set(), token: token.trim(), claims,
-    workspaceId, purpose: purpose as DirectMcpDocumentReadPurpose, realm, license: freeze(structuredClone(await getLicenseStatus())),
+    workspaceId, policy, realm, license: freeze(structuredClone(await getLicenseStatus())),
     issuer: config.issuer, resource: config.resource, observe };
   await runtime(capture);
   if (!isDeepStrictEqual(await sourceRealm(), realm)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
-  const principal = Object.freeze({}) as DirectMcpDocumentReadPrincipal; captures.set(principal, capture);
+  const principal = Object.freeze({}) as SharedPrincipal; captures.set(principal, capture);
   try {
     let result: T | undefined, failure: unknown;
     try { result = await operation(principal); } catch (error) { failure = primary(error); capture.failure ??= failure; }
@@ -239,7 +284,25 @@ export async function withDirectMcpDocumentReadPrincipal<T>(authInfo: AuthInfo,
 export function withDirectMcpDocumentReadPrincipalOnConnection<T>(connection: SqlConnection,
   principal: DirectMcpDocumentReadPrincipal,
   operation: (access: DirectMcpDocumentReadPrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'read', operation);
+}
+
+/** Same actual B/lifetime checks, with the fixed write policy and current tool. */
+export function withDirectMcpDocumentCreatePrincipalOnConnection<T>(connection: SqlConnection,
+  principal: DirectMcpDocumentCreatePrincipal,
+  operation: (access: DirectMcpDocumentCreatePrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'create', operation);
+}
+
+function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(connection: SqlConnection,
+  principal: SharedPrincipal, kind: Kind, operation: (access: AccessFor<Kind>) => Promise<T>): Promise<T> {
   const capture = captures.get(principal);
+  if (capture && capture.policy.kind !== kind) {
+    capture.failure ??= new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_REQUIRED');
+    const held = phases.get(connection);
+    if (held) { held.failure ??= capture.failure; held.capture.failure ??= held.failure; }
+    return Promise.reject(capture.failure);
+  }
   if (!capture?.active || !capture.accepting) {
     const failure = new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_REQUIRED');
     const held = phases.get(connection);
@@ -281,8 +344,11 @@ export function withDirectMcpDocumentReadPrincipalOnConnection<T>(connection: Sq
         })();
         phase.pending.add(check); void check.finally(() => phase.pending.delete(check)).catch(() => undefined); return check;
       };
+      // The private capture kind was checked before phase entry. No caller DTO
+      // supplies the extra write-tool field or the live assertCurrent closure.
       const access = Object.freeze({ workspace, userId: capture.claims.subject, clientId: capture.claims.clientId,
-        sessionId: capture.claims.sessionId, assertCurrent });
+        sessionId: capture.claims.sessionId, assertCurrent,
+        ...(capture.policy.kind === 'create' ? { tool: capture.policy.tool } : {}) }) as AccessFor<Kind>;
       const value = await operation(access); phase.accepting = false;
       if (phase.pending.size) { phase.failure ??= new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_DETACHED'); await Promise.allSettled([...phase.pending]); }
       alive(phase); await current(phase); alive(phase); return value;

@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/direct-mcp-document-create-principal-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts', 'app/lib/mcp/server/document-read-principal.ts',
+    'app/lib/mcp/server/access-token-verifier.ts', 'app/lib/mcp/server/runtime-settings.ts',
+    'app/lib/mcp/server/config.ts', 'app/lib/workspaces/postgres-runtime.ts', 'app/lib/workspaces/permissions.ts',
+    'app/lib/license/seat-limit.ts', 'app/lib/db/index.ts'],
+  'scripts/direct-mcp-document-read-principal-postgres-test.ts': [entryPoint,
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/mcp/server/access-token-verifier.ts',
+    'app/lib/mcp/server/runtime-settings.ts', 'app/lib/workspaces/postgres-runtime.ts', 'app/lib/db/index.ts'],
   'scripts/public-share-create-postgres-test.ts': [entryPoint, 'app/lib/public-sharing/writer.ts',
     'app/lib/public-sharing/public-file-shares.ts', 'app/lib/public-sharing/tool-policy.ts',
     'app/lib/workspaces/request-principal.ts', 'app/lib/pi/agent-tool-invocation.ts',
