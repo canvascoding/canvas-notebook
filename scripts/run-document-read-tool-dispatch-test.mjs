@@ -76,6 +76,9 @@ const criticalInputsByEntryPoint = {
   'scripts/workspace-operation-native-copy-metadata-owner-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/lib/files/workspace-operation-native-copy-owner.ts', 'app/lib/files/workspace-operation-native-copy-metadata.ts',
     'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-native-copy-stage.ts', 'app/lib/db/index.ts'],
+  'scripts/workspace-native-copy-reader-contention-postgres-test.ts': [entryPoint, 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/files/workspace-file-operation-service.ts', 'app/lib/files/workspace-operation-native-copy-owner.ts',
+    'app/lib/collaboration/workspace-native-file-read.ts', 'app/lib/db/index.ts'],
 };
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];

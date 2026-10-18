@@ -165,8 +165,18 @@ async function withSession<T>(supplied: Invocation, operation: (owner: Owner) =>
       await database.run("SET statement_timeout='5s'"); await database.run("SET lock_timeout='4s'");
       owner.identity = await identity(database);
       for (const [index, workspaceId] of workspaceIds.entries()) {
-        const held = await database.get('SELECT pg_try_advisory_lock($1::bigint) AS locked', [signedKeys[index]]) as { locked?: boolean } | undefined;
-        if (held?.locked !== true) problem('NATIVE_COPY_LIFECYCLE_BUSY');
+        // Allow admitted readers to finish within this session's existing
+        // per-key lock timeout, before entering any Copy phase.
+        let held: { locked?: boolean } | undefined;
+        try {
+          held = await database.get('SELECT pg_advisory_lock($1::bigint), true AS locked', [signedKeys[index]]) as { locked?: boolean } | undefined;
+        } catch (error) {
+          if (error && typeof error === 'object' && 'code' in error && error.code === '55P03') {
+            throw new NativeCopyOwnerError('NATIVE_COPY_LIFECYCLE_BUSY', { cause: error });
+          }
+          throw error;
+        }
+        if (held?.locked !== true) problem();
         const lease: WorkspaceFileLifecycleLease = { active: true, verify: async () => {
           try { await verify(owner); return true; } catch { return false; }
         } };
