@@ -212,7 +212,17 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     const clean = async (operation: () => Promise<void>) => { try { await operation(); } catch (error) { errors.push(error); } };
     // Only after all comparisons: connection revocation affects all this
     // client's sessions, so it must never be used as the A-only revoke step.
-    if (current) await clean(() => current.revoke());
+    if (current && active) await clean(async () => {
+      const connections = async () => {
+        const data = object((await ok(await active.request.get('/api/integrations/mcp-server/connections'), 'Observe own OAuth cleanup')).data);
+        assert(Array.isArray(data.connections)); return data.connections.map(value => object(value));
+      };
+      if ((await connections()).some(value => value.connectionId === current.connectionId)) {
+        const disconnected = await ok(await active.request.delete('/api/integrations/mcp-server/connections', { data: { connectionId: current.connectionId } }), 'Revoke only own OAuth connection with the active session');
+        assert.equal(disconnected.success, true);
+      }
+      assert(!(await connections()).some(value => value.connectionId === current.connectionId));
+    });
     if (active && workspace) await clean(async () => { await ok(await active.request.delete(`/api/workspaces/${encodeURIComponent(workspace!.id)}`), 'Delete only own workspace'); });
     if (active && initialSettings) await clean(async () => {
       await ok(await active.request.patch('/api/integrations/mcp-server', { data: initialSettings }), 'Restore own MCP settings');

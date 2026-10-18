@@ -65,12 +65,25 @@ export async function authorizeIngestE2EMcp(owner: BrowserContext, baseURL: stri
       callback = new URL(route.request().url());
       await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Authorization complete</title>Authorization complete' });
     });
-    await page.goto(authorization.toString(), { timeout: 180_000 });
+    try { await page.goto(authorization.toString(), { timeout: 180_000 }); }
+    catch (error) {
+      // Playwright routes only the first request in a redirect chain. A
+      // previously consented client can reach our observed callback directly.
+      // Accept only that exact callback's refused test listener; the real PKCE
+      // exchange below must still validate its newly issued authorization code.
+      const observed = callback as URL | undefined, expected = new URL(redirectUri);
+      if (!(error instanceof Error) || !error.message.includes('net::ERR_CONNECTION_REFUSED') || !observed
+        || observed.origin !== expected.origin || observed.pathname !== expected.pathname
+        || observed.searchParams.get('state') !== state || observed.searchParams.get('iss') !== metadata.issuer
+        || !observed.searchParams.get('code')) throw error;
+    }
     const accept = page.locator('button[name="accept"][value="true"]');
     // A previously consented SAME client may produce its real callback directly.
     await expect.poll(async () => Boolean(callback) || await accept.isVisible(), { timeout: 90_000 }).toBe(true);
     if (!callback) await accept.click();
     await expect.poll(() => Boolean(callback), { timeout: 90_000 }).toBe(true);
+    assert.equal(callback!.origin, new URL(redirectUri).origin);
+    assert.equal(callback!.pathname, new URL(redirectUri).pathname);
     assert.equal(callback!.searchParams.get('state'), state);
     assert.equal(callback!.searchParams.get('iss'), metadata.issuer);
     assert.ok(callback!.searchParams.get('code'), 'Real consent must return an authorization code.');
