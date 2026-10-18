@@ -23,10 +23,13 @@ test('edit tool advertises review-aware receipts and stable retries', async () =
   const input = descriptor.inputSchema as {
     properties: Record<string, { description?: string }>;
   };
-  const output = descriptor.outputSchema as {
-    properties: Record<string, unknown>;
-    required: string[];
+  const outputSchema = descriptor.outputSchema as {
+    oneOf: Array<{ properties: Record<string, unknown>; required: string[] }>;
   };
+  assert.equal(outputSchema.oneOf.length, 3);
+  // Preserve every legacy receipt assertion inside its unchanged union
+  // branch. Native Edit/Status and its failure are separate public outputs.
+  const output = outputSchema.oneOf[0];
 
   assert.equal(DIRECT_MCP_TOOL_CONFIGURATION_VERSION, 7);
   assert.ok(input.properties.idempotency_key);

@@ -58,7 +58,8 @@ export function encodeDocumentReadBodyV1(observation: NativeDocumentReadObservat
   let serialized: string;
   let mediaType: DocumentReadPageV1['mediaType'];
   if (format === 'native') {
-    serialized = JSON.stringify({ bodyVersion: 1, representation: observation.native.representation, content });
+    serialized = JSON.stringify({ bodyVersion: 1, representation: observation.native.representation, content,
+      ...(observation.editTargets !== undefined ? { editTargets: observation.editTargets } : {}) });
     mediaType = 'application/vnd.canvas.native-document+json';
   } else if (format === 'text') {
     serialized = nativeCollaborationSearchText(content);

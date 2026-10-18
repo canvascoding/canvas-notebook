@@ -6,6 +6,9 @@ import { Type, type Static } from 'typebox';
 import { Value } from 'typebox/value';
 import type { AgentEditFileInput } from '@/app/lib/pi/agent-file-operations';
 import { agentEditFileParameters, formatAgentEditFileValidationError } from '@/app/lib/pi/agent-file-tool-schemas';
+import { piDocumentEditToolParameters, decodePiNativeDocumentEditSelection, nativePiDocumentEditWire,
+  formatPiNativeDocumentEditResult, formatPiNativeDocumentEditError } from '@/app/lib/pi/document-edit-tool-contract';
+import { editDocumentForAgentTool, readDocumentEditStatusForAgentTool } from '@/app/lib/documents/edit-public-service';
 import { AgentShellSandboxError } from '@/app/lib/pi/agent-shell-sandbox';
 import { ensureAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import {
@@ -517,14 +520,26 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Document Review Center is experimental and disabled by default. Direct edit success confirms the physical file checkpoint. If the feature and document review are enabled, results may report review required; never assume a proposal was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects. Inspect local link diagnostics after editing; their basis identifies applied, proposed, or current content. Link warnings are informational and do not authorize inventing missing files.',
-    parameters: agentEditFileParameters,
+    description: 'Use apiVersion:1 and action:edit for native documentId/full expectedVersion patches with a stable caller idempotencyKey. Native text/block edits do not require Markdown export or a physical file projection; blocks require tiptap_blocks IDs and exact local guards. Only state:confirmed confirms persistence. Query action:status with workspaceId and operationId after pending or uncertain results, never auto-replay or replace the caller key with a tool call ID. Legacy path forms safely edit an existing file. For Markdown, prefer mode append, replace, or insert_after_heading with content; Markdown fragments are parsed as document structure and active block documents apply them directly instead of inserting escaped source into one paragraph. replace also requires oldText; insert_after_heading requires an exact heading title. For an ordinary exact edit use oldText/newText. Read with includeStructure first only for legacy low-level block operations, then copy document and stable IDs/local hashes to move, delete, insert, format, or edit tables. Block-targeted and Markdown-aware operations act on live Yjs state; expectedSha256 is an optional extra whole-document guard there and is required for ordinary shared-file edits. For several known ordinary replacements use apply_patch. Document Review Center is experimental and disabled by default. Legacy direct edit success confirms the physical file checkpoint. If the feature and document review are enabled, legacy results may report review required; never assume a proposal was applied. On uncertainty or conflict, read again. Use this instead of sed, perl -pi, tee, or shell redirects. Inspect legacy local link diagnostics after editing; their basis identifies applied, proposed, or current content. Link warnings are informational and do not authorize inventing missing files.',
+    parameters: piDocumentEditToolParameters,
     prepareArguments: (params) => {
+      const native = decodePiNativeDocumentEditSelection(params);
+      if (native) return nativePiDocumentEditWire(native);
       if (params && typeof params === 'object' && !Array.isArray(params)) parseOptionalProposalToolEditV1(params as Record<string, unknown>);
       if (!Value.Check(agentEditFileParameters, params)) throw new Error(formatAgentEditFileValidationError(params));
       return params as Static<typeof agentEditFileParameters>;
     },
     execute: async (toolCallId, params) => {
+      let native: ReturnType<typeof decodePiNativeDocumentEditSelection>;
+      try { native = decodePiNativeDocumentEditSelection(params); }
+      catch (error) { return formatPiNativeDocumentEditError(error); }
+      if (native) {
+        try {
+          const value = native.action === 'edit' ? await editDocumentForAgentTool(native.request)
+            : await readDocumentEditStatusForAgentTool(native.request);
+          return formatPiNativeDocumentEditResult(value);
+        } catch (error) { return formatPiNativeDocumentEditError(error); }
+      }
       const { path: filePath } = params as { path: string };
       try {
         parseOptionalProposalToolEditV1(params as Record<string, unknown>);

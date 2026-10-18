@@ -5,10 +5,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
-import { test, type APIResponse, type BrowserContext, type TestInfo } from '@playwright/test';
+import { expect, request as apiRequest, test, type APIRequestContext, type APIResponse, type BrowserContext, type TestInfo } from '@playwright/test';
 import type { DocumentCreateMutationResultV1, DocumentReadPageV1 } from '../app/lib/documents/contracts';
+import type { DocumentEditOperationResultV1 } from '../app/lib/documents/edit-result-contract';
+import type { NativeDocumentEditTargetV1 } from '../app/lib/collaboration/native-document-edit-targets';
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import { authorizeIngestE2EMcp, type IngestE2EToolResult } from '../scripts/mcp-file-ingest-e2e-helpers';
+import { readNativeRichCandidate } from './helpers/native-rich-candidate';
 import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjsQaTarget,
   type DatabaseIdentity, type OwnedYjsReceipt } from '../scripts/lib/owned-yjs-authority-qa';
 
@@ -17,7 +20,7 @@ import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjs
 const spec = 'tests/direct-mcp-native-create-import.spec.ts';
 const origin = process.env.BASE_URL ?? '';
 const sourceUrl = 'https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/c518f7a927cff918bce35d3522fcdb046d264d7c/README.md';
-const tools = ['auth_probe', 'create_knowledge_source', 'import_knowledge_file', 'read_knowledge_source'];
+const tools = ['auth_probe', 'create_knowledge_source', 'import_knowledge_file', 'read_knowledge_source', 'edit_knowledge_source'];
 const scopes = ['openid', 'offline_access', 'workspace:list', 'knowledge:read', 'knowledge:write'];
 type Row = Record<string, unknown>;
 type Mcp = Awaited<ReturnType<typeof authorizeIngestE2EMcp>>;
@@ -31,6 +34,9 @@ let mcpA: Mcp | undefined, mcpB: Mcp | undefined, identityA: Identity | undefine
 let workspace: Workspace | undefined, protocol = '', issuer = '', importArgs: Row | undefined, generatedArgs: Row | undefined;
 let initialSettings: { enabled: boolean; tools: string[] } | undefined;
 let originals: Original[] = [], before: Row[] | undefined;
+const editApiContexts: APIRequestContext[] = [], editorSelector = '.tiptap-editor-shell .ProseMirror';
+let editCreated: DocumentCreateMutationResultV1 | undefined, editRequest: Row | undefined;
+let firstEdit: DocumentEditOperationResultV1 | undefined, firstEditOrigin: Identity | undefined, editSnapshot: Row | undefined;
 const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).digest('hex');
 function object(value: unknown): Row {
   assert(value && typeof value === 'object' && !Array.isArray(value), 'A complete JSON object is required.'); return value as Row;
@@ -214,6 +220,120 @@ async function evidence(info: TestInfo, value: Row): Promise<void> {
   await fs.writeFile(info.outputPath('native-mcp-http-evidence.json'), JSON.stringify(value, null, 2), { mode: 0o600, flag: 'wx' });
 }
 
+// New public Edit acceptance helpers. These observe genuine results; no
+// server-only encoder, private Original or credentials become caller authority.
+function editResultValue(value: unknown): DocumentEditOperationResultV1 {
+  const row = object(value);
+  assert.deepEqual(Object.keys(row).sort(), ['apiVersion', 'operationId', 'state', 'document', 'effect', 'persistence', 'projection', 'history'].sort());
+  assert.equal(row.apiVersion, 1); assert.equal(row.state, 'confirmed'); assert.match(String(row.operationId), /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u);
+  const document = object(row.document), effect = object(row.effect), persistence = object(row.persistence);
+  assert.deepEqual(Object.keys(document).sort(), ['kind', 'workspaceId', 'organizationId', 'documentId', 'lineageId', 'lifecycleGeneration', 'representation', 'schemaVersion'].sort());
+  assert.equal(document.kind, 'native_document'); assert.equal(document.workspaceId, workspace!.id);
+  assert.equal(effect.outcome, 'applied'); assert.match(String(effect.beforeVersion), /^canvas-document-v1:[a-f0-9]{64}$/u);
+  assert.match(String(effect.afterVersion), /^canvas-document-v1:[a-f0-9]{64}$/u); assert.notEqual(effect.afterVersion, effect.beforeVersion);
+  assert(Number.isSafeInteger(effect.appliedAt)); assert.equal(persistence.status, 'confirmed'); assert(Number.isSafeInteger(persistence.confirmedInSequence));
+  assert(Number.isSafeInteger(persistence.confirmedAt)); assert(Buffer.byteLength(JSON.stringify(row)) <= 8192);
+  for (const key of ['original', 'after', 'origin', 'actor', 'targets', 'stateProof', 'yjsState', 'stateVector', 'rootPath', 'sessionId']) assert.equal(Object.hasOwn(row, key), false);
+  return row as unknown as DocumentEditOperationResultV1;
+}
+function editResult(result: IngestE2EToolResult): DocumentEditOperationResultV1 {
+  const row = success(result); assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
+  assert.deepEqual(JSON.parse(result.content[0].text ?? ''), row); return editResultValue(row);
+}
+async function editRead(client: Mcp, expectedVersion?: string, targets = false): Promise<DocumentReadPageV1> {
+  assert(editCreated);
+  const page = success(await client.call('read_knowledge_source', { workspace_id: editCreated.document.workspaceId,
+    document_id: editCreated.document.documentId, format: 'native', max_bytes: 262144,
+    ...(expectedVersion ? { expected_version: expectedVersion } : {}), ...(targets ? { include_edit_targets: true } : {}) })) as unknown as DocumentReadPageV1;
+  assert.equal(page.apiVersion, 1); assert.equal(page.format, 'native'); assert.equal(page.encoding, 'utf-8');
+  for (const key of ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'representation', 'lifecycleGeneration', 'schemaVersion'] as const) assert.equal(page.document[key], editCreated.document[key]);
+  assert.equal(page.document.representation, 'tiptap_blocks'); assert.equal(page.currency.observedDurable, true);
+  assert.equal(page.currency.observedVersion, page.document.version); assert.equal(page.currency.durableVersion, page.document.version);
+  assert.equal(page.byteOffset, 0); assert.equal(page.byteLength, Buffer.byteLength(page.fragment)); assert.equal(page.totalBytes, page.byteLength);
+  assert.equal(page.complete, true); assert.equal(page.nextCursor, null);
+  if (expectedVersion) assert.equal(page.document.version, expectedVersion);
+  const body = object(JSON.parse(page.fragment)); assert.equal(body.bodyVersion, 1); assert.equal(object(body.content).kind, 'rich_text');
+  assert.equal(Object.hasOwn(body, 'editTargets'), targets); return page;
+}
+function nativeJson(page: DocumentReadPageV1): Row { return object(object(object(JSON.parse(page.fragment)).content).document); }
+function editMatchesRead(edited: DocumentEditOperationResultV1, page: DocumentReadPageV1): void {
+  assert(edited.effect);
+  for (const key of ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'representation', 'lifecycleGeneration', 'schemaVersion'] as const) assert.equal(edited.document[key], page.document[key]);
+  assert.equal(edited.effect.afterVersion, page.document.version); assert(page.currency.durableSequence! >= edited.persistence.confirmedInSequence!);
+}
+function statusArgs(operationId: string): Row { return { api_version: 1, action: 'status', workspace_id: workspace!.id, operation_id: operationId }; }
+
+/** Fresh bounded READ ONLY evidence under the actual owned database. No
+ * session/table writes or operation reconciliation are performed here. */
+async function editRows(): Promise<{ rows: Row; released: boolean; probe: Probe }> {
+  await requireOwnedYjsQaTarget(); assert(workspace && editCreated);
+  const selected = editCreated.document, database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
+    options: '-c default_transaction_read_only=on -c statement_timeout=10000 -c application_name=native-edit-compiled-read' });
+  let ended = false, asynchronous: Error | undefined, failure: unknown, failed = false, backendPid = 0;
+  let captured: Row | undefined, released = false;
+  database.once('end', () => { ended = true; }); database.on('error', error => { asynchronous ??= error; });
+  try {
+    await database.connect(); await database.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const actual = (await database.query<Row>(`SELECT current_database() AS name,d.oid::text,pg_get_userbyid(d.datdba) AS owner,
+      current_user AS role,shobj_description(d.oid,'pg_database') AS marker,pg_backend_pid() AS pid,
+      current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation,
+      pg_current_xact_id_if_assigned() IS NULL AS unassigned FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+    assert(actual); assertDatabaseOwnership(owned, actual as unknown as DatabaseIdentity);
+    assert.equal(actual.read_only, 'on'); assert.equal(actual.isolation, 'repeatable read'); assert.equal(actual.unassigned, true);
+    assert(typeof actual.pid === 'number'); backendPid = actual.pid;
+    const scope = [selected.workspaceId, selected.documentId], documents = (await database.query<Row>('SELECT to_jsonb(d) AS value,d.xmin::text AS xmin FROM collaboration_documents d WHERE workspace_id=$1 AND id=$2', scope)).rows;
+    const lineages = (await database.query<Row>('SELECT to_jsonb(l) AS value,l.xmin::text AS xmin FROM file_collaboration_lineages l WHERE workspace_id=$1 AND id=$2', [selected.workspaceId, selected.lineageId])).rows;
+    const states = (await database.query<Row>(`SELECT to_jsonb(s)-'yjs_state'-'state_vector' AS value,s.xmin::text AS xmin,
+      encode(sha256(s.yjs_state),'hex') AS state_sha256,encode(sha256(s.state_vector),'hex') AS vector_sha256
+      FROM collaboration_yjs_states s WHERE workspace_id=$1 AND document_id=$2`, scope)).rows;
+    for (const result of [documents, lineages, states]) assert.equal(result.length, 1);
+    const state = object(states[0].value); assert.equal(state.status, 'active'); assert.equal(state.representation, 'tiptap_blocks');
+    const operations = (await database.query<Row>(`SELECT to_jsonb(o)-'resulting_state_snapshot'-'base_state_vector' AS value,o.xmin::text AS xmin,
+      encode(sha256(o.resulting_state_snapshot),'hex') AS after_sha256,encode(sha256(o.base_state_vector),'hex') AS base_vector_sha256
+      FROM collaboration_agent_operations o WHERE workspace_id=$1 AND document_id=$2 ORDER BY operation_id LIMIT 9`, scope)).rows;
+    assert(operations.length <= 8); assert(operations.every(row => object(row.value).native_edit_original_json));
+    const payloads = (await database.query<Row>(`SELECT to_jsonb(p)-'yjs_update' AS value,p.xmin::text AS xmin,encode(sha256(p.yjs_update),'hex') AS update_sha256
+      FROM collaboration_agent_native_edit_payloads p JOIN collaboration_agent_operations o USING(operation_id)
+      WHERE o.workspace_id=$1 AND o.document_id=$2 ORDER BY p.operation_id LIMIT 9`, scope)).rows; assert(payloads.length <= 8);
+    const revisions = (await database.query<Row>('SELECT to_jsonb(r) AS value,r.xmin::text AS xmin FROM file_revisions r WHERE workspace_id=$1 AND lineage_id=$2 ORDER BY id LIMIT 17', [selected.workspaceId, selected.lineageId])).rows; assert(revisions.length <= 16);
+    const contents = (await database.query<Row>('SELECT to_jsonb(c) AS value,c.xmin::text AS xmin FROM file_revision_contents c WHERE workspace_id=$1 AND lineage_id=$2 ORDER BY revision_id LIMIT 17', [selected.workspaceId, selected.lineageId])).rows; assert(contents.length <= 16);
+    const blobs = (await database.query<Row>(`SELECT to_jsonb(b)-'compressed_content' AS value,b.xmin::text AS xmin,encode(sha256(b.compressed_content),'hex') AS stored_sha256
+      FROM file_version_blobs b JOIN file_revision_contents c ON c.blob_id=b.blob_id AND c.workspace_id=b.workspace_id
+      WHERE c.workspace_id=$1 AND c.lineage_id=$2 ORDER BY b.blob_id,c.revision_id LIMIT 17`, [selected.workspaceId, selected.lineageId])).rows; assert(blobs.length <= 16);
+    const projections = (await database.query<Row>('SELECT to_jsonb(p) AS value,p.xmin::text AS xmin FROM collaboration_file_projections p WHERE document_id=$1', [selected.documentId])).rows;
+    const metadata = (await database.query<Row>('SELECT to_jsonb(m) AS value,m.xmin::text AS xmin FROM workspace_file_metadata m WHERE workspace_id=$1 AND path=$2', [selected.workspaceId, selected.path])).rows; assert(metadata.length <= 1);
+    const key = sha(`canvas.collaboration.room-owner.v1\0${selected.documentId}`).slice(0, 16);
+    const locked = (await database.query<Row>(`SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory' AND granted
+      AND database=(SELECT oid FROM pg_database WHERE datname=current_database()) AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1) AS held`,
+    [Number.parseInt(key.slice(0, 8), 16), Number.parseInt(key.slice(8), 16)])).rows[0].held;
+    released = state.room_owner_token === null && state.room_owner_backend_pid === null && state.room_owner_backend_start === null && locked === false;
+    captured = { documents, lineages, states, operations, payloads, revisions, contents, blobs, projections, metadata };
+    assert.equal((await database.query<Row>('SELECT pg_current_xact_id_if_assigned() IS NULL AS unassigned')).rows[0].unassigned, true); await database.query('COMMIT');
+  } catch (error) { failure = error; failed = true; }
+  let closeFailure: unknown;
+  try { await database.end(); assert(ended); } catch (error) { closeFailure = error; }
+  if (failed || closeFailure || asynchronous) throw new AggregateError([...(failed ? [failure] : []), ...(closeFailure ? [closeFailure] : []), ...(asynchronous ? [asynchronous] : [])], 'Owned native Edit read-only evidence or close failed.');
+  assert(captured); return { rows: captured, released, probe: { backendPid, readOnly: true, xidUnassigned: true, closed: true } };
+}
+async function releasedEditRows(): Promise<{ rows: Row; probe: Probe }> {
+  await expect.poll(async () => (await editRows()).released, { timeout: 40000, intervals: [500, 1000, 2000] }).toBe(true);
+  const observed = await editRows(); assert(observed.released); return observed;
+}
+function assertRecordedEdit(rows: Row, edited: DocumentEditOperationResultV1, origin: Identity, transport: 'request' | 'direct-mcp'): void {
+  assert(Array.isArray(rows.operations)); const operation = object(object(rows.operations.find(entry => object(object(entry).value).operation_id === edited.operationId)).value);
+  const original = object(operation.native_edit_original_json), actor = object(original.actor), actualOrigin = object(original.origin), after = object(operation.native_edit_after_json);
+  assert.equal(actor.userId, origin.userId); assert.equal(actor.sessionId, origin.sessionId); assert.equal(actualOrigin.transport, transport);
+  assert.equal(actualOrigin.sessionId, origin.sessionId); assert.equal(operation.actor_session_id, origin.sessionId);
+  assert.equal(operation.initiated_by_user_id, origin.userId); assert.equal(operation.actor_id, actor.actorId);
+  assert.equal(operation.document_id, edited.document.documentId); assert.equal(object(original.identity).lineageId, edited.document.lineageId);
+  assert.equal(actor.actorType, transport === 'request' ? 'user' : 'agent'); assert.equal(actualOrigin.userId, origin.userId);
+  if (transport === 'direct-mcp') assert.equal(actualOrigin.clientId, mcpA!.registration.clientId);
+  else { assert.equal(actor.actorId, origin.userId); assert.equal(Object.hasOwn(actualOrigin, 'clientId'), false); }
+  assert.equal(after.beforeVersion, edited.effect!.beforeVersion); assert.equal(after.afterVersion, edited.effect!.afterVersion);
+  assert.equal(after.originalProof, original.originalProof); assert.equal(operation.applied_at, edited.effect!.appliedAt);
+  assert(Array.isArray(rows.payloads)); assert(rows.payloads.some(entry => object(object(entry).value).operation_id === edited.operationId));
+}
+
 test.describe.serial('Owned compiled native MCP create/import and renewed OAuth', () => {
   test.beforeAll(async () => {
     owned = await requireOwnedYjsQaTarget(); assert.equal(owned.activeSpec, spec);
@@ -243,6 +363,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       await ok(await active.request.patch('/api/integrations/mcp-server', { data: initialSettings }), 'Restore exact own MCP capability selection');
       await reviewOff(active);
     });
+    for (const request of editApiContexts) await clean(() => request.dispose());
     for (const context of [...contexts].reverse()) {
       if (!signedOut.has(context)) await clean(async () => {
         const value = await ok(await context.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Sign out only own session');
@@ -342,5 +463,125 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     await reviewOff(contextB); await evidence(info, { scope: 'completed original source/history untouched by B with unusable URL', originalRowsUnchanged: true,
       noDownloadRequired: true, historySource: 'external_import', historyAttributedToOriginalA: true, fullVersion: current.document.version, readOnlyProbe: after.probe,
       mutationApiVersion: 1, metadataVersion: current.document.metadataVersion, legacySameKeyReceiptUnchanged: true });
+  });
+  test('4: compiled OAuth MCP edit reaches the open native editor and same-key/status preserve its actual operation', async ({ browser: _browser }, info) => {
+    assert(contextB && mcpB && identityB && workspace);
+    firstEditOrigin = identityB;
+    const source = '# Compiled native edit\n\nOAuth edit target 😀.\n\nMove this paragraph 🧪.\n\nKeep final tail.\n';
+    editCreated = mutationResult(await mcpB.call('create_knowledge_source', { api_version: 1, workspace_id: workspace.id,
+      path: 'oauth/native-edit.md', content: source, idempotency_key: `public-edit-create-${randomUUID()}` }));
+    assert.equal(editCreated.outcome, 'created'); assert.equal(editCreated.document.representation, 'tiptap_blocks');
+    const initial = await editRead(mcpB, editCreated.document.version);
+    assert.deepEqual(initial.document, editCreated.document); assert.deepEqual(initial.currency, editCreated.currency); assert.deepEqual(initial.projection, editCreated.projection);
+    const page = await contextB.newPage();
+    try {
+      await page.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: workspace.id, host: origin });
+      await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspace.id)}&path=${encodeURIComponent(editCreated.document.path)}`, { waitUntil: 'domcontentloaded' });
+      const editor = page.locator(editorSelector); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 90000 });
+      await expect(editor).toBeVisible();
+      await expect(editor).toContainText('OAuth edit target 😀.');
+      await expect.poll(async () => (await readNativeRichCandidate(page, editorSelector)).document, { timeout: 45000 }).toEqual(nativeJson(initial));
+      editRequest = { api_version: 1, action: 'edit', workspace_id: workspace.id, document_id: editCreated.document.documentId,
+        expected_version: initial.document.version, idempotency_key: `public-edit-text-${randomUUID()}`,
+        patch: { kind: 'native_text_replace', edits: [{ oldText: 'OAuth edit target', newText: 'MCP changed target', expectedOccurrences: 1 }] } };
+      firstEdit = editResult(await mcpB.call('edit_knowledge_source', editRequest)); assert.equal(firstEdit.effect!.beforeVersion, initial.document.version);
+      const after = await editRead(mcpB, firstEdit.effect!.afterVersion); editMatchesRead(firstEdit, after);
+      assert(JSON.stringify(nativeJson(after)).includes('MCP changed target 😀.')); assert(!JSON.stringify(nativeJson(after)).includes('OAuth edit target'));
+      await expect(editor).toBeVisible(); await expect(editor).toContainText('MCP changed target 😀.'); await expect(editor).not.toContainText('OAuth edit target');
+      await expect.poll(async () => (await readNativeRichCandidate(page, editorSelector)).document, { timeout: 45000 }).toEqual(nativeJson(after));
+      await page.screenshot({ path: info.outputPath('native-edit-mcp-live-editor.png'), animations: 'disabled' });
+    } finally { await page.close(); }
+    assert(firstEdit && editRequest);
+    const prior = await releasedEditRows(); assertRecordedEdit(prior.rows, firstEdit, firstEditOrigin, 'direct-mcp');
+    assert.equal((prior.rows.operations as unknown[]).length, 1);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', editRequest)), firstEdit);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', statusArgs(firstEdit.operationId))), firstEdit);
+    const observed = await releasedEditRows(); assert.deepEqual(observed.rows, prior.rows); editSnapshot = observed.rows;
+    await reviewOff(contextB); await evidence(info, { scope: 'compiled native MCP CreateV1/Read/Edit/Status with live Hocuspocus editor',
+      actualNativeEdit: true, nativeOnlyIdAndFullVersion: true, editorObservedSameNativeJson: true, sameKeyNoReplay: true,
+      statusAndRetryRowsUnchanged: true, operationId: firstEdit.operationId, fullVersion: firstEdit.effect!.afterVersion, readOnlyProbe: observed.probe });
+  });
+  test('5: renewed OAuth session retains native edit Original A and read targets drive a real versioned block move', async ({ browser }, info) => {
+    assert(contextB && mcpB && identityB && workspace && editCreated && firstEdit && editRequest && firstEditOrigin && editSnapshot);
+    const originalContext = contextB, originalClient = mcpB, originalIdentity = identityB;
+    assert.equal(originalIdentity.sessionId, firstEditOrigin.sessionId);
+    const signed = await ok(await originalContext.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Expire actual native edit Origin A session');
+    assert.equal(signed.success, true); signedOut.add(originalContext);
+    const deniedA = await originalClient.call('edit_knowledge_source', statusArgs(firstEdit.operationId));
+    assert.equal(deniedA.isError, true); assert.equal(deniedA.structuredContent?.http_status, 401);
+    contextB = await browser.newContext({ baseURL: origin, storageState: { cookies: [], origins: [] }, colorScheme: 'light' }); contexts.push(contextB);
+    identityB = await login(contextB); assert.equal(identityB.userId, originalIdentity.userId); assert.notEqual(identityB.sessionId, originalIdentity.sessionId);
+    mcpB = await authorizeIngestE2EMcp(contextB, origin, workspace.id, protocol, { scopes, registration: originalClient.registration });
+    assert.deepEqual(mcpB.registration, originalClient.registration); tokenIdentity(mcpB, identityB);
+    assert.equal(success(await mcpB.call('auth_probe', {})).authenticated, true);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', editRequest)), firstEdit);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', statusArgs(firstEdit.operationId))), firstEdit);
+    const renewed = await releasedEditRows(); assert.deepEqual(renewed.rows, editSnapshot); assertRecordedEdit(renewed.rows, firstEdit, firstEditOrigin, 'direct-mcp');
+    const stillA = await originalClient.call('edit_knowledge_source', editRequest); assert.equal(stillA.isError, true); assert.equal(stillA.structuredContent?.http_status, 401);
+    const beforeMove = await editRead(mcpB, firstEdit.effect!.afterVersion, true), body = object(JSON.parse(beforeMove.fragment));
+    assert(Array.isArray(body.editTargets)); const targets = body.editTargets as NativeDocumentEditTargetV1[];
+    for (const target of targets) { assert.match(target.placementHash, /^[a-f0-9]{64}$/u); assert.equal(Object.hasOwn(target, 'text'), false); assert.equal(Object.hasOwn(target, 'operations'), false); }
+    const doc = nativeJson(beforeMove); assert(Array.isArray(doc.content)); const children = doc.content.map(value => object(value));
+    const inlineText = (node: Row) => { assert(Array.isArray(node.content)); return node.content.map(child => String(object(child).text ?? '')).join(''); };
+    const movingNode = children.find(node => node.type === 'paragraph' && inlineText(node) === 'Move this paragraph 🧪.');
+    const beforeNode = children.find(node => node.type === 'paragraph' && inlineText(node) === 'MCP changed target 😀.'); assert(movingNode && beforeNode);
+    const movingId = object(movingNode.attrs).id, beforeId = object(beforeNode.attrs).id; assert(typeof movingId === 'string' && typeof beforeId === 'string');
+    const moving = targets.find(target => target.id === movingId); assert(moving && moving.parentId === null);
+    const moveRequest = { api_version: 1, action: 'edit', workspace_id: workspace.id, document_id: editCreated.document.documentId,
+      expected_version: beforeMove.document.version, idempotency_key: `public-edit-move-${randomUUID()}`,
+      patch: { kind: 'native_blocks', operations: [{ kind: 'move_block', blockId: moving.id, placementHash: moving.placementHash, parentId: null, beforeId }] } };
+    const moved = editResult(await mcpB.call('edit_knowledge_source', moveRequest)); assert.equal(moved.effect!.beforeVersion, beforeMove.document.version);
+    const afterMove = await editRead(mcpB, moved.effect!.afterVersion, true); editMatchesRead(moved, afterMove);
+    const expectedChildren = children.filter(node => object(node.attrs).id !== movingId), destination = expectedChildren.findIndex(node => object(node.attrs).id === beforeId);
+    assert(destination >= 0); expectedChildren.splice(destination, 0, movingNode);
+    assert.deepEqual(nativeJson(afterMove), { ...doc, content: expectedChildren });
+    const prior = await releasedEditRows(); assertRecordedEdit(prior.rows, moved, identityB, 'direct-mcp'); assert.equal((prior.rows.operations as unknown[]).length, 2);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', moveRequest)), moved);
+    assert.deepEqual(editResult(await mcpB.call('edit_knowledge_source', statusArgs(moved.operationId))), moved);
+    assert.deepEqual((await releasedEditRows()).rows, prior.rows);
+    await reviewOff(contextB); await evidence(info, { scope: 'same real OAuth client/new SID, expired origin rejected, guarded native block move',
+      sameClient: true, oldEditTokenRejectedBeforeAndAfterRenewal: true, originalEditRowsUnchangedByRenewedRetry: true,
+      nativeReadTargetsUsed: true, actualBlockMove: true, completeNativeDocumentMatchesExpectedMove: true, movedOperationId: moved.operationId,
+      fullVersion: moved.effect!.afterVersion, readOnlyProbe: prior.probe });
+  });
+  test('6: issued cookie-free session Bearer edits through REST and real sign-out revokes Edit and Status', async ({ browser }, info) => {
+    assert(contextB && mcpB && identityB && workspace && editCreated);
+    const web = await browser.newContext({ baseURL: origin, storageState: { cookies: [], origins: [] }, colorScheme: 'light' }); contexts.push(web);
+    const email = process.env.TEST_LOGIN_EMAIL, password = process.env.TEST_LOGIN_PASSWORD; assert(email && password);
+    const signIn = await web.request.post('/api/auth/sign-in/email', { headers: { Origin: origin }, data: { email, password }, maxRedirects: 0 });
+    await ok(signIn, 'Fresh REST owner login'); let bearer = signIn.headers()['set-auth-token'] ?? '';
+    assert(bearer && bearer.length <= 4096 && !/[\s\u0000-\u001f\u007f]/u.test(bearer), 'The actual login must issue a bounded Session Bearer.');
+    const session = await ok(await web.request.get('/api/auth/get-session'), 'Actual REST login identity');
+    const restUserId = object(session.user).id, restSessionId = object(session.session).id;
+    assert(typeof restUserId === 'string' && restUserId); assert(typeof restSessionId === 'string' && restSessionId);
+    const restIdentity = { userId: restUserId, sessionId: restSessionId };
+    assert.equal(restIdentity.userId, identityB.userId); assert.notEqual(restIdentity.sessionId, identityB.sessionId);
+    const rest = await apiRequest.newContext({ baseURL: origin, timeout: 30000, storageState: { cookies: [], origins: [] }, extraHTTPHeaders: { Authorization: `Bearer ${bearer}` } });
+    bearer = ''; editApiContexts.push(rest);
+    const bearerSession = await ok(await rest.get('/api/auth/get-session'), 'Cookie-free actual Bearer identity');
+    assert.equal(object(bearerSession.user).id, restIdentity.userId); assert.equal(object(bearerSession.session).id, restIdentity.sessionId);
+    assert.deepEqual((await rest.storageState()).cookies, []); assert.deepEqual((await rest.storageState()).origins, []);
+    const beforeRest = await editRead(mcpB), restRequest = { apiVersion: 1, workspaceId: workspace.id, documentId: editCreated.document.documentId,
+      expectedVersion: beforeRest.document.version, idempotencyKey: `public-rest-edit-${randomUUID()}`,
+      patch: { kind: 'native_text_replace', edits: [{ oldText: 'Keep final tail', newText: 'REST changed final tail', expectedOccurrences: 1 }] } };
+    const response = await rest.post('/api/documents/edit', { data: restRequest }); assert.equal(response.status(), 200);
+    assert.equal(response.headers()['cache-control'], 'no-store'); const edited = editResultValue(await ok(response, 'Compiled REST native Edit'));
+    assert.equal(edited.effect!.beforeVersion, beforeRest.document.version); const afterRest = await editRead(mcpB, edited.effect!.afterVersion); editMatchesRead(edited, afterRest);
+    assert(JSON.stringify(nativeJson(afterRest)).includes('REST changed final tail.')); assert(!JSON.stringify(nativeJson(afterRest)).includes('Keep final tail'));
+    const prior = await releasedEditRows(); assertRecordedEdit(prior.rows, edited, restIdentity, 'request'); assert.equal((prior.rows.operations as unknown[]).length, 3);
+    const restStatus = { apiVersion: 1, workspaceId: workspace.id, operationId: edited.operationId };
+    assert.deepEqual(editResultValue(await ok(await rest.post('/api/documents/edit/status', { data: restStatus }), 'Compiled REST pure status')), edited);
+    assert.deepEqual(editResultValue(await ok(await rest.post('/api/documents/edit', { data: restRequest }), 'Compiled REST same-key retry')), edited);
+    assert.deepEqual((await releasedEditRows()).rows, prior.rows);
+    const signed = await ok(await web.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Revoke actual REST Bearer source session');
+    assert.equal(signed.success, true); signedOut.add(web);
+    for (const [route, selection] of [['/api/documents/edit', restRequest], ['/api/documents/edit/status', restStatus]] as const) {
+      const rejected = await rest.post(route, { data: selection }); assert.equal(rejected.status(), 401);
+      const denied = await json(rejected, 'Revoked REST native request'); assert.deepEqual(denied, { apiVersion: 1, success: false, code: 'AUTHENTICATION_REQUIRED' });
+    }
+    const after = await releasedEditRows(); assert.deepEqual(after.rows, prior.rows); await reviewOff(contextB);
+    await evidence(info, { scope: 'compiled REST native Edit/Status with actual issued Session Bearer and actual session sign-out',
+      cookieFreeBearerConfirmed: true, actualRequestOriginAttribution: true, sameKeyNoReplay: true, pureStatusRowsUnchanged: true,
+      revokedEditAndStatus401: true, operationId: edited.operationId, fullVersion: edited.effect!.afterVersion, readOnlyProbe: after.probe });
   });
 });

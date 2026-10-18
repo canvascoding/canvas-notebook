@@ -56,6 +56,8 @@ export type DocumentReadRequestV1 = Readonly<{
   workspaceId: string;
   documentId: string;
   format?: DocumentReadFormatV1;
+  /** Opt-in guarded block targets, available only in native tiptap_blocks bodies. */
+  includeEditTargets?: boolean;
   expectedVersion?: string;
   maxBytes?: number;
   /** Opaque continuation evidence; callers still need current authorization. */
@@ -67,6 +69,7 @@ export type DecodedDocumentReadRequestV1 = Readonly<{
   workspaceId: string;
   documentId: string;
   format: DocumentReadFormatV1;
+  includeEditTargets?: boolean;
   expectedVersion?: string;
   maxBytes: number;
   cursor?: string;
@@ -127,7 +130,7 @@ export function isDocumentVersionTokenV1(value: unknown): value is string {
   return typeof value === 'string' && /^canvas-document-v1:[a-f0-9]{64}$/u.test(value);
 }
 
-const requestKeys = new Set(['apiVersion', 'workspaceId', 'documentId', 'format', 'expectedVersion', 'maxBytes', 'cursor']);
+const requestKeys = new Set(['apiVersion', 'workspaceId', 'documentId', 'format', 'includeEditTargets', 'expectedVersion', 'maxBytes', 'cursor']);
 
 function validId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 256
@@ -153,11 +156,13 @@ export function decodeDocumentReadRequestV1(value: unknown): DecodedDocumentRead
   const workspaceId: unknown = own('workspaceId')?.value;
   const documentId: unknown = own('documentId')?.value;
   const format: unknown = own('format') ? own('format')!.value : 'native';
+  const includeEditTargets: unknown = own('includeEditTargets')?.value;
   const maxBytes: unknown = own('maxBytes') ? own('maxBytes')!.value : DEFAULT_DOCUMENT_READ_PAGE_BYTES;
   const expectedVersion: unknown = own('expectedVersion')?.value;
   const cursor: unknown = own('cursor')?.value;
   if (apiVersion !== 1 || !validId(workspaceId) || !validId(documentId)
     || format !== 'native' && format !== 'text' && format !== 'markdown'
+    || own('includeEditTargets') && (typeof includeEditTargets !== 'boolean' || format !== 'native')
     || typeof maxBytes !== 'number' || !Number.isSafeInteger(maxBytes)
     || maxBytes < MIN_DOCUMENT_READ_PAGE_BYTES || maxBytes > MAX_DOCUMENT_READ_PAGE_BYTES
     || own('expectedVersion') && !isDocumentVersionTokenV1(expectedVersion)
@@ -166,6 +171,7 @@ export function decodeDocumentReadRequestV1(value: unknown): DecodedDocumentRead
     throw new DocumentReadError('INVALID_REQUEST');
   }
   return Object.freeze({ apiVersion: 1, workspaceId, documentId, format, maxBytes,
+    ...(own('includeEditTargets') ? { includeEditTargets: includeEditTargets as boolean } : {}),
     ...(own('expectedVersion') ? { expectedVersion: expectedVersion as string } : {}),
     ...(own('cursor') ? { cursor: cursor as string } : {}) });
 }

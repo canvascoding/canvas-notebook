@@ -2,7 +2,7 @@ import { types } from 'node:util';
 import { decodeDocumentReadRequestV1, DocumentReadError, DEFAULT_DOCUMENT_READ_PAGE_BYTES, MAX_DOCUMENT_READ_PAGE_BYTES,
   MIN_DOCUMENT_READ_PAGE_BYTES, type DecodedDocumentReadRequestV1 } from '@/app/lib/documents/contracts';
 
-const nativeKeys = ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor'] as const;
+const nativeKeys = ['document_id', 'format', 'include_edit_targets', 'expected_version', 'max_bytes', 'cursor'] as const;
 const selectionKeys = new Set<string>(['workspace_id', ...nativeKeys]);
 
 /** Pure transport selection only. A decoded ID/cursor is never authorization.
@@ -27,6 +27,7 @@ export function decodeDirectMcpDocumentReadSelection(input: unknown): DecodedDoc
   const own = (key: string) => Object.prototype.hasOwnProperty.call(descriptors, key);
   return decodeDocumentReadRequestV1({ apiVersion: 1, workspaceId, documentId,
     ...(own('format') ? { format: value('format') } : {}),
+    ...(own('include_edit_targets') ? { includeEditTargets: value('include_edit_targets') } : {}),
     ...(own('expected_version') ? { expectedVersion: value('expected_version') } : {}),
     ...(own('max_bytes') ? { maxBytes: value('max_bytes') } : {}),
     ...(own('cursor') ? { cursor: value('cursor') } : {}) });
@@ -42,6 +43,8 @@ export const DIRECT_MCP_NATIVE_DOCUMENT_READ_PROPERTIES = frozen({
     description: 'Stable native document ID. Use either document_id or the legacy path selector, never both.' },
   format: { type: 'string', enum: ['native', 'text', 'markdown'], default: 'native',
     description: 'For document_id only. Native JSON and semantic text do not require a Markdown projection; markdown is an explicit export.' },
+  include_edit_targets: { type: 'boolean', default: false,
+    description: 'For document_id and native format only. Opt in to bounded tiptap_blocks edit targets with stable IDs, placement/subtree hashes and table guards; ordinary default body bytes stay unchanged. Keep the same value across continuation pages.' },
   expected_version: { type: 'string', pattern: '^canvas-document-v1:[a-f0-9]{64}$',
     description: 'For document_id only. Full native content version returned by an earlier document read.' },
   max_bytes: { type: 'integer', minimum: MIN_DOCUMENT_READ_PAGE_BYTES, maximum: MAX_DOCUMENT_READ_PAGE_BYTES, default: DEFAULT_DOCUMENT_READ_PAGE_BYTES,

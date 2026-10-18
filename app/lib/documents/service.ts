@@ -167,7 +167,8 @@ async function readPage(phase: ReadPhase, selection: DecodedDocumentReadRequestV
   const originalHeader = await headerWitness(phase, selection.documentId);
   phase.document = Object.freeze({ id: selection.documentId, witness: originalHeader });
   const observation = await readNativeDocumentByIdOnConnection(phase.connection,
-    { workspace: phase.workspace, documentId: selection.documentId });
+    { workspace: phase.workspace, documentId: selection.documentId,
+      ...(selection.includeEditTargets === true ? { includeEditTargets: true } : {}) });
   const n = observation.native, identity = { workspaceId: n.workspaceId, organizationId: n.organizationId,
     documentId: n.documentId, lineageId: observation.identity.lineageId, lifecycleGeneration: n.lifecycleGeneration,
     representation: n.representation, schemaVersion: n.schemaVersion };

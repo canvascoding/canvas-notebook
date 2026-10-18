@@ -98,6 +98,9 @@ import {
   parseDirectMcpEditIdempotencyKey,
 } from '@/app/lib/mcp/server/document-edit-contract';
 import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
+import { editDocumentForDirectMcp, readDocumentEditStatusForDirectMcp } from '@/app/lib/documents/edit-public-service';
+import { decodeDirectMcpNativeDocumentEditSelection, directMcpDocumentEditInputSchema, directMcpDocumentEditOutputSchema,
+  formatDirectMcpNativeDocumentEditResult, formatDirectMcpNativeDocumentEditError } from './document-edit-tool-contract';
 import { createDirectMcpEditAuthority, DirectMcpEditAuthorityError } from '@/app/lib/mcp/server/direct-edit-authority';
 import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 import {
@@ -439,8 +442,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Edit workspace document',
-      description: 'Applies one exact, conflict-protected text replacement to an existing visible workspace file. Document Review Center is off by default: direct edits succeed only after the live Yjs change reaches the physical file; unsafe edits return a conflict. When review is enabled, a proposal may require user action. Read the file first, pass its current SHA-256 hash, and inspect status, review_required, requires_user_action, and review_url before reporting success.',
-      inputSchema: {
+      description: 'Use api_version:1 and action:edit for a native documentId/full-version patch with a stable caller idempotency_key; native edits do not require Markdown export or a file projection. Native block patches require tiptap_blocks IDs and their exact local guards. Only state:confirmed confirms persistence; pending or uncertain outcomes require action:status with workspace_id and operation_id through this same tool, never an automatic replay or a new key. Legacy path forms apply one exact SHA-protected text replacement. Document Review Center is off by default: legacy direct edits succeed only after the live Yjs change reaches the physical file; unsafe edits return a conflict. When review is enabled, a proposal may require user action. For legacy forms read the file first, pass its current SHA-256 hash, and inspect status, review_required, requires_user_action, and review_url before reporting success.',
+      inputSchema: directMcpDocumentEditInputSchema({
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
@@ -454,8 +457,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         },
         required: ['workspace_id', 'path', 'old_text', 'new_text', 'expected_sha256'],
         additionalProperties: false,
-      },
-      outputSchema: {
+      }),
+      outputSchema: directMcpDocumentEditOutputSchema({
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string' },
@@ -486,7 +489,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           'operation_id', 'proposal_id', 'proposal_lifecycle', 'review_url', 'document_url', 'idempotency_key',
           'message', 'size', 'modified_at', 'document_id', 'lineage_id'],
         additionalProperties: false,
-      },
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -627,7 +630,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
       required: ['workspace_id'],
       oneOf: [
         { properties: { path: {} }, required: ['path'],
-          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor']
+          not: { anyOf: ['document_id', 'format', 'expected_version', 'max_bytes', 'cursor', 'include_edit_targets']
             .map(key => ({ properties: { [key]: {} }, required: [key] })) } },
         { properties: { document_id: {}, workspace_id: { type: 'string', minLength: 1, maxLength: 256 } }, required: ['document_id'],
           not: { anyOf: ['path', 'offset', 'max_characters']
@@ -1492,6 +1495,18 @@ async function executeEditKnowledgeSource(
   args: unknown,
   authInfo?: AuthInfo,
 ): Promise<CallToolResult> {
+  let nativeSelection: ReturnType<typeof decodeDirectMcpNativeDocumentEditSelection>;
+  try { nativeSelection = decodeDirectMcpNativeDocumentEditSelection(args); }
+  catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
+  if (nativeSelection) {
+    try {
+      if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+      const value = nativeSelection.action === 'edit'
+        ? await editDocumentForDirectMcp(authInfo, nativeSelection.request)
+        : await readDocumentEditStatusForDirectMcp(authInfo, nativeSelection.request);
+      return formatDirectMcpNativeDocumentEditResult(value);
+    } catch (error) { return formatDirectMcpNativeDocumentEditError(error); }
+  }
   const parsed = parseArgs(args);
   const workspaceId = requiredString(parsed, 'workspace_id', MAX_WORKSPACE_ID_LENGTH);
   const filePath = requiredString(parsed, 'path', MAX_PATH_LENGTH);

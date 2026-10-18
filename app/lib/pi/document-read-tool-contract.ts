@@ -18,6 +18,8 @@ export const piDocumentReadParameters = Type.Object({
   format: Type.Optional(Type.Union([Type.Literal('native'), Type.Literal('text'), Type.Literal('markdown')], {
     description: 'Representation to read. Defaults to native; Markdown export must be requested explicitly.',
   })),
+  includeEditTargets: Type.Optional(Type.Boolean({ default: false,
+    description: 'Opt in to bounded block-edit IDs, placement/subtree guards and table targets. Requires native format and tiptap_blocks; preserve the same option on every continuation page. Large sources/targets may be explicitly refused; ordinary reads remain available without it.' })),
   expectedVersion: Type.Optional(Type.String({ pattern: '^canvas-document-v1:[a-f0-9]{64}$',
     description: 'Complete native version token from an earlier document read. A conflict never refreshes this baseline automatically.' })),
   maxBytes: Type.Optional(Type.Integer({ minimum: 4, maximum: PI_DOCUMENT_READ_MAX_BYTES,
@@ -26,7 +28,7 @@ export const piDocumentReadParameters = Type.Object({
     description: 'Exact opaque nextCursor from the previous page. Keep the same document, format and version. Every page checks current access again.' })),
 }, { additionalProperties: false });
 
-const selectionKeys = new Set(['workspaceId', 'documentId', 'format', 'expectedVersion', 'maxBytes', 'cursor']);
+const selectionKeys = new Set(['workspaceId', 'documentId', 'format', 'includeEditTargets', 'expectedVersion', 'maxBytes', 'cursor']);
 
 /** Pure selector decoding only; these arguments never establish agent authority. */
 export function decodePiDocumentReadSelection(input: unknown): DecodedDocumentReadRequestV1 {

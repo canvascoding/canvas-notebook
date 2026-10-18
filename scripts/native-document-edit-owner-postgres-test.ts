@@ -15,6 +15,10 @@ import * as decoding from 'lib0/decoding';
 import type * as YTypes from 'yjs';
 import type { DocumentVersionIdentityV1 } from '../app/lib/documents/read-version';
 import type { NativeDocumentEditOperationOriginal } from '../app/lib/collaboration/agent-operations';
+import type { AgentBlockEditRequest } from '../app/lib/collaboration/agent-block-edits';
+import type { NativeDocumentEditTargetV1 } from '../app/lib/collaboration/native-document-edit-targets';
+import type { NativeCollaborationContent } from '../app/lib/collaboration/document-snapshot';
+import type { JSONContent } from '@tiptap/core';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 // Real private PG18/Cookie principals, accepted WebSocket peer writes, actual
@@ -56,6 +60,10 @@ export async function nativeDocumentEditOwnerPostgresTest():Promise<void> {
     const {documentVersionV1}=await import('../app/lib/documents/read-version');
     const {collaborationStateProof}=await import('../app/lib/collaboration/state-proof');
     const {captureNativeDocumentEditOriginal,captureNativeDocumentEditAfter}=await import('../app/lib/collaboration/native-document-edit-operation-contract');
+    const {POST:editHttp}=await import('../app/api/documents/edit/route');
+    const {POST:statusHttp}=await import('../app/api/documents/edit/status/route');
+    const {POST:readHttp}=await import('../app/api/documents/read/route');
+    const {encodeDocumentEditOperationResultV1}=await import('../app/lib/documents/edit-result-contract');
     type Seed={id:string;path:string;identity:DocumentVersionIdentityV1};
     const seed=async(file:string,representation:DocumentVersionIdentityV1['representation'],text:string):Promise<Seed>=>{
       const imported=await h.upload(file,Buffer.from('Original API Markdown seed.'));
@@ -255,6 +263,114 @@ export async function nativeDocumentEditOwnerPostgresTest():Promise<void> {
       assert.equal((await read(fault)).fragment,'Acknowledged fault and stable tail.');
       assert.equal(readDocumentReviewAvailability().documentReviewEnabled,false);
       console.log('PASS controlled actual postwriter SQL ACK loss preserves operationId/After and fresh retry confirms durability without a second target application');groups++;
+
+      stage='pure public historical status';
+      const httpRequest=(endpoint:string,value:unknown,bearer?:string)=>new NextRequest(`http://localhost/api/documents/edit${endpoint}`,{
+        method:'POST',headers:{'content-type':'application/json',
+          ...(bearer?{authorization:`Bearer ${bearer}`}:{cookie:currentCookie!})},body:JSON.stringify(value)});
+      const statusRequest={apiVersion:1,workspaceId:h.source.workspaceId,operationId:applied.operation.operationId};
+      const immutable=await rows(statusRequest.operationId),statusStatements:string[]=[];
+      const statusResponse=await h.withProbe(async event=>{statusStatements.push(event.text);},()=>statusHttp(httpRequest('/status',statusRequest)));
+      assert.equal(statusResponse.status,200);assert.equal(statusResponse.headers.get('cache-control'),'no-store');
+      assert.equal(statusResponse.headers.get('x-content-type-options'),'nosniff');
+      const publicStatus=encodeDocumentEditOperationResultV1(await statusResponse.json());
+      assert.equal(publicStatus.state,'confirmed');assert.equal(publicStatus.effect?.afterVersion,applied.after.afterVersion);
+      assert.equal(publicStatus.history.status,'captured');assert.equal(publicStatus.document.documentId,plain.id);
+      assert.deepEqual(await rows(statusRequest.operationId),immutable);
+      assert.equal(statusStatements.filter(sql=>/\b(?:INSERT\s+INTO\b|UPDATE\s+["\w]|DELETE\s+FROM\b|MERGE\s+INTO\b|SAVEPOINT\b)/iu.test(sql)).length,0,
+        'Public status must not reconcile, capture history or issue domain DML.');
+      // Original peer A intentionally expired in the earlier renewal case.
+      // A fresh genuine B peer supplies this later authorized change.
+      const laterPeer=await openPeer(plain,(await read(plain)).fragment);
+      await laterPeer.sendSuffix(' later peer content');await flushCollaborationDocuments();
+      const later=await read(plain);assert.notEqual(later.document.version,publicStatus.effect?.afterVersion);
+      const laterStatus=await statusHttp(httpRequest('/status',statusRequest));assert.equal(laterStatus.status,200);
+      assert.deepEqual(encodeDocumentEditOperationResultV1(await laterStatus.json()),publicStatus);
+      assert.deepEqual(await rows(statusRequest.operationId),immutable,'Later peers do not rewrite historical operation receipts.');
+      console.log('PASS real Request status is SELECT-only with unchanged operation/payload/history rows and retains historical After after a genuine accepted peer edit');groups++;
+
+      stage='public HTTP edit and session Bearer';
+      const publicRequest=selection(plain,later.document.version,'native-owner-public-http-1','Changed','External');
+      const editedResponse=await editHttp(httpRequest('',publicRequest,tokenB));assert.equal(editedResponse.status,200);
+      const publicEdited=encodeDocumentEditOperationResultV1(await editedResponse.json());
+      assert.equal(publicEdited.state,'confirmed');assert.equal(publicEdited.effect?.outcome,'applied');
+      assert(publicEdited.effect);
+      assert.equal(publicEdited.effect.beforeVersion,later.document.version);assert.equal(publicEdited.document.documentId,plain.id);
+      assert.equal((await read(plain)).fragment,'External plain and stable tail. later peer content');
+      const publicRows=await rows(publicEdited.operationId);assert.equal(publicRows.row.actor_session_id,currentSession);
+      assert.equal(publicRows.row.native_edit_original_json.origin.transport,'request');
+      const repeatedResponse=await editHttp(httpRequest('',publicRequest,tokenB));assert.equal(repeatedResponse.status,200);
+      assert.deepEqual(encodeDocumentEditOperationResultV1(await repeatedResponse.json()),publicEdited);
+      assert.deepEqual(await rows(publicEdited.operationId),publicRows);
+      const staleResponse=await editHttp(httpRequest('',{...publicRequest,idempotencyKey:'native-owner-public-stale'},tokenB));
+      assert.equal(staleResponse.status,409);assert.equal((await staleResponse.json()).code,'DOCUMENT_VERSION_CONFLICT');
+      const malformedResponse=await editHttp(httpRequest('',{...publicRequest,apiVersion:2},tokenB));
+      assert.equal(malformedResponse.status,400);assert.equal((await malformedResponse.json()).code,'INVALID_REQUEST');
+      const oversizedResponse=await editHttp(httpRequest('',{...publicRequest,patch:{kind:'native_text_replace',edits:[{oldText:'External',newText:'x'.repeat(513*1024)}]}},tokenB));
+      assert.equal(oversizedResponse.status,413);assert.equal((await oversizedResponse.json()).code,'DOCUMENT_TOO_LARGE');
+      console.log('PASS public HTTP edit uses genuine session Bearer, same-key replay preserves rows and stale/invalid/oversized requests reject');groups++;
+
+      stage='public native block guards and all six operations';
+      const targetPage=async()=>{
+        const response=await readHttp(new NextRequest('http://localhost/api/documents/read',{method:'POST',headers:{
+          authorization:`Bearer ${tokenB}`,'content-type':'application/json'},body:JSON.stringify({apiVersion:1,
+          workspaceId:h.source.workspaceId,documentId:blocks.id,format:'native',includeEditTargets:true,maxBytes:32768})}));
+        assert.equal(response.status,200);const page=await response.json();assert.equal(page.complete,true);
+        const body=JSON.parse(page.fragment) as {content:NativeCollaborationContent;editTargets:NativeDocumentEditTargetV1[]};
+        assert(Array.isArray(body.editTargets));assert.equal(body.content.kind,'rich_text');
+        for(const target of body.editTargets){assert.equal(Object.hasOwn(target,'text'),false);assert.equal(Object.hasOwn(target,'operations'),false);}
+        return{page,body};
+      };
+      const targetFor=(body:Awaited<ReturnType<typeof targetPage>>['body'],label:string,type='paragraph')=>{
+        assert(body.content.kind==='rich_text');const nodes:JSONContent[]=[];
+        const visit=(node:JSONContent)=>{nodes.push(node);for(const child of node.content??[])visit(child);};visit(body.content.document);
+        const node=nodes.find(node=>node.type===type&&(node.content??[]).map(child=>child.text??'').join('')===label);
+        assert(node&&typeof node.attrs?.id==='string');const target=body.editTargets.find(target=>target.id===node.attrs!.id);assert(target);return target;
+      };
+      const applyBlock=async(operation:AgentBlockEditRequest,key:string)=>{
+        const current=await targetPage();
+        const value={apiVersion:1,workspaceId:h.source.workspaceId,documentId:blocks.id,expectedVersion:current.page.document.version,
+          idempotencyKey:key,patch:{kind:'native_blocks',operations:[operation]}};
+        const response=await editHttp(httpRequest('',value,tokenB));assert.equal(response.status,200);
+        const result=encodeDocumentEditOperationResultV1(await response.json());assert.equal(result.state,'confirmed');
+        assert.equal(result.effect?.outcome,'applied');const after=await targetPage();
+        assert.equal(after.page.document.version,result.effect?.afterVersion);
+        const immutable=await rows(result.operationId),retry=await editHttp(httpRequest('',value,tokenB));assert.equal(retry.status,200);
+        assert.deepEqual(encodeDocumentEditOperationResultV1(await retry.json()),result);assert.deepEqual(await rows(result.operationId),immutable);
+        return after;
+      };
+      let blockRead=await applyBlock({kind:'insert_blocks',parentId:null,beforeId:null,blocks:[
+        {type:'heading',attrs:{level:1},content:[{type:'text',text:'API Heading'}]},
+        ...['API Alpha','API Beta','API Remove'].map(text=>({type:'paragraph',content:[{type:'text',text}]})),
+      ]},'native-public-block-insert');
+      const heading=targetFor(blockRead.body,'API Heading','heading');
+      blockRead=await applyBlock({kind:'format_block',blockId:heading.id,beforeAttrs:{level:1},afterAttrs:{level:2}},'native-public-block-format');
+      assert.equal(targetFor(blockRead.body,'API Heading','heading').attrs.level,2);
+      const alpha=targetFor(blockRead.body,'API Alpha');
+      blockRead=await applyBlock({kind:'format_text',blockId:alpha.id,subtreeHash:alpha.subtreeHash,from:0,to:3,mark:'bold',enabled:true},'native-public-text-format');
+      const beta=targetFor(blockRead.body,'API Beta');
+      blockRead=await applyBlock({kind:'move_block',blockId:beta.id,placementHash:beta.placementHash,parentId:null,beforeId:alpha.id},'native-public-block-move');
+      assert(blockRead.body.editTargets.findIndex(target=>target.id===beta.id)<blockRead.body.editTargets.findIndex(target=>target.id===alpha.id));
+      const table=blockRead.body.editTargets.find(target=>target.type==='table'),cell=blockRead.body.editTargets.find(target=>target.type==='tableCell');
+      assert(table&&cell?.tableOperationTarget);assert.equal(cell.tableOperationTarget.subtreeHash,table.subtreeHash);
+      const rowCount=blockRead.body.editTargets.filter(target=>target.type==='tableRow').length;
+      blockRead=await applyBlock({kind:'table_operation',...cell.tableOperationTarget,action:'addRowAfter'},'native-public-table-operation');
+      assert.equal(blockRead.body.editTargets.filter(target=>target.type==='tableRow').length,rowCount+1);
+      const removed=targetFor(blockRead.body,'API Remove');
+      blockRead=await applyBlock({kind:'delete_block',blockId:removed.id,subtreeHash:removed.subtreeHash},'native-public-block-delete');
+      assert.equal(blockRead.body.editTargets.some(target=>target.id===removed.id),false);
+      assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM collaboration_agent_operations WHERE document_id=$1',[blocks.id])).rows[0].n,7);
+      console.log('PASS genuine version-bound native HTTP target reads feed all six actual room block operations, table guards and same-key retries without raw Yjs, Markdown export or duplicated mutation');groups++;
+
+      stage='public status after session revocation';
+      // Revocation is terminal for this actual test login. No later positive
+      // request attempts to restore or reuse the expired session.
+      const beforeRevoke=await rows(publicEdited.operationId);
+      await h.admin.query('UPDATE "session" SET expires_at=$2 WHERE id=$1',[currentSession,Date.now()-1000]);
+      const revoked=await statusHttp(httpRequest('/status',{...statusRequest,operationId:publicEdited.operationId},tokenB));
+      assert.equal(revoked.status,401);assert.equal((await revoked.json()).code,'AUTHENTICATION_REQUIRED');
+      assert.deepEqual(await rows(publicEdited.operationId),beforeRevoke);
+      console.log('PASS terminal real session expiry denies public status without modifying the stored operation, payload or history');groups++;
     }finally{
       const cleanup:unknown[]=[];for(const socket of sockets)socket.terminate();
       try{await until(()=>[...documents.values()].every(doc=>doc.getConnectionsCount()===0),'Owned peer sockets remain.');await flushCollaborationDocuments();}catch(error){cleanup.push(error);}
@@ -270,7 +386,7 @@ export async function nativeDocumentEditOwnerPostgresTest():Promise<void> {
       console.log(JSON.stringify({closure:'native-document-edit-owner',socketsClosed:true,serversClosed:true,dedicatedOwnerBackendsClosed:ownerBackends.length}));
     }
   });
-  assert.equal(groups,6);completed=true;console.log(JSON.stringify({suite:'native-document-edit-owner',groups,evidence:'actual_request_principal_pg_owner_room_native_edit_service'}));
+  assert.equal(groups,10);completed=true;console.log(JSON.stringify({suite:'native-document-edit-owner',groups,evidence:'actual_request_principal_pg_owner_room_native_edit_service'}));
 }
 nativeDocumentEditOwnerPostgresTest().catch(error=>{console.error(JSON.stringify({suite:'native-document-edit-owner',stage,groups,
   name:error instanceof Error?error.name:'UnknownError',code:code(error)??null}));console.error(error);process.exitCode=1;});

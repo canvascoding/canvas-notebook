@@ -18,6 +18,8 @@ import type { PersistedCollaborationState } from './persistence';
 import { assertCollaborationAdmissionOpen } from './room-admission';
 import { CollaborationAdmissionError, collaborationAdmissionLockKey, isCanonicalAdmissionPath } from './room-admission-contract';
 import { assertNativeDocumentWithinReadBudget, captureNativeDocumentReadBudget, type NativeDocumentReadBudget } from './native-search-budget';
+import { assertNativeDocumentEditTargetStorageBudget, captureNativeDocumentEditTargets,
+  nativeDocumentEditTargetsReadBudget, type NativeDocumentEditTargetV1 } from './native-document-edit-targets';
 
 type Row = Record<string, unknown>;
 type Realm = Readonly<{ schema: string; schemaOid: string; searchPath: string; database: string;
@@ -26,6 +28,8 @@ export type NativeDocumentReadObservation = Readonly<{
   identity: ExistingNativeSessionIdentity;
   native: NativeCollaborationDocumentRead;
   metadata: Readonly<{ title: string | null; revision: number | null }>;
+  /** Comparison data captured synchronously from the same observed native Doc. */
+  editTargets?: readonly NativeDocumentEditTargetV1[];
 }>;
 const MAX_STATE_BYTES = 64 * 1024 * 1024, MAX_VECTOR_BYTES = 1024 * 1024;
 const reads = new WeakMap<SqlConnection, { poison: (error: unknown) => void }>();
@@ -245,13 +249,19 @@ export async function readNativeDocumentHeaderByIdOnConnection(connection: SqlCo
  * Markdown, touches disk, or changes native content. Registry ID is the selector. */
 export async function readNativeDocumentByIdOnConnection(connection: SqlConnection,
   input: { workspace: WorkspaceContext; documentId: string; budget?: NativeDocumentReadBudget;
+    includeEditTargets?: boolean;
     expectedPersistedBinary?: Readonly<{ stateSha256: string; vectorSha256: string }> }): Promise<NativeDocumentReadObservation> {
   const previous = reads.get(connection);
   if (previous) {
     const error = new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); previous.poison(error); throw error;
   }
   const workspace = structuredClone(input.workspace), documentId = input.documentId;
-  const budget = input.budget === undefined ? undefined : captureNativeDocumentReadBudget(input.budget);
+  const targetDescriptor = Object.getOwnPropertyDescriptor(input, 'includeEditTargets');
+  if (targetDescriptor && (!targetDescriptor.enumerable || !Object.prototype.hasOwnProperty.call(targetDescriptor, 'value')
+    || typeof targetDescriptor.value !== 'boolean')) fail('INVALID_REQUEST');
+  const includeEditTargets = targetDescriptor?.value === true;
+  const requestedBudget = input.budget === undefined ? undefined : captureNativeDocumentReadBudget(input.budget);
+  const budget = includeEditTargets ? nativeDocumentEditTargetsReadBudget(requestedBudget) : requestedBudget;
   let expectedBinary: Readonly<{ stateSha256: string; vectorSha256: string }> | undefined;
   if (input.expectedPersistedBinary !== undefined) {
     const value = input.expectedPersistedBinary;
@@ -272,6 +282,7 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
   let active = true, failure: unknown, pending: Promise<PersistedCollaborationState> | undefined;
   let loadedState: PersistedCollaborationState | undefined, observed: NativeCollaborationDocumentRead | undefined;
   let validatedState: NativeCollaborationSnapshot | undefined, loadCount = 0;
+  let editTargets: readonly NativeDocumentEditTargetV1[] | undefined;
   const inspectionSchema = getNativeInspectionSchema();
   const phase = { poison: (error: unknown) => { failure ??= error; } };
   reads.set(connection, phase);
@@ -284,7 +295,15 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
       IN ACCESS SHARE MODE NOWAIT`);
     await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
     await assertWorkspaceScope(connection, realm, workspace);
-    const initial = await readHeader(connection, realm, workspace, documentId, budget);
+    const initial = await readHeader(connection, realm, workspace, documentId, requestedBudget);
+    if (includeEditTargets) {
+      // Decide unsupported representation from the actual header, before any
+      // binary load. Explicit opt-in cannot silently yield a guardless body.
+      if (initial.state_representation !== 'tiptap_blocks') fail('DOCUMENT_FORMAT_UNAVAILABLE');
+      if (Number(initial.state_bytes) > budget!.maxStateBytes || Number(initial.vector_bytes) > budget!.maxVectorBytes) {
+        fail('DOCUMENT_TOO_LARGE');
+      }
+    }
     const loadState = (selectedId: string): Promise<PersistedCollaborationState> => {
       if (!active || pending || selectedId !== documentId || failure !== undefined || ++loadCount !== 1) {
         failure ??= new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); return Promise.reject(failure);
@@ -342,8 +361,10 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
           }
           const { version, source: _source, content: _content, ...snapshot } = validatedState;
           if (budget) assertNativeDocumentWithinReadBudget(doc, budget);
+          if (includeEditTargets) assertNativeDocumentEditTargetStorageBudget(doc);
           assertNativeDocumentSchema(doc, state.representation, inspectionSchema);
           const current = inspectNativeDocument(doc, state.representation);
+          if (includeEditTargets) editTargets = captureNativeDocumentEditTargets(doc, current.content, current.version.stateProof);
           const durable = current.version.stateProof === version.stateProof;
           observed = { ...snapshot, source: durable ? 'persisted_yjs' : 'live_yjs',
             observed: { ...current.version, content: current.content, durable }, durable: version };
@@ -374,7 +395,8 @@ export async function readNativeDocumentByIdOnConnection(connection: SqlConnecti
       workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null, path: initial.path as string,
       lifecycleGeneration: native.lifecycleGeneration, representation: native.representation, schemaVersion: native.schemaVersion },
     native, metadata: { title: initial.metadata_title as string | null,
-      revision: initial.metadata_revision === null ? null : Number(initial.metadata_revision) } });
+      revision: initial.metadata_revision === null ? null : Number(initial.metadata_revision) },
+    ...(editTargets === undefined ? {} : { editTargets }) });
   } catch (error) {
     if (error instanceof DocumentReadError) throw error;
     if (error instanceof CollaborationCheckpointQuarantinedError) fail('DOCUMENT_QUARANTINED');

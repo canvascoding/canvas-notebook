@@ -233,8 +233,11 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['write', 'edit', 'edit_file', 'create_excalidraw_scene', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
-  if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
+  if (['write', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
     notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
+  }
+  if (tool.name === 'edit_file') {
+    notes.push('Legacy path modes retain their snapshot/diff behavior. apiVersion:1 native edits report recorded persistence separately from optional history and a physical checkpoint; they do not enable Undo or Document Review Center. Use action:status with operationId for pending results; keep the original caller key when explicitly repeating that exact edit.');
   }
   if (tool.name === 'edit_excalidraw_scene') {
     notes.push('Mutates authoritative Excalidraw elements with optimistic version checks. Target conflicts leave changes unapplied; reread the scene before retrying. Human Accept/Reject requires the experimental Review Center, which is disabled by default.');

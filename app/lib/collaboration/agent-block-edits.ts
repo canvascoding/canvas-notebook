@@ -4,7 +4,7 @@ import { createChainableState, getSchema, type CommandProps, type JSONContent, t
 import { isAllowedUri } from '@tiptap/extension-link';
 import { Fragment, type Node as ProseMirrorNode } from '@tiptap/pm/model';
 import { EditorState } from '@tiptap/pm/state';
-import { addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, CellSelection, deleteColumn, deleteRow, deleteTable, setCellAttr } from '@tiptap/pm/tables';
+import { addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, CellSelection, deleteColumn, deleteRow, deleteTable, fixTables, setCellAttr } from '@tiptap/pm/tables';
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
@@ -382,7 +382,11 @@ function tableCommand(doc: ProseMirrorNode, cellId: string, action: AgentTableAc
     changed = command()(props);
   }
   if (!changed) fail('target_changed');
-  return doc.type.schema.nodeFromJSON(generateRichNodeIds(tr.doc.toJSON(), richMarkdownCodecExtensions()));
+  // Offline commands lack the editor plugin's appendTransaction repair. A
+  // newly inserted row starts with null widths; retain the existing column
+  // widths before the block tree validates the resulting native table.
+  const repaired = fixTables(EditorState.create({ doc: tr.doc }));
+  return doc.type.schema.nodeFromJSON(generateRichNodeIds((repaired?.doc ?? tr.doc).toJSON(), richMarkdownCodecExtensions()));
 }
 
 /** Prepare once on an isolated replica; block IDs and Yjs clocks are fixed here. */
