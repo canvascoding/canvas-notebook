@@ -3,7 +3,7 @@ import 'server-only';
 import { isDeepStrictEqual } from 'node:util';
 import { NextRequest } from 'next/server';
 import type { SqlConnection } from '../db';
-import { assertWorkspaceOperationCopyOriginCurrent, captureWorkspaceOperationCopyOrigin,
+import { assertWorkspaceOperationCopyOriginCurrent, captureWorkspaceOperationCopyOrigin, captureWorkspaceOperationCopyMcpOrigin,
   decodeWorkspaceOperationCopyOrigin, WorkspaceOperationCopyOriginError,
   type WorkspaceOperationCopyActor, type WorkspaceOperationCopyOrigin } from '../files/workspace-operation-copy-origin';
 import { captureWorkspaceOperationJobScope } from '../files/workspace-operation-job-scope';
@@ -11,6 +11,8 @@ import { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnectio
   withWorkspaceAgentToolPrincipal, withWorkspaceAgentToolPrincipalOnConnection,
   WorkspaceRequestPrincipalError } from './request-principal';
 import type { WorkspaceContext } from './types';
+import { withDirectMcpWorkspaceCopyPrincipalOnConnection,
+  type DirectMcpWorkspaceCopyPrincipal } from '../mcp/server/document-read-principal';
 
 /** Data valid inside the actual principal phase only. Neither an authorization
  * handle nor an assertion to retain across filesystem work or COMMIT. */
@@ -94,4 +96,24 @@ export async function withWorkspaceCopyAgentOnConnection<T>(database: SqlConnect
     principal => withWorkspaceAgentToolPrincipalOnConnection(database, principal, current =>
       operation(access(origin, current.workspace, current.workspace, { type: 'agent', userId: current.userId,
         actorId: current.agentId, sessionId: current.piSessionId }))));
+}
+
+/** A real live MCP Copy handle supplies current authority on caller B. Stored
+ * V2 attribution only binds that authority to the original client and scopes;
+ * its original SID is preserved even after genuine session renewal. Neither
+ * an agent-shaped actor nor the stored origin can replace the opaque handle.
+ * Caller owns transaction/rollback, admission and later filesystem phases. */
+export async function withWorkspaceCopyMcpOnConnection<T>(database: SqlConnection,
+  principal: DirectMcpWorkspaceCopyPrincipal, original: WorkspaceOperationCopyOrigin,
+  operation: (current: WorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
+  const origin = decodeWorkspaceOperationCopyOrigin(original);
+  if (origin.version !== 2) changed();
+  if (typeof operation !== 'function') throw new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID');
+  return withDirectMcpWorkspaceCopyPrincipalOnConnection(database, principal, async current => {
+    const fresh = captureWorkspaceOperationCopyMcpOrigin({ userId: current.userId, clientId: current.clientId,
+      sessionId: current.sessionId, sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace });
+    const originalOrigin = assertWorkspaceOperationCopyOriginCurrent(origin, fresh);
+    return operation(Object.freeze({ sourceWorkspace: current.sourceWorkspace, destinationWorkspace: current.destinationWorkspace,
+      currentActor: fresh.actor, originalOrigin }));
+  });
 }

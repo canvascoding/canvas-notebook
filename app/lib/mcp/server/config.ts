@@ -13,6 +13,9 @@ export const DIRECT_MCP_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  // Reserved for the genuine Copy authority. No public tool definition or
+  // settings capability is exposed until the central file-action handler exists.
+  'copy_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
   'create_knowledge_source',
@@ -27,6 +30,7 @@ export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 // first activation, upgrades and reactivation. Keep this list shared with UI.
 export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
   'create_knowledge_source', 'import_knowledge_file',
+  'copy_knowledge_source',
   'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',
 ] as const satisfies readonly DirectMcpToolId[];
 

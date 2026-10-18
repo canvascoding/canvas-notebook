@@ -53,12 +53,17 @@ async function main(): Promise<void> {
       'search_knowledge',
       'read_knowledge_source',
     ]);
+    assert(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS.includes('copy_knowledge_source'));
+    assert.deepEqual(getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: 'copy_knowledge_source' }), ['copy_knowledge_source']);
+    assert.throws(() => getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: 'Copy_knowledge_source' }), /unsupported tools/u);
     await setServerPreferredTimeZone('admin-1', 'Europe/Berlin');
     const preferences = await setDirectMcpServerPreferences('admin-1', {
       enabled: true,
       tools: ['auth_probe'],
     });
     assert.equal(preferences.enabled, true);
+    assert.equal(preferences.tools.includes('copy_knowledge_source'), false,
+      'Activating MCP must not opt in to the reserved Copy capability.');
     assert.deepEqual(preferences.tools, DIRECT_MCP_TOOL_IDS.filter(tool => !(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(tool)));
     assert.equal(preferences.toolsVersion, 7);
     assert.equal(typeof preferences.updatedAt, 'string');
@@ -254,6 +259,18 @@ async function main(): Promise<void> {
     const selected = await setDirectMcpServerPreferences('admin-1', { enabled: true,
       tools: ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene'] });
     assert.deepEqual(selected.tools, ['auth_probe', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene']);
+    assert.equal(reactivated.tools.includes('copy_knowledge_source'), false);
+    const reservedStatus = buildDirectMcpServerSettingsStatus(null, {
+      BASE_URL: 'https://canvas.example.test', BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+      CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: 'copy_knowledge_source',
+    });
+    assert.equal(reservedStatus.configurationError, null);
+    assert.equal(reservedStatus.capabilities.some(capability => capability.id === 'copy_knowledge_source'), false,
+      'The internal reservation must not advertise an available UI tool before its handler is connected.');
+    const selectedCopy = await setDirectMcpServerPreferences('admin-1', { enabled: true,
+      tools: ['auth_probe', 'copy_knowledge_source'] });
+    assert.deepEqual(selectedCopy.tools, ['auth_probe', 'copy_knowledge_source']);
+    assert.deepEqual((await getDirectMcpServerPreferences())?.tools, selectedCopy.tools);
     console.log('mcp-server-settings-test: ok (scene capabilities require explicit activation, upgrade and reactivation selection)');
   } finally {
     for (const key of runtimeEnvironmentKeys) {

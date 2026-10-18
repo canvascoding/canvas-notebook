@@ -19,6 +19,7 @@ const DIRECT_MCP_DEFAULT_TOOLS = [
 const DIRECT_MCP_TOOLS = [
   ...DIRECT_MCP_DEFAULT_TOOLS,
   'edit_knowledge_source',
+  'copy_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
   'create_knowledge_source',

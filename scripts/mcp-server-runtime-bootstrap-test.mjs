@@ -80,6 +80,13 @@ async function main() {
       'auth_probe,upload_knowledge_asset,create_knowledge_source,import_knowledge_file,create_excalidraw_scene,get_excalidraw_scene,edit_excalidraw_scene',
       'Explicitly selected scene capabilities must survive a server restart.');
 
+    await writePreferences(dataDir, { enabled: true, toolsVersion: 7,
+      tools: ['auth_probe', 'copy_knowledge_source'] });
+    loadAppEnv(process.cwd());
+    assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');
+    assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS, 'auth_probe,copy_knowledge_source',
+      'The reserved exact Copy capability must survive restart without discarding all MCP preferences.');
+
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'true';
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     delete process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE;
