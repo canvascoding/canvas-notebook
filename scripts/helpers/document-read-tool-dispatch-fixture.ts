@@ -24,7 +24,16 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
   snapshot: () => Promise<unknown>;
   restoreReaderSession: () => Promise<void>;
   setPiEnabledTools: (names: string[]) => Promise<void>;
-}) => Promise<T>): Promise<T> {
+}) => Promise<T>, options: Readonly<{ loopbackOrigin?: string }> = {}): Promise<T> {
+  const fixtureOrigin = options.loopbackOrigin ?? 'http://localhost';
+  if (options.loopbackOrigin !== undefined) {
+    const selected = new URL(fixtureOrigin);
+    assert.equal(selected.protocol, 'http:'); assert.equal(selected.hostname, '127.0.0.1');
+    assert(Number(selected.port) >= 1 && Number(selected.port) <= 65535);
+    assert.equal(selected.origin, fixtureOrigin); assert.equal(selected.pathname, '/');
+    assert.equal(selected.username, ''); assert.equal(selected.password, '');
+    assert.equal(selected.search, ''); assert.equal(selected.hash, '');
+  }
   assert.equal(process.env.NODE_ENV, 'test');
   assert.notEqual(process.env.CANVAS_POSTGRES_VECTOR_ENABLED, 'true');
   assert.notEqual(process.env.CANVAS_LEGACY_EPOCH_TIMESTAMP_UNIT?.trim().toLowerCase(), 'seconds');
@@ -62,7 +71,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
       PGOPTIONS: `-c search_path=${schema},pg_catalog -c statement_timeout=15000 -c application_name=${applicationName}`,
       CANVAS_DATABASE_PROVIDER: 'postgres', DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot,
       CANVAS_INSTANCE_ID: `fixture-${nonce}`, BETTER_AUTH_SECRET: crypto.randomBytes(32).toString('hex'),
-      BETTER_AUTH_BASE_URL: 'http://localhost', BASE_URL: 'http://localhost', AUTH_COOKIE_SECURE: 'false',
+      BETTER_AUTH_BASE_URL: fixtureOrigin, BASE_URL: fixtureOrigin, AUTH_COOKIE_SECURE: 'false',
       CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'environment',
       CANVAS_MCP_DIRECT_TOOLS: 'read_knowledge_source,search_knowledge', CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'environment',
       CANVAS_ORGANIZATION_ID: organizationId, CANVAS_DEPLOYMENT_MODE: 'team', CANVAS_TEAM_FEATURES_ENABLED: 'true',
@@ -124,7 +133,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
       VALUES('dispatch-client',$1,'reader','Dispatch client',0,'[]',100,100)`, [clientId]);
     await admin.query(`INSERT INTO oauth_consent(id,client_id,user_id,scopes,resources,created_at,updated_at)
       VALUES('dispatch-consent',$1,'reader',$2,$3,100,100)`,
-    [clientId, JSON.stringify(['knowledge:read', 'knowledge:search']), JSON.stringify(['http://localhost/mcp'])]);
+    [clientId, JSON.stringify(['knowledge:read', 'knowledge:search']), JSON.stringify([`${fixtureOrigin}/mcp`])]);
     await admin.query(`INSERT INTO mcp_direct_workspace_setting(workspace_id,enabled_by_user_id,enabled_at,updated_at)
       VALUES($1,'owner',100,100)`, [workspaceId]);
     await admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
@@ -147,7 +156,7 @@ export async function withDocumentReadToolDispatchFixture<T>(operation: (fixture
     const issue = async (overrides: Record<string, unknown> = {}) => {
       const issuedAt = Math.floor(Date.now() / 1000) - 1;
       const signed = await auth.api.signJWT({ body: { payload: { sub: 'reader', azp: clientId, sid: 'reader-session',
-        iss: 'http://localhost/api/auth', aud: 'http://localhost/mcp', iat: issuedAt, exp: issuedAt + 600,
+        iss: `${fixtureOrigin}/api/auth`, aud: `${fixtureOrigin}/mcp`, iat: issuedAt, exp: issuedAt + 600,
         scope: 'knowledge:read knowledge:search', ...overrides } } });
       assert(signed.token); return signed.token;
     };

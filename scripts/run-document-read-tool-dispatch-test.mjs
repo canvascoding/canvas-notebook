@@ -12,6 +12,19 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/python-sdk-document-postgres-test.ts': [entryPoint,
+    'scripts/helpers/document-read-tool-dispatch-fixture.ts',
+    'app/lib/mcp/server/streamable-http.ts', 'app/lib/mcp/server/direct-server.ts',
+    'app/lib/mcp/server/workspace-tools.ts', 'app/lib/mcp/server/ingest-tools.ts',
+    'app/lib/mcp/server/document-read-principal.ts', 'app/lib/mcp/server/access-token-verifier.ts',
+    'app/lib/documents/service.ts', 'app/lib/documents/edit-public-service.ts',
+    'app/lib/documents/edit-service.ts', 'app/lib/documents/edit-principal.ts',
+    'app/lib/documents/edit-operation-status.ts', 'app/lib/documents/contracts.ts',
+    'app/lib/documents/search-contract.ts', 'app/lib/collaboration/native-document-read.ts',
+    'app/lib/collaboration/native-document-search.ts', 'app/lib/collaboration/native-document-edit-source.ts',
+    'app/lib/collaboration/native-document-edit-operation-contract.ts',
+    'app/lib/collaboration/agent-operations.ts', 'app/lib/collaboration/room-owner.ts',
+    'server/collaboration-server.ts', 'app/lib/db/index.ts'],
   'scripts/document-read-http-boundary-test.ts': [entryPoint, 'proxy.ts',
     'app/api/documents/read/route.ts', 'app/lib/documents/service.ts', 'app/lib/api/route-helpers.ts'],
   "scripts/mcp-server-document-edit-contract-test.ts": ["scripts/mcp-server-document-edit-contract-test.ts", "app/lib/mcp/server/workspace-tools.ts", "app/lib/mcp/server/document-edit-contract.ts", "app/lib/documents/edit-tool-contract.ts", "app/lib/documents/edit-result-contract.ts"],
