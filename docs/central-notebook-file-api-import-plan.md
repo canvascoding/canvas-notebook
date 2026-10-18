@@ -148,6 +148,8 @@ Die maßgebliche Quelle der öffentlichen Dokumentation liegt bereits im Noteboo
 
 Der bestehende Website-Loader und Dokumentationsgenerator liefern daraus HTML-Routen unter `/docs`, rohe `.mdx`-Seiten, Navigation, Suche sowie `https://canvasnotebook.app/llms.txt` und `llms-full.txt`. Die SDK-Anleitung wird entsprechend der heutigen Website auf Englisch geschrieben; eine nur interne Markdown-Datei im Notebook-Ordner `docs/` erfüllt den öffentlichen Dokumentationsauftrag nicht. Änderungen an Loader, Website-UI oder Sync erfolgen nur soweit tatsächlich erforderlich in einem geeigneten isolierten Control-Plane-Worktree; für die Seiteninhalte wird keine zweite Quelle aufgebaut. Vorhandene Testumgebungen werden dafür nicht parallel neu aufgebaut.
 
+**Anschluss an die bestehende Veröffentlichung:** Frontmatter steuert die Entwicklersektion und Seitenreihenfolge; eine zusätzliche `meta.json` ist nicht erforderlich. Der heutige Generator veröffentlicht jede MDX-Seite ohne Draftfilter, daher kommen erst sachlich geprüfte Anleitungen in den öffentlichen Quellenbaum. Der Remote-Sync übernimmt ausschließlich MDX: Python-Beispiele werden als überprüfte statische Codeblöcke eingebunden, Paket-/Spec-Downloads benötigen echte gesonderte Artefaktlinks. Für lokale Websiteprüfungen muss `CANVAS_DOCS_SOURCE_DIR` ausdrücklich auf `docs/product` dieses Worktrees zeigen; andernfalls würde der Build erneut `main` statt der neuen Seiten laden.
+
 Geplant ist ein auffindbarer Entwicklerbereich, beispielsweise `/docs/developers/document-api` und `/docs/developers/python-sdk`, mit:
 
 - Installation und Quickstart mit eigener autorisierter Notebook-Instanz, sicherer Credential-Konfiguration und tatsächlich unterstützten Python-/Backend-/SDK-Versionen.
