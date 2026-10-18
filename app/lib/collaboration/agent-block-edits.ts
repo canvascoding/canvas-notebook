@@ -8,6 +8,8 @@ import { addColumnAfter, addColumnBefore, addRowAfter, addRowBefore, CellSelecti
 import { updateYFragment, yXmlFragmentToProsemirrorJSON } from '@tiptap/y-tiptap';
 import * as Y from 'yjs';
 
+import { assertNativeDocumentEditWriteAuthorityActive, type NativeDocumentEditWriteAuthority } from '../documents/edit-principal';
+
 import { generateRichNodeIds } from '../editor/generate-rich-node-ids';
 import { preserveAlignedStableIds, stableIdCounts } from '../editor/rich-node-identities';
 import { moveMarkdownTablePart, portableTableCommands } from '../markdown/core/table-commands';
@@ -671,15 +673,21 @@ export function previewAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEd
 }
 
 /** Validate the entire current group, then integrate its delta as one live update. */
-export function applyAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit, origin: unknown): { reverse: PreparedAgentBlockEdit | null } {
-  return checked(() => {
+export function applyAgentBlockEdit(doc: Y.Doc, prepared: PreparedAgentBlockEdit, origin: unknown,
+  nativeWriteAuthority?: NativeDocumentEditWriteAuthority): { reverse: PreparedAgentBlockEdit | null } {
+  let authorityFailure: unknown;
+  try { return checked(() => {
     const candidate = candidateFor(doc, prepared);
     try {
       const reverse = prepared.kind === 'forward' ? reverseFor(doc, candidate, prepared.affectedBlockIds) : null;
       if (reverse) bounded(reverse);
       const update = Y.encodeStateAsUpdate(candidate, Y.encodeStateVector(doc));
+      if (nativeWriteAuthority) {
+        try { assertNativeDocumentEditWriteAuthorityActive(nativeWriteAuthority); }
+        catch (error) { authorityFailure = error; throw error; }
+      }
       Y.applyUpdate(doc, update, origin);
       return { reverse };
     } finally { candidate.destroy(); }
-  });
+  }); } catch (error) { throw authorityFailure ?? error; }
 }

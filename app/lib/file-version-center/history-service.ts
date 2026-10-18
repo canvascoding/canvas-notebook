@@ -14,9 +14,11 @@ import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import {
   createRuntimeFileVersionCenterDatabase,
   type FileVersionCenterDatabase,
+  type FileVersionCenterTransaction,
 } from './database';
 import {
   createFileVersionContentStore,
+  FileVersionContentStoreError,
   fileVersionContentStore,
   type FileVersionContentBinding,
   type FileVersionContentSource,
@@ -29,6 +31,8 @@ import {
   resolveFileVersionRolloutV1,
 } from './policy-v1';
 import { createAgentTurnHistoryService } from './agent-turn-history';
+import { readNativeAgentOperationHistoryOnConnection,
+  type NativeAgentOperationHistoryCaptureInput, type NativeAgentOperationHistoryCaptureResult } from './native-operation-history';
 
 export type FileVersionCaptureOutcome =
   | 'captured'
@@ -137,15 +141,20 @@ export function createFileVersionHistoryService(options: {
   ).capture);
 
   const captureStandaloneAgentOperation = async (input: FileVersionCaptureInput, content: Buffer,
-    format: 'markdown' | 'text', contentHash: string, capturedAt: number): Promise<FileVersionCaptureResult> => {
-    if (!input.agentOperationId || !input.actorUserId || !input.sourceSessionId || input.actorType !== 'agent') {
+    format: 'markdown' | 'text' | 'binary', contentHash: string, capturedAt: number,
+    nativeTransaction?: FileVersionCenterTransaction): Promise<FileVersionCaptureResult> => {
+    const native = format === 'binary';
+    if (!input.agentOperationId || !input.actorUserId || !input.sourceSessionId
+      || (native ? !['user', 'agent'].includes(input.actorType ?? '') : input.actorType !== 'agent')) {
       throw new Error('An operation snapshot requires its trusted agent, user and session.');
     }
     const actorUserId = input.actorUserId;
     const sourceSessionId = input.sourceSessionId;
+    const actorType = native && input.actorType === 'user' ? 'user' : 'agent';
+    const source = native && actorType === 'user' ? 'manual' : 'agent_apply';
     const revisionId = `file-rev-op-${createHash('sha256')
       .update(`${input.workspace.workspaceId}\u0000${input.agentOperationId}`, 'utf8').digest('hex')}`;
-    return database.transaction(async tx => {
+    const captureOnTransaction = async (tx: FileVersionCenterTransaction): Promise<FileVersionCaptureResult> => {
       const lineage = input.historicalLineageId
         ? (await tx.query<{ id: string }>(`SELECT id FROM file_collaboration_lineages
           WHERE id=$1 AND workspace_id=$2 FOR NO KEY UPDATE`,
@@ -157,40 +166,44 @@ export function createFileVersionHistoryService(options: {
       const preparedAt = input.agentCapturedAt ?? capturedAt;
       const existing = (await tx.query<{ id: string; workspace_id: string; lineage_id: string | null;
         content_hash: string; size_bytes: number | string; created_by_user_id: string | null;
-        source_session_id: string | null; history_only: boolean; created_at: number | string }>(`
+        source_session_id: string | null; history_only: boolean; created_at: number | string;
+        path: string; created_by_actor_type: string }>(`
         SELECT id,workspace_id,lineage_id,content_hash,size_bytes,created_by_user_id,
-          source_session_id,history_only,created_at FROM file_revisions WHERE id=$1 FOR UPDATE`,
+          source_session_id,history_only,created_at,path,created_by_actor_type FROM file_revisions WHERE id=$1 FOR UPDATE`,
       [revisionId])).rows[0];
       if (existing && (existing.workspace_id !== input.workspace.workspaceId || existing.lineage_id !== lineage.id
         || existing.content_hash !== contentHash || Number(existing.size_bytes) !== content.byteLength
         || existing.created_by_user_id !== actorUserId
-        || existing.source_session_id !== sourceSessionId || existing.history_only !== true)) {
+        || existing.source_session_id !== sourceSessionId || existing.history_only !== true
+        || native && (existing.path !== input.path || existing.created_by_actor_type !== actorType
+          || Number(existing.created_at) !== preparedAt))) {
         throw new Error('The recorded operation version belongs to another snapshot.');
       }
       if (!existing) {
         await tx.query(`INSERT INTO file_revisions (id,organization_id,customer_id,project_id,workspace_id,
           workspace_type,path,content_hash,size_bytes,created_by_user_id,created_by_actor_type,
           source_session_id,lineage_id,revision_number,created_at,history_only)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'agent',$11,$12,
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,${native ? '$14' : "'agent'"},$11,$12,
             (SELECT COALESCE(MAX(revision_number),0)+1 FROM file_revisions WHERE lineage_id=$12),$13,true)`,
         [revisionId,input.workspace.organizationId??null,input.workspace.customerId??null,
           input.workspace.projectId??null,input.workspace.workspaceId,input.workspace.workspaceType,input.path,
-          contentHash,content.byteLength,actorUserId,sourceSessionId,lineage.id,preparedAt]);
+          contentHash,content.byteLength,actorUserId,sourceSessionId,lineage.id,preparedAt,...(native ? [actorType] : [])]);
       }
       const revision: FileRevisionRecord = { id: revisionId, lineageId: lineage.id,
         organizationId: input.workspace.organizationId ?? null, customerId: input.workspace.customerId ?? null,
         projectId: input.workspace.projectId ?? null, workspaceId: input.workspace.workspaceId,
         workspaceType: input.workspace.workspaceType, path: input.path, contentHash,
-        sizeBytes: content.byteLength, createdByUserId: actorUserId, createdByActorType: 'agent',
+        sizeBytes: content.byteLength, createdByUserId: actorUserId, createdByActorType: actorType,
         sourceSessionId, baseRevisionId: null,
         createdAt: existing ? Number(existing.created_at) : preparedAt };
       const store = createFileVersionContentStore({ database: { transaction: action => action(tx) } });
       const bound = await store.bindRevisionContent({ revisionId, workspaceId: input.workspace.workspaceId,
-        lineageId: lineage.id, content, format, source: 'agent_apply',
+        lineageId: lineage.id, content, format, source,
         stateVectorHash: stateVectorHash(input.stateVector) });
       return { outcome: bound.outcome === 'created' ? 'captured' : 'already_captured',
         revision, binding: bound.binding };
-    });
+    };
+    return nativeTransaction ? captureOnTransaction(nativeTransaction) : database.transaction(captureOnTransaction);
   };
 
   const capture = async (input: FileVersionCaptureInput): Promise<FileVersionCaptureResult> => {
@@ -288,6 +301,40 @@ export function createFileVersionHistoryService(options: {
 
   return {
     capture,
+
+    /** Fixed native operation history. It never classifies the path as Markdown,
+     * writes the current-file fence, or routes binary bytes through a turn slot. */
+    async captureNativeAgentOperation(input: NativeAgentOperationHistoryCaptureInput): Promise<NativeAgentOperationHistoryCaptureResult> {
+      try {
+        return await database.transaction<NativeAgentOperationHistoryCaptureResult>(async tx => {
+          const checked = await readNativeAgentOperationHistoryOnConnection(tx, input);
+          if (!captureEnabled()) return { outcome: 'disabled', revision: null, binding: null };
+          if (checked.after.history.status === 'over_limit') return { outcome: 'over_limit', revision: null, binding: null };
+          if (!checked.bytes || !checked.stateVector) throw new Error('The original native history payload is unavailable.');
+          const captured = await captureStandaloneAgentOperation({ workspace: checked.workspace,
+            path: checked.original.source.path, content: checked.bytes,
+            source: checked.original.actor.actorType === 'user' ? 'manual' : 'agent_apply',
+            actorUserId: checked.original.actor.userId, actorType: checked.original.actor.actorType,
+            sourceSessionId: checked.original.actor.sessionId, agentOperationId: checked.operationId,
+            historicalLineageId: checked.original.identity.lineageId,
+            stateVector: checked.stateVector, agentCapturedAt: checked.after.appliedAt },
+          Buffer.from(checked.bytes), 'binary', checked.after.history.sha256, checked.after.appliedAt, tx);
+          if (captured.outcome !== 'captured' && captured.outcome !== 'already_captured') {
+            throw new Error('The exact native operation history was not captured.');
+          }
+          return { outcome: captured.outcome, revision: captured.revision, binding: captured.binding };
+        });
+      } catch (error) {
+        // The owned database transaction/savepoint has already rolled back.
+        // A history quota refusal never relabels native persistence as unapplied.
+        if (error instanceof FileVersionContentStoreError && (error.code === 'raw_version_too_large'
+          || error.code === 'stored_blob_too_large' || error.code === 'lineage_quota_exceeded'
+          || error.code === 'workspace_quota_exceeded' || error.code === 'version_count_exceeded')) {
+          return { outcome: 'quota_exceeded', quotaCode: error.code, revision: null, binding: null };
+        }
+        throw error;
+      }
+    },
 
     async capturePersistedCollaboration(input: {
       workspace: WorkspaceContext;

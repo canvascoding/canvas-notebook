@@ -187,6 +187,57 @@ function freezeObservation<T extends object>(value: T): T {
   return value;
 }
 
+/** Existing-only header comparison data. The caller owns a genuine current
+ * principal and one RC/RW B, including completion/disposal before publication.
+ * This variant never awaits a live room or allocates the persisted body. */
+export async function readNativeDocumentHeaderByIdOnConnection(connection: SqlConnection,
+  input: { workspace: WorkspaceContext; documentId: string }): Promise<Readonly<{
+    identity: ExistingNativeSessionIdentity;
+    metadata: Readonly<{ title: string | null; revision: number | null }>;
+  }>> {
+  const previous = reads.get(connection);
+  if (previous) {
+    const error = new DocumentReadError('DOCUMENT_SCOPE_CHANGED'); previous.poison(error); throw error;
+  }
+  const workspace = structuredClone(input.workspace), documentId = input.documentId;
+  if (!validId(documentId) || !validId(workspace.workspaceId) || workspace.legacy || workspace.status !== 'active'
+    || !workspace.permissions.canRead || typeof workspace.rootRelativePath !== 'string'
+    || !workspace.rootRelativePath || workspace.rootRelativePath.length > 4096) fail('INVALID_REQUEST');
+  let failure: unknown;
+  const phase = { poison: (error: unknown) => { failure ??= error; } };
+  reads.set(connection, phase);
+  try {
+    const realm = await readRealm(connection);
+    const acquired = await connection.get('SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS acquired',
+      [collaborationAdmissionLockKey(workspace.workspaceId)]) as Row | undefined;
+    if (acquired?.acquired !== true) fail('DOCUMENT_BUSY');
+    await connection.run(`LOCK TABLE ${requiredTables.map(table => `${quote(realm.schema)}.${quote(table)}`).join(',')}
+      IN ACCESS SHARE MODE NOWAIT`);
+    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    await assertWorkspaceScope(connection, realm, workspace);
+    const initial = await readHeader(connection, realm, workspace, documentId);
+    await assertWorkspaceScope(connection, realm, workspace);
+    const final = await readHeader(connection, realm, workspace, documentId);
+    if (stableHeaderFields.some(field => !Object.is(final[field], initial[field]))) fail('DOCUMENT_SCOPE_CHANGED');
+    await assertRealm(connection, realm); await assertSharedFence(connection, realm, workspace.workspaceId);
+    if (failure !== undefined) throw failure;
+    return freezeObservation({ identity: { documentId, lineageId: initial.lineage_id as string,
+      workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null, path: initial.path as string,
+      lifecycleGeneration: Number(initial.state_lifecycle_generation),
+      representation: initial.state_representation as ExistingNativeSessionIdentity['representation'],
+      schemaVersion: Number(initial.state_schema_version) },
+    metadata: { title: initial.metadata_title as string | null,
+      revision: initial.metadata_revision === null ? null : Number(initial.metadata_revision) } });
+  } catch (error) {
+    if (error instanceof DocumentReadError) throw error;
+    if (error instanceof NativeSessionStateReaderError) fail('DOCUMENT_STATE_INVALID');
+    if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT'
+      || (error as { code?: string })?.code === '55P03') fail('DOCUMENT_BUSY');
+    if (['42P01', '3F000', '42703'].includes((error as { code?: string })?.code ?? '')) fail('DOCUMENT_SCOPE_CHANGED');
+    throw error;
+  } finally { if (reads.get(connection) === phase) reads.delete(connection); }
+}
+
 /** Internal observation kernel, NOT authentication or a standalone public read.
  * Caller owns one actual RC/RW transaction, genuine current principal phase,
  * successful COMMIT/ROLLBACK and awaited connection disposal before publishing.

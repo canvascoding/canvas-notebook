@@ -15,6 +15,12 @@ import { WebSocketServer } from 'ws';
 import type { Doc as YDoc } from 'yjs';
 
 import { openDb } from '@/app/lib/db';
+import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
+import { withExistingNativeCollaborationSessionOnConnection } from '@/app/lib/collaboration/native-session-state-reader';
+import { captureNativeDocumentEditVersion } from '@/app/lib/collaboration/native-document-edit-version';
+import { assertNativeDocumentEditPrecondition } from '@/app/lib/collaboration/native-document-edit-validation';
+import { isNativeDocumentEditWriteAuthority, withNativeDocumentEditWriteAuthorityOnConnection } from '@/app/lib/documents/edit-principal';
+import { DocumentEditError } from '@/app/lib/documents/edit-contracts';
 import { collaborationUpdateStateProof } from '@/app/lib/collaboration/state-proof';
 import { COLLABORATION_FAILURE_CODES, isCollaborationStateQuarantined } from '@/app/lib/collaboration/failure';
 import { COLLABORATION_CHECKPOINT_ERROR_CODES } from '@/app/lib/collaboration/checkpoint-errors';
@@ -64,6 +70,7 @@ import {
   CollaborationStateInactiveError,
   CollaborationStateStaleError,
   loadCollaborationState,
+  loadCollaborationStateOnConnection,
   markCollaborationDegraded,
   persistCollaborationYDoc,
   type PersistedCollaborationState,
@@ -308,6 +315,9 @@ function rejectCollaborationUpdate(connection: Connection<CollaborationContext>,
 }
 
 async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInput): Promise<WorkspaceContext> {
+  if (input.nativeEditAuthority || input.nativeDocumentVersion) {
+    return withNativeDirectConnectionAuthority(input, async access => access.workspace);
+  }
   if (input.mcpAuthority) {
     const { isDirectMcpEditAuthority } = await import('../app/lib/mcp/server/direct-edit-authority');
     if ((input.actorType ?? 'agent') !== 'agent' || !isDirectMcpEditAuthority(input.mcpAuthority)
@@ -359,9 +369,73 @@ async function resolveDirectConnectionWorkspace(input: AgentDirectConnectionInpu
   return input.workspace;
 }
 
+type NativeDirectAuthorityAccess = Readonly<{
+  workspace: WorkspaceContext; userId: string; actorType: 'user' | 'agent'; actorId: string;
+  sessionId: string; assertActive(): void;
+}>;
+
+/** Only the fixed native principal can establish this short current-B phase.
+ * Callers acquire the workspace/actual room before using it for mutation; no
+ * client is held over queueing, room acquisition, onApplied, or persistence. */
+async function withNativeDirectConnectionAuthority<T>(input: AgentDirectConnectionInput,
+  operation: (access: NativeDirectAuthorityAccess) => Promise<T>): Promise<T> {
+  if (!input.nativeDocumentVersion || !input.nativeEditAuthority
+    || !isNativeDocumentEditWriteAuthority(input.nativeEditAuthority)) {
+    throw new AgentDirectConnectionAuthorizationError('A current native document write authority is required.');
+  }
+  const authority = input.nativeEditAuthority;
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: database => withNativeDocumentEditWriteAuthorityOnConnection(database, authority, async access => {
+      if (access.workspace.workspaceId !== input.workspace.workspaceId
+        || (access.workspace.organizationId ?? null) !== (input.workspace.organizationId ?? null)
+        || access.userId !== input.initiatedByUserId || access.actorId !== input.actorId
+        || access.actorType !== (input.actorType ?? 'agent') || access.sessionId !== input.actorSessionId) {
+        throw new AgentDirectConnectionAuthorizationError('Current native write authority does not match this operation.');
+      }
+      access.assertActive();
+      return operation(access);
+    }),
+    recoverCommitted: async value => {
+      // This B holds authorization reads/locks only, never operation/Yjs DML.
+      // Verified work already happened. Confirmed discard releases the holder;
+      // an uncertain release cannot request another document mutation.
+      logCollaborationDiagnostic('warn', { event: 'agent_durability_unconfirmed',
+        operationId: input.operationId, documentId: input.documentId, workspaceId: input.workspace.workspaceId,
+        phase: 'native_write_authority_release', code: 'NATIVE_EDIT_AUTHORITY_RELEASE_UNCONFIRMED' });
+      return value;
+    },
+  });
+}
+
+/** Existing-only native identity data; current write authority is established
+ * separately. This reader never opens a live room or serializes Markdown. */
+async function readNativeDirectConnectionState(input: AgentDirectConnectionInput, workspace: WorkspaceContext) {
+  if (!input.nativeDocumentVersion) throw new DocumentEditError('INVALID_REQUEST');
+  const identity = input.nativeDocumentVersion.identity;
+  return executeLifecycleTransaction({
+    openConnection: openDb,
+    execute: async database => {
+      await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ ONLY');
+      await database.run("SET LOCAL statement_timeout='5s'; SET LOCAL lock_timeout='50ms'");
+      return withExistingNativeCollaborationSessionOnConnection(database, {
+        workspace, path: input.documentPath,
+        expectedIdentity: { ...identity, path: input.documentPath },
+      }, async session => {
+        if (session.snapshot.degraded) throw new DocumentEditError('DOCUMENT_STATE_INVALID');
+        const state = await loadCollaborationStateOnConnection(database, identity.documentId, true);
+        if (!state) throw new DocumentEditError('DOCUMENT_STATE_MISSING');
+        return state;
+      });
+    },
+    recoverCommitted: async (_value, error) => { throw error; },
+  });
+}
+
 async function assertDirectConnectionDocument(input: AgentDirectConnectionInput, workspace: WorkspaceContext) {
-  const state = await loadCollaborationState(input.documentId);
-  const collaboration = input.requiresFileCheckpointIdentity
+  const state = input.nativeDocumentVersion
+    ? await readNativeDirectConnectionState(input, workspace) : await loadCollaborationState(input.documentId);
+  const collaboration = input.requiresFileCheckpointIdentity && !input.nativeDocumentVersion
     ? await readFileCollaborationState({ workspace, path: input.documentPath })
     : null;
   if (!state || state.status !== 'active'
@@ -370,7 +444,7 @@ async function assertDirectConnectionDocument(input: AgentDirectConnectionInput,
     || state.representation !== input.documentRepresentation
     || state.lifecycleGeneration !== input.documentLifecycleGeneration
     || state.schemaVersion !== input.documentSchemaVersion
-    || (input.requiresFileCheckpointIdentity && (!collaboration?.document
+    || (input.requiresFileCheckpointIdentity && !input.nativeDocumentVersion && (!collaboration?.document
       || collaboration.document.id !== input.documentId
       || collaboration.document.status !== 'active'
       || collaboration.document.provider !== 'yjs'))) {
@@ -1234,8 +1308,8 @@ export function createCollaborationServer(server: http.Server, options: {
           || (!state.incomingNeedsReconcile && state.persistenceDisposition !== 'unchanged'
             && await lastContext.operationHistoryOwnership === true);
         if (state.persistenceDisposition !== 'unchanged'
-          && !(lastContext.actorType === 'agent' && !state.incomingNeedsReconcile
-            && (lastContext.agentTurnId || exactOperationHistoryOwned))) try {
+          && !(!state.incomingNeedsReconcile
+            && (exactOperationHistoryOwned || lastContext.actorType === 'agent' && lastContext.agentTurnId))) try {
           await fileVersionHistoryService.capturePersistedCollaboration({
             workspace: lastContext.workspace,
             state,
@@ -1727,6 +1801,8 @@ export function createCollaborationServer(server: http.Server, options: {
   });
   setCollaborationRuntimeHealth({ websocketReady: true, persistenceReady: true });
   installCollaborationDirectConnection(async (input, apply, onApplied) => {
+    if (input.nativeDocumentVersion) input = { ...input,
+      nativeDocumentVersion: captureNativeDocumentEditVersion(input.nativeDocumentVersion) };
     assertDirectActivitySession(input);
     return withRoomActivity(input.documentId, async () => {
       const actorType = input.actorType ?? 'agent';
@@ -1765,7 +1841,7 @@ export function createCollaborationServer(server: http.Server, options: {
         versionBaseRevisionId: actorType === 'user' ? input.versionBaseRevisionId ?? null : null,
         versionSourceSessionId: actorType === 'user' ? input.versionSourceSessionId ?? null : null,
         agentTurnId: input.agentTurnId,
-        exactOperationHistoryOwned: actorType === 'agent' && Boolean(input.mcpAuthority),
+        exactOperationHistoryOwned: Boolean(input.nativeEditAuthority) || actorType === 'agent' && Boolean(input.mcpAuthority),
         initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
         operationId: actorType === 'agent' ? input.operationId : null,
         observedDocumentSequence: state.documentSequence,
@@ -1811,10 +1887,24 @@ export function createCollaborationServer(server: http.Server, options: {
               || (workspace.organizationId ?? null) !== (session.input.workspace.organizationId ?? null))) {
               throw new AgentDirectConnectionAuthorizationError('Direct activity workspace scope changed.');
             }
-            await connection.transact((liveDocument) => {
-              assertRoomIdentity(liveDocument, context.claims);
-              result = apply(liveDocument);
-            });
+            if (input.nativeEditAuthority) {
+              await withNativeDirectConnectionAuthority(input, async access => {
+                await connection.transact(liveDocument => {
+                  assertRoomIdentity(liveDocument, context.claims);
+                  access.assertActive();
+                  assertNativeDocumentEditPrecondition({ doc: liveDocument,
+                    identity: input.nativeDocumentVersion!.identity,
+                    expectedVersion: input.nativeDocumentVersion!.expectedVersion });
+                  access.assertActive();
+                  result = apply(liveDocument);
+                });
+              });
+            } else {
+              await connection.transact((liveDocument) => {
+                assertRoomIdentity(liveDocument, context.claims);
+                result = apply(liveDocument);
+              });
+            }
             roomOwners?.fence(document);
             if (onApplied) await onApplied(result as never);
             assertDirectActivitySession(input);

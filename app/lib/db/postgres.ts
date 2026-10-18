@@ -9,6 +9,7 @@ import { migratePostgresMainAgentId } from './main-agent-id-migration';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 import { PUBLIC_SHARE_UNIQUENESS_STATEMENTS } from './public-share-migration';
 import { AGENT_DIRECT_EDIT_GRANT_STATEMENTS } from './agent-direct-edit-grant-migration';
+import { NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS } from './native-document-edit-operation-migration';
 import { MOBILE_NOTEBOOK_OPERATION_STATEMENTS } from './mobile-notebook-operation-migration';
 import { WORKSPACE_OPERATION_JOURNAL_STATEMENTS } from './workspace-operation-journal-migration';
 import { WORKSPACE_OPERATION_REVIEW_STATEMENTS } from './workspace-operation-review-migration';
@@ -1592,6 +1593,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of AGENT_DIRECT_EDIT_GRANT_STATEMENTS) {
     await pool.query(statement);
   }
+  for (const statement of NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS) await pool.query(statement);
   for (const statement of MOBILE_NOTEBOOK_OPERATION_STATEMENTS) await pool.query(statement);
 
   await pool.query(`

@@ -101,9 +101,14 @@ export async function withPreparedDocumentSearchToolPolicy<T>(operation: (policy
   return withPreparedFixedDocumentToolPolicy('search_documents', operation);
 }
 
-/** The two public wrappers fix the operation; callers cannot select a policy,
+/** Fixed native edit tool use, separately from workspace WRITE authority. */
+export async function withPreparedDocumentEditToolPolicy<T>(operation: (policy: Policy) => Promise<T>): Promise<T> {
+  return withPreparedFixedDocumentToolPolicy('edit_file', operation);
+}
+
+/** The public wrappers fix the operation; callers cannot select a policy,
  * provide an authorization reader or expand this private set. */
-async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_file' | 'search_documents',
+async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_file' | 'search_documents' | 'edit_file',
   operation: (policy: Policy) => Promise<T>): Promise<T> {
   const invocation = captureCurrentAgentToolInvocation();
   return withCapturedAgentToolInvocation(invocation,async assertInvocation => {

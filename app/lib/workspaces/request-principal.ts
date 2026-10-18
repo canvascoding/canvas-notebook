@@ -113,7 +113,8 @@ export type WorkspaceAgentToolHistoricalOrigin = Readonly<{
  * observe the same original scalars repeatedly within the genuine phase. */
 export type WorkspaceAgentToolHistoricalOriginObserver = (origin: WorkspaceAgentToolHistoricalOrigin) => void;
 type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture | AgentCapture | JobUserCapture | JobAgentCapture; database: SqlConnection;
-  identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>> };
+  identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>>;
+  accepting: boolean; nativeEditSessionExpiresAt?: number };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
 const invitationAuthorities = new WeakMap<FileGuestInvitationAuthority, InvitationCapture>();
 const agentToolPrincipals = new WeakMap<WorkspaceAgentToolPrincipal, AgentCapture>();
@@ -500,6 +501,8 @@ async function current(phase: Phase): Promise<WorkspaceContext> {
   active(phase);
   if (!expiry || !number(expiry.expires_at) || normalizeDatabaseTimestamp(Number(expiry.expires_at)) <= Date.now()) fail('PRINCIPAL_AUTH_REVOKED');
   await checkIdentity(phase);
+  // Private evidence for the fixed native edit fence, never a caller expiry.
+  phase.nativeEditSessionExpiresAt = normalizeDatabaseTimestamp(Number(expiry.expires_at));
   return freeze(workspace);
 }
 
@@ -510,6 +513,35 @@ export function withWorkspaceRequestPrincipalOnConnection<T>(database: SqlConnec
   const request = requests.get(principal);
   return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), current,
     (workspace, assertCurrent) => Object.freeze({ workspace, userId: request!.userId, sessionId: request!.sessionId, assertCurrent }), operation);
+}
+
+/** Synchronous native WRITE fence inside the exact genuine member B phase. */
+export function assertWorkspaceNativeEditRequestPrincipalActiveOnConnection(database: SqlConnection,
+  principal: WorkspaceRequestPrincipal): void {
+  assertNativeEditPhaseActive(database, requests.get(principal));
+}
+
+/** PI remains its real active invocation; it never becomes a member session. */
+export function assertWorkspaceNativeEditAgentPrincipalActiveOnConnection(database: SqlConnection,
+  principal: WorkspaceAgentToolPrincipal): void {
+  assertNativeEditPhaseActive(database, agentToolPrincipals.get(principal));
+}
+
+function assertNativeEditPhaseActive(database: SqlConnection, captured: RequestCapture | AgentCapture | undefined): void {
+  const phase = phases.get(database);
+  try {
+    if (!captured || !phase || phase.request !== captured || !captured.accepting || !phase.accepting) fail('PRINCIPAL_REQUIRED');
+    active(phase);
+    if (captured.permission !== 'canWrite') fail('PRINCIPAL_ACCESS_DENIED');
+    if (phase.checking || phase.pending.size) fail('PRINCIPAL_REENTRANT');
+    if (captured.kind === 'member' && (!Number.isSafeInteger(phase.nativeEditSessionExpiresAt)
+      || phase.nativeEditSessionExpiresAt! <= Date.now())) fail('PRINCIPAL_AUTH_REVOKED');
+  } catch (error) {
+    const failure = reason(error);
+    if (phase) { phase.failure ??= failure; phase.request.failure ??= failure; }
+    if (captured) return poison(captured, failure);
+    throw failure;
+  }
 }
 
 /** Shared phase mechanics only. Each private adapter supplies its actual
@@ -535,7 +567,7 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
     if (held) { held.failure ??= error; held.request.failure ??= error; }
     return Promise.reject((request.failure ??= error));
   }
-  const phase: Phase = { active: true, request, database, deadline: performance.now()+MAX_PHASE_MS, checking: false, pending: new Set() };
+  const phase: Phase = { active: true, accepting: true, request, database, deadline: performance.now()+MAX_PHASE_MS, checking: false, pending: new Set() };
   phases.set(database,phase);
   const pending = (async () => {
     try {
@@ -558,6 +590,7 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
         return checked;
       };
       const result = await operation(makeAccess(workspace, assertCurrent));
+      phase.accepting = false;
       if (phase.pending.size) {
         phase.failure ??= new WorkspaceRequestPrincipalError('PRINCIPAL_DETACHED');
         await Promise.allSettled([...phase.pending]); throw phase.failure;
@@ -566,7 +599,7 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
     } catch (error) {
       if ((error as { code?: string })?.code === '55P03') error = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY');
       return poison(request,error);
-    } finally { phase.active = false; if (phases.get(database) === phase) phases.delete(database); }
+    } finally { phase.active = false; phase.accepting = false; if (phases.get(database) === phase) phases.delete(database); }
   })();
   request.pending.add(pending);
   void pending.then(() => request.pending.delete(pending), () => request.pending.delete(pending));
