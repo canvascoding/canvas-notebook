@@ -92,35 +92,65 @@ async function writeEnv(file: string, env: NodeJS.ProcessEnv): Promise<void> {
   await fs.rename(temp, file);
 }
 
-export async function buildOwnedYjsArtifact(repo: string): Promise<void> {
-  assert.equal(execFileSync('git', ['status', '--porcelain', '--untracked-files=normal', '--', 'app', 'components', 'server', 'scripts', 'tests',
-    'packages', 'i18n', 'messages', 'public', 'package.json', 'package-lock.json', 'tsconfig.json', 'next.config.ts', 'server.js'],
-  { cwd: repo, encoding: 'utf8' }).trim(), '', 'Commit the fully integrated application/test sources before sealing their production build.');
-  const before = await sourceFingerprint(repo);
-  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-yjs-build-'))); await fs.chmod(root, 0o700);
-  const env: NodeJS.ProcessEnv = { ...allowedEnv(), NODE_ENV: 'production', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
-    CANVAS_APP_ROOT: repo, DATA: path.join(root, 'data'), CANVAS_DATA_ROOT: path.join(root, 'data'), TMPDIR: root,
-    CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_MODE: 'external', CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'true',
-    // The build cannot contact or mutate the shared database, even if a module probes it.
-    DATABASE_URL: `postgresql://build:${randomBytes(24).toString('hex')}@127.0.0.1:9/canvas_yjs_build`,
-    CANVAS_MCP_DIRECT_ENABLED: 'false', CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
-    BASE_URL: 'http://127.0.0.1:42345', BETTER_AUTH_BASE_URL: 'http://127.0.0.1:42345',
-    BETTER_AUTH_SECRET: randomBytes(48).toString('base64url'), NODE_OPTIONS: '--max-old-space-size=8192' };
-  await fs.mkdir(env.DATA!, { mode: 0o700 });
-  const envPath = path.join(root, 'build.env'); await fs.writeFile(envPath, '', { mode: 0o600, flag: 'wx' }); env.CANVAS_ENV_FILE = envPath;
-  await writeEnv(envPath, env);
-  console.log(`[yjs-qa] production build; private redacted evidence ${root}`);
-  const build = await child(repo, 'npm', ['run', 'build'], env, path.join(root, 'build.log'));
-  try { await waitChild(build, 12 * 60_000); }
-  catch (error) { await signalOwnChild(build).catch(() => undefined); throw error; }
-  assert.equal(build.process.exitCode, 0, 'Production build failed; no build proof was published.');
-  const after = await sourceFingerprint(repo); assert.deepEqual(after, before, 'Sources changed during the production build.');
-  const built = await buildFingerprint(repo);
-  const proofPath = path.join(repo, '.next', buildProofName);
-  try { await privateBytes(proofPath); await fs.unlink(proofPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-  await writePrivateJson(proofPath, { version: 1, repo, head: after.head, sourceFingerprint: after.fingerprint,
-    buildFingerprint: built.fingerprint, buildId: built.buildId, createdAt: new Date().toISOString() }, true);
-  console.log(`[yjs-qa] build sealed at ${after.head}; runtime remains stopped`);
+export async function buildOwnedYjsArtifact(repo: string, testControl?: Readonly<{ timeoutMs: number }>): Promise<void> {
+  // Aggregate allowance for compile (25m), typegen/tsc (30m), generate (25m)
+  // and 10m overhead. This fixed ceiling is not a proven worst-case duration.
+  const BUILD_AGGREGATE_BUDGET_MS = 90 * 60_000;
+  let timeoutMs = BUILD_AGGREGATE_BUDGET_MS;
+  if (testControl !== undefined) {
+    assert(testControl && typeof testControl === 'object' && Object.getPrototypeOf(testControl) === Object.prototype
+      && Reflect.ownKeys(testControl).length === 1, 'Invalid narrower build test control.');
+    const descriptor = Object.getOwnPropertyDescriptor(testControl, 'timeoutMs');
+    assert(descriptor?.enumerable && Object.hasOwn(descriptor, 'value') && typeof descriptor.value === 'number'
+      && Number.isSafeInteger(descriptor.value) && descriptor.value >= 1 && descriptor.value <= BUILD_AGGREGATE_BUDGET_MS,
+    'The build test timeout must be an integer between 1 and the fixed 90-minute ceiling.');
+    timeoutMs = descriptor.value;
+  }
+  const cancellation = new AbortController();
+  const stop = () => cancellation.abort();
+  process.on('SIGTERM', stop); process.on('SIGINT', stop);
+  let build: OwnedChild | undefined;
+  try {
+    assert.equal(execFileSync('git', ['status', '--porcelain', '--untracked-files=normal', '--', 'app', 'components', 'server', 'scripts', 'tests',
+      'packages', 'i18n', 'messages', 'public', 'package.json', 'package-lock.json', 'tsconfig.json', 'next.config.ts', 'server.js'],
+    { cwd: repo, encoding: 'utf8' }).trim(), '', 'Commit the fully integrated application/test sources before sealing their production build.');
+    const before = await sourceFingerprint(repo);
+    const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-yjs-build-'))); await fs.chmod(root, 0o700);
+    const env: NodeJS.ProcessEnv = { ...allowedEnv(), NODE_ENV: 'production', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
+      CANVAS_APP_ROOT: repo, DATA: path.join(root, 'data'), CANVAS_DATA_ROOT: path.join(root, 'data'), TMPDIR: root,
+      CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_MODE: 'external', CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'true',
+      // The build cannot contact or mutate the shared database, even if a module probes it.
+      DATABASE_URL: `postgresql://build:${randomBytes(24).toString('hex')}@127.0.0.1:9/canvas_yjs_build`,
+      CANVAS_MCP_DIRECT_ENABLED: 'false', CANVAS_DEPLOYMENT_MODE: 'community', CANVAS_TEAM_FEATURES_ENABLED: 'false',
+      BASE_URL: 'http://127.0.0.1:42345', BETTER_AUTH_BASE_URL: 'http://127.0.0.1:42345',
+      BETTER_AUTH_SECRET: randomBytes(48).toString('base64url'), NODE_OPTIONS: '--max-old-space-size=8192' };
+    await fs.mkdir(env.DATA!, { mode: 0o700 });
+    const envPath = path.join(root, 'build.env'); await fs.writeFile(envPath, '', { mode: 0o600, flag: 'wx' }); env.CANVAS_ENV_FILE = envPath;
+    await writeEnv(envPath, env);
+    cancellation.signal.throwIfAborted();
+    console.log(`[yjs-qa] production build; private redacted evidence ${root}`);
+    build = await child(repo, 'npm', ['run', 'build'], env, path.join(root, 'build.log'));
+    await waitChild(build, timeoutMs, cancellation.signal);
+    cancellation.signal.throwIfAborted();
+    assert.equal(build.process.exitCode, 0, 'Production build failed; no build proof was published.');
+    const after = await sourceFingerprint(repo); assert.deepEqual(after, before, 'Sources changed during the production build.');
+    cancellation.signal.throwIfAborted();
+    const built = await buildFingerprint(repo);
+    cancellation.signal.throwIfAborted();
+    const proofPath = path.join(repo, '.next', buildProofName);
+    try { await privateBytes(proofPath); await fs.unlink(proofPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    cancellation.signal.throwIfAborted();
+    await writePrivateJson(proofPath, { version: 1, repo, head: after.head, sourceFingerprint: after.fingerprint,
+      buildFingerprint: built.fingerprint, buildId: built.buildId, createdAt: new Date().toISOString() }, true);
+    cancellation.signal.throwIfAborted();
+    console.log(`[yjs-qa] build sealed at ${after.head}; runtime remains stopped`);
+  } catch (error) {
+    if (build) try { await signalOwnChild(build); }
+    catch (cleanupError) { throw new AggregateError([error, cleanupError], 'Owned build failed and its process-group shutdown could not be confirmed.'); }
+    throw error;
+  } finally {
+    process.removeListener('SIGTERM', stop); process.removeListener('SIGINT', stop);
+  }
 }
 
 async function ownJson(origin: string, route: string, body?: unknown, cookie?: string) {
