@@ -129,7 +129,7 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
         { sourceWorkspaceId, destinationWorkspaceId: sourceWorkspaceId }), expectedCode('MCP_READ_PRINCIPAL_ACCESS_DENIED'));
     });
 
-    await check('Write scope and exact explicit tool selection do not advertise an absent handler', async () => {
+    await check('Write scope and exact explicit tool selection advertise the connected strict Copy handler', async () => {
       for (const scope of ['knowledge:read', 'knowledge:search']) {
         await assert.rejects(copy(async () => assert.fail('Read/Search is not Copy Write.'), await fixture.issue({ scope })),
           expectedCode('insufficient_scope'));
@@ -161,11 +161,13 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
       };
       const before = await fixture.snapshot(), listed = object((await rpc('tools/list', {})).result);
       assert(Array.isArray(listed.tools)); assert(listed.tools.length > 0);
-      assert.equal(listed.tools.some(tool => object(tool).name === 'copy_knowledge_source'), false);
+      assert.equal(listed.tools.some(tool => object(tool).name === 'copy_knowledge_source'), true);
       const called = await rpc('tools/call', { name: 'copy_knowledge_source', arguments: {
         source_workspace_id: sourceWorkspaceId, destination_workspace_id: destinationWorkspaceId, path: 'never-created.md',
       } });
-      assert.equal(object(called.error).code, -32601); assert.equal(Object.hasOwn(called, 'result'), false);
+      assert.equal(Object.hasOwn(called, 'error'), false);
+      const rejected = object(called.result); assert.equal(rejected.isError, true);
+      assert.equal(object(rejected.structuredContent).code, 'INVALID_REQUEST');
       assert.deepEqual(await fixture.snapshot(), before);
     });
 

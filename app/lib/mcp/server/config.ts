@@ -13,8 +13,7 @@ export const DIRECT_MCP_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
-  // Reserved for the genuine Copy authority. No public tool definition or
-  // settings capability is exposed until the central file-action handler exists.
+  // Copy uses the fixed central Owner and requires explicit administrator opt-in.
   'copy_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
@@ -26,7 +25,7 @@ export const DIRECT_MCP_TOOL_IDS = [
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 
-// New scene capabilities, including reading, require an explicit selection on
+// New creation, Copy and scene capabilities require an explicit selection on
 // first activation, upgrades and reactivation. Keep this list shared with UI.
 export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
   'create_knowledge_source', 'import_knowledge_file',

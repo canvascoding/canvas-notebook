@@ -6,7 +6,7 @@ sectionOrder: 11
 order: 1
 locale: en
 translationKey: developers.document-api
-updatedAt: 2026-10-18
+updatedAt: 2026-10-19
 ---
 
 # Document API
@@ -20,7 +20,7 @@ Use this sequence: search for a document, keep its stable identity, read its ful
 | Transport | Authentication | Available document operations |
 | --- | --- | --- |
 | REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
-| Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit, and edit status |
+| Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled native Copy |
 
 These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
 
@@ -34,6 +34,7 @@ For MCP, enable the server, opt the workspace into access, obtain the user's gra
 | `search_knowledge` | `knowledge:search` |
 | `read_knowledge_source` | `knowledge:read` |
 | `create_knowledge_source`, `import_knowledge_file`, `edit_knowledge_source` | `knowledge:write` |
+| `copy_knowledge_source` (explicit opt-in) | `knowledge:write` |
 
 Search permission does not grant full-read permission. Write scope does not grant a separate read scope. Create/edit also require the current workspace read/write and agent-access permissions enforced by the MCP service. Edit status uses the same write tool and authorization as editing, even though observing status does not apply a change.
 
@@ -280,6 +281,58 @@ Read edit status through REST `POST /api/documents/edit/status` with exactly `ap
 
 Status observes the recorded operation without applying or reconciling it. It requires fresh write authorization for the same transport owner. Preserve an `operationId` returned with an error and use it for a permitted status observation. This status endpoint covers native edits; it is not a general create/import status endpoint.
 
+## Native Copy through MCP
+
+`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. Preview, Apply and Recover additionally require the native feature gate. Every action checks the current client/user and access to both workspaces: source read access and destination write access. A renewed session for the same authorized client/user can inspect or recover its existing operation; an operation ID grants no access by itself.
+
+Start with a Preview using the actual workspace IDs and canonical workspace-relative paths:
+
+```javascript
+{
+  name: "copy_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    source_workspace_id: sourceWorkspaceId,
+    destination_workspace_id: destinationWorkspaceId,
+    selections: [{ source_path: "notes/a.md", destination_path: "copies/a.md" }],
+    rename_on_collision: true
+  }
+}
+```
+
+The response contains `apiVersion: 1`, `action: "preview"` and the full public V4 `preview`. Preserve its `planId`. For each original selected root, find its exact `sourcePath` entry in `preview.pathMappings` and retain the resolved `destinationPath`, in the original selection order. The mappings also contain descendants; do not submit every mapping as a selection.
+
+Persist a caller-selected operation ID and the exact Apply request before sending it. Use the resolved root paths and set `rename_on_collision: false` or omit that field. Apply and Recover reject `true`; a retry must retain the already chosen destination name.
+
+```javascript
+{
+  name: "copy_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "apply",
+    source_workspace_id: sourceWorkspaceId,
+    destination_workspace_id: destinationWorkspaceId,
+    operation_id: callerOperationId,
+    plan_id: previewResult.preview.planId,
+    selections: resolvedRootSelections,
+    rename_on_collision: false
+  }
+}
+```
+
+Operation IDs contain 16–128 ASCII characters, start with a letter or digit, and otherwise allow letters, digits, `_` and `-`; a caller-generated UUID fits. A plan ID is the returned 64-character lowercase hexadecimal value. The tool never generates a replacement operation ID for a client.
+
+Apply/Recover returns `execution`, `copied` paths and `alreadyKnown`. Inspect `execution.status`: `complete`, `needs_recovery` or `failed`. A successful HTTP/MCP response does not imply complete publication. The result supplies no new document IDs; use native search and a returned stable ID/full version when reading a resulting native document.
+
+For a pure status observation send only `api_version`, `action: "status"`, both workspace IDs and `operation_id`. Status does not apply or repair an operation and remains readable, with current authorization, when the native mutation gate is off. `operation.completion.status: "confirmed"` is historical completion evidence; journal labels alone do not prove completion or current file contents. `COPY_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new operation ID.
+
+Explicit Recover uses the exact retained Apply request with `action: "recover"`, including its original operation ID, plan ID and resolved selections. It continues an existing operation only. `COPY_OPERATION_NOT_FOUND` never starts a replacement copy. Keep the original request and ID after `COPY_OUTCOME_UNCONFIRMED`, a transport failure or a late output-size error.
+
+The request is bounded to 65,536 UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
+
+The current native owner requires an initialized native Markdown graph. Uninitialized physical Markdown in the inspected source or destination graph can produce `COPY_NATIVE_REQUIRED`, even outside the selected roots. This is an open import/rebinding boundary. Do not migrate a read-only source or write its Markdown projection to bypass it. Move/Delete and Python SDK Copy methods are separate pending connections.
+
 ## Errors and client handling
 
 REST uses HTTP status codes and a bounded JSON body. Native read/search errors contain `apiVersion: 1`, `success: false`, and `code`. Edit errors can additionally retain `operationId`. MCP tool failures can arrive as `isError: true` with structured error content even when HTTP transport succeeded; also handle transport/protocol errors and OAuth challenges. Creation/import uses its existing ingest error vocabulary, not the edit error envelope.
@@ -299,4 +352,4 @@ Routes can also rate-limit with HTTP 429. REST responses are not cacheable. Appl
 
 ## Current boundary
 
-The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the document tools described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK. The native API above does not yet expose common Copy/Move/Delete/Recovery tools or a PDF-to-native-document creation flow. Existing file/asset tools have their own schemas and results; do not treat a PDF upload, Markdown output, or physical file receipt as a native document mutation result.
+The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools described here. It is not yet a released Python package and does not yet wrap the development Copy tool. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK. Common Move/Delete tools and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a PDF upload, Markdown output, or physical file receipt as a native document mutation result.

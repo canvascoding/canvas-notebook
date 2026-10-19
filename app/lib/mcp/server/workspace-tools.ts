@@ -109,6 +109,8 @@ import {
   listDirectMcpEnabledWorkspaceIds,
   loadDirectMcpWorkspaceListingForUser,
 } from '@/app/lib/mcp/server/workspace-access-policy';
+import { decodeDirectMcpWorkspaceCopyRequestV1, formatDirectMcpWorkspaceCopyResult, formatDirectMcpWorkspaceCopyError,
+  DIRECT_MCP_WORKSPACE_COPY_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_COPY_OUTPUT_SCHEMA_V1 } from './workspace-copy-tool-contract';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { createOrdinaryAgentProposal, type OrdinaryAgentProposalResult } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -121,6 +123,7 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'search_knowledge',
   'read_knowledge_source',
   'edit_knowledge_source',
+  'copy_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
 ] as const satisfies readonly DirectMcpToolId[];
@@ -292,6 +295,17 @@ function getToolSecurity(scope: DirectMcpResourceScope) {
 }
 
 export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): DirectMcpToolDescriptor {
+  if (tool === 'copy_knowledge_source') {
+    return {
+      name: tool,
+      title: 'Copy workspace files and documents',
+      ...getToolSecurity('knowledge:write'),
+      description: 'Explicit api_version:1 Copy through the central native file owner. Use action:preview with both workspace IDs and selections; retain its planId. For each original selection, take its resolved root destination from preview.pathMappings and preserve the original selection order; mappings also contain descendants. Apply and recover require the same caller-selected operation_id, plan_id and retained resolved selections, with rename_on_collision omitted or false. Collision naming is selected during preview only. Status only observes recorded historical operation facts; COPY_STATUS_NOT_FOUND does not prove that no work has begun. Preserve the original ID and request after uncertainty, and request recover explicitly; never create a replacement key or automatically replay. Requires knowledge:write, current source read permission and destination write permission. Native mutations must be enabled. Preview and status publish no file events. Results contain copied paths, not invented document IDs.',
+      inputSchema: { ...DIRECT_MCP_WORKSPACE_COPY_INPUT_SCHEMA_V1, type: 'object' },
+      outputSchema: { ...DIRECT_MCP_WORKSPACE_COPY_OUTPUT_SCHEMA_V1, type: 'object' },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    };
+  }
   if (tool === 'list_workspaces') {
     return {
       name: tool,
@@ -2055,6 +2069,23 @@ async function executeEditKnowledgeSource(
   }
 }
 
+async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    // Capture the complete request before awaiting or entering any authority.
+    const input = decodeDirectMcpWorkspaceCopyRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceCopyService } = await import('../../files/workspace-file-operation-service');
+    const result = await runDirectMcpWorkspaceCopyService(input, authInfo);
+    return formatDirectMcpWorkspaceCopyResult(result, selectedOperationId);
+  } catch (error) {
+    // A hard formatting failure here propagates. In particular, never catch
+    // an oversized genuine OAuth challenge to return a challenge-free result.
+    return formatDirectMcpWorkspaceCopyError(error, selectedOperationId);
+  }
+}
+
 export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDefinition[] {
   return [
     {
@@ -2086,6 +2117,11 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       id: 'edit_knowledge_source',
       descriptor: getDirectMcpWorkspaceToolDescriptor('edit_knowledge_source'),
       execute: executeEditKnowledgeSource,
+    },
+    {
+      id: 'copy_knowledge_source',
+      descriptor: getDirectMcpWorkspaceToolDescriptor('copy_knowledge_source'),
+      execute: executeCopyKnowledgeSource,
     },
     {
       id: 'read_knowledge_asset',

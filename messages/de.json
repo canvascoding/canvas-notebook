@@ -5924,6 +5924,10 @@
             "title": "Dateiinhalte bearbeiten",
             "description": "Erlaubt exakte, konfliktgeschützte Änderungen an sichtbaren Textdateien nach einer ausdrücklichen Freigabe durch die Administration."
           },
+          "copy_knowledge_source": {
+            "title": "Dateien und Dokumente kopieren",
+            "description": "Kopiert sichtbare Dateien, Ordner und native Dokumente über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Benötigt Lesezugriff auf die Quelle und Schreibzugriff auf das Ziel."
+          },
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."

@@ -193,24 +193,10 @@ export async function executeWorkspaceFileOperationService(
       const enabled = authenticatedNativeTextSessionEnabled();
       if (stageKind === 'native-copy' || nativeJournal || enabled && stageKind === null && routingRecord === null) {
         if (!enabled) throw Object.assign(new Error('Native Copy is unavailable.'), { status: 409, code: 'NATIVE_COPY_UNAVAILABLE' });
-        const [{ executeWorkspaceNativeCopyOperation, readWorkspaceNativeCopyViewOutcome }, { workspaceOperationNativeCopyPublicPreview }] = await Promise.all([
-          import('./workspace-operation-native-copy-owner'), import('./workspace-operation-native-copy-public'),
-        ]);
-        let result: Awaited<ReturnType<typeof executeWorkspaceNativeCopyOperation>>;
-        try {
-          result = await executeWorkspaceNativeCopyOperation({ origin: currentCopyContext!, request: input.request,
-            operationId, selections: input.selections, expectedPlanId: input.expectedPlanId, renameOnCollision: input.renameOnCollision,
-            destinationDirectory: input.destinationDirectory });
-        } catch (error) {
-          const outcome = readWorkspaceNativeCopyViewOutcome(error);
-          if (outcome) {
-            try { finalizeWorkspaceNativeCopyViews({ fileOptions: input.destination.fileOptions, outcome }); }
-            catch (views) { throw new AggregateError([error, views], 'Native Copy views could not be finalized.'); }
-          }
-          throw error;
-        }
-        const outcome = readWorkspaceNativeCopyViewOutcome(result);
-        if (outcome) finalizeWorkspaceNativeCopyViews({ fileOptions: input.destination.fileOptions, outcome });
+        const { workspaceOperationNativeCopyPublicPreview } = await import('./workspace-operation-native-copy-public');
+        const result = await runNativeCopyWithViews('execute', { origin: currentCopyContext!, request: input.request,
+          operationId, selections: input.selections, expectedPlanId: input.expectedPlanId, renameOnCollision: input.renameOnCollision,
+          destinationDirectory: input.destinationDirectory }, input.destination.fileOptions);
         observeExecutionStatus(input.kind, result.execution.status, result.alreadyKnown ? 'recovery' : 'apply');
         return { execution: result.execution, plan: result.plan ? workspaceOperationNativeCopyPublicPreview(result.plan) : null,
           rename: null, copied: result.copied, alreadyKnown: result.alreadyKnown, copyViewsFinalized: true };
@@ -394,4 +380,102 @@ export async function executeWorkspaceFileOperationService(
     }
     throw error;
   }
+}
+
+/** Fixed common Owner continuation. Outcome facts are private notifications,
+ * not authority; only the exact returned result/error can select them. */
+async function runNativeCopyWithViews(mode: 'execute' | 'recover',
+  input: import('./workspace-operation-native-copy-owner').NativeCopyExecutionInput,
+  fileOptions: WorkspaceFileOperationOptions,
+): Promise<import('./workspace-operation-native-copy-owner').NativeCopyExecutionResult> {
+  const { executeWorkspaceNativeCopyOperation, recoverWorkspaceNativeCopyOperation,
+    readWorkspaceNativeCopyViewOutcome } = await import('./workspace-operation-native-copy-owner');
+  let result: import('./workspace-operation-native-copy-owner').NativeCopyExecutionResult;
+  try {
+    result = mode === 'execute' ? await executeWorkspaceNativeCopyOperation(input) : await recoverWorkspaceNativeCopyOperation(input);
+  } catch (error) {
+    const outcome = readWorkspaceNativeCopyViewOutcome(error);
+    if (outcome) {
+      try { finalizeWorkspaceNativeCopyViews({ fileOptions, outcome }); }
+      catch (views) { throw new AggregateError([error, views], 'Native Copy views could not be finalized.'); }
+    }
+    throw error;
+  }
+  const outcome = readWorkspaceNativeCopyViewOutcome(result);
+  if (outcome) finalizeWorkspaceNativeCopyViews({ fileOptions, outcome });
+  return result;
+}
+
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import type { DecodedDirectMcpWorkspaceCopyRequestV1, DirectMcpWorkspaceCopyResultV1 } from '../mcp/server/workspace-copy-tool-contract';
+
+/** Fixed MCP Copy entry only. Input is the frozen result of the shared wire
+ * decoder; it supplies no actor, Origin, session, workspace roots or authority.
+ * Every invocation obtains its actual Origin from the current opaque capture.
+ * Native Web/PI and MCP use the same fixed Owner/view continuation. */
+export async function runDirectMcpWorkspaceCopyService(
+  input: DecodedDirectMcpWorkspaceCopyRequestV1,
+  authInfo: AuthInfo,
+): Promise<DirectMcpWorkspaceCopyResultV1> {
+  const { encodeDirectMcpWorkspaceCopyResultV1, WorkspaceCopyToolError } = await import('../mcp/server/workspace-copy-tool-contract');
+  const selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+  // Historical status remains inspectable under the current fixed Copy policy
+  // when creation/edit activation is off. Mutation-capable entries keep the gate.
+  if (input.action !== 'status' && !authenticatedNativeTextSessionEnabled()) {
+    throw new WorkspaceCopyToolError('COPY_NATIVE_REQUIRED', selectedOperationId);
+  }
+  const [{ openDb }, { executeLifecycleTransaction }, {
+    withDirectMcpWorkspaceCopyPrincipal, withDirectMcpWorkspaceCopyPrincipalOnConnection,
+  }, { captureWorkspaceOperationCopyMcpOrigin }, {
+    previewWorkspaceNativeCopyOperation,
+  }, { workspaceOperationNativeCopyPublicPreview }, { readMcpWorkspaceNativeCopyOperationStatus }] = await Promise.all([
+    import('../db'), import('../collaboration/lifecycle-transaction'), import('../mcp/server/document-read-principal'),
+    import('./workspace-operation-copy-origin'), import('./workspace-operation-native-copy-owner'),
+    import('./workspace-operation-native-copy-public'), import('./workspace-operation-native-copy-status'),
+  ]);
+  return withDirectMcpWorkspaceCopyPrincipal(authInfo, {
+    sourceWorkspaceId: input.sourceWorkspaceId, destinationWorkspaceId: input.destinationWorkspaceId,
+  }, async mcpPrincipal => {
+    // This short phase owns no Copy mutation. Its actual COMMIT and awaited
+    // close finish before the Owner may enter another B/current-principal phase.
+    const captured = await executeLifecycleTransaction({
+      openConnection: openDb,
+      execute: async database => {
+        await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+        return withDirectMcpWorkspaceCopyPrincipalOnConnection(database, mcpPrincipal, async access => {
+          const origin = captureWorkspaceOperationCopyMcpOrigin({ userId: access.userId, clientId: access.clientId,
+            sessionId: access.sessionId, sourceWorkspace: access.sourceWorkspace, destinationWorkspace: access.destinationWorkspace });
+          // Retained notification data only. This object is never supplied to
+          // the Owner as a grant, and its ID must match each actual outcome.
+          const workspace: WorkspaceContext = Object.freeze({ ...access.destinationWorkspace,
+            permissions: Object.freeze({ ...access.destinationWorkspace.permissions }),
+            ...(access.destinationWorkspace.actor ? { actor: Object.freeze({ ...access.destinationWorkspace.actor }) } : {}) });
+          return Object.freeze({ origin, fileOptions: Object.freeze({ workspace }) });
+        });
+      },
+      recoverCommitted: async (_captured, commitError) => {
+        // A lost prelude acknowledgement never authorizes entering the Owner.
+        // This is not a mutation replay, historical lookup or cleanup attempt.
+        throw new AggregateError([new WorkspaceCopyToolError('COPY_UNAVAILABLE', selectedOperationId), commitError],
+          'MCP Copy origin transaction completion was not confirmed.');
+      },
+    });
+    if (input.action === 'status') {
+      const operation = await readMcpWorkspaceNativeCopyOperationStatus({ origin: captured.origin, mcpPrincipal, operationId: input.operationId });
+      return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'status', operation }, input.operationId);
+    }
+    if (input.action === 'preview') {
+      const plan = await previewWorkspaceNativeCopyOperation({ origin: captured.origin, mcpPrincipal,
+        selections: input.selections, renameOnCollision: input.renameOnCollision,
+        ...(input.destinationDirectory === undefined ? {} : { destinationDirectory: input.destinationDirectory }) });
+      return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: 'preview', preview: workspaceOperationNativeCopyPublicPreview(plan) });
+    }
+    const ownerInput = { origin: captured.origin, mcpPrincipal, operationId: input.operationId, expectedPlanId: input.planId,
+      selections: input.selections, renameOnCollision: input.renameOnCollision,
+      ...(input.destinationDirectory === undefined ? {} : { destinationDirectory: input.destinationDirectory }) };
+    const result = await runNativeCopyWithViews(input.action === 'apply' ? 'execute' : 'recover', ownerInput, captured.fileOptions);
+    observeExecutionStatus('copy', result.execution.status, input.action === 'recover' || result.alreadyKnown ? 'recovery' : 'apply');
+    return encodeDirectMcpWorkspaceCopyResultV1({ apiVersion: 1, action: input.action,
+      execution: result.execution, copied: result.copied, alreadyKnown: result.alreadyKnown }, input.operationId);
+  });
 }

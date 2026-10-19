@@ -162,6 +162,7 @@ async function main(): Promise<void> {
         { id: 'search_knowledge', available: true, enabled: true, scopes: ['knowledge:search'] },
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
+        { id: 'copy_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
         { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'create_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
@@ -265,8 +266,9 @@ async function main(): Promise<void> {
       CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: 'copy_knowledge_source',
     });
     assert.equal(reservedStatus.configurationError, null);
-    assert.equal(reservedStatus.capabilities.some(capability => capability.id === 'copy_knowledge_source'), false,
-      'The internal reservation must not advertise an available UI tool before its handler is connected.');
+    assert.deepEqual(reservedStatus.capabilities.find(capability => capability.id === 'copy_knowledge_source'),
+      { id: 'copy_knowledge_source', available: true, scopes: ['knowledge:write'], enabled: true },
+      'The connected Copy capability is advertised after explicit selection with its actual Write scope.');
     const selectedCopy = await setDirectMcpServerPreferences('admin-1', { enabled: true,
       tools: ['auth_probe', 'copy_knowledge_source'] });
     assert.deepEqual(selectedCopy.tools, ['auth_probe', 'copy_knowledge_source']);

@@ -5925,6 +5925,10 @@
             "title": "Edit file contents",
             "description": "Allows exact, conflict-protected edits to visible text files after an explicit administrator enablement."
           },
+          "copy_knowledge_source": {
+            "title": "Copy files and documents",
+            "description": "Copies visible files, folders and native documents through the central service, with preview, recorded status and explicit recovery. Requires source read and destination write access."
+          },
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
