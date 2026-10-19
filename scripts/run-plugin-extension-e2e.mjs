@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomBytes, createHash, createPublicKey, timingSafeEqual, X509Certificate } from 'node:crypto';
+import { nativePageConsentReturnSource } from './helpers/chat-extension-native-consent-policy.mjs';
 import { constants, createWriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
@@ -115,6 +116,7 @@ async function launch() {
   const chatModel = process.argv.length === 3 && process.argv[2] === '--chat-model';
   const chatNative = process.argv.length === 3 && process.argv[2] === '--chat-native';
   if (chatNative) {
+    assert.equal(process.env.CANVAS_CHAT_NATIVE_VISUAL_E2E, '1', 'Explicitly opt in to the separate native visual gate before building.');
     const config = JSON.parse(await readPrivateFile(process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG || ''));
     assert.equal(config.version, 1); assert.equal(config.applicationId, 'app.canvasnotebook.mobile.dev');
     assert.equal(config.mobileRepo, await fs.realpath(config.mobileRepo));
@@ -141,7 +143,7 @@ async function launch() {
     NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
     ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1' } : {}),
-    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1', CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG: process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG } : {}),
+    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1', CANVAS_CHAT_NATIVE_VISUAL_E2E: '1', CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG: process.env.CANVAS_NATIVE_EXTENSION_DEVICE_CONFIG } : {}),
   });
   const child = spawn(process.execPath, ['--conditions=react-server', '--import', 'tsx', fileURLToPath(import.meta.url), '--fixture', ...(chatInline ? ['--chat-inline'] : chatModel ? ['--chat-model'] : chatNative ? ['--chat-native'] : [])], {
     cwd: repo, env: clean, stdio: ['ignore', 'inherit', 'inherit'],
@@ -243,7 +245,10 @@ export async function startRegistryTlsProxy(registry, keyPath, certificatePath) 
 }
 
 /** A browser approves this local provider; only the upstream fixture account changes. */
-export async function startConsentProxy(provider, registry, token, logoUrl) {
+export async function startConsentProxy(provider, registry, token, logoUrl, options = {}) {
+  assert(options && typeof options === 'object' && !Array.isArray(options)
+    && Object.keys(options).every(key => key === 'nativeReturnScheme'));
+  assert(options.nativeReturnScheme === undefined || options.nativeReturnScheme === 'canvasnotebook-dev');
   const logo = new URL(logoUrl);
   assert(logo.protocol === 'https:' && logo.hostname === '127.0.0.1' && logo.port && logo.pathname === '/logos/canva.svg'
     && !logo.search && !logo.hash && !logo.username && !logo.password);
@@ -281,8 +286,9 @@ export async function startConsentProxy(provider, registry, token, logoUrl) {
         const flow = flows.get(ticket);
         if (!flow || flow.used || flow.expiresAt <= Date.now()) return send(410, { error: 'consent_unavailable' });
         if (request.method === 'GET') {
+          const nativeReturn = nativePageConsentReturnSource(flow.callback, flow.toolkit, options.nativeReturnScheme);
           response.writeHead(200, { ...headers, 'Referrer-Policy': 'same-origin', 'Content-Type': 'text/html; charset=utf-8',
-            'Content-Security-Policy': `default-src 'none'; form-action 'self' ${baseURL}; frame-ancestors 'none'; base-uri 'none'` });
+            'Content-Security-Policy': `default-src 'none'; form-action 'self' ${baseURL}${nativeReturn}; frame-ancestors 'none'; base-uri 'none'` });
           response.end(`<!doctype html><html lang="en"><title>Local integration consent</title><main><h1>Connect Canvas Notebook</h1><p>Authorize this local test integration.</p><form method="post"><button name="decision" value="approve">Approve</button><button name="decision" value="deny">Deny</button></form></main></html>`);
           return;
         }
@@ -297,8 +303,10 @@ export async function startConsentProxy(provider, registry, token, logoUrl) {
         assert(target.origin === baseURL && callbacks.has(target.pathname) && !target.username && !target.password && !target.hash);
         if (decision === 'approve') {
           assert.equal(provider.completeOAuth(flow.accountId), flow.callback); counters.approvals += 1;
+          flow.approvals += 1;
         } else { current.status = 'FAILED'; target.searchParams.set('error', 'access_denied'); counters.denials += 1; }
         counters.callbackRedirects += 1;
+        flow.callbackRedirects += 1;
         response.writeHead(303, { ...headers, Location: target.href }); response.end(); return;
       }
       if (/\/tools\/(?:execute|proxy)|\/tool_router\/.*\/execute/u.test(address.pathname)) {
@@ -327,7 +335,10 @@ export async function startConsentProxy(provider, registry, token, logoUrl) {
         for (const [entity, accounts] of provider.accounts) if (accounts.some(account => account.id === accountId && account.toolkit === input.toolkit && account.status === 'INITIATED')) entityId = entity;
         assert(entityId && typeof accountId === 'string');
         const ticketValue = randomBytes(24).toString('hex');
-        flows.set(ticketValue, { accountId, entityId, toolkit: input.toolkit, callback: callback.href, used: false, expiresAt: Date.now() + 10 * 60_000 });
+        nativePageConsentReturnSource(callback.href, input.toolkit, options.nativeReturnScheme);
+        const initiallyUnauthorized = !provider.accounts.get(entityId)?.some(account => account.toolkit === input.toolkit && account.status === 'ACTIVE');
+        flows.set(ticketValue, { accountId, entityId, toolkit: input.toolkit, callback: callback.href, used: false, expiresAt: Date.now() + 10 * 60_000,
+          initiallyUnauthorized, approvals: 0, callbackRedirects: 0 });
         body.redirect_url = `${origin}/consent/${ticketValue}`; counters.sdkLinks += 1;
       }
       return send(upstreamResponse.status, body);
@@ -335,7 +346,12 @@ export async function startConsentProxy(provider, registry, token, logoUrl) {
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   origin = `http://127.0.0.1:${server.address().port}`;
-  return { origin, counters, async close() { server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); flows.clear(); } };
+  return { origin, counters,
+    readPageJourneyEvidence: () => [...flows.values()].filter(flow => options.nativeReturnScheme && ['github', 'slack'].includes(flow.toolkit)).map(flow => ({
+      toolkit: flow.toolkit, accountSha256: createHash('sha256').update(flow.accountId).digest('hex'),
+      profileEntitySha256: createHash('sha256').update(flow.entityId).digest('hex'), initiallyUnauthorized: flow.initiallyUnauthorized,
+      approvals: flow.approvals, callbackRedirects: flow.callbackRedirects })),
+    async close() { server.closeAllConnections(); await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve())); flows.clear(); } };
 }
 
 async function activateFixtureLicense(ready, env) {
@@ -378,6 +394,7 @@ async function runFixture() {
   const chatInline = process.argv.length === 4 && process.argv[3] === '--chat-inline' && process.env.CANVAS_CHAT_INLINE_E2E === '1';
   const chatModel = process.argv.length === 4 && process.argv[3] === '--chat-model' && process.env.CANVAS_CHAT_MODEL_E2E === '1';
   const chatNative = process.argv.length === 4 && process.argv[3] === '--chat-native' && process.env.CANVAS_CHAT_NATIVE_E2E === '1';
+  if (chatNative) assert.equal(process.env.CANVAS_CHAT_NATIVE_VISUAL_E2E, '1', 'The additional separate native visual gate requires its explicit private opt-in.');
   assert((process.argv.length === 3 || chatInline || chatModel || chatNative) && process.argv[2] === '--fixture' && process.env[ownFlag] === '1' && process.env.NODE_ENV === 'test');
   await assertFreePort();
   const maintenance = new URL(process.env.DATABASE_URL); assert(maintenance.hostname === '127.0.0.1' && maintenance.port === '55433' && maintenance.pathname === '/postgres');
@@ -400,7 +417,7 @@ async function runFixture() {
   Object.assign(env, {
     [ownFlag]: '1', CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', NODE_ENV: 'test', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
     ...(chatInline ? { CANVAS_CHAT_INLINE_E2E: '1' } : {}),
-    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1' } : {}),
+    ...(chatNative ? { CANVAS_CHAT_NATIVE_E2E: '1', CANVAS_CHAT_NATIVE_VISUAL_E2E: '1' } : {}),
     ...(chatModel ? { CANVAS_CHAT_MODEL_E2E: '1', CANVAS_NATURAL_MODEL_INPUT: path.join(root, 'natural-model-input.json') } : {}),
     DATABASE_URL: runtimeURL.toString(), CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_POOL_MAX: '8',
     DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_APP_ROOT: repo, CANVAS_ENV_FILE: emptyEnv, TMPDIR: tmpRoot,
@@ -507,7 +524,8 @@ async function runFixture() {
     await fs.writeFile(caBundlePath, `${registryCert}\n${mcpCert}`, {mode: 0o600, flag: 'wx'});
     mcp = await startMcpOAuthProvider({allowedRedirectOrigins: [baseURL], tls: {key: mcpKey, cert: mcpCert}, passiveLogo: true});
     receipt.mcpTls = {origin: mcp.origin, fingerprint: mcpCertificate.fingerprint256, spki: mcpSpki, certificatePath: mcpCertificatePath}; await persist();
-    consent = await startConsentProxy(provider, registry, env.PLUGIN_EXTENSION_E2E_CONTROL_TOKEN, registryTls.logoUrl);
+    consent = await startConsentProxy(provider, registry, env.PLUGIN_EXTENSION_E2E_CONTROL_TOKEN, registryTls.logoUrl,
+      chatNative ? { nativeReturnScheme: 'canvasnotebook-dev' } : {});
     env.COMPOSIO_BASE_URL = consent.origin; env.PLUGIN_EXTENSION_E2E_CONTROL_URL = `${consent.origin}/__fixture`;
     env.COMPOSIO_API_KEY = `fixture-${randomBytes(24).toString('hex')}`;
     const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config.ts');
@@ -547,11 +565,12 @@ async function runFixture() {
     };
     const createModel = chatInline || chatNative ? (await import('./helpers/chat-inline-model-fixture.ts')).createChatInlineModelFixture
       : (await import('./helpers/agent-extension-model-fixture.ts')).createAgentExtensionModelFixture;
-    modelFixture = await createModel({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id });
+    modelFixture = await createModel({ nonce, organizationId: env.CANVAS_ORGANIZATION_ID, actorUserId: owner.id,
+      ...(chatNative ? { nativePageJourneys: true } : {}) });
     const fixture = { version: 1, nonce, repo, root, actorId: owner.id, databaseName, dataRoot, baseURL,
-      model: modelFixture.model,
+      model: modelFixture.model, nativeVisualGate: chatNative && process.env.CANVAS_CHAT_NATIVE_VISUAL_E2E === '1',
       ...(chatInline || chatNative ? { modelProofUrl: `${modelFixture.origin}/__owned/${nonce}/proof` } : {}),
-      packageName, skillName, mcpUrl: mcp.url, mcpSpki, composioOrigin: consent.origin, logoUrl: registryTls.logoUrl, registryId: 'store-extensions',
+      packageName, skillName, mcpUrl: mcp.url, mcpSpki, composioOrigin: consent.origin, composioPid: process.pid, logoUrl: registryTls.logoUrl, registryId: 'store-extensions',
       sources: [{ kind: 'plugin', registryId: 'store-extensions', entryKey: packageName, version: '1.0.0', checksum: source.checksum },
         { kind: 'skill', registryId: 'store-extensions', entryKey: skillName, version: '1.0.0', checksum: skill.checksum }] };
     const { prepareAgentExtensionToolBrowserFixture, verifyAgentExtensionToolBrowserFixture } = await import('./helpers/agent-extension-tool-browser-fixture.ts');
@@ -618,8 +637,9 @@ async function runFixture() {
     }
     console.log(`PLUGIN_EXTENSION_E2E_BROWSER ${root}`);
     const browser = start(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--config', 'tests/playwright/playwright.plugin-extensions.config.ts'], 'browser', {PLUGIN_EXTENSION_E2E_MCP_SPKI: mcpSpki}); receipt.browserPid = browser.pid; await persist();
-    const browserCode = await wait(browser, (chatNative ? 45 : 20) * 60_000);
+    const browserCode = await wait(browser, chatNative ? (await import('./helpers/chat-extension-native-budgets.mjs')).nativeAcceptanceBudgets.launcherMs : 20 * 60_000);
     await fs.writeFile(path.join(root, 'provider-proof.json'), JSON.stringify({ version: 1, nonce, composio: consent.counters, mcp: mcp.stats, registryTls: registryTls.stats,
+      ...(chatNative ? { nativePageJourneys: consent.readPageJourneyEvidence() } : {}),
       model: modelFixture.counts(),
       sdkBusinessCalls: provider.calls.filter(call => /\/tools\/execute\//u.test(call.path)).length }), { mode: 0o600 });
     assert.equal(browserCode, 0, 'The plugin extension browser acceptance must pass.');

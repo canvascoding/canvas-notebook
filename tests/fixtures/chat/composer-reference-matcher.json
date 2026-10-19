@@ -1,0 +1,342 @@
+{
+  "schemaVersion": 1,
+  "scope": "Pure text matcher only. Cursor offsets use JavaScript UTF-16 code units. Input text does not establish typed/pasted event provenance, open a popup, or grant reference authority.",
+  "cases": [
+    {
+      "id": "at-empty",
+      "value": "@",
+      "cursorPosition": 1,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "",
+        "startIndex": 0,
+        "endIndex": 1
+      }
+    },
+    {
+      "id": "plus-empty",
+      "value": "+",
+      "cursorPosition": 1,
+      "expected": {
+        "kind": "all",
+        "trigger": "+",
+        "query": "",
+        "startIndex": 0,
+        "endIndex": 1
+      }
+    },
+    {
+      "id": "plugin-name-with-space",
+      "value": "@Plugin Creator",
+      "cursorPosition": 15,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "Plugin Creator",
+        "startIndex": 0,
+        "endIndex": 15
+      }
+    },
+    {
+      "id": "word-boundary",
+      "value": "Say @crm",
+      "cursorPosition": 8,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "crm",
+        "startIndex": 4,
+        "endIndex": 8
+      }
+    },
+    {
+      "id": "parenthesis-boundary",
+      "value": "(@crm)",
+      "cursorPosition": 5,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "crm",
+        "startIndex": 1,
+        "endIndex": 5
+      }
+    },
+    {
+      "id": "quote-boundary",
+      "value": "\"@crm\"",
+      "cursorPosition": 5,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "crm",
+        "startIndex": 1,
+        "endIndex": 5
+      }
+    },
+    {
+      "id": "embedded-word",
+      "value": "hello@crm",
+      "cursorPosition": 9,
+      "expected": null
+    },
+    {
+      "id": "email-address",
+      "value": "person@example.com",
+      "cursorPosition": 18,
+      "expected": null
+    },
+    {
+      "id": "plain-url",
+      "value": "https://example.com",
+      "cursorPosition": 19,
+      "expected": null
+    },
+    {
+      "id": "arithmetic-plus",
+      "value": "2 + 2",
+      "cursorPosition": 5,
+      "expected": null
+    },
+    {
+      "id": "language-name-plus",
+      "value": "C++",
+      "cursorPosition": 3,
+      "expected": null
+    },
+    {
+      "id": "cursor-before-trigger",
+      "value": "@crm",
+      "cursorPosition": 0,
+      "expected": null
+    },
+    {
+      "id": "cursor-after-trigger",
+      "value": "@crm",
+      "cursorPosition": 1,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "",
+        "startIndex": 0,
+        "endIndex": 1
+      }
+    },
+    {
+      "id": "cursor-inside-query",
+      "value": "Use @calendar later",
+      "cursorPosition": 8,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "cal",
+        "startIndex": 4,
+        "endIndex": 8
+      }
+    },
+    {
+      "id": "utf16-emoji-before-trigger",
+      "value": "😀 @crm",
+      "cursorPosition": 7,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "crm",
+        "startIndex": 3,
+        "endIndex": 7
+      }
+    },
+    {
+      "id": "utf16-combining-before-trigger",
+      "value": "é @書類",
+      "cursorPosition": 6,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "書類",
+        "startIndex": 3,
+        "endIndex": 6
+      }
+    },
+    {
+      "id": "utf16-emoji-inside-query",
+      "value": "@😀資料",
+      "cursorPosition": 5,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "😀資料",
+        "startIndex": 0,
+        "endIndex": 5
+      }
+    },
+    {
+      "id": "latest-at-trigger",
+      "value": "@one @two",
+      "cursorPosition": 9,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "two",
+        "startIndex": 5,
+        "endIndex": 9
+      }
+    },
+    {
+      "id": "latest-plus-trigger",
+      "value": "@one +two",
+      "cursorPosition": 9,
+      "expected": {
+        "kind": "all",
+        "trigger": "+",
+        "query": "two",
+        "startIndex": 5,
+        "endIndex": 9
+      }
+    },
+    {
+      "id": "newline-inside-query",
+      "value": "@one\ntwo",
+      "cursorPosition": 8,
+      "expected": null
+    },
+    {
+      "id": "tab-inside-query",
+      "value": "@a\tb",
+      "cursorPosition": 4,
+      "expected": null
+    },
+    {
+      "id": "double-space-inside-query",
+      "value": "@two  words",
+      "cursorPosition": 11,
+      "expected": null
+    },
+    {
+      "id": "completed-quoted-file-reference",
+      "value": "@\"annual report.md\" ",
+      "cursorPosition": 20,
+      "expected": null
+    },
+    {
+      "id": "workspace-path-query",
+      "value": "@reports/annual.md",
+      "cursorPosition": 18,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "reports/annual.md",
+        "startIndex": 0,
+        "endIndex": 18
+      }
+    },
+    {
+      "id": "plain-workspace-path",
+      "value": "reports/annual.md",
+      "cursorPosition": 17,
+      "expected": null
+    },
+    {
+      "id": "at-inside-path",
+      "value": "reports/@annual.md",
+      "cursorPosition": 18,
+      "expected": null
+    },
+    {
+      "id": "at-inside-url-path",
+      "value": "https://example.com/@crm",
+      "cursorPosition": 24,
+      "expected": null
+    },
+    {
+      "id": "plain-pasted-caption",
+      "value": "Plugin Creator",
+      "cursorPosition": 14,
+      "expected": null
+    },
+    {
+      "id": "literal-marker-text-is-only-a-query",
+      "value": "Paste @Shopify",
+      "cursorPosition": 14,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "Shopify",
+        "startIndex": 6,
+        "endIndex": 14
+      }
+    },
+    {
+      "id": "cursor-stops-before-suffix",
+      "value": "a @crm other",
+      "cursorPosition": 4,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "c",
+        "startIndex": 2,
+        "endIndex": 4
+      }
+    },
+    {
+      "id": "newline-before-trigger",
+      "value": "first\n@crm",
+      "cursorPosition": 10,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "crm",
+        "startIndex": 6,
+        "endIndex": 10
+      }
+    },
+    {
+      "id": "legacy-slash-is-plain-text",
+      "value": "/skill",
+      "cursorPosition": 6,
+      "expected": null
+    },
+    {
+      "id": "slash-in-sentence-is-plain-text",
+      "value": "Bitte /Plugin Creator",
+      "cursorPosition": 21,
+      "expected": null
+    },
+    {
+      "id": "backslash-is-not-a-boundary",
+      "value": "\\@crm",
+      "cursorPosition": 5,
+      "expected": null
+    },
+    {
+      "id": "plus-multiword-query",
+      "value": "+annual report",
+      "cursorPosition": 14,
+      "expected": {
+        "kind": "all",
+        "trigger": "+",
+        "query": "annual report",
+        "startIndex": 0,
+        "endIndex": 14
+      }
+    },
+    {
+      "id": "at-single-word-query",
+      "value": "@annual",
+      "cursorPosition": 7,
+      "expected": {
+        "kind": "all",
+        "trigger": "@",
+        "query": "annual",
+        "startIndex": 0,
+        "endIndex": 7
+      }
+    },
+    {
+      "id": "legacy-pdf-command-is-plain-text",
+      "value": "/pdf",
+      "cursorPosition": 4,
+      "expected": null
+    }
+  ]
+}
