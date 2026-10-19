@@ -12,6 +12,16 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/collaboration-room-admission-postgres-test.ts': [entryPoint,
+    'app/lib/collaboration/room-owner.ts',
+    'app/lib/collaboration/room-owner-release.ts',
+    'app/lib/collaboration/room-admission.ts',
+    'app/lib/collaboration/room-admission-contract.ts',
+    'app/lib/collaboration/lifecycle-transaction.ts',
+    'app/lib/secrets/file-mutation-lock.ts',
+    'app/lib/runtime-data-paths.ts',
+    'app/lib/db/collaboration-admission-migration.ts',
+    'app/lib/db/collaboration-room-owner-migration.ts'],
   'scripts/collaboration-admission-projection-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/lib/collaboration/projection-publication-guard.ts',

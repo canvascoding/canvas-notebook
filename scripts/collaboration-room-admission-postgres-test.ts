@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { lstat, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { Client, Pool } from 'pg';
 import * as Y from 'yjs';
 
@@ -246,6 +250,36 @@ function request(
   };
 }
 
+async function probeAdmissionWorkspaceKernelLock(
+  owned: Readonly<{ path: string; dev: string; ino: string; uid: string }>, workspaceId: string, expected: 'held' | 'free',
+): Promise<Readonly<{ dev: string; ino: string; uid: string; mode: string; nlink: string }>> {
+  const root = await lstat(owned.path, { bigint: true });
+  assert(root.isDirectory() && !root.isSymbolicLink());
+  assert.equal(await realpath(owned.path), owned.path);
+  assert.equal(String(root.dev), owned.dev); assert.equal(String(root.ino), owned.ino); assert.equal(String(root.uid), owned.uid);
+  const directory = path.join(owned.path, 'canvas-file-locks'), directoryStat = await lstat(directory, { bigint: true });
+  assert(directoryStat.isDirectory() && !directoryStat.isSymbolicLink());
+  assert.equal(String(directoryStat.uid), owned.uid); assert.equal(Number(directoryStat.mode & BigInt(0o077)), 0);
+  const lockPath = path.join(directory, `${createHash('sha256').update(workspaceId).digest('hex')}.lock`);
+  const before = await lstat(lockPath, { bigint: true });
+  assert(before.isFile() && !before.isSymbolicLink()); assert.equal(before.nlink, BigInt(1));
+  assert.equal(String(before.uid), owned.uid); assert.equal(Number(before.mode & BigInt(0o777)), 0o600);
+  const identity = Object.freeze({ dev: String(before.dev), ino: String(before.ino), uid: String(before.uid),
+    mode: String(before.mode), nlink: String(before.nlink) });
+  // Independent OS process, not another reentrant ALS/local lock caller. Open
+  // only the already observed own inode; any error other than exact flock busy
+  // fails, rather than being mistaken for successful serialization.
+  const probe = spawnSync(process.env.CANVAS_PYTHON_PATH?.trim() || 'python3', ['-I', '-c',
+    'import fcntl,os,stat,sys\np=sys.argv[1]\nf=os.open(p,os.O_RDWR|os.O_NOFOLLOW|os.O_NONBLOCK)\ntry:\n s=os.fstat(f)\n assert stat.S_ISREG(s.st_mode) and s.st_nlink==1\n assert [str(s.st_dev),str(s.st_ino),str(s.st_uid),str(s.st_mode),str(s.st_nlink)]==sys.argv[2:]\n n=os.lstat(p)\n assert n.st_dev==s.st_dev and n.st_ino==s.st_ino and not stat.S_ISLNK(n.st_mode)\n try: fcntl.flock(f,fcntl.LOCK_EX|fcntl.LOCK_NB)\n except BlockingIOError: sys.exit(7)\n n=os.lstat(p)\n assert n.st_dev==s.st_dev and n.st_ino==s.st_ino\n fcntl.flock(f,fcntl.LOCK_UN)\nfinally: os.close(f)',
+    lockPath, identity.dev, identity.ino, identity.uid, identity.mode, identity.nlink],
+  { timeout: 5_000, maxBuffer: 4096, encoding: 'utf8' });
+  assert.equal(probe.error, undefined); assert.equal(probe.signal, null); assert.equal(probe.stdout, ''); assert.equal(probe.stderr, '');
+  assert.equal(probe.status, expected === 'held' ? 7 : 0);
+  const after = await lstat(lockPath, { bigint: true });
+  assert.deepEqual({ dev: String(after.dev), ino: String(after.ino), uid: String(after.uid), mode: String(after.mode), nlink: String(after.nlink) }, identity);
+  return identity;
+}
+
 async function run(databaseUrl: URL): Promise<void> {
   const schema = `${SCHEMA_PREFIX}${randomUUID().replaceAll('-', '')}`;
   assertGeneratedSchema(schema);
@@ -271,6 +305,8 @@ async function run(databaseUrl: URL): Promise<void> {
   });
   controlPool.on('error', (error) => { backgroundErrors.push(error); });
   let schemaCreated = false;
+  const originalData = process.env.DATA, originalCanvasDataRoot = process.env.CANVAS_DATA_ROOT;
+  let ownedData: Readonly<{ path: string; dev: string; ino: string; uid: string }> | undefined;
 
   const clientConfig = (label: string) => ({
     ...poolConfig(databaseUrl, `canvas-admission-test-${label}`, schema),
@@ -314,6 +350,14 @@ async function run(databaseUrl: URL): Promise<void> {
   };
 
   try {
+    // The real kernel helper must never touch a managed DATA lock namespace.
+    const dataRoot = await realpath(await mkdtemp(path.join(tmpdir(), 'canvas-admission-kernel-')));
+    const dataIdentity = await lstat(dataRoot, { bigint: true });
+    ownedData = Object.freeze({ path: dataRoot, dev: String(dataIdentity.dev), ino: String(dataIdentity.ino), uid: String(dataIdentity.uid) });
+    assert(dataIdentity.isDirectory() && !dataIdentity.isSymbolicLink());
+    assert.equal(String(dataIdentity.uid), String(process.geteuid!())); assert.equal(Number(dataIdentity.mode & BigInt(0o077)), 0);
+    process.env.DATA = dataRoot; process.env.CANVAS_DATA_ROOT = dataRoot;
+    console.log(JSON.stringify({ fixture: 'collaboration-admission-kernel-data', ...ownedData, nodePid: process.pid }));
     await verifyManagedPostgres(controlPool);
     await controlPool.query(`CREATE SCHEMA ${schemaSql}`);
     schemaCreated = true;
@@ -359,15 +403,6 @@ async function run(databaseUrl: URL): Promise<void> {
       assert.equal(result.rows.length, 1);
       return result.rows[0]!;
     };
-    const waitForBlock = async (waitingPid: number, blockingPid: number, message: string) => eventually(async () => {
-      const result = await controlPool.query<{ blocking_pids: number[]; wait_event_type: string | null }>(
-        `SELECT pg_blocking_pids($1::int) AS blocking_pids, wait_event_type
-         FROM pg_stat_activity WHERE pid=$1`,
-        [waitingPid],
-      );
-      const activity = result.rows[0];
-      return activity?.blocking_pids.includes(blockingPid) ? activity : null;
-    }, message);
     const fencedStore = async (fence: CollaborationRoomOwnerFence) => {
       const client = await createConnectedClient('final-store');
       const liveDocument = new Y.Doc();
@@ -443,7 +478,7 @@ async function run(databaseUrl: URL): Promise<void> {
     const mainOwner = await createOwner('main');
     const ownerSession = mainOwner.session;
 
-    // Claim first: hold its workspace guard+row transaction open and prove reserve waits behind that backend.
+    // Claim first: the held kernel fence serializes reserve BEFORE checkout.
     const ownerScope: CollaborationRoomOwnerScope = { ...ownerFirstDocument };
     const claimCommitEntered = deferred(gates);
     const releaseClaimCommit = deferred(gates);
@@ -470,22 +505,24 @@ async function run(databaseUrl: URL): Promise<void> {
     const ownerFencePromise = track(racingOwner.acquire(ownerScope));
     await within(claimCommitEntered.promise, OPERATION_TIMEOUT_MS, 'Claim-first owner did not reach its COMMIT gate.');
     const ownerRequest = request([scope(ownerFirstDocument.path)], [ownerFirstDocument]);
-    let claimFirstReservePid = 0;
+    let claimFirstReservePid = 0, claimFirstFactoryCalls = 0, claimFirstReserveSettled = false;
     const claimFirstFactory = async () => {
+      claimFirstFactoryCalls++;
       const database = await openConnection('claim-first-reserve')();
       claimFirstReservePid = Number((await database.get('SELECT pg_backend_pid() AS pid') as { pid: number }).pid);
       return database;
     };
     const ownerReservationPromise = track(createService('claim-first-reserve', claimFirstFactory).reserve(ownerRequest));
-    const observedClaimFirstReservePid = await eventually(async () => claimFirstReservePid > 0
-      ? claimFirstReservePid : null, 'Claim-first reservation never opened its PostgreSQL backend.');
-    const claimFirstBlocked = await waitForBlock(observedClaimFirstReservePid, racingOwnerPid,
-      'Reservation did not wait for the claim-first workspace admission transaction.');
-    assert.equal(claimFirstBlocked.wait_event_type, 'Lock');
+    void ownerReservationPromise.then(() => { claimFirstReserveSettled = true; }, () => { claimFirstReserveSettled = true; });
+    const claimFirstLock = await probeAdmissionWorkspaceKernelLock(ownedData, ownerFirstDocument.workspaceId, 'held');
+    assert.equal(claimFirstFactoryCalls, 0); assert.equal(claimFirstReservePid, 0); assert.equal(claimFirstReserveSettled, false);
     releaseClaimCommit.resolve();
     const ownerFence = await within(ownerFencePromise, OPERATION_TIMEOUT_MS, 'Claim-first owner did not commit.');
     const ownerReservation = await within(ownerReservationPromise, OPERATION_TIMEOUT_MS,
       'Owner-snapshot reservation timed out.');
+    assert.equal(claimFirstFactoryCalls, 1); assert(claimFirstReservePid > 0); assert.equal(claimFirstReserveSettled, true);
+    assert.deepEqual(await probeAdmissionWorkspaceKernelLock(ownedData, ownerFirstDocument.workspaceId, 'free'), claimFirstLock);
+    assert.equal(ownerFence.backendPid, racingOwnerPid);
     assert.equal(ownerReservation.status, 'reserved');
     assert.equal(ownerReservation.revision, 1);
     assert.equal(ownerReservation.targets.length, 1);
@@ -523,7 +560,8 @@ async function run(databaseUrl: URL): Promise<void> {
       'DA-01 owner release must not pretend that the later drain-target acknowledgement exists');
     await service.cancel(ownerRequest, ownerReservation.revision);
 
-    // Reservation first: hold its transaction open and prove claim waits for the same workspace guard.
+    // Reservation first: an already connected Owner waits on the kernel before
+    // BEGIN; it cannot be observed as a PG lock waiter in this contract.
     const claimRequest = request([scope(reservedClaimDocument.path)], [reservedClaimDocument]);
     const reserveCommitEntered = deferred(gates);
     const releaseReserveCommit = deferred(gates);
@@ -544,14 +582,34 @@ async function run(databaseUrl: URL): Promise<void> {
     };
     const claimReservationPromise = track(createService('reserve-first', reserveFirstFactory).reserve(claimRequest));
     await within(reserveCommitEntered.promise, OPERATION_TIMEOUT_MS, 'Reserve-first transaction did not reach COMMIT.');
+    assert(reserveFirstPid > 0);
+    const ownerActivitySql = `SELECT a.pid,extract(epoch FROM a.backend_start)::text AS backend_start,
+      a.state,a.xact_start::text AS xact_start,a.backend_xid::text AS backend_xid,
+      COALESCE((SELECT jsonb_agg(jsonb_build_array(l.database::text,l.classid::text,l.objid::text,l.objsubid,l.mode,l.granted)
+        ORDER BY l.database,l.classid,l.objid,l.objsubid,l.mode,l.granted)
+        FROM pg_catalog.pg_locks l WHERE l.pid=a.pid AND l.locktype='advisory'),'[]'::jsonb) AS advisory
+      FROM pg_catalog.pg_stat_activity a WHERE a.pid=$1`;
+    const ownerBeforeKernel = await eventually(async () => {
+      const rows = (await controlPool.query(ownerActivitySql, [mainOwner.pid])).rows;
+      return rows.length === 1 && rows[0].state === 'idle' && rows[0].xact_start === null && rows[0].backend_xid === null ? rows : null;
+    }, 'The preconnected Owner backend did not become idle outside a transaction before the kernel race.');
+    assert.equal(ownerBeforeKernel.length, 1); assert.equal(ownerBeforeKernel[0].pid, mainOwner.pid);
+    assert.match(ownerBeforeKernel[0].backend_start, /^[0-9]+\.[0-9]+$/u);
+    assert.equal(ownerBeforeKernel[0].state, 'idle'); assert.equal(ownerBeforeKernel[0].xact_start, null);
+    assert.equal(ownerBeforeKernel[0].backend_xid, null);
+    let blockedClaimSettled = false;
     const blockedClaimPromise = track(ownerSession.acquire({ ...reservedClaimDocument }));
-    const reserveFirstBlocked = await waitForBlock(mainOwner.pid, reserveFirstPid,
-      'Claim did not wait for the reserve-first workspace admission transaction.');
-    assert.equal(reserveFirstBlocked.wait_event_type, 'Lock');
+    void blockedClaimPromise.then(() => { blockedClaimSettled = true; }, () => { blockedClaimSettled = true; });
+    const reserveFirstLock = await probeAdmissionWorkspaceKernelLock(ownedData, reservedClaimDocument.workspaceId, 'held');
+    assert.deepEqual((await controlPool.query(ownerActivitySql, [mainOwner.pid])).rows, ownerBeforeKernel,
+      'The same Owner PID/backend_start must remain idle, outside a transaction and without new advisory locks while the kernel is held.');
+    assert.equal(blockedClaimSettled, false);
     releaseReserveCommit.resolve();
     const claimReservation = await within(claimReservationPromise, OPERATION_TIMEOUT_MS,
       'Reserve-first transaction did not commit.');
     await assert.rejects(blockedClaimPromise, ownerBusy);
+    assert.equal(blockedClaimSettled, true);
+    assert.deepEqual(await probeAdmissionWorkspaceKernelLock(ownedData, reservedClaimDocument.workspaceId, 'free'), reserveFirstLock);
     await ownerSession.probe();
     const claimRowBeforeCancel = await readState(reservedClaimDocument.documentId);
     assert.equal(Number(claimRowBeforeCancel.room_owner_epoch), 0,
@@ -852,7 +910,8 @@ async function run(databaseUrl: URL): Promise<void> {
       'Collaboration admission PostgreSQL: owner snapshot, claim/reservation ordering, empty-scope overlap, '
       + 'exact/subtree boundaries, full identity drift, immutable capture, idempotence, service restart, '
       + 'target-phase cancel fencing, and committed-but-unacknowledged reserve/cancel recovery passed in '
-      + 'an isolated generated schema. This is distinct-backend evidence, not a two-OS-process test.',
+      + 'an isolated generated schema and owned DATA. PG owners/reservations use distinct backends in one Node process; '
+      + 'independent Python processes probe the actual named kernel inode.',
     );
   } finally {
     for (const gate of [...gates]) gate.resolve();
@@ -891,6 +950,22 @@ async function run(databaseUrl: URL): Promise<void> {
       await within(controlPool.end(), CLEANUP_TIMEOUT_MS, 'Timed out draining the admission control pool.');
     } catch (error) {
       cleanupErrors.push(error);
+    }
+    try {
+      if (ownedData) {
+        assert.equal(cleanupErrors.length, 0, 'Preserve owned DATA when preceding resource closure is uncertain.');
+        assert.equal(pendingOperations.size, 0); assert.equal(looseClients.size, 0);
+        const current = await lstat(ownedData.path, { bigint: true });
+        assert(current.isDirectory() && !current.isSymbolicLink()); assert.equal(await realpath(ownedData.path), ownedData.path);
+        assert.equal(String(current.dev), ownedData.dev); assert.equal(String(current.ino), ownedData.ino); assert.equal(String(current.uid), ownedData.uid);
+        assert.equal(String(current.uid), String(process.geteuid!())); assert.equal(Number(current.mode & BigInt(0o077)), 0);
+        await rm(ownedData.path, { recursive: true }); await assert.rejects(lstat(ownedData.path), { code: 'ENOENT' });
+      }
+    } catch (error) {
+      cleanupErrors.push(error);
+    } finally {
+      if (originalData === undefined) delete process.env.DATA; else process.env.DATA = originalData;
+      if (originalCanvasDataRoot === undefined) delete process.env.CANVAS_DATA_ROOT; else process.env.CANVAS_DATA_ROOT = originalCanvasDataRoot;
     }
     if (cleanupErrors.length > 0) {
       throw new AggregateError(cleanupErrors, 'Admission PostgreSQL cleanup failed.');
