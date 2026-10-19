@@ -20,6 +20,7 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-copy-origin.ts', 'app/lib/files/workspace-operation-native-copy-owner.ts',
     'app/lib/files/workspace-operation-native-copy-phase.ts', 'app/lib/files/workspace-operation-native-copy-phase-contract.ts',
     'app/lib/files/workspace-operation-native-copy-phase-read.ts', 'app/lib/files/workspace-operation-native-copy-metadata.ts',
+    'app/lib/files/workspace-operation-native-copy-status.ts', 'app/lib/excalidraw-collaboration/copy-history.ts',
     'app/lib/files/workspace-operation-native-copy-stage.ts', 'app/lib/files/workspace-operation-managed-copy-stage.ts',
     'app/lib/files/workspace-operation-staging.ts', 'app/lib/files/workspace-operation-journal.ts',
     'app/lib/collaboration/native-copy-persistence.ts', 'app/lib/collaboration/native-copy-historical-receipt.ts',

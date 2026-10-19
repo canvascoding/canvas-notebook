@@ -1,5 +1,7 @@
 # MCP-Copy im regulären nativen Copy-Owner
 
+**Historischer Ownerstand vom 18. Oktober 2026:** Der nachfolgende [Status-/Recovery-Anschluss](./yjs-mcp-native-copy-status-recovery-evidence.md) ist inzwischen intern lokal abgenommen. Die hier genannten noch fehlenden internen Adapter beziehen sich auf den damaligen Quellenstand; öffentlicher MCP-/Dienst-/SDK-Anschluss bleibt offen.
+
 Stand: 18. Oktober 2026. Der tatsächliche aktuelle MCP-Copy-Principal erreicht jetzt den bestehenden nativen Copy-Owner und dessen feste Veröffentlichungs- und Recoveryphasen. Öffentlicher MCP-Handler, reine Status-/Recoveryadapter, Ansichtsfinalisierung im öffentlichen Dienst und SDK-Dateiaktionen sind weiterhin eigene offene Anschlüsse. Der normale Aktivierungsschalter bleibt aus.
 
 ## Gemeinsamer Owner und aktuelle Autorität

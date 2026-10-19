@@ -58,6 +58,13 @@ export class NativeCopyOwnerError extends Error {
     this.status = code === 'NATIVE_COPY_COMMIT_UNCONFIRMED' ? 503 : 409;
   }
 }
+export class NativeCopyOperationNotFoundError extends Error {
+  readonly code = 'NATIVE_COPY_OPERATION_NOT_FOUND';
+  readonly status = 404;
+  constructor() {
+    super('NATIVE_COPY_OPERATION_NOT_FOUND'); this.name = 'NativeCopyOperationNotFoundError';
+  }
+}
 export class NativeCopyDestinationError extends Error {
   readonly status: number;
   constructor(readonly code: 'DESTINATION_NOT_FOUND' | 'DESTINATION_NOT_DIRECTORY') {
@@ -663,6 +670,17 @@ async function recordRecovery(invocation: Invocation, stage: WorkspaceOperationO
  * B2 creates the fixed Scene/asset rows, confirms the graph and original receipt, and closes all
  * reservations. Unknown acknowledgements retain the original operation ID. */
 export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInput): Promise<NativeCopyExecutionResult> {
+  return runWorkspaceNativeCopyOperation(supplied, 'execute');
+}
+
+/** One explicit attempt of an existing original only. Current authority,
+ * Owner locks, historical validation and publication phases are unchanged. */
+export async function recoverWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInput): Promise<NativeCopyExecutionResult> {
+  return runWorkspaceNativeCopyOperation(supplied, 'recover');
+}
+
+async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInput,
+  mode: 'execute' | 'recover'): Promise<NativeCopyExecutionResult> {
   const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
   const destinationDirectory = captureDestinationDirectory(supplied);
   const operationId = supplied.operationId, expectedPlanId = supplied.expectedPlanId;
@@ -709,6 +727,7 @@ export async function executeWorkspaceNativeCopyOperation(supplied: NativeCopyEx
         alreadyKnown = true; durable = original;
       } else {
         if (header) problem('NATIVE_COPY_INVALID_REQUEST');
+        if (mode === 'recover') throw new NativeCopyOperationNotFoundError();
         durable = await createStage(owner, store, operationId, selections, renameOnCollision, expectedPlanId, destinationDirectory);
       }
       const stage = durable; owner.stage = stage;

@@ -40,8 +40,11 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
     const { withDirectMcpWorkspaceCopyPrincipal: capture, withDirectMcpWorkspaceCopyPrincipalOnConnection: phase,
       withDirectMcpDocumentReadPrincipal: captureRead } = await import('../app/lib/mcp/server/document-read-principal');
     const { captureWorkspaceOperationCopyMcpOrigin } = await import('../app/lib/files/workspace-operation-copy-origin');
-    const { previewWorkspaceNativeCopyOperation: preview, executeWorkspaceNativeCopyOperation: execute } =
+    const { previewWorkspaceNativeCopyOperation: preview, executeWorkspaceNativeCopyOperation: execute,
+      recoverWorkspaceNativeCopyOperation: recover } =
       await import('../app/lib/files/workspace-operation-native-copy-owner');
+    const { readMcpWorkspaceNativeCopyOperationStatus: readStatus, assertNativeCopyStatusSessionOnConnection } =
+      await import('../app/lib/files/workspace-operation-native-copy-status');
     const { WorkspaceOperationStaging } = await import('../app/lib/files/workspace-operation-staging');
     const { WorkspaceOperationJournal } = await import('../app/lib/files/workspace-operation-journal');
     const { captureExcalidrawCopyIntent, captureExcalidrawCopyBirthReceipt } = await import('../app/lib/excalidraw-collaboration/copy-data');
@@ -68,9 +71,9 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
         VALUES($1,'member',$2,100,100)`, [clientId, workspaceId]);
     }
-    const issue = async (sessionId = 'session-member') => {
+    const issue = async (sessionId = 'session-member', actualClientId = clientId) => {
       const seconds = Math.floor(Date.now() / 1000);
-      const result = await auth.api.signJWT({ body: { payload: { sub: 'member', azp: clientId, sid: sessionId,
+      const result = await auth.api.signJWT({ body: { payload: { sub: 'member', azp: actualClientId, sid: sessionId,
         iss: 'http://localhost/api/auth', aud: 'http://localhost/mcp', iat: seconds - 1, exp: seconds + 600,
         scope: 'knowledge:read knowledge:write' } } }); assert(result.token); return result.token;
     };
@@ -114,12 +117,43 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       }
       return rows;
     };
+    // Actual complete native-operation table census, including admissions and
+    // link/checkpoint receipts. Auth/session mutations in the fixtures are not
+    // domain writes; every selected table's actual rows and xmins are retained.
+    const domainSnapshot = async () => {
+      const tables = (await h.admin.query(`SELECT c.relname,c.oid::text AS oid FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='r'
+        AND (c.relname ~ '^(collaboration_|file_collaboration_|workspace_file_)' OR c.relname='file_revisions')
+        ORDER BY c.relname LIMIT 513`, [h.schema])).rows;
+      assert(tables.length > 11 && tables.length <= 512);
+      const rows: Record<string, unknown> = {};
+      for (const table of tables) {
+        assert.equal(typeof table.relname, 'string'); assert.equal(typeof table.oid, 'string');
+        const name = `"${String(table.relname).replaceAll('"', '""')}"`;
+        const actual = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM ${name} t
+          ORDER BY to_jsonb(t)::text,t.xmin::text LIMIT 10001`)).rows;
+        assert(actual.length <= 10000); rows[table.relname] = actual;
+      }
+      return { tables, rows };
+    };
+    const withoutStatusDml = async <T>(operation: () => Promise<T>, observe?: (event: MetadataSqlEvent) => Promise<void>): Promise<T> => {
+      const writes: string[] = []; let statements = 0;
+      const result = await h.withProbe(async event => {
+        assert(++statements <= 5000);
+        // Observe actual statements after execution; CTE DML is included. No
+        // SQL result, writer, verifier or permission is replaced by this probe.
+        if (/\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)) writes.push(event.text);
+        await observe?.(event);
+      }, operation);
+      assert(statements > 0); assert.deepEqual(writes, [], 'Pure status must issue no actual DML or DDL.'); return result;
+    };
     const filesystem = async () => {
       const rows: unknown[] = [];
       const visit = async (relative: string): Promise<void> => {
         assert(rows.length < 10000); const full = path.join(h.dataRoot, relative), value = await fs.lstat(full, { bigint: true });
         assert(!value.isSymbolicLink()); const entry = { path: relative, dev: String(value.dev), ino: String(value.ino),
-          mode: String(value.mode), uid: String(value.uid), size: String(value.size), nlink: String(value.nlink), mtimeNs: String(value.mtimeNs) };
+          mode: String(value.mode), uid: String(value.uid), size: String(value.size), nlink: String(value.nlink),
+          mtimeNs: String(value.mtimeNs), ctimeNs: String(value.ctimeNs) };
         rows.push(value.isFile() ? { ...entry, sha256: sha(await fs.readFile(full)) } : entry);
         if (value.isDirectory()) for (const name of (await fs.readdir(full)).sort()) await visit(path.join(relative, name));
       };
@@ -159,6 +193,13 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       job.plan ??= await preview({ origin, mcpPrincipal, selections: job.selections });
       assert.equal(job.plan.version, 3);
       const result = await execute({ origin, mcpPrincipal, operationId: job.operationId, expectedPlanId: job.plan.planId, selections: job.selections });
+      return { result, current: origin };
+    });
+    const recoverJob = async (job: Job, token: string) => capture(authInfo(token), selection, async mcpPrincipal => {
+      assert(job.original && job.plan);
+      const origin = await callerOrigin(mcpPrincipal);
+      const result = await recover({ origin, mcpPrincipal, operationId: job.operationId,
+        expectedPlanId: job.plan.planId, selections: job.selections });
       return { result, current: origin };
     });
     const complete = async (job: Job, result: Awaited<ReturnType<typeof invoke>>['result'], alreadyKnown: boolean) => {
@@ -266,8 +307,18 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       const born = c3.documents.map(item => item.clone.documentId);
       const originalStates = (await h.admin.query('SELECT to_jsonb(s)::text AS body,xmin::text AS xmin FROM collaboration_yjs_states s WHERE document_id=ANY($1::text[]) ORDER BY document_id', [born])).rows;
       for (const doc of proof.intent.documents) assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM collaboration_excalidraw_states WHERE document_id=$1', [doc.documentId])).rows[0].n, 0);
+      const pendingRows = await domainSnapshot(), pendingFiles = await filesystem();
+      const origin = job.original; assert(origin && origin.version === 2);
+      await withoutStatusDml(() => capture(authInfo(tokenA), selection, async mcpPrincipal => {
+        const pending = await readStatus({ origin, mcpPrincipal, operationId: job.operationId });
+        assert.equal(pending.operationId, job.operationId); assert.equal(pending.planId, job.plan!.planId);
+        assert.deepEqual(pending.completion, { status: 'not_confirmed' });
+        assert.notEqual(pending.journal.status, 'completed');
+      }));
+      assert.deepEqual(await domainSnapshot(), pendingRows); assert.deepEqual(await filesystem(), pendingFiles);
+      assert.equal((await staging.loadManagedCopyByOperationId(job.operationId))?.payloadSha256, retained.payloadSha256);
       await withRenewed(async (tokenB, sessionB) => {
-        const resumed = await invoke(job, tokenB); assert.equal(resumed.current.actor.sessionId, sessionB);
+        const resumed = await recoverJob(job, tokenB); assert.equal(resumed.current.actor.sessionId, sessionB);
         const done = await complete(job, resumed.result, true); assert.deepEqual(done.intent, proof.intent);
         assert.deepEqual(done.native.private_result, initial.private_result);
         assert.deepEqual((await h.admin.query('SELECT to_jsonb(s)::text AS body,xmin::text AS xmin FROM collaboration_yjs_states s WHERE document_id=ANY($1::text[]) ORDER BY document_id', [born])).rows, originalStates);
@@ -324,9 +375,151 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       } finally { if (descriptor) Object.defineProperty(pool, 'connect', descriptor); else Reflect.deleteProperty(pool, 'connect'); }
       assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
     });
+    await group('pure completed status under genuine SID B confirms historical receipts and changes no domain rows, xmins or filesystem identities', async () => {
+      const original = baseline.original; assert(original && original.version === 2); assert(baseline.plan);
+      await withRenewed(async (tokenB, sessionB) => {
+        const before = await domainSnapshot(), filesBefore = await filesystem(), originalBytes = JSON.stringify(original);
+        const actual = await journal.get(baseline.operationId); assert(actual);
+        const visible = await withoutStatusDml(() => capture(authInfo(tokenB), selection, async mcpPrincipal => {
+          const current = await callerOrigin(mcpPrincipal); assert.equal(current.actor.sessionId, sessionB);
+          assert.notEqual(current.actor.sessionId, original.actor.sessionId);
+          return readStatus({ origin: current, mcpPrincipal, operationId: baseline.operationId });
+        }));
+        assert.deepEqual(Object.keys(visible).sort(), ['completion', 'journal', 'operationId', 'planId', 'revision']);
+        assert.equal(visible.operationId, baseline.operationId); assert.equal(visible.planId, baseline.plan!.planId);
+        assert.equal(visible.revision, actual.revision);
+        assert.deepEqual(visible.journal, { status: actual.status, phase: actual.phase, expectedStepCount: actual.expectedStepCount,
+          recordedStepCount: actual.steps.length, appliedStepCount: actual.steps.filter(step => step.status === 'applied').length,
+          intentStepCount: actual.steps.filter(step => step.status === 'intent').length, createdAt: actual.createdAt,
+          updatedAt: actual.updatedAt, errorCode: actual.errorCode });
+        assert.deepEqual(visible.completion, { status: 'confirmed', historical: true, copiedPaths: [baseline.destinationPath] });
+        assert.equal(JSON.stringify(original), originalBytes);
+        assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
+      });
+    });
+    await group('unknown Recover never creates, while journal-only status 404 also preserves a genuine retained pre-B0 Stage for explicit Recover', async () => {
+      const notFound = (code: string) => (error: unknown) => {
+        expectedCode(code)(error); assert.equal(error && typeof error === 'object' ? Reflect.get(error, 'status') : undefined, 404); return true;
+      };
+      const absent = await seed();
+      await capture(authInfo(tokenA), selection, async mcpPrincipal => {
+        absent.original = await callerOrigin(mcpPrincipal);
+        absent.plan = await preview({ origin: absent.original, mcpPrincipal, selections: absent.selections });
+      });
+      const absentOrigin = absent.original; assert(absentOrigin && absentOrigin.version === 2); assert(absent.plan);
+      const before = await domainSnapshot(), filesBefore = await filesystem();
+      await assert.rejects(capture(authInfo(tokenA), selection, mcpPrincipal => recover({ origin: absentOrigin, mcpPrincipal,
+        operationId: absent.operationId, expectedPlanId: absent.plan!.planId, selections: absent.selections })),
+      notFound('NATIVE_COPY_OPERATION_NOT_FOUND'));
+      await withoutStatusDml(() => assert.rejects(capture(authInfo(tokenA), selection,
+        mcpPrincipal => readStatus({ origin: absentOrigin, mcpPrincipal, operationId: absent.operationId })), notFound('NATIVE_COPY_STATUS_NOT_FOUND')));
+      assert.equal(await journal.get(absent.operationId), null); assert.equal(await staging.loadManagedCopyByOperationId(absent.operationId), null);
+      await assert.rejects(fs.lstat(path.join(h.destination.rootPath, absent.destinationPath)), { code: 'ENOENT' });
+      assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
+
+      // The real Owner writes its immutable Stage before B0. Observe the next
+      // actual BEGIN, after earlier principal table locks were released, and
+      // revoke the genuine grant through the independent admin connection.
+      const retainedJob = await seed(); let revoked = false, originalStage: WorkspaceOperationManagedCopyStageV4 | undefined;
+      await assert.rejects(h.withProbe(async event => {
+        if (revoked || !/^\s*BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE\s*$/iu.test(event.text)) return;
+        const stage = await staging.loadManagedCopyByOperationId(retainedJob.operationId); if (!stage) return;
+        assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM workspace_file_operations WHERE operation_id=$1', [retainedJob.operationId])).rows[0].n, 0);
+        assert.equal((await h.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id=$2 AND workspace_id=$3',
+          [clientId, 'member', h.destination.workspaceId])).rowCount, 1);
+        originalStage = stage; revoked = true;
+      }, () => invoke(retainedJob)), expectedCode('MCP_READ_PRINCIPAL_ACCESS_DENIED'));
+      assert(revoked && originalStage); assert.equal(originalStage.origin.version, 2); assert.equal(await journal.get(retainedJob.operationId), null);
+      const retained = await staging.loadManagedCopyByOperationId(retainedJob.operationId); assert(retained);
+      assert.equal(retained.payloadSha256, originalStage.payloadSha256); assert.deepEqual(retained.origin, retainedJob.original);
+      await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+        VALUES($1,'member',$2,100,100)`, [clientId, h.destination.workspaceId]);
+      const retainedOrigin = retainedJob.original; assert(retainedOrigin && retainedOrigin.version === 2);
+      const retainedRows = await domainSnapshot(), retainedFiles = await filesystem();
+      await withoutStatusDml(() => assert.rejects(capture(authInfo(tokenA), selection,
+        mcpPrincipal => readStatus({ origin: retainedOrigin, mcpPrincipal, operationId: retainedJob.operationId })), notFound('NATIVE_COPY_STATUS_NOT_FOUND')));
+      // A status 404 is journal absence, never evidence that no Stage exists.
+      assert.equal(await journal.get(retainedJob.operationId), null);
+      assert.equal((await staging.loadManagedCopyByOperationId(retainedJob.operationId))?.payloadSha256, originalStage.payloadSha256);
+      assert.deepEqual(await domainSnapshot(), retainedRows); assert.deepEqual(await filesystem(), retainedFiles);
+      await withRenewed(async (tokenB, sessionB) => {
+        const resumed = await recoverJob(retainedJob, tokenB); assert.equal(resumed.current.actor.sessionId, sessionB);
+        const done = await complete(retainedJob, resumed.result, true); assert.deepEqual(done.intent.origin, originalStage!.origin);
+      });
+    });
+    await group('pure status rejects forged, escaped and real wrong-brand captures and cannot mint its private history frame', async () => {
+      const origin = baseline.original; assert(origin && origin.version === 2);
+      const before = await domainSnapshot(), filesBefore = await filesystem();
+      await assert.rejects(readStatus({ origin, mcpPrincipal: Object.freeze({}) as DirectMcpWorkspaceCopyPrincipal,
+        operationId: baseline.operationId }), expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+      let escaped: DirectMcpWorkspaceCopyPrincipal | undefined;
+      await capture(authInfo(tokenA), selection, async mcpPrincipal => { escaped = mcpPrincipal; }); assert(escaped);
+      await assert.rejects(readStatus({ origin, mcpPrincipal: escaped, operationId: baseline.operationId }), expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+      await assert.rejects(captureRead(authInfo(tokenA), { workspaceId: h.source.workspaceId, purpose: 'read' }, () => undefined,
+        readPrincipal => readStatus({ origin, mcpPrincipal: readPrincipal as unknown as DirectMcpWorkspaceCopyPrincipal,
+          operationId: baseline.operationId })), expectedCode('MCP_READ_PRINCIPAL_REQUIRED'));
+      await assert.rejects(assertNativeCopyStatusSessionOnConnection(h.connection, origin), expectedCode('NATIVE_COPY_STATUS_REQUIRED'));
+      await capture(authInfo(tokenA), selection, async mcpPrincipal => {
+        await callerOrigin(mcpPrincipal);
+        await assert.rejects(assertNativeCopyStatusSessionOnConnection(h.connection, origin), expectedCode('NATIVE_COPY_STATUS_REQUIRED'));
+      });
+      assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
+    });
+    await group('pure status denies another genuine client, a read-only destination and revoked source grant without domain or filesystem changes', async () => {
+      const origin = baseline.original; assert(origin && origin.version === 2);
+      const foreignClient = `copy-status-foreign-${crypto.randomUUID()}`;
+      await h.admin.query(`INSERT INTO oauth_client(id,client_id,user_id,name,disabled,redirect_uris,created_at,updated_at)
+        VALUES($1,$1,'member','Independent actual status fixture client',0,'[]',100,100)`, [foreignClient]);
+      await h.admin.query(`INSERT INTO oauth_consent(id,client_id,user_id,scopes,resources,created_at,updated_at)
+        VALUES($1,$2,'member','["knowledge:write","knowledge:read"]','["http://localhost/mcp"]',100,100)`, [crypto.randomUUID(), foreignClient]);
+      for (const workspaceId of [h.source.workspaceId, h.destination.workspaceId]) await h.admin.query(`
+        INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at) VALUES($1,'member',$2,100,100)`, [foreignClient, workspaceId]);
+      const foreignToken = await issue('session-member', foreignClient), before = await domainSnapshot(), filesBefore = await filesystem();
+      await withoutStatusDml(() => assert.rejects(capture(authInfo(foreignToken), selection, async mcpPrincipal => {
+        const current = await callerOrigin(mcpPrincipal); assert.equal(current.clientId, foreignClient); assert.notEqual(current.clientId, origin.clientId);
+        return readStatus({ origin: current, mcpPrincipal, operationId: baseline.operationId });
+      }), expectedCode('NATIVE_COPY_STATUS_NOT_FOUND')));
+      assert.equal((await h.admin.query('UPDATE canvas_workspace_members SET can_write=0 WHERE workspace_id=$1 AND user_id=$2',
+        [h.destination.workspaceId, 'member'])).rowCount, 1);
+      try {
+        await withoutStatusDml(() => assert.rejects(capture(authInfo(tokenA), selection,
+          mcpPrincipal => readStatus({ origin, mcpPrincipal, operationId: baseline.operationId })), expectedCode('MCP_READ_PRINCIPAL_ACCESS_DENIED')));
+      } finally { await h.admin.query('UPDATE canvas_workspace_members SET can_write=1 WHERE workspace_id=$1 AND user_id=$2', [h.destination.workspaceId, 'member']); }
+      assert.equal((await h.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id=$2 AND workspace_id=$3',
+        [clientId, 'member', h.source.workspaceId])).rowCount, 1);
+      try {
+        await withoutStatusDml(() => assert.rejects(capture(authInfo(tokenA), selection,
+          mcpPrincipal => readStatus({ origin, mcpPrincipal, operationId: baseline.operationId })), expectedCode('MCP_READ_PRINCIPAL_ACCESS_DENIED')));
+      } finally { await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+        VALUES($1,'member',$2,100,100)`, [clientId, h.source.workspaceId]); }
+      let historyClient: MetadataSqlEvent['client'] | undefined, revokedAfterHistory = false, returnedStatus = false;
+      try {
+        await withoutStatusDml(() => assert.rejects(capture(authInfo(tokenA), selection, async mcpPrincipal => {
+          const visible = await readStatus({ origin, mcpPrincipal, operationId: baseline.operationId });
+          returnedStatus = true; return visible;
+        }), expectedCode('MCP_READ_PRINCIPAL_ACCESS_DENIED')), async event => {
+          if (/^\s*BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY\s*$/iu.test(event.text)) {
+            assert.equal(historyClient, undefined); historyClient = event.client;
+          }
+          if (!revokedAfterHistory && historyClient === event.client && /^\s*COMMIT\s*$/iu.test(event.text)) {
+            // The actual RR COMMIT ran before the fixture observer. C1 table
+            // locks are already gone; C2 must see this independently committed
+            // genuine revocation before any status result can escape.
+            assert.equal(event.result.command, 'COMMIT');
+            assert.equal((await h.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id=$2 AND workspace_id=$3',
+              [clientId, 'member', h.source.workspaceId])).rowCount, 1); revokedAfterHistory = true;
+          }
+        });
+      } finally {
+        if (revokedAfterHistory) await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+          VALUES($1,'member',$2,100,100)`, [clientId, h.source.workspaceId]);
+      }
+      assert(historyClient && revokedAfterHistory); assert.equal(returnedStatus, false, 'A revoked C2 must withhold the already-observed historical status.');
+      assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
+    });
   }); } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
-  assert.equal(groups, 5); completed = true;
-  console.log(`Direct MCP native Copy Owner: ${groups}/5 actual JWT/PG/FD families; no public tool, SDK, TCP, compiled OAuth or browser acceptance.`);
+  assert.equal(groups, 9); completed = true;
+  console.log(`Direct MCP native Copy Owner: ${groups}/9 actual JWT/PG/FD Recover and pure-status families; no public tool, SDK, TCP, compiled OAuth or browser acceptance.`);
 }
 
 void directMcpNativeCopyOwnerPostgresTest().catch(error => {

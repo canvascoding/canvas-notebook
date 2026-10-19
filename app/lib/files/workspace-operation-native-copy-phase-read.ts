@@ -6,6 +6,7 @@ import { decodeWorkspaceOperationCopyOrigin, type WorkspaceOperationCopyOrigin }
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { readHistoricalNativeWorkspaceCopyReceiptOnConnection, type NativeCopyReceiptStorageIdentity } from '../collaboration/native-copy-historical-receipt';
 import { assertNativeCopySessionOnConnection } from './workspace-operation-native-copy-owner';
+import { assertNativeCopyStatusSessionOnConnection } from './workspace-operation-native-copy-status';
 import type { NativeCopyReceipt } from '../collaboration/native-copy-persistence';
 import type { NativeLinkMutationReceipt } from '../markdown/native-link-mutation-persistence';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
@@ -262,13 +263,33 @@ async function historyRelations(database: SqlConnection, storage: NativeCopyRece
 export async function readCompletedNativeCopyHistoryOnConnection(database: SqlConnection,
   input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
     stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+  return readCompletedCopyHistory(database, input, 'owner');
+}
+
+/** Fixed pure-status entry. Only the actual current MCP status reader can
+ * establish its private RR/RO frame; this is not a mutation-owner adapter. */
+export async function readCompletedMcpNativeCopyHistoryOnConnection(database: SqlConnection,
+  input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
+    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+  return readCompletedCopyHistory(database, input, 'mcp-status');
+}
+
+async function assertCompletedCopyHistorySession(database: SqlConnection, origin: WorkspaceOperationCopyOrigin,
+  mode: 'owner' | 'mcp-status'): Promise<void> {
+  if (mode === 'owner') await assertNativeCopySessionOnConnection(database, origin);
+  else await assertNativeCopyStatusSessionOnConnection(database, origin);
+}
+
+async function readCompletedCopyHistory(database: SqlConnection, input: CompletedNativeCopyHistoryInput,
+  mode: 'owner' | 'mcp-status'): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
+    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
   const captured = captureWorkspaceOperationNativePlanData(input, copyPhaseChanged);
   const value = object(captured, ['operationId', 'origin', 'requestHash', 'planId', 'storage',
     ...(captured && typeof captured === 'object' && Object.hasOwn(captured, 'sceneStorage') ? ['sceneStorage'] : [])]) as unknown as CompletedNativeCopyHistoryInput;
   const origin = decodeWorkspaceOperationCopyOrigin(value.origin);
   if (typeof value.operationId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/u.test(value.operationId)
     || !hash(value.requestHash) || !hash(value.planId)) copyPhaseChanged();
-  await assertNativeCopySessionOnConnection(database, origin);
+  await assertCompletedCopyHistorySession(database, origin, mode);
   const pinned = await historyWitness(database);
   const relations = await historyRelations(database, value.storage);
   if (pinned !== await historyWitness(database)) copyPhaseChanged();
@@ -278,7 +299,7 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
     FROM workspace_file_operations WHERE operation_id=$1`, [value.operationId]) as Row | undefined;
   if (!header || header.status !== 'completed') {
     if (pinned !== await historyWitness(database) || relations !== await historyRelations(database, value.storage)) copyPhaseChanged();
-    await assertNativeCopySessionOnConnection(database, origin); return null;
+    await assertCompletedCopyHistorySession(database, origin, mode); return null;
   }
   const step = await database.get(`SELECT phase,status,before_fence,after_fence,backup_ref,
     CASE WHEN octet_length(receipt_json)<=16384 THEN receipt_json END AS receipt_json
@@ -286,7 +307,7 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
   [value.operationId, NATIVE_COPY_COMPLETION_STEP_KEY]) as Row | undefined;
   if (!step) {
     if (pinned !== await historyWitness(database) || relations !== await historyRelations(database, value.storage)) copyPhaseChanged();
-    await assertNativeCopySessionOnConnection(database, origin); return null;
+    await assertCompletedCopyHistorySession(database, origin, mode); return null;
   }
   if (header.operation_id !== value.operationId || header.plan_id !== value.planId || header.request_hash !== value.requestHash
     || typeof header.request_json !== 'string' || header.actor_type !== origin.actor.type || header.actor_id !== origin.actor.userId
@@ -339,7 +360,7 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
   if (!scopes || !equal(scopes.scopes, [...new Set(request.selections.map(selection => selection.destinationPath))].sort())
     || metadata && (!bounded(Number(scopes.created_at), Number.MAX_SAFE_INTEGER - 1) || Number(scopes.created_at) !== metadata.copyCreatedAt)) copyPhaseChanged();
   if (pinned !== await historyWitness(database) || relations !== await historyRelations(database, value.storage)) copyPhaseChanged();
-  await assertNativeCopySessionOnConnection(database, origin);
+  await assertCompletedCopyHistorySession(database, origin, mode);
   return { operation: { operationId: value.operationId, planId: value.planId, requestHash: value.requestHash, requestJson: header.request_json,
     actor: { type: origin.actor.type, id: origin.actor.userId }, sourceWorkspaceId: origin.sourceScope.workspaceId,
     destinationWorkspaceId: origin.destinationScope.workspaceId, expectedStepCount: Number(header.expected_step_count), status: 'completed', phase: 'completed',
