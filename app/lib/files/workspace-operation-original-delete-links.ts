@@ -13,7 +13,7 @@ import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory
 import { prepareNativeLinkMutations, type PreparedNativeLinkUpdate } from '../markdown/workspace-native-link-mutations';
 import { nativeLinkPreparedIntentProof, persistPreparedNativeLinkMutationOnConnection,
   type NativeLinkMutationBinding, type NativeLinkMutationReceipt } from '../markdown/native-link-mutation-persistence';
-import type { NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
+import type { NativeLinkMutationRecipe, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
@@ -211,6 +211,9 @@ export function assertOriginalDeleteNativeFinalGraph(plan: WorkspaceOperationNat
   observation: WorkspaceLinkSourceAuthorityObservation,
   original?: Readonly<{ sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
     nativeLinks: readonly OriginalDeleteNativeLinkReceipt[] }>): void {
+  // Mixed read sources have a separate full-namespace comparison. This
+  // historical V1/V2 entry never reduces a V3 graph to its native component.
+  if (plan.planIdentityVersion === 3) fail('ORIGINAL_DELETE_POSTCONDITION');
   if (plan.planIdentityVersion === 2) {
     if (!original) fail('ORIGINAL_DELETE_POSTCONDITION');
     assertOriginalDeleteNativeFinalBindings(plan, observation, original);
@@ -274,11 +277,21 @@ function assertOriginalDeleteNativeFinalBindings(plan: WorkspaceOperationNativeD
   if (plan.planIdentityVersion !== 2) fail('ORIGINAL_DELETE_POSTCONDITION');
   const before = decodeWorkspaceOperationNativeOriginalSourceWitness(plan.sourceEvidence, original.sourceEvidence);
   const actual = captureWorkspaceOperationNativeSourceEvidenceV2(before.workspaceScope, observation);
-  const survivors = before.nativeBindings.filter(binding => binding.expected.documentId !== plan.nativeTarget.documentId);
+  assertOriginalDeleteNativeBindingEvidence(before, actual, plan.nativeTarget.documentId,
+    getWorkspaceOperationNativeDeleteLinkRecipes(plan), original.nativeLinks);
+}
+
+/** Version-independent comparison of already validated native provider facts.
+ * Mixed callers must separately prove their complete physical namespace and
+ * current catalogue; this helper creates no current authority or graph view. */
+export function assertOriginalDeleteNativeBindingEvidence(before: WorkspaceOperationNativeSourceEvidenceV2,
+  actual: WorkspaceOperationNativeSourceEvidenceV2, targetDocumentId: string,
+  recipes: readonly NativeLinkMutationRecipe[], nativeLinks: readonly OriginalDeleteNativeLinkReceipt[]): void {
+  const survivors = before.nativeBindings.filter(binding => binding.expected.documentId !== targetDocumentId);
   if (actual.nativeBindings.length !== survivors.length) fail('ORIGINAL_DELETE_POSTCONDITION');
-  const changed = new Set(getWorkspaceOperationNativeDeleteLinkRecipes(plan).map(recipe => recipe.source.documentId));
-  const receipts = new Map(original.nativeLinks.map(receipt => [receipt.source.documentId, receipt]));
-  if (receipts.size !== original.nativeLinks.length || receipts.size !== changed.size
+  const changed = new Set(recipes.map(recipe => recipe.source.documentId));
+  const receipts = new Map(nativeLinks.map(receipt => [receipt.source.documentId, receipt]));
+  if (receipts.size !== nativeLinks.length || receipts.size !== changed.size
     || [...receipts.keys()].some(id => !changed.has(id))) fail('ORIGINAL_DELETE_POSTCONDITION');
   for (const binding of survivors) {
     const id = binding.expected.documentId, observed = actual.nativeBindings.find(item => item.expected.documentId === id);

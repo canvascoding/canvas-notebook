@@ -335,7 +335,10 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
         throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
       }
       const request = createWorkspaceOperationOriginalDeleteAdmissionRequest(binding);
-      if (body.version === 4) {
+      if (plan.planIdentityVersion === 3 ? body.version !== 5 : body.version === 5) {
+        throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+      }
+      if (body.version === 4 || body.version === 5) {
         const reference = captureOriginalDeleteAdmissionBinding(body.admission), captured = captureCollaborationAdmissionRequest(request);
         if (reference.requestId !== captured.request.requestId || reference.requestDigest !== captured.requestDigest) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
         return Object.freeze({ request, requiresHeader: true, legacy: false });
@@ -343,7 +346,8 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
       if (![1, 2, 3].includes(body.version as number)) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
       return Object.freeze({ request, requiresHeader: false, legacy: mode === 'prepare' });
     }
-    if (mode === 'read' || plan.planIdentityVersion !== 2) return Object.freeze({ request: createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), requiresHeader: false, legacy: plan.planIdentityVersion !== 2 });
+    const legacy = plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3;
+    if (mode === 'read' || legacy) return Object.freeze({ request: createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), requiresHeader: false, legacy });
   }
   if (!access || mode !== 'prepare' || !workspaceOperationJobScopeMatches(original.scope, access.workspace)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
   // Existing rooms persist without taking workspace admission on each save.

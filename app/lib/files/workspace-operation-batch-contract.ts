@@ -4,8 +4,9 @@ import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace
 import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLinkCoverageV1,
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
 import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
-import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
 import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 
 export type WorkspaceOperationBatchScope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
 /** Literal namespace snapshot only; this grants no authority or filesystem identity. */
@@ -92,8 +93,16 @@ export type WorkspaceOperationNativeDeleteBatchPlanV2 = WorkspaceOperationNative
   integrityProof: string;
   sourceEvidence: WorkspaceOperationNativeSourceEvidenceV2;
 };
+/** Explicit mixed read graph. Physical Markdown remains original read evidence,
+ * never a native mutation reference or an imported/copied document. */
+export type WorkspaceOperationNativeDeleteBatchPlanV3 = Omit<WorkspaceOperationNativeDeleteBatchPlanFields, 'nativeGraphPlan'> & {
+  planIdentityVersion: 3;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationNativeSourceEvidenceV3;
+  nativeGraphPlan: NativeMixedReadBatchPlanV3;
+};
 export type WorkspaceOperationNativeDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlanLegacy
-  | WorkspaceOperationNativeDeleteBatchPlanV2;
+  | WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3;
 export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan
   | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {

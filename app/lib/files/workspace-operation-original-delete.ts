@@ -20,7 +20,9 @@ import { decodeWorkspaceOperationMcpAuthorization } from './workspace-operation-
 import { decodeWorkspaceOperationNativeDeleteBatchPlan, assertWorkspaceOperationNativeDeleteBatchPlanCurrent,
   captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness } from './workspace-operation-native-delete-plan';
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
-import { decodeWorkspaceOperationNativeOriginalSourceWitness } from './workspace-operation-native-original-source';
+import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-operation-native-original-source';
+import { workspaceOperationSourceNativeEvidence, workspaceOperationSourceNamespace } from './workspace-operation-mixed-source-evidence';
 import { prepareOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
   assertOriginalDeleteNativeLinkCompletionBudget } from './workspace-operation-original-delete-links';
 import { assertWorkspaceOperationNativeDeleteUndoGraphCurrent } from './workspace-operation-native-delete-undo-graph';
@@ -79,6 +81,7 @@ function selection(claim: WorkspaceOperationBatchClaim, actionMode: 'apply' | 'u
   if (plan.version === 2) {
     const native = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
     if (!equal(native.sourceEvidence.workspaceScope, authorization.jobScope)) fail('ORIGINAL_DELETE_UNSUPPORTED');
+    if (actionMode === 'undo' && native.planIdentityVersion === 3) fail('ORIGINAL_DELETE_UNSUPPORTED');
     if (actionMode === 'undo' && native.nativeGraphPlan.steps.some(step => step.linkIntents.length)) fail('ORIGINAL_DELETE_UNSUPPORTED');
   }
   return binding;
@@ -91,14 +94,14 @@ function actor(binding: WorkspaceOperationBatchClaimBinding): OriginalIntent['ac
 
 function assertPlanSource(binding: WorkspaceOperationBatchClaimBinding, physical: PreparedSingleFileTrashOriginalFacts,
   native: NativeFileArchiveExpected | null, nativeContentHash: string | null,
-  currentWitness?: WorkspaceOperationNativeSourceEvidenceV2): void {
+  currentWitness?: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3): void {
   if (binding.plan.version === 2) {
     const plan = decodeWorkspaceOperationNativeDeleteBatchPlan(binding.plan);
-    const evidence = plan.planIdentityVersion === 2
-      ? decodeWorkspaceOperationNativeOriginalSourceWitness(plan.sourceEvidence, currentWitness) : plan.sourceEvidence;
-    const expected = plan.planIdentityVersion === 2
-      ? evidence.nativeBindings.find(binding => binding.expected.documentId === plan.nativeTarget.documentId)?.expected : plan.nativeTarget;
-    const entry = evidence.stage.namespace.find(candidate => candidate.path === physical.canonicalPath);
+    const evidence = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
+      ? decodeWorkspaceOperationMixedOriginalSourceWitness(plan.sourceEvidence, currentWitness) : plan.sourceEvidence;
+    const expected = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
+      ? workspaceOperationSourceNativeEvidence(evidence).nativeBindings.find(binding => binding.expected.documentId === plan.nativeTarget.documentId)?.expected : plan.nativeTarget;
+    const entry = workspaceOperationSourceNamespace(evidence).find(candidate => candidate.path === physical.canonicalPath);
     const actual = physical.source.kind === 'regular_file' ? physical.source.identity : null;
     const physicalIdentity = actual ? `${actual.device}:${actual.inode}:${actual.size}:${actual.mtimeMs}:${actual.ctimeMs}` : null;
     if (!native || !equal(native, expected) || !entry || entry.documentId !== native.documentId
@@ -122,7 +125,7 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
   const schema = binding.source.schemaName, prefix = quote(schema), source = physical.canonicalPath;
   await assertNoCompetingWriter(access, prefix, source);
   const observation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
-  const currentWitness = binding.plan.version === 2 && binding.plan.planIdentityVersion === 2 && observation
+  const currentWitness = binding.plan.version === 2 && (binding.plan.planIdentityVersion === 2 || binding.plan.planIdentityVersion === 3) && observation
     ? captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(binding.plan, observation,
       binding.authorization.mode === 'direct' || binding.authorization.mode === 'direct-mcp' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID')) : null;
   if (binding.plan.version === 2 && observation && !currentWitness) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan, observation,
@@ -159,8 +162,11 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
   for (const item of nativeLinks) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
   const fields = { batchId: binding.batchId, planId: binding.planId, requestHash: auth.requestHash,
     actor: actor(binding), jobScope: auth.jobScope, physical, native, publicShare };
-  const value: OriginalIntent = currentWitness ? { ...fields, version: 4, currentWitness, nativeLinks,
-    admission: captureOriginalDeleteAdmissionBinding(await access.readOriginalNativeDeleteAdmission()) }
+  const value: OriginalIntent = currentWitness ? currentWitness.evidenceVersion === 3
+    ? { ...fields, version: 5, currentWitness, nativeLinks,
+      admission: captureOriginalDeleteAdmissionBinding(await access.readOriginalNativeDeleteAdmission()) }
+    : { ...fields, version: 4, currentWitness, nativeLinks,
+      admission: captureOriginalDeleteAdmissionBinding(await access.readOriginalNativeDeleteAdmission()) }
     : { ...fields, version: nativeLinks.length ? 2 : 1, ...(nativeLinks.length ? { nativeLinks } : {}) };
   if (Buffer.byteLength(json(value)) > 1048576) fail('ORIGINAL_DELETE_UNSUPPORTED');
   if (nativeLinks.length && observation) {
@@ -203,7 +209,7 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
         assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks ?? []);
       }
       const result = receipt && durable && intent ? completed(receipt, trash, durable, intent) : null;
-      if (intent?.version === 4) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(access.database,
+      if (intent?.version === 4 || intent?.version === 5) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(access.database,
         { schema, intent, ...(result ? { result } : {}) });
       return { workspace: access.workspace, durable, intent, result };
     });
@@ -245,7 +251,7 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
           { schema, workspace: access.workspace, original: originalIntent.publicShare, nowMs: originalIntent.physical.deletedAtMs });
       });
       const physical = await movePreparedWorkspaceSingleFileTrash(prepared);
-      if (originalIntent.version === 4) return completeWorkspaceOperationOriginalDeleteJob(owner,
+      if (originalIntent.version === 4 || originalIntent.version === 5) return completeWorkspaceOperationOriginalDeleteJob(owner,
         { expectedIntentDigest: originalDurable.intentDigest, prepared, physical });
       return withWorkspaceOperationJobLifecycleTransaction(owner, access => completeWorkspaceOperationOriginalDeleteDomain(access,
         { binding, evidenceContext, originalDurable, originalIntent, prepared, physical }));

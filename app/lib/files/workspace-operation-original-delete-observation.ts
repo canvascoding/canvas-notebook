@@ -75,12 +75,12 @@ export async function readWorkspaceOperationOriginalDeleteObservationOnConnectio
   const original = parseIntent(deleteIntent, context, workspace, dataRoot);
   if (!deleteReceipt) {
     if (deleteTrashReceipt || restoreIntent || restoreReceipt) invalid();
-    if (original.version === 4) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original });
+    if (original.version === 4 || original.version === 5) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original });
     return Object.freeze({ ...records, apply: 'started', undo: 'unknown', original,
       deleted: null, restoration: null, restored: null });
   }
   const deleted = completed(deleteReceipt, deleteTrashReceipt, deleteIntent, original);
-  if (original.version === 4) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original, result: deleted });
+  if (original.version === 4 || original.version === 5) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original, result: deleted });
   if (!restoreIntent) {
     if (restoreReceipt) invalid();
     return Object.freeze({ ...records, apply: 'complete', undo: 'pristine', original,

@@ -461,7 +461,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
-              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 && intent.version !== 5 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
               assertOriginalDeleteIntentPlan(intent, binding.plan);
               assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
               // Keep current authority before every source (including receipt
@@ -470,7 +470,9 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
                 checkPhase(captured, phase); phase.stage = 'sql'; };
               return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate,
-                intent.version === 3 || intent.version === 4 ? intent.currentWitness : undefined);
+                intent.version === 3 || intent.version === 4 || intent.version === 5
+                  ? intent.version === 5 ? intent.currentWitness.nativeComponent : intent.currentWitness
+                  : undefined);
             }, 'native-link-write'),
             assertCurrent: () => dispatch(undefined, async () => undefined) });
             result = moveOperation ? await moveOperation(restrictedAccess, database, check) : await operation!(restrictedAccess);
@@ -556,7 +558,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
       const durable = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database, { schema, batchId: binding.batchId, forShare: true });
       if (!durable || durable.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
       const intent = parseIntent(durable, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
-      if (intent.version !== 4 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
+      if (intent.version !== 4 && intent.version !== 5 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
       assertOriginalDeleteIntentPlan(intent, binding.plan);
       const admission = await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent });
       if (admission.outcome || !['reserved', 'draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
@@ -618,7 +620,7 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
         if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
         const witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
         conflict = !equal(witness, prepared.preparation.currentWitness);
-      } else if (plan.version === 2 && plan.planIdentityVersion === 2) {
+      } else if (plan.version === 2 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3)) {
         captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
       }
     } catch (error) {

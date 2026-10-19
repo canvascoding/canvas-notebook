@@ -13,6 +13,8 @@ import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope
 import { decodeWorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+import { decodeWorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
 import { captureOriginalDeleteAdmissionBinding, WorkspaceOperationOriginalDeleteError,
   type OriginalIntent, type WorkspaceOperationOriginalDeleteResult } from './workspace-operation-original-delete-evidence';
 
@@ -52,7 +54,7 @@ export function createWorkspaceOperationOriginalDeleteAdmissionRequest(binding: 
   }
   return deleteAdmissionRequest({ batchId: binding.batchId, planId: plan.planId, requestHash: auth.requestHash,
     actor: { userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null },
-    jobScope: auth.jobScope }, plan.sourceEvidence.nativeBindings);
+    jobScope: auth.jobScope }, workspaceOperationSourceNativeEvidence(plan.sourceEvidence).nativeBindings);
 }
 
 /** Only the fixed original Delete completion map belongs in a V1 outcome. */
@@ -124,7 +126,7 @@ Promise<WorkspaceOperationOriginalDeleteAdmissionRead> {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }
   const { schema, intent, result } = captured;
-  if (!intent || intent.version !== 4 || Reflect.ownKeys(intent).length !== 12
+  if (!intent || intent.version !== 4 && intent.version !== 5 || Reflect.ownKeys(intent).length !== 12
     || !['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare',
       'nativeLinks', 'currentWitness', 'admission'].every(key => Object.hasOwn(intent, key))) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
@@ -143,7 +145,9 @@ Promise<WorkspaceOperationOriginalDeleteAdmissionRead> {
     typeof value === 'string' && value.length === 64 && /^[0-9a-f]{64}$/u.test(value))) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }
-  const scope = parseWorkspaceOperationJobScope(intent.jobScope), witness = decodeWorkspaceOperationNativeSourceEvidence(intent.currentWitness);
+  const scope = parseWorkspaceOperationJobScope(intent.jobScope);
+  const witness = intent.version === 5 ? decodeWorkspaceOperationNativeSourceEvidenceV3(intent.currentWitness).nativeComponent
+    : decodeWorkspaceOperationNativeSourceEvidence(intent.currentWitness);
   if (witness.evidenceVersion !== 2 || !equal(scope, witness.workspaceScope) || !intent.native
     || !equal(witness.nativeBindings.find(item => item.expected.documentId === intent.native!.documentId)?.expected, intent.native)) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
@@ -154,7 +158,7 @@ Promise<WorkspaceOperationOriginalDeleteAdmissionRead> {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }
   const expectedResult = result === undefined ? null : workspaceOperationOriginalDeleteAdmissionResult(result);
-  if (result && (result.version !== 4 || result.batchId !== intent.batchId || !intent.physical
+  if (result && (result.version !== intent.version || result.batchId !== intent.batchId || !intent.physical
     || result.trashEntryId !== intent.physical.trashEntryId)) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }

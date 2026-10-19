@@ -17,6 +17,7 @@ import type { WorkspaceOperationBatchPreviewPublic } from './workspace-operation
 import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-lifecycle-guard';
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
+  createWorkspaceOperationNativeDeleteBatchPlanV3,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { computeWorkspaceOperationNativeMoveBatchPlanId, createWorkspaceOperationNativeMoveBatchPlan,
   createWorkspaceOperationNativeMoveBatchPlanV3,
@@ -325,7 +326,9 @@ export async function buildWorkspaceOperationBatchPlan(input: {
     }
     const hasNativeSelection = input.actions.some(action => action.selections.some(selection => observation.nativeBindings.some(entry =>
       within(entry.expected.path, selection.sourcePath))));
-    if (hasNativeSelection) return createWorkspaceOperationNativeDeleteBatchPlan({ ...input, observation });
+    if (hasNativeSelection) return observation.stage.sources.some(source => source.kind === 'physical')
+      ? createWorkspaceOperationNativeDeleteBatchPlanV3({ ...input, observation })
+      : createWorkspaceOperationNativeDeleteBatchPlan({ ...input, observation });
   }
   const snapshot = await (dependencies.buildSnapshot ?? buildWorkspaceAuthoritativePlannerSnapshot)(
     input.scope.workspace.workspaceId, input.scope.fileOptions);
