@@ -12,6 +12,7 @@ import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-
 import { prepareNativeLinkInverse, prepareNativeLinkMutations, type NativeLinkInverseRecipe } from './workspace-native-link-mutations';
 import type { NativeDocumentLink, NativeDocumentLinkInventory, NativeLinkMutationRecipe, NativeNamespaceEntry,
   NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
+import type { PhysicalReadLinkInventory, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
 
 export type NativeMixedBatchRequest = {
   kind: NativeWorkspaceFileOperationPlan['kind'];
@@ -43,6 +44,8 @@ export type NativeMixedBatchVirtualEntity = {
   /** A semantic native-content hash; this is NOT a binary, vector or durable clock. */
   contentBasisProof: string | null;
   metadata: NativeDocumentLinkInventory['metadata'] | null;
+  /** V3 only: observed physical evidence, never a native document identity. */
+  physicalReadSource?: { physicalSourceProof: string };
 };
 
 export type NativeMixedBatchVirtualEdge = {
@@ -52,6 +55,8 @@ export type NativeMixedBatchVirtualEdge = {
   literal: string;
   targetPathText: string;
   resolution: { status: string; targetEntityKey: string | null; candidateEntityKeys: string[] };
+  /** V3 only: this edge has no native reference or executable recipe. */
+  physicalReadSource?: true;
 };
 
 export type NativeMixedBatchPlan = {
@@ -91,14 +96,20 @@ export type NativeMixedBatchPlan = {
   ];
 };
 
+export type NativeMixedReadBatchPlanV3 = Omit<NativeMixedBatchPlan, 'contractVersion'> & { contractVersion: 3 };
+
 type LogicalLink = { key: string; originEvidenceLinkId: string; current: NativeDocumentLink };
 type Entity = Omit<NativeMixedBatchVirtualEntity, 'metadata'> & {
   baseState: PersistedCollaborationState | null;
   doc: InstanceType<typeof Y.Doc> | null;
   inventory: NativeDocumentLinkInventory | null;
+  physical: PhysicalReadLinkInventory | null;
   links: LogicalLink[];
 };
-type Edge = NativeMixedBatchVirtualEdge & { entity: Entity; link: LogicalLink };
+type NativeEdge = NativeMixedBatchVirtualEdge & { provider: 'native'; entity: Entity; link: LogicalLink };
+type PhysicalEdge = NativeMixedBatchVirtualEdge & { provider: 'physical-read'; entity: Entity;
+  link: { current: Pick<NativeDocumentLink, 'kind' | 'syntax' | 'literal' | 'targetPathText' | 'fragment' | 'alias' | 'embed' | 'classification'> } };
+type Edge = NativeEdge | PhysicalEdge;
 type UndoCheck = { entity: Entity; recipes: NativeLinkInverseRecipe[]; beforeContentProof: string; requestIndex: number };
 
 const proof = nativeLinkJsonProof;
@@ -127,15 +138,17 @@ function linkMeaning(link: NativeDocumentLink): unknown {
     referenceKind: link.ref.kind, expected: link.ref.expected };
 }
 function publicEntity(entity: Entity): NativeMixedBatchVirtualEntity {
-  const metadata = entity.inventory?.metadata;
+  const metadata = entity.inventory?.metadata ?? entity.physical?.metadata;
   return { entityKey: entity.entityKey, workspaceId: entity.workspaceId, path: entity.path, kind: entity.kind,
     binding: entity.binding, contentBasisProof: entity.contentBasisProof,
     metadata: metadata ? { ...metadata, path: entity.path,
-      title: metadata.hasExplicitTitle || metadata.headings.length ? metadata.title : entity.path.split('/').at(-1)!.replace(/\.(?:md|markdown)$/iu, '') } : null };
+      title: metadata.hasExplicitTitle || metadata.headings.length ? metadata.title : entity.path.split('/').at(-1)!.replace(/\.(?:md|markdown)$/iu, '') } : null,
+    ...(entity.physical ? { physicalReadSource: { physicalSourceProof: entity.physical.physicalSourceProof } } : {}) };
 }
 function publicEdge(edge: Edge): NativeMixedBatchVirtualEdge {
   return { virtualLinkKey: edge.virtualLinkKey, sourceEntityKey: edge.sourceEntityKey, originEvidenceLinkId: edge.originEvidenceLinkId,
-    literal: edge.literal, targetPathText: edge.targetPathText, resolution: edge.resolution };
+    literal: edge.literal, targetPathText: edge.targetPathText, resolution: edge.resolution,
+    ...(edge.provider === 'physical-read' ? { physicalReadSource: true as const } : {}) };
 }
 function graph(entities: Entity[]): Edge[] {
   const edges: Edge[] = [];
@@ -143,14 +156,15 @@ function graph(entities: Entity[]): Edge[] {
     nativeTargetPaths: Set<string>;
     candidates: Array<{ path: string; aliases: string[]; extension: string | undefined; type: 'file' }> }>();
   for (const entity of entities) {
-    if (!entity.links.length) continue;
+    if (!entity.links.length && !entity.physical?.links.length) continue;
     let workspace = workspaces.get(entity.workspaceId);
     if (!workspace) {
       const files = entities.filter((candidate) => candidate.workspaceId === entity.workspaceId && candidate.kind === 'file');
       const byPath = new Map(files.map((candidate) => [candidate.path, candidate]));
       workspace = { byPath, paths: new Set(byPath.keys()), nativeTargetPaths: new Set(files.filter(candidate => candidate.inventory).map(candidate => candidate.path)),
-        candidates: files.filter((candidate) => candidate.inventory).map((candidate) => ({ path: candidate.path,
-          aliases: candidate.inventory!.metadata.aliases, extension: candidate.path.split('.').at(-1), type: 'file' as const })) };
+        candidates: files.filter((candidate) => candidate.inventory || candidate.physical).map((candidate) => ({ path: candidate.path,
+          aliases: (candidate.inventory?.metadata ?? candidate.physical!.metadata).aliases,
+          extension: candidate.path.split('.').at(-1), type: 'file' as const })) };
       workspaces.set(entity.workspaceId, workspace);
     }
     const { byPath, paths, candidates, nativeTargetPaths } = workspace;
@@ -162,10 +176,23 @@ function graph(entities: Entity[]): Edge[] {
           ? resolveWorkspaceWikiFileLink({ targetLiteral: value.literal, targetPathText: value.targetPathText }, entity.path, paths, candidates,
             { nativeTargetPaths })
           : resolveExactWorkspaceLink(value.targetPathText, entity.path, paths);
-      edges.push({ virtualLinkKey: link.key, sourceEntityKey: entity.entityKey, originEvidenceLinkId: link.originEvidenceLinkId,
+      edges.push({ provider: 'native', virtualLinkKey: link.key, sourceEntityKey: entity.entityKey, originEvidenceLinkId: link.originEvidenceLinkId,
         literal: value.literal, targetPathText: value.targetPathText, entity, link,
         resolution: { status: resolution.status, targetEntityKey: resolution.path ? byPath.get(resolution.path)?.entityKey ?? null : null,
           candidateEntityKeys: resolution.candidates.map((candidate) => byPath.get(candidate)!.entityKey).sort() } });
+    }
+    for (const link of entity.physical?.links ?? []) {
+      const resolution = link.kind === 'wiki'
+        ? resolveWorkspaceWikiFileLink({ targetLiteral: link.targetLiteral, targetPathText: link.targetPathText }, entity.path,
+          paths, candidates, { nativeTargetPaths })
+        : resolveExactWorkspaceLink(link.targetPathText, entity.path, paths);
+      edges.push({ provider: 'physical-read', virtualLinkKey: proof({ entityKey: entity.entityKey, physicalLinkId: link.physicalLinkId }),
+        sourceEntityKey: entity.entityKey, originEvidenceLinkId: link.physicalLinkId, literal: link.targetLiteral,
+        targetPathText: link.targetPathText, entity,
+        link: { current: { kind: link.kind, syntax: link.syntax, literal: link.targetLiteral, targetPathText: link.targetPathText,
+          fragment: link.fragment, alias: link.alias, embed: link.embed, classification: 'local' } },
+        resolution: { status: resolution.status, targetEntityKey: resolution.path ? byPath.get(resolution.path)?.entityKey ?? null : null,
+          candidateEntityKeys: resolution.candidates.map(candidate => byPath.get(candidate)!.entityKey).sort() } });
     }
   }
   return edges.sort((a, b) => a.virtualLinkKey.localeCompare(b.virtualLinkKey));
@@ -174,7 +201,7 @@ function graphProof(entities: Entity[], edges: Edge[]): string {
   return proof({ namespace: entities.map(publicEntity).sort((a, b) => a.entityKey.localeCompare(b.entityKey)),
     edges: edges.map(publicEdge) });
 }
-function nextTarget(edge: Edge, targetPath: string, sourcePath: string): string | null {
+function nextTarget(edge: NativeEdge, targetPath: string, sourcePath: string): string | null {
   const link = edge.link.current;
   if (link.kind === 'wiki') {
     if (/[#|\]\\]/u.test(targetPath)) return null;
@@ -206,6 +233,24 @@ export function compileWorkspaceNativeMixedBatch(input: {
   states: readonly PersistedCollaborationState[];
   requests: readonly NativeMixedBatchRequest[];
 }): NativeMixedBatchPlan {
+  return compileMixedBatch(input, 2) as NativeMixedBatchPlan;
+}
+
+/** Same rehearsal engine, with explicit immutable physical READ sources. The
+ * first V3 arm never imports, edits, copies or moves a physical Markdown source. */
+export function compileWorkspaceMixedReadBatchV3(input: {
+  snapshots: readonly WorkspaceMixedReadLinkSnapshotV3[];
+  states: readonly PersistedCollaborationState[];
+  requests: readonly NativeMixedBatchRequest[];
+}): NativeMixedReadBatchPlanV3 {
+  return compileMixedBatch(input, 3) as NativeMixedReadBatchPlanV3;
+}
+
+function compileMixedBatch(input: {
+  snapshots: readonly (NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3)[];
+  states: readonly PersistedCollaborationState[];
+  requests: readonly NativeMixedBatchRequest[];
+}, contractVersion: 2 | 3): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 {
   const issues: NativeMixedBatchPlan['issues'] = [];
   const issue = (code: string, requestIndex: number | null, workspaceId: string, pathValue: string, linkId?: string) =>
     issues.push({ code, requestIndex, workspaceId, path: pathValue, ...(linkId ? { linkId } : {}) });
@@ -224,11 +269,26 @@ export function compileWorkspaceNativeMixedBatch(input: {
       if (workspaceIds.has(snapshot.workspaceId)) issue('duplicate-workspace', null, snapshot.workspaceId, '');
       workspaceIds.add(snapshot.workspaceId);
       const { snapshotProof, ...body } = snapshot;
-      if (snapshot.contractVersion !== 2 || proof(body) !== snapshotProof) issue('snapshot-proof-mismatch', null, snapshot.workspaceId, '');
+      if (snapshot.contractVersion !== contractVersion || proof(body) !== snapshotProof) issue('snapshot-proof-mismatch', null, snapshot.workspaceId, '');
       if (!snapshot.coverage.complete || snapshot.coverage.gaps.length) issue('incomplete-coverage', null, snapshot.workspaceId, '');
       for (const gap of snapshot.coverage.gaps) issue(gap.code, null, snapshot.workspaceId, gap.path);
       const paths = new Set<string>(); const identities = new Set<string>(); const inventories = new Map<string, NativeDocumentLinkInventory>();
-      const organizations = new Set(snapshot.documents.map((inventory) => inventory.document.organizationId));
+      const physical = new Map<string, PhysicalReadLinkInventory>();
+      if (contractVersion === 3 && snapshot.contractVersion === 3) for (const source of snapshot.physicalSources) {
+        const { physicalSourceProof, ...physicalBody } = source;
+        if (physical.has(source.path) || source.workspaceId !== snapshot.workspaceId || source.parserVersion !== 2
+          || source.physicalSourceVersion !== 1 || source.source !== 'original-physical-bytes' || source.encoding !== 'utf8'
+          || !/\.(?:md|markdown)$/iu.test(source.path) || source.metadata.path !== source.path
+          || !source.coverage.complete || source.coverage.gaps.length || source.executionReady !== false
+          || source.applicability !== 'requires-import-and-rebinding'
+          || !/^[a-f0-9]{64}$/u.test(source.physical.byteHash) || !Number.isSafeInteger(source.physical.byteLength) || source.physical.byteLength < 0
+          || proof({ ...physicalBody, observedOriginalByteHash: source.physical.byteHash }) !== physicalSourceProof) {
+          issue('invalid-physical-read-source', null, snapshot.workspaceId, source.path);
+        }
+        physical.set(source.path, source);
+      }
+      const organizations = new Set([...snapshot.documents.map((inventory) => inventory.document.organizationId),
+        ...Array.from(physical.values(), source => source.organizationId)]);
       if (organizations.size > 1) issue('organization-conflict', null, snapshot.workspaceId, '');
       for (const inventory of snapshot.documents) {
         if (inventories.has(inventory.document.path) || documentIds.has(inventory.document.documentId)) issue('identity-conflict', null, snapshot.workspaceId, inventory.document.path);
@@ -236,17 +296,23 @@ export function compileWorkspaceNativeMixedBatch(input: {
       }
       for (const entry of snapshot.namespace) {
         const inventory = inventories.get(entry.path);
+        const physicalSource = physical.get(entry.path);
         if (!canonicalPath(entry.path) || !entry.identity || paths.has(entry.path) || identities.has(entry.identity) || entry.workspaceId !== snapshot.workspaceId
           || entry.kind === 'directory' && (entry.documentId !== null || entry.lifecycleGeneration !== null)) issue('identity-conflict', null, snapshot.workspaceId, entry.path);
         paths.add(entry.path); identities.add(entry.identity);
         if (entry.kind === 'file' && /\.mdx$/iu.test(entry.path)) issue('unsupported-source', null, snapshot.workspaceId, entry.path);
         if (entry.kind === 'file' && /\.html?$/iu.test(entry.path) && !inventory) issue('uninspected-html', null, snapshot.workspaceId, entry.path);
-        if (entry.kind === 'file' && (entry.documentId !== null || /\.(?:md|markdown)$/iu.test(entry.path)) && !inventory) {
+        if (entry.kind === 'file' && (entry.documentId !== null || /\.(?:md|markdown)$/iu.test(entry.path)) && !inventory && !physicalSource) {
           issue('uninspected-source', null, snapshot.workspaceId, entry.path);
+        }
+        if (physicalSource && (inventory || entry.kind !== 'file' || entry.documentId !== null || entry.lifecycleGeneration !== null
+          || entry.filesystemIdentity !== physicalSource.physical.filesystemIdentity || entry.identity !== entry.filesystemIdentity)) {
+          issue('identity-conflict', null, snapshot.workspaceId, entry.path);
         }
         const entity: Entity = { entityKey: proof({ workspaceId: snapshot.workspaceId, identity: entry.identity }),
           workspaceId: entry.workspaceId, path: entry.path, kind: entry.kind, binding: { kind: 'existing', namespaceEvidence: structuredClone(entry),
-            documentEvidenceKey: inventory ? stateKey(inventory.document) : null }, contentBasisProof: null, baseState: null, doc: null, inventory: null, links: [] };
+            documentEvidenceKey: inventory ? stateKey(inventory.document) : null }, contentBasisProof: null, baseState: null, doc: null, inventory: null,
+          physical: physicalSource ? structuredClone(physicalSource) : null, links: [] };
         entities.push(entity); allEntities.push(entity);
         if (!inventory) continue;
         const key = stateKey(inventory.document); const state = states.get(key); usedStates.add(key);
@@ -267,6 +333,7 @@ export function compileWorkspaceNativeMixedBatch(input: {
         } catch { issue('unreadable-native-state', null, snapshot.workspaceId, entry.path); }
       }
       for (const inventory of snapshot.documents) if (!paths.has(inventory.document.path)) issue('orphan-native-inventory', null, snapshot.workspaceId, inventory.document.path);
+      for (const source of physical.values()) if (!paths.has(source.path)) issue('orphan-physical-read-source', null, snapshot.workspaceId, source.path);
       const byPath = new Map(snapshot.namespace.map((entry) => [entry.path, entry]));
       for (const entry of snapshot.namespace) {
         let parentPath = path.posix.dirname(entry.path);
@@ -296,6 +363,7 @@ export function compileWorkspaceNativeMixedBatch(input: {
         if (kind !== 'delete' && kind !== 'copy' && selection.sourcePath === selection.destinationPath) issue('unchanged-source-path', requestIndex, sourceWorkspaceId, selection.sourcePath);
         if (kind !== 'delete' && sourceWorkspaceId === destinationWorkspaceId && selection.destinationPath?.startsWith(`${selection.sourcePath}/`)) issue('destination-inside-source', requestIndex, sourceWorkspaceId, selection.sourcePath);
         for (const entity of selected) {
+          if (entity.physical) issue('physical-source-import-required', requestIndex, sourceWorkspaceId, entity.path);
           if (mapped.has(entity.entityKey)) issue('overlapping-selection', requestIndex, sourceWorkspaceId, entity.path);
           mapped.set(entity.entityKey, { source: entity, destinationPath: kind === 'delete' ? null : `${selection.destinationPath}${entity.path.slice(selection.sourcePath.length)}`, copy: null });
         }
@@ -344,6 +412,12 @@ export function compileWorkspaceNativeMixedBatch(input: {
           issue('uncopied-cross-workspace-target', requestIndex, sourceWorkspaceId, edge.entity.path, edge.originEvidenceLinkId); continue;
         }
         if (!sourceMap && !targetMap) continue;
+        if (edge.provider === 'physical-read') {
+          // A stable Wiki alias may still resolve to the same moved entity
+          // without a byte change. The full after-graph below decides whether
+          // this READ source actually requires import and a native rewrite.
+          continue;
+        }
         const owner = kind === 'copy' ? sourceMap!.copy! : edge.entity;
         const logical = kind === 'copy' ? owner.links.find((link) => link.originEvidenceLinkId === edge.originEvidenceLinkId)! : edge.link;
         const target = entities.find((entity) => entity.entityKey === edge.resolution.targetEntityKey)!;
@@ -403,7 +477,8 @@ export function compileWorkspaceNativeMixedBatch(input: {
         if (kind === 'delete' && mapped.has(edge.sourceEntityKey)) continue;
         if (intents.some((intent) => intent.virtualLinkKey === edge.virtualLinkKey && intent.action === 'unlink')) continue;
         const after = afterByKey.get(edge.virtualLinkKey);
-        if (!after || proof(edge.resolution) !== proof(after.resolution)) issue('resolution-changed', requestIndex, edge.entity.workspaceId, edge.entity.path, edge.originEvidenceLinkId);
+        if (!after || proof(edge.resolution) !== proof(after.resolution)) issue(edge.provider === 'physical-read'
+          ? 'physical-source-import-required' : 'resolution-changed', requestIndex, edge.entity.workspaceId, edge.entity.path, edge.originEvidenceLinkId);
       }
       if (kind === 'copy') for (const mapping of mapped.values()) {
         for (const old of beforeEdges.filter((edge) => edge.sourceEntityKey === mapping.source.entityKey)) {
@@ -426,7 +501,7 @@ export function compileWorkspaceNativeMixedBatch(input: {
         if (contentProof(scratchState(check.entity)) !== check.beforeContentProof) throw new Error('inverse-effect-changed');
       } catch { issue('batch-inverse-unavailable', check.requestIndex, check.entity.workspaceId, check.entity.path); break; }
     }
-    const body: Omit<NativeMixedBatchPlan, 'planId'> = { contractVersion: 2, compilerVersion: 1,
+    const body: Omit<NativeMixedBatchPlan, 'planId'> | Omit<NativeMixedReadBatchPlanV3, 'planId'> = { contractVersion, compilerVersion: 1,
       readiness: issues.length ? 'blocked' : clones.length ? 'requires-clone-rebinding' : 'ready', executionReady: false,
       requests: structuredClone([...input.requests]),
       snapshotProofs: input.snapshots.map((snapshot) => ({ workspaceId: snapshot.workspaceId, proof: snapshot.snapshotProof })).sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),

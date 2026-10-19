@@ -12,6 +12,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-operation-raw-markdown-boundary-postgres-test.ts': [entryPoint,
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/lib/markdown/workspace-source-authority-stage.ts',
+    'app/lib/files/workspace-operation-native-copy-owner.ts',
+    'app/lib/files/workspace-operation-managed-copy-plan.ts',
+    'app/lib/files/workspace-operation-batch-plan.ts',
+    'app/lib/files/workspace-operation-native-source-evidence.ts',
+    'app/lib/files/workspace-operation-native-source-evidence-v3.ts',
+    'app/lib/files/workspace-operation-mixed-source-evidence.ts',
+    'app/lib/markdown/workspace-native-file-operation-planner.ts',
+    'app/lib/markdown/workspace-native-mixed-batch-compiler.ts',
+    'app/lib/workspaces/request-principal.ts', 'app/lib/db/index.ts'],
   'scripts/postgres-prepared-storage-postgres-test.ts': [entryPoint,
     'app/lib/db/index.ts', 'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/lib/files/workspace-operation-original-delete-storage.ts',
