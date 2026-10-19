@@ -12,7 +12,8 @@ import { serializePortableExcalidrawSceneFromReadonlyAssets } from '../excalidra
 import type { ExcalidrawAssetMetadata } from '../excalidraw-collaboration/protocol';
 import { decodePreparedWorkspacePathCopyOriginal, type PreparedPathCopyIdentity,
   type PreparedWorkspacePathCopyOriginalV2, type PreparedWorkspacePathCopyOriginalV3 } from '../filesystem/prepared-workspace-path-copy-contract';
-import { compileWorkspaceNativeMixedBatch, compileWorkspaceMixedReadBatchV3 } from '../markdown/workspace-native-mixed-batch-compiler';
+import { compileWorkspaceNativeMixedBatch, compileWorkspaceMixedReadBatchV3, compileWorkspaceMixedImportCopyBatchV4,
+  type NativeMixedBatchPlan, type NativeMixedReadBatchPlanV3, type NativeMixedImportCopyBatchPlanV4 } from '../markdown/workspace-native-mixed-batch-compiler';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent } from './workspace-operation-native-source-evidence';
 import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
@@ -26,9 +27,14 @@ import { decodeNativeCopyMetadataSnapshot, type NativeCopyMetadataSnapshot } fro
 import { captureNativeCopyStageIdentity, NativeCopyStageDataError, NATIVE_COPY_STAGE_MANIFEST_LIMIT,
   type WorkspaceOperationNativeCopyStageIdentity } from './workspace-operation-native-copy-stage';
 import type { WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
+import { decodeWorkspaceOperationManagedCopyPlanV5, type WorkspaceOperationManagedCopyPlanV5 } from './workspace-operation-managed-copy-plan-v5';
+import { inspectOriginalPhysicalLinks, type OriginalPhysicalLinkInventory } from '../markdown/workspace-physical-link-inventory';
+import { MAX_INDEXED_MARKDOWN_BYTES } from '../markdown/workspace-link-limits';
+import { prepareMarkdownFileImport } from '../collaboration/markdown-file-import';
 
 export const MANAGED_COPY_SCENE_RECORDS_LIMIT = 128 * 1024 * 1024;
 export const MANAGED_COPY_SCENE_ASSETS_LIMIT = 50 * 1024 * 1024;
+export const MANAGED_COPY_RAW_ORIGINALS_LIMIT = 64 * 1024 * 1024;
 const DERIVED_BYTES_LIMIT = 128 * 1024 * 1024;
 const MAX_ASSETS = 2_000;
 export type WorkspaceOperationManagedCopyStageIdentity = WorkspaceOperationNativeCopyStageIdentity;
@@ -69,9 +75,29 @@ export type WorkspaceOperationManagedCopyStageV5 = Readonly<Omit<ManagedCopyStag
   nativeRecords: readonly NativeRecoveryRecord[]; sceneRecords: readonly WorkspaceSceneSnapshotRecord[];
   sceneAssets: readonly WorkspaceOperationManagedCopyAsset[];
 }>;
-export type WorkspaceOperationAnyManagedCopyStage = WorkspaceOperationManagedCopyStageV4 | WorkspaceOperationManagedCopyStageV5;
+export type ManagedCopyRawOriginalDescriptor = Readonly<{
+  requirementKey: string; sourcePath: string; physicalSourceProof: string; filesystemIdentity: string;
+  sourceHash: string; sourceBytes: number; offset: number; sizeBytes: number; sha256: string;
+}>;
+export type ManagedCopyStageManifestV6 = Readonly<Omit<ManagedCopyStageManifestV4, 'version' | 'plan'> & {
+  version: 6; plan: WorkspaceOperationManagedCopyPlanV5;
+  rawOriginals: PayloadDescriptor<'raw-originals.bin'> & Readonly<{ entries: readonly ManagedCopyRawOriginalDescriptor[] }>;
+}>;
+export type WorkspaceOperationManagedCopyStageV6 = Readonly<Omit<ManagedCopyStageManifestV6, 'records' | 'sceneRecords' | 'sceneAssets' | 'rawOriginals'> & {
+  nativeRecords: readonly NativeRecoveryRecord[]; sceneRecords: readonly WorkspaceSceneSnapshotRecord[];
+  sceneAssets: readonly WorkspaceOperationManagedCopyAsset[]; rawOriginals: readonly OriginalPhysicalLinkInventory[];
+}>;
+export type WorkspaceOperationRawCopyStageInput = Readonly<Omit<WorkspaceOperationManagedCopyStageInput, 'plan'> & {
+  plan: WorkspaceOperationManagedCopyPlanV5; rawOriginals: readonly OriginalPhysicalLinkInventory[];
+}>;
+type LegacyManagedCopyStage = WorkspaceOperationManagedCopyStageV4 | WorkspaceOperationManagedCopyStageV5;
+type ManagedCopyPlanData = WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
+export type WorkspaceOperationAnyManagedCopyStage = LegacyManagedCopyStage;
 export type WorkspaceOperationOwnedCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationAnyManagedCopyStage;
+/** Stored originals may precede their fixed Owner/Phase execution support. */
+export type WorkspaceOperationStoredCopyStage = WorkspaceOperationOwnedCopyStage | WorkspaceOperationManagedCopyStageV6;
 export type ManagedCopyStagePayloads = Readonly<{ recordsBytes: Buffer; sceneRecordsBytes: Buffer; sceneAssetsBytes: Buffer }>;
+export type ManagedCopyRawStagePayloads = ManagedCopyStagePayloads & Readonly<{ rawOriginalsBytes: Buffer }>;
 const fail = (code: NativeCopyStageDataError['code'] = 'STAGE_CONFLICT'): never => { throw new NativeCopyStageDataError(code); };
 const hash = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex');
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
@@ -133,12 +159,15 @@ function binary(input: unknown, maximum: number, expected?: number): Buffer {
   if (expected !== undefined && length !== expected || Object.getPrototypeOf(arrayBuffer.call(input)) !== ArrayBuffer.prototype) return fail();
   const copy = Buffer.alloc(length); Uint8Array.prototype.set.call(copy, input as Uint8Array); return copy;
 }
-function evidences(plan: WorkspaceOperationAnyManagedCopyPlan) {
+function evidences(plan: ManagedCopyPlanData) {
   return plan.sourceScope.workspaceId === plan.destinationScope.workspaceId ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence];
 }
 
 /** Historical raw equality, never an assertion of current SQL/principal facts. */
-function replay(plan: WorkspaceOperationAnyManagedCopyPlan, records: readonly NativeRecoveryRecord[]) {
+function replay(plan: WorkspaceOperationAnyManagedCopyPlan, records: readonly NativeRecoveryRecord[]): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3;
+function replay(plan: WorkspaceOperationManagedCopyPlanV5, records: readonly NativeRecoveryRecord[]): NativeMixedImportCopyBatchPlanV4;
+function replay(plan: ManagedCopyPlanData, records: readonly NativeRecoveryRecord[]): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4;
+function replay(plan: ManagedCopyPlanData, records: readonly NativeRecoveryRecord[]) {
   const components = evidences(plan), expected = new Map(components.flatMap(evidence => evidence.nativeBindings
     .map(binding => [binding.expected.documentId, binding] as const)));
   if (records.length !== expected.size) return fail();
@@ -155,7 +184,10 @@ function replay(plan: WorkspaceOperationAnyManagedCopyPlan, records: readonly Na
   }
   const requests = [{ kind: 'copy' as const, sourceWorkspaceId: plan.sourceScope.workspaceId, destinationWorkspaceId: plan.destinationScope.workspaceId,
     selections: plan.selections.map(selection => ({ ...selection })) }];
-  const compiled = plan.version === 4
+  const compiled = plan.version === 5
+    ? compileWorkspaceMixedImportCopyBatchV4({ snapshots: components.map(evidence => evidence.evidenceVersion === 4
+      ? workspaceOperationMixedCopySourceSnapshot(evidence) : fail()), requests, states: [...states.values()] })
+    : plan.version === 4
     ? compileWorkspaceMixedReadBatchV3({ snapshots: (plan.sourceScope.workspaceId === plan.destinationScope.workspaceId
       ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence]).map(workspaceOperationMixedCopySourceSnapshot),
     requests, states: [...states.values()] })
@@ -163,11 +195,14 @@ function replay(plan: WorkspaceOperationAnyManagedCopyPlan, records: readonly Na
       requests, states: [...states.values()] });
   if (compiled.issues.length || compiled.executionReady !== false || compiled.planId !== plan.compilerPlanProof
     || compiled.finalGraphProof !== plan.finalGraphProof || !equal(compiled.cloneRequirements, plan.cloneRequirements)) return fail();
+  if (plan.version === 5 && (compiled.contractVersion !== 4
+    || !equal(compiled.rawImportRequirements, plan.rawImportRequirements.map(({ preparation: _preparation, ...requirement }) => requirement))
+    || !equal(compiled.steps[0].physicalLinkIntents, plan.nativePathPlan.physicalLinkIntents))) return fail();
   return compiled;
 }
 /** Historical mathematics only; current owner and SQL observations are separate. */
 export const replayManagedCopyStageCompiler = replay;
-function nativeBytes(input: unknown, plan: WorkspaceOperationAnyManagedCopyPlan): Buffer {
+function nativeBytes(input: unknown, plan: ManagedCopyPlanData): Buffer {
   const records = list(input, 10_000).map(raw => {
     const value = object(raw, ['lineageId', 'state']);
     if (typeof value.lineageId !== 'string') return fail();
@@ -179,7 +214,7 @@ function nativeBytes(input: unknown, plan: WorkspaceOperationAnyManagedCopyPlan)
   const detached = records.map(record => ({ lineageId: record.lineageId, state: structuredClone(record.state) }));
   replay(plan, detached); return serializeNativeRecoveryPayload(detached);
 }
-function scenes(input: unknown, plan: WorkspaceOperationAnyManagedCopyPlan): { records: readonly WorkspaceSceneSnapshotRecord[]; bytes: Buffer } {
+function scenes(input: unknown, plan: ManagedCopyPlanData): { records: readonly WorkspaceSceneSnapshotRecord[]; bytes: Buffer } {
   const raw = list(input, 10_000), requirements = plan.sceneCopyRequirements;
   if (raw.length !== requirements.length) return fail();
   const expected = new Map(requirements.map(requirement => [requirement.sourceDocumentId, requirement]));
@@ -253,7 +288,7 @@ function fingerprint(identity: PreparedPathCopyIdentity): string {
   const milliseconds = (value: string) => { const ns = BigInt(value); return Number(ns / BigInt(1_000_000_000)) * 1000 + Number(ns % BigInt(1_000_000_000)) / 1_000_000; };
   return `${identity.device}:${identity.inode}:${identity.size}:${milliseconds(identity.mtimeNs)}:${milliseconds(identity.ctimeNs)}`;
 }
-function physicals(input: unknown, plan: WorkspaceOperationAnyManagedCopyPlan): readonly WorkspaceOperationManagedCopyPhysical[] {
+function physicals(input: unknown, plan: ManagedCopyPlanData): readonly WorkspaceOperationManagedCopyPhysical[] {
   const raw = list(input, 1000); if (raw.length !== plan.selections.length) return fail();
   const namespace = new Map(plan.sourceEvidence.stage.namespace.map(entry => [entry.path, entry]));
   let derivedBytes = 0;
@@ -410,9 +445,9 @@ export function decodeManagedCopyStage(manifestInput: ManagedCopyStageManifestV4
 export function decodeManagedCopyStage(manifestInput: ManagedCopyStageManifestV5, payloads: ManagedCopyStagePayloads,
   expected: WorkspaceOperationManagedCopyStageIdentity): WorkspaceOperationManagedCopyStageV5;
 export function decodeManagedCopyStage(manifestInput: unknown, payloads: ManagedCopyStagePayloads,
-  expected: WorkspaceOperationManagedCopyStageIdentity): WorkspaceOperationAnyManagedCopyStage;
+  expected: WorkspaceOperationManagedCopyStageIdentity): LegacyManagedCopyStage;
 export function decodeManagedCopyStage(manifestInput: unknown, payloads: ManagedCopyStagePayloads,
-  expected: WorkspaceOperationManagedCopyStageIdentity): WorkspaceOperationAnyManagedCopyStage {
+  expected: WorkspaceOperationManagedCopyStageIdentity): LegacyManagedCopyStage {
   return guarded(() => {
     const stored = manifest(manifestInput), identity = captureNativeCopyStageIdentity(expected);
     if (!equal(identity, stored.identity)) return fail('CORRUPT_STAGE');
@@ -434,5 +469,174 @@ export function decodeManagedCopyStage(manifestInput: unknown, payloads: Managed
       || !rebuilt.sceneRecordsBytes.equals(sceneRecordsBytes) || !rebuilt.sceneAssetsBytes.equals(sceneAssetsBytes)) return fail('CORRUPT_STAGE');
     const { records: _nativeDescriptor, sceneRecords: _sceneDescriptor, sceneAssets: _assetDescriptor, ...base } = stored;
     return freeze({ ...base, nativeRecords, sceneRecords: scenes(sceneRecords, stored.plan).records, sceneAssets });
+  }, true);
+}
+
+/** Facts only: this lookup binds the full read Evidence to an unbound import
+ * requirement. It cannot initialize the physical source or grant Copy access. */
+function rawRequirementSource(plan: WorkspaceOperationManagedCopyPlanV5, index: number) {
+  const requirement = plan.rawImportRequirements[index];
+  if (!requirement || requirement.requestIndex !== 0 || requirement.sourceWorkspaceId !== plan.sourceScope.workspaceId
+    || requirement.destinationWorkspaceId !== plan.destinationScope.workspaceId) return fail();
+  const sources = plan.sourceEvidence.nativeComponent.physicalSources;
+  const source = sources.find(source => source.path === requirement.sourcePath);
+  const entry = plan.sourceEvidence.stage.namespace.find(entry => entry.path === requirement.sourcePath);
+  if (!source || !entry || entry.kind !== 'file' || source.parserVersion !== 2 || !source.coverage.complete || source.coverage.gaps.length
+    || source.workspaceId !== plan.sourceScope.workspaceId || source.organizationId !== plan.sourceScope.organizationId
+    || source.physicalSourceProof !== requirement.physicalSourceProof || !equal(source.physical, requirement.physical)
+    || requirement.sourceEntityKey !== proof({ workspaceId: entry.workspaceId, identity: entry.identity })
+    || !integer(source.physical.byteLength) || source.physical.byteLength > MAX_INDEXED_MARKDOWN_BYTES) return fail();
+  return source;
+}
+
+/** Reparse original bytes and bind their ordinary FD leaf. Native projection
+ * leaves and Scene-derived payloads can never impersonate a raw import source. */
+function rawOriginals(input: unknown, plan: WorkspaceOperationManagedCopyPlanV5,
+  physical: readonly WorkspaceOperationManagedCopyPhysical[]) {
+  const values = list(input, 10_000);
+  if (values.length !== plan.rawImportRequirements.length) return fail();
+  const total = plan.rawImportRequirements.reduce((sum, _requirement, index) => sum + rawRequirementSource(plan, index).physical.byteLength, 0);
+  if (!integer(total) || total > MANAGED_COPY_RAW_ORIGINALS_LIMIT) return fail('STAGE_TOO_LARGE');
+  const fields = ['physicalSourceVersion', 'parserVersion', 'source', 'workspaceId', 'organizationId', 'path', 'authority', 'physical',
+    'originalBytes', 'encoding', 'hasBom', 'lineEndings', 'frontmatterPrefix', 'metadata', 'links', 'coverage', 'applicability', 'executionReady', 'physicalSourceProof'];
+  const records: OriginalPhysicalLinkInventory[] = [], entries: ManagedCopyRawOriginalDescriptor[] = [], chunks: Buffer[] = [];
+  let offset = 0;
+  for (const [index, value] of values.entries()) {
+    const raw = object(value, fields), source = rawRequirementSource(plan, index), requirement = plan.rawImportRequirements[index];
+    const bytes = binary(raw.originalBytes, MAX_INDEXED_MARKDOWN_BYTES, source.physical.byteLength);
+    const facts = capture(Object.fromEntries(fields.filter(name => name !== 'originalBytes').map(name => [name, raw[name]])));
+    const original = inspectOriginalPhysicalLinks({ workspaceId: source.workspaceId, organizationId: source.organizationId,
+      path: source.path, authority: source.authority, filesystemIdentity: source.physical.filesystemIdentity, bytes });
+    const { originalBytes: _bytes, ...parsedFacts } = original;
+    if (!equal(facts, source) || !equal(parsedFacts, source) || hash(bytes) !== source.physical.byteHash) return fail();
+    const prepared = prepareMarkdownFileImport(bytes, { representation: 'auto' });
+    if (!equal(requirement.preparation, { version: 1, representation: prepared.representation, newlineStyle: prepared.newlineStyle,
+      hasBom: prepared.hasBom, sourceHash: prepared.sourceHash, sourceBytes: prepared.sourceBytes, canonicalHash: hash(prepared.canonical) })) return fail();
+    const selected = physical.find(value => source.path === value.original.sourcePath || source.path.startsWith(value.original.sourcePath + '/'));
+    if (!selected) return fail();
+    const relative = source.path.slice(selected.original.sourcePath.length).replace(/^\//u, '');
+    const originalNode = selected.original.source.kind === 'directory'
+      ? selected.original.source.entries.find(node => node.relativePath === relative)
+      : relative === '' && selected.original.source.kind !== 'projection_absent' ? selected.original.source : undefined;
+    const destination = selected.original.destinationPath + (relative ? '/' + relative : '');
+    if (!originalNode || originalNode.kind !== 'regular_file' || fingerprint(originalNode.identity) !== source.physical.filesystemIdentity
+      || originalNode.sha256 !== source.physical.byteHash || originalNode.identity.size !== String(source.physical.byteLength)
+      || destination !== requirement.destinationPath) return fail();
+    records.push(original); chunks.push(bytes);
+    entries.push({ requirementKey: requirement.entityKey, sourcePath: source.path, physicalSourceProof: source.physicalSourceProof,
+      filesystemIdentity: source.physical.filesystemIdentity, sourceHash: source.physical.byteHash, sourceBytes: bytes.length,
+      offset, sizeBytes: bytes.length, sha256: hash(bytes) });
+    offset += bytes.length;
+  }
+  return { records: freeze(records), entries: freeze(entries), bytes: Buffer.concat(chunks, offset) };
+}
+
+/** Check all counts/offsets/source bindings before any binary sidecar read. */
+function rawDescriptors(input: unknown, plan: WorkspaceOperationManagedCopyPlanV5): ManagedCopyStageManifestV6['rawOriginals'] {
+  const value = object(input, ['file', 'sizeBytes', 'sha256', 'count', 'entries']);
+  const rows = list(value.entries, 10_000);
+  if (rows.length !== plan.rawImportRequirements.length) return fail();
+  const base = descriptor({ file: value.file, sizeBytes: value.sizeBytes, sha256: value.sha256, count: value.count },
+    'raw-originals.bin', MANAGED_COPY_RAW_ORIGINALS_LIMIT, rows.length);
+  let offset = 0; const keys = new Set<string>();
+  const entries = rows.map((raw, index) => {
+    const item = object(raw, ['requirementKey', 'sourcePath', 'physicalSourceProof', 'filesystemIdentity', 'sourceHash', 'sourceBytes', 'offset', 'sizeBytes', 'sha256']);
+    const source = rawRequirementSource(plan, index), requirement = plan.rawImportRequirements[index];
+    if (item.requirementKey !== requirement.entityKey || keys.has(requirement.entityKey) || item.sourcePath !== source.path
+      || item.physicalSourceProof !== source.physicalSourceProof || item.filesystemIdentity !== source.physical.filesystemIdentity
+      || item.sourceHash !== source.physical.byteHash || item.sha256 !== source.physical.byteHash
+      || item.sourceBytes !== source.physical.byteLength || item.sizeBytes !== source.physical.byteLength || item.offset !== offset) return fail();
+    keys.add(requirement.entityKey); offset += source.physical.byteLength;
+    if (offset > MANAGED_COPY_RAW_ORIGINALS_LIMIT) return fail('STAGE_TOO_LARGE');
+    return item as ManagedCopyRawOriginalDescriptor;
+  });
+  if (offset !== base.sizeBytes) return fail(); return freeze({ ...base, entries });
+}
+
+function rawManifest(input: unknown): ManagedCopyStageManifestV6 {
+  const raw = object(capture(input), [...manifestFields, 'rawOriginals']);
+  if (raw.version !== 6 || raw.kind !== 'native-copy' || !digest(raw.payloadSha256)) return fail();
+  const plan = decodeWorkspaceOperationManagedCopyPlanV5(raw.plan), identity = captureNativeCopyStageIdentity(raw.identity);
+  const request = capture(raw.request) as WorkspaceOperationRequest;
+  if (request.kind !== 'copy' || !request.origin || !equal(request.selections, plan.selections)) return fail();
+  const origin = decodeWorkspaceOperationCopyOrigin(request.origin);
+  if (!equal(origin, raw.origin) || !equal(origin.sourceScope, plan.sourceScope) || !equal(origin.destinationScope, plan.destinationScope)
+    || identity.planId !== plan.planId || identity.sourceWorkspaceId !== plan.sourceScope.workspaceId
+    || identity.destinationWorkspaceId !== plan.destinationScope.workspaceId
+    || identity.canonicalRequestHash !== serializeWorkspaceOperationRequest(request).requestHash) return fail();
+  const physical = physicals(raw.physical, plan), metadata = decodeNativeCopyMetadataSnapshot(raw.metadata, { plan, physical });
+  const count = new Set(evidences(plan).flatMap(evidence => evidence.nativeBindings.map(binding => binding.expected.documentId))).size;
+  descriptor(raw.records, 'native-records.bin', NATIVE_RECOVERY_PAYLOAD_LIMIT, count);
+  descriptor(raw.sceneRecords, 'scene-records.json', MANAGED_COPY_SCENE_RECORDS_LIMIT, plan.sceneCopyRequirements.length);
+  const assetInfo = assetDescriptors(raw.sceneAssets); rawDescriptors(raw.rawOriginals, plan);
+  if (!plan.sceneCopyRequirements.length && assetInfo.count !== 0
+    || assetInfo.entries.some(entry => entry.workspaceId !== plan.sourceScope.workspaceId)) return fail();
+  const { payloadSha256, ...body } = raw;
+  if (proof(body) !== payloadSha256 || !equal(physical, raw.physical) || !equal(metadata, raw.metadata)) return fail();
+  return freeze(raw as unknown as ManagedCopyStageManifestV6);
+}
+
+/** Additive Stage6. Ordinary raw FD originals keep their original bytes; this
+ * private payload does not claim an import, authority, COMMIT or projection. */
+export function prepareRawCopyStage(input: WorkspaceOperationRawCopyStageInput) {
+  return guarded(() => {
+    const raw = object(input, ['operationId', 'request', 'plan', 'physical', 'nativeRecords', 'sceneRecords', 'sceneAssets', 'metadata', 'rawOriginals']);
+    const plan = decodeWorkspaceOperationManagedCopyPlanV5(raw.plan), request = capture(raw.request) as WorkspaceOperationRequest;
+    if (request.kind !== 'copy' || !request.origin || !equal(request.selections, plan.selections)) return fail();
+    const origin = decodeWorkspaceOperationCopyOrigin(request.origin);
+    if (!equal(origin.sourceScope, plan.sourceScope) || !equal(origin.destinationScope, plan.destinationScope)) return fail();
+    const identity = captureNativeCopyStageIdentity({ operationId: raw.operationId, planId: plan.planId, kind: 'native-copy',
+      sourceWorkspaceId: plan.sourceScope.workspaceId, destinationWorkspaceId: plan.destinationScope.workspaceId,
+      canonicalRequestHash: serializeWorkspaceOperationRequest(request).requestHash });
+    const physical = physicals(raw.physical, plan), metadata = decodeNativeCopyMetadataSnapshot(raw.metadata, { plan, physical });
+    const originals = rawOriginals(raw.rawOriginals, plan, physical), sceneData = scenes(raw.sceneRecords, plan), assetData = assets(raw.sceneAssets, sceneData.records);
+    projectionBytes(physical, sceneData.records, assetData.assets);
+    const recordsBytes = nativeBytes(raw.nativeRecords, plan);
+    const records = { file: 'native-records.bin' as const, sizeBytes: recordsBytes.length, sha256: hash(recordsBytes), count: list(raw.nativeRecords, 10_000).length };
+    const sceneRecords = { file: 'scene-records.json' as const, sizeBytes: sceneData.bytes.length, sha256: hash(sceneData.bytes), count: sceneData.records.length };
+    const sceneAssets = { file: 'scene-assets.bin' as const, sizeBytes: assetData.bytes.length, sha256: hash(assetData.bytes), count: assetData.entries.length, entries: assetData.entries };
+    const originalDescriptor = { file: 'raw-originals.bin' as const, sizeBytes: originals.bytes.length, sha256: hash(originals.bytes),
+      count: originals.entries.length, entries: originals.entries };
+    const body = { version: 6 as const, kind: 'native-copy' as const, identity, request, origin, plan, physical, metadata, records,
+      sceneRecords, sceneAssets, rawOriginals: originalDescriptor };
+    const prepared: ManagedCopyStageManifestV6 = freeze({ ...body, payloadSha256: proof(body) }), manifestBytes = jsonBytes(prepared);
+    if (manifestBytes.length > NATIVE_COPY_STAGE_MANIFEST_LIMIT) return fail('STAGE_TOO_LARGE');
+    rawManifest(prepared);
+    return { manifest: prepared, manifestBytes, recordsBytes, sceneRecordsBytes: sceneData.bytes,
+      sceneAssetsBytes: assetData.bytes, rawOriginalsBytes: originals.bytes };
+  });
+}
+
+export function assertRawCopyStageManifestDigest(input: unknown): void { guarded(() => { rawManifest(input); }, true); }
+
+/** Historical source replay only. Never rebind against a later native target. */
+export function decodeRawCopyStage(manifestInput: unknown, payloads: ManagedCopyRawStagePayloads,
+  expected: WorkspaceOperationManagedCopyStageIdentity): WorkspaceOperationManagedCopyStageV6 {
+  return guarded(() => {
+    const stored = rawManifest(manifestInput), identity = captureNativeCopyStageIdentity(expected);
+    if (!equal(identity, stored.identity)) return fail('CORRUPT_STAGE');
+    const raw = object(payloads, ['recordsBytes', 'sceneRecordsBytes', 'sceneAssetsBytes', 'rawOriginalsBytes']);
+    const recordsBytes = binary(raw.recordsBytes, NATIVE_RECOVERY_PAYLOAD_LIMIT, stored.records.sizeBytes);
+    const sceneRecordsBytes = binary(raw.sceneRecordsBytes, MANAGED_COPY_SCENE_RECORDS_LIMIT, stored.sceneRecords.sizeBytes);
+    const sceneAssetsBytes = binary(raw.sceneAssetsBytes, MANAGED_COPY_SCENE_ASSETS_LIMIT, stored.sceneAssets.sizeBytes);
+    const rawOriginalsBytes = binary(raw.rawOriginalsBytes, MANAGED_COPY_RAW_ORIGINALS_LIMIT, stored.rawOriginals.sizeBytes);
+    if (hash(recordsBytes) !== stored.records.sha256 || hash(sceneRecordsBytes) !== stored.sceneRecords.sha256
+      || hash(sceneAssetsBytes) !== stored.sceneAssets.sha256 || hash(rawOriginalsBytes) !== stored.rawOriginals.sha256) return fail('CORRUPT_STAGE');
+    const nativeRecords = deserializeNativeRecoveryPayload(recordsBytes);
+    const sceneRecords: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(sceneRecordsBytes));
+    const sceneAssets = stored.sceneAssets.entries.map(entry => ({ workspaceId: entry.workspaceId, asset: {
+      metadata: entry.metadata, storageIdentity: entry.sourceStorageIdentity, contentProof: entry.sha256,
+      bytes: new Uint8Array(sceneAssetsBytes.subarray(entry.offset, entry.offset + entry.sizeBytes)) } }));
+    const originals = stored.rawOriginals.entries.map((entry, index) => ({ ...rawRequirementSource(stored.plan, index),
+      originalBytes: new Uint8Array(rawOriginalsBytes.subarray(entry.offset, entry.offset + entry.sizeBytes)) }));
+    const rebuilt = prepareRawCopyStage({ operationId: identity.operationId, request: stored.request, plan: stored.plan,
+      physical: stored.physical, metadata: stored.metadata, nativeRecords, rawOriginals: originals,
+      sceneRecords: sceneRecords as WorkspaceSceneSnapshotRecord[], sceneAssets });
+    if (!equal(rebuilt.manifest, stored) || !rebuilt.recordsBytes.equals(recordsBytes)
+      || !rebuilt.sceneRecordsBytes.equals(sceneRecordsBytes) || !rebuilt.sceneAssetsBytes.equals(sceneAssetsBytes)
+      || !rebuilt.rawOriginalsBytes.equals(rawOriginalsBytes)) return fail('CORRUPT_STAGE');
+    const { records: _native, sceneRecords: _scenes, sceneAssets: _assets, rawOriginals: _raw, ...base } = stored;
+    return freeze({ ...base, nativeRecords, sceneRecords: scenes(sceneRecords, stored.plan).records, sceneAssets,
+      rawOriginals: rawOriginals(originals, stored.plan, stored.physical).records });
   }, true);
 }

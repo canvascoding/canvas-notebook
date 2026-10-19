@@ -8,6 +8,7 @@ import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeCopyPlan, type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
 import { decodeWorkspaceOperationAnyManagedCopyPlan, type WorkspaceOperationAnyManagedCopyPlan } from './workspace-operation-managed-copy-plan-v4';
+import { decodeWorkspaceOperationManagedCopyPlanV5, type WorkspaceOperationManagedCopyPlanV5 } from './workspace-operation-managed-copy-plan-v5';
 import type { WorkspaceOperationNativeCopyPhysical, WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
 import type { WorkspaceOperationAnyManagedCopyStage, WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
 
@@ -24,7 +25,7 @@ export type NativeCopyMetadataStage = Omit<WorkspaceOperationNativeCopyStage, 'v
   version: 3; metadata: NativeCopyMetadataSnapshot; coreV2StageDigest: string;
 }>;
 type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationAnyManagedCopyStage;
-type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan;
+type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
 type Input = Readonly<{ plan: MetadataPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
 type Row = Record<string, unknown>;
 const MAX_ROWS = 2048;
@@ -83,7 +84,11 @@ function context(input: Input) {
   const managed = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
     && Object.getPrototypeOf(supplied) === Object.prototype
     && [3, 4].includes(Object.getOwnPropertyDescriptor(supplied, 'version')?.value);
-  const plan = managed ? decodeWorkspaceOperationAnyManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
+  const raw = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
+    && Object.getPrototypeOf(supplied) === Object.prototype
+    && Object.getOwnPropertyDescriptor(supplied, 'version')?.value === 5;
+  const plan = raw ? decodeWorkspaceOperationManagedCopyPlanV5(supplied)
+    : managed ? decodeWorkspaceOperationAnyManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
   const physical = list(fields.physical, 1000).map((value, index) => {
     const item = object(value, ['selectionIndex', 'original']), selected = plan.selections[index];
     const original = decodePreparedWorkspacePathCopyOriginal(item.original);
