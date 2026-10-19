@@ -119,7 +119,7 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
       }
     });
 
-    await check('Write scope and exact opt-in do not advertise reserved handlers or settings capabilities', async () => {
+    await check('Write scope and exact opt-in advertise the connected strict Move and Delete handlers', async () => {
       for (const route of routes) {
         for (const scope of ['knowledge:read', 'knowledge:search']) await assert.rejects(route.run(
           async () => assert.fail('Read/Search must not authorize a path write.'), await fixture.issue({ scope })), expectedCode('insufficient_scope'));
@@ -146,15 +146,21 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
         } } }) }));
         assert.equal(response.status, 200); const body = object(await response.json()); assert.equal(body.id, id); assert.equal(body.jsonrpc, '2.0'); return body;
       };
+      const before = await fixture.snapshot();
       const listed = object((await rpc('tools/list', {})).result); assert(Array.isArray(listed.tools) && listed.tools.length > 0);
       for (const route of routes) {
         assert((DIRECT_MCP_TOOL_IDS as readonly string[]).includes(route.tool));
         assert(!(DIRECT_MCP_DEFAULT_TOOL_IDS as readonly string[]).includes(route.tool));
         assert((DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS as readonly string[]).includes(route.tool));
-        assert(!settings.capabilities.some(capability => capability.id === route.tool));
-        assert(!listed.tools.some(tool => object(tool).name === route.tool));
+        const capability = settings.capabilities.find(capability => capability.id === route.tool);
+        assert(capability); assert.equal(capability.available, true); assert.equal(capability.enabled, true);
+        assert.deepEqual(capability.scopes, ['knowledge:write']);
+        assert(listed.tools.some(tool => object(tool).name === route.tool));
         const refused = await rpc('tools/call', { name: route.tool, arguments: { workspace_id: workspaceId } }, route.tool);
-        assert.equal(object(refused.error).code, -32601); assert.equal(refused.result, undefined);
+        assert.equal(Object.hasOwn(refused, 'error'), false);
+        const rejected = object(refused.result); assert.equal(rejected.isError, true);
+        assert.equal(object(rejected.structuredContent).code, 'INVALID_REQUEST');
+        assert.deepEqual(await fixture.snapshot(), before);
       }
     });
 

@@ -243,6 +243,40 @@ function historical(workspace: WorkspaceContext, capture: Capture, slot: Workspa
     customerId: workspace.customerId ?? null, projectId: workspace.projectId ?? null, ownerUserId: workspace.ownerUserId ?? null,
     rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath, legacy: false, status: 'active', ...capture.realm });
 }
+/** Fresh bounded facts only on the actual B; never a grant or a cached policy.
+ * Keep raw user/session values scalar. Numeric aggregate flags travel as exact
+ * text so JSON decoding cannot round an invalid integer/NUMERIC into 0 or 1. */
+async function readCurrentSlotFacts(phase: Phase, slot: WorkspaceSlot): Promise<Row | undefined> {
+  const { connection, capture } = phase;
+  return await connection.get(`WITH raw_user AS MATERIALIZED (SELECT
+    CASE WHEN octet_length(u.id)<=1024 THEN u.id END AS id,
+    CASE WHEN octet_length(u.email)<=4096 THEN u.email END AS email,
+    CASE WHEN octet_length(u.role)<=256 THEN u.role END AS role,u.banned,c.disabled,s.expires_at AS edit_session_expires_at,
+    (octet_length(u.id)<=1024 AND octet_length(u.email)<=4096 AND (u.role IS NULL OR octet_length(u.role)<=256)
+      AND octet_length(s.id)<=1024 AND octet_length(s.user_id)<=1024 AND octet_length(c.client_id)<=1024
+      AND (c.name IS NULL OR octet_length(c.name)<=4096)) AS bounded
+    FROM "user" u JOIN "session" s ON s.user_id=u.id CROSS JOIN oauth_client c
+    WHERE u.id=$1 AND s.id=$2 AND c.client_id=$3 LIMIT 1
+  ), organization_flags AS MATERIALIZED (
+    SELECT CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(team_features_enabled))='number'
+      THEN pg_catalog.to_jsonb(team_features_enabled::text) ELSE pg_catalog.to_jsonb(team_features_enabled) END AS team_features_enabled
+    FROM canvas_organization_settings LIMIT 17
+  ), permission_flags AS MATERIALIZED (
+    SELECT CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(can_write_team_workspace))='number'
+      THEN pg_catalog.to_jsonb(can_write_team_workspace::text) ELSE pg_catalog.to_jsonb(can_write_team_workspace) END AS can_write_team_workspace,
+    CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(can_create_public_links))='number'
+      THEN pg_catalog.to_jsonb(can_create_public_links::text) ELSE pg_catalog.to_jsonb(can_create_public_links) END AS can_create_public_links,
+    CASE WHEN pg_catalog.jsonb_typeof(pg_catalog.to_jsonb(can_create_team_automations))='number'
+      THEN pg_catalog.to_jsonb(can_create_team_automations::text) ELSE pg_catalog.to_jsonb(can_create_team_automations) END AS can_create_team_automations
+    FROM organization_user_permissions WHERE user_id=$1 LIMIT 1025
+  ) SELECT r.*,
+    EXISTS(SELECT 1 FROM mcp_direct_workspace_setting WHERE workspace_id=$4) AS opted_in,
+    EXISTS(SELECT 1 FROM mcp_direct_workspace_grant WHERE workspace_id=$4 AND client_id=$3 AND user_id=$1) AS granted,
+    COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(o)) FROM organization_flags o),'[]'::jsonb) AS organizations,
+    COALESCE((SELECT pg_catalog.jsonb_agg(pg_catalog.to_jsonb(p)) FROM permission_flags p),'[]'::jsonb) AS permissions
+    FROM raw_user r`, [capture.claims.subject, capture.claims.sessionId, capture.claims.clientId, slot.workspaceId]) as Row | undefined;
+}
+
 /** Slots are private fixed selections, never caller-supplied permission DTOs. */
 async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<WorkspaceContext> {
   alive(phase); await schema(phase); const { connection, capture } = phase;
@@ -252,31 +286,21 @@ async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<Workspace
     : capture.policy.kind !== 'copy' || slot !== slots.source && slot !== slots.destination) fail('MCP_READ_PRINCIPAL_INVALID');
   await runtime(capture); alive(phase);
   // Bound all strings before the unchanged shared grant loader materializes them.
-  const raw = await connection.get(`SELECT
-    CASE WHEN octet_length(u.id)<=1024 THEN u.id END AS id,
-    CASE WHEN octet_length(u.email)<=4096 THEN u.email END AS email,
-    CASE WHEN octet_length(u.role)<=256 THEN u.role END AS role,u.banned,c.disabled,s.expires_at AS edit_session_expires_at,
-    (octet_length(u.id)<=1024 AND octet_length(u.email)<=4096 AND (u.role IS NULL OR octet_length(u.role)<=256)
-      AND octet_length(s.id)<=1024 AND octet_length(s.user_id)<=1024 AND octet_length(c.client_id)<=1024
-      AND (c.name IS NULL OR octet_length(c.name)<=4096)) AS bounded
-    FROM "user" u JOIN "session" s ON s.user_id=u.id CROSS JOIN oauth_client c
-    WHERE u.id=$1 AND s.id=$2 AND c.client_id=$3 LIMIT 1`, [capture.claims.subject, capture.claims.sessionId, capture.claims.clientId]) as Row | undefined;
+  const raw = await readCurrentSlotFacts(phase, slot);
   alive(phase);
   if (!raw || raw.bounded !== true || raw.id !== capture.claims.subject || typeof raw.email !== 'string'
     || raw.role !== null && typeof raw.role !== 'string' || !flag(raw.banned) || !flag(raw.disabled)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
   const state = await loadDirectMcpGrantStateOnConnection(connection, capture.claims, capture.token); alive(phase);
   if (state && (!flag(state.user_banned) || !flag(state.client_disabled))) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
   assertGrantStateActive(state, capture.claims);
-  const permitted = await connection.get(`SELECT EXISTS(SELECT 1 FROM mcp_direct_workspace_setting WHERE workspace_id=$1) AS opted_in,
-    EXISTS(SELECT 1 FROM mcp_direct_workspace_grant WHERE workspace_id=$1 AND client_id=$2 AND user_id=$3) AS granted`,
-  [slot.workspaceId, capture.claims.clientId, capture.claims.subject]) as Row | undefined;
+  const permitted = raw;
   alive(phase); if (permitted?.opted_in !== true || permitted.granted !== true) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
-  const organizations = await connection.all('SELECT team_features_enabled FROM canvas_organization_settings LIMIT 17') as Row[];
-  const permissions = await connection.all(`SELECT can_write_team_workspace,can_create_public_links,can_create_team_automations
-    FROM organization_user_permissions WHERE user_id=$1 LIMIT 1025`, [capture.claims.subject]) as Row[];
+  const organizations = raw.organizations as Row[], permissions = raw.permissions as Row[];
   alive(phase);
-  if (organizations.length > 16 || permissions.length > 1024 || organizations.some(row => !flag(row.team_features_enabled))
-    || permissions.some(row => Object.values(row).some(value => !flag(value)))) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
+  if (!Array.isArray(organizations) || !Array.isArray(permissions)
+    || organizations.length > 16 || permissions.length > 1024
+    || organizations.some(row => !row || typeof row !== 'object' || !flag(row.team_features_enabled))
+    || permissions.some(row => !row || typeof row !== 'object' || Object.values(row).some(value => !flag(value)))) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
   await assertUserSeatAccess({ userId: capture.claims.subject, database: connection, licenseStatus: capture.license }); alive(phase);
   const workspace = await readPostgresWorkspaceForActorOnConnection(connection,
     resolveWorkspaceActor({ id: capture.claims.subject, email: raw.email, role: raw.role as string | null }), slot.workspaceId);
