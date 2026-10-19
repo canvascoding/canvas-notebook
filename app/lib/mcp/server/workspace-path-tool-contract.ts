@@ -33,14 +33,23 @@ export type DecodedDirectMcpWorkspaceDeleteRequestV1 = Slots & (
   Readonly<{ action: 'preview'; path: string }>
   | Readonly<{ action: 'apply' | 'recover'; path: string }> & SelectedOperation
   | Readonly<{ action: 'status'; operationId: string }>);
-export type DirectMcpWorkspacePathPreviewV1 = Readonly<{ kind: 'move' | 'delete'; workspaceId: string; planId: string;
+export type DirectMcpWorkspacePathNativePreviewV1 = Readonly<{ kind: 'move' | 'delete'; workspaceId: string; planId: string;
   readiness: 'ready'; paths: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[];
   linkChanges: Readonly<{ rewrites: number; unlinks: number; affectedDocuments: number }>; coverage: Readonly<{ complete: true }> }>;
+/** Read-only original-file preparation. Neither this summary nor its plan ID
+ * is a native batch, import receipt, claim or authority to execute a mutation. */
+export type DirectMcpWorkspacePathImportPreviewV1 = Readonly<{ version: 1; kind: 'native-path-import-preparation';
+  operationKind: 'move' | 'delete'; workspaceId: string; planId: string; executionReady: false;
+  readiness: 'requires-import-rebinding' | 'blocked'; paths: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[];
+  imports: readonly Readonly<{ path: string; reasons: readonly ('selected' | 'link-change')[] }>[];
+  issues: readonly Readonly<{ code: string; path: string }>[]; coverage: Readonly<{ complete: true }> }>;
+export type DirectMcpWorkspacePathPreviewV1 = DirectMcpWorkspacePathNativePreviewV1 | DirectMcpWorkspacePathImportPreviewV1;
 export type DirectMcpWorkspacePathExecutionV1 = Readonly<{ receiptStatus: 'available' | 'not_started' | 'unavailable';
   finalization: 'pending' | 'complete'; steps: readonly Readonly<{ key: string; phase: 'path' | 'link';
     kind: 'move' | 'rename' | 'delete' | 'link_update'; path: string; destinationPath?: string;
     state: 'pending' | 'applied' | 'needs_check'; openPath?: string }>[] }>;
 export type DirectMcpWorkspacePathOperationV1 = Readonly<{ operationId: string; batchId: string; planId: string; workspaceId: string;
+  preparation?: Readonly<{ version: 1; previewPlanId: string }>;
   journal: Readonly<{ status: 'applying' | 'applied' | 'failed' | 'needs_recovery';
     phase: 'preparing' | 'paths' | 'links' | 'complete' | 'recovery'; completedActions: number; totalActions: number;
     createdAt: number; updatedAt: number; errorCode: PublicWorkspacePathCode | null }>;
@@ -146,10 +155,53 @@ export function normalizePublicWorkspacePathErrorCode(value: unknown): PublicWor
     ORIGINAL_MOVE_TOO_LARGE: 'PATH_TOO_LARGE', ORIGINAL_MOVE_UNSUPPORTED: 'PATH_NATIVE_REQUIRED',
     ORIGINAL_DELETE_UNSUPPORTED: 'PATH_NATIVE_REQUIRED', ORIGINAL_DELETE_CHANGED: 'PATH_CONFLICT', ORIGINAL_DELETE_UNPROVEN: 'PATH_CONFLICT',
     ORIGINAL_DELETE_STORAGE_CHANGED: 'PATH_SCOPE_CHANGED', ORIGINAL_DELETE_BUSY: 'PATH_BUSY',
+    PATH_IMPORT_HISTORY_INVALID: 'INVALID_REQUEST', PATH_IMPORT_HISTORY_CHANGED: 'PATH_PLAN_CHANGED',
+    PATH_IMPORT_HISTORY_ORPHAN: 'PATH_OUTCOME_UNCONFIRMED', PATH_IMPORT_HISTORY_UNAVAILABLE: 'PATH_UNAVAILABLE',
+    PATH_IMPORT_PREPARATION_INVALID: 'INVALID_REQUEST', PATH_IMPORT_PREPARATION_CHANGED: 'PATH_PLAN_CHANGED',
+    PATH_IMPORT_PREPARATION_TOO_LARGE: 'PATH_TOO_LARGE', PATH_IMPORT_PREPARATION_UNSUPPORTED: 'PATH_NATIVE_REQUIRED',
+    PATH_IMPORT_PREPARATION_PHASE_INVALID: 'INVALID_REQUEST', PATH_IMPORT_PREPARATION_PHASE_REQUIRED: 'PATH_SCOPE_CHANGED',
+    PATH_IMPORT_PREPARATION_PHASE_CHANGED: 'PATH_PLAN_CHANGED', PATH_IMPORT_PREPARATION_NOT_READY: 'PATH_NATIVE_REQUIRED',
+    PATH_IMPORT_PREPARATION_RECORD_INVALID: 'PATH_OUTCOME_UNCONFIRMED', PATH_IMPORT_PREPARATION_RECORD_CHANGED: 'PATH_OUTCOME_UNCONFIRMED',
+    PATH_IMPORT_PREPARATION_RECORD_TOO_LARGE: 'PATH_TOO_LARGE', PATH_IMPORT_PREPARATION_RECORD_UNAVAILABLE: 'PATH_UNAVAILABLE',
+    PATH_IMPORT_OPERATION_INVALID: 'INVALID_REQUEST', PATH_IMPORT_OPERATION_OUTCOME_UNCONFIRMED: 'PATH_OUTCOME_UNCONFIRMED',
+    PATH_IMPORT_PREVIEW_INVALID: 'INVALID_REQUEST', PATH_IMPORT_PREVIEW_BUSY: 'PATH_BUSY',
+    PATH_IMPORT_PREVIEW_UNAVAILABLE: 'PATH_UNAVAILABLE', PATH_IMPORT_PREVIEW_ACCESS_DENIED: 'ACCESS_DENIED',
+    MARKDOWN_IMPORT_INVALID_INPUT: 'INVALID_REQUEST', MARKDOWN_IMPORT_ENCODING_UNSUPPORTED: 'PATH_NATIVE_REQUIRED',
+    MARKDOWN_IMPORT_RICH_UNAVAILABLE: 'PATH_NATIVE_REQUIRED', MARKDOWN_IMPORT_TARGET_CHANGED: 'PATH_PLAN_CHANGED',
+    MARKDOWN_IMPORT_TARGET_NOT_EMPTY: 'PATH_CONFLICT', MARKDOWN_IMPORT_LIFECYCLE_REQUIRED: 'PATH_SCOPE_CHANGED',
+    MARKDOWN_IMPORT_REQUEST_CONFLICT: 'PATH_CONFLICT', MARKDOWN_IMPORT_BUSY: 'PATH_BUSY', MARKDOWN_IMPORT_COMMIT_UNCONFIRMED: 'PATH_OUTCOME_UNCONFIRMED',
   };
   return Object.hasOwn(mapping, value) ? mapping[value] : 'PATH_UNAVAILABLE';
 }
 const preview = (value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathPreviewV1 => {
+  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-import-preparation') {
+    const row = record(value, ['version', 'kind', 'operationKind', 'workspaceId', 'planId', 'executionReady', 'readiness', 'paths', 'imports', 'issues', 'coverage'], [], invalid);
+    if (row.version !== 1 || row.executionReady !== false || typeof row.operationKind !== 'string' || !['move', 'delete'].includes(row.operationKind)
+      || row.readiness !== 'requires-import-rebinding' && row.readiness !== 'blocked') return invalid();
+    workspace(row.workspaceId, invalid); planId(row.planId, invalid);
+    const paths = list(row.paths, MAX_SELECTIONS, invalid); if (!paths.length || row.operationKind === 'delete' && paths.length !== 1) return invalid();
+    for (const value of paths) {
+      const selected = record(value, ['sourcePath', ...(row.operationKind === 'move' ? ['destinationPath'] : [])], [], invalid);
+      pathname(selected.sourcePath, invalid); if (row.operationKind === 'move') pathname(selected.destinationPath, invalid);
+    }
+    const imports = list(row.imports, MAX_STEPS, invalid), seen = new Set<string>();
+    for (const value of imports) {
+      const imported = record(value, ['path', 'reasons'], [], invalid), file = pathname(imported.path, invalid);
+      if (seen.has(file)) return invalid(); seen.add(file);
+      const reasons = list(imported.reasons, 2, invalid);
+      if (!reasons.length || reasons.some(reason => reason !== 'selected' && reason !== 'link-change')
+        || JSON.stringify(reasons) !== JSON.stringify(['selected', 'link-change'].filter(reason => reasons.includes(reason)))) return invalid();
+    }
+    const issues = list(row.issues, MAX_STEPS, invalid);
+    for (const value of issues) {
+      const issue = record(value, ['code', 'path'], [], invalid);
+      if (typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)) return invalid();
+      if (issue.path !== '') pathname(issue.path, invalid);
+    }
+    if (row.readiness === 'blocked' ? !issues.length : issues.length || !imports.length) return invalid();
+    const coverage = record(row.coverage, ['complete'], [], invalid); if (coverage.complete !== true) return invalid();
+    return row as unknown as DirectMcpWorkspacePathImportPreviewV1;
+  }
   const row = record(value, ['kind', 'workspaceId', 'planId', 'readiness', 'paths', 'linkChanges', 'coverage'], [], invalid);
   if (typeof row.kind !== 'string' || !['move', 'delete'].includes(row.kind) || row.readiness !== 'ready') return invalid();
   workspace(row.workspaceId, invalid); planId(row.planId, invalid);
@@ -164,8 +216,12 @@ const preview = (value: Json | undefined, invalid: () => never): DirectMcpWorksp
   return row as unknown as DirectMcpWorkspacePathPreviewV1;
 };
 const operation = (value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathOperationV1 => {
-  const row = record(value, ['operationId', 'batchId', 'planId', 'workspaceId', 'journal', 'execution', 'completion'], [], invalid);
+  const row = record(value, ['operationId', 'batchId', 'planId', 'workspaceId', 'journal', 'execution', 'completion'], ['preparation'], invalid);
   operationId(row.operationId, invalid); planId(row.batchId, invalid); planId(row.planId, invalid); workspace(row.workspaceId, invalid);
+  if (Object.hasOwn(row, 'preparation')) {
+    const preparation = record(row.preparation, ['version', 'previewPlanId'], [], invalid);
+    if (preparation.version !== 1) return invalid(); planId(preparation.previewPlanId, invalid);
+  }
   const journal = record(row.journal, ['status', 'phase', 'completedActions', 'totalActions', 'createdAt', 'updatedAt', 'errorCode'], [], invalid);
   if (typeof journal.status !== 'string' || !['applying', 'applied', 'failed', 'needs_recovery'].includes(journal.status)
     || typeof journal.phase !== 'string' || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(journal.phase)) return invalid();
@@ -287,19 +343,30 @@ const stepSchema = objectSchema({ key: { type: 'string', minLength: 1, maxLength
   kind: { enum: ['move', 'rename', 'delete', 'link_update'], type: 'string' }, path: pathSchema, destinationPath: pathSchema,
   state: { enum: ['pending', 'applied', 'needs_check'], type: 'string' }, openPath: pathSchema }, ['key', 'phase', 'kind', 'path', 'state']);
 const operationResultSchema = objectSchema({ operationId: operationSchema, batchId: planSchema, planId: planSchema, workspaceId: workspaceSchema,
+  preparation: objectSchema({ version: { const: 1, type: 'integer' }, previewPlanId: planSchema }),
   journal: objectSchema({ status: { type: 'string', enum: ['applying', 'applied', 'failed', 'needs_recovery'] },
     phase: { type: 'string', enum: ['preparing', 'paths', 'links', 'complete', 'recovery'] }, completedActions: { ...integerSchema, maximum: MAX_STEPS },
     totalActions: { ...integerSchema, maximum: MAX_STEPS }, createdAt: integerSchema, updatedAt: integerSchema, errorCode: { anyOf: [codeSchema, { type: 'null' }] } }),
   execution: objectSchema({ receiptStatus: { type: 'string', enum: ['available', 'not_started', 'unavailable'] },
     finalization: { type: 'string', enum: ['pending', 'complete'] }, steps: arraySchema(stepSchema) }),
   completion: { type: 'object', oneOf: [objectSchema({ status: { const: 'confirmed', type: 'string' }, historical: { const: true, type: 'boolean' } }),
-    objectSchema({ status: { const: 'not_confirmed', type: 'string' } })] } });
+    objectSchema({ status: { const: 'not_confirmed', type: 'string' } })] } },
+  ['operationId', 'batchId', 'planId', 'workspaceId', 'journal', 'execution', 'completion']);
 const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf: [
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({ kind: { const: kind, type: 'string' },
     workspaceId: workspaceSchema, planId: planSchema, readiness: { const: 'ready', type: 'string' },
     paths: { ...arraySchema(objectSchema({ sourcePath: pathSchema, ...(kind === 'move' ? { destinationPath: pathSchema } : {}) }), kind === 'move' ? MAX_SELECTIONS : 1), minItems: 1 },
     linkChanges: objectSchema({ rewrites: { ...integerSchema, maximum: 100_000 }, unlinks: { ...integerSchema, maximum: 100_000 }, affectedDocuments: { ...integerSchema, maximum: 100_000 } }),
     coverage: objectSchema({ complete: { const: true, type: 'boolean' } }) }) }),
+  objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({
+    version: { const: 1, type: 'integer' }, kind: { const: 'native-path-import-preparation', type: 'string' },
+    operationKind: { const: kind, type: 'string' }, workspaceId: workspaceSchema, planId: planSchema,
+    executionReady: { const: false, type: 'boolean' }, readiness: { type: 'string', enum: ['requires-import-rebinding', 'blocked'] },
+    paths: { ...arraySchema(objectSchema({ sourcePath: pathSchema, ...(kind === 'move' ? { destinationPath: pathSchema } : {}) }), kind === 'move' ? MAX_SELECTIONS : 1), minItems: 1 },
+    imports: arraySchema(objectSchema({ path: pathSchema, reasons: { type: 'array', items: { type: 'string', enum: ['selected', 'link-change'] }, minItems: 1, maxItems: 2, uniqueItems: true } })),
+    issues: arraySchema(objectSchema({ code: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,99}$' }, path: { anyOf: [pathSchema, { const: '', type: 'string' }] } })),
+    coverage: objectSchema({ complete: { const: true, type: 'boolean' } }),
+  }) }),
   ...(['apply', 'recover', 'status'] as const).map(action => objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: action, type: 'string' },
     operation: operationResultSchema, ...(action === 'status' ? {} : { alreadyKnown: booleanSchema }) })),
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, success: { const: false, type: 'boolean' }, code: codeSchema, operationId: operationSchema }, ['apiVersion', 'success', 'code']),

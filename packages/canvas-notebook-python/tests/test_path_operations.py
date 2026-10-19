@@ -11,11 +11,21 @@ import asyncio
 import copy
 import json
 import unittest
-from typing import Any, Mapping
+from typing import Any, Mapping, get_args, get_type_hints
 
 from mcp_types import CallToolResult, TextContent
 
 from canvas_notebook import CanvasMutationOutcomeUnknown, CanvasNotebook, CanvasToolError
+from canvas_notebook.models import (
+    WorkspaceDeleteImportPreview,
+    WorkspaceDeletePreview,
+    WorkspaceDeletePreviewResult,
+    WorkspaceMoveImportPreview,
+    WorkspaceMovePreview,
+    WorkspaceMovePreviewResult,
+    WorkspacePathOperation,
+    WorkspacePathPreparation,
+)
 
 OPERATION = "path-caller-00001"
 PLAN = "a" * 64
@@ -115,6 +125,85 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.require_success()["preview"]["paths"], paths)
             self.assertNotIn("pathMappings", result.require_success()["preview"])
             self.assertEqual(len(transport.calls), 1)
+
+    async def test_import_preparation_previews_keep_discriminants_and_issues_without_followups(self) -> None:
+        for kind in ("move", "delete"):
+            for readiness in ("requires-import-rebinding", "blocked"):
+                preview = {
+                    "version": 1, "kind": "native-path-import-preparation", "operationKind": kind,
+                    "workspaceId": "workspace", "planId": PLAN, "executionReady": False, "readiness": readiness,
+                    "paths": [{"sourcePath": "source.md", **({"destinationPath": "moved.md"} if kind == "move" else {})}],
+                    "imports": [{"path": "source.md", "reasons": ["selected"]},
+                                {"path": "incoming ä.md", "reasons": ["link-change"]}],
+                    "issues": [{"code": "missing-source", "path": "missing.md"}] if readiness == "blocked" else [],
+                    "coverage": {"complete": True},
+                }
+                raw = envelope({"apiVersion": 1, "action": "preview", "preview": preview})
+                transport = RecordingTransport(raw)
+                result = await getattr(CanvasNotebook(transport), kind + "_preview")(
+                    "workspace", ROOTS if kind == "move" else "source.md")
+                self.assertIs(result.raw, raw)
+                self.assertIs(result.require_success(), raw.structured_content)
+                self.assertEqual(result.require_success()["preview"], preview)
+                self.assertFalse(result.require_success()["preview"]["executionReady"])
+                self.assertEqual(result.require_success()["preview"]["readiness"], readiness)
+                self.assertNotIn("linkChanges", result.require_success()["preview"])
+                self.assertEqual(transport.calls, [(kind + "_knowledge_source", {
+                    "api_version": 1, "action": "preview", "workspace_id": "workspace",
+                    **({"selections": ROOTS} if kind == "move" else {"path": "source.md"}),
+                })])
+
+    async def test_prepared_operation_mapping_is_preserved_without_replacing_native_plan(self) -> None:
+        preview_id = "c" * 64
+        for kind in ("move", "delete"):
+            for action in ("apply", "recover", "status"):
+                for confirmed in (False, True):
+                    operation = operation_payload(confirmed=confirmed)
+                    operation["preparation"] = {"version": 1, "previewPlanId": preview_id}
+                    if not confirmed:
+                        operation["journal"].update(status="needs_recovery", phase="preparing", completedActions=0)
+                        operation["execution"] = {"receiptStatus": "not_started", "finalization": "pending", "steps": []}
+                    payload = {"apiVersion": 1, "action": action, "operation": operation,
+                               **({} if action == "status" else {"alreadyKnown": True})}
+                    raw = envelope(payload)
+                    transport = RecordingTransport(raw)
+                    notebook = CanvasNotebook(transport)
+                    result = (await getattr(notebook, kind + "_status")("workspace", OPERATION) if action == "status"
+                              else await getattr(notebook, kind + "_" + action)(
+                                  "workspace", ROOTS if kind == "move" else "source.md",
+                                  operation_id=OPERATION, plan_id=preview_id))
+                    self.assertIs(result.raw, raw)
+                    self.assertIs(result.require_success(), raw.structured_content)
+                    self.assertEqual(result.require_success()["operation"], operation)
+                    self.assertEqual(result.require_success()["operation"]["planId"], PLAN)
+                    self.assertEqual(result.require_success()["operation"]["preparation"], {"version": 1, "previewPlanId": preview_id})
+                    self.assertNotEqual(result.require_success()["operation"]["planId"], preview_id)
+                    self.assertEqual(result.require_success()["operation"]["completion"], operation["completion"])
+                    self.assertEqual(len(transport.calls), 1)
+                    self.assertEqual(transport.calls[0][1]["operation_id"], OPERATION)
+                    if action != "status":
+                        self.assertEqual(transport.calls[0][1]["plan_id"], preview_id)
+                    self.assertNotIn("preparation", transport.calls[0][1])
+                    self.assertNotIn("batch_id", transport.calls[0][1])
+
+    async def test_declared_path_types_include_import_union_and_optional_mapping(self) -> None:
+        self.assertEqual(set(get_args(get_type_hints(WorkspaceMovePreviewResult)["preview"])),
+                         {WorkspaceMovePreview, WorkspaceMoveImportPreview})
+        self.assertEqual(set(get_args(get_type_hints(WorkspaceDeletePreviewResult)["preview"])),
+                         {WorkspaceDeletePreview, WorkspaceDeleteImportPreview})
+        self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["kind"]), ("native-path-import-preparation",))
+        self.assertEqual(get_args(get_type_hints(WorkspaceDeleteImportPreview)["kind"]), ("native-path-import-preparation",))
+        self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["operationKind"]), ("move",))
+        self.assertEqual(get_args(get_type_hints(WorkspaceDeleteImportPreview)["operationKind"]), ("delete",))
+        for preview in (WorkspaceMoveImportPreview, WorkspaceDeleteImportPreview):
+            self.assertEqual(get_args(get_type_hints(preview)["executionReady"]), (False,))
+            self.assertEqual(set(get_args(get_type_hints(preview)["readiness"])), {"requires-import-rebinding", "blocked"})
+            self.assertNotIn("linkChanges", preview.__required_keys__)
+        self.assertEqual(WorkspacePathOperation.__optional_keys__, frozenset({"preparation"}))
+        self.assertEqual(WorkspacePathOperation.__required_keys__, frozenset({
+            "operationId", "batchId", "planId", "workspaceId", "journal", "execution", "completion",
+        }))
+        self.assertIs(get_type_hints(WorkspacePathOperation)["preparation"], WorkspacePathPreparation)
 
     async def test_status_keeps_batch_distinct_and_does_not_infer_completion_from_applied_journal(self) -> None:
         for kind in ("move", "delete"):

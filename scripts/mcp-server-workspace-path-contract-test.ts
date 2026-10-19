@@ -140,7 +140,45 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       }
       assert.throws(() => encode({ ...preview(), preview: { ...preview().preview, kind: { toString: 'not callable' } } }), error('PATH_UNAVAILABLE', 503));
       assert.equal(moveSchema.oneOf.length, 4); assert.equal(deleteSchema.oneOf.length, 4);
-      assert.equal(moveOutput.oneOf.length, 5); assert.equal(deleteOutput.oneOf.length, 5);
+      assert.equal(moveOutput.oneOf.length, 6); assert.equal(deleteOutput.oneOf.length, 6);
+    });
+    check('original-import previews are explicit and expose only bounded public facts', () => {
+      for (const kind of ['move', 'delete'] as const) {
+        const input = { apiVersion: 1, action: 'preview', preview: {
+          version: 1, kind: 'native-path-import-preparation', operationKind: kind,
+          workspaceId: 'workspace', planId, executionReady: false, readiness: 'requires-import-rebinding',
+          paths: [{ sourcePath: 'notes/a.md', ...(kind === 'move' ? { destinationPath: 'moved/a.md' } : {}) }],
+          imports: [{ path: 'notes/a.md', reasons: ['selected'] }, { path: 'incoming.md', reasons: ['link-change'] }],
+          issues: [] as Array<{ code: string; path: string }>, coverage: { complete: true },
+        } };
+        const actual = encode(input); assert.deepEqual(actual, input); frozen(actual);
+        assert.deepEqual(format(input).structuredContent, input);
+        const blocked = { ...input, preview: { ...input.preview, readiness: 'blocked',
+          issues: [{ code: 'resolution-changed', path: 'incoming.md' }] } };
+        assert.deepEqual(encode(blocked), blocked);
+        for (const preview of [
+          { ...input.preview, executionReady: true }, { ...input.preview, version: 2 },
+          { ...input.preview, readiness: 'ready' }, { ...input.preview, imports: [] },
+          { ...input.preview, readiness: 'blocked' }, { ...input.preview, coverage: { complete: false } },
+          { ...input.preview, imports: [{ path: 'notes/a.md', reasons: ['selected', 'selected'] }] },
+          { ...input.preview, imports: [{ path: '../private.md', reasons: ['selected'] }] },
+          ...['sourceEvidence', 'nativeRefs', 'bytes', 'origin', 'linkEdits'].map(key => ({ ...input.preview, [key]: {} })),
+        ]) assert.throws(() => encode({ ...input, preview }), error('PATH_UNAVAILABLE', 503));
+      }
+    });
+    check('operation preparation mapping is additive while the native plan identity stays explicit', () => {
+      for (const action of ['apply', 'recover', 'status'] as const) {
+        const original = result(action), preparation = { version: 1, previewPlanId: 'c'.repeat(64) };
+        const input = { ...original, operation: { ...original.operation, preparation } };
+        const actual = encode(input, operationId); assert(actual.action !== 'preview');
+        assert.deepEqual(actual, input); frozen(actual); assert.equal(actual.operation.planId, planId);
+        assert.deepEqual(actual.operation.preparation, preparation);
+        for (const invalid of [{ ...preparation, version: 2 }, { ...preparation, previewPlanId: 'invalid' },
+          { ...preparation, nativeRefs: [] }]) {
+          assert.throws(() => encode({ ...input, operation: { ...input.operation, preparation: invalid } }, operationId),
+            error('PATH_UNAVAILABLE', 503, operationId));
+        }
+      }
     });
     check('fixed errors distinguish absent status/recover and retain genuine OAuth challenge metadata', () => {
       assert.equal(failure(new WorkspacePathToolError('PATH_STATUS_NOT_FOUND', operationId)).status, 404);
@@ -226,7 +264,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert(bytes(format(fits)) <= resultCap); assert.throws(() => format(over), error('PATH_OUTPUT_TOO_LARGE', 413));
       const emitted = format(result('recover'), operationId); assert.deepEqual(JSON.parse((emitted.content[0] as { text: string }).text), emitted.structuredContent);
     });
-    assert.equal(groups, 10); completed = true;
+    assert.equal(groups, 12); completed = true;
     console.log(JSON.stringify({ test: 'mcp-server-workspace-path-contract', groups, scope: 'pure strict wire/schema/formatter only; no runtime authority or owner claim' }));
   } finally {
     if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase;

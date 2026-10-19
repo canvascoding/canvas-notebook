@@ -370,16 +370,50 @@ class WorkspaceDeletePreview(TypedDict):
     coverage: WorkspacePathCoverage
 
 
+class WorkspacePathImportRequirement(TypedDict):
+    path: str
+    reasons: list[Literal["selected", "link-change"]]
+
+
+class WorkspacePathImportIssue(TypedDict):
+    code: str
+    path: str
+
+
+class WorkspacePathImportPreviewRequired(TypedDict):
+    """Read-only preparation facts, never a ready native plan or import receipt."""
+
+    version: Literal[1]
+    kind: Literal["native-path-import-preparation"]
+    workspaceId: str
+    planId: str
+    executionReady: Literal[False]
+    readiness: Literal["requires-import-rebinding", "blocked"]
+    imports: list[WorkspacePathImportRequirement]
+    issues: list[WorkspacePathImportIssue]
+    coverage: WorkspacePathCoverage
+
+
+class WorkspaceMoveImportPreview(WorkspacePathImportPreviewRequired):
+    operationKind: Literal["move"]
+    paths: list[WorkspaceMovePreviewPath]
+
+
+class WorkspaceDeleteImportPreview(WorkspacePathImportPreviewRequired):
+    operationKind: Literal["delete"]
+    paths: list[WorkspaceDeletePreviewPath]
+
+
 class WorkspaceMovePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceMovePreview
+    preview: WorkspaceMovePreview | WorkspaceMoveImportPreview
 
 
 class WorkspaceDeletePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceDeletePreview
+    preview: WorkspaceDeletePreview | WorkspaceDeleteImportPreview
 
 
 class WorkspacePathJournal(TypedDict):
@@ -420,7 +454,18 @@ class WorkspacePathUnconfirmedCompletion(TypedDict):
     status: Literal["not_confirmed"]
 
 
-class WorkspacePathOperation(TypedDict):
+class WorkspacePathPreparation(TypedDict):
+    """Original preview mapping already checked by the server, not SDK authority."""
+
+    version: Literal[1]
+    previewPlanId: str
+
+
+class WorkspacePathOperationOptional(TypedDict, total=False):
+    preparation: WorkspacePathPreparation
+
+
+class WorkspacePathOperation(WorkspacePathOperationOptional):
     operationId: str
     batchId: str
     planId: str

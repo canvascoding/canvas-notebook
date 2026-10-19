@@ -11,7 +11,8 @@ import { withDirectMcpWorkspaceMovePrincipal, withDirectMcpWorkspaceDeletePrinci
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { encodeDirectMcpWorkspacePathResultV1, WorkspacePathToolError,
   type DecodedDirectMcpWorkspaceMoveRequestV1, type DecodedDirectMcpWorkspaceDeleteRequestV1,
-  type DirectMcpWorkspacePathResultV1 } from '../mcp/server/workspace-path-tool-contract';
+  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1,
+  WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES } from '../mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import type { WorkspaceContext } from '../workspaces/types';
@@ -38,6 +39,11 @@ import { projectWorkspaceOperationBatchFileViews } from './workspace-operation-b
 import { withWorkspaceOperationJobClaimScheduling } from './workspace-operation-job-phase-scheduling';
 import { createWorkspaceOperationClaimRenewals } from './workspace-operation-claim-renewals';
 import { workspaceOperationBatchErrorCode } from './workspace-operation-batch-failure';
+import { isCanonicalWorkspacePath } from '../workspaces/path-identity';
+import { readWorkspacePathImportOperationHistory } from './workspace-path-import-operation-history';
+import { readWorkspacePathImportPreparationPlan } from './workspace-path-import-operation-preview';
+import { prepareWorkspacePathImportOperation } from './workspace-path-import-operation';
+import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
@@ -46,6 +52,7 @@ type Authority = Readonly<{ userId: string; clientId: string; sessionId: string;
   tool: 'move_knowledge_source' | 'delete_knowledge_source'; scope: WorkspaceOperationBatchScope }>;
 type NativeStatus = Readonly<{ kind: 'move'; value: WorkspaceOperationNativeMoveBatchStatus }>
   | Readonly<{ kind: 'delete'; value: WorkspaceOperationNativeDeleteBatchStatus }>;
+type ImportHistory = NonNullable<Awaited<ReturnType<typeof readWorkspacePathImportOperationHistory>>>;
 
 /** Fixed current-principal phase only. No caller callback, arbitrary authority
  * DTO, journal claim, physical mutation or status read runs inside this B.
@@ -115,9 +122,12 @@ async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
 }
 
 function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobPrincipal,
-  input: Exclude<Request, { action: 'preview' | 'status' }>): void {
+  input: Exclude<Request, { action: 'preview' | 'status' }>, history: ImportHistory | null = null): void {
   const { batch, plan } = status.value;
-  if (status.kind !== live.kind || batch.planId !== input.planId
+  const originalId = history?.record.previewPlan.planId;
+  if (status.kind !== live.kind || input.planId !== batch.planId && input.planId !== originalId
+    || history && (batch.planId !== history.record.nativePlan.planId
+      || !isDeepStrictEqual(history.record.previewPlan.request, { kind: live.kind, selections: selectedPaths(live.kind, input) }))
     || plan.actions.length !== 1 || plan.actions[0].kind !== live.kind
     || !isDeepStrictEqual(plan.actions[0].selections, selectedPaths(live.kind, input))) {
     throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
@@ -132,7 +142,7 @@ function pathExecution(status: NativeStatus): WorkspaceOperationBatchExecutionRe
 
 /** Whitelist presentation only. Journal progress never acknowledges a domain
  * effect; both public execution and completion come from checked native rows. */
-function pathOperation(status: NativeStatus, operationId: string) {
+function pathOperation(status: NativeStatus, operationId: string, history: ImportHistory | null = null) {
   const { batch, plan } = status.value;
   const summary = { actionMode: 'apply' as const, status: batch.status,
     completedActions: batch.completedActions, phase: batch.phase };
@@ -144,6 +154,7 @@ function pathOperation(status: NativeStatus, operationId: string) {
   const confirmed = execution.receiptStatus === 'available'
     && execution.finalization === 'complete' && pathExecution(status)?.status === 'applied';
   return { operationId, batchId: batch.batchId, planId: plan.planId, workspaceId: batch.workspaceId,
+    ...(history ? { preparation: { version: 1 as const, previewPlanId: history.record.previewPlan.planId } } : {}),
     journal: { status: batch.status, phase: batch.phase, completedActions: batch.completedActions,
       totalActions: batch.totalActions, createdAt: batch.createdAt, updatedAt: batch.updatedAt, errorCode: batch.errorCode },
     execution: { receiptStatus: execution.receiptStatus, finalization: execution.finalization,
@@ -152,6 +163,50 @@ function pathOperation(status: NativeStatus, operationId: string) {
         state: step.state, ...(step.openPath === undefined ? {} : { openPath: step.openPath }) })) },
     completion: confirmed ? { status: 'confirmed' as const, historical: true as const } : { status: 'not_confirmed' as const },
   };
+}
+
+/** The shared reader proves the immutable original mapping. Match its facts
+ * to this separately checked domain status, never to a later path occupant. */
+function assertPathPreparationHistory(status: NativeStatus, history: ImportHistory | null,
+  live: WorkspaceOperationMcpJobPrincipal, authority: Authority, operationId: string): void {
+  if (!history) return;
+  const original = history.record, { batch, plan } = status.value;
+  if (original.operationId !== operationId || original.batchId !== batch.batchId || history.batch.batchId !== batch.batchId
+    || original.origin.kind !== 'direct-mcp' || original.origin.userId !== authority.userId || original.origin.clientId !== authority.clientId
+    || original.origin.tool !== live.kind || original.previewPlan.request.kind !== live.kind || status.kind !== live.kind
+    || !isDeepStrictEqual(original.origin.scope, captureWorkspaceOperationJobScope(authority.scope.workspace))
+    || !isDeepStrictEqual(original.nativePlan, plan) || !isDeepStrictEqual(history.batch.plan, plan)
+    || !isDeepStrictEqual(history.batch.authorization, batch.authorization)) {
+    throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', operationId);
+  }
+}
+
+/** Bounded public facts only; no source evidence, FD, actor, native refs or
+ * guessed rendered link edits. Preparation never claims execution readiness. */
+function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1): DirectMcpWorkspacePathImportPreviewV1 {
+  if (plan.request.kind !== 'move' && plan.request.kind !== 'delete'
+    || plan.readiness !== 'blocked' && plan.readiness !== 'requires-import-rebinding') throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED');
+  let bytes = 1024;
+  const add = <T>(value: T): T => {
+    bytes += Buffer.byteLength(JSON.stringify(value), 'utf8');
+    if (bytes > WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES) throw new WorkspacePathToolError('PATH_OUTPUT_TOO_LARGE'); return value;
+  };
+  const safe = (value: string) => value.length <= 1024 && isCanonicalWorkspacePath(value) && value !== '.' && !/[\p{Cc}\p{Cf}]/u.test(value);
+  const selected = (value: string): string => {
+    if (!safe(value)) throw new WorkspacePathToolError(value.length > 1024 ? 'PATH_OUTPUT_TOO_LARGE' : 'PATH_UNAVAILABLE'); return value;
+  };
+  if (plan.request.selections.length > 1000 || plan.importRequirements.length > 10000 || plan.issues.length > 10000) {
+    throw new WorkspacePathToolError('PATH_OUTPUT_TOO_LARGE');
+  }
+  return { version: 1, kind: 'native-path-import-preparation', operationKind: plan.request.kind, workspaceId: plan.scope.workspaceId,
+    planId: plan.planId, executionReady: false, readiness: plan.readiness,
+    paths: plan.request.selections.map(item => add({ sourcePath: selected(item.sourcePath),
+      ...(item.destinationPath === undefined ? {} : { destinationPath: selected(item.destinationPath) }) })),
+    imports: plan.importRequirements.map(item => add({ path: selected(item.path), reasons: [...item.reasons] })),
+    issues: [...new Map(plan.issues.map(item => {
+      const issue = { code: /^[a-z][a-z0-9-]{0,99}$/u.test(item.code) ? item.code : 'unknown', path: safe(item.path) ? item.path : '' };
+      return [JSON.stringify(issue), add(issue)] as const;
+    })).values()], coverage: { complete: true } };
 }
 
 function pathPreview(plan: NativePlan) {
@@ -232,37 +287,64 @@ async function runDirectMcpWorkspacePathService(input: Request,
   }
   const initial = await capturePathAuthority(live, operationId);
   if (input.action === 'preview') {
+    const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
+    await capturePathAuthority(live, undefined, initial);
+    if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
+      preview: pathImportPreparationPreview(preparation) });
     const plan = await buildPathPlan(live, input, initial);
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathPreview(plan) });
   }
   const batchId = workspaceOperationMcpBatchId({ userId: initial.userId, clientId: initial.clientId,
     workspaceId: input.workspaceId, tool: initial.tool, operationId: input.operationId });
   if (input.action === 'status') {
+    const history = await readWorkspacePathImportOperationHistory({ principal: live, operationId: input.operationId });
     const status = await readPathStatus(live, batchId, initial.scope);
-    if (!status) throw new WorkspacePathToolError('PATH_STATUS_NOT_FOUND', input.operationId);
+    if (!status) throw new WorkspacePathToolError(history ? 'PATH_OUTCOME_UNCONFIRMED' : 'PATH_STATUS_NOT_FOUND', input.operationId);
+    assertPathPreparationHistory(status, history, live, initial, input.operationId);
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'status',
-      operation: pathOperation(status, input.operationId) }, input.operationId);
+      operation: pathOperation(status, input.operationId, history) }, input.operationId);
   }
   const selection = await withWorkspaceMutationLock(input.workspaceId, async () => {
     // Resolve original history before any planning. A moved/deleted source or
     // later replacement at its old path never becomes a new request on retry.
+    let history = await readWorkspacePathImportOperationHistory({ principal: live, operationId: input.operationId,
+      expected: { planId: input.planId, request: { kind: live.kind, selections: selectedPaths(live.kind, input) } } });
     const saved = await readPathStatus(live, batchId, initial.scope);
-    if (saved) assertPathRequest(saved, live, input);
+    if (history && !saved) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
+    if (saved) { assertPathPreparationHistory(saved, history, live, initial, input.operationId); assertPathRequest(saved, live, input, history); }
     if (!saved && input.action === 'recover') throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND', input.operationId);
     const store = new WorkspaceOperationBatchStore();
     let selected: WorkspaceOperationMcpClaimResult;
     if (saved) {
-      const command = { operationId: input.operationId, workspaceId: input.workspaceId, planId: input.planId };
+      const command = { operationId: input.operationId, workspaceId: input.workspaceId, planId: saved.value.batch.planId };
       selected = live.kind === 'move' ? await store.claimExistingMcpMove(live.principal, command)
         : await store.claimExistingMcpDelete(live.principal, command);
     } else {
-      const plan = await buildPathPlan(live, input, initial);
-      if (plan.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
-      if (live.kind === 'move' && plan.version === 3) {
-        selected = await store.createMcpMoveAndClaim(live.principal, { operationId: input.operationId, plan });
-      } else if (live.kind === 'delete' && plan.version === 2) {
-        selected = await store.createMcpDeleteAndClaim(live.principal, { operationId: input.operationId, plan });
-      } else throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.operationId);
+      const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
+      await capturePathAuthority(live, input.operationId, initial);
+      if (preparation.readiness === 'requires-import-rebinding') {
+        if (preparation.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
+        // Confirm bounded public representability before the first write. The
+        // genuine Owner commits imports/header/P0/admission and releases its
+        // exclusive guard before this ordinary claim can be acquired.
+        encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathImportPreparationPreview(preparation) });
+        history = await prepareWorkspacePathImportOperation({ principal: live, operationId: input.operationId, plan: preparation });
+        const prepared = await readPathStatus(live, batchId, initial.scope);
+        if (!prepared) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
+        assertPathPreparationHistory(prepared, history, live, initial, input.operationId); assertPathRequest(prepared, live, input, history);
+        const command = { operationId: input.operationId, workspaceId: input.workspaceId, planId: history.record.nativePlan.planId };
+        selected = live.kind === 'move' ? await store.claimExistingMcpMove(live.principal, command)
+          : await store.claimExistingMcpDelete(live.principal, command);
+      } else {
+        if (preparation.readiness !== 'native-ready') throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.operationId);
+        const plan = await buildPathPlan(live, input, initial);
+        if (plan.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
+        if (live.kind === 'move' && plan.version === 3) {
+          selected = await store.createMcpMoveAndClaim(live.principal, { operationId: input.operationId, plan });
+        } else if (live.kind === 'delete' && plan.version === 2) {
+          selected = await store.createMcpDeleteAndClaim(live.principal, { operationId: input.operationId, plan });
+        } else throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.operationId);
+      }
     }
     if (selected.kind === 'absent') throw new WorkspacePathToolError('PATH_OPERATION_NOT_FOUND', input.operationId);
     if (selected.kind === 'historical-header') {
@@ -270,13 +352,13 @@ async function runDirectMcpWorkspacePathService(input: Request,
       if (!confirmed || pathExecution(confirmed)?.status !== 'applied' || confirmed.value.batch.status !== 'applied') {
         throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
       }
-      assertPathRequest(confirmed, live, input);
+      assertPathPreparationHistory(confirmed, history, live, initial, input.operationId); assertPathRequest(confirmed, live, input, history);
       invalidateWorkspaceFileViews({ fileOptions: initial.scope.fileOptions, fullTree: true, mutations: [] });
       return { kind: 'historical' as const,
         result: encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-          operation: pathOperation(confirmed, input.operationId), alreadyKnown: true }, input.operationId) };
+          operation: pathOperation(confirmed, input.operationId, history), alreadyKnown: true }, input.operationId) };
     }
-    return { kind: 'claimed' as const, store, batch: selected.batch, alreadyKnown: saved !== null };
+    return { kind: 'claimed' as const, store, batch: selected.batch, alreadyKnown: saved !== null, history };
   });
   if (selection.kind === 'historical') return selection.result;
   // The native executor acquires its own fixed Owner kernels. Its admission
@@ -284,9 +366,9 @@ async function runDirectMcpWorkspacePathService(input: Request,
   await executePathClaim(selection.store, selection.batch, live, initial.scope);
   const current = await readPathStatus(live, batchId, initial.scope);
   if (!current) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
-  assertPathRequest(current, live, input);
+  assertPathPreparationHistory(current, selection.history, live, initial, input.operationId); assertPathRequest(current, live, input, selection.history);
   return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-    operation: pathOperation(current, input.operationId), alreadyKnown: selection.alreadyKnown }, input.operationId);
+    operation: pathOperation(current, input.operationId, selection.history), alreadyKnown: selection.alreadyKnown }, input.operationId);
 }
 
 /** Start the genuine token capture synchronously before this entry's first
