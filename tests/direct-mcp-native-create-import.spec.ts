@@ -12,6 +12,7 @@ import { expect, request as apiRequest, test, type APIRequestContext, type APIRe
 import type { DocumentCreateMutationResultV1, DocumentReadPageV1 } from '../app/lib/documents/contracts';
 import type { DocumentEditOperationResultV1 } from '../app/lib/documents/edit-result-contract';
 import type { NativeDocumentEditTargetV1 } from '../app/lib/collaboration/native-document-edit-targets';
+import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import { authorizeIngestE2EMcp, type IngestE2EToolResult } from '../scripts/mcp-file-ingest-e2e-helpers';
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
@@ -20,7 +21,7 @@ import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjs
 
 // Artifact options are worker-scoped and must be set at file level. This
 // serial workflow shares manually created authenticated contexts; keep OAuth
-// URLs out of automatic artifacts in all seven cases. Explicit safe editor
+// URLs out of automatic artifacts in all cases. Explicit safe editor
 // screenshots remain available and all domain assertions are unchanged.
 test.use({ trace: 'off', screenshot: 'off', video: 'off' });
 
@@ -826,5 +827,251 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
         actualNativeCreateAndEditStatus: true, visibleEditorAndReloadMatchNativeJson: true, ownPythonClosed: true,
         ownSdkConnectionRevoked: true, operationId: edited.operationId, documentId: created.document.documentId, fullVersion: edited.effect!.afterVersion });
     });
+  });
+  test('8: explicit Settings opt-in exposes OAuth MCP Copy with retained collision names, historical recovery and visible editor reload', async ({ browser }, info) => {
+    assert(contextB && mcpB && identityB && workspace);
+    await reviewOff(contextB);
+    const originalWorkspace = workspace, copyOrigin = identityB;
+    const selectedSettings = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Observe Copy settings')).data);
+    assert.equal(selectedSettings.activationManagedByEnvironment, false);
+    assert.equal(selectedSettings.capabilitiesManagedByEnvironment, false); assert(Array.isArray(selectedSettings.capabilities));
+    const restore = { enabled: selectedSettings.desiredEnabled === true,
+      tools: selectedSettings.capabilities.filter(value => object(value).enabled === true).map(value => String(object(value).id)) };
+    const capability = selectedSettings.capabilities.map(value => object(value)).find(value => value.id === 'copy_knowledge_source');
+    assert(capability); assert.equal(capability.available, true); assert.equal(capability.enabled, false);
+    assert.equal(restore.tools.includes('copy_knowledge_source'), false);
+    const beforeListing = await mcpB.rpc('tools/list'); assert(Array.isArray(beforeListing.tools));
+    assert.equal(beforeListing.tools.some(value => object(value).name === 'copy_knowledge_source'), false);
+    const spaces: Workspace[] = [], pages: Awaited<ReturnType<BrowserContext['newPage']>>[] = [], errors: unknown[] = [];
+    const operationId = randomUUID(), absentOperationId = randomUUID();
+    let resolvedPath = '', targetDocumentId = '', copiedVersion = '', finalStatus: Row | undefined;
+    let retainedApply: Row | undefined, sourceDocument: DocumentCreateMutationResultV1 | undefined;
+    let occupiedDocument: DocumentCreateMutationResultV1 | undefined, clone: DocumentReadPageV1 | undefined;
+    const probes: Probe[] = [], immutableSnapshots: string[] = [];
+    const callCopy = async (arguments_: Row): Promise<IngestE2EToolResult> => {
+      assert(mcpB); const result = await mcpB.call('copy_knowledge_source', arguments_);
+      const body = object(result.structuredContent); assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
+      assert.deepEqual(JSON.parse(result.content[0].text ?? ''), body); return result;
+    };
+    const copyRead = async (workspaceId: string, documentId: string, expectedVersion?: string): Promise<DocumentReadPageV1> => {
+      assert(mcpB); const value = success(await mcpB.call('read_knowledge_source', { workspace_id: workspaceId,
+        document_id: documentId, format: 'native', max_bytes: 262144,
+        ...(expectedVersion ? { expected_version: expectedVersion } : {}) })) as unknown as DocumentReadPageV1;
+      assert.equal(value.document.documentId, documentId); assert.equal(value.document.workspaceId, workspaceId);
+      assert.equal(value.format, 'native'); assert.equal(value.encoding, 'utf-8'); assert.equal(value.complete, true);
+      assert.equal(value.byteOffset, 0); assert.equal(value.nextCursor, null); assert.equal(value.byteLength, Buffer.byteLength(value.fragment));
+      assert.equal(value.totalBytes, value.byteLength); assert.match(value.document.version, /^canvas-document-v1:[a-f0-9]{64}$/u);
+      assert.equal(value.currency.observedVersion, value.document.version);
+      if (expectedVersion) assert.equal(value.document.version, expectedVersion); return value;
+    };
+    const resolveCopyRoot = (value: Row, sourceWorkspaceId: string, destinationWorkspaceId: string, sourcePath: string) => {
+      assert.equal(value.apiVersion, 1); assert.equal(value.action, 'preview'); const preview = object(value.preview);
+      assert.equal(preview.version, 4); assert.equal(preview.sourceWorkspaceId, sourceWorkspaceId);
+      assert.equal(preview.destinationWorkspaceId, destinationWorkspaceId); assert.equal(preview.readiness, 'ready');
+      assert.match(String(preview.planId), /^[a-f0-9]{64}$/u); assert(Array.isArray(preview.pathMappings));
+      const roots = preview.pathMappings.map(value => object(value)).filter(value => value.sourceWorkspaceId === sourceWorkspaceId
+        && value.destinationWorkspaceId === destinationWorkspaceId && value.sourcePath === sourcePath);
+      assert.equal(roots.length, 1); assert.equal(roots[0].sourceKind, 'file'); assert(typeof roots[0].destinationPath === 'string');
+      return { source_path: sourcePath, destination_path: roots[0].destinationPath };
+    };
+    const openCopyEditor = async (document: DocumentReadPageV1) => {
+      assert(contextB); const page = await contextB.newPage(); pages.push(page);
+      await page.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id);
+        localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: document.document.workspaceId, host: origin });
+      await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(document.document.workspaceId)}&path=${encodeURIComponent(document.document.path)}`, { waitUntil: 'domcontentloaded' });
+      for (const observation of ['first-open', 'reload'] as const) {
+        if (observation === 'reload') await page.reload({ waitUntil: 'domcontentloaded' });
+        const editor = page.locator(editorSelector); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 });
+        await expect(editor).toBeVisible(); await expect(editor).toContainText('Public Copy source 🧪');
+        await expect(editor).not.toContainText('Existing collision target');
+        await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+        await expect.poll(async () => (await readNativeRichCandidate(page, editorSelector)).document,
+          { timeout: 30000 }).toEqual(nativeJson(document));
+      }
+      await page.locator(editorSelector).screenshot({ path: info.outputPath('native-mcp-copy-editor-reloaded.png'), animations: 'disabled' });
+      await page.close();
+    };
+    try {
+      const settings = await contextB.newPage(); pages.push(settings);
+      await settings.goto('/en/settings?tab=mcp', { waitUntil: 'domcontentloaded' });
+      const copySwitch = settings.getByRole('switch', { name: 'Copy files and documents', exact: true });
+      await expect(copySwitch).toBeVisible(); await expect(copySwitch).not.toBeChecked(); await expect(copySwitch).toBeEnabled();
+      await copySwitch.click();
+      const saved = settings.waitForResponse(response => new URL(response.url()).pathname === '/api/integrations/mcp-server'
+        && response.request().method() === 'PATCH');
+      await settings.getByRole('button', { name: 'Save changes', exact: true }).filter({ visible: true }).click();
+      const savedResponse = await saved; assert.equal(savedResponse.status(), 200); assert.equal(object(await savedResponse.json()).success, true);
+      await settings.reload({ waitUntil: 'domcontentloaded' });
+      await expect(copySwitch).toBeChecked();
+      assert(await settings.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'Settings must not overflow horizontally.');
+      await settings.locator('section[aria-labelledby="mcp-capabilities-title"]').screenshot({ path: info.outputPath('native-mcp-copy-capability-enabled.png'), animations: 'disabled' });
+      await settings.close();
+      const enabled = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Saved Copy capability')).data);
+      assert(Array.isArray(enabled.capabilities)); assert.equal(object(enabled.capabilities.find(value => object(value).id === 'copy_knowledge_source')).enabled, true);
+      const listing = await mcpB.rpc('tools/list'); assert(Array.isArray(listing.tools));
+      const advertised = listing.tools.map(value => object(value)).filter(value => value.name === 'copy_knowledge_source'); assert.equal(advertised.length, 1);
+      const inputSchema = object(advertised[0].inputSchema), outputSchema = object(advertised[0].outputSchema);
+      assert(Array.isArray(inputSchema.oneOf)); assert(Array.isArray(outputSchema.oneOf));
+      assert.deepEqual(inputSchema.oneOf.map(value => object(object(object(value).properties).action).const).sort(), ['apply', 'preview', 'recover', 'status']);
+      for (const branch of inputSchema.oneOf.map(value => object(value))) {
+        const properties = object(branch.properties), action = object(properties.action).const;
+        if (action === 'apply' || action === 'recover') assert.equal(object(properties.rename_on_collision).const, false);
+      }
+      for (const name of ['Source', 'Destination']) {
+        const response: APIResponse = await contextB.request.post('/api/workspaces', { data: { type: 'personal', name: `MCP Copy ${name} ${randomUUID()}` } });
+        const created = await ok(response, 'Create only own Copy workspace'); assert.equal(response.status(), 201); const value = object(created.workspace);
+        assert(typeof value.id === 'string' && typeof value.name === 'string' && typeof value.rootRelativePath === 'string');
+        spaces.push({ id: value.id, name: value.name, rootRelativePath: value.rootRelativePath });
+        assert.equal(object(created.starterDocumentInitialization).status, 'completed');
+        await ok(await contextB.request.put('/api/integrations/mcp-server/workspaces', { data: { workspaceId: value.id, enabled: true } }), 'Opt in own Copy workspace');
+      }
+      const [sourceWorkspace, destinationWorkspace] = spaces; assert(sourceWorkspace && destinationWorkspace);
+      const workspaceIds = [originalWorkspace.id, sourceWorkspace.id, destinationWorkspace.id];
+      await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', {
+        data: { connectionId: mcpB.connectionId, workspaceIds } }), 'Grant actual Copy client both owned workspaces');
+      sourceDocument = mutationResult(await mcpB.call('create_knowledge_source', { api_version: 1, workspace_id: sourceWorkspace.id,
+        path: 'copy-source.md', content: '# Public Copy\n\nPublic Copy source 🧪\n\nStable source tail.\n', idempotency_key: `copy-source-${randomUUID()}` }));
+      occupiedDocument = mutationResult(await mcpB.call('create_knowledge_source', { api_version: 1, workspace_id: destinationWorkspace.id,
+        path: 'custom-target.md', content: '# Existing collision target\n\nDo not replace this original.\n', idempotency_key: `copy-occupied-${randomUUID()}` }));
+      const sourceBefore = await copyRead(sourceWorkspace.id, sourceDocument.document.documentId, sourceDocument.document.version);
+      const occupiedBefore = await copyRead(destinationWorkspace.id, occupiedDocument.document.documentId, occupiedDocument.document.version);
+      const slots = { api_version: 1, source_workspace_id: sourceWorkspace.id, destination_workspace_id: destinationWorkspace.id };
+      const preview = success(await callCopy({ ...slots, action: 'preview', rename_on_collision: true,
+        selections: [{ source_path: 'copy-source.md', destination_path: 'custom-target.md' }] }));
+      const root = resolveCopyRoot(preview, sourceWorkspace.id, destinationWorkspace.id, 'copy-source.md'); resolvedPath = root.destination_path;
+      assert.equal(resolvedPath, 'custom-target (1).md');
+      retainedApply = { ...slots, action: 'apply', operation_id: operationId, plan_id: object(preview.preview).planId,
+        selections: [root], rename_on_collision: false };
+      const invalid = await callCopy({ ...retainedApply, rename_on_collision: true }); assert.equal(invalid.isError, true);
+      assert.equal(invalid.structuredContent?.code, 'INVALID_REQUEST'); assert.equal(invalid.structuredContent?.operationId, operationId);
+      const targetList = await contextB.newPage(); pages.push(targetList);
+      await targetList.addInitScript(({ id, host }) => { if (location.origin === host) localStorage.setItem('canvas.activeWorkspaceId', id); }, { id: destinationWorkspace.id, host: origin });
+      await targetList.goto(`/en/files?workspaceId=${encodeURIComponent(destinationWorkspace.id)}`, { waitUntil: 'domcontentloaded' });
+      await targetList.getByRole('navigation', { name: 'Current folder path', exact: true })
+        .getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
+      await expect(targetList.locator('[data-file-path="custom-target.md"]').filter({ visible: true }).first()).toBeVisible();
+      const targetRow = targetList.locator('[data-file-path="custom-target (1).md"]').filter({ visible: true }); await expect(targetRow).toHaveCount(0);
+      const applied = success(await callCopy(retainedApply)); assert.equal(applied.action, 'apply');
+      const execution = object(applied.execution); assert.equal(execution.operationId, operationId); assert.equal(execution.planId, object(preview.preview).planId);
+      assert.equal(execution.status, 'complete'); assert.equal(execution.errorCode, null); assert.deepEqual(execution.pendingSteps, []);
+      assert.deepEqual(applied.copied, [resolvedPath]); assert.equal(applied.alreadyKnown, false);
+      // No navigation, request injection or manual reload: the central view
+      // finalizer must refresh this already mounted destination file list.
+      await expect(targetRow.first()).toBeVisible(); await targetList.close();
+      const session = await ok(await contextB.request.post('/api/files/collaboration/session', { headers: { 'x-canvas-workspace-id': destinationWorkspace.id },
+        data: { path: resolvedPath, representation: 'auto', ...COLLABORATION_CLIENT_CAPABILITIES } }), 'Observe actual copied native ID');
+      assert.equal(session.success, true); assert.equal(session.provider, 'yjs'); assert.equal(session.degraded, false);
+      assert.equal(session.representation, 'tiptap_blocks'); assert.equal(typeof session.documentId, 'string'); targetDocumentId = session.documentId as string;
+      assert.notEqual(targetDocumentId, sourceDocument.document.documentId); assert.notEqual(targetDocumentId, occupiedDocument.document.documentId);
+      clone = await copyRead(destinationWorkspace.id, targetDocumentId); assert.equal(clone.document.path, resolvedPath);
+      assert.notEqual(clone.document.lineageId, sourceDocument.document.lineageId); assert.notEqual(clone.document.lineageId, occupiedDocument.document.lineageId);
+      assert.equal(clone.currency.observedDurable, true); assert.equal(clone.currency.durableVersion, clone.document.version);
+      assert(JSON.stringify(nativeJson(clone)).includes('Public Copy source 🧪')); copiedVersion = clone.document.version;
+      const statusArguments = { ...slots, action: 'status', operation_id: operationId };
+      const status = success(await callCopy(statusArguments)); assert.equal(status.action, 'status');
+      assert.deepEqual(object(object(status.operation).completion), { status: 'confirmed', historical: true, copiedPaths: [resolvedPath] });
+      for (const observation of ['before-renewal', 'after-renewal'] as const) {
+        if (observation === 'after-renewal') {
+          const previousContext: BrowserContext = contextB, previousClient: Mcp = mcpB, previousIdentity: Identity = identityB;
+          const signed = await ok(await previousContext.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Expire only Copy Original A session');
+          assert.equal(signed.success, true); signedOut.add(previousContext);
+          const expired: IngestE2EToolResult = await previousClient.call('copy_knowledge_source', statusArguments); assert.equal(expired.isError, true); assert.equal(expired.structuredContent?.http_status, 401);
+          contextB = await browser.newContext({ baseURL: origin, storageState: { cookies: [], origins: [] }, colorScheme: 'light' }); contexts.push(contextB);
+          identityB = await login(contextB); assert.equal(identityB.userId, previousIdentity.userId); assert.notEqual(identityB.sessionId, previousIdentity.sessionId);
+          mcpB = await authorizeIngestE2EMcp(contextB, origin, originalWorkspace.id, protocol, { scopes, registration: previousClient.registration });
+          assert.deepEqual(mcpB.registration, previousClient.registration); tokenIdentity(mcpB, identityB);
+          await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', { data: { connectionId: mcpB.connectionId, workspaceIds } }), 'Renew actual source and destination grants');
+          finalStatus = success(await callCopy(statusArguments)); assert.deepEqual(finalStatus, status);
+          const recovered = success(await callCopy({ ...retainedApply, action: 'recover' })); assert.equal(recovered.action, 'recover');
+          assert.equal(object(recovered.execution).status, 'complete'); assert.equal(recovered.alreadyKnown, true); assert.deepEqual(recovered.copied, [resolvedPath]);
+          const retry = success(await callCopy(retainedApply)); assert.equal(object(retry.execution).status, 'complete'); assert.equal(retry.alreadyKnown, true);
+          assert.deepEqual(object(retry.execution), object(recovered.execution)); assert.deepEqual(retry.copied, [resolvedPath]);
+          const noCreatePath = 'must-not-be-created.md';
+          const absent = await callCopy({ ...retainedApply, action: 'recover', operation_id: absentOperationId,
+            selections: [{ source_path: 'copy-source.md', destination_path: noCreatePath }] });
+          assert.equal(absent.isError, true); assert.equal(absent.structuredContent?.code, 'COPY_OPERATION_NOT_FOUND');
+          assert.equal(absent.structuredContent?.operationId, absentOperationId);
+          const missing = await contextB.request.get('/api/files/read', { headers: { 'x-canvas-workspace-id': destinationWorkspace.id }, params: { path: noCreatePath } }); assert.equal(missing.status(), 404);
+        }
+        // A new actual read-only connection observes immutable Copy original,
+        // completion and journal xmin; no SQL or filesystem write seeds evidence.
+        const database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
+          options: '-c default_transaction_read_only=on -c statement_timeout=10000 -c application_name=native-copy-compiled-read' });
+        let ended = false, asynchronous: Error | undefined, failure: unknown, failed = false, backendPid = 0;
+        database.once('end', () => { ended = true; }); database.on('error', error => { asynchronous ??= error; });
+        try {
+          await database.connect(); await database.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+          const actual = (await database.query<Row>(`SELECT current_database() AS name,d.oid::text,pg_get_userbyid(d.datdba) AS owner,
+            current_user AS role,shobj_description(d.oid,'pg_database') AS marker,pg_backend_pid() AS pid,
+            current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation,
+            pg_current_xact_id_if_assigned() IS NULL AS unassigned FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+          assert(actual); assertDatabaseOwnership(owned, actual as unknown as DatabaseIdentity);
+          assert.equal(actual.read_only, 'on'); assert.equal(actual.isolation, 'repeatable read'); assert.equal(actual.unassigned, true);
+          assert(typeof actual.pid === 'number'); backendPid = actual.pid;
+          const journal = (await database.query<Row>('SELECT to_jsonb(o) AS value,o.xmin::text AS xmin FROM workspace_file_operations o WHERE operation_id=$1', [operationId])).rows;
+          const receipt = (await database.query<Row>('SELECT to_jsonb(r) AS value,r.xmin::text AS xmin FROM collaboration_native_copy_receipts r WHERE operation_id=$1', [operationId])).rows;
+          assert.equal(journal.length, 1); assert.equal(receipt.length, 1);
+          assert(clone);
+          assert(Array.isArray(object(object(receipt[0].value).private_result).documents));
+          assert.equal((object(object(receipt[0].value).private_result).documents as unknown[]).length, 1);
+          assert.equal(object(object((object(object(receipt[0].value).private_result).documents as unknown[])[0]).source).documentId, sourceDocument.document.documentId);
+          assert.equal(object(object((object(object(receipt[0].value).private_result).documents as unknown[])[0]).clone).path, resolvedPath);
+          assert.equal(object(object((object(object(receipt[0].value).private_result).documents as unknown[])[0]).clone).documentId, targetDocumentId);
+          assert.equal(object(object((object(object(receipt[0].value).private_result).documents as unknown[])[0]).clone).lineageId, clone.document.lineageId);
+          const original = object(object(JSON.parse(String(object(journal[0].value).request_json))).origin), actor = object(original.actor);
+          assert.equal(original.version, 2); assert.equal(original.transport, 'direct-mcp'); assert.equal(original.clientId === mcpB.registration.clientId, true);
+          assert.equal(actor.userId === copyOrigin.userId, true); assert.equal(actor.sessionId === copyOrigin.sessionId, true);
+          const absent = (await database.query<Row>(`SELECT
+            (SELECT count(*)::integer FROM workspace_file_operations WHERE operation_id=$1) AS journals,
+            (SELECT count(*)::integer FROM collaboration_native_copy_receipts WHERE operation_id=$1) AS receipts,
+            (SELECT count(*)::integer FROM collaboration_documents WHERE workspace_id=$2 AND path=$3) AS documents`,
+          [absentOperationId, destinationWorkspace.id, 'must-not-be-created.md'])).rows[0];
+          assert.deepEqual(absent, { journals: 0, receipts: 0, documents: 0 });
+          immutableSnapshots.push(sha(JSON.stringify({ journal, receipt })));
+          assert.equal((await database.query<Row>('SELECT pg_current_xact_id_if_assigned() IS NULL AS unassigned')).rows[0].unassigned, true);
+          await database.query('COMMIT');
+        } catch (error) { failure = error; failed = true; }
+        let closing: unknown; try { await database.end(); assert(ended); } catch (error) { closing = error; }
+        if (failed || closing || asynchronous) throw new AggregateError([...(failed ? [failure] : []), ...(closing ? [closing] : []), ...(asynchronous ? [asynchronous] : [])], 'Own compiled Copy read-only observation failed.');
+        probes.push({ backendPid, readOnly: true, xidUnassigned: true, closed: true });
+      }
+      assert.equal(immutableSnapshots.length, 2); assert.equal(immutableSnapshots[0], immutableSnapshots[1]);
+      const sourceAfter = await copyRead(sourceWorkspace.id, sourceDocument.document.documentId, sourceBefore.document.version);
+      const occupiedAfter = await copyRead(destinationWorkspace.id, occupiedDocument.document.documentId, occupiedBefore.document.version);
+      assert.deepEqual(sourceAfter.document, sourceBefore.document); assert.equal(sourceAfter.fragment, sourceBefore.fragment);
+      assert.deepEqual(occupiedAfter.document, occupiedBefore.document); assert.equal(occupiedAfter.fragment, occupiedBefore.fragment);
+      const sameClone = await copyRead(destinationWorkspace.id, targetDocumentId, copiedVersion); assert.deepEqual(sameClone.document, clone.document); assert.equal(sameClone.fragment, clone.fragment);
+      await openCopyEditor(sameClone); await reviewOff(contextB);
+    } catch (error) { errors.push(error); }
+    finally {
+      for (const page of pages) if (!page.isClosed()) try { await page.close(); } catch { errors.push(new Error('Own Copy browser page did not close.')); }
+      if (contextB && mcpB) {
+        try { await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', {
+          data: { connectionId: mcpB.connectionId, workspaceIds: [originalWorkspace.id] } }), 'Restore only original client workspace grant'); }
+        catch { errors.push(new Error('Own Copy workspace grant restore remained unconfirmed.')); }
+        for (const selected of [...spaces].reverse()) try { await ok(await contextB.request.delete(`/api/workspaces/${encodeURIComponent(selected.id)}`), 'Delete only own Copy workspace'); }
+        catch { errors.push(new Error('Own Copy workspace cleanup remained unconfirmed.')); }
+        try {
+          await ok(await contextB.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore Copy capability selection');
+          await ok(await contextB.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore exact Copy capability selection');
+          const status = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Observe restored Copy selection')).data);
+          assert(Array.isArray(status.capabilities)); assert.equal(object(status.capabilities.find(value => object(value).id === 'copy_knowledge_source')).enabled, false);
+          await reviewOff(contextB);
+        } catch { errors.push(new Error('Own Copy settings restore remained unconfirmed.')); }
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Compiled OAuth Copy acceptance or own cleanup failed.');
+    assert(sourceDocument && occupiedDocument && clone && finalStatus && retainedApply && targetDocumentId && resolvedPath && copiedVersion);
+    await evidence(info, { scope: 'actual compiled OAuth MCP Copy/Settings and visible native editor/reload',
+      explicitCopyOptInSavedThroughVisibleSettings: true, copySwitchInitiallyOff: true, settingsReloadPersisted: true, noHorizontalSettingsOverflow: true,
+      advertisedFourActions: true, collisionNamesResolvedOnce: true, callerOperationAndPlanRetained: true,
+      actualCrossWorkspaceCopy: true, bothWorkspacesOwnedWritable: true, readOnlySourcePermissionClaim: false,
+      destinationListUpdatedWithoutManualReload: true, actualNativeSessionIdObservation: true, idDerivedFromPath: false,
+      newTargetDocumentAndLineage: true, sourceAndOccupiedTargetUnchanged: true, historicalStatusAndExistingRecoveryUnderRenewedSid: true,
+      originalAttributionAndCopyRowsXminUnchanged: true, malformedMutationFlagRejected: true, unknownRecoveryCreatedNoDomainDocument: true,
+      editorVisibleAndEditableWithNoReadEditToggle: true, editorReloadMatchesNativeJson: true,
+      recoveryCoverage: 'completed existing operation only; interrupted recovery remains the separate actual PG proof',
+      operationId, targetDocumentId, resolvedPath, fullVersion: copiedVersion, readOnlyProbes: probes, immutableCopySnapshotSha256: immutableSnapshots[0] });
   });
 });
