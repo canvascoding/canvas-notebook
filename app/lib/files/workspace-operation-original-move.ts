@@ -438,6 +438,12 @@ export function createWorkspaceOperationOriginalMoveIntent(input: Readonly<{ phy
     parents:parentPlans(steps),namespaceEffects:namespaceEffects(selected.plan),nativeBundle:row.nativeBundle,namespaceState:row.namespaceState,
     ...(semantic?{currentWitness:row.currentWitness}:{})},selected);
 }
+/** Data validation only, before an original physical intent exists. Neither a
+ * decoded bundle nor its source evidence grants a Claim or mutation authority. */
+export function decodeWorkspaceOperationOriginalMoveNativeBundleData(data: WorkspaceOperationOriginalMoveNativeBundleData | null,
+  supplied: WorkspaceOperationOriginalMoveContext, sourceEvidence?: WorkspaceOperationNativeSourceEvidence): NativeFileOperationBundle|null {
+  return decodeNative(data,context(supplied),sourceEvidence);
+}
 export function readWorkspaceOperationOriginalMoveNativeBundle(intent: WorkspaceOperationOriginalMoveIntentData): NativeFileOperationBundle|null {
   return decodeNative(intent.nativeBundle,originalContext(intent),intent.version===2?intent.currentWitness:undefined);
 }

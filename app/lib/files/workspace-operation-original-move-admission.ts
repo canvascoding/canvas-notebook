@@ -3,18 +3,33 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { captureCollaborationAdmissionRequest, collaborationAdmissionActionDigest,
   type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
-import { readWorkspaceOperationOriginalMoveNativeBundle, type WorkspaceOperationOriginalMoveContext,
-  type WorkspaceOperationOriginalMoveIntentData } from './workspace-operation-original-move';
+import { decodeWorkspaceOperationOriginalMoveNativeBundleData, readWorkspaceOperationOriginalMoveNativeBundle,
+  type WorkspaceOperationOriginalMoveContext, type WorkspaceOperationOriginalMoveIntentData,
+  type WorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
+import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 
 /** Deterministic protocol data only. Neither these fields nor their hashes
  * grant a claim, principal, lease, SQL session or mutation capability. */
 export function createWorkspaceOperationOriginalMoveAdmissionRequest(context: WorkspaceOperationOriginalMoveContext,
   intent: WorkspaceOperationOriginalMoveIntentData | null): CollaborationAdmissionRequest {
-  const plan = context.plan, bundle = intent ? readWorkspaceOperationOriginalMoveNativeBundle(intent) : null;
+  // Retain the original intent's private context/provenance validation. V2
+  // bundles are bound to their original currentWitness, not a later read.
+  if (intent) readWorkspaceOperationOriginalMoveNativeBundle(intent);
+  return createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context, intent?.nativeBundle ?? null,
+    intent?.version === 2 ? intent.currentWitness : undefined);
+}
+
+/** Deterministic request data only. The caller must supply the exact held or
+ * durably staged bundle; this neither prepares new bytes nor reserves work. */
+export function createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context: WorkspaceOperationOriginalMoveContext,
+  data: WorkspaceOperationOriginalMoveNativeBundleData | null,
+  sourceEvidence?: WorkspaceOperationNativeSourceEvidence): CollaborationAdmissionRequest {
+  const plan = context.plan, bundle = data === null ? null
+    : decodeWorkspaceOperationOriginalMoveNativeBundleData(data, context, sourceEvidence);
   const hex = createHash('sha256').update(`canvas.original-move.admission.v1\0${context.batchId}\0${context.requestHash}\0${plan.planId}`).digest('hex');
   const requestId = bundle?.requestId ?? `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
   const action = plan.actions[0].kind;
-  const actionPayloadText = intent?.nativeBundle?.actionPayloadText
+  const actionPayloadText = data?.actionPayloadText
     ?? JSON.stringify({version:1,batchId:context.batchId,planId:plan.planId,requestHash:context.requestHash});
   return captureCollaborationAdmissionRequest({requestId,actorId:context.actor.actorId,action,
     actionPayloadText,actionDigest:collaborationAdmissionActionDigest(action,actionPayloadText),

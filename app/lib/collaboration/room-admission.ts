@@ -254,6 +254,43 @@ export async function reserveCollaborationAdmissionOnConnection(database: SqlCon
     status: 'reserved' as const, revision: 1, targets: Object.freeze(targets) });
 }
 
+/** Borrowed drain transition only. The caller owns current authorization, the
+ * actual connection/transaction and its confirmed commit/recovery. This does
+ * not wait for an owner, open a connection or grant mutation authority. */
+export async function startCollaborationAdmissionDrainOnConnection(database: SqlConnection,
+  input: CollaborationAdmissionRequest, documentId: string): Promise<CollaborationAdmissionDrainTicket> {
+  const captured = captureCollaborationAdmissionRequest(input);
+  if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)) {
+    throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
+  }
+  await database.get('SELECT request_id FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
+    [captured.request.requestId]);
+  const current = await readRequest(database, captured);
+  if (!current || !['reserved', 'draining'].includes(current.status) || current.revision >= Number.MAX_SAFE_INTEGER) {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  const target = current.targets.find((item) => item.document.documentId === documentId);
+  if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
+  const row = await database.get(`SELECT status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
+    WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
+  if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
+    || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)
+    || (row.status === 'released' ? row.quiescence_kind !== 'owner_drain'
+      : row.quiescence_kind !== null || row.quiescence_text !== null)) {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  if (row.status === 'reserved') {
+    await database.run(`UPDATE collaboration_admission_targets SET status = 'draining'
+      WHERE request_id = $1 AND document_id = $2`, [ticket.requestId, documentId]);
+    await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
+      WHERE request_id = $1`, [ticket.requestId]);
+  } else if (current.status !== 'draining') {
+    throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+  }
+  return ticket;
+}
+
 /**
  * Internal mechanics only, no auth or lifecycle mutation authority. Connections
  * must be dedicated and close(error) must destroy uncertain backends. No runtime
@@ -292,34 +329,7 @@ export function createCollaborationAdmissionService(options: { openConnection: (
       if (!captured.request.expectedDocuments.some((document) => document.documentId === documentId)) {
         throw new CollaborationAdmissionError('ADMISSION_INVALID_REQUEST');
       }
-      return transaction(async (database) => {
-        await database.get('SELECT request_id FROM collaboration_admission_requests WHERE request_id = $1 FOR UPDATE',
-          [captured.request.requestId]);
-        const current = await readRequest(database, captured);
-        if (!current || !['reserved', 'draining'].includes(current.status) || current.revision >= Number.MAX_SAFE_INTEGER) {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        const target = current.targets.find((item) => item.document.documentId === documentId);
-        if (!target) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
-        const ticket = admissionDrainTicketForTarget(current.requestId, current.requestDigest, target);
-        const row = await database.get(`SELECT status, active, release_id, quiescence_kind, quiescence_text FROM collaboration_admission_targets
-          WHERE request_id = $1 AND document_id = $2 FOR UPDATE`, [ticket.requestId, documentId]) as Record<string, unknown>;
-        if (!row || row.active !== true || !['reserved', 'draining', 'released'].includes(row.status as string)
-          || row.release_id !== (row.status === 'released' ? ticket.releaseId : null)
-          || (row.status === 'released' ? row.quiescence_kind !== 'owner_drain'
-            : row.quiescence_kind !== null || row.quiescence_text !== null)) {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        if (row.status === 'reserved') {
-          await database.run(`UPDATE collaboration_admission_targets SET status = 'draining'
-            WHERE request_id = $1 AND document_id = $2`, [ticket.requestId, documentId]);
-          await database.run(`UPDATE collaboration_admission_requests SET status = 'draining', revision = revision + 1
-            WHERE request_id = $1`, [ticket.requestId]);
-        } else if (current.status !== 'draining') {
-          throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-        }
-        return ticket;
-      }, async (ticket) => {
+      return transaction(database => startCollaborationAdmissionDrainOnConnection(database, captured.request, documentId), async (ticket) => {
         await readDrain(ticket);
         return ticket;
       }, true);
