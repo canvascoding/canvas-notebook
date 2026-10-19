@@ -13,7 +13,7 @@ import { chatExtensionOptionsRequestSchema, type ChatExtensionOptionsResponse } 
 import { chatExtensionOptionsHeader, resolveChatExtensionOptionsContext, revalidateChatExtensionOptionsContext } from './extension-options-context';
 import { chatPackageBinding, chatPermittedPackageRoots } from './extension-options-eligibility';
 import { presentChatExtensionIcon } from './extension-options-presentation';
-import { readChatExtensionRecents } from './extension-options-recents';
+import { readChatExtensionRecents, type ChatRecentPackageReadiness } from './extension-options-recents';
 import { previewChatExtensionSelection } from './extension-options-preview';
 import { captureChatTransportJson } from './message-submission';
 
@@ -53,15 +53,30 @@ async function readChatExtensionOptions(actorInput: AgentManagementActor, reques
   if (request.operation === 'search') {
     const result = await searchChatExtensionOptions(context, request, signal);
     signal.throwIfAborted();
-    const recents = request.q === '' && request.phase !== 'remote'
-      ? (await observeExtensionStage('recents', () => readChatExtensionRecents(context, { limit: request.limit, cursor: null }, signal, request))).items : [];
+    const packageReadiness: ChatRecentPackageReadiness = new Map();
     const connections = getChatExtensionSearchConnections(result);
+    const recents = request.q === '' && request.phase !== 'remote'
+      ? (await observeExtensionStage('recents', () => readChatExtensionRecents(context, { limit: request.limit, cursor: null }, signal, request, { packageReadiness, connections }))).items : [];
     for (const recent of recents) {
       const standalone = [recent.bodyBundle.primary, ...recent.bodyBundle.supporting].map(entry => entry.selection)
         .filter(selection => selection.kind === 'mcp' || selection.kind === 'composio');
       const row = result.items.find(item => item.selection && JSON.stringify(item.selection) === JSON.stringify(recent.bodyBundle.primary.selection));
-      recent.chatAvailability = recent.eligibility.action !== 'unavailable' && recent.eligibility.action !== 'setup'
-        && (row?.chatAvailability !== 'setup') && standalone.every(selection => isChatStandaloneSelectionReady(selection, connections)) ? 'ready' : 'setup';
+      const usable = recent.eligibility.action !== 'unavailable' && recent.eligibility.action !== 'setup'
+        && standalone.every(selection => isChatStandaloneSelectionReady(selection, connections));
+      const primary = recent.bodyBundle.primary.selection, packageReady = packageReadiness.get(recent);
+      if (packageReady !== undefined && (primary.kind === 'plugin' || primary.kind === 'skill')) {
+        // A fully revalidated exact bundle supplies fresh immutable declarations
+        // even when the background descriptor cache was cold or expired. It
+        // cannot override current catalogue Use/activation/eligibility denials.
+        const rowUsable = !row || row.item.stock === 'installed' && row.item.access.canUse
+          && (row.eligibility.action === 'select' || row.eligibility.action === 'choose_connection')
+          && (row.item.kind !== 'plugin' && row.item.kind !== 'skill' || !row.item.package?.activation || row.item.package.activation.enabled);
+        const ready = usable && rowUsable && packageReady;
+        recent.chatAvailability = ready ? 'ready' : 'setup';
+        // The default has no historical optional bindings. Their failure blocks
+        // the exact recent intent, while its independently usable package stays available.
+        if (row && rowUsable) row.chatAvailability = packageReady ? 'ready' : 'setup';
+      } else recent.chatAvailability = usable && row?.chatAvailability !== 'setup' ? 'ready' : 'setup';
     }
     signal.throwIfAborted();
     return { ...result, ...header(), coverage: result.coverage, operation: 'search', recents };

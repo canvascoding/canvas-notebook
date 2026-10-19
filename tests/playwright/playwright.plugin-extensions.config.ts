@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
+import { nativeAcceptanceBudgets } from '../../scripts/helpers/chat-extension-native-budgets.mjs';
 
 if (process.env.CANVAS_PLUGIN_EXTENSION_E2E !== '1' || process.env.E2E_EXTERNAL_SERVER !== '1'
   || process.env.BASE_URL !== 'http://127.0.0.1:3001' || !process.env.PLUGIN_EXTENSION_E2E_ROOT
@@ -21,7 +22,7 @@ export default defineConfig({
     : process.env.CANVAS_CHAT_INLINE_E2E === '1' ? ['agent-extension-editor.e2e.spec.ts', 'chat-inline-references.e2e.spec.ts', 'chat-queue-recovery.e2e.spec.ts']
     : ['plugin-extension-search.e2e.spec.ts', 'agent-extension-editor.e2e.spec.ts', 'agent-extension-choice.e2e.spec.ts'],
   outputDir: path.join(root, 'results'), workers: 1, fullyParallel: false, retries: 0,
-  timeout: process.env.CANVAS_CHAT_NATIVE_E2E === '1' ? 40 * 60_000 : process.env.CANVAS_CHAT_MODEL_E2E === '1' ? 10 * 60_000 : 180_000,
+  timeout: process.env.CANVAS_CHAT_NATIVE_E2E === '1' ? nativeAcceptanceBudgets.testMs : process.env.CANVAS_CHAT_MODEL_E2E === '1' ? 10 * 60_000 : 180_000,
   expect: { timeout: 30_000 }, reporter: [['list'], ['json', { outputFile: path.join(root, 'playwright-results.json') }]],
   use: { baseURL: process.env.BASE_URL, browserName: 'chromium', headless: true,
     launchOptions: {args: [`--ignore-certificate-errors-spki-list=${mcpSpki}`]},
