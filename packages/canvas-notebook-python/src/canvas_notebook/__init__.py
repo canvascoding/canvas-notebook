@@ -19,9 +19,15 @@ from .models import (
     DocumentRef,
     DocumentSearchPage,
     FileReference,
+    PublicCopyCode,
     ReadFormat,
     ToolResultLike,
     ToolTransport,
+    WorkspaceCopyExecutionResult,
+    WorkspaceCopyFailure,
+    WorkspaceCopyPreviewResult,
+    WorkspaceCopySelection,
+    WorkspaceCopyStatusResult,
 )
 
 _EXTERNAL_EXPORTS = {
@@ -57,9 +63,15 @@ __all__ = [
     "DocumentRef",
     "DocumentSearchPage",
     "FileReference",
+    "PublicCopyCode",
     "KeyringTokenStorage",
     "MemoryTokenStorage",
     "ReadFormat",
     "ToolTransport",
     "ToolResultLike",
+    "WorkspaceCopyExecutionResult",
+    "WorkspaceCopyFailure",
+    "WorkspaceCopyPreviewResult",
+    "WorkspaceCopySelection",
+    "WorkspaceCopyStatusResult",
 ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Mapping, cast
+from typing import Any, Literal, Mapping, Sequence, cast
 
 from .errors import CanvasMutationOutcomeUnknown, CanvasProtocolError
 from .models import (
@@ -17,6 +17,10 @@ from .models import (
     FileReference,
     ReadFormat,
     ToolTransport,
+    WorkspaceCopyExecutionResult,
+    WorkspaceCopyPreviewResult,
+    WorkspaceCopySelection,
+    WorkspaceCopyStatusResult,
 )
 
 _VERSION = re.compile(r"canvas-document-v1:[a-f0-9]{64}\Z")
@@ -139,6 +143,118 @@ def _json_object(value: Mapping[str, Any], label: str) -> dict[str, Any]:
     except (TypeError, ValueError, UnicodeEncodeError, RecursionError):
         raise ValueError(f"{label} must be a bounded JSON object.") from None
     return cast(dict[str, Any], decoded)
+
+
+_COPY_OPERATION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{15,127}\Z")
+_COPY_PLAN = re.compile(r"[a-f0-9]{64}\Z")
+# ECMAScript WhiteSpace + LineTerminator, as used by String.prototype.trim.
+# str.strip() differs: Python removes U+0085 and does not remove U+FEFF.
+_COPY_TRIM = frozenset("\t\v\f \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005"
+                       "\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000\ufeff\n\r\u2028\u2029")
+
+
+def _copy_text(value: str, label: str, maximum: int, *, empty: bool = False) -> str:
+    """Copy wire lengths use JavaScript UTF-16 units, without normalization."""
+    if type(value) is not str or len(value) > maximum or not empty and not value:
+        raise ValueError(f"{label} must be a bounded Copy string.")
+    try:
+        if len(value.encode("utf-16-le")) // 2 > maximum:
+            raise ValueError
+        value.encode("utf-8")
+    except (ValueError, UnicodeEncodeError):
+        raise ValueError(f"{label} must be bounded well-formed Unicode.") from None
+    return value
+
+
+def _copy_workspace(value: str, label: str) -> str:
+    value = _copy_text(value, label, 200)
+    if (
+        value[0] in _COPY_TRIM or value[-1] in _COPY_TRIM
+        or any(ord(char) < 32 or ord(char) == 127 for char in value)
+    ):
+        raise ValueError(f"{label} must be an exact Copy workspace identifier.")
+    return value
+
+
+def _copy_path(value: str, label: str, *, root: bool = False) -> str:
+    value = _copy_text(value, label, 1024, empty=root)
+    if value == "" and root:
+        return value
+    if (
+        "\\" in value or any(ord(char) < 32 or ord(char) == 127 for char in value)
+        or any(segment in ("", ".", "..") for segment in value.split("/"))
+    ):
+        raise ValueError(f"{label} must be a canonical workspace-relative Copy path.")
+    return value
+
+
+def _copy_operation_id(value: str | None) -> str:
+    if type(value) is not str or not _COPY_OPERATION.fullmatch(value):
+        raise ValueError("operation_id must contain 16–128 Copy identifier characters.")
+    return value
+
+
+def _copy_plan_id(value: str | None) -> str:
+    if type(value) is not str or not _COPY_PLAN.fullmatch(value):
+        raise ValueError("plan_id must be the returned 64-character lowercase hexadecimal Copy plan.")
+    return value
+
+
+def _copy_request(
+    action: Literal["preview", "apply", "status", "recover"],
+    source_workspace_id: str,
+    destination_workspace_id: str,
+    selections: Sequence[WorkspaceCopySelection] | None = None,
+    *,
+    operation_id: str | None = None,
+    plan_id: str | None = None,
+    rename_on_collision: bool = False,
+    destination_directory: str | None = None,
+) -> dict[str, Any]:
+    """Capture fixed Copy fields before await; never interpret a plan or grant."""
+    if action not in ("preview", "apply", "status", "recover"):
+        raise ValueError("A supported Copy action is required.")
+    arguments: dict[str, Any] = {
+        "api_version": 1,
+        "action": action,
+        "source_workspace_id": _copy_workspace(source_workspace_id, "source_workspace_id"),
+        "destination_workspace_id": _copy_workspace(destination_workspace_id, "destination_workspace_id"),
+    }
+    if action != "preview":
+        arguments["operation_id"] = _copy_operation_id(operation_id)
+    if action in ("apply", "recover"):
+        arguments["plan_id"] = _copy_plan_id(plan_id)
+    if action != "status":
+        if type(rename_on_collision) is not bool or action != "preview" and rename_on_collision:
+            raise ValueError("Only Copy preview can select collision renaming.")
+        if action == "preview":
+            arguments["rename_on_collision"] = rename_on_collision
+        if destination_directory is not None:
+            arguments["destination_directory"] = _copy_path(destination_directory, "destination_directory", root=True)
+        if selections is None or type(selections) not in (list, tuple) or not 1 <= len(selections) <= 1000:
+            raise ValueError("selections must be a list or tuple of 1–1000 Copy roots.")
+        captured: list[dict[str, str]] = []
+        arguments["selections"] = captured
+        # Exact compact JSON cost, including keys, escaping and UTF-8. Check
+        # each bounded row before appending rather than copying an oversized body.
+        cost = len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8"))
+        for selected in selections:
+            if (
+                type(selected) is not dict or len(selected) != 2
+                or any(type(key) is not str for key in selected)
+                or set(selected) != {"source_path", "destination_path"}
+            ):
+                raise ValueError("Each Copy selection needs exactly source_path and destination_path.")
+            row = {"source_path": _copy_path(selected["source_path"], "source_path"),
+                   "destination_path": _copy_path(selected["destination_path"], "destination_path")}
+            cost += len(json.dumps(row, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) + (1 if captured else 0)
+            if cost > 65536:
+                raise ValueError("The complete Copy JSON arguments exceed 64 KiB.")
+            captured.append(row)
+    # Verify the actual final serialization as well, including status requests.
+    if len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) > 65536:
+        raise ValueError("The complete Copy JSON arguments exceed 64 KiB.")
+    return arguments
 
 
 class CanvasNotebook:
@@ -446,3 +562,66 @@ class CanvasNotebook:
             "workspace_id": _string(workspace_id, "workspace_id"),
             "operation_id": operation_id,
         })
+
+    async def copy_preview(
+        self, source_workspace_id: str, destination_workspace_id: str,
+        selections: Sequence[WorkspaceCopySelection], *,
+        rename_on_collision: bool = False, destination_directory: str | None = None,
+    ) -> CanvasToolResult[WorkspaceCopyPreviewResult]:
+        """Preview the central Copy plan under current source/destination access.
+
+        The full preview and coverage remain in the original result. Resolve
+        each original selected root through its actual pathMapping, retaining
+        original selection order and excluding child mappings before Apply.
+        Preview sourceIdentity and copied paths are not native document IDs.
+        All Copy actions need the explicitly enabled tool, knowledge:write and
+        current source-read/destination-write access; no scope is added here.
+        """
+        arguments = _copy_request("preview", source_workspace_id, destination_workspace_id, selections,
+                                  rename_on_collision=rename_on_collision, destination_directory=destination_directory)
+        return await self._call("copy_knowledge_source", arguments)
+
+    async def copy_apply(
+        self, source_workspace_id: str, destination_workspace_id: str,
+        selections: Sequence[WorkspaceCopySelection], *,
+        operation_id: str, plan_id: str, destination_directory: str | None = None,
+    ) -> CanvasToolResult[WorkspaceCopyExecutionResult]:
+        """Apply retained resolved roots, caller operation ID and actual plan ID.
+
+        No collision renaming, ID generation or replay is attempted. Preserve
+        this complete request before await. Only execution.status=complete
+        confirms completion; require_success alone does not confirm publication.
+        A missing result raises CanvasMutationOutcomeUnknown with this Copy
+        operation_id in its existing idempotency_key attribute.
+        """
+        arguments = _copy_request("apply", source_workspace_id, destination_workspace_id, selections,
+                                  operation_id=operation_id, plan_id=plan_id, destination_directory=destination_directory)
+        return await self._mutate("copy_knowledge_source", arguments, operation_id)
+
+    async def copy_status(
+        self, source_workspace_id: str, destination_workspace_id: str, operation_id: str,
+    ) -> CanvasToolResult[WorkspaceCopyStatusResult]:
+        """Observe historical Copy facts under the same current Copy policy.
+
+        This does not apply or repair an operation. Only a confirmed completion
+        is historical completion evidence; a journal label alone is insufficient.
+        COPY_STATUS_NOT_FOUND does not prove that no original work exists.
+        """
+        arguments = _copy_request("status", source_workspace_id, destination_workspace_id, operation_id=operation_id)
+        return await self._call("copy_knowledge_source", arguments)
+
+    async def copy_recover(
+        self, source_workspace_id: str, destination_workspace_id: str,
+        selections: Sequence[WorkspaceCopySelection], *,
+        operation_id: str, plan_id: str, destination_directory: str | None = None,
+    ) -> CanvasToolResult[WorkspaceCopyExecutionResult]:
+        """One explicit existing-operation recovery with the retained Apply data.
+
+        No new operation, collision name or key is selected. A recovery 404 is
+        COPY_OPERATION_NOT_FOUND; do not substitute another operation ID. A
+        transport loss keeps operation_id in CanvasMutationOutcomeUnknown's
+        existing idempotency_key field, with the unchanged original cause.
+        """
+        arguments = _copy_request("recover", source_workspace_id, destination_workspace_id, selections,
+                                  operation_id=operation_id, plan_id=plan_id, destination_directory=destination_directory)
+        return await self._mutate("copy_knowledge_source", arguments, operation_id)

@@ -1,6 +1,6 @@
 # Canvas Notebook Python
 
-Unreleased `0.1.0.dev0` development SDK. Wheel/source builds, fresh installations, 26 local tests and five actual MCP HTTP/PostgreSQL integration families have passed on Python 3.14.3. A later compiled local seven-case browser suite passed, including the SDK OAuth/document/editor case. A separate macOS Keychain check passed persistence, endpoint/profile isolation and cleanup across three processes; it was not a combined persistent-store OAuth run. This package is not published. It targets the native document tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
+Unreleased `0.1.0.dev0` development SDK. This package is not published. It targets the native document and Copy tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
 
 The package delegates document identity, versions, permissions, Yjs edits, history and link handling to Canvas. It never edits a workspace `.md` projection or constructs Yjs updates.
 
@@ -20,7 +20,7 @@ The test suite uses `unittest` and the `mcp` extra. After installing the built w
 python -I -m unittest discover -s packages/canvas-notebook-python/tests -v
 ```
 
-The core-import test also runs in an environment containing only the base wheel. Python 3.10 syntax is checked; execution has been tested on Python 3.14.3. Credential-store acceptance covers macOS Keychain separately; other Python runtimes and OS credential stores have not yet been exercised.
+The core-import test also runs in an environment containing only the base wheel. The recorded pre-Copy baseline was checked for Python 3.10 syntax and executed on Python 3.14.3. Credential-store acceptance covers macOS Keychain separately; other Python runtimes and OS credential stores have not yet been exercised. Copy-specific validation is recorded separately from that baseline.
 
 The base package has no runtime dependencies. `CanvasNotebook`, DTOs and errors can be imported without MCP, OAuth or keyring. `CanvasMcpTransport`, `CanvasOAuth` and credential-store exports load their external dependencies when explicitly imported. A structural transport implements one asynchronous method:
 
@@ -92,7 +92,7 @@ Native JSON can be split between pages: parse `complete.body` only after assembl
 
 ## Create, import and edit
 
-Every mutation requires a caller-supplied idempotency key. Retain that exact key with its request; the SDK does not generate or replace one.
+Create, Import and Edit require a caller-supplied idempotency key. Retain that exact key with its request; the SDK does not generate or replace one. Copy uses its own caller-supplied operation ID and the actual Preview plan ID, described below.
 
 ```python
 created = (await notebook.create_markdown(
@@ -125,9 +125,67 @@ Edit uses a stable ID and the complete opaque document version, never a path or 
 
 Edit status is historical. It preserves the recorded effect, persistence, projection and history facts; its After version is not a claim about today's document. A returned `pending`, `conflict` or `failed` state is not a confirmed edit, even if `.require_success()` returned a payload. Reauthorization of the same user/client can permit a later status or idempotent retry under fresh rights without changing the original operation's attribution.
 
+## Copy with a retained plan and request
+
+The four methods `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` call the actual `copy_knowledge_source` tool. Enable that tool explicitly; it is off by default. Every action requires `knowledge:write`, current user/client grants and access to both workspaces: source Read and destination Read/Write with agent access. The same-workspace case requires the stronger destination policy. Status still needs this current policy and tool opt-in when the native mutation gate is off; Preview, Apply and Recover additionally require that gate.
+
+Only Preview accepts `rename_on_collision=True`. Apply and Recover use already resolved root destinations and have no rename parameter. Preview mappings are sorted by source and include descendants. Match each originally selected root by its actual source workspace, exact source path and destination workspace; keep the original root-selection order. Reject a missing or ambiguous root mapping instead of inventing a destination.
+
+```python
+async def prepare_copy_request(notebook, source_workspace_id, destination_workspace_id,
+                               original_selections, operation_id):
+    roots = [dict(item) for item in original_selections]
+    preview = (await notebook.copy_preview(
+        source_workspace_id, destination_workspace_id, roots,
+        rename_on_collision=True, destination_directory="",
+    )).require_success()["preview"]
+    if (preview["sourceWorkspaceId"], preview["destinationWorkspaceId"]) != (
+            source_workspace_id, destination_workspace_id):
+        raise ValueError("Preview workspace binding differs from the request.")
+    resolved = []
+    for original in roots:
+        matches = [item for item in preview["pathMappings"]
+                   if item["sourceWorkspaceId"] == source_workspace_id
+                   and item["sourcePath"] == original["source_path"]
+                   and item["destinationWorkspaceId"] == destination_workspace_id]
+        if len(matches) != 1:
+            raise ValueError("Preview root mapping is missing or ambiguous.")
+        resolved.append({"source_path": original["source_path"],
+                         "destination_path": matches[0]["destinationPath"]})
+    return {
+        "source_workspace_id": source_workspace_id,
+        "destination_workspace_id": destination_workspace_id,
+        "selections": resolved, "operation_id": operation_id,
+        "plan_id": preview["planId"], "destination_directory": "",
+    }
+
+
+async def apply_retained_copy(notebook, request):
+    return await notebook.copy_apply(**request)
+
+
+async def inspect_retained_copy(notebook, request):
+    return await notebook.copy_status(request["source_workspace_id"],
+                                     request["destination_workspace_id"], request["operation_id"])
+
+
+async def recover_retained_copy(notebook, request):
+    return await notebook.copy_recover(**request)
+```
+
+These are independent application examples, not an automatic retry sequence. Select the operation ID once, then persist the returned exact request before awaiting Apply. Keep both workspace slots, the operation ID, actual `plan_id`, resolved selections in their original order and directory option together for explicit Status/Recover decisions. Do not rerun Preview or choose another operation ID or destination after an uncertain result. Copy operation IDs contain 16–128 ASCII letters, digits, `_` or `-`, start with a letter or digit; plan IDs are the returned 64 lowercase hexadecimal characters.
+
+All results retain the full original `.raw`, content, structured content and metadata; result keys stay camelCase. `.require_success()` rejects a tool error, but an Apply/Recover payload can still have `execution.status` of `needs_recovery` or `failed` without a tool error. Only `complete` confirms completion of that invocation. For Status, inspect `operation.completion.status == "confirmed"` and its historical `copiedPaths`; a completed journal label alone is insufficient and does not certify today's contents. `COPY_STATUS_NOT_FOUND` does not prove that no original work exists. Recover only continues an existing operation; `COPY_OPERATION_NOT_FOUND` never starts a replacement.
+
+If the Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. No automatic retry, status query or recovery follows. A returned `CanvasToolError.operation_id`, including a late output-size error, remains recovery data; a failed response is not proof that nothing happened. Task cancellation propagates and can also leave an uncertain outcome.
+
+The wire request is capped at 65,536 escaped UTF-8 JSON bytes and 1,000 selections. The server separately checks its complete canonical request, including actual origin and resolved names, so a locally valid request can still exceed that bound. Workspace/path limits count JavaScript UTF-16 units; paths preserve whitespace, require canonical relative segments and are nonempty for selections. Only `destination_directory=""` means the root. The SDK does not normalize paths or reinterpret the plan as authority.
+
+Copied paths, Status `copiedPaths` and Preview `sourceIdentity` are not document IDs. Discover resulting native documents through authorized search, then use a real `documentId` and its full `version` for a version-bound Read. The current native Copy owner requires an initialized native Markdown graph; uninitialized raw Markdown anywhere in the inspected source/destination graph can return `COPY_NATIVE_REQUIRED`. The central legacy import/rebinding path remains open. A Read-only source must not be migrated or its `.md` projection rewritten to bypass this boundary.
+
 ## Failures and request repetitions
 
-The document facade calls its transport once per method invocation. If a mutation receives no tool result, it raises `CanvasMutationOutcomeUnknown` with the unchanged caller key and original exception as `__cause__`. It does not resend, poll or declare a safe retry. Task cancellation still propagates normally and can also leave an unknown outcome. Retain the key before awaiting a write. A returned tool error raises `CanvasToolError` only when explicitly requested via `.require_success()`; its bounded code and operation ID remain available along with the raw result.
+The document facade calls its transport once per method invocation. If a mutation receives no tool result, it raises `CanvasMutationOutcomeUnknown` with the unchanged caller key (Copy operation ID) and original exception as `__cause__`. It does not resend, poll, recover or declare a safe retry. Task cancellation still propagates normally and can also leave an unknown outcome. Retain the key and exact request before awaiting a write. A returned tool error raises `CanvasToolError` only when explicitly requested via `.require_success()`; its bounded code and operation ID remain available along with the raw result.
 
 The official dependency has distinct protocol behavior: OAuth may resend the same HTTP request once after a 401 or an insufficient-scope 403 and a real authorization exchange; the modern MCP client may relist and retry once for `HEADER_MISMATCH`. The transport snapshots JSON arguments before its first await, so these paths preserve the caller's patch and idempotency key. InputRequired retry rounds are explicitly disabled. No wrapper retry is made for a timeout, disconnect or application error. This does not promise that every invocation produces exactly one physical HTTP request.
 
@@ -145,7 +203,8 @@ SDK error messages omit document contents and credentials. Original results and 
 | `create_markdown` | `create_knowledge_source`, native V1 |
 | `import_markdown` | `import_knowledge_file`, native V1 |
 | `edit_document`, `edit_status` | `edit_knowledge_source`, explicit V1 action |
+| `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | `copy_knowledge_source`, explicit V1 action |
 
-Copy, Move, Delete, recovery tools, native PDF conversion and a controlled runtime bridge are not exposed by this candidate. They must be connected to real server capabilities before SDK methods or public instructions claim them. This is not completion of the broader document/API plan.
+Move, Delete, native PDF conversion and a controlled runtime bridge are not exposed by this candidate. Copy does not parse a PDF into a native notebook document. This is not completion of the broader document/API plan.
 
-Wheel and source builds, fresh installations, all 26 local tests, strict static typing and five actual MCP HTTP/PostgreSQL integration families pass. Those HTTP families use genuinely signed fixture tokens with current SQL grants and a real document owner; they do not exercise browser OAuth issuance. The later compiled seven-case browser suite includes an actual SDK authorization-code/PKCE flow, progressive reads, creation, editing, status and editor state after reload. The separate macOS Keychain check covers dummy credential persistence across processes, not a combined OAuth flow using persistent storage. These results remain bound to their recorded source versions and artifacts. Other Python runtimes, other credential stores, public website delivery and package publication remain pending. Local transport and cancellation tests alone do not establish live OAuth behavior.
+The recorded source stage before these SDK Copy additions passed wheel/source builds, fresh installations, 26 local tests, strict typing and five actual MCP HTTP/PostgreSQL document families on Python 3.14.3. Those HTTP families use genuinely signed fixture tokens with current SQL grants and a real document owner; they do not exercise browser OAuth issuance. Its later compiled seven-case browser suite includes actual SDK authorization-code/PKCE, progressive reads, creation, editing, status and editor state after reload. The separate three-process macOS Keychain check covers dummy credential persistence, endpoint/profile isolation and cleanup, not a combined persistent-store OAuth flow. These historical results retain their recorded source/artifact binding and do not validate the new SDK Copy methods or a freshly built package containing them. Copy-specific package and integration reports identify the tested source and installed artifact separately. Other Python runtimes, other credential stores, public website delivery and package publication remain pending. Local transport and cancellation tests alone do not establish live OAuth behavior.

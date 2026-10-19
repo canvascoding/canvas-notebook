@@ -1,6 +1,6 @@
 ---
 title: Document API
-description: Search, read, create, and edit native Canvas documents with stable identities, full content versions, and recorded operation status.
+description: Search, read, create, edit, and copy native Canvas documents with stable identities, full content versions, and recorded operation status.
 section: Developers
 sectionOrder: 11
 order: 1
@@ -283,7 +283,7 @@ Status observes the recorded operation without applying or reconciling it. It re
 
 ## Native Copy through MCP
 
-`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. Preview, Apply and Recover additionally require the native feature gate. Every action checks the current client/user and access to both workspaces: source read access and destination write access. A renewed session for the same authorized client/user can inspect or recover its existing operation; an operation ID grants no access by itself.
+`copy_knowledge_source` is a development tool with an independent explicit opt-in; it is off by default. All four actions require `knowledge:write`, current client/user grants and access to both workspaces: source Read and destination Read/Write with agent access. The same-workspace case uses the stronger destination policy. Preview, Apply and Recover additionally require the native feature gate. A renewed session for the same authorized client/user can inspect or recover its existing operation; an operation ID grants no access by itself.
 
 Start with a Preview using the actual workspace IDs and canonical workspace-relative paths:
 
@@ -301,7 +301,7 @@ Start with a Preview using the actual workspace IDs and canonical workspace-rela
 }
 ```
 
-The response contains `apiVersion: 1`, `action: "preview"` and the full public V4 `preview`. Preserve its `planId`. For each original selected root, find its exact `sourcePath` entry in `preview.pathMappings` and retain the resolved `destinationPath`, in the original selection order. The mappings also contain descendants; do not submit every mapping as a selection.
+The response contains `apiVersion: 1`, `action: "preview"` and the full public V4 `preview`. Preserve its `planId`. For each original selected root, match `sourceWorkspaceId`, its exact `sourcePath` and `destinationWorkspaceId` in `preview.pathMappings`, then retain the resolved `destinationPath` in the original selection order. Reject a missing, ambiguous or foreign-workspace root mapping. The mappings are sorted by source and include descendants; do not submit every mapping as a selection or use their order instead of the original root order.
 
 Persist a caller-selected operation ID and the exact Apply request before sending it. Use the resolved root paths and set `rename_on_collision: false` or omit that field. Apply and Recover reject `true`; a retry must retain the already chosen destination name.
 
@@ -325,13 +325,17 @@ Operation IDs contain 16–128 ASCII characters, start with a letter or digit, a
 
 Apply/Recover returns `execution`, `copied` paths and `alreadyKnown`. Inspect `execution.status`: `complete`, `needs_recovery` or `failed`. A successful HTTP/MCP response does not imply complete publication. The result supplies no new document IDs; use native search and a returned stable ID/full version when reading a resulting native document.
 
-For a pure status observation send only `api_version`, `action: "status"`, both workspace IDs and `operation_id`. Status does not apply or repair an operation and remains readable, with current authorization, when the native mutation gate is off. `operation.completion.status: "confirmed"` is historical completion evidence; journal labels alone do not prove completion or current file contents. `COPY_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new operation ID.
+For a pure status observation send only `api_version`, `action: "status"`, both workspace IDs and `operation_id`. Status does not apply or repair an operation and remains readable when the native mutation gate is off, while still requiring the enabled tool and the same current Write-scope/source-Read/destination-Write policy. `operation.completion.status: "confirmed"` is historical completion evidence; journal labels alone do not prove completion or current file contents. `COPY_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new operation ID.
 
 Explicit Recover uses the exact retained Apply request with `action: "recover"`, including its original operation ID, plan ID and resolved selections. It continues an existing operation only. `COPY_OPERATION_NOT_FOUND` never starts a replacement copy. Keep the original request and ID after `COPY_OUTCOME_UNCONFIRMED`, a transport failure or a late output-size error.
 
-The request is bounded to 65,536 UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
+The request is bounded to 65,536 escaped UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. Workspace IDs are at most 200 JavaScript UTF-16 units and path fields at most 1,024; text must be well-formed Unicode. Workspace IDs must equal their ECMAScript-trimmed value, while canonical relative paths preserve whitespace. Selection paths must be nonempty; optional `destination_directory: ""` means the root. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
 
-The current native owner requires an initialized native Markdown graph. Uninitialized physical Markdown in the inspected source or destination graph can produce `COPY_NATIVE_REQUIRED`, even outside the selected roots. This is an open import/rebinding boundary. Do not migrate a read-only source or write its Markdown projection to bypass it. Move/Delete and Python SDK Copy methods are separate pending connections.
+The current native owner requires an initialized native Markdown graph. Uninitialized physical Markdown in the inspected source or destination graph can produce `COPY_NATIVE_REQUIRED`, even outside the selected roots. This is an open import/rebinding boundary. Do not migrate a read-only source or write its Markdown projection to bypass it. Move/Delete remain separate pending connections.
+
+The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit-retained-request) now provides `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` over this same tool. Preview alone exposes collision renaming. Retain the caller operation ID, actual plan ID and exact resolved request before awaiting Apply; Status/Recover remain explicit. The facade keeps full raw results and camelCase payloads. If an Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. The facade does not automatically replay, query status or recover. A received tool error is different: `.require_success()` raises `CanvasToolError` with the original result and optional `.operation_id`.
+
+Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
 
 ## Errors and client handling
 
@@ -352,4 +356,4 @@ Routes can also rate-limit with HTTP 429. REST responses are not cacheable. Appl
 
 ## Current boundary
 
-The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools described here. It is not yet a released Python package and does not yet wrap the development Copy tool. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK. Common Move/Delete tools and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a PDF upload, Markdown output, or physical file receipt as a native document mutation result.
+The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools and the four explicit Copy actions described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK. Common Move/Delete tools and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a copied/uploaded PDF, Markdown output, or physical file receipt as a parsed native document mutation result.

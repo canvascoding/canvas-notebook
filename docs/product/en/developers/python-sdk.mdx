@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: Connect an external Python client to native Canvas documents using authorized MCP tools, stable IDs, and full document versions.
+description: Use authorized MCP tools from Python to search, read, create, edit, and copy native Canvas documents with explicit operation status.
 section: Developers
 sectionOrder: 11
 order: 2
@@ -31,7 +31,7 @@ The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.
 
 ## Authorize and read progressively
 
-Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit and Edit status require `knowledge:write` and their current server-side access checks.
+Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit, Edit status and all Copy actions require `knowledge:write` and their current server-side access checks.
 
 This script opens the actual authorization-code/PKCE flow in your browser, searches progressively and reads one hit by stable ID and full version:
 
@@ -188,6 +188,70 @@ async def inspect_edit(notebook, workspace_id, operation_id):
 
 The official transport may resend the same HTTP request after OAuth 401/insufficient-scope authorization and may retry once after modern `HEADER_MISMATCH`. The SDK snapshots arguments so those protocol paths keep the caller key and patch. InputRequired rounds are disabled. This is not a promise of exactly one physical HTTP request; timeouts, disconnects and application errors do not trigger a new SDK mutation attempt.
 
+## Copy through an explicit retained request
+
+The four SDK methods call the actual [MCP Copy tool](/docs/developers/document-api#native-copy-through-mcp). That tool has its own explicit opt-in and is off by default. All four actions require `knowledge:write`, current user/client grants, source Read and destination Read/Write with agent access; using one workspace for both slots requires the stronger destination policy. Status retains this policy and tool opt-in even when the native mutation gate is off. Preview, Apply and Recover additionally require that gate.
+
+Preview alone accepts `rename_on_collision=True`. Apply and Recover have no rename parameter and must use the destinations already resolved by Preview. Its `pathMappings` are sorted by source and include children. Select only the originally requested roots, match both workspace IDs and each exact source path, and preserve the original selection order. A missing, ambiguous or foreign-workspace root mapping is an error; never guess or copy the entire mappings array.
+
+The following application helper prepares the mutation request. Pass actual workspace IDs, the original ordered selection list and an operation ID chosen once by the caller. The example selects the workspace root as the destination directory:
+
+```python
+async def prepare_copy_request(notebook, source_workspace_id, destination_workspace_id,
+                               original_selections, operation_id):
+    roots = [dict(item) for item in original_selections]
+    preview = (await notebook.copy_preview(
+        source_workspace_id, destination_workspace_id, roots,
+        rename_on_collision=True, destination_directory="",
+    )).require_success()["preview"]
+    if (preview["sourceWorkspaceId"], preview["destinationWorkspaceId"]) != (
+            source_workspace_id, destination_workspace_id):
+        raise ValueError("Preview workspace binding differs from the request.")
+    resolved = []
+    for original in roots:
+        matches = [item for item in preview["pathMappings"]
+                   if item["sourceWorkspaceId"] == source_workspace_id
+                   and item["sourcePath"] == original["source_path"]
+                   and item["destinationWorkspaceId"] == destination_workspace_id]
+        if len(matches) != 1:
+            raise ValueError("Preview root mapping is missing or ambiguous.")
+        resolved.append({"source_path": original["source_path"],
+                         "destination_path": matches[0]["destinationPath"]})
+    return {
+        "source_workspace_id": source_workspace_id,
+        "destination_workspace_id": destination_workspace_id,
+        "selections": resolved, "operation_id": operation_id,
+        "plan_id": preview["planId"], "destination_directory": "",
+    }
+
+
+async def apply_retained_copy(notebook, request):
+    return await notebook.copy_apply(**request)
+
+
+async def inspect_retained_copy(notebook, request):
+    return await notebook.copy_status(request["source_workspace_id"],
+                                     request["destination_workspace_id"], request["operation_id"])
+
+
+async def recover_retained_copy(notebook, request):
+    return await notebook.copy_recover(**request)
+```
+
+These functions do not call each other or implement a retry loop. Persist the prepared exact request in your application's operation record before awaiting Apply. Retain both workspace slots, the caller operation ID, actual `plan_id`, resolved root selections in their original order and directory option for any later explicit decision. After an uncertain result, do not rerun Preview, regenerate the operation ID or choose another destination. An operation ID is 16–128 ASCII letters, digits, `_` or `-`, starting with a letter or digit. Keep the actual 64-character lowercase hexadecimal plan ID; it is comparison data, not a grant.
+
+A renewed genuine session for the same authorized user/client can inspect or recover its original operation under fresh grants without changing that operation's original attribution. An expired/revoked token or a different client does not gain access from the retained operation ID.
+
+Each method returns a `CanvasToolResult` retaining the complete original `.raw`, `.structured_content`, `.content`, `.is_error` and raw metadata. Public result keys remain camelCase. `.require_success()` rejects a returned tool-error envelope but does not confirm a Copy: Apply/Recover can return `execution.status == "needs_recovery"` or `"failed"` without a tool error. Only `"complete"` confirms completion of that invocation. Status separately requires `operation.completion.status == "confirmed"` for historical completion evidence; a completed journal label alone is insufficient and says nothing about later changes to the copied document.
+
+For an Apply/Recover transport failure before a result is received, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID; `__cause__` is the actual original exception. The facade makes no automatic retry, status query or recovery. Cancellation propagates and can also leave an unknown outcome. A received `CanvasToolError` retains its original result and optional `.operation_id`; keep it even after a late output-size error. `COPY_STATUS_NOT_FOUND` does not prove that no operation exists. Recover is existing-only: `COPY_OPERATION_NOT_FOUND` never starts a replacement Copy.
+
+The SDK validates the fixed Copy wire shape, canonical paths, JavaScript UTF-16 length bounds, and complete escaped UTF-8 JSON request up to 65,536 bytes and 1,000 selections. Path whitespace is preserved. Selection paths cannot be empty; only `destination_directory=""` means the root. The server separately bounds its full canonical request, including actual origin data and resolved names, and can reject a request that passes the local wire check. No request or result is silently truncated.
+
+`copied`, Status `copiedPaths` and Preview `sourceIdentity` contain paths or preview display identity, not native document IDs or full versions. Search the authorized destination, keep the matching result's actual `documentId` and `version`, and perform a version-bound Read to inspect a native document. Do not substitute a path or `sourceIdentity` as a document ID.
+
+Legacy/raw Markdown remains an open central import/rebinding boundary. Uninitialized Markdown anywhere in the inspected source or destination graph can return `COPY_NATIVE_REQUIRED`, even outside selected roots. Do not migrate a Read-only source or write its `.md` projection to bypass that boundary. Copy does not parse a PDF into a native notebook document.
+
 ## Current surface
 
 | Python method | Purpose |
@@ -198,5 +262,10 @@ The official transport may resend the same HTTP request after OAuth 401/insuffic
 | `read_page`, `read_all` | Stable-ID, full-version document reads |
 | `create_markdown`, `import_markdown` | New native Markdown document and confirmed creation identity |
 | `edit_document`, `edit_status` | Guarded native mutation and historical operation status |
+| `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | Explicit native Copy plan, apply, historical status and existing-operation recovery |
 
-SDK Copy, Move and Delete methods, central PDF conversion and the controlled agent-runtime bridge are still absent. The [development MCP Copy contract](/docs/developers/document-api#native-copy-through-mcp) is a separate tool and has no facade method in this SDK yet. This client does not substitute raw filesystem writes for those missing connections. Package publication and public deployment are separate release steps.
+SDK Move and Delete methods, central PDF conversion and the controlled agent-runtime bridge are still absent. This client does not substitute raw filesystem writes for those missing connections. Package publication and public deployment are separate release steps.
+
+## Validation and release status
+
+The recorded source stage before these SDK Copy additions passed wheel/source builds, isolated installations, 26 local tests, strict typing and five actual MCP HTTP/PostgreSQL document families on Python 3.14.3. Its later compiled seven-case browser suite passed actual SDK OAuth/document/editor coverage. A separate three-process macOS Keychain check passed dummy persistence, endpoint/profile isolation and cleanup; it was not a combined persistent-store OAuth flow. These historical results belong to their recorded source versions and artifacts, not the new SDK Copy methods or a new package build containing them. Copy-specific package and integration reports identify the tested source and installed artifact separately. Other Python runtimes and credential stores, public website delivery and package publication remain unverified.

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Generic, Literal, Mapping, Protocol, Sequence, TypeVar, TypedDict, cast
+from typing import Any, Generic, Literal, Mapping, NoReturn, Protocol, Sequence, TypeVar, TypedDict, cast
 
 from .errors import CanvasProtocolError, CanvasToolError
 
@@ -172,6 +172,149 @@ class FileReferenceRequired(TypedDict):
 class FileReference(FileReferenceRequired, total=False):
     mime_type: str
     file_name: str
+
+
+PublicCopyCode = Literal[
+    "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "ACCESS_DENIED",
+    "COPY_OPERATION_NOT_FOUND", "COPY_STATUS_NOT_FOUND", "COPY_PLAN_CHANGED",
+    "COPY_SCOPE_CHANGED", "COPY_BUSY", "COPY_CONFLICT", "COPY_TOO_LARGE",
+    "COPY_OUTPUT_TOO_LARGE", "COPY_NATIVE_REQUIRED", "COPY_OUTCOME_UNCONFIRMED",
+    "COPY_UNAVAILABLE",
+]
+WorkspaceCopyLinkStatus = Literal[
+    "missing", "ambiguous", "outside-workspace", "external", "anchor-only",
+    "not-evaluated", "omitted",
+]
+
+
+class WorkspaceCopySelection(TypedDict):
+    source_path: str
+    destination_path: str
+
+
+class WorkspaceCopyPathMapping(TypedDict):
+    """Preview paths and UI deduplication value, never a native ID or grant."""
+
+    sourceWorkspaceId: str
+    sourcePath: str
+    destinationWorkspaceId: str
+    destinationPath: str
+    sourceKind: Literal["file", "directory"]
+    sourceIdentity: str
+
+
+class WorkspaceCopyLinkEdit(TypedDict):
+    sourcePathBefore: str
+    sourcePathAfter: str
+    previousTargetLiteral: str
+    nextTargetLiteral: str
+
+
+class WorkspaceCopyUnresolvedLink(TypedDict):
+    sourcePath: str
+    targetLiteral: str
+    status: WorkspaceCopyLinkStatus
+
+
+class WorkspaceCopyCoverage(TypedDict):
+    complete: bool
+    omittedSources: list[NoReturn]
+    unresolvedLinks: list[WorkspaceCopyUnresolvedLink]
+
+
+class WorkspaceCopyLinkWarning(WorkspaceCopyUnresolvedLink):
+    workspaceId: str
+    reason: Literal["unaffected-existing-link"]
+
+
+class WorkspaceCopyLinkAssessment(TypedDict):
+    version: Literal[1]
+    complete: bool
+    warnings: list[WorkspaceCopyLinkWarning]
+    blockers: list[NoReturn]
+
+
+class WorkspaceCopyPreview(TypedDict):
+    version: Literal[4]
+    kind: Literal["native-copy"]
+    sourceWorkspaceId: str
+    destinationWorkspaceId: str
+    planId: str
+    readiness: Literal["ready"]
+    pathMappings: list[WorkspaceCopyPathMapping]
+    linkEdits: list[WorkspaceCopyLinkEdit]
+    coverage: WorkspaceCopyCoverage
+    linkAssessment: WorkspaceCopyLinkAssessment
+    issues: list[NoReturn]
+
+
+class WorkspaceCopyPreviewResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["preview"]
+    preview: WorkspaceCopyPreview
+
+
+class WorkspaceCopyExecution(TypedDict):
+    operationId: str
+    planId: str
+    status: Literal["complete", "needs_recovery", "failed"]
+    completedSteps: list[str]
+    pendingSteps: list[str]
+    errorCode: PublicCopyCode | None
+
+
+class WorkspaceCopyExecutionResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["apply", "recover"]
+    execution: WorkspaceCopyExecution
+    copied: list[str]
+    alreadyKnown: bool
+
+
+class WorkspaceCopyJournal(TypedDict):
+    status: Literal["prepared", "running", "completed", "failed", "recovery_required"]
+    phase: Literal["prepared", "path", "link", "completed"]
+    expectedStepCount: int
+    recordedStepCount: int
+    appliedStepCount: int
+    intentStepCount: int
+    createdAt: int
+    updatedAt: int
+    errorCode: PublicCopyCode | None
+
+
+class WorkspaceCopyConfirmedCompletion(TypedDict):
+    status: Literal["confirmed"]
+    historical: Literal[True]
+    copiedPaths: list[str]
+
+
+class WorkspaceCopyUnconfirmedCompletion(TypedDict):
+    status: Literal["not_confirmed"]
+
+
+class WorkspaceCopyOperation(TypedDict):
+    operationId: str
+    planId: str
+    revision: int
+    journal: WorkspaceCopyJournal
+    completion: WorkspaceCopyConfirmedCompletion | WorkspaceCopyUnconfirmedCompletion
+
+
+class WorkspaceCopyStatusResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["status"]
+    operation: WorkspaceCopyOperation
+
+
+class WorkspaceCopyFailureRequired(TypedDict):
+    apiVersion: Literal[1]
+    success: Literal[False]
+    code: PublicCopyCode
+
+
+class WorkspaceCopyFailure(WorkspaceCopyFailureRequired, total=False):
+    operationId: str
 
 
 @dataclass(frozen=True, repr=False)
