@@ -116,13 +116,7 @@ function trackedClaim<T>(captured: ClaimCapture, operation: () => Promise<T>): P
   void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending));
   return pending;
 }
-async function readClaimSource(database: SqlConnection, tableOid: unknown): Promise<WorkspaceOperationBatchClaimBinding['source']> {
-  const oid = Number(tableOid);
-  if (!Number.isSafeInteger(oid) || oid < 1) throw claimError('BATCH_CLAIM_CHANGED');
-  const row = await database.get(`SELECT c.oid::bigint AS table_oid,n.oid::bigint AS schema_oid,n.nspname AS schema_name,
-    c.relname,c.relkind,c.relpersistence,pg_catalog.current_setting('search_path') AS search_path,
-    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid
-    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.oid=$1::pg_catalog.oid`, [oid]) as Record<string, unknown> | undefined;
+function parseClaimSourceRow(row: Record<string, unknown> | undefined, oid: number): WorkspaceOperationBatchClaimBinding['source'] {
   if (!row || Number(row.table_oid) !== oid || !Number.isSafeInteger(Number(row.schema_oid)) || Number(row.schema_oid) < 1
     || typeof row.schema_name !== 'string' || !row.schema_name || row.schema_name.length > 63 || /[\u0000-\u001f\u007f]/u.test(row.schema_name)
     || row.schema_name.startsWith('pg_') || row.relname !== 'workspace_file_operation_batches' || row.relkind !== 'r' || row.relpersistence !== 'p'
@@ -130,6 +124,15 @@ async function readClaimSource(database: SqlConnection, tableOid: unknown): Prom
     || !Number.isSafeInteger(Number(row.database_oid)) || Number(row.database_oid) < 1) throw claimError('BATCH_CLAIM_CHANGED');
   return Object.freeze({ databaseOid: Number(row.database_oid), schemaOid: Number(row.schema_oid), schemaName: row.schema_name,
     tableOid: oid, searchPath: row.search_path });
+}
+async function readClaimSource(database: SqlConnection, tableOid: unknown): Promise<WorkspaceOperationBatchClaimBinding['source']> {
+  const oid = Number(tableOid);
+  if (!Number.isSafeInteger(oid) || oid < 1) throw claimError('BATCH_CLAIM_CHANGED');
+  const row = await database.get(`SELECT c.oid::bigint AS table_oid,n.oid::bigint AS schema_oid,n.nspname AS schema_name,
+    c.relname,c.relkind,c.relpersistence,pg_catalog.current_setting('search_path') AS search_path,
+    (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE c.oid=$1::pg_catalog.oid`, [oid]) as Record<string, unknown> | undefined;
+  return parseClaimSourceRow(row, oid);
 }
 async function assertClaimSource(database: SqlConnection, captured: Pick<ClaimCapture, 'binding'>): Promise<void> {
   const current = await readClaimSource(database, captured.binding.source.tableOid), expected = captured.binding.source;
@@ -190,21 +193,36 @@ export function assertWorkspaceOperationBatchClaimOnConnection(database: SqlConn
       || captured.binding.authorization.jobScope.workspaceId !== captured.binding.workspaceId)) throw claimError('BATCH_CLAIM_CHANGED');
     const first = await database.get(`SELECT pg_catalog.pg_current_xact_id()::text AS transaction_id,
       pg_catalog.current_setting('transaction_isolation') AS isolation,
-      pg_catalog.current_setting('transaction_read_only') AS read_only`) as { transaction_id?: unknown; isolation?: unknown; read_only?: unknown } | undefined;
+      pg_catalog.current_setting('transaction_read_only') AS read_only,
+      c.oid::bigint AS table_oid,n.oid::bigint AS schema_oid,n.nspname AS schema_name,
+      c.relname,c.relkind,c.relpersistence,pg_catalog.current_setting('search_path') AS search_path,
+      (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
+      pg_catalog.to_regclass('workspace_file_operation_batches')::oid::bigint AS resolved_table_oid,
+      pg_catalog.to_regclass($2)::oid::bigint AS qualified_oid
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE c.oid=$1::pg_catalog.oid`, [captured.binding.source.tableOid, relation(captured.binding)]) as Record<string, unknown> | undefined;
     if (first?.isolation !== 'read committed' || first.read_only !== 'off') throw claimError('BATCH_CLAIM_CHANGED');
-    claimCurrent(captured); await assertClaimSource(database, captured);
-    const row = await database.get(`SELECT tableoid::oid::bigint AS table_oid FROM ${relation(captured.binding)}
-      WHERE ${claimPredicates}
-        AND lease_expires_at>floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint
-      FOR SHARE NOWAIT`, claimParameters(captured)) as { table_oid?: unknown } | undefined;
+    claimCurrent(captured);
+    const current = parseClaimSourceRow(first, captured.binding.source.tableOid), expected = captured.binding.source;
+    if (Object.keys(expected).some(key => current[key as keyof typeof current] !== expected[key as keyof typeof expected])) {
+      throw claimError('BATCH_CLAIM_CHANGED');
+    }
+    if (Number(first.resolved_table_oid) !== expected.tableOid || Number(first.qualified_oid) !== expected.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+    const row = await database.get(`WITH held_claim AS MATERIALIZED (
+      SELECT tableoid::oid::bigint AS table_oid FROM ${relation(captured.binding)}
+        WHERE ${claimPredicates}
+          AND lease_expires_at>floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint
+        FOR SHARE NOWAIT
+      )
+      SELECT held_claim.table_oid,pg_catalog.pg_current_xact_id_if_assigned()::text AS transaction_id,
+        floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint AS server_now
+      FROM held_claim`, claimParameters(captured)) as Record<string, unknown> | undefined;
     claimCurrent(captured);
     if (!row || Number(row.table_oid) !== captured.binding.source.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
-    const last = await database.get(`SELECT pg_catalog.pg_current_xact_id_if_assigned()::text AS transaction_id,
-      floor(extract(epoch FROM pg_catalog.clock_timestamp())*1000)::bigint AS server_now`) as { transaction_id?: unknown; server_now?: unknown } | undefined;
     claimCurrent(captured);
     if (!first || typeof first.transaction_id !== 'string' || !/^[0-9]{1,32}$/u.test(first.transaction_id)
-      || last?.transaction_id !== first.transaction_id) throw claimError('BATCH_CLAIM_CHANGED');
-    if (!Number.isSafeInteger(Number(last.server_now)) || Number(last.server_now) >= captured.expiresAt) throw claimError('BATCH_CLAIM_EXPIRED');
+      || row.transaction_id !== first.transaction_id) throw claimError('BATCH_CLAIM_CHANGED');
+    if (!Number.isSafeInteger(Number(row.server_now)) || Number(row.server_now) >= captured.expiresAt) throw claimError('BATCH_CLAIM_EXPIRED');
     return captured.binding;
   });
 }
