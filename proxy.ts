@@ -300,7 +300,7 @@ export const config = {
     // body readers; keep only their exact routes outside proxy body buffering.
     // Public setup/invitation handlers enforce their own token/setup checks,
     // shared abuse limits and 16 KiB body reader before consuming input.
-    '/api/((?!documents/(?:read|search|edit(?:/status)?)$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
+    '/api/((?!documents/(?:read|search|(?:edit|import-existing)(?:/status)?)$|setup/owner$|organization/invitations/(?:accept|activate|preview)$|email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
     // Localized page URLs can contain dots. They still need locale forwarding
     // for the global 404; root-level public asset URLs remain excluded above.

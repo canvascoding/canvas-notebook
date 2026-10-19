@@ -43,6 +43,11 @@ import { hasCollaborationHandoffExecutionContext } from './handoff-execution-con
 import { lockFileLifecycleCollaborationWriterAdmission } from './file-lifecycle-writer-admission';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
 import { MARKDOWN_FILE_IMPORT_LIMIT, MarkdownFileImportError, prepareMarkdownFileImport, type PreparedMarkdownFileImport } from './markdown-file-import';
+import { decodeMarkdownOriginalImportSelectionV1, decodeMarkdownOriginalImportRecordV1,
+  markdownOriginalImportRequestId, markdownOriginalImportRequestDigest, markdownOriginalImportRecordDigest,
+  serializeMarkdownOriginalImportRecordV1, type MarkdownOriginalImportSelectionV1,
+  type MarkdownOriginalImportRecordV1 } from './markdown-original-import-contract';
+import { readMarkdownOriginalImportRecordOnConnection } from './markdown-original-import-history';
 import { replaceRichMarkdownInYDoc, richMarkdownFromYDoc, richMarkdownSchemaExtensions, validateRichMarkdownYDoc } from './markdown-state';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import { authenticatedNativeTextSessionEnabled } from './native-text-session-activation';
@@ -284,7 +289,8 @@ type BootstrapRealm = { schema: string; database: number };
 type BootstrapOwner = BootstrapRealm & { backend: number; start: string; searchPath: string };
 type BootstrapFrameCore = { selection: PristineOriginalWorkspaceFileRequest; realm: BootstrapRealm;
   owner: SqlConnection; identity: BootstrapOwner; mutationIdentity?: BootstrapOwner;
-  permission: 'canRead' | 'canWrite'; expectedScope?: PristineOriginalRequestScopeExpectation };
+  permission: 'canRead' | 'canWrite'; expectedScope?: PristineOriginalRequestScopeExpectation;
+  explicitOriginal?: MarkdownOriginalImportSelectionV1 };
 type BootstrapFrame = BootstrapFrameCore & ({ kind: 'request'; request: NextRequest }
   | { kind: 'direct-mcp'; invocation: DirectMcpCreateInvocation; originalOrigin: DirectMcpDocumentCreateCurrentOrigin });
 type RequestBootstrapFrame = Extract<BootstrapFrame, { kind: 'request' }>;
@@ -325,8 +331,9 @@ async function assertBootstrapNativeRealm(database: SqlConnection, frame: Bootst
   if (current.schema !== frame.realm.schema || current.database !== frame.realm.database || current.backend === frame.identity.backend) {
     return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   }
-  const relations = frame.kind === 'direct-mcp' && frame.invocation.apiVersion === 1
-    ? [...bootstrapRelations, 'workspace_file_metadata'] : bootstrapRelations;
+  const relations = [...bootstrapRelations,
+    ...(frame.kind === 'direct-mcp' && frame.invocation.apiVersion === 1 ? ['workspace_file_metadata'] : []),
+    ...(frame.explicitOriginal ? ['collaboration_original_markdown_imports'] : [])];
   if (lock) await database.run(`LOCK TABLE ${relations.map(name => `${quoteBootstrap(frame.realm.schema)}.${quoteBootstrap(name)}`).join(',')}
     IN ROW EXCLUSIVE MODE NOWAIT`);
   const rows = await database.all(`SELECT name,to_regclass(name)::oid=to_regclass($1||'.'||quote_ident(name))::oid AS same
@@ -564,6 +571,12 @@ async function recoverOriginalBootstrap(input: Captured, frame: RequestBootstrap
           || !sameBootstrapWorkspace(access.workspace, input.workspace)) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
         await assertBootstrapExpectedScope(database, frame, access);
         await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
+        if (frame.explicitOriginal) {
+          const origin = await captureExplicitOriginalMarkdownImportOrigin(database, access);
+          const original = await readMarkdownOriginalImportRecordOnConnection(database, origin,
+            frame.explicitOriginal.operationId, frame.explicitOriginal);
+          if (!original || original.receipt.requestFingerprint !== input.fingerprint) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+        }
         await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
         await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
         const metadata = await database.get(`SELECT document_id,workspace_id,organization_id,path,status,representation,lifecycle_generation,
@@ -614,9 +627,122 @@ export async function persistPristineOriginalWorkspaceFileForWrite(request: Next
   return persistOriginalWorkspaceFile(request, selection, 'canWrite', dependencies, expected);
 }
 
+/** Explicit import observations are immutable history, not today's document
+ * content or checkpoint currency. Resolve the returned ID to read current data. */
+export type ExplicitOriginalMarkdownFileImportResult = Pick<MarkdownFileImportResult, 'disposition' | 'receipt'>;
+
+async function captureExplicitOriginalMarkdownImportOrigin(database: SqlConnection,
+  access: WorkspaceRequestPrincipalAccess): Promise<PristineOriginalRequestScopeExpectation> {
+  await access.assertCurrent();
+  const workspace = access.workspace;
+  const facts = { userId: access.userId, sessionId: access.sessionId, workspaceId: workspace.workspaceId,
+    workspaceType: workspace.workspaceType, organizationId: workspace.organizationId ?? null,
+    projectId: workspace.projectId ?? null, customerId: workspace.customerId ?? null, ownerUserId: workspace.ownerUserId ?? null,
+    rootPath: workspace.rootPath, rootRelativePath: workspace.rootRelativePath!, legacy: workspace.legacy, status: workspace.status };
+  if (facts.legacy || facts.status !== 'active' || !workspace.permissions.canRead || !workspace.permissions.canWrite) {
+    return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  }
+  const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
+    (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
+    current_setting('search_path') AS search_path`) as Record<string, unknown> | undefined;
+  if (!row) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  await access.assertCurrent();
+  return captureBootstrapExpectation({ ...facts, legacy: false, status: 'active', schema: row.schema as string,
+    schemaOid: Number(row.schema_oid), databaseOid: Number(row.database_oid), searchPath: row.search_path as string })!;
+}
+
+async function insertExplicitOriginalMarkdownImportRecord(database: SqlConnection, selection: MarkdownOriginalImportSelectionV1,
+  origin: PristineOriginalRequestScopeExpectation, receipt: MarkdownFileImportReceipt): Promise<void> {
+  const record = decodeMarkdownOriginalImportRecordV1({ version: 1, selection, origin, receipt });
+  const text = serializeMarkdownOriginalImportRecordV1(record);
+  await database.run(`INSERT INTO ${quoteBootstrap(origin.schema)}.collaboration_original_markdown_imports
+    (workspace_id,operation_id,version,request_digest,original_text,original_digest,import_fingerprint,created_at)
+    VALUES($1,$2,1,$3,$4,$5,$6,$7)`, [selection.workspaceId, selection.operationId,
+    markdownOriginalImportRequestDigest(selection, origin.userId), text, markdownOriginalImportRecordDigest(record),
+    receipt.requestFingerprint, receipt.target.persistedAt]);
+  const observed = await readMarkdownOriginalImportRecordOnConnection(database, origin, selection.operationId, selection);
+  if (!observed || !isDeepStrictEqual(observed, record)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+}
+
+/** Fixed WRITE original-file entry. The legacy read/bootstrap entry keeps its
+ * retained-attempt contract; this opt-in has an atomic durable request binding. */
+export async function persistExplicitOriginalMarkdownFileForWrite(request: NextRequest, raw: unknown,
+  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }
+): Promise<ExplicitOriginalMarkdownFileImportResult> {
+  if (!(request instanceof NextRequest)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const selection = decodeMarkdownOriginalImportSelectionV1(raw);
+  // Historical confirmation precedes today's path/room/lifecycle guard. An
+  // editor or a different later D2 at that path cannot block an own retry.
+  const known = await readExplicitOriginalMarkdownImportRecordForWrite(original, {
+    apiVersion: 1, workspaceId: selection.workspaceId, operationId: selection.operationId,
+  }, dependencies, selection);
+  if (known) return { disposition: 'already-applied', receipt: known.receipt };
+  if (!authenticatedNativeTextSessionEnabled()) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+  return persistOriginalWorkspaceFile(original, { workspaceId: selection.workspaceId, path: selection.path,
+    operationId: selection.operationId, requestId: markdownOriginalImportRequestId(selection.operationId),
+    expectedFileVersion: selection.expectedFileVersion, expectedTarget: { kind: 'absent' },
+    initialRepresentation: selection.initialRepresentation }, 'canWrite', dependencies, undefined, selection);
+}
+
+/** Pure historical status under a fresh genuine WRITE principal. There is no
+ * source-path probe, migration, representation change or mutation fallback. */
+export async function readExplicitOriginalMarkdownImportStatusForWrite(request: NextRequest, raw: unknown,
+  dependencies: { openConnection: () => Promise<SqlConnection> } = { openConnection: openDb }
+): Promise<MarkdownFileImportReceipt | null> {
+  return (await readExplicitOriginalMarkdownImportRecordForWrite(request, raw, dependencies))?.receipt ?? null;
+}
+
+async function readExplicitOriginalMarkdownImportRecordForWrite(request: NextRequest, raw: unknown,
+  dependencies: { openConnection: () => Promise<SqlConnection> }, expectedSelection?: MarkdownOriginalImportSelectionV1
+): Promise<MarkdownOriginalImportRecordV1 | null> {
+  const fields = mcpObject(raw, ['apiVersion', 'workspaceId', 'operationId']);
+  if (!(request instanceof NextRequest) || fields.apiVersion !== 1 || !validId(fields.workspaceId)
+    || !validId(fields.operationId) || !/^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/u.test(fields.operationId)
+    || typeof dependencies.openConnection !== 'function') return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const workspaceId = fields.workspaceId, operationId = fields.operationId;
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const { withWorkspaceRequestPrincipal, withWorkspaceRequestPrincipalOnConnection } = await import('../workspaces/request-principal');
+  return withWorkspaceRequestPrincipal(original, { workspaceId, permission: 'canWrite' }, async principal => {
+    const runtime = getPostgresRuntimeQueryable();
+    const source = runtime && (await runtime.query(`SELECT current_schema() AS schema,
+      (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database`)).rows[0];
+    if (!source || typeof source.schema !== 'string' || !Number.isSafeInteger(Number(source.database))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    const database = await dependencies.openConnection(); let begun = false, commitAttempted = false, discard: Error | undefined;
+    try {
+      const identity = await bootstrapConnectionRealm(database);
+      if (identity.schema !== source.schema || identity.database !== Number(source.database)) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+      // The existing fixed WRITE Principal requires this exact transaction
+      // mode for its current policy/row fences. This consumer performs SELECTs
+      // only; transaction mode never authorizes an import or reconciliation.
+      await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
+      await database.run("SELECT set_config('search_path',quote_ident($1)||', pg_catalog, pg_temp',true)", [source.schema]);
+      const record = await withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+        const origin = await captureExplicitOriginalMarkdownImportOrigin(database, access);
+        const found = await readMarkdownOriginalImportRecordOnConnection(database, origin, operationId, expectedSelection);
+        await access.assertCurrent(); return found;
+      });
+      commitAttempted = true; await database.run('COMMIT'); begun = false; return record;
+    } catch (error) {
+      if (commitAttempted) discard = new Error('Discarding unconfirmed original import status COMMIT.', { cause: error });
+      if (begun) try { await database.run('ROLLBACK'); }
+      catch (rollbackError) { discard = new Error('Discarding unconfirmed original import status connection.', { cause: rollbackError }); }
+      throw error;
+    } finally { await database.close(discard); }
+  });
+}
+
 async function persistOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
   permission: 'canRead' | 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> },
-  expectedScope?: PristineOriginalRequestScopeExpectation): Promise<MarkdownFileImportResult> {
+  expectedScope?: PristineOriginalRequestScopeExpectation): Promise<MarkdownFileImportResult>;
+async function persistOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
+  permission: 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> },
+  expectedScope: PristineOriginalRequestScopeExpectation | undefined,
+  explicitOriginal: MarkdownOriginalImportSelectionV1): Promise<ExplicitOriginalMarkdownFileImportResult>;
+async function persistOriginalWorkspaceFile(request: NextRequest, selection: PristineOriginalWorkspaceFileRequest,
+  permission: 'canRead' | 'canWrite', dependencies: { openConnection: () => Promise<SqlConnection> },
+  expectedScope?: PristineOriginalRequestScopeExpectation,
+  explicitOriginal?: MarkdownOriginalImportSelectionV1): Promise<MarkdownFileImportResult | ExplicitOriginalMarkdownFileImportResult> {
   if (!(request instanceof NextRequest) || !selection || typeof selection !== 'object'
     || Object.getPrototypeOf(selection) !== Object.prototype
     || Reflect.ownKeys(selection).some(key => typeof key !== 'string'
@@ -624,6 +750,11 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
       || !Object.getOwnPropertyDescriptor(selection, key)?.enumerable
       || !Object.prototype.hasOwnProperty.call(Object.getOwnPropertyDescriptor(selection, key), 'value'))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const copied = structuredClone(selection), original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  if (explicitOriginal && (permission !== 'canWrite' || explicitOriginal.workspaceId !== copied.workspaceId
+    || explicitOriginal.path !== copied.path || explicitOriginal.operationId !== copied.operationId
+    || markdownOriginalImportRequestId(explicitOriginal.operationId) !== copied.requestId
+    || explicitOriginal.expectedFileVersion !== copied.expectedFileVersion
+    || explicitOriginal.initialRepresentation !== copied.initialRepresentation)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const openConnection = dependencies.openConnection;
   if (typeof openConnection !== 'function' || !validId(copied.workspaceId) || !validId(copied.operationId) || !validId(copied.requestId)
     || !isCanonicalAdmissionPath(copied.path) || isInternalWorkspaceStagingPath(copied.path) || !/\.(?:md|markdown|txt)$/iu.test(copied.path)
@@ -660,7 +791,8 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
     };
     return withWorkspaceFileLifecycleGuard({ workspaceId: copied.workspaceId, paths: [copied.path] }, async () => {
       if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
-      const frame: RequestBootstrapFrame = { kind: 'request', request: original, selection: copied, realm, owner, identity: ownerIdentity, permission, expectedScope };
+      const frame: RequestBootstrapFrame = { kind: 'request', request: original, selection: copied, realm, owner, identity: ownerIdentity,
+        permission, expectedScope, ...(explicitOriginal ? { explicitOriginal } : {}) };
       const openMutation = async () => {
         const database = await openConnection();
         if (database === owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
@@ -675,25 +807,56 @@ async function persistOriginalWorkspaceFile(request: NextRequest, selection: Pri
         }
         return database;
       };
-      const outcome = await executeLifecycleTransaction<{ result: MarkdownFileImportResult; input: Captured }>({ openConnection: openMutation,
+      const outcome = await executeLifecycleTransaction<{
+        result: MarkdownFileImportResult | ExplicitOriginalMarkdownFileImportResult; input: Captured | null;
+      }>({ openConnection: openMutation,
         execute: async database => {
           await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
           // The existing immutable receipt trigger uses this exact scoped path.
           // Fix it before Principal captures identity; never restore/mask drift.
           await database.run("SELECT set_config('search_path',quote_ident($1)||', pg_catalog, pg_temp',true)", [realm.schema]);
           return withWorkspaceRequestPrincipalOnConnection(database, principal, async access => {
+            const explicitOrigin = explicitOriginal ? await captureExplicitOriginalMarkdownImportOrigin(database, access) : null;
+            if (explicitOriginal && explicitOrigin) {
+              // Resolve our original receipt before inspecting today's path.
+              // An initialized winner or later D2 must never be adopted.
+              const known = await readMarkdownOriginalImportRecordOnConnection(database, explicitOrigin,
+                explicitOriginal.operationId, explicitOriginal);
+              if (known) {
+                await access.assertCurrent(); await assertBootstrapOwner(frame);
+                return { result: { disposition: 'already-applied' as const, receipt: known.receipt }, input: null };
+              }
+              const documents = await readWorkspaceDocumentCatalogue(database, access.workspace, { paths: [copied.path], maxEntries: 2 });
+              if (documents.length > 1 || documents.some(document => document.authority !== 'pristine')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+              frame.selection = { ...copied, expectedTarget: documents.length
+                ? { kind: 'pristine', documentId: documents[0].id } : { kind: 'absent' } };
+            }
             const input = await captureOriginalBootstrap(database, frame, access), scope = originalBootstrapScopes.get(input)!;
             try {
               const result = await executeCapturedMarkdownImportOnConnection(database, input, async () => {
                 await assertBootstrapScope(database, input, scope); await assertWorkspaceOriginalPathCurrent(scope.source);
               });
               await assertBootstrapScope(database, input, scope); await assertWorkspaceOriginalPathCurrent(scope.source);
+              if (explicitOriginal && explicitOrigin) {
+                await insertExplicitOriginalMarkdownImportRecord(database, explicitOriginal, explicitOrigin, result.receipt);
+                await assertBootstrapScope(database, input, scope); await assertWorkspaceOriginalPathCurrent(scope.source);
+              }
               return { result, input };
             } finally { scope.active = false; }
           });
         },
-        recoverCommitted: async value => ({ input: value.input, result: await recoverOriginalBootstrap(value.input, frame, openConnection) }),
+        recoverCommitted: async value => {
+          if (value.input) return { input: value.input, result: await recoverOriginalBootstrap(value.input, frame, openConnection) };
+          if (!explicitOriginal) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          const receipt = await readExplicitOriginalMarkdownImportStatusForWrite(original, {
+            apiVersion: 1, workspaceId: explicitOriginal.workspaceId, operationId: explicitOriginal.operationId,
+          }, dependencies);
+          if (!receipt || !isDeepStrictEqual(receipt, value.result.receipt)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          return { input: null, result: { disposition: 'commit-recovered' as const, receipt } };
+        },
       });
+      if (explicitOriginal) return { disposition: outcome.result.disposition, receipt: outcome.result.receipt };
+      if (!('currentObservation' in outcome.result)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
       return outcome.result;
     }, openOwner);
   });
