@@ -1,4 +1,5 @@
 # Öffentlicher nativer MCP-Copy-Anschluss
+**Aktueller kompilierter Anschluss lokal abgenommen:** Die unten dokumentierte Fortsetzung besteht nun mit frischem Originalbuild und echtem OAuth-/Browserlauf **8/8** samt allen 14 Abschlussprüfungen. Der folgende erste Abschnitt bleibt der ursprüngliche lokale 29-Gruppen-Nachweis. Allgemeine Aktivierung und Gesamtauftrag bleiben offen.
 
 Stand: 19. Oktober 2026. Dieser Teilabschluss registriert `copy_knowledge_source` mit expliziter Aktivierung und den vier Aktionen Preview, Apply, Status und Recover. Er ist eine lokale Quellen-/PG-/Dispatcherabnahme; kompilierter TCP-/OAuth-/Browseranschluss, SDK-Dateiaktionen, allgemeine Aktivierung und Gesamtauftrag bleiben offen.
 
@@ -75,3 +76,33 @@ Der frische unabhängige RO/RR-Abschluss `resources-after.json` bestätigt null 
 Die kanonischen öffentlichen MDX-Seiten beschreiben den tatsächlichen Entwicklungsschnitt einschließlich Rootmappings, Budgets, getrennten Status-/Recoverfällen und Legacygrenze. Sie erfinden keine SDK-Copymethode. Der unveränderte Control-Plane-Sync/Generator läuft in einer neuen privaten Ausgabe unter `public-docs/web`; 126 Seiten und alle 13 bestehenden Markdown-/Suchtests bestehen. Checkout und laufende Website bleiben unverändert. Öffentliche HTML-/Browserabnahme und Veröffentlichung stehen weiterhin aus.
 
 Vor dem Gesamtabschluss fehlen außerdem Move/Delete-Transportanschlüsse, SDK-Dateiaktionen, interne native PI-Neuanlage/SDK-Runtime, PDF-zu-nativer-Anlage, Standard-Skill, breitere Suche, restliche Sandboxlaufwege und die gemeinsame Build-/E2E-Abnahme. Dateiaktions-Undo und Review Center bleiben aus. Das normale native Aktivierungsgate bleibt aus; kein Push, PR oder Deployment durch diesen Schritt.
+
+## Fortsetzung: frischer Build und tatsächlicher OAuth-/Browseranschluss 8/8
+
+Auf Root `774d62d842460642818ddcfc51df60323a540234` / QA `db447529a57dbed509d333d91ead524a6a7c202a` besteht der frische Originalproduktionsbuild nach **739,032 Sekunden** mit Exit 0. Der unabhängige Artefaktabgleich bestätigt denselben eingefrorenen Quellstand, Build und nativen FD-Baustein. Neuer Testquellhash: `cdeb9458b49a1e3ce25257999997c9ba939dfcabc188d3e3ef59727b792fef8e`. Die sieben ursprünglichen Testkörper sind durch tatsächlichen AST-Textvergleich bytegleich erhalten; ein achter Fall ist ergänzt. Der erste gezielte Typcheck mit fünf Testdiagnosen bleibt erhalten. Nach korrekter Behandlung der Browserantwort und expliziten Sitzungstypen bestehen finale gezielte Typprüfung und Lint; weder Timeout noch Supervisor oder vorhandene Fälle wurden gelockert.
+
+Die originale kompilierte Browserfolge besteht **8 deklariert / 8 bestanden**, null Fehler, Skips, Timeouts und Unterbrechungen. Die ursprünglichen sieben Create-/HTTPS-Import-/Sessionrenewal-/MCP-/REST-/SDK-/Editorfälle und der neue öffentliche Copyfall laufen gemeinsam. Die SDKfälle benutzen weiterhin das unveränderte installierte v4-Wheel; daraus folgt keine SDK-Copymethode.
+
+Der neue Fall belegt über die tatsächliche sichtbare Settingsseite: Copy ist in der gespeicherten Ausgangsauswahl aus, wird per Schalter und Save ausdrücklich aktiviert und bleibt nach Reload aktiviert. Vorher fehlt die Fähigkeit in `tools/list`, danach wird der tatsächliche Vier-Aktionen-Vertrag angeboten. Dies ist keine eigene Upgrade-/Migrations-Defaultprobe; die getrennten Konfigurationsprüfungen bleiben dafür maßgeblich.
+
+Zwei echte persönliche Workspaces werden mit bestätigter nativer Starterinitialisierung erstellt und derselben echten OAuthverbindung ausdrücklich freigegeben. Quelle und belegtes Ziel entstehen über native MCP-Create, nicht über rohe Markdownbytes. Beide Workspaces gehören dem Testbenutzer und sind schreibbar; ein kompilierter READ-only-Quellberechtigungsfall wird nicht behauptet. Preview löst den benutzergewählten belegten Zielnamen einmal auf; Apply behält Caller-ID, Plan und das exakte Ziel `custom-target (1).md` mit false-Mutationsflag. Die bereits geöffnete Ziel-Dateiliste zeigt den neuen Eintrag ohne manuelles Reload. Eine echte Sessionantwort liefert die Ziel-ID; vollständiger nativer MCP-Read und Original-Copyreceipt bestätigen dieselbe neue ID, Lineage, Quell-ID und den aufgelösten Pfad. Dadurch kann eine erst beim Öffnen entstandene Identität einen fehlenden Copybirth nicht kaschieren.
+
+Tatsächliches Sign-out verwirft die frühere Sitzung, deren unveränderter Token HTTP 401 erhält. Neue Anmeldung und echter Consent mit derselben Registrierung sowie frische Quell-/Zielfreigaben ermöglichen Status, bestehenden abgeschlossenen Recover und identischen Apply-Retry. Journal-/Receiptzeilen samt `xmin` und ursprünglicher A-Attribution bleiben identisch. Der unterbrochene B1-/B2-Recoveryfall bleibt der separat tatsächlich ausgeführte PG-/Dispatcher-/Ansichtsnachweis; der neue Browserfall beweist ausdrücklich abgeschlossene historische Wiederaufnahme. True-Mutationsflag und unbekannter Recover werden abgewiesen, für letzteren entstehen weder Auftrag, Receipt noch Zieldokument. Quelle und zuvor belegtes Ziel behalten ihre vollständigen nativen Versionen und Inhalte.
+
+Der Zieltext ist im direkt editierbaren Editor sichtbar, ohne Read/Edit-Auswahl, und bleibt nach Reload gleich dem vollständigen nativen JSON. Root hat beide tatsächlichen sicheren Screenshots angesehen: Copy-Schalter und Beschreibung sind sichtbar; der Editor zeigt `Public Copy`, den kopierten Text und den unveränderten Schlussabsatz. Der numerische Settingscheck bestätigt keinen horizontalen Overflow; die regulär vertikal scrollende Einstellungsseite wird dadurch nicht zur vollständig auf einen Bildschirm passenden Ansicht erklärt.
+
+Originalruntime PID 75012, Baseline, unabhängiger Postcheck und Queue enden jeweils mit Exit 0. Alle **14/14** Abschlussprüfungen bestehen: eigene Datenbanken samt OIDs/Backends, DATA, TMP, Runtime-Lock, beobachtete Prozesse/Gruppen/Ports sind geschlossen; vier verwaltete Dienste behalten ihre Identitäten und gesunden Zustand, drei Gesundheitsantworten sind HTTP 200. Roots zusätzliche Stichprobenunion bestätigt 19 tatsächlich beobachtete Build-/Runtimeidentitäten und acht leere Gruppen; sie behauptet keinen vollständigen Verlauf kurzlebiger Prozesse.
+
+Originale liegen unter `/private/tmp/canvas-mcp-copy-controller8-tHE1G83I/`; der tatsächliche Runtimefixture ist `canvas-yjs-authority-Eiku6F`. Frühere rote Ergebnisse und ihre Abschlussberichte bleiben unverändert.
+
+| Originalbericht | SHA-256 |
+| --- | --- |
+| `source-report.json` | `edcdeb0433c895dec5fee65b801e8d0e0b4193d97340432ea8eef2aca089b1cd` |
+| `build-terminal.json` | `4f62464bb05105bbfb6afb697739b634127313bffe8369e6916b9e288c5d1f11` |
+| `artifact-report.json` | `439c0544c83d8863e7eafb325583a4b392a2e41355da56d8a3adf3b097c27a7a` |
+| `runtime-terminal.json` | `60a69c30d1408195cf4841ff19cb584cee21dc3231f1c3d733dd6bc1f173554c` |
+| `postruntime-report.json` | `04bd5f5009d961b4c4c1d804a87d871af370b2165a885248bd33d11f623656b7` |
+| `queue-terminal.json` | `39a4f4d613cc74a4458f4821d333e8be1342806e722c9d10335e1373bfce4471` |
+| `root-sampled-union-closure.json` | `71acfc341ab3647774ca263af3b99d7988d4f15d3b25730c95bf8553facbe146` |
+
+Der öffentliche Copyanschluss ist damit für den beschriebenen nativen Schnitt lokal kompiliert und tatsächlich geprüft. Legacy-/rohes Markdown, SDK-Dateiaktionen, Move/Delete-Transportanschlüsse, interne PI-Neuanlage/Runtimeadapter, PDF, Standard-Skill, breitere Suche, restliche Sandboxwege und die gemeinsame Gesamtabnahme bleiben offen. Normales Aktivierungsgate, Dateiaktions-Undo und Review Center bleiben aus; keine Veröffentlichung oder Produktionsfreigabe.
