@@ -8,11 +8,13 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'dotenv';
 import { Client } from 'pg';
+import { getSchema } from '@tiptap/core';
 import { expect, request as apiRequest, test, type APIRequestContext, type APIResponse, type BrowserContext, type TestInfo } from '@playwright/test';
 import type { DocumentCreateMutationResultV1, DocumentReadPageV1 } from '../app/lib/documents/contracts';
 import type { DocumentEditOperationResultV1 } from '../app/lib/documents/edit-result-contract';
 import type { NativeDocumentEditTargetV1 } from '../app/lib/collaboration/native-document-edit-targets';
 import { COLLABORATION_CLIENT_CAPABILITIES } from '../app/lib/collaboration/types';
+import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-codec';
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import { authorizeIngestE2EMcp, type IngestE2EToolResult } from '../scripts/mcp-file-ingest-e2e-helpers';
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
@@ -1149,7 +1151,11 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
         }
         if (Array.isArray(node.content)) for (const child of node.content) visit(object(child));
       };
-      visit(expected); assert.equal(changed, 1, 'The one actual authored incoming link must be changed.'); return expected;
+      visit(expected); assert.equal(changed, 1, 'The one actual authored incoming link must be changed.');
+      // Removing a mark joins adjacent text with identical markup in ProseMirror.
+      // Canonicalize only the authored expectation; keep actual read/UI JSON exact.
+      const canonical = getSchema(richMarkdownCodecExtensions()).nodeFromJSON(expected);
+      canonical.check(); return object(JSON.parse(JSON.stringify(canonical.toJSON())));
     };
     const observePathEditor = async (page: CasePage, document: DocumentReadPageV1, reload = false): Promise<void> => {
       const observer = page.waitForResponse(response => {
