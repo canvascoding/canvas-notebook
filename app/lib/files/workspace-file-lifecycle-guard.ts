@@ -147,6 +147,29 @@ async function collectLifecycleSource(captured: SourceCapture, workspace: Worksp
   }
 }
 
+/** Rejection-only bridge for an existing exclusive guard and a separate caller
+ * transaction. Public lease-shaped ALS data cannot impersonate the private
+ * source owner. This opens no read transaction and returns no authority. */
+export async function assertWorkspaceFileLifecycleSourceLeaseCurrent(database: SqlConnection,
+  workspaceId: string): Promise<void> {
+  const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId);
+  const captured = lease && sourceOwners.get(lease);
+  if (!captured || captured.workspaceId !== workspaceId || captured.reading
+    || sourceContext.getStore()?.get(lease!) !== captured) {
+    throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+  }
+  try {
+    await sourceIdle(captured);
+    const current = await sourceIdentity(database, true, false);
+    if (!captured.identity || current.identity.database !== captured.identity.database
+      || current.identity.schema !== captured.identity.schema
+      || current.identity.backend === captured.identity.backend || current.transaction === null) {
+      throw new WorkspaceFileLifecycleSourceError('FILE_LIFECYCLE_SOURCE_INVALID');
+    }
+    await sourceFence(captured);
+  } catch (error) { throw sourceFailure(captured, error); }
+}
+
 /** Fixed facts-only read. No principal, writer authority, raw B or free callback
  * is created. Current caller rights remain required by the existing flow.
  * Undefined permits standalone staging only outside every owned lease. */

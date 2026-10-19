@@ -67,6 +67,10 @@ import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory
 import { nativeCopyMarkdownImportIds, NativeCopyMarkdownBirthError,
   type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
 import { persistNativeCopyMarkdownBirthOnConnection } from './native-copy-markdown-birth-persistence';
+import type { WorkspacePathImportPreparationHandle } from '../files/workspace-path-import-preparation-phase';
+import type { WorkspacePathImportRequirementV1 } from '../files/workspace-path-import-preparation-plan';
+import type { PhysicalReadSourceEvidenceV3 } from '../files/workspace-operation-native-source-evidence-v3';
+import type { PhysicalNativeImportBindingV1 } from '../markdown/physical-native-import-binding';
 
 export type MarkdownImportIdentity = Pick<PersistedCollaborationState, 'documentId' | 'workspaceId' | 'organizationId'
   | 'path' | 'representation' | 'schemaVersion' | 'lifecycleGeneration' | 'newlineStyle' | 'hasBom'>;
@@ -2197,14 +2201,205 @@ export async function persistNativeCopyMarkdownImportOnConnection(database: SqlC
   finally {scope.active=false;copyMarkdownImportScopes.delete(input);}
 }
 
+type PathMarkdownImportScope = { active: boolean; database: SqlConnection; preparation: WorkspacePathImportPreparationHandle;
+  requirementIndex: number; parentOperationId: string; previewPlanId: string; requirement: WorkspacePathImportRequirementV1;
+  original: PhysicalReadSourceEvidenceV3; documentId: string; originalLineageId: string | null; lineage: BootstrapLineage };
+type PathMarkdownOriginalObservation = { requirementIndex: number; requirement: WorkspacePathImportRequirementV1;
+  original: PhysicalReadSourceEvidenceV3; source: Awaited<ReturnType<typeof observeBootstrapOriginal>> };
+type PathMarkdownOriginals = { database: SqlConnection; workspace: WorkspaceContext; userId: string; sessionId: string;
+  parentOperationId: string; previewPlanId: string; activeIndex: number | null; seen: Set<number>;
+  observations: Map<number, PathMarkdownOriginalObservation> };
+const pathMarkdownImportScopes = new WeakMap<Captured, PathMarkdownImportScope>();
+const pathMarkdownImportedOriginals = new WeakMap<WorkspacePathImportPreparationHandle, PathMarkdownOriginals>();
+
+async function assertPathMarkdownImportScope(database: SqlConnection, input: Captured, scope: PathMarkdownImportScope): Promise<void> {
+  if (!scope.active || scope.database !== database || pathMarkdownImportScopes.get(input) !== scope) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+  const { assertWorkspacePathMarkdownImportPreparationOnConnection } = await import('../files/workspace-path-import-preparation-phase');
+  const current = await assertWorkspacePathMarkdownImportPreparationOnConnection(database, scope.preparation, scope.requirementIndex);
+  const req = scope.requirement;
+  if (!sameBootstrapWorkspace(current.workspace, input.workspace) || !current.workspace.permissions.canRead || !current.workspace.permissions.canWrite
+    || current.userId !== input.actorUserId || current.sessionId !== input.actorSessionId
+    || current.parentOperationId !== scope.parentOperationId || current.previewPlanId !== scope.previewPlanId
+    || !isDeepStrictEqual(current.requirement, req) || !isDeepStrictEqual(current.original, scope.original)
+    || req.workspaceId !== input.workspace.workspaceId || req.path !== input.path
+    || input.expectedTarget.kind !== (scope.original.authority.kind === 'unregistered' ? 'absent' : 'pristine')
+    || scope.original.authority.kind === 'registered-never-initialized'
+      && (input.expectedTarget.kind !== 'pristine' || input.expectedTarget.documentId !== scope.original.authority.registeredDocumentId)
+    || req.preparation.sourceHash !== input.prepared.sourceHash || req.preparation.sourceBytes !== input.prepared.sourceBytes
+    || req.preparation.representation !== input.prepared.representation || req.preparation.newlineStyle !== input.prepared.newlineStyle
+    || req.preparation.hasBom !== input.prepared.hasBom || req.preparation.canonicalHash !== hash(input.prepared.canonical)) {
+    return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  }
+}
+async function bindPathMarkdownImportLineage(database: SqlConnection, input: Captured, scope: PathMarkdownImportScope, now: number) {
+  await assertPathMarkdownImportScope(database, input, scope); await assertBootstrapVirgin(database, scope.documentId);
+  if (!scope.lineage.existing) await database.run(`INSERT INTO file_collaboration_lineages(id,organization_id,customer_id,project_id,workspace_id,workspace_type,path,status,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8)`, [scope.lineage.id, scope.lineage.organizationId, input.workspace.customerId ?? null,
+    input.workspace.projectId ?? null, input.workspace.workspaceId, input.workspace.workspaceType, input.path, now]);
+  return scope.lineage;
+}
+async function initializePathMarkdownImportRegistry(database: SqlConnection, input: Captured, scope: PathMarkdownImportScope, now: number) {
+  await assertPathMarkdownImportScope(database, input, scope); await assertBootstrapVirgin(database, scope.documentId);
+  const changed = await database.get(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
+    WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'
+      AND workspace_type=$7 AND lineage_id IS NOT DISTINCT FROM $8 AND state_version=0 AND yjs_state_lifecycle='never_initialized'
+      AND NOT EXISTS(SELECT 1 FROM collaboration_yjs_states WHERE document_id=$3)
+      AND NOT EXISTS(SELECT 1 FROM collaboration_yjs_state_backups WHERE document_id=$3)
+      AND NOT EXISTS(SELECT 1 FROM collaboration_agent_operations WHERE document_id=$3) RETURNING id`,
+  [scope.lineage.id, now, scope.documentId, input.workspace.workspaceId, input.workspace.organizationId ?? null, input.path,
+    input.workspace.workspaceType, scope.originalLineageId]);
+  if (!changed) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
+
+/** Fixed genuine Path-B0 entry. It borrows the caller's actual B/lease/owner
+ * through the private phase getter. No BEGIN/COMMIT, principal capture, lease,
+ * checkpoint, Markdown write or independently supplied validator is opened. */
+export async function persistWorkspacePathOriginalMarkdownImportOnConnection(database: SqlConnection, supplied: Readonly<{
+  preparation: WorkspacePathImportPreparationHandle; requirementIndex: number;
+}>): Promise<PhysicalNativeImportBindingV1> {
+  if (!supplied || types.isProxy(supplied) || Object.getPrototypeOf(supplied) !== Object.prototype
+    || Reflect.ownKeys(supplied).length !== 2 || !['preparation', 'requirementIndex'].every(key => {
+      const item = Object.getOwnPropertyDescriptor(supplied, key); return item?.enumerable && Object.hasOwn(item, 'value');
+    })) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const { preparation, requirementIndex } = supplied;
+  if (!Number.isSafeInteger(requirementIndex) || requirementIndex < 0 || requirementIndex > 9999) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const { assertWorkspacePathMarkdownImportPreparationOnConnection } = await import('../files/workspace-path-import-preparation-phase');
+  const current = await assertWorkspacePathMarkdownImportPreparationOnConnection(database, preparation, requirementIndex);
+  const { workspace, userId, sessionId, parentOperationId, previewPlanId, requirement: req, original } = current;
+  if (!workspace.permissions.canRead || !workspace.permissions.canWrite || !validId(userId) || !validId(sessionId)
+    || typeof parentOperationId !== 'string' || !parentOperationId || parentOperationId.length > 512
+    || Buffer.from(parentOperationId).toString('utf8') !== parentOperationId || /[\u0000-\u001f\u007f]/u.test(parentOperationId)
+    || !/^[a-f0-9]{64}$/u.test(previewPlanId) || req.workspaceId !== workspace.workspaceId
+    || req.path !== original.path || req.workspaceId !== original.workspaceId || original.organizationId !== (workspace.organizationId ?? null)
+    || req.physicalSourceProof !== original.physicalSourceProof || !isDeepStrictEqual(req.physical, original.physical)
+    || req.importPolicy.version !== 1 || req.importPolicy.initialRepresentation !== 'auto'
+    || req.importPolicy.parserVersion !== (original.parserVersion ?? 2)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  let originals = pathMarkdownImportedOriginals.get(preparation);
+  if (originals && (originals.database !== database || originals.activeIndex !== null || originals.seen.has(requirementIndex)
+    || !sameBootstrapWorkspace(originals.workspace, workspace) || originals.userId !== userId || originals.sessionId !== sessionId
+    || originals.parentOperationId !== parentOperationId || originals.previewPlanId !== previewPlanId)) {
+    return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  }
+  if (!originals) { originals = { database, workspace: structuredClone(workspace), userId, sessionId, parentOperationId, previewPlanId,
+    activeIndex: null, seen: new Set(), observations: new Map() }; pathMarkdownImportedOriginals.set(preparation, originals); }
+  originals.activeIndex = requirementIndex; originals.seen.add(requirementIndex);
+  let input: Captured | undefined, scope: PathMarkdownImportScope | undefined;
+  try {
+    await assertWorkspaceFileLifecycleSqlAvailable(database, workspace.workspaceId, [req.path]);
+    await lockFileCollaborationPaths(database, workspace.workspaceId, [req.path]);
+    const catalogue = await readWorkspaceDocumentCatalogue(database, workspace, { paths: [req.path], maxEntries: 2 });
+    const rows = await database.all(`SELECT id,lineage_id,workspace_id,organization_id,path,workspace_type,provider,status,state_version,yjs_state_lifecycle
+      FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`,
+    [workspace.workspaceId, req.path]) as Array<{ id: string; lineage_id: string | null; workspace_id: string; organization_id: string | null;
+      path: string; workspace_type: string; provider: string; status: string; state_version: number | string; yjs_state_lifecycle: string }>;
+    const document = rows[0];
+    if (original.authority.kind === 'unregistered') {
+      if (catalogue.length || rows.length) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+      if (await database.get('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 LIMIT 1', [workspace.workspaceId, req.path])) {
+        return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+      }
+    } else if (original.authority.kind !== 'registered-never-initialized' || rows.length !== 1 || catalogue.length !== 1
+      || document.id !== original.authority.registeredDocumentId || catalogue[0].id !== document.id || catalogue[0].authority !== 'pristine'
+      || document.provider !== 'yjs' || document.workspace_type !== workspace.workspaceType || Number(document.state_version) !== 0
+      || document.yjs_state_lifecycle !== 'never_initialized' || document.organization_id !== (workspace.organizationId ?? null)
+      || document.lineage_id !== original.authority.lineageId || document.lineage_id !== null && !validId(document.lineage_id)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    const documentId = document?.id ?? `collab-${randomUUID()}`;
+    await assertBootstrapVirgin(database, documentId);
+    const lineages = await database.all(`SELECT id,organization_id,workspace_type,customer_id,project_id FROM file_collaboration_lineages
+      WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE`, [workspace.workspaceId, req.path]) as Array<{
+      id: string; organization_id: string | null; workspace_type: string; customer_id: string | null; project_id: string | null }>;
+    const existing = lineages[0];
+    if (lineages.length > 1 || existing && (!validId(existing.id) || existing.organization_id !== (workspace.organizationId ?? null)
+      || existing.workspace_type !== workspace.workspaceType || existing.customer_id !== null && existing.customer_id !== (workspace.customerId ?? null)
+      || existing.project_id !== null && existing.project_id !== (workspace.projectId ?? null))
+      || document?.lineage_id && document.lineage_id !== existing?.id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    if (existing && await database.get('SELECT id FROM collaboration_documents WHERE lineage_id=$1 AND id<>$2 LIMIT 1', [existing.id, documentId])) {
+      return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+    }
+    const source = await observeBootstrapOriginal(workspace, req.path);
+    if (source.observed.identity !== original.physical.filesystemIdentity) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    const verifyCurrentSource = async () => {
+      const observed = await assertWorkspacePathMarkdownImportPreparationOnConnection(database, preparation, requirementIndex);
+      if (!sameBootstrapWorkspace(observed.workspace, workspace) || !observed.workspace.permissions.canRead || !observed.workspace.permissions.canWrite
+        || observed.userId !== userId || observed.sessionId !== sessionId || observed.parentOperationId !== parentOperationId
+        || observed.previewPlanId !== previewPlanId || !isDeepStrictEqual(observed.requirement, req) || !isDeepStrictEqual(observed.original, original)) {
+        return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+      }
+    };
+    const bytes = await readWorkspaceOriginalFileSource({ ...source, maxBytes: ORIGINAL_BOOTSTRAP_LIMIT, verifyCurrentSource });
+    if (bytes.byteLength !== original.physical.byteLength || hash(bytes) !== original.physical.byteHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    const { workspacePathOriginalImportIds } = await import('../files/workspace-path-import-preparation-record');
+    const ids = workspacePathOriginalImportIds(parentOperationId, previewPlanId, requirementIndex);
+    input = capture({ workspace, path: req.path, ...ids, actorUserId: userId, actorSessionId: sessionId, bytes,
+      expectedTarget: document ? { kind: 'pristine', documentId } : { kind: 'absent' }, representation: 'auto', validateAuthority: verifyCurrentSource });
+    input.fingerprint = nativeLinkJsonProof({ version: 1, kind: 'path-original-markdown-import', parentOperationId, previewPlanId,
+      requirementIndex, requirementProof: nativeLinkJsonProof(req), originalFingerprint: input.fingerprint,
+      root: source.root.identity, source: [...source.root.entries.values()].map(entry => [entry.relativePath, entry.identity]) });
+    scope = { active: true, database, preparation, requirementIndex, parentOperationId, previewPlanId,
+      requirement: req, original, documentId, originalLineageId: document?.lineage_id ?? null,
+      lineage: { id: existing?.id ?? `file-lineage-${randomUUID()}`, organizationId: workspace.organizationId ?? null, existing: !!existing } };
+    pathMarkdownImportScopes.set(input, scope);
+    await assertPathMarkdownImportScope(database, input, scope); await assertBootstrapVirgin(database, documentId);
+    const captured = input, held = scope;
+    const result = await executeCapturedMarkdownImportOnConnection(database, captured, async () => {
+      await assertPathMarkdownImportScope(database, captured, held); await verifyCurrentSource(); await assertWorkspaceOriginalPathCurrent(source);
+    });
+    if (result.disposition !== 'applied') return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+    const state = await loadCollaborationStateOnConnection(database, result.receipt.target.documentId);
+    if (!state) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+    const actualLineage = await database.get(`SELECT l.id FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+      WHERE d.id=$1 AND d.workspace_id=$2 AND d.organization_id IS NOT DISTINCT FROM $3 AND d.path=$4 AND d.provider='yjs'
+        AND d.status='active' AND d.yjs_state_lifecycle='initialized' AND d.workspace_type=$5
+        AND l.workspace_id=d.workspace_id AND l.organization_id IS NOT DISTINCT FROM d.organization_id AND l.path=d.path
+        AND l.workspace_type=d.workspace_type AND l.status='active'`,
+    [state.documentId, workspace.workspaceId, workspace.organizationId ?? null, req.path, workspace.workspaceType]) as { id: string } | undefined;
+    if (!actualLineage || actualLineage.id !== held.lineage.id || actualLineage.id !== result.receipt.target.lineageId) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+    const { bindPhysicalNativeImportLinks } = await import('../markdown/physical-native-import-binding');
+    const binding = bindPhysicalNativeImportLinks({ original: { ...original, originalBytes: bytes }, receipt: result.receipt,
+      state, lineageId: actualLineage.id });
+    const finalBytes = await readWorkspaceOriginalFileSource({ ...source, maxBytes: ORIGINAL_BOOTSTRAP_LIMIT, verifyCurrentSource });
+    if (finalBytes.byteLength !== bytes.byteLength || hash(finalBytes) !== original.physical.byteHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    await assertPathMarkdownImportScope(database, captured, held);
+    originals.observations.set(requirementIndex, { requirementIndex, requirement: req, original, source });
+    return binding;
+  } finally {
+    if (scope) scope.active = false; if (input) pathMarkdownImportScopes.delete(input); originals.activeIndex = null;
+  }
+}
+
+/** Final original-FD/hash recheck under the same private phase/B. Observations
+ * contain no open descriptors; the fixed getter must admit read confirmation
+ * of already bound indices without granting a second import or rebinding. */
+export async function assertWorkspacePathImportedOriginalsOnConnection(database: SqlConnection,
+  preparation: WorkspacePathImportPreparationHandle): Promise<void> {
+  const originals = pathMarkdownImportedOriginals.get(preparation);
+  if (!originals || originals.database !== database || originals.activeIndex !== null || !originals.observations.size
+    || originals.observations.size !== originals.seen.size) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+  const { assertWorkspacePathMarkdownImportPreparationOnConnection } = await import('../files/workspace-path-import-preparation-phase');
+  for (const observation of [...originals.observations.values()].sort((a, b) => a.requirementIndex - b.requirementIndex)) {
+    const verifyCurrentSource = async () => {
+      const current = await assertWorkspacePathMarkdownImportPreparationOnConnection(database, preparation, observation.requirementIndex);
+      if (!isDeepStrictEqual(current.requirement, observation.requirement) || !isDeepStrictEqual(current.original, observation.original)
+        || !sameBootstrapWorkspace(current.workspace, originals.workspace) || current.userId !== originals.userId || current.sessionId !== originals.sessionId
+        || current.parentOperationId !== originals.parentOperationId || current.previewPlanId !== originals.previewPlanId
+        || !current.workspace.permissions.canRead || !current.workspace.permissions.canWrite) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    };
+    const bytes = await readWorkspaceOriginalFileSource({ ...observation.source, maxBytes: ORIGINAL_BOOTSTRAP_LIMIT, verifyCurrentSource });
+    if (bytes.byteLength !== observation.original.physical.byteLength || hash(bytes) !== observation.original.physical.byteHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    await verifyCurrentSource();
+  }
+}
+
 async function executeCapturedMarkdownImportOnConnection(database: SqlConnection, input: Captured,
   validateAuthority: MarkdownFileImportRequest['validateAuthority']): Promise<MarkdownFileImportResult> {
   const original = originalBootstrapScopes.get(input);
   const staging = authenticatedUploadScopes.get(input);
   const copy = copyMarkdownImportScopes.get(input);
+  const pathOriginal = pathMarkdownImportScopes.get(input);
   if (original) await assertBootstrapScope(database, input, original);
   else if (staging) await assertAuthenticatedUploadScope(database, input, staging);
   else if (copy) await assertCopyMarkdownImportScope(database,input,copy);
+  else if (pathOriginal) await assertPathMarkdownImportScope(database, input, pathOriginal);
   else { await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='4s'"); }
   await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
   await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
@@ -2217,7 +2412,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   if (input.expectedTarget.kind === 'absent' ? documents.length !== 0 || all.length !== 0
     : documents.length !== 1 || all.length !== 1 || !document || document.id !== input.expectedTarget.documentId
       || document.authority !== (input.expectedTarget.kind === 'pristine' ? 'pristine' : 'initialized')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const documentId = document?.id ?? original?.documentId ?? staging?.documentId ?? copy?.documentId ?? `collab-${randomUUID()}`;
+  const documentId = document?.id ?? original?.documentId ?? staging?.documentId ?? copy?.documentId ?? pathOriginal?.documentId ?? `collab-${randomUUID()}`;
   const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations WHERE document_id=$1
           AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [documentId]);
   if (active) return fail('MARKDOWN_IMPORT_BUSY');
@@ -2235,6 +2430,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   const lineage = original ? await bindBootstrapLineage(database, input, original, state.persistedAt)
     : staging ? await bindAuthenticatedUploadLineage(database, input, staging, state.persistedAt)
     : copy ? await bindCopyMarkdownImportLineage(database,input,copy,state.persistedAt)
+    : pathOriginal ? await bindPathMarkdownImportLineage(database, input, pathOriginal, state.persistedAt)
     : await ensureActiveFileLineage(database, { id: document?.lineage_id ?? `file-lineage-${randomUUID()}`,
     workspace: input.workspace, path: input.path, nowMs: state.persistedAt });
   if (lineage.organizationId !== state.organizationId || document?.lineage_id && lineage.id !== document.lineage_id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
@@ -2249,8 +2445,10 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   } else await withWorkspaceFileLifecycleCollaborationWrite(state, async () => {
     const query = async (sql: string, values?: unknown[]) => await database.all(sql, values) as Array<Record<string, unknown>>;
     await lockFileLifecycleCollaborationWriterAdmission(query, state); await assertCollaborationAdmissionOpen(query, state);
+    if (pathOriginal) await assertPathMarkdownImportScope(database, input, pathOriginal);
     if (document && original) await initializeBootstrapRegistry(database, input, original, state.persistedAt);
     else if (document && staging) await initializeAuthenticatedUploadRegistry(database, input, staging, state.persistedAt);
+    else if (document && pathOriginal) await initializePathMarkdownImportRegistry(database, input, pathOriginal, state.persistedAt);
     else if (document) await database.run(`UPDATE collaboration_documents SET lineage_id=$1,yjs_state_lifecycle='initialized',updated_at=$2
             WHERE id=$3 AND workspace_id=$4 AND organization_id IS NOT DISTINCT FROM $5 AND path=$6 AND provider='yjs' AND status='active'`,
     [lineage.id, state.persistedAt, documentId, state.workspaceId, state.organizationId, state.path]);
@@ -2259,6 +2457,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
             VALUES($1,$2,$3,$4,$5,$6,$7,$8,'yjs',0,'active',$9,$9,'initialized')`,
     [documentId, lineage.id, state.organizationId, input.workspace.customerId ?? null, input.workspace.projectId ?? null,
       state.workspaceId, input.workspace.workspaceType, state.path, state.persistedAt]);
+    if (pathOriginal) await assertPathMarkdownImportScope(database, input, pathOriginal);
     await database.run(`INSERT INTO collaboration_yjs_states(document_id,workspace_id,organization_id,path,representation,lifecycle_generation,
             schema_version,yjs_state,state_vector,document_sequence,persisted_at,checkpointed_at,checkpoint_sequence,canonical_hash,serialized_hash,newline_style,has_bom,degraded,status)
             VALUES($1,$2,$3,$4,$5,1,1,$6,$7,0,$8,NULL,0,NULL,NULL,$9,$10,0,'active')`,
@@ -2272,6 +2471,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
     sourceHash: input.prepared.sourceHash, sourceBytes: input.prepared.sourceBytes,
     target: { ...Object.fromEntries(identityKeys.map(key => [key, state[key]])) as MarkdownImportIdentity,
       lineageId: lineage.id, initialSequence: state.documentSequence, initialStateProof: snapshot.version.stateProof, persistedAt: state.persistedAt }, checkpointRequired: true };
+  if (pathOriginal) await assertPathMarkdownImportScope(database, input, pathOriginal);
   await database.run(`INSERT INTO collaboration_markdown_file_import_receipts(workspace_id,operation_id,organization_id,actor_user_id,
           actor_session_id,request_id,version,request_fingerprint,private_result,after_state_snapshot,created_at)
           VALUES($1,$2,$3,$4,$5,$6,1,$7,$8::jsonb,$9,$10)`,

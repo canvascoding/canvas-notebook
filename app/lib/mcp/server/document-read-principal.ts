@@ -200,8 +200,15 @@ async function identity(phase: Phase): Promise<Identity> {
  * Pin that one initial transition before a consumer or phase identity exists.
  * Original capture/origin facts remain unchanged; later drift is never reset. */
 async function pinCopyReceiptRealm(phase: Phase): Promise<void> {
+  return pinInitialReceiptRealm(phase, 'copy');
+}
+/** Fixed initial transition shared by Copy and the separate original-import
+ * entries. Existing Move/Delete entry points do not select this path. */
+async function pinInitialReceiptRealm(phase: Phase, purpose: 'copy' | 'path-original-import'): Promise<void> {
   alive(phase);
-  if (phase.capture.policy.kind !== 'copy' || !phase.accepting || !phase.capture.accepting
+  const allowed = purpose === 'copy' ? phase.capture.policy.kind === 'copy'
+    : phase.capture.policy.kind === 'move' || phase.capture.policy.kind === 'delete';
+  if (!allowed || !phase.accepting || !phase.capture.accepting
     || phase.identity || phase.writeRealm) fail('MCP_READ_PRINCIPAL_INVALID');
   const row = await phase.connection.get(`SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
     extract(epoch FROM a.backend_start)::text AS start,
@@ -610,8 +617,22 @@ function assertEditPhaseActive(phase: Phase): void {
   } catch (error) { poison(phase, error); }
 }
 
+/** Only the fixed original-Markdown B0 owner chooses the receipt realm.
+ * Actual JWT/tool/current-rights and same-B checks remain the ordinary policy. */
+export function withDirectMcpWorkspaceMoveOriginalImportPrincipalOnConnection<T>(connection: SqlConnection,
+  principal: DirectMcpWorkspaceMovePrincipal,
+  operation: (access: DirectMcpWorkspaceMovePrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'move', operation, 'path-original-import');
+}
+export function withDirectMcpWorkspaceDeleteOriginalImportPrincipalOnConnection<T>(connection: SqlConnection,
+  principal: DirectMcpWorkspaceDeletePrincipal,
+  operation: (access: DirectMcpWorkspaceDeletePrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'delete', operation, 'path-original-import');
+}
+
 function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(connection: SqlConnection,
-  principal: SharedPrincipal, kind: Kind, operation: (access: AccessFor<Kind>) => Promise<T>): Promise<T> {
+  principal: SharedPrincipal, kind: Kind, operation: (access: AccessFor<Kind>) => Promise<T>,
+  receiptPurpose?: 'path-original-import'): Promise<T> {
   const capture = captures.get(principal);
   if (capture && capture.policy.kind !== kind) {
     capture.failure ??= new DirectMcpDocumentReadPrincipalError('MCP_READ_PRINCIPAL_REQUIRED');
@@ -642,6 +663,7 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
   const result = (async () => {
     try {
       if (capture.policy.kind === 'copy') await pinCopyReceiptRealm(phase);
+      else if (receiptPurpose === 'path-original-import') await pinInitialReceiptRealm(phase, receiptPurpose);
       phase.identity = await identity(phase);
       await connection.run("SET LOCAL statement_timeout='5s'");
       await connection.run("SET LOCAL lock_timeout='50ms'");
