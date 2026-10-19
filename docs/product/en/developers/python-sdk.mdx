@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: Use authorized MCP tools from Python to search, read, create, edit, and copy native Canvas documents with explicit operation status.
+description: Use authorized MCP tools from Python to search, read, create, edit, copy, move, and delete native Canvas documents with explicit operation status.
 section: Developers
 sectionOrder: 11
 order: 2
@@ -31,7 +31,7 @@ The `mcp` extra installs the external HTTP/OAuth transport, pinned to `mcp==2.3.
 
 ## Authorize and read progressively
 
-Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit, Edit status and all Copy actions require `knowledge:write` and their current server-side access checks.
+Use the exact HTTPS `/mcp` URL of your instance. Enable the required tools and workspace access, then grant the client the scopes it needs. Scope alone does not grant a workspace, a tool or current user permissions. Search requires `knowledge:search`; full Read separately requires `knowledge:read`. Create, Import, Edit, Edit status and all Copy/Move/Delete actions require `knowledge:write` and their current server-side access checks.
 
 This script opens the actual authorization-code/PKCE flow in your browser, searches progressively and reads one hit by stable ID and full version:
 
@@ -252,6 +252,46 @@ The SDK validates the fixed Copy wire shape, canonical paths, JavaScript UTF-16 
 
 Legacy/raw Markdown remains an open central import/rebinding boundary. Uninitialized Markdown anywhere in the inspected source or destination graph can return `COPY_NATIVE_REQUIRED`, even outside selected roots. Do not migrate a Read-only source or write its `.md` projection to bypass that boundary. Copy does not parse a PDF into a native notebook document.
 
+## Move and Delete through retained requests
+
+The unreleased SDK methods `move_preview`, `move_apply`, `move_status`, `move_recover` and their `delete_*` equivalents target the explicitly enabled `move_knowledge_source` and `delete_knowledge_source` tools. Every action requires current `knowledge:write`, the actual user/client workspace grant, and Read, Write, Delete and agent access in that one workspace. The SDK does not enable a tool, add rights or select another workspace to bypass a denial.
+
+Move accepts an ordered list of 1–1,000 exact `source_path`/`destination_path` roots in the same workspace. Collisions remain conflicts: none of these methods accepts collision renaming or a destination-directory option. Delete accepts exactly one initialized native file `path`; it is not a generic recursive directory deletion. Both use the central link and native lifecycle orchestration. These methods expose no Undo or restore action.
+
+Keep the caller operation ID, actual plan ID, workspace and complete intended selection before awaiting a mutation. The following preparation functions make no Apply call:
+
+```python
+async def prepare_move_request(notebook, workspace_id, selections, operation_id):
+    roots = [dict(item) for item in selections]
+    preview = (await notebook.move_preview(workspace_id, roots)).require_success()["preview"]
+    expected = [{"sourcePath": item["source_path"], "destinationPath": item["destination_path"]}
+                for item in roots]
+    if (preview["kind"] != "move" or preview["workspaceId"] != workspace_id
+            or preview["readiness"] != "ready" or preview["paths"] != expected):
+        raise ValueError("Move preview differs from the intended ordered roots.")
+    return {"workspace_id": workspace_id, "selections": roots,
+            "operation_id": operation_id, "plan_id": preview["planId"]}
+
+
+async def prepare_delete_request(notebook, workspace_id, path, operation_id):
+    preview = (await notebook.delete_preview(workspace_id, path)).require_success()["preview"]
+    if (preview["kind"] != "delete" or preview["workspaceId"] != workspace_id
+            or preview["readiness"] != "ready" or preview["paths"] != [{"sourcePath": path}]):
+        raise ValueError("Delete preview differs from the intended native file.")
+    return {"workspace_id": workspace_id, "path": path,
+            "operation_id": operation_id, "plan_id": preview["planId"]}
+```
+
+Persist the returned request in your application's operation record. Then explicitly choose `await notebook.move_apply(**request)` or `await notebook.delete_apply(**request)`. Observation is a separate call: `await notebook.move_status(request["workspace_id"], request["operation_id"])`, or the matching `delete_status`. If you decide to recover the existing operation, use `move_recover(**request)` or `delete_recover(**request)` with exactly the retained request. Do not rerun Preview against a source that may already have moved or been archived, choose a new destination, or generate a replacement operation ID.
+
+Preview returns `preview.paths` in original root order, `linkChanges` counts and coverage. It does not return native document IDs or full versions. Apply/Recover returns `operation` plus `alreadyKnown`; Status returns `operation` without `alreadyKnown`. In that operation, `operationId` is the original caller ID and `batchId` is the separate actual server batch identity. Do not substitute the batch ID for the caller ID. Journal status, completed-action counts, execution receipt availability, finalization and individual steps remain separate facts. Only `operation.completion.status == "confirmed"` supplies historical completion evidence. Neither `journal.status == "applied"` nor `alreadyKnown` alone confirms it, and historical completion does not establish the document's current path or content after later changes.
+
+All eight methods retain the full `CanvasToolResult` and camelCase payload. A received tool error remains a `CanvasToolError` when `.require_success()` is called, with the original result and optional caller `.operation_id`. A missing Apply/Recover result becomes `CanvasMutationOutcomeUnknown`: `.idempotency_key` keeps the original caller operation ID and `__cause__` keeps the actual exception. The facade makes no automatic retry, status call or recovery. Cancellation propagates and may also leave an uncertain outcome. Preview/Status transport errors propagate without being classified as mutation outcomes.
+
+`PATH_STATUS_NOT_FOUND` does not prove that no original work occurred. Recover is existing-only; `PATH_OPERATION_NOT_FOUND` does not start a replacement. A genuinely renewed session for the same authorized user/client can inspect or continue its original operation under current rights; an operation ID is not a grant, and the original operation attribution remains separate from the current session.
+
+The caller ID uses the same exact 16–128-character format as Copy, with an alphanumeric first character followed by ASCII letters, digits, `_` or `-`. Plan IDs are the actual 64-character lowercase hexadecimal values. The fixed wire retains literal path whitespace, enforces canonical nonempty paths, JavaScript UTF-16 length bounds and a maximum of 65,536 escaped UTF-8 JSON bytes. These local checks do not replace current server authorization, plan validation or native cohort requirements. No result is silently clipped. Move/Delete-specific installed-artifact and server acceptance remains a separate gate from existing Copy evidence.
+
 ## Current surface
 
 | Python method | Purpose |
@@ -263,8 +303,10 @@ Legacy/raw Markdown remains an open central import/rebinding boundary. Uninitial
 | `create_markdown`, `import_markdown` | New native Markdown document and confirmed creation identity |
 | `edit_document`, `edit_status` | Guarded native mutation and historical operation status |
 | `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | Explicit native Copy plan, apply, historical status and existing-operation recovery |
+| `move_preview`, `move_apply`, `move_status`, `move_recover` | Same-workspace Move preview, retained apply, historical status and explicit recovery |
+| `delete_preview`, `delete_apply`, `delete_status`, `delete_recover` | One native file's Delete preview, retained apply, historical status and explicit recovery |
 
-SDK Move and Delete methods, central PDF conversion and the controlled agent-runtime bridge are still absent. This client does not substitute raw filesystem writes for those missing connections. Package publication and public deployment are separate release steps.
+Central PDF conversion and the controlled agent-runtime bridge are still absent. This client does not substitute raw filesystem writes for those missing connections. Package publication and public deployment are separate release steps; this development source does not imply that an existing public server offers Move/Delete.
 
 ## Validation and release status
 

@@ -21,6 +21,11 @@ from .models import (
     WorkspaceCopyPreviewResult,
     WorkspaceCopySelection,
     WorkspaceCopyStatusResult,
+    WorkspaceDeletePreviewResult,
+    WorkspaceMovePreviewResult,
+    WorkspaceMoveSelection,
+    WorkspacePathExecutionResult,
+    WorkspacePathStatusResult,
 )
 
 _VERSION = re.compile(r"canvas-document-v1:[a-f0-9]{64}\Z")
@@ -254,6 +259,56 @@ def _copy_request(
     # Verify the actual final serialization as well, including status requests.
     if len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) > 65536:
         raise ValueError("The complete Copy JSON arguments exceed 64 KiB.")
+    return arguments
+
+
+def _path_operation_request(
+    kind: Literal["move", "delete"],
+    action: Literal["preview", "apply", "status", "recover"],
+    workspace_id: str,
+    *,
+    selections: Sequence[WorkspaceMoveSelection] | None = None,
+    path: str | None = None,
+    operation_id: str | None = None,
+    plan_id: str | None = None,
+) -> dict[str, Any]:
+    """Capture the fixed Move/Delete wire, without interpreting a plan or grant."""
+    if kind not in ("move", "delete") or action not in ("preview", "apply", "status", "recover"):
+        raise ValueError("A supported workspace path operation is required.")
+    arguments: dict[str, Any] = {
+        "api_version": 1, "action": action,
+        "workspace_id": _copy_workspace(workspace_id, "workspace_id"),
+    }
+    if action != "preview":
+        arguments["operation_id"] = _copy_operation_id(operation_id)
+    if action in ("apply", "recover"):
+        arguments["plan_id"] = _copy_plan_id(plan_id)
+    if action != "status":
+        if kind == "delete":
+            if path is None:
+                raise ValueError("Delete requires its retained native file path.")
+            arguments["path"] = _copy_path(path, "path")
+        else:
+            if selections is None or type(selections) not in (list, tuple) or not 1 <= len(selections) <= 1000:
+                raise ValueError("selections must be a list or tuple of 1–1000 Move roots.")
+            captured: list[dict[str, str]] = []
+            arguments["selections"] = captured
+            cost = len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8"))
+            for selected in selections:
+                if (
+                    type(selected) is not dict or len(selected) != 2
+                    or any(type(key) is not str for key in selected)
+                    or set(selected) != {"source_path", "destination_path"}
+                ):
+                    raise ValueError("Each Move selection needs exactly source_path and destination_path.")
+                row = {"source_path": _copy_path(selected["source_path"], "source_path"),
+                       "destination_path": _copy_path(selected["destination_path"], "destination_path")}
+                cost += len(json.dumps(row, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) + (1 if captured else 0)
+                if cost > 65536:
+                    raise ValueError("The complete Move JSON arguments exceed 64 KiB.")
+                captured.append(row)
+    if len(json.dumps(arguments, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")) > 65536:
+        raise ValueError("The complete workspace path JSON arguments exceed 64 KiB.")
     return arguments
 
 
@@ -597,6 +652,77 @@ class CanvasNotebook:
         arguments = _copy_request("apply", source_workspace_id, destination_workspace_id, selections,
                                   operation_id=operation_id, plan_id=plan_id, destination_directory=destination_directory)
         return await self._mutate("copy_knowledge_source", arguments, operation_id)
+
+    async def move_preview(
+        self, workspace_id: str, selections: Sequence[WorkspaceMoveSelection],
+    ) -> CanvasToolResult[WorkspaceMovePreviewResult]:
+        """Preview exact same-workspace roots; collisions remain conflicts.
+
+        No rename or destination guessing is performed. Retain the original
+        ordered roots and actual plan ID for one explicit later decision.
+        """
+        arguments = _path_operation_request("move", "preview", workspace_id, selections=selections)
+        return await self._call("move_knowledge_source", arguments)
+
+    async def move_apply(
+        self, workspace_id: str, selections: Sequence[WorkspaceMoveSelection], *,
+        operation_id: str, plan_id: str,
+    ) -> CanvasToolResult[WorkspacePathExecutionResult]:
+        """Apply once with the retained roots, caller ID and actual plan ID.
+
+        Preserve the complete request before await. A returned tool success
+        or alreadyKnown does not replace confirmed historical completion.
+        Missing results keep operation_id in the unknown-outcome caller key.
+        """
+        arguments = _path_operation_request("move", "apply", workspace_id, selections=selections,
+                                            operation_id=operation_id, plan_id=plan_id)
+        return await self._mutate("move_knowledge_source", arguments, operation_id)
+
+    async def move_status(
+        self, workspace_id: str, operation_id: str,
+    ) -> CanvasToolResult[WorkspacePathStatusResult]:
+        """Read historical Move facts; never claim, apply, repair or infer a current path."""
+        arguments = _path_operation_request("move", "status", workspace_id, operation_id=operation_id)
+        return await self._call("move_knowledge_source", arguments)
+
+    async def move_recover(
+        self, workspace_id: str, selections: Sequence[WorkspaceMoveSelection], *,
+        operation_id: str, plan_id: str,
+    ) -> CanvasToolResult[WorkspacePathExecutionResult]:
+        """Explicitly recover the same existing Move; never replan or choose a new ID."""
+        arguments = _path_operation_request("move", "recover", workspace_id, selections=selections,
+                                            operation_id=operation_id, plan_id=plan_id)
+        return await self._mutate("move_knowledge_source", arguments, operation_id)
+
+    async def delete_preview(
+        self, workspace_id: str, path: str,
+    ) -> CanvasToolResult[WorkspaceDeletePreviewResult]:
+        """Preview central deletion of exactly one initialized native file."""
+        arguments = _path_operation_request("delete", "preview", workspace_id, path=path)
+        return await self._call("delete_knowledge_source", arguments)
+
+    async def delete_apply(
+        self, workspace_id: str, path: str, *, operation_id: str, plan_id: str,
+    ) -> CanvasToolResult[WorkspacePathExecutionResult]:
+        """Apply the retained Delete once; this does not expose Undo or restore."""
+        arguments = _path_operation_request("delete", "apply", workspace_id, path=path,
+                                            operation_id=operation_id, plan_id=plan_id)
+        return await self._mutate("delete_knowledge_source", arguments, operation_id)
+
+    async def delete_status(
+        self, workspace_id: str, operation_id: str,
+    ) -> CanvasToolResult[WorkspacePathStatusResult]:
+        """Read historical Delete facts under the same current policy, without repairing."""
+        arguments = _path_operation_request("delete", "status", workspace_id, operation_id=operation_id)
+        return await self._call("delete_knowledge_source", arguments)
+
+    async def delete_recover(
+        self, workspace_id: str, path: str, *, operation_id: str, plan_id: str,
+    ) -> CanvasToolResult[WorkspacePathExecutionResult]:
+        """Explicitly recover the retained existing Delete, without starting a replacement."""
+        arguments = _path_operation_request("delete", "recover", workspace_id, path=path,
+                                            operation_id=operation_id, plan_id=plan_id)
+        return await self._mutate("delete_knowledge_source", arguments, operation_id)
 
     async def copy_status(
         self, source_workspace_id: str, destination_workspace_id: str, operation_id: str,

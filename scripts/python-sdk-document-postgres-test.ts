@@ -62,12 +62,13 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
     }), 'Reserved SDK HTTP socket did not listen.');
     const address = server.address(); assert(address && typeof address === 'object');
     const origin = `http://127.0.0.1:${address.port}`;
+    console.log(JSON.stringify({ boundary: 'owned-sdk-loopback', pid: process.pid, loopbackPort: address.port }));
     await withDocumentReadToolDispatchFixture(async fixture => {
       const { admin, workspaceId, clientId } = fixture;
       process.env.CANVAS_TEST_NATIVE_TEXT_SESSION = '1'; process.env.FILE_VERSION_CENTER_MODE = 'shadow';
-      process.env.CANVAS_MCP_DIRECT_TOOLS = 'auth_probe,list_workspaces,read_knowledge_source,search_knowledge,create_knowledge_source,edit_knowledge_source,copy_knowledge_source';
+      process.env.CANVAS_MCP_DIRECT_TOOLS = 'auth_probe,list_workspaces,read_knowledge_source,search_knowledge,create_knowledge_source,edit_knowledge_source,copy_knowledge_source,move_knowledge_source,delete_knowledge_source';
       assert.equal(process.env.BASE_URL, origin); assert.equal(process.env.BETTER_AUTH_BASE_URL, origin);
-      assert.equal((await admin.query(`UPDATE organization_user_permissions SET can_write_team_workspace=1
+      assert.equal((await admin.query(`UPDATE organization_user_permissions SET can_write_team_workspace=1,can_delete_team_files=1
         WHERE organization_id='tool-dispatch-org' AND user_id='reader' AND status='active' RETURNING user_id`)).rowCount, 1);
       await admin.query('UPDATE oauth_consent SET scopes=$1 WHERE client_id=$2 AND user_id=$3',
         [JSON.stringify(['workspace:list', 'knowledge:read', 'knowledge:search', 'knowledge:write']), clientId, 'reader']);
@@ -82,6 +83,10 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
       const { createPostgresWorkspaceForActor } = await import('../app/lib/workspaces/postgres-runtime');
       const { initializeCreatedWorkspaceStarter } = await import('../app/lib/workspaces/starter-document-initialization-api');
       const { WorkspaceOperationStaging } = await import('../app/lib/files/workspace-operation-staging');
+      const { workspaceOperationMcpBatchId } = await import('../app/lib/files/workspace-operation-mcp-authorization');
+      const { loadCollaborationStateOnConnection } = await import('../app/lib/collaboration/persistence');
+      const { inspectPersistedDocumentLinks } = await import('../app/lib/markdown/workspace-native-link-inventory');
+      const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
       const reader = (await admin.query<{ id: string; email: string; role: string }>(
         'SELECT id,email,role FROM "user" WHERE id=$1', ['reader'])).rows[0]; assert(reader);
       const destination = await createPostgresWorkspaceForActor(resolveWorkspaceActor(reader), { type: 'personal', name: 'SDK Copy destination' });
@@ -162,6 +167,42 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
       type CopyCheck = { sourceDocumentId: string; sourcePath: string; destinationPath: string; planId: string;
         sourceBefore: unknown; privateResult?: unknown; cloneRows?: unknown; checkpoint?: { rows: unknown; files: unknown }; completed: boolean };
       const copyChecks = new Map<string, CopyCheck>();
+      type PathKind = 'move' | 'delete';
+      type PathCheck = { kind: PathKind; operationId: string; batchId: string; planId: string; documentId: string;
+        incomingId: string; sourcePath: string; destinationPath?: string; before: Row; projectionSha256: string;
+        projectionIdentity: { dev: string; ino: string };
+        receipt?: unknown; checkpoint?: { actions: Array<'status' | 'apply' | 'recover'>; verified: number }; recovered: boolean };
+      const pathChecks = new Map<string, PathCheck>();
+      let pathCensusCheck: PathCheck | undefined, pathCensusVerifiedRequests = 0;
+      const pathRows = async () => ({ ...await rows(), trash: (await admin.query(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin
+        FROM workspace_trash_entries t ORDER BY t.id`)).rows });
+      const pathFiles = async () => {
+        const found: unknown[] = [];
+        const visit = async (relative: string): Promise<void> => {
+          // The real dispatcher records successful usage here, including reads.
+          // Every other DATA entry, including original journals/assets/trash,
+          // remains inside the exact identity/hash census.
+          if (relative === path.join('users', 'reader', 'mcp', 'server-usage')) return;
+          assert(found.length < 10000); const full = path.join(fixture.dataRoot, relative), info = await lstat(full, { bigint: true });
+          assert(!info.isSymbolicLink()); const entry = { path: relative, dev: String(info.dev), ino: String(info.ino),
+            mode: String(info.mode), size: String(info.size), mtime: String(info.mtimeNs), ctime: String(info.ctimeNs) };
+          if (info.isFile()) { assert(info.size <= BigInt(16 * 1024 * 1024)); found.push({ ...entry, sha256: createHash('sha256').update(await readFile(full)).digest('hex') }); }
+          else { assert(info.isDirectory()); found.push(entry); for (const name of (await readdir(full)).sort()) await visit(path.join(relative, name)); }
+        };
+        await visit(''); return found;
+      };
+      const pathDocument = async (documentId: string) => {
+        const found = (await admin.query(`SELECT d.id,d.workspace_id,d.path,d.status,d.lineage_id,l.status AS lineage_status,
+          s.status AS state_status,s.yjs_state,s.state_vector,s.lifecycle_generation,s.schema_version,s.document_sequence
+          FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+          JOIN file_collaboration_lineages l ON l.id=d.lineage_id WHERE d.id=$1 AND d.workspace_id=$2`, [documentId, workspaceId])).rows;
+        assert.equal(found.length, 1); return object(found[0]);
+      };
+      const pathReceipt = async (check: PathCheck) => {
+        const table = check.kind === 'move' ? 'workspace_file_operation_move_receipts' : 'workspace_file_operation_delete_receipts';
+        const found = (await admin.query(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM "${table}" t WHERE batch_id=$1`, [check.batchId])).rows;
+        assert.equal(found.length, 1); return found;
+      };
       const sourceRows = async (documentId: string) => (await admin.query(`SELECT to_jsonb(d)::text AS registry,to_jsonb(s)::text AS state,
         to_jsonb(l)::text AS lineage,to_jsonb(m)::text AS metadata,d.xmin::text AS registry_xmin,s.xmin::text AS state_xmin,
         l.xmin::text AS lineage_xmin,m.xmin::text AS metadata_xmin FROM collaboration_documents d
@@ -170,6 +211,8 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
         WHERE d.id=$1 AND d.workspace_id=$2`, [documentId, workspaceId])).rows;
       const copyClients = new Map<PoolClient, PropertyDescriptor | undefined>();
       const copyFaultState: { current?: { operationId: string; client?: PoolClient; xmin?: string; fired: boolean } } = {};
+      const pathFaultState: { current?: { check: PathCheck; client?: PoolClient; inserted?: unknown; fired: boolean } } = {};
+      let pathFaultCount = 0;
       let copyFaultCount = 0, copyObserverAttached = false;
       const observeCopyClient = (client: PoolClient) => {
         if (copyClients.has(client)) return; const descriptor = Object.getOwnPropertyDescriptor(client, 'query'); copyClients.set(client, descriptor);
@@ -188,6 +231,22 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
               assert.equal(visible.xmin, fault.xmin); assert.equal(visible.publication_status, 'native_committed');
               fault.fired = true; copyFaultCount++;
               throw Object.assign(new Error('Actual SDK Copy B1 COMMIT ACK lost after independent visibility.'), { code: 'EIO' });
+            }
+            const pathFault = pathFaultState.current;
+            if (pathFault && !pathFault.fired) {
+              const table = pathFault.check.kind === 'move' ? 'workspace_file_operation_move_receipts' : 'workspace_file_operation_delete_receipts';
+              if (/^\s*INSERT\s+INTO\b/iu.test(sql) && sql.includes(table) && values?.includes(pathFault.check.batchId)) {
+                assert.equal(actual.command, 'INSERT'); assert.equal(actual.rowCount, 1); assert.equal(pathFault.client, undefined);
+                pathFault.client = client;
+                pathFault.inserted = (await raw(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM "${table}" t WHERE batch_id=$1`, [pathFault.check.batchId])).rows;
+                assert(Array.isArray(pathFault.inserted) && pathFault.inserted.length === 1);
+                assert.equal((await admin.query(`SELECT count(*)::int AS n FROM "${table}" WHERE batch_id=$1`, [pathFault.check.batchId])).rows[0].n, 0);
+              }
+              if (/^\s*COMMIT\s*$/iu.test(sql) && pathFault.client === client && pathFault.inserted !== undefined) {
+                assert.equal(actual.command, 'COMMIT'); assert.deepEqual(await pathReceipt(pathFault.check), pathFault.inserted);
+                pathFault.fired = true; pathFaultCount++;
+                throw Object.assign(new Error('Actual SDK path completion COMMIT ACK lost after independent visibility.'), { code: 'EIO' });
+              }
             }
             return actual;
           })();
@@ -260,6 +319,75 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
         } else if (value.event === 'ready_for_copy_checks') {
           assert(safeId(value.operationId)); const check = copyChecks.get(value.operationId); assert(check?.completed); assert.equal(check.checkpoint, undefined);
           await flushCollaborationDocuments(); check.checkpoint = { rows: await rows(), files: await copyFiles() }; send({ event: 'copy_checks_ready' });
+        } else if (value.event === 'ready_for_path_preview') {
+          assert(value.operationId === 'python-sdk-path-move-completion-0001' || value.operationId === 'python-sdk-path-delete-completion-0001');
+          await flushCollaborationDocuments(); send({ event: 'path_preview_ready' });
+        } else if (value.event === 'ready_for_path_apply') {
+          assert(value.kind === 'move' || value.kind === 'delete'); assert(safeId(value.operationId) && safeId(value.documentId) && safeId(value.incomingId));
+          assert.equal(value.operationId, value.kind === 'move' ? 'python-sdk-path-move-completion-0001' : 'python-sdk-path-delete-completion-0001');
+          assert.equal(value.sourcePath, value.kind === 'move' ? 'sdk-path-target.md' : 'sdk-path-moved.md');
+          assert.equal(value.destinationPath, value.kind === 'move' ? 'sdk-path-moved.md' : undefined);
+          assert(typeof value.planId === 'string' && /^[a-f0-9]{64}$/u.test(value.planId)); assert(!pathChecks.has(value.operationId));
+          const before = await pathDocument(value.documentId); assert.equal(before.path, value.sourcePath); assert.equal(before.status, 'active');
+          const file = path.join(fixture.workspaceRoot, value.sourcePath), info = await lstat(file, { bigint: true }); assert(info.isFile() && !info.isSymbolicLink());
+          const check: PathCheck = { kind: value.kind, operationId: value.operationId,
+            batchId: workspaceOperationMcpBatchId({ userId: 'reader', clientId, workspaceId,
+              tool: value.kind === 'move' ? 'move_knowledge_source' : 'delete_knowledge_source', operationId: value.operationId }),
+            planId: value.planId, documentId: value.documentId, incomingId: value.incomingId, sourcePath: value.sourcePath,
+            ...(value.kind === 'move' ? { destinationPath: String(value.destinationPath) } : {}), before,
+            projectionSha256: createHash('sha256').update(await readFile(file)).digest('hex'),
+            projectionIdentity: { dev: String(info.dev), ino: String(info.ino) }, recovered: false };
+          assert.equal((await admin.query('SELECT count(*)::int AS n FROM workspace_file_operation_batches WHERE batch_id=$1', [check.batchId])).rows[0].n, 0);
+          assert(!pathFaultState.current || pathFaultState.current.fired); pathChecks.set(check.operationId, check);
+          pathFaultState.current = { check, fired: false }; send({ event: 'path_apply_ready' });
+        } else if (value.event === 'path_outcome_uncertain' || value.event === 'path_recovered') {
+          assert(safeId(value.operationId)); const check = pathChecks.get(value.operationId); assert(check);
+          assert(pathFaultState.current?.fired && pathFaultState.current.check === check);
+          const receipt = await pathReceipt(check), header = (await admin.query(`SELECT authorization_json,plan_id,status FROM workspace_file_operation_batches
+            WHERE batch_id=$1 AND workspace_id=$2`, [check.batchId, workspaceId])).rows[0]; assert(header); assert.equal(header.plan_id, check.planId);
+          const authorization = object(typeof header.authorization_json === 'string' ? JSON.parse(header.authorization_json) : header.authorization_json);
+          assert.equal(authorization.mode, 'direct-mcp'); assert.equal(authorization.clientId, clientId); assert.equal(authorization.actorUserId, 'reader');
+          assert.equal(authorization.actorSessionId, 'reader-session'); assert.equal(authorization.tool, `${check.kind}_knowledge_source`);
+          const current = await pathDocument(check.documentId); assert.equal(current.id, check.before.id); assert.equal(current.lineage_id, check.before.lineage_id);
+          assert.deepEqual(current.yjs_state, check.before.yjs_state); assert.deepEqual(current.state_vector, check.before.state_vector);
+          if (check.kind === 'move') {
+            assert.equal(current.path, check.destinationPath); assert.equal(current.status, 'active'); assert.equal(current.lineage_status, 'active');
+            const destinationFile = path.join(fixture.workspaceRoot, check.destinationPath!), info = await lstat(destinationFile, { bigint: true }); assert(info.isFile() && !info.isSymbolicLink());
+            assert.deepEqual({ dev: String(info.dev), ino: String(info.ino) }, check.projectionIdentity);
+            assert.equal(createHash('sha256').update(await readFile(destinationFile)).digest('hex'), check.projectionSha256);
+          } else {
+            assert.equal(current.status, 'archived'); assert.equal(current.state_status, 'archived'); assert.equal(current.lineage_status, 'archived');
+            const trash = (await admin.query(`SELECT * FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2 AND status='trashed'`,
+              [workspaceId, check.sourcePath])).rows; assert.equal(trash.length, 1); assert.equal(trash[0].deleted_by_user_id, 'reader');
+            const metadata = object(JSON.parse(trash[0].metadata_json)); assert.equal(metadata.nativeDocumentId, check.documentId);
+            assert.equal(metadata.nativeLineageId, check.before.lineage_id); assert.equal(metadata.payloadKind, 'file');
+            assert(typeof trash[0].trash_relative_path === 'string' && !path.isAbsolute(trash[0].trash_relative_path)
+              && !trash[0].trash_relative_path.split('/').some((part: string) => !part || part === '.' || part === '..'));
+            const trashFile = path.join(fixture.dataRoot, trash[0].trash_relative_path), info = await lstat(trashFile, { bigint: true }); assert(info.isFile() && !info.isSymbolicLink());
+            assert.deepEqual({ dev: String(info.dev), ino: String(info.ino) }, check.projectionIdentity);
+            assert.equal(createHash('sha256').update(await readFile(trashFile)).digest('hex'), check.projectionSha256);
+          }
+          await assert.rejects(lstat(path.join(fixture.workspaceRoot, check.sourcePath)), { code: 'ENOENT' });
+          const incoming = await loadCollaborationStateOnConnection({ get: async (sql, parameters) => (await admin.query(sql, parameters)).rows[0] }, check.incomingId); assert(incoming);
+          const inventory = inspectPersistedDocumentLinks(incoming); assert.equal(inventory.coverage.complete, true);
+          assert.deepEqual(inventory.links.map(link => link.targetPathText), check.kind === 'move' ? [check.destinationPath] : []);
+          if (value.event === 'path_outcome_uncertain') {
+            assert.equal(header.status, 'needs_recovery'); check.receipt = receipt;
+            assert.equal(pathCensusCheck, undefined);
+            check.checkpoint = { actions: ['status'], verified: 0 }; pathCensusCheck = check;
+            send({ event: 'path_uncertain_checked', batchId: check.batchId });
+          } else {
+            assert.deepEqual(receipt, check.receipt); assert.equal(header.status, 'applied'); check.recovered = true;
+            send({ event: 'path_recovered_checked' });
+          }
+        } else if (value.event === 'ready_for_path_checks') {
+          assert(safeId(value.operationId)); const check = pathChecks.get(value.operationId); assert(check?.recovered && check.checkpoint === undefined);
+          assert.equal(pathCensusCheck, undefined);
+          check.checkpoint = { actions: ['status', 'apply', 'recover'], verified: 0 }; pathCensusCheck = check; send({ event: 'path_checks_ready' });
+        } else if (value.event === 'path_status_done' || value.event === 'path_checks_done') {
+          assert(safeId(value.operationId)); const check = pathChecks.get(value.operationId); assert(check?.checkpoint);
+          assert.equal(pathCensusCheck, check); assert.equal(check.checkpoint.verified, check.checkpoint.actions.length);
+          check.checkpoint = undefined; pathCensusCheck = undefined; send({ event: 'path_checks_checked' });
         }
         else if (value.event === 'ready_for_retries') {
           assert(safeId(value.operationId) && safeId(value.documentId)); assert.equal(beforeRetries, undefined);
@@ -276,9 +404,52 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
           assert.equal((await admin.query(`UPDATE "session" SET expires_at=$1 WHERE id='reader-session' AND user_id='reader' RETURNING id`, [Date.now() - 1000])).rowCount, 1);
           activatedRevocation = true; send({ event: 'session_revoked' });
         } else if (value.event === 'complete') {
-          assert.equal(value.groups, 7); assert.equal(value.installedWheel, true); assert.equal(value.actualHttp, true);
+          assert.equal(value.groups, 9); assert.equal(value.installedWheel, true); assert.equal(value.actualHttp, true);
           assert.equal(value.oauthIssuance, false); assert.equal(value.compiledNext, false); pythonComplete = true;
         } else { throw new Error('Installed SDK child reported failure or an unknown event.'); }
+      };
+      const withPathRequestCensus = async (body: string, signal: AbortSignal, operation: () => Promise<Response>): Promise<Response> => {
+        const check = pathCensusCheck;
+        if (!check) return operation();
+        assert(check.checkpoint); const census = check.checkpoint;
+        const rpc = object(JSON.parse(body)), parameters = object(rpc.params), arguments_ = object(parameters.arguments);
+        assert.equal(rpc.method, 'tools/call'); assert.equal(parameters.name, `${check.kind}_knowledge_source`);
+        assert.equal(arguments_.workspace_id, workspaceId); assert.equal(arguments_.operation_id, check.operationId);
+        assert.equal(arguments_.action, census.actions[census.verified]); assert(census.verified < census.actions.length);
+        // Drain the real room stores before excluding the independent projector.
+        // Persisted Yjs writes have their own authority; these locks isolate the
+        // real background file projector only during each strict before/after census.
+        await flushCollaborationDocuments();
+        const scopes = [workspaceId, destination.workspaceId].sort(); assert.notEqual(scopes[0], scopes[1]);
+        return withWorkspaceMutationLock(scopes[0], () => withWorkspaceMutationLock(scopes[1], async () => {
+          const beforeRows = await pathRows(), beforeFiles = await pathFiles();
+          const response = await operation();
+          const chunks: Uint8Array[] = []; let bytes = 0, drained = false;
+          const actualReader = response.body?.getReader();
+          try {
+            if (actualReader) for (;;) {
+              const part = await bounded(actualReader.read(), 'Original path response did not complete under its census.', 30000, signal);
+              if (part.done) break;
+              bytes += part.value.byteLength; assert(bytes <= 8 * 1024 * 1024); chunks.push(part.value);
+            }
+            drained = true;
+          } finally {
+            if (actualReader) {
+              try { if (!drained) await bounded(actualReader.cancel(), 'Original path response cancellation did not complete.', 5000); }
+              catch (error) { requestErrors.push(error); }
+              finally { actualReader.releaseLock(); }
+            }
+          }
+          const afterRows = await pathRows();
+          try { assert.deepEqual(afterRows, beforeRows); }
+          catch (error) {
+            console.log(JSON.stringify({ diagnostic: 'sdk-path-status-census', kind: check.kind,
+              changedTables: Object.keys(afterRows.copyDomain.rows).filter(name => JSON.stringify(afterRows.copyDomain.rows[name]) !== JSON.stringify(beforeRows.copyDomain.rows[name])) }));
+            throw error;
+          }
+          assert.deepEqual(await pathFiles(), beforeFiles); census.verified++; pathCensusVerifiedRequests++;
+          return new Response(new Uint8Array(Buffer.concat(chunks)), { status: response.status, statusText: response.statusText, headers: response.headers });
+        }));
       };
       const serve = async (incoming: http.IncomingMessage, outgoing: http.ServerResponse): Promise<void> => {
         const abort = new AbortController(); controllers.add(abort);
@@ -299,8 +470,8 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
           const body = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(chunks));
           const request = new Request(url, { method, headers, signal: abort.signal,
             ...(['GET', 'HEAD'].includes(method) ? {} : { body }) });
-          const handler = method === 'POST' ? handleDirectMcpPost(request)
-            : method === 'OPTIONS' ? handleDirectMcpOptions(request) : handleDirectMcpUnsupportedMethod(request);
+          const handler = withPathRequestCensus(body, abort.signal, () => method === 'POST' ? handleDirectMcpPost(request)
+            : method === 'OPTIONS' ? handleDirectMcpOptions(request) : handleDirectMcpUnsupportedMethod(request));
           handlers.add(handler); void handler.then(() => handlers.delete(handler), () => handlers.delete(handler));
           const response = await bounded(handler, 'Original MCP handler timed out.', 30000, abort.signal);
           actualHttpRequests++;
@@ -376,7 +547,8 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
             });
             const chunks: Buffer[] = []; let size = 0;
             for await (const chunk of response) { const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-              size += bytes.length; assert(size <= 65536); chunks.push(bytes); }
+              // Tool discovery contains complete enabled schemas; retain the tighter budget for other replies.
+              size += bytes.length; assert(size <= (method === 'tools/list' ? 1024 * 1024 : 65536)); chunks.push(bytes); }
             const parsed = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks))));
             return { status: response.statusCode, headers: response.headers, body: parsed };
           } finally { clearTimeout(deadline); abort.abort(); }
@@ -432,12 +604,17 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
         const exit = await bounded(childClosed, 'Owned installed SDK child exceeded its deadline.', 180000);
         await markerChain; assert.equal(stdoutRemainder, ''); assert.equal(exit.signal, null); assert.equal(exit.code, 0); assert.equal(childIoErrors.length, 0);
         assert(pythonComplete && wheelVerified && activatedRevocation && beforeRetries);
+        assert.equal(pathCensusCheck, undefined); assert.equal(pathCensusVerifiedRequests, 8);
         assert.deepEqual([...cases].sort(), ['discovery_search_version_bound_multipage_read', 'native_create_and_same_key_create_retry',
           'native_copy_preview_apply_status_and_same_id_retry', 'native_copy_pending_status_explicit_recover_same_id',
+          'native_move_completion_ack_explicit_original_recover', 'native_delete_completion_ack_explicit_original_recover',
           'native_edit_status_same_key_and_stale_conflict', 'actual_write_scope_denial', 'actual_session_revocation'].sort());
         assert.equal(copyChecks.size, 2); assert([...copyChecks.values()].every(check => check.completed && check.checkpoint === undefined));
-        assert.equal(copyFaultCount, 1); assert(copyFaultState.current?.fired); assert(rejectedAfterRevocation >= 2);
+        assert.equal(copyFaultCount, 1); assert(copyFaultState.current?.fired); assert(rejectedAfterRevocation >= 4);
         assert(revokedTools.has('edit_knowledge_source') && revokedTools.has('copy_knowledge_source'));
+        assert(revokedTools.has('move_knowledge_source') && revokedTools.has('delete_knowledge_source'));
+        assert.equal(pathChecks.size, 2); assert([...pathChecks.values()].every(check => check.recovered && check.checkpoint === undefined));
+        assert.equal(pathFaultCount, 2); assert(pathFaultState.current?.fired);
         assert(actualHttpRequests > 8); assert.equal(requestErrors.length, 0); await flushCollaborationDocuments();
         assert.equal(createHash('sha256').update(await readFile(pythonProbe)).digest('hex'), pythonProbeSha256);
         assert.equal(createHash('sha256').update(await readFile(wheel)).digest('hex'), wheelSha256);
@@ -447,6 +624,9 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
           installedWheel: true, actualTcpHttpRequests: actualHttpRequests, revokedOriginalHandler401: rejectedAfterRevocation,
           revokedOriginalToolCalls: [...revokedTools].sort(),
           nativeCopyOperations: copyChecks.size, actualB1CommitAckFaults: copyFaultCount,
+          nativePathOperations: pathChecks.size, actualPathCompletionCommitAckFaults: pathFaultCount,
+          pathCensusVerifiedRequests, pathCensusIsolation: 'actual-workspace-locks-after-live-store-drain',
+          originalPathAttributionStableIdsIncomingLinksAndTrashVerified: true, purePathStatusAndCompletedRetriesVerified: true,
           originalCopyAttributionAndCloneIdsVerified: true, pendingAndCompletedStatusRowsAndFilesystemUnchanged: true,
           originalRowsUnchangedByRetryStatusConflictAndDenials: true, oauthIssuance: false, compiledNext: false,
           pythonStderrBytes: stderrBytes, pythonStderrSha256: stderrDigest.digest('hex') }));
@@ -496,9 +676,21 @@ export async function pythonSdkDocumentPostgresTest(): Promise<void> {
   completed = true;
 }
 
+function safeProbeFailure(error: unknown, depth = 0): Row {
+  if (!(error instanceof Error)) return { name: 'UnknownError' };
+  const own = (key: string) => Object.getOwnPropertyDescriptor(error, key)?.value;
+  const code = own('code'), actual = own('actual'), expected = own('expected');
+  const numeric = (value: unknown) => typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return { name: error.name, code: typeof code === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,79}$/u.test(code) ? code : null,
+    actual: numeric(actual), expected: numeric(expected),
+    frames: String(error.stack ?? '').split('\n').slice(1).filter(line => /^\s+at /u.test(line)).slice(0,6),
+    ...(depth < 4 && error instanceof AggregateError ? { errors: error.errors.slice(0,8).map(item => safeProbeFailure(item, depth + 1)) } : {}),
+  };
+}
+
 pythonSdkDocumentPostgresTest().catch(error => {
   const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : null;
   console.error(JSON.stringify({ suite: 'python-sdk-document-postgres', passed: false,
-    name: error instanceof Error ? error.name : 'UnknownError', code: typeof code === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,79}$/u.test(code) ? code : null }));
+    name: error instanceof Error ? error.name : 'UnknownError', code: typeof code === 'string' && /^[A-Za-z][A-Za-z0-9_-]{0,79}$/u.test(code) ? code : null, failure: safeProbeFailure(error) }));
   process.exitCode = 1;
 });

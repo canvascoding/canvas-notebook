@@ -1,6 +1,6 @@
 # Canvas Notebook Python
 
-Unreleased `0.1.0.dev0` development SDK. This package is not published. It targets the native document and Copy tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
+Unreleased `0.1.0.dev0` development SDK. This package is not published. It targets the native document and explicit Copy/Move/Delete tools in the accompanying unreleased Canvas Notebook changes; an existing public deployment may not provide them. The repository's Sustainable Use License is included in `LICENSE`.
 
 The package delegates document identity, versions, permissions, Yjs edits, history and link handling to Canvas. It never edits a workspace `.md` projection or constructs Yjs updates.
 
@@ -67,7 +67,7 @@ The OS store retains both tokens and client registration, scoped to the exact en
 
 An already issued MCP access token may instead be supplied through `CanvasMcpTransport(ENDPOINT, access_token=token)`. That mode does not refresh or persist it. Keep tokens in a proper credential store and never include them in source, logs or agent prompts. A Better Auth REST session bearer and an MCP resource access token are different credentials.
 
-Scopes are necessary but do not grant a workspace or tool by themselves. Canvas also checks current user/client grants, workspace access and tool configuration. Native Edit and its status lookup require current Write authority; Search authority does not grant full Read.
+Scopes are necessary but do not grant a workspace or tool by themselves. Canvas also checks current user/client grants, workspace access and tool configuration. Native Edit and its status lookup require current Write authority; all Copy/Move/Delete actions require `knowledge:write` and their actual current workspace permissions. Search authority does not grant full Read.
 
 ## Progressive document access
 
@@ -204,7 +204,47 @@ SDK error messages omit document contents and credentials. Original results and 
 | `import_markdown` | `import_knowledge_file`, native V1 |
 | `edit_document`, `edit_status` | `edit_knowledge_source`, explicit V1 action |
 | `copy_preview`, `copy_apply`, `copy_status`, `copy_recover` | `copy_knowledge_source`, explicit V1 action |
+| `move_preview`, `move_apply`, `move_status`, `move_recover` | `move_knowledge_source`, explicit V1 action |
+| `delete_preview`, `delete_apply`, `delete_status`, `delete_recover` | `delete_knowledge_source`, explicit V1 action |
 
-Move, Delete, native PDF conversion and a controlled runtime bridge are not exposed by this candidate. Copy does not parse a PDF into a native notebook document. This is not completion of the broader document/API plan.
+Native PDF conversion and a controlled runtime bridge are not exposed by this candidate. Copy/Move of a physical PDF does not parse it into a native notebook document. This is not completion of the broader document/API plan.
+
+## Move and Delete
+
+The eight `move_*` / `delete_*` methods call the corresponding actual V1 MCP tools. Both tools require an independent explicit opt-in, current `knowledge:write`, a real user/client workspace grant, and current Read, Write, Delete and agent access. The SDK never grants those permissions or enables a server feature.
+
+Move is same-workspace and accepts an ordered list of 1–1,000 exact `source_path` / `destination_path` selections. Delete accepts one initialized native file `path`, not a recursive directory request. There is no collision-renaming or destination-directory parameter. Both use the server's central lifecycle and link handling; neither exposes Undo or restore.
+
+```python
+async def prepare_move_request(notebook, workspace_id, selections, operation_id):
+    roots = [dict(item) for item in selections]
+    preview = (await notebook.move_preview(workspace_id, roots)).require_success()["preview"]
+    expected = [{"sourcePath": root["source_path"], "destinationPath": root["destination_path"]}
+                for root in roots]
+    if (preview["kind"] != "move" or preview["workspaceId"] != workspace_id
+            or preview["readiness"] != "ready" or preview["paths"] != expected):
+        raise ValueError("Move preview differs from the intended ordered roots.")
+    return {"workspace_id": workspace_id, "selections": roots,
+            "operation_id": operation_id, "plan_id": preview["planId"]}
+
+
+async def prepare_delete_request(notebook, workspace_id, path, operation_id):
+    preview = (await notebook.delete_preview(workspace_id, path)).require_success()["preview"]
+    if (preview["kind"] != "delete" or preview["workspaceId"] != workspace_id
+            or preview["readiness"] != "ready" or preview["paths"] != [{"sourcePath": path}]):
+        raise ValueError("Delete preview differs from the intended native file.")
+    return {"workspace_id": workspace_id, "path": path,
+            "operation_id": operation_id, "plan_id": preview["planId"]}
+```
+
+Persist that request before awaiting `move_apply(**request)` or `delete_apply(**request)`. Status is a separate `move_status(workspace_id, operation_id)` / `delete_status(workspace_id, operation_id)` call. An explicit later recovery uses `move_recover(**request)` / `delete_recover(**request)`, preserving every original field. The facade never reruns Preview, chooses another destination, regenerates a caller key or automatically applies after a network failure.
+
+The caller operation ID has exactly Copy's 16–128-character format. Apply/Recover returns `operation` and `alreadyKnown`; Status returns `operation`. The camelCase `operation.operationId` is the original caller ID. `operation.batchId` is the separate actual server batch ID and must not replace it in later calls. Inspect `operation.completion.status == "confirmed"` for historical completion; an `applied` journal or `alreadyKnown` alone is insufficient. Receipt availability, finalization and individual execution steps remain distinct. No historical result is a claim about today's document path/content, and preview paths are not document IDs or full versions.
+
+A received tool error keeps its original `CanvasToolError.result` and optional `.operation_id`. A transport failure without an Apply/Recover result raises `CanvasMutationOutcomeUnknown` with the original caller operation ID in `.idempotency_key` and the exact exception as `__cause__`. The facade invokes its transport once and performs no automatic status or recovery call. Cancellation propagates and can leave an unknown outcome. `PATH_STATUS_NOT_FOUND` does not prove absence of work; `PATH_OPERATION_NOT_FOUND` during explicit recovery never creates a replacement. Renewed authorization for the same actual client/user may continue an original under current rights without changing its original attribution.
+
+Request validation follows the fixed wire: exact ordered rows or one path, canonical nonempty paths without normalization, JavaScript UTF-16 lengths, and a 64 KiB escaped UTF-8 JSON cap. The full raw result is retained. Move/Delete acceptance must identify its new source and installed artifact separately; prior Copy results do not establish it.
+
+## Validation boundaries
 
 The recorded source stage before these SDK Copy additions passed wheel/source builds, fresh installations, 26 local tests, strict typing and five actual MCP HTTP/PostgreSQL document families on Python 3.14.3. Those HTTP families use genuinely signed fixture tokens with current SQL grants and a real document owner; they do not exercise browser OAuth issuance. Its later compiled seven-case browser suite includes actual SDK authorization-code/PKCE, progressive reads, creation, editing, status and editor state after reload. The separate three-process macOS Keychain check covers dummy credential persistence, endpoint/profile isolation and cleanup, not a combined persistent-store OAuth flow. These historical results retain their recorded source/artifact binding and do not validate the new SDK Copy methods or a freshly built package containing them. Copy-specific package and integration reports identify the tested source and installed artifact separately. Other Python runtimes, other credential stores, public website delivery and package publication remain pending. Local transport and cancellation tests alone do not establish live OAuth behavior.

@@ -20,6 +20,7 @@ from .models import (
     DocumentSearchPage,
     FileReference,
     PublicCopyCode,
+    PublicWorkspacePathCode,
     ReadFormat,
     ToolResultLike,
     ToolTransport,
@@ -28,6 +29,13 @@ from .models import (
     WorkspaceCopyPreviewResult,
     WorkspaceCopySelection,
     WorkspaceCopyStatusResult,
+    WorkspaceDeletePreviewResult,
+    WorkspaceMovePreviewResult,
+    WorkspaceMoveSelection,
+    WorkspacePathExecutionResult,
+    WorkspacePathFailure,
+    WorkspacePathOperation,
+    WorkspacePathStatusResult,
 )
 
 _EXTERNAL_EXPORTS = {
@@ -64,6 +72,7 @@ __all__ = [
     "DocumentSearchPage",
     "FileReference",
     "PublicCopyCode",
+    "PublicWorkspacePathCode",
     "KeyringTokenStorage",
     "MemoryTokenStorage",
     "ReadFormat",
@@ -74,4 +83,11 @@ __all__ = [
     "WorkspaceCopyPreviewResult",
     "WorkspaceCopySelection",
     "WorkspaceCopyStatusResult",
+    "WorkspaceDeletePreviewResult",
+    "WorkspaceMovePreviewResult",
+    "WorkspaceMoveSelection",
+    "WorkspacePathExecutionResult",
+    "WorkspacePathFailure",
+    "WorkspacePathOperation",
+    "WorkspacePathStatusResult",
 ]

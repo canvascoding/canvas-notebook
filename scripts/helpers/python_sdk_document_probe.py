@@ -56,7 +56,8 @@ async def main() -> None:
         notebook = CanvasNotebook(transport)
         names = {tool.name for tool in await transport.list_tools()}
         assert {"list_workspaces", "search_knowledge", "read_knowledge_source",
-                "create_knowledge_source", "edit_knowledge_source", "copy_knowledge_source"} <= names
+                "create_knowledge_source", "edit_knowledge_source", "copy_knowledge_source",
+                "move_knowledge_source", "delete_knowledge_source"} <= names
         workspaces = success(await notebook.list_workspaces())["workspaces"]
         assert any(item["id"] == workspace for item in workspaces), "Actual workspace discovery omitted the fixture."
         search = success(await notebook.search_documents(workspace, "SDKNeedle"))
@@ -174,6 +175,102 @@ async def main() -> None:
             emit("pass", case="native_copy_pending_status_explicit_recover_same_id" if inject_ack_loss
                  else "native_copy_preview_apply_status_and_same_id_retry")
 
+        # Own genuine native source and incoming link, created through the same
+        # installed SDK/HTTP surface. The original seven families keep their
+        # existing document, keys, requests and assertions below/above.
+        path_target = success(await notebook.create_markdown(workspace, "sdk-path-target.md",
+            "SDK path target body. Stable bytes.\n", idempotency_key="python-sdk-path-target-key-001"))
+        path_incoming = success(await notebook.create_markdown(workspace, "sdk-path-incoming.md",
+            "[SDK path link](sdk-path-target.md)\n", idempotency_key="python-sdk-path-incoming-key-001"))
+        assert path_target["outcome"] == "created" and path_incoming["outcome"] == "created"
+        path_document_id = path_target["document"]["documentId"]
+        incoming_id = path_incoming["document"]["documentId"]
+        path_before = await notebook.read_all(workspace, path_document_id,
+            expected_version=path_target["document"]["version"])
+        for kind, source_path, operation_id in [
+            ("move", "sdk-path-target.md", "python-sdk-path-move-completion-0001"),
+            ("delete", "sdk-path-moved.md", "python-sdk-path-delete-completion-0001"),
+        ]:
+            selections = [{"source_path": source_path, "destination_path": "sdk-path-moved.md"}]
+            emit("ready_for_path_preview", operationId=operation_id)
+            assert (await asyncio.to_thread(receive))["event"] == "path_preview_ready"
+            preview_result = success(await (notebook.move_preview(workspace, selections) if kind == "move"
+                                           else notebook.delete_preview(workspace, source_path)))
+            preview = preview_result["preview"]
+            assert preview_result["action"] == "preview" and preview["kind"] == kind and preview["readiness"] == "ready"
+            assert preview["workspaceId"] == workspace and preview["coverage"] == {"complete": True}
+            assert preview["paths"] == ([{"sourcePath": source_path, "destinationPath": "sdk-path-moved.md"}]
+                                         if kind == "move" else [{"sourcePath": source_path}])
+            assert preview["linkChanges"] == {"rewrites": 1 if kind == "move" else 0,
+                                              "unlinks": 1 if kind == "delete" else 0, "affectedDocuments": 1}
+            plan_id = preview["planId"]
+            emit("ready_for_path_apply", kind=kind, operationId=operation_id, planId=plan_id,
+                 documentId=path_document_id, incomingId=incoming_id, sourcePath=source_path,
+                 **({"destinationPath": "sdk-path-moved.md"} if kind == "move" else {}))
+            assert (await asyncio.to_thread(receive))["event"] == "path_apply_ready"
+            try:
+                success(await (notebook.move_apply(workspace, selections, operation_id=operation_id, plan_id=plan_id)
+                               if kind == "move" else notebook.delete_apply(workspace, source_path,
+                                   operation_id=operation_id, plan_id=plan_id)))
+            except CanvasToolError as error:
+                assert error.code == "PATH_OUTCOME_UNCONFIRMED" and error.operation_id == operation_id
+            else:
+                raise AssertionError("The independently confirmed Completion COMMIT must lose its actual ACK.")
+            emit("path_outcome_uncertain", operationId=operation_id)
+            uncertain = await asyncio.to_thread(receive)
+            assert uncertain["event"] == "path_uncertain_checked"
+            status = success(await (notebook.move_status(workspace, operation_id) if kind == "move"
+                                    else notebook.delete_status(workspace, operation_id)))
+            assert status["action"] == "status" and status["operation"]["operationId"] == operation_id
+            assert status["operation"]["batchId"] == uncertain["batchId"] and status["operation"]["planId"] == plan_id
+            assert status["operation"]["completion"] == {"status": "confirmed", "historical": True}
+            assert status["operation"]["journal"]["status"] == "needs_recovery"
+            emit("path_status_done", operationId=operation_id)
+            assert (await asyncio.to_thread(receive))["event"] == "path_checks_checked"
+            recovered = success(await (notebook.move_recover(workspace, selections, operation_id=operation_id, plan_id=plan_id)
+                                      if kind == "move" else notebook.delete_recover(workspace, source_path,
+                                          operation_id=operation_id, plan_id=plan_id)))
+            assert recovered["action"] == "recover" and recovered["alreadyKnown"] is True
+            operation = recovered["operation"]
+            assert operation["operationId"] == operation_id and operation["batchId"] == uncertain["batchId"]
+            assert operation["planId"] == plan_id and operation["workspaceId"] == workspace
+            assert operation["completion"] == {"status": "confirmed", "historical": True}
+            assert operation["journal"]["status"] == "applied"
+            assert operation["execution"]["receiptStatus"] == "available" and operation["execution"]["finalization"] == "complete"
+            assert all(step["state"] == "applied" for step in operation["execution"]["steps"])
+            emit("path_recovered", operationId=operation_id)
+            assert (await asyncio.to_thread(receive))["event"] == "path_recovered_checked"
+            if kind == "move":
+                path_after = await notebook.read_all(workspace, path_document_id)
+                assert path_after.document["path"] == "sdk-path-moved.md"
+                assert path_after.document["documentId"] == path_before.document["documentId"]
+                assert path_after.document["lineageId"] == path_before.document["lineageId"]
+                assert path_after.body == path_before.body
+            incoming_after = await notebook.read_all(workspace, incoming_id)
+            assert "SDK path link" in incoming_after.body
+            assert ("sdk-path-moved.md" in incoming_after.body) == (kind == "move")
+            assert "sdk-path-target.md" not in incoming_after.body
+            emit("ready_for_path_checks", operationId=operation_id)
+            assert (await asyncio.to_thread(receive))["event"] == "path_checks_ready"
+            pure_status = success(await (notebook.move_status(workspace, operation_id) if kind == "move"
+                                        else notebook.delete_status(workspace, operation_id)))
+            assert pure_status["operation"] == operation
+            for action in ["apply", "recover"]:
+                if kind == "move":
+                    repeated_path = success(await (notebook.move_apply(workspace, selections, operation_id=operation_id, plan_id=plan_id)
+                                                  if action == "apply" else notebook.move_recover(workspace, selections,
+                                                      operation_id=operation_id, plan_id=plan_id)))
+                else:
+                    repeated_path = success(await (notebook.delete_apply(workspace, source_path, operation_id=operation_id, plan_id=plan_id)
+                                                  if action == "apply" else notebook.delete_recover(workspace, source_path,
+                                                      operation_id=operation_id, plan_id=plan_id)))
+                assert repeated_path["action"] == action and repeated_path["alreadyKnown"] is True
+                assert repeated_path["operation"] == operation
+            emit("path_checks_done", operationId=operation_id)
+            assert (await asyncio.to_thread(receive))["event"] == "path_checks_checked"
+            emit("pass", case="native_move_completion_ack_explicit_original_recover" if kind == "move"
+                 else "native_delete_completion_ack_explicit_original_recover")
+
         edit_key = "python-sdk-edit-key-001"
         patch = {"kind": "native_text_replace", "edits": [{"oldText": "SDK created native text", "newText": "SDK changed native text", "expectedOccurrences": 1}]}
         edited = success(await notebook.edit_document(workspace, document_id,
@@ -211,6 +308,15 @@ async def main() -> None:
                 assert error.code == "ACCESS_DENIED"
             else:
                 raise AssertionError("Read/Search scope must not authorize Copy status.")
+            restricted_notebook = CanvasNotebook(restricted)
+            for method, operation_id in [(restricted_notebook.move_status, "python-sdk-path-move-completion-0001"),
+                                         (restricted_notebook.delete_status, "python-sdk-path-delete-completion-0001")]:
+                try:
+                    success(await method(workspace, operation_id))
+                except CanvasToolError as error:
+                    assert error.code == "ACCESS_DENIED"
+                else:
+                    raise AssertionError("Read/Search scope must not authorize Move/Delete status.")
         emit("pass", case="actual_write_scope_denial")
         emit("ready_for_revoke")
         assert (await asyncio.to_thread(receive))["event"] == "session_revoked"
@@ -231,8 +337,18 @@ async def main() -> None:
             pass
         else:
             raise AssertionError("The expired actual fixture session must deny Copy status.")
+        for request, operation_id in [(notebook.move_status, "python-sdk-path-move-completion-0001"),
+                                      (notebook.delete_status, "python-sdk-path-delete-completion-0001")]:
+            try:
+                success(await request(workspace, operation_id))
+            except Exception:
+                # Node independently requires this exact original handler's
+                # HTTP401/invalid_token and tool name before accepting success.
+                pass
+            else:
+                raise AssertionError("The expired actual fixture session must deny Move/Delete status.")
         emit("pass", case="actual_session_revocation")
-    emit("complete", groups=7, installedWheel=True, actualHttp=True, oauthIssuance=False, compiledNext=False)
+    emit("complete", groups=9, installedWheel=True, actualHttp=True, oauthIssuance=False, compiledNext=False)
 
 
 if __name__ == "__main__":

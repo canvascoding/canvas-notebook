@@ -1,6 +1,6 @@
 ---
 title: Document API
-description: Search, read, create, edit, and copy native Canvas documents with stable identities, full content versions, and recorded operation status.
+description: Search, read, create, edit, copy, move, and delete native Canvas documents with stable identities, full content versions, and recorded operation status.
 section: Developers
 sectionOrder: 11
 order: 1
@@ -20,13 +20,13 @@ Use this sequence: search for a document, keep its stable identity, read its ful
 | Transport | Authentication | Available document operations |
 | --- | --- | --- |
 | REST on your Notebook origin | An actual Better Auth user session, using its cookie or issued Session Bearer | Search, read by ID, edit, and edit status |
-| Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled native Copy |
+| Direct MCP at `/mcp` | OAuth 2.1 authorization code with PKCE and a token issued for this MCP resource | Search, read by ID, native Markdown create/import, edit/status, and explicitly enabled Copy/Move/Delete |
 
 These credentials are different. An MCP resource access token is not a REST Session Bearer. Do not copy an MCP token into a REST request or construct a session from a user ID. All operations check current session, workspace access, and relevant policy; knowing a document ID, version, cursor, or operation ID grants no access.
 
 REST requests send `Content-Type: application/json` with the actual user-session cookie or `Authorization: Bearer` followed by the issued Session Bearer. Use the normal supported sign-in flow to obtain that session. Signing out its source session revokes subsequent uses; a copied Bearer is not an independent long-lived API key.
 
-For MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, and editing require explicit tool enablement. Request only the OAuth scopes needed by your client:
+For MCP, enable the server, opt the workspace into access, obtain the user's grant, and enable each required tool. Creation, import, editing and Copy/Move/Delete require explicit tool enablement. Request only the OAuth scopes needed by your client:
 
 | Tool | Scope |
 | --- | --- |
@@ -35,6 +35,7 @@ For MCP, enable the server, opt the workspace into access, obtain the user's gra
 | `read_knowledge_source` | `knowledge:read` |
 | `create_knowledge_source`, `import_knowledge_file`, `edit_knowledge_source` | `knowledge:write` |
 | `copy_knowledge_source` (explicit opt-in) | `knowledge:write` |
+| `move_knowledge_source`, `delete_knowledge_source` (independent explicit opt-ins) | `knowledge:write` |
 
 Search permission does not grant full-read permission. Write scope does not grant a separate read scope. Create/edit also require the current workspace read/write and agent-access permissions enforced by the MCP service. Edit status uses the same write tool and authorization as editing, even though observing status does not apply a change.
 
@@ -331,15 +332,125 @@ Explicit Recover uses the exact retained Apply request with `action: "recover"`,
 
 The request is bounded to 65,536 escaped UTF-8 JSON bytes and 1,000 selections; the complete canonical server request, including actual origin data and resolved names, has its own 65,536-byte limit. Workspace IDs are at most 200 JavaScript UTF-16 units and path fields at most 1,024; text must be well-formed Unicode. Workspace IDs must equal their ECMAScript-trimmed value, while canonical relative paths preserve whitespace. Selection paths must be nonempty; optional `destination_directory: ""` means the root. The entire MCP result envelope, including text, structured content and authorization metadata, is bounded to 1 MiB. Results and previews are not silently clipped.
 
-The current native owner requires an initialized native Markdown graph. Uninitialized physical Markdown in the inspected source or destination graph can produce `COPY_NATIVE_REQUIRED`, even outside the selected roots. This is an open import/rebinding boundary. Do not migrate a read-only source or write its Markdown projection to bypass it. Move/Delete remain separate pending connections.
+The current native owner requires an initialized native Markdown graph. Uninitialized physical Markdown in the inspected source or destination graph can produce `COPY_NATIVE_REQUIRED`, even outside the selected roots. This is an open import/rebinding boundary. Do not migrate a read-only source or write its Markdown projection to bypass it. Move/Delete use the separate contracts below.
 
 The unreleased [Python SDK](/docs/developers/python-sdk#copy-through-an-explicit-retained-request) now provides `copy_preview`, `copy_apply`, `copy_status` and `copy_recover` over this same tool. Preview alone exposes collision renaming. Retain the caller operation ID, actual plan ID and exact resolved request before awaiting Apply; Status/Recover remain explicit. The facade keeps full raw results and camelCase payloads. If an Apply/Recover transport fails before returning a result, `CanvasMutationOutcomeUnknown.idempotency_key` contains the original Copy operation ID and `__cause__` retains the actual exception. The facade does not automatically replay, query status or recover. A received tool error is different: `.require_success()` raises `CanvasToolError` with the original result and optional `.operation_id`.
 
 Neither `copied` paths, historical `copiedPaths` nor Preview `sourceIdentity` are native document IDs or full versions. Obtain those through an authorized search result and perform a version-bound Read. Previous document SDK tests alone do not establish Copy behavior; Copy-specific reports identify the tested source and installed artifact separately.
 
+## Native Move and Delete through MCP
+
+`move_knowledge_source` and `delete_knowledge_source` are separate development tools, each off by default and requiring its own explicit opt-in. All four actions require current `knowledge:write`, the actual client/user workspace grant, and current Read, Write, Delete and agent access in that one workspace. An OAuth scope or retained operation ID is not a workspace permission. Preview, Apply and Recover additionally require the native mutation feature; Status keeps the same current tool/authorization checks when that feature is off.
+
+Move accepts 1–1,000 ordered, supported roots in one workspace. Every selection has exactly `source_path` and `destination_path`. Existing destinations are conflicts; there is no collision-renaming flag, destination-directory option or second workspace slot. Delete accepts exactly one initialized native file `path`. It is not a general recursive directory or arbitrary physical-file deletion API. These operations use the central native lifecycle and incoming-link handling; they expose no Undo or restore action.
+
+Start with a real Preview for the intended selection:
+
+```javascript
+{
+  name: "move_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    workspace_id: workspaceId,
+    selections: [{ source_path: "notes/a.md", destination_path: "notes/renamed.md" }]
+  }
+}
+```
+
+For Delete, select the single native file explicitly:
+
+```javascript
+{
+  name: "delete_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "preview",
+    workspace_id: workspaceId,
+    path: "notes/renamed.md"
+  }
+}
+```
+
+The result is `{ apiVersion: 1, action: "preview", preview }`. The preview contains `kind` (`move` or `delete`), `workspaceId`, actual `planId`, `readiness: "ready"`, ordered `paths`, `linkChanges` counts (`rewrites`, `unlinks`, `affectedDocuments`) and `coverage: { complete: true }`. Move paths contain `sourcePath` and `destinationPath` in original selection order. Delete has one `sourcePath`. This coverage describes the validated selected plan; preview paths are not native document IDs or full content versions.
+
+Choose a caller operation ID once and persist the exact request before awaiting Apply. Retain the original workspace, actual preview plan ID and complete ordered selections or Delete path. Move uses the unchanged intended roots; it does not resolve alternative collision names.
+
+```javascript
+const retainedMoveArguments = {
+  api_version: 1,
+  action: "apply",
+  workspace_id: workspaceId,
+  operation_id: callerOperationId,
+  plan_id: movePreviewResult.preview.planId,
+  selections: [{ source_path: "notes/a.md", destination_path: "notes/renamed.md" }]
+};
+
+// Send these parameters through your actual MCP client:
+({ name: "move_knowledge_source", arguments: retainedMoveArguments });
+```
+
+Delete Apply uses the same common fields with its own caller operation ID and `deletePreviewResult.preview.planId`, plus the exact original `path` instead of `selections`. It does not accept both target forms. Preview does not accept operation/plan IDs; Apply/Recover require both; Status accepts only the common fields and caller operation ID. Unknown or extra fields are rejected.
+
+| Action | Move target fields | Delete target fields | Additional identity |
+| --- | --- | --- | --- |
+| `preview` | `selections` | `path` | None |
+| `apply` / `recover` | The exact retained `selections` | The exact retained `path` | `operation_id`, `plan_id` |
+| `status` | None | None | `operation_id` |
+
+Every request includes `api_version: 1`, its `action` and `workspace_id`. Caller operation IDs use 16–128 ASCII characters, an alphanumeric first character, then letters, digits, `_` or `-`; preserve case and every character. A UUID fits. Plan IDs are the actual returned 64-character lowercase hexadecimal values, not locally computed authorization.
+
+Apply/Recover returns `{ apiVersion: 1, action, operation, alreadyKnown }`; Status returns `{ apiVersion: 1, action: "status", operation }`. The operation contains:
+
+| Field | Meaning |
+| --- | --- |
+| `operationId` | The unchanged caller operation ID used for all later calls |
+| `batchId` | The separate actual server batch ID; never substitute it for the caller ID |
+| `planId`, `workspaceId` | The original retained plan and workspace binding |
+| `journal` | Recorded `status` (`applying`, `applied`, `failed`, `needs_recovery`), `phase`, `completedActions`, `totalActions`, `createdAt`, `updatedAt` and public `errorCode` |
+| `execution` | Historical receipt availability (`available`, `not_started`, `unavailable`), finalization (`pending`, `complete`) and individual path/link steps |
+| `completion` | `{ status: "confirmed", historical: true }` or `{ status: "not_confirmed" }` |
+
+Execution steps retain their actual `key`, `phase` (`path` or `link`), `kind`, `path`, `state` (`pending`, `applied`, `needs_check`) and optional `destinationPath`/`openPath`. Those paths are presentation data, not native document IDs or authorization.
+
+Only `operation.completion.status == "confirmed"` is historical completion evidence. Neither `alreadyKnown`, an `applied` journal, matching path text nor a successful HTTP/MCP exchange proves it alone. Journal progress can lag a proven domain effect after an uncertain acknowledgement; receipt/finalization/completion facts remain separate. These historical results do not certify today's document path, content or full version after later changes. The result supplies no native document identity/version: retain an earlier genuine document reference or obtain one through authorized native search, then use a version-bound Read.
+
+Observe Status explicitly with the same tool and caller operation ID:
+
+```javascript
+{
+  name: "move_knowledge_source",
+  arguments: {
+    api_version: 1,
+    action: "status",
+    workspace_id: workspaceId,
+    operation_id: callerOperationId
+  }
+}
+```
+
+Use `delete_knowledge_source` with the same status shape for its own Delete operation. Status observes the original recorded operation; it never claims, enqueues, applies, repairs or recreates a target. `PATH_STATUS_NOT_FOUND` does not prove that no work occurred and does not authorize a new key.
+
+For an explicit recovery decision, keep the complete original Apply request and change only its action:
+
+```javascript
+({
+  name: "move_knowledge_source",
+  arguments: { ...retainedMoveArguments, action: "recover" }
+});
+```
+
+Delete Recover similarly uses its original Delete tool, caller ID, plan ID, workspace and exact original path. Recover is existing-only: `PATH_OPERATION_NOT_FOUND` never creates a replacement operation. Do not replan against a source that may already have moved or been archived. Preserve the request after `PATH_OUTCOME_UNCONFIRMED`, a transport failure or `PATH_OUTPUT_TOO_LARGE`; there is no safe automatic Apply/Recover retry. A genuinely renewed session for the same currently authorized client/user may observe or continue the original without changing its stored original session attribution. Revoked/expired authorization remains rejected.
+
+JSON arguments are bounded to 65,536 escaped UTF-8 bytes. Workspace IDs are at most 200 JavaScript UTF-16 units and equal their ECMAScript-trimmed value. Paths are at most 1,024 units, well-formed Unicode and canonical nonempty workspace-relative paths; literal filename whitespace is preserved. Empty paths, `.`/`..` segments and normalization bypasses are rejected. The complete `CallToolResult`, including text, structured content and authorization metadata, is capped at 1 MiB; large output fails rather than being silently truncated. Unsupported native cohorts return `PATH_NATIVE_REQUIRED`; do not write a projection or substitute raw filesystem edits to bypass them.
+
+Move/Delete tool failures use `{ apiVersion: 1, success: false, code, operationId? }`; an included `operationId` is the original caller ID. Keep it with the retained request, including after a late output-size error. Its absence is not permission to generate a replacement. Actual HTTP authorization failures and OAuth challenge metadata remain distinct from a received tool error.
+
+The accompanying unreleased [Python SDK](/docs/developers/python-sdk#move-and-delete-through-retained-requests) exposes the eight explicit `move_*` / `delete_*` methods over these same contracts. It retains full raw results and camelCase payloads. A received tool error remains a `CanvasToolError` with its original result and optional caller `.operation_id`; a missing Apply/Recover result raises `CanvasMutationOutcomeUnknown`, preserving that caller ID in `.idempotency_key` and the original exception as `__cause__`. The facade does not silently retry, poll Status or recover. SDK-specific artifact/HTTP evidence and compiled UI/OAuth acceptance remain separately recorded gates, not a publication claim.
+
 ## Errors and client handling
 
-REST uses HTTP status codes and a bounded JSON body. Native read/search errors contain `apiVersion: 1`, `success: false`, and `code`. Edit errors can additionally retain `operationId`. MCP tool failures can arrive as `isError: true` with structured error content even when HTTP transport succeeded; also handle transport/protocol errors and OAuth challenges. Creation/import uses its existing ingest error vocabulary, not the edit error envelope.
+REST uses HTTP status codes and a bounded JSON body. Native read/search errors contain `apiVersion: 1`, `success: false`, and `code`. Edit, Copy and Move/Delete error envelopes can additionally retain `operationId`. MCP tool failures can arrive as `isError: true` with structured error content even when HTTP transport succeeded; also handle transport/protocol errors and OAuth challenges. Creation/import uses its existing ingest error vocabulary, not the edit error envelope.
 
 | Error family | Client action |
 | --- | --- |
@@ -351,9 +462,14 @@ REST uses HTTP status codes and a bounded JSON body. Native read/search errors c
 | `DOCUMENT_BUSY` / scope changed | Stop this attempt; keep mutation identity and obtain a fresh authorized observation before deciding the next step |
 | `EDIT_OUTCOME_UNCONFIRMED` / `READ_OUTCOME_UNCONFIRMED` | Do not infer a committed edit from matching text or blindly replay; retain any operation ID and inspect supported status |
 | `DOCUMENT_TOO_LARGE` / search size errors | Reduce the request or selected scope where applicable; do not discard guards or truncate a mutation silently |
+| `PATH_PLAN_CHANGED` / `PATH_SCOPE_CHANGED` / `PATH_CONFLICT` | Preserve the original request; examine the actual plan/scope conflict before choosing a distinct intended operation |
+| `PATH_BUSY` | Stop this attempt and keep its identity; do not automatically submit another Apply |
+| `PATH_OUTCOME_UNCONFIRMED` / `PATH_OUTPUT_TOO_LARGE` | Keep the caller ID and complete retained request; use permitted explicit Status/Recover instead of assuming no effect |
+| `PATH_STATUS_NOT_FOUND` / `PATH_OPERATION_NOT_FOUND` | Distinguish a missing status observation from an existing-only recovery miss; neither starts a replacement operation |
+| `PATH_TOO_LARGE` / `PATH_NATIVE_REQUIRED` / `PATH_UNAVAILABLE` | Respect the reported limit/cohort/availability boundary; never truncate or fall back to raw filesystem mutation |
 
 Routes can also rate-limit with HTTP 429. REST responses are not cacheable. Application clients should keep error bodies and credentials out of document content, and should not expose tokens or private source text in diagnostics.
 
 ## Current boundary
 
-The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools and the four explicit Copy actions described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK. Common Move/Delete tools and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a copied/uploaded PDF, Markdown output, or physical file receipt as a parsed native document mutation result.
+The separately installable [Python SDK development preview](/docs/developers/python-sdk) wraps the search/read/create/import/edit tools and the explicit Copy/Move/Delete actions described here. It is not yet a released Python package. The internal skill-script FD bridge is a different, package-scoped runtime and is not an external HTTP SDK; that connection and a PDF-to-native-document creation flow remain pending. Existing file/asset tools have their own schemas and results; do not treat a copied/moved/uploaded PDF, Markdown output, or physical file receipt as a parsed native document mutation result. Public package publication, this page's website delivery and deployment are separate release steps; development source and local acceptance do not establish live availability.

@@ -317,6 +317,142 @@ class WorkspaceCopyFailure(WorkspaceCopyFailureRequired, total=False):
     operationId: str
 
 
+PublicWorkspacePathCode = Literal[
+    "INVALID_REQUEST", "AUTHENTICATION_REQUIRED", "ACCESS_DENIED",
+    "PATH_OPERATION_NOT_FOUND", "PATH_STATUS_NOT_FOUND", "PATH_PLAN_CHANGED",
+    "PATH_SCOPE_CHANGED", "PATH_BUSY", "PATH_CONFLICT", "PATH_TOO_LARGE",
+    "PATH_OUTPUT_TOO_LARGE", "PATH_NATIVE_REQUIRED", "PATH_OUTCOME_UNCONFIRMED",
+    "PATH_UNAVAILABLE",
+]
+
+
+class WorkspaceMoveSelection(TypedDict):
+    source_path: str
+    destination_path: str
+
+
+class WorkspaceMovePreviewPath(TypedDict):
+    sourcePath: str
+    destinationPath: str
+
+
+class WorkspaceDeletePreviewPath(TypedDict):
+    sourcePath: str
+
+
+class WorkspacePathLinkChanges(TypedDict):
+    rewrites: int
+    unlinks: int
+    affectedDocuments: int
+
+
+class WorkspacePathCoverage(TypedDict):
+    complete: Literal[True]
+
+
+class WorkspaceMovePreview(TypedDict):
+    kind: Literal["move"]
+    workspaceId: str
+    planId: str
+    readiness: Literal["ready"]
+    paths: list[WorkspaceMovePreviewPath]
+    linkChanges: WorkspacePathLinkChanges
+    coverage: WorkspacePathCoverage
+
+
+class WorkspaceDeletePreview(TypedDict):
+    kind: Literal["delete"]
+    workspaceId: str
+    planId: str
+    readiness: Literal["ready"]
+    paths: list[WorkspaceDeletePreviewPath]
+    linkChanges: WorkspacePathLinkChanges
+    coverage: WorkspacePathCoverage
+
+
+class WorkspaceMovePreviewResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["preview"]
+    preview: WorkspaceMovePreview
+
+
+class WorkspaceDeletePreviewResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["preview"]
+    preview: WorkspaceDeletePreview
+
+
+class WorkspacePathJournal(TypedDict):
+    status: Literal["applying", "applied", "failed", "needs_recovery"]
+    phase: Literal["preparing", "paths", "links", "complete", "recovery"]
+    completedActions: int
+    totalActions: int
+    createdAt: int
+    updatedAt: int
+    errorCode: PublicWorkspacePathCode | None
+
+
+class WorkspacePathStepRequired(TypedDict):
+    key: str
+    phase: Literal["path", "link"]
+    kind: Literal["move", "rename", "delete", "link_update"]
+    path: str
+    state: Literal["pending", "applied", "needs_check"]
+
+
+class WorkspacePathStep(WorkspacePathStepRequired, total=False):
+    destinationPath: str
+    openPath: str
+
+
+class WorkspacePathExecution(TypedDict):
+    receiptStatus: Literal["available", "not_started", "unavailable"]
+    finalization: Literal["pending", "complete"]
+    steps: list[WorkspacePathStep]
+
+
+class WorkspacePathConfirmedCompletion(TypedDict):
+    status: Literal["confirmed"]
+    historical: Literal[True]
+
+
+class WorkspacePathUnconfirmedCompletion(TypedDict):
+    status: Literal["not_confirmed"]
+
+
+class WorkspacePathOperation(TypedDict):
+    operationId: str
+    batchId: str
+    planId: str
+    workspaceId: str
+    journal: WorkspacePathJournal
+    execution: WorkspacePathExecution
+    completion: WorkspacePathConfirmedCompletion | WorkspacePathUnconfirmedCompletion
+
+
+class WorkspacePathExecutionResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["apply", "recover"]
+    operation: WorkspacePathOperation
+    alreadyKnown: bool
+
+
+class WorkspacePathStatusResult(TypedDict):
+    apiVersion: Literal[1]
+    action: Literal["status"]
+    operation: WorkspacePathOperation
+
+
+class WorkspacePathFailureRequired(TypedDict):
+    apiVersion: Literal[1]
+    success: Literal[False]
+    code: PublicWorkspacePathCode
+
+
+class WorkspacePathFailure(WorkspacePathFailureRequired, total=False):
+    operationId: str
+
+
 @dataclass(frozen=True, repr=False)
 class CanvasToolResult(Generic[PayloadT]):
     """Retains the complete official MCP result, including tool failures.
