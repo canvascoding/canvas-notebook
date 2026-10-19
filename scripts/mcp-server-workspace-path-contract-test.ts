@@ -45,6 +45,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       await import('../app/lib/mcp/server/workspace-path-tool-contract');
     const { DirectMcpAuthorizationError } = await import('../app/lib/mcp/server/access-token-verifier');
     const { directMcpToolAuthorizationError } = await import('../app/lib/mcp/server/tool-auth');
+    const { WorkspaceFileLifecycleBusyError } = await import('../app/lib/files/workspace-file-lifecycle-guard');
     const error = (code: string, status: number, selected?: string) => (value: unknown): boolean => {
       assert(value instanceof WorkspacePathToolError); assert.equal(value.code, code); assert.equal(value.status, status);
       if (selected !== undefined) assert.equal(value.operationId, selected); return true;
@@ -159,6 +160,41 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       Object.defineProperty(auth, 'challenge', { value: 'x'.repeat(resultCap), enumerable: true });
       assert.throws(() => formatError(auth, operationId), error('PATH_OUTPUT_TOO_LARGE', 413, operationId));
     });
+    check('real lifecycle Busy remains an explicit conflict in failures and stored recovery status', () => {
+      const busy = new WorkspaceFileLifecycleBusyError();
+      assert.equal(busy.status, 409); assert.equal(normalize(busy.code), 'PATH_BUSY');
+      for (const code of [`${busy.code}_UNKNOWN`, busy.code.toLowerCase(), 'COLLABORATION_FILE_LIFECYCLE_BUSY private']) {
+        assert.equal(normalize(code), 'PATH_UNAVAILABLE');
+      }
+      const expected = { apiVersion: 1, success: false, code: 'PATH_BUSY', operationId };
+      for (const error of [busy, new Error('private lifecycle wrapper', { cause: busy })]) {
+        assert.deepEqual(failure(error, operationId), { status: 409, body: expected });
+        const wire = formatError(error, operationId);
+        assert.equal(wire.isError, true); assert.deepEqual(wire.structuredContent, expected);
+        assert.equal(wire.content.length, 1); assert.equal(wire.content[0].type, 'text');
+        assert.deepEqual(JSON.parse((wire.content[0] as { text: string }).text), expected);
+        assert.equal(JSON.stringify(wire).includes(busy.message), false);
+        assert.equal(JSON.stringify(wire).includes('private lifecycle wrapper'), false);
+      }
+      const original = { ...result(), operation: { ...operation(),
+        journal: { ...operation().journal, status: 'needs_recovery', phase: 'recovery',
+          completedActions: 0, totalActions: 2, errorCode: busy.code },
+        execution: { receiptStatus: 'not_started', finalization: 'pending', steps: [] },
+        completion: { status: 'not_confirmed' },
+      } };
+      const encoded = encode(original, operationId); assert(encoded.action === 'status');
+      assert.deepEqual(encoded, { ...original, operation: { ...original.operation,
+        journal: { ...original.operation.journal, errorCode: 'PATH_BUSY' } } });
+      assert.equal(original.operation.journal.errorCode, busy.code); frozen(encoded);
+      const uncertain = Object.assign(new Error('private unconfirmed commit'), { code: 'JOB_LIFECYCLE_COMMIT_UNCONFIRMED' });
+      assert.deepEqual(failure(new AggregateError([busy, uncertain]), operationId), {
+        status: 503, body: { ...expected, code: 'PATH_OUTCOME_UNCONFIRMED' },
+      });
+      const auth = new DirectMcpAuthorizationError('invalid_token', 401, 'private auth', { challengeError: 'invalid_token', scope: 'knowledge:write' });
+      const challenged = formatError(new AggregateError([busy, uncertain, auth]), operationId);
+      assert.deepEqual(challenged.structuredContent, { ...expected, code: 'AUTHENTICATION_REQUIRED' });
+      assert.deepEqual(challenged._meta, directMcpToolAuthorizationError(auth, 'knowledge:write')._meta);
+    });
     check('whole escaped MCP envelope has a strict 1MiB cap without trimming paths or receipts', () => {
       const empty = preview(); empty.preview.paths = Array.from({ length: 1000 }, (_, index) => ({ sourcePath: `s${index}`, destinationPath: `d${index}` }));
       const overhead = bytes({ content: [{ type: 'text', text: JSON.stringify(empty) }], structuredContent: empty });
@@ -173,7 +209,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert(bytes(format(fits)) <= resultCap); assert.throws(() => format(over), error('PATH_OUTPUT_TOO_LARGE', 413));
       const emitted = format(result('recover'), operationId); assert.deepEqual(JSON.parse((emitted.content[0] as { text: string }).text), emitted.structuredContent);
     });
-    assert.equal(groups, 8); completed = true;
+    assert.equal(groups, 9); completed = true;
     console.log(JSON.stringify({ test: 'mcp-server-workspace-path-contract', groups, scope: 'pure strict wire/schema/formatter only; no runtime authority or owner claim' }));
   } finally {
     if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase;
