@@ -72,6 +72,7 @@ import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEv
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
+import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -195,7 +196,8 @@ export type AgentPathOperationEntry = {
   overwritten: boolean;
   backupId?: string;
   sourceBackupId?: string;
-  bytes: number;
+  /** null when the central document store does not expose a physical byte count. */
+  bytes: number | null;
   files: number;
   directories: number;
   truncated: boolean;
@@ -218,7 +220,8 @@ export type AgentPathOperationResult = {
   type: AgentPathType;
   changed: boolean;
   overwritten: boolean;
-  bytes: number;
+  /** null when any selected document has no authoritative physical byte count. */
+  bytes: number | null;
   files: number;
   directories: number;
   truncated: boolean;
@@ -236,6 +239,7 @@ export type AgentPathOperationResult = {
 };
 
 type PreparedPathOperationEntry = AgentPathOperationEntry & {
+  bytes: number;
   sourceSha256: string | null;
 };
 
@@ -3025,6 +3029,11 @@ function normalizePathList(paths: string[], fieldName: string): string[] {
   return normalized;
 }
 
+function sumAgentPathBytes(entries: readonly AgentPathOperationEntry[]): number | null {
+  return entries.some(entry => entry.bytes === null)
+    ? null : entries.reduce((total, entry) => total + (entry.bytes ?? 0), 0);
+}
+
 function pathOperationSummary(
   operation: AgentPathOperationResult['operation'],
   entries: Array<AgentPathOperationEntry & { sourceSha256?: string | null }>,
@@ -3052,7 +3061,7 @@ function pathOperationSummary(
     type: aggregateType,
     changed: entries.some((entry) => entry.changed),
     overwritten: entries.some((entry) => entry.overwritten),
-    bytes: entries.reduce((total, entry) => total + entry.bytes, 0),
+    bytes: sumAgentPathBytes(entries),
     files: entries.reduce((total, entry) => total + entry.files, 0),
     directories: entries.reduce((total, entry) => total + entry.directories, 0),
     truncated: entries.some((entry) => entry.truncated),
@@ -3403,7 +3412,7 @@ async function agentDirectWorkspacePathResult(input: AgentWorkspacePathRequest,
   }
   if (input.operation === 'delete_path') {
     const changed = input.entries.filter((entry) => entry.changed);
-    result.bytes = changed.reduce((sum, entry) => sum + entry.bytes, 0);
+    result.bytes = sumAgentPathBytes(changed);
     result.files = changed.reduce((sum, entry) => sum + entry.files, 0);
     result.directories = changed.reduce((sum, entry) => sum + entry.directories, 0);
   }
@@ -3714,6 +3723,96 @@ export async function copyAgentPath(params: {
   });
 }
 
+/** The native owner acquires its own lifecycle locks and verifies the genuine
+ * tool invocation. Enter it before legacy filesystem summaries/leases: a
+ * notebook document need not have a Markdown projection on either side. */
+async function copyNativeAgentWorkspacePaths(input: {
+  sourcePaths: string[];
+  destinationPath: string;
+  destinationFullPath: string;
+  overwrite?: boolean;
+  recursive?: boolean;
+}): Promise<AgentPathOperationResult | null> {
+  const workspace = getAgentWorkspaceContext(), context = getAgentExecutionContext();
+  if (!authenticatedNativeTextSessionEnabled() || !workspace || !context
+    || readDocumentReviewAvailability().documentReviewEnabled) return null;
+  const requested = input.sourcePaths.map(sourcePath => {
+    const sourceResolvedPath = resolveAgentPath(sourcePath);
+    const destinationPath = input.sourcePaths.length > 1
+      ? getDestinationPathForSource(input.destinationPath, sourcePath) : input.destinationPath;
+    const destinationResolvedPath = input.sourcePaths.length > 1
+      ? getDestinationPathForSource(input.destinationFullPath, sourceResolvedPath) : input.destinationFullPath;
+    return { sourcePath, sourceResolvedPath, destinationPath, destinationResolvedPath };
+  });
+  if (requested.some(entry => !isPathWithin(entry.sourceResolvedPath, workspace.rootPath)
+    || !isPathWithin(entry.destinationResolvedPath, workspace.rootPath))) return null;
+  if (input.overwrite) {
+    throw Object.assign(new Error('Replacing a workspace path is not supported by the central Copy service. Choose an unused destination without overwrite.'),
+      { code: 'NATIVE_COPY_OVERWRITE_UNSUPPORTED', status: 409 });
+  }
+  for (const entry of requested) {
+    await assertAgentPathAllowed(entry.sourceResolvedPath);
+    await assertAgentPathDestinationAllowed(entry.destinationResolvedPath);
+    if (entry.sourceResolvedPath === entry.destinationResolvedPath) {
+      throw new Error('Source and destination must be different paths.');
+    }
+  }
+  const identity = collaborationAgentIdentity(context);
+  const actor = { type: 'agent' as const, userId: context.userId, actorId: identity.actorId, sessionId: context.sessionId };
+  const selections = requested.map(entry => ({
+    sourcePath: workspaceRelativeAgentPath(workspace, entry.sourceResolvedPath),
+    destinationPath: workspaceRelativeAgentPath(workspace, entry.destinationResolvedPath),
+  }));
+  const [{ captureWorkspaceOperationCopyOrigin }, { previewWorkspaceNativeCopyOperation }] = await Promise.all([
+    import('@/app/lib/files/workspace-operation-copy-origin'),
+    import('@/app/lib/files/workspace-operation-native-copy-owner'),
+  ]);
+  const origin = captureWorkspaceOperationCopyOrigin({ actor, sourceWorkspace: workspace, destinationWorkspace: workspace });
+  const plan = await previewWorkspaceNativeCopyOperation({ origin, selections });
+  const entries: AgentPathOperationEntry[] = requested.map((entry, index) => {
+    const selection = selections[index];
+    const root = plan.nativePathPlan.pathMappings.find(mapping => mapping.source.path === selection.sourcePath);
+    if (!root || root.destinationPath !== selection.destinationPath) {
+      throw Object.assign(new Error('The central Copy plan does not match the requested paths.'), { code: 'NATIVE_COPY_PLAN_CHANGED', status: 409 });
+    }
+    if (root.source.kind === 'directory' && input.recursive === false) {
+      throw new Error('Source is a directory. Set recursive to true to copy directories.');
+    }
+    assertDestinationIsNotInsideSource(entry.sourceResolvedPath, entry.destinationResolvedPath, root.source.kind);
+    const mapped = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.path === selection.sourcePath
+      || mapping.source.path.startsWith(`${selection.sourcePath}/`));
+    return { ...entry, type: root.source.kind, changed: false, overwritten: false, bytes: null,
+      files: mapped.filter(mapping => mapping.source.kind === 'file').length,
+      directories: mapped.filter(mapping => mapping.source.kind === 'directory').length, truncated: false };
+  });
+  assertNoDuplicateDestinations(entries);
+  assertNoNestedCopyMoveSources(entries);
+  const fileOptions = { workspace, mutationActorUserId: context.userId };
+  // Owner errors are terminal for this route; none may select the raw fs.cp fallback.
+  const operation = await executeWorkspaceFileOperationService({ kind: 'copy', operationId: randomUUID(), source: { workspace, fileOptions },
+    destination: { workspace, fileOptions }, selections, expectedPlanId: plan.planId,
+    actorUserId: context.userId, actorId: identity.actorId, actorDisplayName: identity.actorDisplayName,
+    actorType: 'agent', actorSessionId: context.sessionId });
+  const { execution } = operation;
+  if (execution.status !== 'complete' || execution.planId !== plan.planId || operation.copied.length !== selections.length
+    || selections.some(selection => !operation.copied.includes(selection.destinationPath))) {
+    throw Object.assign(new Error(`Copy outcome could not be verified. Inspect operation ${execution.operationId} before retrying.`),
+      { code: 'NATIVE_COPY_OUTCOME_UNAVAILABLE', status: 409, operationId: execution.operationId });
+  }
+  for (const entry of entries) {
+    entry.changed = true;
+    entry.verification = { destinationExists: true, destinationTypeMatches: true, sourceRemoved: null, contentVerified: true };
+  }
+  const result = pathOperationSummary('copy_path', entries, input.destinationPath, input.destinationFullPath);
+  result.changed = true;
+  result.verified = true;
+  result.linkStatus = 'complete';
+  result.operationIds = [execution.operationId];
+  result.linkWarnings = [];
+  await recordAgentPathOperationAudit(result);
+  return result;
+}
+
 export async function copyAgentPaths(params: {
   sourcePaths: string[];
   destinationPath: string;
@@ -3733,6 +3832,9 @@ export async function copyAgentPaths(params: {
   if (multipleSources) {
     await assertDestinationDirectoryAvailable(destinationFullPath, params.destinationPath);
   }
+
+  const native = await copyNativeAgentWorkspacePaths({ ...params, sourcePaths, destinationFullPath });
+  if (native) return native;
 
   const entries: PreparedPathOperationEntry[] = [];
   for (const sourcePath of sourcePaths) {
@@ -4207,7 +4309,7 @@ export async function deleteAgentPaths(params: {
         result.trashEntries = trashEntries;
         result.failedPaths = failedPaths;
         result.verified = failedPaths.length === 0;
-        result.bytes = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.bytes, 0);
+        result.bytes = sumAgentPathBytes(entries.filter(entry => entry.changed));
         result.files = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.files, 0);
         result.directories = entries.filter((entry) => entry.changed).reduce((total, entry) => total + entry.directories, 0);
         await recordAgentPathOperationAudit(result);

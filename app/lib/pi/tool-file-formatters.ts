@@ -88,7 +88,7 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
         'Entries:',
         ...result.entries.slice(0, 20).map((entry, index) => {
           const destination = entry.destinationPath ? ` -> ${entry.destinationPath}` : '';
-          return `${index + 1}. ${entry.sourcePath}${destination} (${entry.type}, files ${entry.files}, directories ${entry.directories}, bytes ${entry.bytes})`;
+          return `${index + 1}. ${entry.sourcePath}${destination} (${entry.type}, files ${entry.files}, directories ${entry.directories}, bytes ${entry.bytes ?? 'not available'})`;
         }),
         result.entries.length > 20 ? `... ${result.entries.length - 20} more entries` : null,
       ].filter(Boolean)
@@ -113,7 +113,7 @@ export function formatPathOperationResult(result: AgentPathOperationResult): str
     `Overwritten: ${result.overwritten ? 'yes' : 'no'}`,
     `Files: ${result.files}`,
     `Directories: ${result.directories}`,
-    `Bytes: ${result.bytes}`,
+    `Bytes: ${result.bytes ?? 'not available (native document storage)'}`,
     result.verified === true ? 'Verification: passed' : result.verified === false ? 'Verification: failed' : 'Verification: not applicable',
     result.linkStatus ? `Link status: ${result.linkStatus}` : null,
     ...result.linkWarnings.map((warning) => `Link warning: ${warning}`),
