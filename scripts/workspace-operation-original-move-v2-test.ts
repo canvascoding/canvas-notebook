@@ -19,6 +19,10 @@ import { createWorkspaceOperationNativeMoveBatchPlanV1, createWorkspaceOperation
 import { stageWorkspaceOperationOriginalMoveJob, WorkspaceOperationJobLifecycleError,
   type WorkspaceOperationNativeMoveJobOwner } from '../app/lib/files/workspace-operation-job-lifecycle-owner';
 import * as codec from '../app/lib/files/workspace-operation-original-move';
+import { createWorkspaceOperationOriginalMovePreparation as createP0,
+  decodeWorkspaceOperationOriginalMovePreparation as decodeP0,
+  readWorkspaceOperationOriginalMovePreparationOnConnection as readP0,
+  insertWorkspaceOperationOriginalMovePreparationOnConnection as insertP0 } from '../app/lib/files/workspace-operation-original-move-preparation';
 import { preparedWorkspacePathMoveProof, type PreparedPathMoveIdentity,
   type PreparedWorkspacePathMoveOriginal } from '../app/lib/filesystem/prepared-workspace-path-move-contract';
 import type { WorkspaceOperationOriginalMoveIntent, WorkspaceOperationOriginalMovePathReceipt,
@@ -288,4 +292,220 @@ test('a genuine-capture CurrentWitness remains data and cannot be used as a Move
     { preparedSteps: [] }), (error: unknown) => error instanceof WorkspaceOperationJobLifecycleError && error.code === 'JOB_LIFECYCLE_REQUIRED');
   assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(value.currentWitness as unknown as Intent),
     (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_INVALID');
+});
+
+// P0 regression extension. Actual Yjs/compiled witnesses/bundles below remain
+// pure data. The explicitly declared DB spies exercise emitted SQL/decoding,
+// not PostgreSQL locking, authority, atomicity, COMMIT or resource disposal.
+for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+  test(`${representation}: P0 binds the actual checkpoint witness, native bundle and Original actor as detached immutable data`, () => {
+    for (const present of [false, true]) {
+      const value = fixture(representation, present), before = clone(value);
+      const input = { currentWitness: clone(value.currentWitness), nativeBundleData: clone(value.nativeBundle) };
+      const prepared = createP0(value.context, input), decoded = decodeP0(prepared.preparationText, value.context, value.nativeBundle);
+      assert.deepEqual(decoded, prepared); assert.equal(hash(prepared.preparationText), prepared.preparationDigest);
+      assert.deepEqual(prepared.preparation.actor, actor); assert.equal(prepared.preparation.actor.actorSessionId, 'original-session');
+      assert.equal(prepared.preparation.requestHash, value.context.requestHash); assert.equal(prepared.preparation.planId, value.plan.planId);
+      assert.deepEqual(prepared.preparation.jobScope, jobScope);
+      assert.equal(value.plan.sourceEvidence.nativeBindings[0].expected.registryStateVersion, 6);
+      assert.equal(prepared.preparation.currentWitness.nativeBindings[0].expected.registryStateVersion, 7);
+      assert.equal(prepared.preparation.currentWitness.semanticProof, value.plan.sourceEvidence.semanticProof);
+      assert.notEqual(prepared.preparation.currentWitness.evidenceProof, value.plan.sourceEvidence.evidenceProof);
+      assert.deepEqual(prepared.preparation.nativeBundle, { ...codec.getWorkspaceOperationOriginalMoveNativeIds(value.context),
+        changesBundleProof: value.nativeBundle.changesBundleProof });
+      assert.equal(prepared.request.requestId, prepared.preparation.requestId);
+      assert.equal(prepared.request.actionPayloadText, prepared.preparation.actionPayloadText);
+      assert.equal(prepared.nativeBundleData?.privateText, value.nativeBundle.privateText);
+      assert.equal(Object.hasOwn(prepared.preparation.nativeBundle!, 'privateText'), false, 'P0 references rather than duplicates bundle bytes.');
+      assert(Object.isFrozen(prepared) && Object.isFrozen(prepared.preparation) && Object.isFrozen(prepared.preparation.actor));
+      assert(Object.isFrozen(prepared.preparation.currentWitness.nativeBindings[0].expected));
+      assert(Object.isFrozen(prepared.nativeBundleData) && Object.isFrozen(prepared.request.expectedDocuments));
+      assert.notEqual(prepared.preparation.currentWitness, input.currentWitness); assert.notEqual(prepared.nativeBundleData, input.nativeBundleData);
+      input.currentWitness.nativeBindings[0].expected.registryStateVersion = 999; input.nativeBundleData.privateText = 'caller changed its own copy';
+      assert.equal(prepared.preparation.currentWitness.nativeBindings[0].expected.registryStateVersion, 7);
+      assert.equal(prepared.nativeBundleData?.privateText, value.nativeBundle.privateText); assert.deepEqual(value, before);
+    }
+  });
+}
+
+test('P0 required-null regression rejects a native plan and preserves the actual compiler-derived physical-only null arm', () => {
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    const value = fixture(representation);
+    // This assertion is expected RED on private P0-v1, GREEN only once its
+    // existing strict bundle decoder is invoked for null as well (P0-v2).
+    assert.throws(() => createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: null }),
+      (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED');
+  }
+  // Same genuine compiler pattern as existing native-move-plan/original-move
+  // tests: a declared PDF namespace root with no native mappings/link effects.
+  // This is NOT proof that a physical file was observed on a filesystem.
+  const observed = observation('plain_text');
+  observed.stage.namespace.push({ workspaceId: jobScope.workspaceId, path: 'a.pdf', kind: 'file',
+    identity: '1:100:3:100:100', filesystemIdentity: '1:100:3:100:100', documentId: null, lifecycleGeneration: null });
+  refresh(observed);
+  const plan = createWorkspaceOperationNativeMoveBatchPlanV2({ scope, actions: [{ kind: 'move', reviewId: 'physical_p0',
+    selections: [{ sourcePath: 'a.pdf', destinationPath: 'b.pdf' }] }], observation: observed });
+  assert.equal(plan.nativePathPlan.mutations.length, 0); assert(plan.nativePathPlan.pathMappings.every(mapping => mapping.source.documentId === null));
+  const selected = context(plan), witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observed, jobScope);
+  const prepared = createP0(selected, { currentWitness: witness, nativeBundleData: null });
+  assert.equal(prepared.preparation.nativeBundle, null); assert.equal(prepared.nativeBundleData, null);
+  assert.deepEqual(decodeP0(prepared.preparationText, selected, null), prepared);
+  assert.deepEqual(JSON.parse(prepared.preparation.actionPayloadText), { version: 1, batchId: selected.batchId, planId: plan.planId, requestHash: selected.requestHash });
+});
+
+test('P0 rejects substituted Original, scope, request, reference and witness facts despite recomputed outer SHA and canonical text', () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  for (const patch of [
+    { actor: { ...actor, userId: 'other-user' } }, { actor: { ...actor, actorId: 'other-actor' } },
+    { actor: { ...actor, actorType: 'agent' } }, { actor: { ...actor, actorSessionId: 'renewed-session-is-not-original' } },
+    { jobScope: { ...jobScope, rootPath: '/other-root' } }, { requestHash: hash('other-request') },
+    { planId: hash('other-plan') }, { workspaceId: 'other-workspace' }, { requestDigest: hash('other-request-digest') },
+    { requestId: '11111111-1111-4111-8111-111111111111' },
+    { nativeBundle: { ...prepared.preparation.nativeBundle!, changesBundleProof: hash('other-bundle') } },
+    { actionPayloadText: json({ unrelated: 'payload' }) }, { extra: true },
+  ]) {
+    const text = json({ ...clone(prepared.preparation), ...patch });
+    assert.notEqual(hash(text), prepared.preparationDigest);
+    assert.throws(() => decodeP0(text, value.context, value.nativeBundle), (error: unknown) => error instanceof Error
+      && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_CHANGED');
+  }
+  for (const selected of [{ ...value.context, requestHash: hash('other-request') },
+    { ...value.context, actor: { ...actor, actorSessionId: 'other-original-session' } }]) {
+    assert.throws(() => createP0(selected, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle }),
+      (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED');
+  }
+  const foreign = observation('plain_text'); foreign.privateNativeStates[0].hasBom = true; foreign.nativeBindings[0].byteProfile.hasBom = true;
+  const foreignPlan = createWorkspaceOperationNativeMoveBatchPlanV2({ scope, actions: [{ kind: 'move', reviewId: 'original_move_v2', selections }], observation: foreign });
+  assert.throws(() => createP0(value.context, { currentWitness: foreignPlan.sourceEvidence, nativeBundleData: value.nativeBundle }),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'NATIVE_SOURCE_EVIDENCE_CHANGED');
+  const malformedWitness = { ...clone(value.currentWitness), evidenceProof: hash('renewed-but-invalid-evidence') };
+  assert.throws(() => createP0(value.context, { currentWitness: malformedWitness, nativeBundleData: value.nativeBundle }),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'NATIVE_SOURCE_EVIDENCE_INVALID');
+  const altered = withBundle(value, raw => { raw.actor = { ...(raw.actor as Row), actorSessionId: 'wrong-original-session' }; }).nativeBundle!;
+  assert.equal(hash(altered.privateText), altered.changesBundleProof);
+  assert.throws(() => createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: altered }),
+    (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED');
+  for (const text of [` ${prepared.preparationText}`, `${prepared.preparationText}\n`,
+    JSON.stringify(Object.fromEntries(Object.entries(prepared.preparation).reverse()))]) {
+    assert.notEqual(text, prepared.preparationText);
+    assert.throws(() => decodeP0(text, value.context, value.nativeBundle), (error: unknown) => error instanceof Error
+      && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_CHANGED');
+  }
+});
+
+test('P0 capture rejects getters, proxies, sparse/cyclic data, bad Unicode and budgets without invoking getters or issuing SQL', async () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  let getters = 0, traps = 0, statements = 0;
+  const inputGetter = Object.defineProperty({ nativeBundleData: value.nativeBundle }, 'currentWitness', { enumerable: true, get: () => { getters++; return value.currentWitness; } });
+  const nestedGetter = clone(value.currentWitness); Object.defineProperty(nestedGetter, 'stage', { enumerable: true, get: () => { getters++; return value.currentWitness.stage; } });
+  const proxy = new Proxy({ currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle }, {
+    get: () => { traps++; throw new Error('Proxy get must never execute.'); }, ownKeys: () => { traps++; throw new Error('Proxy keys must never execute.'); },
+    getPrototypeOf: () => { traps++; throw new Error('Proxy prototype must never execute.'); }, getOwnPropertyDescriptor: () => { traps++; throw new Error('Proxy descriptor must never execute.'); },
+  });
+  const cyclic: Row = {}; cyclic.self = cyclic;
+  const sparse = new Array(3); sparse[0] = null;
+  const hostile = [inputGetter, proxy, { currentWitness: nestedGetter, nativeBundleData: value.nativeBundle },
+    { currentWitness: cyclic, nativeBundleData: value.nativeBundle },
+    { currentWitness: { broken: '\ud800' }, nativeBundleData: value.nativeBundle }];
+  for (const input of hostile) assert.throws(() => createP0(value.context, input as Parameters<typeof createP0>[1]),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_INVALID');
+  for (const currentWitness of [sparse, new Array(100_001), { payload: '🧠'.repeat(2 * 1024 ** 2 + 1) }]) {
+    assert.throws(() => createP0(value.context, { currentWitness, nativeBundleData: value.nativeBundle } as unknown as Parameters<typeof createP0>[1]),
+      (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_TOO_LARGE'
+        && Object.getOwnPropertyDescriptor(error, 'status')?.value === 413);
+  }
+  assert.throws(() => decodeP0(`${prepared.preparationText}\ud800`, value.context, value.nativeBundle),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_INVALID');
+  // DECLARED BORROWED-DB SPY. It has no PG backend or authority. Any method call
+  // is a failure: invalid public data must be rejected before borrowed IO.
+  const noSql = { get: async () => { statements++; assert.fail('Invalid P0 must not query.'); },
+    all: async () => { statements++; assert.fail('Invalid P0 must not query.'); },
+    run: async () => { statements++; assert.fail('Invalid P0 must not execute SQL.'); },
+    close: async () => { statements++; assert.fail('P0 cannot close the caller connection.'); } };
+  const preparedGetter = Object.defineProperty({ ...prepared }, 'preparationText', { enumerable: true, get: () => { getters++; return prepared.preparationText; } });
+  await assert.rejects(insertP0(noSql, { schema: 'p0_mechanical', context: value.context, prepared: preparedGetter }),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_INVALID');
+  const changed = { ...prepared, preparationDigest: hash('forged-outer-sha') };
+  await assert.rejects(insertP0(noSql, { schema: 'p0_mechanical', context: value.context, prepared: changed }),
+    (error: unknown) => error instanceof Error && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_CHANGED');
+  assert.equal(getters, 0); assert.equal(traps, 0); assert.equal(statements, 0);
+});
+
+test('DECLARED borrowed-read spy checks bounded qualified SQL, immutable bundle reference and exact saved bytes; no PG/auth claim', async () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  const p = prepared.preparation, row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId, requestHash: p.requestHash,
+    requestId: p.requestId, requestDigest: p.requestDigest, preparationText: prepared.preparationText, preparationDigest: prepared.preparationDigest, createdAt: '100' };
+  const native = { operationId: p.nativeBundle!.operationId, requestId: p.nativeBundle!.requestId,
+    changesBundleProof: value.nativeBundle.changesBundleProof, privateText: value.nativeBundle.privateText };
+  const calls: Array<{ sql: string; params: unknown[] }> = []; let preparationRow: unknown = row, nativeRow: unknown = native;
+  const declaredReadSpy = { get: async (sql: string, params: unknown[] = []) => {
+    calls.push({ sql, params }); assert.match(sql, /^SELECT /u);
+    if (sql.includes('workspace_file_operation_move_preparations')) {
+      assert(sql.includes('"p0""mechanical".workspace_file_operation_move_preparations'));
+      assert.match(sql, /CASE WHEN octet_length\(preparation_text\) BETWEEN 1 AND 16777216 THEN preparation_text ELSE NULL/u);
+      assert.deepEqual(params, [value.context.batchId]); return preparationRow;
+    }
+    assert(sql.includes('"p0""mechanical".collaboration_native_file_operation_intents'));
+    assert.match(sql, /CASE WHEN octet_length\(intent_text\) BETWEEN 1 AND 8388608 THEN intent_text ELSE NULL/u);
+    assert.deepEqual(params, [p.nativeBundle!.operationId]); return nativeRow;
+  }, all: async () => { assert.fail('Read spy must not use another read shape.'); },
+  run: async () => { assert.fail('Historical P0 read must not execute SQL writes.'); }, close: async () => { assert.fail('Caller connection is borrowed.'); } };
+  const actual = await readP0(declaredReadSpy, { schema: 'p0"mechanical', context: value.context });
+  assert.deepEqual(actual, { ...prepared, createdAt: 100 }); assert.equal(calls.length, 2);
+  assert(calls.every(call => call.sql.endsWith(' FOR SHARE NOWAIT')));
+  calls.length = 0; assert.deepEqual(await readP0(declaredReadSpy, { schema: 'p0"mechanical', context: value.context, readOnly: true }), actual);
+  assert.equal(calls.length, 2); assert(calls.every(call => !call.sql.includes('FOR SHARE')));
+  preparationRow = undefined; calls.length = 0; assert.equal(await readP0(declaredReadSpy, { schema: 'p0"mechanical', context: value.context }), null);
+  assert.equal(calls.length, 1); preparationRow = row;
+  for (const wrong of [undefined, { ...native, requestId: '11111111-1111-4111-8111-111111111111' },
+    { ...native, changesBundleProof: hash('wrong-reference') }, { ...native, privateText: null }]) {
+    nativeRow = wrong;
+    await assert.rejects(readP0(declaredReadSpy, { schema: 'p0"mechanical', context: value.context }),
+      (error: unknown) => error instanceof Error && ['ORIGINAL_MOVE_PREPARATION_INVALID', 'ORIGINAL_MOVE_PREPARATION_CHANGED']
+        .includes(Object.getOwnPropertyDescriptor(error, 'code')?.value as string));
+  }
+  // Renew every supplied SHA/reference: the actual strict bundle decoder still
+  // rejects the wrong saved Original actor rather than trusting those digests.
+  const changed = withBundle(value, raw => { raw.actor = { ...(raw.actor as Row), actorUserId: 'foreign' }; }).nativeBundle!;
+  const text = json({ ...clone(p), nativeBundle: { ...p.nativeBundle!, changesBundleProof: changed.changesBundleProof }, actionPayloadText: changed.actionPayloadText });
+  preparationRow = { ...row, preparationText: text, preparationDigest: hash(text) };
+  nativeRow = { ...native, changesBundleProof: changed.changesBundleProof, privateText: changed.privateText };
+  await assert.rejects(readP0(declaredReadSpy, { schema: 'p0"mechanical', context: value.context }),
+    (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED');
+});
+
+test('DECLARED borrowed-insert spy distinguishes created/existing/conflict and retains caller transaction ownership; no PG/COMMIT claim', async () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  const p = prepared.preparation, row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId, requestHash: p.requestHash,
+    requestId: p.requestId, requestDigest: p.requestDigest, preparationText: prepared.preparationText, preparationDigest: prepared.preparationDigest, createdAt: '100' };
+  const alternativeObservation = checkpoint(value.original, false), alternativeWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(value.plan, alternativeObservation, jobScope);
+  const alternativeBundle = nativeBundle(value.context, alternativeObservation, alternativeWitness);
+  const alternative = createP0(value.context, { currentWitness: alternativeWitness, nativeBundleData: alternativeBundle });
+  const a = alternative.preparation, alternativeRow = { batchId: a.batchId, planId: a.planId, workspaceId: a.workspaceId, requestHash: a.requestHash,
+    requestId: a.requestId, requestDigest: a.requestDigest, preparationText: alternative.preparationText, preparationDigest: alternative.preparationDigest, createdAt: '100' };
+  assert.notEqual(alternative.preparationText, prepared.preparationText);
+  for (const mode of ['created', 'existing', 'conflict', 'missing-parent'] as const) {
+    const calls: string[] = [];
+    const declaredInsertSpy = { get: async (sql: string, params: unknown[] = []) => {
+      calls.push(sql); assert(sql.includes('"p0_mechanical".'));
+      if (sql.includes('workspace_file_operation_batches')) {
+        assert.match(sql, /FOR UPDATE NOWAIT$/u); assert.deepEqual(params, [p.batchId]);
+        return mode === 'missing-parent' ? undefined : { batch_id: p.batchId };
+      }
+      if (sql.startsWith('INSERT ')) {
+        assert(sql.includes('ON CONFLICT(batch_id) DO NOTHING RETURNING'));
+        assert.deepEqual(params, [p.batchId, p.planId, p.workspaceId, p.requestHash, p.requestId, p.requestDigest, prepared.preparationText, prepared.preparationDigest]);
+        return mode === 'created' ? row : undefined;
+      }
+      assert(sql.startsWith('SELECT ') && sql.endsWith(' FOR SHARE NOWAIT'));
+      return mode === 'conflict' ? alternativeRow : row;
+    }, all: async () => { assert.fail('Insert spy must not use an undeclared query shape.'); },
+    run: async () => { assert.fail('Insert uses exactly its declared borrowed get queries.'); }, close: async () => { assert.fail('Caller owns close/COMMIT.'); } };
+    const result = await insertP0(declaredInsertSpy, { schema: 'p0_mechanical', context: value.context, prepared });
+    assert.equal(result.kind, mode === 'missing-parent' ? 'conflict' : mode);
+    if (result.kind === 'created' || result.kind === 'existing') assert.deepEqual(result.row, { ...prepared, createdAt: 100 });
+    assert.equal(calls.length, mode === 'missing-parent' ? 1 : 3);
+    assert(calls.every(sql => !/\b(?:BEGIN|COMMIT|ROLLBACK)\b/u.test(sql)));
+    assert(calls.every(sql => !sql.includes('collaboration_native_file_operation_intents') && !sql.includes('collaboration_admission_')));
+  }
 });

@@ -25,6 +25,12 @@ export const WORKSPACE_OPERATION_ORIGINAL_MOVE_TABLE_SPECS = [
     primaryKey: ['batch_id'], uniqueKeys: [],
     foreignKeys: [{ columns: ['batch_id', 'intent_digest'], table: 'workspace_file_operation_move_intents', referencedColumns: ['batch_id', 'intent_digest'] }],
     immutableTrigger: 'workspace_file_operation_move_receipts_immutable' },
+  { table: 'workspace_file_operation_move_preparations',
+    columns: ['batch_id', 'plan_id', 'workspace_id', 'request_hash', 'request_id', 'request_digest',
+      'preparation_text', 'preparation_digest', 'created_at'],
+    primaryKey: ['batch_id'], uniqueKeys: [],
+    foreignKeys: [{ columns: ['batch_id'], table: 'workspace_file_operation_batches', referencedColumns: ['batch_id'] }],
+    immutableTrigger: 'workspace_file_operation_move_preparations_immutable' },
 ] as const;
 
 export const WORKSPACE_OPERATION_ORIGINAL_MOVE_IMMUTABLE_FUNCTION = 'reject_workspace_file_operation_move_mutation';
@@ -62,6 +68,14 @@ export const WORKSPACE_OPERATION_ORIGINAL_MOVE_STATEMENTS = [
   )`,
   `CREATE TABLE IF NOT EXISTS workspace_file_operation_move_receipts (
     ${original}, ${receipt(1048576)}, PRIMARY KEY(batch_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS workspace_file_operation_move_preparations (
+    ${identifier('batch_id', 16, 128)} PRIMARY KEY REFERENCES workspace_file_operation_batches(batch_id),
+    ${digest('plan_id')}, ${identifier('workspace_id')}, ${digest('request_hash')},
+    request_id text NOT NULL CHECK(request_id~'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'),
+    ${digest('request_digest')},
+    preparation_text text NOT NULL CHECK(octet_length(preparation_text) BETWEEN 1 AND 16777216),
+    ${digest('preparation_digest', 'preparation_text')}, ${created}
   )`,
   `CREATE OR REPLACE FUNCTION ${WORKSPACE_OPERATION_ORIGINAL_MOVE_IMMUTABLE_FUNCTION}()
     RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN

@@ -68,11 +68,11 @@ async function main(): Promise<void> {
       const before = (await client.query(`SELECT relname,oid FROM pg_class WHERE relnamespace=$1 AND relkind='r' ORDER BY relname`, [oid])).rows;
       await transaction(client, () => runWorkspaceOperationOriginalMoveMigration(db));
       assert.deepEqual((await client.query(`SELECT relname,oid FROM pg_class WHERE relnamespace=$1 AND relkind='r' ORDER BY relname`, [oid])).rows, before);
-      assert.equal(before.length, 5);
+      assert.equal(before.length, 6);
       const fk = (await client.query(`SELECT c.convalidated,c.conenforced,n.nspname FROM pg_constraint c JOIN pg_class t ON t.oid=c.conrelid
         JOIN pg_class target ON target.oid=c.confrelid JOIN pg_namespace n ON n.oid=target.relnamespace
         WHERE t.relnamespace=$1 AND c.contype='f'`, [oid])).rows;
-      assert.equal(fk.length, 4); assert(fk.every(row => row.convalidated && row.conenforced && row.nspname === schema));
+      assert.equal(fk.length, 5); assert(fk.every(row => row.convalidated && row.conenforced && row.nspname === schema));
     });
     const seed = async (intentText = '{"steps":["physical","native_absence"]}') => {
       const batchId = `move-${randomUUID()}`; await client.query('INSERT INTO workspace_file_operation_batches VALUES($1)', [batchId]);
@@ -125,6 +125,14 @@ async function main(): Promise<void> {
       [normal.input.batchId, sha('wrong'), sha('{}')]); }), error => code(error) === '23503');
     });
     await group('all actual immutable triggers reject UPDATE and DELETE', async () => {
+      // Mechanical DDL fixture only: this row claims no decoded P0, real job,
+      // bundle or Admission authority. Every table needs a row so its actual
+      // row trigger, rather than a zero-row UPDATE/DELETE, is exercised.
+      const preparationText = '{"mechanical":"schema-only"}';
+      await transaction(client, async () => { await client.query(`INSERT INTO workspace_file_operation_move_preparations
+        (batch_id,plan_id,workspace_id,request_hash,request_id,request_digest,preparation_text,preparation_digest)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [normal.input.batchId, normal.input.planId, normal.input.workspaceId,
+        normal.input.requestHash, randomUUID(), sha('mechanical-admission'), preparationText, sha(preparationText)]); });
       for (const spec of WORKSPACE_OPERATION_ORIGINAL_MOVE_TABLE_SPECS) for (const verb of ['UPDATE', 'DELETE']) {
         const sql = verb === 'UPDATE' ? `UPDATE ${spec.table} SET created_at=created_at WHERE batch_id=$1` : `DELETE FROM ${spec.table} WHERE batch_id=$1`;
         await assert.rejects(transaction(client, async () => { await client.query(sql, [normal.input.batchId]); }), error => code(error) === '55000');

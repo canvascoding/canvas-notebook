@@ -9,6 +9,8 @@ import { decodePreparedWorkspacePathMoveOriginal, preparedWorkspacePathMoveProof
   type PreparedWorkspacePathMoveParentReceipt, type PreparedWorkspacePathMoveReceipt,
   type PreparedPathMoveIdentity, type PreparedPathMoveSource } from '../filesystem/prepared-workspace-path-move-contract';
 import { captureNativeFileOperationBundle, type NativeFileOperationBundle } from '../markdown/native-file-operation-handoff';
+import { prepareNativeLinkMutations } from '../markdown/workspace-native-link-mutations';
+import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import type { NativeLinkMutationRecipe, NativeLinkDocumentIdentity } from '../markdown/workspace-link-contract-v2';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
@@ -602,4 +604,34 @@ export function decodeWorkspaceOperationOriginalMoveCompletion(row: WorkspaceOpe
     decodeWorkspaceOperationOriginalMoveNamespaceReceipt(effect.receiptText as string,originalContext(intent),intent.namespaceState!);
   }else if(data.namespaceEffects!==null)changed();
   return freeze(data as WorkspaceOperationOriginalMoveCompletionData);
+}
+
+/** Pure preparation from the actual captured source; this grants no claim or execution authority. */
+export function prepareWorkspaceOperationOriginalMoveNativeBundleData(selected: WorkspaceOperationOriginalMoveContext,
+  observation: WorkspaceLinkSourceAuthorityObservation,
+  sourceEvidence: WorkspaceOperationNativeSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
+  const plan = selected.plan, mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
+  const ids = [...new Set([...mappings.map(mapping => mapping.source.documentId!),...plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
+  if (!ids.length) return null;
+  const identity = getWorkspaceOperationOriginalMoveNativeIds(selected);
+  const mutations = ids.map(documentId => {
+    const original = sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
+    const state = observation.privateNativeStates.find(item => item.documentId === documentId);
+    const version = sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
+    if (!original || !state || !version) changed();
+    const mutationId = getWorkspaceOperationOriginalMoveNativeIds(selected,documentId).mutationId!;
+    const mapping = mappings.find(mapping => mapping.source.documentId === documentId);
+    const source = {documentId,workspaceId:original.workspaceId,organizationId:original.organizationId,path:original.path,
+      representation:original.representation,lifecycleGeneration:original.lifecycleGeneration,schemaVersion:original.schemaVersion};
+    const recipes = plan.nativePathPlan.mutations.filter(recipe => recipe.source.documentId === documentId);
+    return {mutationId,kind:mapping?'move' as const:'link' as const,source,lineageId:original.lineageId,
+      registryStateVersion:original.registryStateVersion,before:{documentSequence:original.documentSequence,persistedAt:original.persistedAt,
+        stateProof:original.stateProof,stateVector:version.stateVector,binaryHash:original.binaryHash},
+      destinationPath:mapping?.destinationPath ?? null,trashEntryId:null,
+      prepared:recipes.length ? prepareNativeLinkMutations({state,recipes,operationId:mutationId}) : null};
+  });
+  const bundle = captureNativeFileOperationBundle({version:1,operationId:identity.operationId,requestId:identity.requestId,
+    action:plan.actions[0].kind,actor:{actorUserId:selected.actor.userId,actorId:selected.actor.actorId,actorType:selected.actor.actorType,
+      actorSessionId:selected.actor.actorSessionId},reviewDigest:plan.planId,mutations});
+  return Object.freeze({privateText:bundle.privateText,changesBundleProof:bundle.changesBundleProof,actionPayloadText:bundle.actionPayloadText});
 }

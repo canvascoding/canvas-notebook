@@ -186,6 +186,11 @@ function decodeBundle(text: unknown) {
   } catch { return fail('NATIVE_FILE_INTENT_CONFLICT'); }
 }
 
+/** Immutable bundle decoding only; no principal, staging or execution authority. */
+export function decodeNativeFileOperationBundleText(text: string) {
+  return decodeBundle(text);
+}
+
 function decodeNativeFileOperationReceipt(text: string): NativeFileOperationReceipt {
   let parsed: unknown;
   try { parsed = JSON.parse(text); }

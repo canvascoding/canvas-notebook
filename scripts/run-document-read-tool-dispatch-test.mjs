@@ -16,6 +16,8 @@ const criticalInputsByEntryPoint = {
     'app/lib/files/workspace-operation-job-lifecycle-owner.ts',
     'app/lib/files/workspace-operation-original-move.ts',
     'app/lib/files/workspace-operation-original-move-admission.ts',
+    'app/lib/files/workspace-operation-original-move-preparation.ts',
+    'app/lib/files/workspace-operation-native-original-source.ts',
     'app/lib/files/workspace-operation-native-source-evidence.ts'],
   'scripts/mcp-server-workspace-path-contract-test.ts': [entryPoint,
     'app/lib/mcp/server/workspace-path-tool-contract.ts', 'app/lib/mcp/server/bounded-tool-json.ts',

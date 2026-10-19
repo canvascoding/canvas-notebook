@@ -42,10 +42,10 @@ import { decodeWorkspaceOperationNativeMoveBatchPlan, assertWorkspaceOperationNa
   captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness } from './workspace-operation-native-move-plan';
 import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
-import { createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent, getWorkspaceOperationOriginalMoveNativeIds,
+import { createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent,
   decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
   decodeWorkspaceOperationOriginalMoveCompletion, serializeWorkspaceOperationOriginalMoveData,
-  readWorkspaceOperationOriginalMoveNativeBundle, type WorkspaceOperationOriginalMoveContext,
+  readWorkspaceOperationOriginalMoveNativeBundle, WorkspaceOperationOriginalMoveCodecError, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveIntentData, type WorkspaceOperationOriginalMoveNativeBundleData,
   type WorkspaceOperationOriginalMoveCompletionData } from './workspace-operation-original-move';
 import { readWorkspaceOperationOriginalMoveIntentOnConnection, insertWorkspaceOperationOriginalMoveIntentOnConnection,
@@ -58,10 +58,10 @@ import { readPreparedWorkspacePathMove, assertPreparedWorkspacePathMoveCurrent,
   assertPreparedWorkspacePathMoveReceiptCurrent, assertPreparedWorkspacePathMoveParentReceipt, preparedWorkspacePathMoveProof,
   type PreparedWorkspacePathMove, type PreparedWorkspacePathMoveReceipt,
   type PreparedWorkspacePathMoveParentReceipt } from '../filesystem/prepared-workspace-path-move';
-import { captureNativeFileOperationBundle, stageNativeFileOperationBundleOnConnection, readStagedNativeFileOperationBindingOnConnection,
+import { stageNativeFileOperationBundleOnConnection, readStagedNativeFileOperationBindingOnConnection,
   applyNativeFileOperationMutationOnConnection, nativeFileOperationReceiptSetProofOnConnection, readHistoricalNativeFileOperationReceiptOnConnection }
   from '../markdown/native-file-operation-handoff';
-import { prepareNativeLinkMutations } from '../markdown/workspace-native-link-mutations';
+import { prepareWorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
 import { captureNativeFileOperationSideEffectsOnConnection, applyNativeFileOperationSideEffectsOnConnection,
   readHistoricalNativeFileOperationSideEffectsOnConnection } from '../markdown/native-file-operation-side-effects';
 
@@ -944,31 +944,13 @@ function rejectMoveBoundary(owner: WorkspaceOperationNativeMoveJobOwner, error: 
   return Promise.reject(failure);
 }
 
-function buildMoveNativeBundle(selected: WorkspaceOperationOriginalMoveContext,
-  observation: WorkspaceLinkSourceAuthorityObservation,
+function buildMoveNativeBundle(selected: WorkspaceOperationOriginalMoveContext, observation: WorkspaceLinkSourceAuthorityObservation,
   sourceEvidence: WorkspaceOperationNativeSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
-  const plan = selected.plan, mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
-  const ids = [...new Set([...mappings.map(mapping => mapping.source.documentId!),...plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
-  if (!ids.length) return null;
-  const identity = getWorkspaceOperationOriginalMoveNativeIds(selected);
-  const mutations = ids.map(documentId => {
-    const original = sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
-    const state = observation.privateNativeStates.find(item => item.documentId === documentId);
-    const version = sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
-    if (!original || !state || !version) fail('JOB_LIFECYCLE_CHANGED');
-    const mutationId = getWorkspaceOperationOriginalMoveNativeIds(selected,documentId).mutationId!;
-    const mapping = mappings.find(mapping => mapping.source.documentId === documentId);
-    const source = {documentId,workspaceId:original.workspaceId,organizationId:original.organizationId,path:original.path,
-      representation:original.representation,lifecycleGeneration:original.lifecycleGeneration,schemaVersion:original.schemaVersion};
-    const recipes = plan.nativePathPlan.mutations.filter(recipe => recipe.source.documentId === documentId);
-    return {mutationId,kind:mapping?'move' as const:'link' as const,source,lineageId:original.lineageId,
-      registryStateVersion:original.registryStateVersion,before:{documentSequence:original.documentSequence,persistedAt:original.persistedAt,
-        stateProof:original.stateProof,stateVector:version.stateVector,binaryHash:original.binaryHash},
-      destinationPath:mapping?.destinationPath ?? null,trashEntryId:null,
-      prepared:recipes.length ? prepareNativeLinkMutations({state,recipes,operationId:mutationId}) : null};
-  });
-  const bundle = captureNativeFileOperationBundle({version:1,operationId:identity.operationId,requestId:identity.requestId,
-    action:plan.actions[0].kind,actor:{actorUserId:selected.actor.userId,actorId:selected.actor.actorId,actorType:selected.actor.actorType,
-      actorSessionId:selected.actor.actorSessionId},reviewDigest:plan.planId,mutations});
-  return Object.freeze({privateText:bundle.privateText,changesBundleProof:bundle.changesBundleProof,actionPayloadText:bundle.actionPayloadText});
+  try { return prepareWorkspaceOperationOriginalMoveNativeBundleData(selected, observation, sourceEvidence); }
+  catch (error) {
+    // Preserve this existing owner's failure contract after extracting its
+    // preparation algorithm into the shared data codec.
+    if (error instanceof WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED') fail('JOB_LIFECYCLE_CHANGED');
+    throw error;
+  }
 }
