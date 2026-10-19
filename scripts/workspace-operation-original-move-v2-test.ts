@@ -115,6 +115,7 @@ function context(plan: WorkspaceOperationNativeMoveBatchPlan): codec.WorkspaceOp
 }
 function nativeBundle(selected: codec.WorkspaceOperationOriginalMoveContext, observed: WorkspaceLinkSourceAuthorityObservation,
   sourceEvidence = selected.plan.sourceEvidence): codec.WorkspaceOperationOriginalMoveNativeBundleData {
+  assert(sourceEvidence.evidenceVersion !== 3, 'This historical fixture exercises only the original V1/V2 contracts.');
   const plan = selected.plan, paths = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
   const recipes = plan.nativePathPlan.mutations;
   const ids = [...new Set([...paths.map(mapping => mapping.source.documentId!), ...recipes.map(recipe => recipe.source.documentId)])].sort();

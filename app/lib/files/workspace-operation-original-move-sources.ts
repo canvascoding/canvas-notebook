@@ -9,14 +9,18 @@ import type { WorkspaceContext } from '../workspaces/types';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt,
   PreparedWorkspacePathMoveParentReceipt } from '../filesystem/prepared-workspace-path-move-contract';
-import type { NativeNamespaceEntry, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
-import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { NativeNamespaceEntry, NativeResolvedLink, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
 import type { NativeFileOperationReceipt } from '../markdown/native-file-operation-handoff';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
-import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
+import { buildWorkspaceNativeLinkGraph, buildWorkspaceMixedReadLinkGraphV3 } from '../markdown/workspace-native-link-graph';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { assertWorkspaceOperationNativeMoveBatchPlanCurrent } from './workspace-operation-native-move-plan';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { captureWorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
+import { workspaceOperationMixedSourceSnapshot, workspaceOperationSourceNamespace,
+  workspaceOperationSourceNativeEvidence, workspaceOperationSourceScope } from './workspace-operation-mixed-source-evidence';
 import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
   readWorkspaceOperationOriginalMoveNativeBundle, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveIntentData } from './workspace-operation-original-move';
@@ -47,7 +51,7 @@ export function deriveOriginalMoveSourceNamespaceFacts(context: WorkspaceOperati
   originals: readonly PreparedWorkspacePathMoveOriginal[], receipts: readonly PreparedWorkspacePathMoveReceipt[],
   bornParents: readonly PreparedWorkspacePathMoveParentReceipt[]): OriginalMoveSourceNamespaceFacts {
   if (originals.length !== receipts.length || originals.length > 1000 || bornParents.length > 1000) fail();
-  const before = new Map(context.plan.sourceEvidence.stage.namespace.map(entry => [entry.path, entry]));
+  const before = new Map(workspaceOperationSourceNamespace(context.plan.sourceEvidence).map(entry => [entry.path, entry]));
   const moved: Array<OriginalMoveSourceNamespaceFacts['moved'][number]> = [], sources = new Set<string>(), destinations = new Set<string>();
   for (const [index, original] of originals.entries()) {
     const receipt = receipts[index];
@@ -120,8 +124,9 @@ export function readOriginalMoveCollectorOverlay(database: SqlConnection, worksp
   });
 }
 
+type CompiledMove = NativeMixedBatchPlan | NativeMixedReadBatchPlanV3;
 type Cache = { transaction: string; journalProof: string; context: WorkspaceOperationOriginalMoveContext;
-  compiled: NativeMixedBatchPlan; facts: OriginalMoveSourceNamespaceFacts };
+  compiled: CompiledMove; facts: OriginalMoveSourceNamespaceFacts };
 const preparedGraphs = new WeakMap<SqlConnection, Cache>();
 async function transactionIdentity(database: SqlConnection): Promise<string> {
   const row = await database.get(`SELECT pg_backend_pid()::text AS backend_pid,
@@ -141,15 +146,24 @@ function expectedFinalNamespace(cache: Cache): Map<string, NativeMixedBatchPlan[
  * overlay. Production supplies the private original-current compiler result. */
 export function assertOriginalMoveFinalSourceGraph(input: {
   context: WorkspaceOperationOriginalMoveContext; intent: WorkspaceOperationOriginalMoveIntentData;
-  compiled: NativeMixedBatchPlan; facts: OriginalMoveSourceNamespaceFacts;
+  compiled: CompiledMove; facts: OriginalMoveSourceNamespaceFacts;
   observation: WorkspaceLinkSourceAuthorityObservation; nativeReceipts: readonly NativeFileOperationReceipt[];
+  /** Original path ordering using the real registry column's DB collation.
+   * Data only; the complete inverse catalogue proof is still checked below. */
+  catalogueOriginalOrder?: readonly string[];
 }): void {
   const { context, intent, compiled, facts, observation, nativeReceipts } = input;
   const bad = () => fail('ORIGINAL_MOVE_FINAL_GRAPH_CHANGED');
+  // A V3 final graph needs a genuine full catalogue and fresh original bytes,
+  // even for a source which no mutation selected. Native receipts alone cannot
+  // prove that an unchanged physical backlink or alias still resolves safely.
+  const currentMixed = context.plan.planIdentityVersion === 3
+    ? captureWorkspaceOperationNativeSourceEvidenceV3(context.plan.sourceEvidence.workspaceScope, observation) : null;
   if (compiled.planId !== context.plan.compilerPlanProof || compiled.finalGraphProof !== context.plan.finalGraphProof
+    || compiled.contractVersion !== (context.plan.planIdentityVersion === 3 ? 3 : 2)
     || !observation.stage.coverage.complete || observation.stage.coverage.gaps.length
-    || observation.stage.sources.some(source => source.kind !== 'native')
-    || !equal(observation.stage.scope, context.plan.sourceEvidence.stage.scope)) bad();
+    || !currentMixed && observation.stage.sources.some(source => source.kind !== 'native')
+    || !equal(observation.stage.scope, workspaceOperationSourceScope(context.plan.sourceEvidence))) bad();
   const expected = expectedFinalNamespace({ context, compiled, facts, transaction: '', journalProof: '' });
   const bundle = readWorkspaceOperationOriginalMoveNativeBundle(intent), mutations = bundle?.mutations ?? [];
   if (nativeReceipts.length !== mutations.length) bad();
@@ -165,7 +179,7 @@ export function assertOriginalMoveFinalSourceGraph(input: {
       || !equal(receipt.before, mutation.before) || receipt.after.status !== 'active'
       || !equal(receipt.after.identity, { ...mutation.source, path: mutation.destinationPath ?? mutation.source.path })) bad();
   }
-  const originalEvidence = intent.version === 2 ? intent.currentWitness : context.plan.sourceEvidence;
+  const originalEvidence = workspaceOperationSourceNativeEvidence(intent.version !== 1 ? intent.currentWitness : context.plan.sourceEvidence);
   const originalBindings = new Map(originalEvidence.nativeBindings.map(binding => [binding.expected.documentId, binding]));
   const bindings = new Map(observation.nativeBindings.map(binding => [binding.expected.documentId, binding]));
   const inventories = observation.stage.sources.flatMap(source => source.kind === 'native' ? [source.inventory] : []);
@@ -231,16 +245,41 @@ export function assertOriginalMoveFinalSourceGraph(input: {
     }
   }
   for (const entity of expected.values()) if (!actualPaths.has(entity.path)) bad();
+  if (currentMixed && intent.version === 3) {
+    const catalogue = captureWorkspaceOperationNativeCatalogueWitness(observation.privateCatalogue,
+      currentMixed.workspaceScope, currentMixed.nativeComponent.stage.catalogueProof!,
+      currentMixed.nativeComponent.nativeBindings, bad);
+    // Only IDs with a fully checked native receipt may return to their before
+    // path/clock for this comparison. Every other catalogue row remains exact,
+    // including pristine non-Markdown assets absent from physical link sources.
+    const originalCatalogue = catalogue.entries.map(entry => {
+      if (!receipts.has(entry.id)) return entry;
+      const binding = originalBindings.get(entry.id); if (!binding) return bad();
+      return { ...entry, path: binding.expected.path, state_path: binding.expected.path,
+        state_version: binding.expected.registryStateVersion };
+    });
+    const order = input.catalogueOriginalOrder, byId = new Map(originalCatalogue.map(entry => [entry.id, entry]));
+    if (!Array.isArray(order) || order.length !== originalCatalogue.length || new Set(order).size !== order.length
+      || order.some(id => !byId.has(id))) return bad();
+    const ordered = order.map(id => byId.get(id)!);
+    const before = captureWorkspaceOperationNativeCatalogueWitness(ordered,
+      intent.currentWitness.workspaceScope, nativeLinkJsonProof(ordered), originalEvidence.nativeBindings, bad);
+    if (before.semanticCatalogueProof !== intent.currentWitness.nativeComponent.semanticCatalogueProof) bad();
+  }
   const snapshotBody = { contractVersion: 2 as const, workspaceId: observation.stage.workspaceId,
     namespace: observation.stage.namespace, documents: inventories, coverage: { complete: true, gaps: [] } };
-  const graph = buildWorkspaceNativeLinkGraph({ ...snapshotBody, snapshotProof: nativeLinkJsonProof(snapshotBody) } as NativeWorkspaceLinkSnapshot);
+  const graph = currentMixed ? buildWorkspaceMixedReadLinkGraphV3(workspaceOperationMixedSourceSnapshot(currentMixed))
+    : buildWorkspaceNativeLinkGraph({ ...snapshotBody, snapshotProof: nativeLinkJsonProof(snapshotBody) } as NativeWorkspaceLinkSnapshot);
   if (!graph.coverage.complete || graph.edges.length !== compiled.finalEdges.length) bad();
+  const nativeEdges = graph.contractVersion === 3
+    ? graph.edges.filter((edge): edge is NativeResolvedLink & { sourceKind: 'native' } => edge.sourceKind === 'native') : graph.edges;
   for (const entity of expected.values()) {
     if (entity.binding.kind !== 'existing' || entity.binding.namespaceEvidence.documentId === null) continue;
     const documentId = entity.binding.namespaceEvidence.documentId;
-    const original = context.plan.sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId);
+    const original = workspaceOperationSourceNativeEvidence(context.plan.sourceEvidence).stage.sources
+      .find(source => source.inventory.document.documentId === documentId);
     if (!original) bad();
-    const actual = graph.edges.filter(edge => edge.source.documentId === documentId);
+    const actual = nativeEdges.filter(edge => edge.source.documentId === documentId);
     if (actual.length !== original!.inventory.links.length) bad();
     for (const [index, link] of original!.inventory.links.entries()) {
       const edge = actual[index], desired = compiled.finalEdges.find(item => item.sourceEntityKey === entity.entityKey && item.originEvidenceLinkId === link.id);
@@ -248,6 +287,33 @@ export function assertOriginalMoveFinalSourceGraph(input: {
       const resolution = { status: edge.resolution.status, targetEntityKey: edge.resolution.target ? key(edge.resolution.target) : null,
         candidateEntityKeys: edge.resolution.candidates.map(key).sort() };
       if (!desired || desired.literal !== edge.literal || desired.targetPathText !== edge.targetPathText || !equal(desired.resolution, resolution)) bad();
+    }
+  }
+  if (context.plan.planIdentityVersion === 3) {
+    if (!currentMixed || graph.contractVersion !== 3) return bad();
+    // Native path/clock commits legitimately change the catalogue proof, hence
+    // physical derived IDs. Compare every physical fact before dropping just
+    // those derived values, then bind final edges to ORIGINAL compiler IDs.
+    const physicalFacts = (sources: typeof currentMixed.physicalSources) => sources.map(source => {
+      const { physicalSourceProof: _proof, links, authority, ...body } = source;
+      const { catalogueProof: _catalogue, ...authorityIdentity } = authority;
+      return { ...body, authority: authorityIdentity, links: links.map(({ physicalLinkId: _id, ...link }) => link) };
+    });
+    if (!equal(physicalFacts(currentMixed.physicalSources), physicalFacts(context.plan.sourceEvidence.physicalSources))) bad();
+    for (const source of context.plan.sourceEvidence.physicalSources) {
+      const entity = expected.get(source.path);
+      if (!entity || !entity.physicalReadSource) bad();
+      const actual = graph.edges.filter(edge => edge.sourceKind === 'physical-read' && edge.source.path === source.path);
+      if (actual.length !== source.links.length) bad();
+      for (const [index, link] of source.links.entries()) {
+        const edge = actual[index], desired = compiled.finalEdges.find(item => item.sourceEntityKey === entity!.entityKey
+          && item.originEvidenceLinkId === link.physicalLinkId && item.physicalReadSource === true);
+        const key = (target: NativeNamespaceEntry) => expected.get(target.path)?.entityKey ?? bad();
+        const resolution = { status: edge.resolution.status, targetEntityKey: edge.resolution.target ? key(edge.resolution.target) : null,
+          candidateEntityKeys: edge.resolution.candidates.map(key).sort() };
+        if (!desired || desired.literal !== edge.literal || desired.targetPathText !== edge.targetPathText
+          || !equal(desired.resolution, resolution)) bad();
+      }
     }
   }
 }
@@ -288,7 +354,7 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
     if (mode === 'original') {
       // Births at an original implicit directory restore precisely that view;
       // all other actual siblings/paths remain visible and must match the plan.
-      const original = new Map(owner.context.plan.sourceEvidence.stage.namespace.map(entry => [entry.path, entry]));
+      const original = new Map(workspaceOperationSourceNamespace(owner.context.plan.sourceEvidence).map(entry => [entry.path, entry]));
       for (const birth of facts.bornParents) {
         const prior = original.get(birth.relativePath);
         if (prior && !observation.stage.namespace.some(entry => entry.path === prior.path)) observation.stage.namespace.push(prior);
@@ -299,8 +365,19 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
       const compiled = assertWorkspaceOperationNativeMoveBatchPlanCurrent(owner.context.plan, observation, owner.intent.jobScope);
       preparedGraphs.set(database, { transaction, journalProof, context: owner.context, compiled, facts });
     } else {
+      // The catalogue reader sorts by the actual registry path/id columns.
+      // Reproduce that order in this same B after projecting native paths back,
+      // rather than assuming a JavaScript or host collation matches PostgreSQL.
+      const catalogueOriginalOrder = owner.context.plan.planIdentityVersion === 3
+        ? (await database.all(`SELECT d.id FROM collaboration_documents d
+          LEFT JOIN jsonb_to_recordset($2::jsonb) basis(document_id text,original_path text) ON basis.document_id=d.id
+          WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'
+          ORDER BY COALESCE(basis.original_path,d.path),d.id LIMIT 10001`, [workspace.workspaceId,
+          JSON.stringify(workspaceOperationSourceNativeEvidence(owner.context.plan.sourceEvidence).nativeBindings
+            .map(binding => ({ document_id: binding.expected.documentId, original_path: binding.expected.path })))] ) as Array<{ id: string }>).map(row => row.id)
+        : undefined;
       assertOriginalMoveFinalSourceGraph({ context: owner.context, intent: owner.intent, compiled: cached!.compiled, facts,
-        observation, nativeReceipts: owner.nativeReceipts });
+        observation, nativeReceipts: owner.nativeReceipts, catalogueOriginalOrder });
       preparedGraphs.delete(database);
     }
     await owner.assertCurrent();

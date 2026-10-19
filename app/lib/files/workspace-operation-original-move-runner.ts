@@ -9,6 +9,7 @@ import { withPreparedWorkspacePathMove, withRecoveredWorkspacePathMoves, readPre
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt } from '../filesystem/prepared-workspace-path-move-contract';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { workspaceOperationSourceNamespace } from './workspace-operation-mixed-source-evidence';
 import { waitForWorkspaceOperationNativePathAdmission } from './workspace-operation-native-path-admission';
 import { withWorkspaceOperationNativeMoveJobOwner, readWorkspaceOperationOriginalMoveJobHistory,
   readWorkspaceOperationOriginalMoveJobReceipts, readWorkspaceOperationOriginalMovePreparation, stageWorkspaceOperationOriginalMoveJob,
@@ -49,10 +50,10 @@ export async function executeWorkspaceOperationOriginalMove(input: {
     if (rows.intent) originals = rows.intent.steps.map(step=>({stepKey:step.stepKey,original:step.physical}));
     else {
       originals = [];
-      const sourceEvidence = plan.planIdentityVersion === 2
+      const sourceEvidence = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
         ? await readWorkspaceOperationOriginalMovePreparation(owner) : plan.sourceEvidence;
       for (const [index,selection] of plan.actions[0].selections.entries()) {
-        const source = sourceEvidence.stage.namespace.find(entry=>entry.path===selection.sourcePath);
+        const source = workspaceOperationSourceNamespace(sourceEvidence).find(entry=>entry.path===selection.sourcePath);
         if (!source || !selection.destinationPath) throw new Error('ORIGINAL_MOVE_SOURCE_CHANGED');
         await withPreparedWorkspacePathMove({workspace,sourcePath:selection.sourcePath,destinationPath:selection.destinationPath,
           sourceKind:source.filesystemIdentity===null ? 'projection_absent' : source.kind==='directory' ? 'directory':'regular_file'},async cap=>{

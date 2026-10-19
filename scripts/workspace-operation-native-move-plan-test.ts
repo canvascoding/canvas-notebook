@@ -88,7 +88,8 @@ function resignPathPlan(plan: MutablePlan): Plan {
   const { planId: _id, ...body } = plan.nativePathPlan;
   plan.nativePathPlan.planId = nativeLinkJsonProof(body); return resign(plan);
 }
-function current(plan: Plan, observed: WorkspaceLinkSourceAuthorityObservation) {
+function current(plan: ReturnType<typeof decodeWorkspaceOperationNativeMoveBatchPlan>, observed: WorkspaceLinkSourceAuthorityObservation) {
+  assert(plan.planIdentityVersion !== 3, 'This historical fixture exercises only the original V1/V2 contracts.');
   return assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan, observed, captureWorkspaceOperationJobScope(scope.workspace));
 }
 function nativeInventory(observed: WorkspaceLinkSourceAuthorityObservation, index: number) {

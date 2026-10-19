@@ -19,6 +19,7 @@ import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-life
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { computeWorkspaceOperationNativeMoveBatchPlanId, createWorkspaceOperationNativeMoveBatchPlan,
+  createWorkspaceOperationNativeMoveBatchPlanV3,
   WorkspaceOperationNativeMovePlanError, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 
 const sha = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
@@ -318,7 +319,9 @@ export async function buildWorkspaceOperationBatchPlan(input: {
     if (observation.nativeBindings.length && input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
       // Unsupported mixed/overwrite actions fail in the strict V3 constructor;
       // they must never fall back to a disk-only view of native backlinks.
-      return createWorkspaceOperationNativeMoveBatchPlan({ ...input, observation });
+      return observation.stage.sources.some(source => source.kind === 'physical')
+        ? createWorkspaceOperationNativeMoveBatchPlanV3({ ...input, observation })
+        : createWorkspaceOperationNativeMoveBatchPlan({ ...input, observation });
     }
     const hasNativeSelection = input.actions.some(action => action.selections.some(selection => observation.nativeBindings.some(entry =>
       within(entry.expected.path, selection.sourcePath))));

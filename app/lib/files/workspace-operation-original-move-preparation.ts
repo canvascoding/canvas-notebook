@@ -6,8 +6,9 @@ import type { SqlConnection } from '../db';
 import { decodeNativeFileOperationBundleText } from '../markdown/native-file-operation-handoff';
 import { captureCollaborationAdmissionRequest, type CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
-import { decodeWorkspaceOperationNativeOriginalSourceWitness } from './workspace-operation-native-original-source';
+import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-operation-native-original-source';
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import { decodeWorkspaceOperationOriginalMoveNativeBundleData, getWorkspaceOperationOriginalMoveNativeIds,
   type WorkspaceOperationOriginalMoveActor, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
@@ -16,12 +17,12 @@ import { createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle } from '
 /** Immutable P0 data, never a claim, admission lease, actor or SQL authority.
  * The original owner captures the real witness and owns the whole transaction. */
 export type WorkspaceOperationOriginalMovePreparation = Readonly<{
-  version: 1; batchId: string; planId: string; workspaceId: string; requestHash: string;
+  batchId: string; planId: string; workspaceId: string; requestHash: string;
   actor: WorkspaceOperationOriginalMoveActor; jobScope: WorkspaceOperationJobScope;
-  currentWitness: WorkspaceOperationNativeSourceEvidenceV2;
   requestId: string; requestDigest: string; actionPayloadText: string;
   nativeBundle: Readonly<{ operationId: string; requestId: string; changesBundleProof: string }> | null;
-}>;
+}> & (Readonly<{ version: 1; currentWitness: WorkspaceOperationNativeSourceEvidenceV2 }>
+  | Readonly<{ version: 2; currentWitness: WorkspaceOperationNativeSourceEvidenceV3 }>);
 export type WorkspaceOperationOriginalMovePrepared = Readonly<{
   preparation: WorkspaceOperationOriginalMovePreparation;
   preparationText: string; preparationDigest: string;
@@ -118,22 +119,34 @@ function originalMovePreparationSchema(value: unknown): string {
 
 export function createWorkspaceOperationOriginalMovePreparation(context: WorkspaceOperationOriginalMoveContext,
   input: Readonly<{ currentWitness: WorkspaceOperationNativeSourceEvidenceV2; nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null }>
+): WorkspaceOperationOriginalMovePrepared & { preparation: Extract<WorkspaceOperationOriginalMovePreparation, { version: 1 }> };
+export function createWorkspaceOperationOriginalMovePreparation(context: WorkspaceOperationOriginalMoveContext,
+  input: Readonly<{ currentWitness: WorkspaceOperationNativeSourceEvidenceV3; nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null }>
+): WorkspaceOperationOriginalMovePrepared & { preparation: Extract<WorkspaceOperationOriginalMovePreparation, { version: 2 }> };
+export function createWorkspaceOperationOriginalMovePreparation(context: WorkspaceOperationOriginalMoveContext,
+  input: Readonly<{ currentWitness: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3;
+    nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null }>
+): WorkspaceOperationOriginalMovePrepared;
+export function createWorkspaceOperationOriginalMovePreparation(context: WorkspaceOperationOriginalMoveContext,
+  input: Readonly<{ currentWitness: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3;
+    nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null }>
 ): WorkspaceOperationOriginalMovePrepared {
   const selected = captureOriginalMovePreparationJson(context, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext;
   getWorkspaceOperationOriginalMoveNativeIds(selected); // exact existing context/plan/actor validation, including the fallback arm
-  if (selected.plan.planIdentityVersion !== 2 || selected.plan.sourceEvidence.evidenceVersion !== 2) originalMovePreparationFailure();
+  if (selected.plan.planIdentityVersion !== 2 && selected.plan.planIdentityVersion !== 3) originalMovePreparationFailure();
   if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype
     || Reflect.ownKeys(input).length !== 2) originalMovePreparationFailure();
   const fields = Object.getOwnPropertyDescriptors(input);
   for (const name of ['currentWitness', 'nativeBundleData']) if (!fields[name]?.enumerable || !Object.hasOwn(fields[name], 'value')) originalMovePreparationFailure();
-  const currentWitness = decodeWorkspaceOperationNativeOriginalSourceWitness(selected.plan.sourceEvidence,
+  const currentWitness = decodeWorkspaceOperationMixedOriginalSourceWitness(selected.plan.sourceEvidence,
     captureOriginalMovePreparationJson(fields.currentWitness.value, nativeBundleLimit));
   const nativeBundleData = captureOriginalMovePreparationJson(fields.nativeBundleData.value, 8 * nativeBundleLimit) as WorkspaceOperationOriginalMoveNativeBundleData | null;
   const bundle = decodeWorkspaceOperationOriginalMoveNativeBundleData(nativeBundleData, selected, currentWitness);
   const request = createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(selected, nativeBundleData, currentWitness);
   const requestDigest = captureCollaborationAdmissionRequest(request).requestDigest;
   if (typeof request.actionPayloadText !== 'string') originalMovePreparationFailure();
-  const preparation = captureOriginalMovePreparationJson({ version: 1, batchId: selected.batchId, planId: selected.plan.planId,
+  const preparation = captureOriginalMovePreparationJson({ version: selected.plan.planIdentityVersion === 3 ? 2 : 1,
+    batchId: selected.batchId, planId: selected.plan.planId,
     workspaceId: selected.plan.workspaceId, requestHash: selected.requestHash, actor: selected.actor,
     jobScope: selected.plan.sourceEvidence.workspaceScope, currentWitness, requestId: request.requestId, requestDigest,
     actionPayloadText: request.actionPayloadText, nativeBundle: bundle === null ? null
@@ -153,7 +166,7 @@ export function decodeWorkspaceOperationOriginalMovePreparation(preparationText:
   const captured = captureOriginalMovePreparationJson(parsed) as PreparationRow;
   if (!captured || Array.isArray(captured) || typeof captured !== 'object' || !Object.hasOwn(captured, 'currentWitness')) originalMovePreparationFailure();
   const prepared = createWorkspaceOperationOriginalMovePreparation(context, {
-    currentWitness: captured.currentWitness as WorkspaceOperationNativeSourceEvidenceV2, nativeBundleData });
+    currentWitness: captured.currentWitness as WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3, nativeBundleData });
   if (prepared.preparationText !== preparationText) originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
   return prepared;
 }
@@ -190,7 +203,7 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
   const schema = originalMovePreparationSchema(fields.schema.value);
   const context = captureOriginalMovePreparationJson(fields.context.value, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext;
   const nativeIds = getWorkspaceOperationOriginalMoveNativeIds(context);
-  if (context.plan.planIdentityVersion !== 2 || context.plan.sourceEvidence.evidenceVersion !== 2) originalMovePreparationFailure();
+  if (context.plan.planIdentityVersion !== 2 && context.plan.planIdentityVersion !== 3) originalMovePreparationFailure();
   const lock = Object.hasOwn(fields, 'readOnly') ? '' : ' FOR SHARE NOWAIT';
   const row = await database.get(`SELECT ${preparationColumns} FROM ${schema}.workspace_file_operation_move_preparations WHERE batch_id=$1${lock}`, [context.batchId]);
   if (!row) return null;
@@ -201,7 +214,7 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
   let parsed: unknown;
   try { parsed = JSON.parse(stored.preparationText); } catch { originalMovePreparationFailure(); }
   const body = captureOriginalMovePreparationJson(parsed) as PreparationRow;
-  if (!body || typeof body !== 'object' || Array.isArray(body) || body.version !== 1
+  if (!body || typeof body !== 'object' || Array.isArray(body) || body.version !== (context.plan.planIdentityVersion === 3 ? 2 : 1)
     || Object.keys(body).length !== 12 || body.batchId !== context.batchId || body.planId !== context.plan.planId
     || body.workspaceId !== context.plan.workspaceId || body.requestHash !== context.requestHash
     || originalMovePreparationCanonicalText(body.actor) !== originalMovePreparationCanonicalText(context.actor)
@@ -212,7 +225,7 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
     || stored.requestHash !== body.requestHash || stored.requestId !== body.requestId || stored.requestDigest !== body.requestDigest) {
     originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
   }
-  decodeWorkspaceOperationNativeOriginalSourceWitness(context.plan.sourceEvidence, body.currentWitness);
+  decodeWorkspaceOperationMixedOriginalSourceWitness(context.plan.sourceEvidence, body.currentWitness);
   let nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null = null;
   if (body.nativeBundle !== null) {
     const reference = body.nativeBundle as PreparationRow;

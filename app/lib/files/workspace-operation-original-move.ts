@@ -15,8 +15,11 @@ import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory
 import type { NativeLinkMutationRecipe, NativeLinkDocumentIdentity } from '../markdown/workspace-link-contract-v2';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
-import { decodeWorkspaceOperationNativeOriginalSourceWitness } from './workspace-operation-native-original-source';
+import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import { workspaceOperationSourceNamespace, workspaceOperationSourceNativeEvidence,
+  type WorkspaceOperationMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
+import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-operation-native-original-source';
 import type { WorkspaceOperationOriginalMoveIntent, WorkspaceOperationOriginalMoveParentReceipt,
   WorkspaceOperationOriginalMovePathReceipt, WorkspaceOperationOriginalMoveReceipt } from './workspace-operation-original-move-repository';
 import { decodeWorkspaceOperationOriginalMoveNamespaceStage,
@@ -49,6 +52,7 @@ type WorkspaceOperationOriginalMoveIntentFields = Readonly<{ batchId: string; pl
 export type WorkspaceOperationOriginalMoveIntentData = WorkspaceOperationOriginalMoveIntentFields & (
   Readonly<{ version: 1; currentWitness?: never }>
   | Readonly<{ version: 2; currentWitness: WorkspaceOperationNativeSourceEvidenceV2 }>
+  | Readonly<{ version: 3; currentWitness: WorkspaceOperationNativeSourceEvidenceV3 }>
 );
 export type WorkspaceOperationOriginalMoveParentReceiptData = Readonly<{ version: 1; batchId: string;
   intentDigest: string; parentPath: string; producerStep: string;
@@ -238,7 +242,7 @@ function identityShape(value: unknown): PreparedPathMoveIdentity {
   return row as PreparedPathMoveIdentity;
 }
 function checkSteps(steps: readonly WorkspaceOperationOriginalMoveStep[], plan: WorkspaceOperationNativeMoveBatchPlan,
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence = plan.sourceEvidence): void {
+  sourceEvidence: WorkspaceOperationMixedSourceEvidence = plan.sourceEvidence): void {
   const selections = plan.actions[0].selections, scope = scopeOf(plan);
   if (!steps.length || steps.length !== selections.length || steps.length > L.steps) fail();
   for (let index = 0; index < steps.length; index++) {
@@ -251,7 +255,7 @@ function checkSteps(steps: readonly WorkspaceOperationOriginalMoveStep[], plan: 
       || source.filesystem.root.resolvedPath !== steps[0].physical.filesystem.root.resolvedPath) changed();
     safeProfile(source.filesystem.root.identity,'directory',source.filesystem.root.identity.uid);
     for (const parent of [...source.filesystem.sourceParents.directories,...source.filesystem.destinationParents.directories]) safeProfile(parent.identity,'directory',source.filesystem.root.identity.uid);
-    const originalEntry = sourceEvidence.stage.namespace.find(entry=>entry.path===source.sourcePath);
+    const originalEntry = workspaceOperationSourceNamespace(sourceEvidence).find(entry=>entry.path===source.sourcePath);
     if (!originalEntry || originalEntry.kind === 'directory' && source.source.kind === 'regular_file'
       || originalEntry.kind === 'file' && source.source.kind === 'directory') changed();
     if (source.source.kind === 'projection_absent') {
@@ -343,7 +347,8 @@ function checkPrepared(value: unknown, mutation: Row, recipes: readonly NativeLi
   return bytes;
 }
 function decodeNative(data: WorkspaceOperationOriginalMoveNativeBundleData | null, selected: WorkspaceOperationOriginalMoveContext,
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence = selected.plan.sourceEvidence): NativeFileOperationBundle | null {
+  sourceEvidence: WorkspaceOperationMixedSourceEvidence = selected.plan.sourceEvidence): NativeFileOperationBundle | null {
+  const nativeEvidence = workspaceOperationSourceNativeEvidence(sourceEvidence);
   const plan=selected.plan, mappings=plan.nativePathPlan.pathMappings.filter(mapping=>mapping.source.documentId!==null), recipes=plan.nativePathPlan.mutations;
   const expectedIds=new Set([...mappings.map(mapping=>mapping.source.documentId!),...recipes.map(recipe=>recipe.source.documentId)]);
   if(!expectedIds.size){if(data!==null)changed();return null;} if(data===null)changed();
@@ -360,7 +365,7 @@ function decodeNative(data: WorkspaceOperationOriginalMoveNativeBundleData | nul
   const seen=new Set<string>(), mutationIds=new Set<string>();let moved=0;
   for(const value of bundle.mutations) {
     const mutation=exact(value,['mutationId','kind','source','lineageId','registryStateVersion','before','destinationPath','trashEntryId','prepared']);
-    const source=nativeIdentity(mutation.source), original=sourceEvidence.nativeBindings.find(binding=>binding.expected.documentId===source.documentId);
+    const source=nativeIdentity(mutation.source), original=nativeEvidence.nativeBindings.find(binding=>binding.expected.documentId===source.documentId);
     id(mutation.mutationId); if(!original||!expectedIds.has(source.documentId)||seen.has(source.documentId)||mutationIds.has(mutation.mutationId as string))changed();
     if(mutation.mutationId!==nativeIds(selected,source.documentId).mutationId)changed();
     seen.add(source.documentId);mutationIds.add(mutation.mutationId as string);const expected=original.expected;
@@ -369,7 +374,7 @@ function decodeNative(data: WorkspaceOperationOriginalMoveNativeBundleData | nul
       ||mutation.lineageId!==expected.lineageId||mutation.registryStateVersion!==expected.registryStateVersion||mutation.trashEntryId!==null)changed();
     clock(mutation.before);
     if(!equal(mutation.before,{documentSequence:expected.documentSequence,persistedAt:expected.persistedAt,stateProof:expected.stateProof,
-      stateVector:sourceEvidence.stage.sources.find(entry=>entry.inventory.document.documentId===source.documentId)!.inventory.version.stateVector,binaryHash:expected.binaryHash}))changed();
+      stateVector:nativeEvidence.stage.sources.find(entry=>entry.inventory.document.documentId===source.documentId)!.inventory.version.stateVector,binaryHash:expected.binaryHash}))changed();
     const mapping=mappings.find(item=>item.source.documentId===source.documentId);
     if(mutation.kind!==(mapping?'move':'link')||mutation.destinationPath!==(mapping?.destinationPath??null))changed();if(mapping)moved++;
     const selectedRecipes=recipes.filter(recipe=>recipe.source.documentId===source.documentId);
@@ -393,17 +398,17 @@ function originalContext(intent: WorkspaceOperationOriginalMoveIntentData): Work
 function checkIntent(value: unknown, selected: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveIntentData {
   const captured=capture(value) as Row;
   const row=exact(captured,['version','batchId','planId','requestHash','actor','jobScope','compilerPlanProof','finalGraphProof','steps','parents','namespaceEffects','nativeBundle','namespaceState',
-    ...(captured?.version===2?['currentWitness']:[])]);
+    ...(captured?.version===2||captured?.version===3?['currentWitness']:[])]);
   const plan=selected.plan;
-  if(row.version!==(plan.planIdentityVersion===2?2:1)||row.batchId!==selected.batchId||row.planId!==plan.planId||row.requestHash!==selected.requestHash
+  if(row.version!==(plan.planIdentityVersion??1)||row.batchId!==selected.batchId||row.planId!==plan.planId||row.requestHash!==selected.requestHash
     ||!equal(row.actor,selected.actor)||!equal(row.jobScope,scopeOf(plan))||row.compilerPlanProof!==plan.compilerPlanProof||row.finalGraphProof!==plan.finalGraphProof)changed();
   if(!Array.isArray(row.steps))fail();
   for(const step of row.steps) {
     exact(step,['stepKey','selectionIndex','originalProof','physical']);step.physical=decodePreparedWorkspacePathMoveOriginal(step.physical);
   }
   let sourceEvidence=plan.sourceEvidence;
-  if(plan.planIdentityVersion===2) {
-    try { sourceEvidence=decodeWorkspaceOperationNativeOriginalSourceWitness(plan.sourceEvidence,row.currentWitness); }
+  if(plan.planIdentityVersion===2||plan.planIdentityVersion===3) {
+    try { sourceEvidence=decodeWorkspaceOperationMixedOriginalSourceWitness(plan.sourceEvidence,row.currentWitness); }
     catch { changed(); }
     row.currentWitness=sourceEvidence;
   }
@@ -429,13 +434,13 @@ export function captureWorkspaceOperationOriginalMoveIntent(input: unknown, supp
  * caller still supplies originals and an actual previously prepared bundle. */
 export function createWorkspaceOperationOriginalMoveIntent(input: Readonly<{ physical: readonly PreparedWorkspacePathMoveOriginal[];
   nativeBundle: WorkspaceOperationOriginalMoveNativeBundleData|null; namespaceState: WorkspaceOperationOriginalMoveNamespaceState|null;
-  currentWitness?: WorkspaceOperationNativeSourceEvidenceV2 }>, supplied: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveIntentData {
-  const selected=context(supplied), semantic=selected.plan.planIdentityVersion===2;
+  currentWitness?: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 }>, supplied: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveIntentData {
+  const selected=context(supplied), semantic=selected.plan.planIdentityVersion!==undefined;
   const row=exact(capture(input),['physical','nativeBundle','namespaceState',...(semantic?['currentWitness']:[])]);
   if(!Array.isArray(row.physical)||row.physical.length>L.steps)fail();
   const steps=row.physical.map((physical,index)=>{const original=decodePreparedWorkspacePathMoveOriginal(physical);
     return {stepKey:stepName(index),selectionIndex:index,originalProof:preparedWorkspacePathMoveProof(original),physical:original};});
-  return checkIntent({version:semantic?2:1,batchId:selected.batchId,planId:selected.plan.planId,requestHash:selected.requestHash,actor:selected.actor,
+  return checkIntent({version:selected.plan.planIdentityVersion??1,batchId:selected.batchId,planId:selected.plan.planId,requestHash:selected.requestHash,actor:selected.actor,
     jobScope:scopeOf(selected.plan),compilerPlanProof:selected.plan.compilerPlanProof,finalGraphProof:selected.plan.finalGraphProof,steps,
     parents:parentPlans(steps),namespaceEffects:namespaceEffects(selected.plan),nativeBundle:row.nativeBundle,namespaceState:row.namespaceState,
     ...(semantic?{currentWitness:row.currentWitness}:{})},selected);
@@ -443,11 +448,11 @@ export function createWorkspaceOperationOriginalMoveIntent(input: Readonly<{ phy
 /** Data validation only, before an original physical intent exists. Neither a
  * decoded bundle nor its source evidence grants a Claim or mutation authority. */
 export function decodeWorkspaceOperationOriginalMoveNativeBundleData(data: WorkspaceOperationOriginalMoveNativeBundleData | null,
-  supplied: WorkspaceOperationOriginalMoveContext, sourceEvidence?: WorkspaceOperationNativeSourceEvidence): NativeFileOperationBundle|null {
+  supplied: WorkspaceOperationOriginalMoveContext, sourceEvidence?: WorkspaceOperationMixedSourceEvidence): NativeFileOperationBundle|null {
   return decodeNative(data,context(supplied),sourceEvidence);
 }
 export function readWorkspaceOperationOriginalMoveNativeBundle(intent: WorkspaceOperationOriginalMoveIntentData): NativeFileOperationBundle|null {
-  return decodeNative(intent.nativeBundle,originalContext(intent),intent.version===2?intent.currentWitness:undefined);
+  return decodeNative(intent.nativeBundle,originalContext(intent),intent.version!==1?intent.currentWitness:undefined);
 }
 function intentHash(intent: WorkspaceOperationOriginalMoveIntentData): string {
   originalContext(intent);let result=intentHashes.get(intent);if(!result){result=sha(canonical(intent));intentHashes.set(intent,result);}return result;
@@ -495,7 +500,7 @@ export function assertWorkspaceOperationOriginalMovePreflightBudget(intent: Work
     const bytes=Buffer.byteLength(canonical(predicted));if(bytes>L.pathReceiptBytes)fail('ORIGINAL_MOVE_TOO_LARGE');
     pathBytes+=bytes+8192;if(pathBytes>L.pathReceiptBytes)fail('ORIGINAL_MOVE_TOO_LARGE');
   }
-  const bundle=decodeNative(intent.nativeBundle,selected,intent.version===2?intent.currentWitness:undefined);
+  const bundle=decodeNative(intent.nativeBundle,selected,intent.version!==1?intent.currentWitness:undefined);
   const predicted:WorkspaceOperationOriginalMoveCompletionData={version:1,batchId:intent.batchId,intentDigest:intentHash(intent),planId:intent.planId,
     compilerPlanProof:intent.compilerPlanProof,finalGraphProof:intent.finalGraphProof,parentReceipts:referenceList(intent),
     pathReceipts:intent.steps.map(step=>({stepKey:step.stepKey,receiptDigest:'0'.repeat(64)})),native:bundle?{operationId:bundle.operationId,requestId:bundle.requestId,
@@ -609,15 +614,16 @@ export function decodeWorkspaceOperationOriginalMoveCompletion(row: WorkspaceOpe
 /** Pure preparation from the actual captured source; this grants no claim or execution authority. */
 export function prepareWorkspaceOperationOriginalMoveNativeBundleData(selected: WorkspaceOperationOriginalMoveContext,
   observation: WorkspaceLinkSourceAuthorityObservation,
-  sourceEvidence: WorkspaceOperationNativeSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
+  sourceEvidence: WorkspaceOperationMixedSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
+  const nativeEvidence = workspaceOperationSourceNativeEvidence(sourceEvidence);
   const plan = selected.plan, mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
   const ids = [...new Set([...mappings.map(mapping => mapping.source.documentId!),...plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
   if (!ids.length) return null;
   const identity = getWorkspaceOperationOriginalMoveNativeIds(selected);
   const mutations = ids.map(documentId => {
-    const original = sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
+    const original = nativeEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
     const state = observation.privateNativeStates.find(item => item.documentId === documentId);
-    const version = sourceEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
+    const version = nativeEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
     if (!original || !state || !version) changed();
     const mutationId = getWorkspaceOperationOriginalMoveNativeIds(selected,documentId).mutationId!;
     const mapping = mappings.find(mapping => mapping.source.documentId === documentId);
