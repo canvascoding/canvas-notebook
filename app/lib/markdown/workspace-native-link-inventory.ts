@@ -226,3 +226,22 @@ export function inspectNativeDocumentLinks(
 export function inspectPersistedDocumentLinks(state: PersistedCollaborationState): NativeDocumentLinkInventory {
   return inspectPersistedNativeCollaborationSnapshot(state, inspectNativeDocumentLinks);
 }
+
+/** Explicit import view. Historical V2 metadata and link/proof formulas above
+ * remain unchanged; V3 excludes YAML from Plain headings and caret block IDs. */
+export type NativeDocumentLinkInventoryV3 = Omit<NativeDocumentLinkInventory, 'parserVersion'> & { parserVersion: 3 };
+
+export function inspectNativeDocumentLinksV3(doc: YTypes.Doc,
+  snapshot: NativeCollaborationSnapshot): NativeDocumentLinkInventoryV3 {
+  const legacy = inspectNativeDocumentLinks(doc, snapshot);
+  if (snapshot.content.kind !== 'plain_text') return { ...legacy, parserVersion: 3 };
+  const parsed = parseCanvasMarkdownDocument(snapshot.content.text);
+  const headings = extractWorkspaceMarkdownHeadings(parsed.body);
+  return { ...legacy, parserVersion: 3, metadata: { ...legacy.metadata, headings,
+    title: parsed.frontmatter?.title || headings[0]?.text || snapshot.path.split('/').at(-1)!.replace(/\.(?:md|markdown)$/iu, ''),
+    blockIds: parseObsidianBlockIds(parsed.body).map(entry => entry.id) } };
+}
+
+export function inspectPersistedDocumentLinksV3(state: PersistedCollaborationState): NativeDocumentLinkInventoryV3 {
+  return inspectPersistedNativeCollaborationSnapshot(state, inspectNativeDocumentLinksV3);
+}

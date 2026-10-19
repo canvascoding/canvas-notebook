@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { PoolClient } from 'pg';
 import type { MarkdownFileImportReceipt } from '../app/lib/collaboration/markdown-file-import-persistence';
+import type { OriginalPhysicalLinkInventory } from '../app/lib/markdown/workspace-physical-link-inventory';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 // Genuine Request/session/ACL -> explicit original import -> original native
@@ -22,7 +23,9 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
     const { loadCollaborationStateOnConnection: load, serializeCanonicalText } = await import('../app/lib/collaboration/persistence');
     const { inspectPersistedNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
     const { richMarkdownFromYDoc } = await import('../app/lib/collaboration/markdown-state');
-    const { inspectPersistedDocumentLinks } = await import('../app/lib/markdown/workspace-native-link-inventory');
+    const { inspectPersistedDocumentLinksV3: inspectPersistedDocumentLinks } = await import('../app/lib/markdown/workspace-native-link-inventory');
+    const { bindPhysicalNativeImportLinks } = await import('../app/lib/markdown/physical-native-import-binding');
+    const { stageWorkspaceLinkSourceAuthorityObservation } = await import('../app/lib/markdown/workspace-source-authority-stage');
     const { readDocumentForRequest } = await import('../app/lib/documents/service');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { upsertPostgresWorkspaceMemberForActor } = await import('../app/lib/workspaces/postgres-runtime');
@@ -122,7 +125,9 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
       finally { assert(statements > 0); assert.equal(writes, 0);
         assert.deepEqual(await explicitImportDomain(), domain); assert.deepEqual(await explicitImportFilesystem(), files); }
     };
-    const explicitImportCheckReceipt = async (receipt: MarkdownFileImportReceipt, original: Buffer) => {
+    let actualPhysicalNativeBindings = 0;
+    const explicitImportCheckReceipt = async (receipt: MarkdownFileImportReceipt, original: Buffer,
+      physical: OriginalPhysicalLinkInventory) => {
       assert.equal(receipt.sourceHash, crypto.createHash('sha256').update(original).digest('hex'));
       assert.equal(receipt.sourceBytes, original.length); assert.equal(receipt.target.workspaceId, h.source.workspaceId);
       assert.equal(receipt.checkpointRequired, true); assert.equal(receipt.target.initialSequence, 0);
@@ -140,10 +145,29 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
       assert.equal(page.document.lineageId, receipt.target.lineageId); assert.equal(page.document.path, receipt.target.path);
       assert.equal(page.document.lifecycleGeneration, receipt.target.lifecycleGeneration); assert(page.document.version);
       assert.equal(page.projection.status, 'pending'); // import receipt is not projection.current
+      // The pure binder has no FD-to-receipt authority. Bind the actual prior
+      // observation to the real owner's immutable request record explicitly.
+      const ledger = await explicitImportReceiptRows(receipt.operationId);
+      const record = JSON.parse(ledger.collaboration_original_markdown_imports[0].body.original_text as string);
+      assert.equal(record.selection.expectedFileVersion, physical.physical.filesystemIdentity);
+      assert.equal(record.selection.path, physical.path); assert.equal(record.selection.workspaceId, physical.workspaceId);
+      assert.deepEqual(record.receipt, receipt);
+      const binding = bindPhysicalNativeImportLinks({ original: physical, receipt, state: stored,
+        lineageId: page.document.lineageId });
+      assert.equal(binding.source.physicalSourceProof, physical.physicalSourceProof);
+      assert.equal(binding.source.filesystemIdentity, record.selection.expectedFileVersion);
+      assert.equal(binding.source.sourceHash, receipt.sourceHash); assert.equal(binding.source.sourceBytes, original.length);
+      assert.deepEqual(binding.nativeInventory, inventory); assert.deepEqual(binding.receipt, receipt);
+      assert.equal(binding.links.length, physical.links.length);
+      for (const link of binding.links) {
+        assert(physical.links.some(originalLink => originalLink.physicalLinkId === link.physicalLinkId));
+        assert.deepEqual(link.reference, inventory.links.find(nativeLink => nativeLink.id === link.nativeLinkId)?.ref);
+      }
       const pinned = await readDocumentForRequest(await h.request(h.source, 'member', false, sessionToken), {
         apiVersion: 1, workspaceId: h.source.workspaceId, documentId: receipt.target.documentId,
         expectedVersion: page.document.version, format: 'native', maxBytes: 262144 });
       assert.deepEqual(pinned, page); JSON.parse(page.fragment);
+      actualPhysicalNativeBindings++;
       return stored;
     };
 
@@ -152,6 +176,10 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
     const profile = Buffer.from('\uFEFF---\r\ntitle: Original\r\n---\r\n\r\n# Heading\r\n\r\n[Self](explicit-original-profile.md) **bold**.\r\n');
     await fs.writeFile(path.join(h.source.rootPath, profilePath), profile, { flag: 'wx', mode: 0o600 });
     const profileSelection = await explicitImportSelection(profilePath), profileBefore = await fs.stat(path.join(h.source.rootPath, profilePath));
+    const profileObservation = await stageWorkspaceLinkSourceAuthorityObservation(h.source);
+    const profileOriginal = profileObservation.stage.sources.find(source => source.kind === 'physical' && source.inventory.path === profilePath);
+    assert(profileOriginal?.kind === 'physical');
+    assert.equal(profileOriginal.inventory.physical.filesystemIdentity, profileSelection.expectedFileVersion);
     assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
       [h.source.workspaceId, profilePath])).rows[0].n, 0);
     const atomic: Array<{ table: string; client: PoolClient; pid: number; xid: string }> = [];
@@ -177,7 +205,7 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
     assert.equal(stateRows.length, 3); assert(stateRows.every(row => row.xmin === String(BigInt(atomic[0].xid) % (BigInt(1) << BigInt(32)))));
     assert.equal(profileRows.collaboration_markdown_file_import_receipts[0].body.actor_session_id, sessionId);
     assert.equal(profileRows.collaboration_markdown_file_import_receipts[0].body.request_id, `original-import:${profileSelection.operationId}`);
-    await explicitImportCheckReceipt(imported.receipt, profile);
+    await explicitImportNoWrites(() => explicitImportCheckReceipt(imported.receipt, profile, profileOriginal.inventory));
     assert.equal(imported.receipt.target.hasBom, true); assert.equal(imported.receipt.target.newlineStyle, 'crlf');
     assert.equal(filesystemFileVersion(await fs.stat(path.join(h.source.rootPath, profilePath))), filesystemFileVersion(profileBefore));
     assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, profilePath)), profile); groups++;
@@ -189,9 +217,13 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
       VALUES($1,$2,$3,$4,$5,'yjs','active',0,1,1,'never_initialized')`,
     [pristineId, h.source.organizationId, h.source.workspaceId, h.source.workspaceType, pristinePath]);
     const pristineSelection = await explicitImportSelection(pristinePath);
+    const pristineObservation = await stageWorkspaceLinkSourceAuthorityObservation(h.source);
+    const pristineOriginal = pristineObservation.stage.sources.find(source => source.kind === 'physical' && source.inventory.path === pristinePath);
+    assert(pristineOriginal?.kind === 'physical');
+    assert.equal(pristineOriginal.inventory.physical.filesystemIdentity, pristineSelection.expectedFileVersion);
     const pristine = await explicitImportInvoke(pristineSelection);
     assert.equal(pristine.disposition, 'applied'); assert.equal(pristine.receipt.target.documentId, pristineId);
-    await explicitImportCheckReceipt(pristine.receipt, pristineBytes);
+    await explicitImportNoWrites(() => explicitImportCheckReceipt(pristine.receipt, pristineBytes, pristineOriginal.inventory));
     assert.equal(filesystemFileVersion(await fs.stat(path.join(h.source.rootPath, pristinePath))), pristineSelection.expectedFileVersion); groups++;
 
     phase = 'receipt-first retry/status are no-write and renewed genuine SID-B retains original SID-A';
@@ -321,7 +353,10 @@ export async function explicitOriginalMarkdownImportPostgresTest(): Promise<void
       assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, filePath)), bytes);
     }
     groups++;
-    assert.equal(groups, 7);
+    assert.equal(groups, 7); assert.equal(actualPhysicalNativeBindings, 2);
+    console.log(JSON.stringify({ suite: 'physical-native-import-binding-postgres', actualBindings: actualPhysicalNativeBindings,
+      genuinePriorObservation: true, actualReceiptStateAndLineage: true, immutableRequestFileVersionBound: true,
+      noWriteChecks: true, rawCopyOwnerAcceptance: false }));
   }); complete = true; console.log(JSON.stringify({ test: 'explicit-original-markdown-import-postgres', groups, originalExit: 0 })); }
   finally { if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase; }
 }
