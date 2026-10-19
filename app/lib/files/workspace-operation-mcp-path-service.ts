@@ -243,7 +243,7 @@ async function runDirectMcpWorkspacePathService(input: Request,
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'status',
       operation: pathOperation(status, input.operationId) }, input.operationId);
   }
-  return withWorkspaceMutationLock(input.workspaceId, async () => {
+  const selection = await withWorkspaceMutationLock(input.workspaceId, async () => {
     // Resolve original history before any planning. A moved/deleted source or
     // later replacement at its old path never becomes a new request on retry.
     const saved = await readPathStatus(live, batchId, initial.scope);
@@ -272,16 +272,21 @@ async function runDirectMcpWorkspacePathService(input: Request,
       }
       assertPathRequest(confirmed, live, input);
       invalidateWorkspaceFileViews({ fileOptions: initial.scope.fileOptions, fullTree: true, mutations: [] });
-      return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-        operation: pathOperation(confirmed, input.operationId), alreadyKnown: true }, input.operationId);
+      return { kind: 'historical' as const,
+        result: encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
+          operation: pathOperation(confirmed, input.operationId), alreadyKnown: true }, input.operationId) };
     }
-    await executePathClaim(store, selected.batch, live, initial.scope);
-    const current = await readPathStatus(live, batchId, initial.scope);
-    if (!current) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
-    assertPathRequest(current, live, input);
-    return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
-      operation: pathOperation(current, input.operationId), alreadyKnown: saved !== null }, input.operationId);
+    return { kind: 'claimed' as const, store, batch: selected.batch, alreadyKnown: saved !== null };
   });
+  if (selection.kind === 'historical') return selection.result;
+  // The native executor acquires its own fixed Owner kernels. Its admission
+  // drain must run after this selection kernel has been released.
+  await executePathClaim(selection.store, selection.batch, live, initial.scope);
+  const current = await readPathStatus(live, batchId, initial.scope);
+  if (!current) throw new WorkspacePathToolError('PATH_OUTCOME_UNCONFIRMED', input.operationId);
+  assertPathRequest(current, live, input);
+  return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: input.action,
+    operation: pathOperation(current, input.operationId), alreadyKnown: selection.alreadyKnown }, input.operationId);
 }
 
 /** Start the genuine token capture synchronously before this entry's first

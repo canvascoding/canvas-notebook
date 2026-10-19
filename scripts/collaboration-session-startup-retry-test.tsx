@@ -20,7 +20,7 @@ import { hasCurrentOpenedDocumentSessionAuthorization, invalidateOpenedDocumentA
 type Input = Parameters<typeof Client.useTextCollaborationSession>[0];
 type Call = { input: string; body: string; headers: Headers; signal: AbortSignal; time: number };
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
-const busy = () => Response.json({ success: false, error: 'PRINCIPAL_BUSY', code: 'PRINCIPAL_BUSY', retryable: true }, { status: 409 });
+const busy = (code = 'PRINCIPAL_BUSY') => Response.json({ success: false, error: code, code, retryable: true }, { status: 409 });
 const session: CollaborationSessionResponse = { success: true, documentId: 'startup-doc', documentName: 'startup-doc',
   provider: 'yjs', representation: 'plain_text', lifecycleGeneration: 1, schemaVersion: 1, richTextSchemaVersion: 3,
   permission: 'write', token: 'unit-ticket', expiresAt: '2099-01-01T00:00:00.000Z', websocketUrl: '/ws/collaboration',
@@ -139,8 +139,24 @@ async function main() {
       assert.equal(calls.length, 3); assert.equal(resolution?.session, null);
       assert.equal(resolution?.error, 'PRINCIPAL_BUSY');
     });
+    await run('marked native reader code uses the same finite startup budget (wire adapter only)', async () => {
+      respond = async () => calls.length < 3 ? busy('NATIVE_SESSION_BUSY') : Response.json(session);
+      await render(input); await settle();
+      assert.equal(calls.length, 3); assert.equal(resolution?.session?.documentId, session.documentId);
+      assert.equal(calls[1].time - calls[0].time >= 140, true);
+      assert.equal(calls[2].time - calls[1].time >= 290, true);
+    });
+    await run('exhausted native reader marker cannot poll or use a local fallback', async () => {
+      seedLocal(); respond = async () => busy('NATIVE_SESSION_BUSY');
+      await render(input); await settle(); await act(async () => { await wait(350); });
+      assert.equal(calls.length, 3); assert.equal(resolution?.session, null);
+      assert.equal(resolution?.error, 'NATIVE_SESSION_BUSY');
+    });
     const failuresWithoutRetry: Array<[string, number, Record<string, unknown> | string]> = [
       ['unmarked 409', 409, { error: 'PRINCIPAL_BUSY', code: 'PRINCIPAL_BUSY' }],
+      ['unmarked native reader 409', 409, { code: 'NATIVE_SESSION_BUSY' }],
+      ['native marker on generic 503', 503, { success: false, code: 'NATIVE_SESSION_BUSY', retryable: true }],
+      ['contradictory successful native payload', 409, { success: true, code: 'NATIVE_SESSION_BUSY', retryable: true }],
       ['fake code', 409, { error: 'PRINCIPAL_BUSY', code: 'OTHER_BUSY', retryable: true }],
       ['string true', 409, { code: 'PRINCIPAL_BUSY', retryable: 'true' }],
       ['explicit false', 409, { code: 'PRINCIPAL_BUSY', retryable: false }],

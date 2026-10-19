@@ -46,7 +46,7 @@ type Observation = { grant: CollaborationSessionGrant; identity: AuthenticatedTe
 type ReadPhase = { retryable: boolean; entered: boolean; capturePending: boolean };
 // Only this service's confirmed read rollback/close can certify contention.
 // A wire code, caller exception, final check or unconfirmed COMMIT cannot.
-const cleanReadContention = new WeakSet<WorkspaceRequestPrincipalError>();
+const cleanReadContention = new WeakSet<object>();
 // Public startup hints require this service's terminal identity, after every
 // transport cleanup has completed. A matching wire code never creates one.
 const retryableStartupFailures = new WeakSet<object>();
@@ -163,7 +163,7 @@ async function observeRequestScope(request: NextRequest, workspaceId: string,
 async function transaction<T>(operation: (connection: SqlConnection, phase: ReadPhase) => Promise<T>): Promise<T> {
   const connection = await openDb(); let began = false, committing = false, discard: Error | undefined;
   const phase: ReadPhase = { retryable: false, entered: false, capturePending: false };
-  let cleanBusy: WorkspaceRequestPrincipalError | undefined;
+  let cleanBusy: object | undefined;
   try {
     await connection.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
     const result = await operation(connection, phase);
@@ -183,6 +183,8 @@ async function transaction<T>(operation: (connection: SqlConnection, phase: Read
         cleanBusy = new WorkspaceRequestPrincipalError('PRINCIPAL_BUSY'); error = cleanBusy;
       } else if (phase.retryable && !phase.entered && (isAuthenticatedNativeSessionPrincipalError(error)
         || error instanceof WorkspaceRequestPrincipalError) && error.code === 'PRINCIPAL_BUSY') cleanBusy = error;
+      else if (phase.retryable && !phase.entered && (isAuthenticatedNativeSessionReaderError(error)
+        || error instanceof NativeSessionStateReaderError) && error.code === 'NATIVE_SESSION_BUSY') cleanBusy = error;
     }
     catch (rollbackError) { discard = new Error('Discarding unresolved native session read.', { cause: rollbackError });
       throw new AggregateError([error, rollbackError], 'Native session rollback could not be confirmed.'); }
@@ -322,7 +324,8 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
     for (;;) {
       try { return await operation(); }
       catch (error) {
-        if (!(isAuthenticatedNativeSessionPrincipalError(error) || error instanceof WorkspaceRequestPrincipalError)
+        if (!(isAuthenticatedNativeSessionPrincipalError(error) || error instanceof WorkspaceRequestPrincipalError
+          || isAuthenticatedNativeSessionReaderError(error) || error instanceof NativeSessionStateReaderError)
           || !cleanReadContention.has(error) || retriesRemaining === 0) throw error;
         cleanReadContention.delete(error); retriesRemaining--;
         await new Promise<void>(resolve => setTimeout(resolve, 25));
@@ -471,7 +474,7 @@ export async function withAuthenticatedTextCollaborationSessionGrant<T>(input: I
     if (terminalFailure && typeof terminalFailure === 'object') {
       retryableStartupFailures.delete(terminalFailure);
       startupFailurePhases.set(terminalFailure, phase);
-      if (!mutationOrPublicationAttempted && cleanReadContention.has(terminalFailure as WorkspaceRequestPrincipalError)) {
+      if (!mutationOrPublicationAttempted && cleanReadContention.has(terminalFailure)) {
         retryableStartupFailures.add(terminalFailure);
       }
     }

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import * as Y from 'yjs';
+import type { SqlConnection } from '../app/lib/db';
+import { captureCollaborationAdmissionRequest } from '../app/lib/collaboration/room-admission-contract';
 import { captureAgentStateSnapshot } from '../app/lib/collaboration/agent-durability';
 import { inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import { createPlainTextYDoc, createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
@@ -16,8 +18,12 @@ import type { WorkspaceOperationBatchScope, WorkspaceOperationNativeDeleteBatchP
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { createWorkspaceOperationNativeDeleteBatchPlanLegacy, createWorkspaceOperationNativeDeleteBatchPlanV2,
   captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness } from '../app/lib/files/workspace-operation-native-delete-plan';
-import { assertOriginalDeleteIntentPlan, completed, parseIntent, type Completion, type OriginalIntent,
+import { assertOriginalDeleteIntentPlan, captureOriginalDeleteAdmissionBinding, completed, parseIntent, type Completion, type OriginalIntent,
   type WorkspaceOperationOriginalDeleteEvidenceContext } from '../app/lib/files/workspace-operation-original-delete-evidence';
+import { createWorkspaceOperationOriginalDeleteAdmissionRequest, readWorkspaceOperationOriginalDeleteAdmissionOnConnection,
+  workspaceOperationOriginalDeleteAdmissionResult } from '../app/lib/files/workspace-operation-original-delete-admission';
+import type { WorkspaceOperationBatchClaimBinding } from '../app/lib/files/workspace-operation-batch-store';
+import { workspaceOperationBatchTotalActions } from '../app/lib/files/workspace-operation-native-delete-effects';
 import { prepareOriginalDeleteNativeLinks, type OriginalDeleteNativeLinkContext,
   type OriginalDeleteNativeLinkReceipt } from '../app/lib/files/workspace-operation-original-delete-links';
 import type { WorkspaceOperationOriginalDeleteIntent, WorkspaceOperationOriginalDeleteReceipt } from '../app/lib/files/workspace-operation-original-delete-repository';
@@ -146,7 +152,7 @@ function linkReceipts(f: Fixture, intent: OriginalIntent): OriginalDeleteNativeL
         return { contractVersion: 2, operationId: item.prepared.operationId, source: item.prepared.source, binding: item.binding,
           before: item.prepared.before, after: { ...item.prepared.after, documentSequence: item.prepared.before.documentSequence + 1, persistedAt: 201 },
           inverseRecipes: item.prepared.inverseRecipes, afterStateSnapshotBase64: Buffer.from(snapshot).toString('base64'),
-          ...(intent.version === 3 ? { resultEvidenceVersion: 3 as const, afterBinaryHash: sha(fullUpdate), afterVectorHash: sha(vector) } : {}) };
+          ...(intent.version === 3 || intent.version === 4 ? { resultEvidenceVersion: 3 as const, afterBinaryHash: sha(fullUpdate), afterVectorHash: sha(vector) } : {}) };
       } finally { candidate.destroy(); }
     });
   });
@@ -297,4 +303,134 @@ test('Original Delete V3: full-update result fields are mandatory and snapshots 
   // Historical decoding has no current complete source bytes with which to
   // recompute afterBinaryHash. The real B2 replay/readback/final-graph gate must
   // prove that value; a well-formed private hash alone grants no authority.
+});
+
+/** Declared data only. The pure factory accepts this factual DTO; it is never
+ * passed to a Store or represented as a genuine Claim, ACL, B or SQL receipt. */
+function fixtureV4(representation: PersistedCollaborationState['representation'] = 'tiptap_blocks', links = false) {
+  const base = fixture(representation, links);
+  assert(base.intent.version === 3); assert(base.context.authorization.mode === 'direct');
+  const binding: WorkspaceOperationBatchClaimBinding = { batchId, planId: base.plan.planId,
+    workspaceId: scope.workspace.workspaceId, plan: base.plan, authorization: base.context.authorization,
+    actionMode: 'apply', totalActions: workspaceOperationBatchTotalActions(base.plan), createdAt: 199,
+    reviewIds: [], reviewRefs: [], reviewerUserId: null, reviewerDisplayName: null,
+    source: { databaseOid: 1, schemaOid: 2, schemaName: 'declared_fixture', tableOid: 3, searchPath: 'declared_fixture' } };
+  const request = createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), captured = captureCollaborationAdmissionRequest(request);
+  const intent: Extract<OriginalIntent, { version: 4 }> = { ...base.intent, version: 4,
+    admission: { requestId: captured.request.requestId, requestDigest: captured.requestDigest } };
+  return { base, binding, intent, captured };
+}
+
+for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+  for (const links of [false, true]) test(`Original Delete V4 ${representation}: factual P0 binding, ${links ? 'linked' : 'unlinked'} intent and genuine-Yjs completion`, () => {
+    const f = fixtureV4(representation, links), before = clone(f);
+    const parsed = parseAndBind(f.base, f.intent); assert(parsed.version === 4);
+    assert.deepEqual(parsed.admission, { requestId: f.captured.request.requestId, requestDigest: f.captured.requestDigest });
+    assert.equal(Reflect.ownKeys(parsed).length, 12); assert(Object.isFrozen(parsed.admission));
+    assert.deepEqual(parsed.currentWitness, f.intent.currentWitness);
+    const result = completion(f.base, parsed), actual = completed(result.completed, result.trash, result.durable, parsed);
+    assert.equal(actual.version, 4); assert.deepEqual(actual, { ...result.value, receiptDigest: result.completed.receiptDigest });
+    assert.equal(actual.nativeLinks!.length, links ? 1 : 0);
+    assert.deepEqual(actual.native!.before.clock, { stateProof: parsed.native!.stateProof, binaryHash: parsed.native!.binaryHash,
+      vectorHash: parsed.native!.vectorHash, documentSequence: parsed.native!.documentSequence, persistedAt: parsed.native!.persistedAt });
+    if (links) {
+      const link = actual.nativeLinks![0]; assert.equal(link.resultEvidenceVersion, 3);
+      assert.equal(link.afterVectorHash, sha(Buffer.from(link.after.stateVector, 'base64')));
+      assert.notEqual(link.afterBinaryHash, sha(Buffer.from(link.afterStateSnapshotBase64, 'base64')));
+      for (const key of ['resultEvidenceVersion', 'afterBinaryHash', 'afterVectorHash'] as const) {
+        const changed = clone(result.value); delete changed.nativeLinks![0][key];
+        assert.throws(() => completed(receipt(result.durable.intentDigest, changed), result.trash, result.durable, parsed), /ORIGINAL_DELETE_UNPROVEN/u);
+      }
+    }
+    assert(Object.isFrozen(actual)); assert.deepEqual(f, before);
+  });
+}
+
+test('Original Delete V4: Admission binding requires exactly two own bounded primitive data fields without running hostile accessors', () => {
+  const { intent } = fixtureV4(), valid = intent.admission, before = clone(valid);
+  const captured = captureOriginalDeleteAdmissionBinding(valid);
+  assert.deepEqual(captured, valid); assert.notEqual(captured, valid); assert(Object.isFrozen(captured));
+  let observed = 0;
+  const getter = Object.defineProperty({ requestDigest: valid.requestDigest }, 'requestId',
+    { enumerable: true, get() { observed++; throw new Error('Admission getter must never run.'); } });
+  const proxy = new Proxy({ ...valid }, { get() { observed++; throw new Error('Admission proxy must never run.'); },
+    ownKeys() { observed++; throw new Error('Admission proxy keys must never run.'); } });
+  const hidden = Object.defineProperty({ requestDigest: valid.requestDigest }, 'requestId', { value: valid.requestId, enumerable: false });
+  const inherited = Object.create(valid);
+  const attacks: unknown[] = [null, [], Object.assign(Object.create(null), valid), getter, proxy, hidden, inherited,
+    { requestId: valid.requestId }, { requestDigest: valid.requestDigest }, { ...valid, extra: true },
+    { ...valid, [Symbol('extra')]: true }, { ...valid, requestId: `${valid.requestId}\n` },
+    { ...valid, requestId: 'not-an-admission-id' }, { ...valid, requestId: 'G'.repeat(36) },
+    { ...valid, requestId: 'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA' },
+    { ...valid, requestId: 123 }, { ...valid, requestDigest: `${valid.requestDigest}\n` },
+    { ...valid, requestDigest: 'g'.repeat(64) }, { ...valid, requestDigest: 'A'.repeat(64) }, { ...valid, requestDigest: 'a'.repeat(63) },
+    { ...valid, requestDigest: 'a'.repeat(65) }, { ...valid, requestDigest: 123 }];
+  for (const attack of attacks) assert.throws(() => captureOriginalDeleteAdmissionBinding(attack), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.equal(observed, 0); assert.deepEqual(valid, before);
+});
+
+test('Original Delete V4: well-formed foreign Admission ID or SHA fails the actual reader preflight before every SQL method', async () => {
+  const f = fixtureV4(), parsed = parseAndBind(f.base, f.intent); assert(parsed.version === 4);
+  let calls = 0;
+  // A negative mechanical boundary only: no returned SQL rows, fake authority,
+  // transaction, current ACL or positive reader acceptance is supplied here.
+  const forbidden: SqlConnection = { get() { calls++; assert.fail('V4 negative preflight attempted SQL get.'); },
+    all() { calls++; assert.fail('V4 negative preflight attempted SQL all.'); },
+    run() { calls++; assert.fail('V4 negative preflight attempted SQL run.'); },
+    close() { calls++; assert.fail('V4 negative preflight attempted SQL close.'); } };
+  const wrongId = parsed.admission.requestId === '00000000-0000-0000-0000-000000000000'
+    ? '11111111-1111-1111-1111-111111111111' : '00000000-0000-0000-0000-000000000000';
+  const wrongSha = parsed.admission.requestDigest === '0'.repeat(64) ? '1'.repeat(64) : '0'.repeat(64);
+  for (const reference of [{ ...parsed.admission, requestId: wrongId }, { ...parsed.admission, requestDigest: wrongSha }]) {
+    assert.deepEqual(captureOriginalDeleteAdmissionBinding(reference), reference, 'Format alone conveys no original-request binding.');
+    const changed = { ...parsed, admission: reference };
+    await assert.rejects(readWorkspaceOperationOriginalDeleteAdmissionOnConnection(forbidden,
+      { schema: 'declared_fixture', intent: changed }), /ORIGINAL_DELETE_UNPROVEN/u);
+    assert.equal(calls, 0);
+  }
+});
+
+test('Original Delete V4: V3/V4 intent shapes, receipt versions, original digest and witness cannot be mixed after renewing envelopes', () => {
+  const f = fixtureV4('tiptap_blocks', true), v3 = parseAndBind(f.base), v4 = parseAndBind(f.base, f.intent);
+  assert(v3.version === 3); assert(v4.version === 4);
+  const third = completion(f.base, v3), fourth = completion(f.base, v4);
+  assert.notEqual(third.durable.intentDigest, fourth.durable.intentDigest);
+  assert.throws(() => parseAndBind(f.base, { ...v3, version: 4 } as OriginalIntent), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => parseAndBind(f.base, { ...v4, version: 3 } as OriginalIntent), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => completed(third.completed, third.trash, fourth.durable, v4), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => completed(fourth.completed, fourth.trash, third.durable, v3), /ORIGINAL_DELETE_UNPROVEN/u);
+  for (const [intent, result, wrongVersion] of [[v3, third, 4], [v4, fourth, 3]] as const) {
+    assert.throws(() => completed(receipt(result.durable.intentDigest, { ...result.value, version: wrongVersion }),
+      result.trash, result.durable, intent), /ORIGINAL_DELETE_UNPROVEN/u);
+    const badWitness = clone(intent); badWitness.currentWitness = clone(f.base.plan.sourceEvidence);
+    assert.throws(() => parseAndBind(f.base, badWitness), /ORIGINAL_DELETE_UNPROVEN/u);
+    const noWitness = clone(intent) as unknown as Record<string, unknown>; delete noWitness.currentWitness;
+    assert.throws(() => parseAndBind(f.base, noWitness as unknown as OriginalIntent), /ORIGINAL_DELETE_UNPROVEN/u);
+  }
+});
+
+test('Original Delete V4: fixed null-prototype result map and original actor/session/namespace attribution stay separate from current authority', () => {
+  const f = fixtureV4('tiptap_blocks', true), parsed = parseAndBind(f.base, f.intent); assert(parsed.version === 4);
+  const result = completion(f.base, parsed), actual = completed(result.completed, result.trash, result.durable, parsed), before = clone(actual);
+  const map = workspaceOperationOriginalDeleteAdmissionResult(actual);
+  assert.equal(Object.getPrototypeOf(map), null); assert(Object.isFrozen(map));
+  assert.deepEqual(map, Object.assign(Object.create(null), { originalDeleteIntentDigest: result.durable.intentDigest,
+    originalDeleteReceiptDigest: result.completed.receiptDigest, originalDeleteTrashReceiptDigest: result.trash.receiptDigest, trashEntryId }));
+  assert.deepEqual(Object.keys(map).sort(), ['originalDeleteIntentDigest', 'originalDeleteReceiptDigest', 'originalDeleteTrashReceiptDigest', 'trashEntryId']);
+  const payload = JSON.parse(f.captured.request.actionPayloadText!) as Record<string, unknown>;
+  assert.deepEqual(payload.originalActor, actor); assert.deepEqual(payload.jobScope, parsed.jobScope);
+  assert.equal(payload.batchId, batchId); assert.equal(payload.planId, f.base.plan.planId); assert.equal(payload.requestHash, requestHash);
+  for (const [key, value] of [['userId', 'foreign-user'], ['actorId', 'foreign-actor'], ['actorType', 'agent'],
+    ['actorSessionId', 'declared-new-session']] as const) {
+    const changed = clone(parsed); Object.assign(changed.actor, { [key]: value });
+    assert.throws(() => parseAndBind(f.base, changed), /ORIGINAL_DELETE_UNPROVEN/u);
+  }
+  let observed = 0;
+  const getter = Object.defineProperty({ ...actual }, 'receiptDigest', { enumerable: true,
+    get() { observed++; throw new Error('Result getter must never run.'); } });
+  assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult(getter), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult(new Proxy(actual, {})), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult({ ...actual, receiptDigest: `${actual.receiptDigest}\n` }), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult(Object.assign(Object.create(null), actual)), /ORIGINAL_DELETE_UNPROVEN/u);
+  assert.equal(observed, 0); assert.deepEqual(actual, before);
 });

@@ -1,4 +1,5 @@
 import 'server-only';
+import { notifyWorkspaceFileInvalidationOnConnection } from '../filesystem/workspace-file-invalidation';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { isDeepStrictEqual as equal, types } from 'node:util';
@@ -659,7 +660,11 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
     await write(database, captured, () => finishWorkspaceOperationStepOnConnection(database, { operationId: stage.identity.operationId,
       stepKey: NATIVE_COPY_COMPLETION_STEP_KEY, beforeFence: completionFence, afterFence: stage.payloadSha256,
       receipt: nativeCopyPhaseCompletionReceipt(stage, before.nativeReceipt, before.admissions, birth?.createdAt, managedReceipt) }));
-    const operation = await write(database, captured, () => completeWorkspaceOperationOnConnection(database, stage.identity.operationId));
+    const operation = await write(database, captured, async () => {
+      const completed = await completeWorkspaceOperationOnConnection(database, stage.identity.operationId);
+      await notifyWorkspaceFileInvalidationOnConnection(database, stage.identity.destinationWorkspaceId);
+      return completed;
+    });
     return { ...before, disposition: 'completed', operation, nativeReceipt: { ...before.nativeReceipt, publicationStatus: 'published' },
       managedReceipt, publication: 'published' as const };
   }, 'completion');

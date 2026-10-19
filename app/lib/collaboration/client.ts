@@ -379,15 +379,17 @@ async function requestSession(
       headers: { 'Content-Type': 'application/json', ...(guestInvitationId ? {} : workspaceHeaders(workspaceId)) },
       body,
     });
-    const payload = await response.json().catch(() => ({})) as Partial<CollaborationSessionResponse>
-      & { error?: string; code?: string; retryable?: boolean };
+    const payload = await response.json().catch(() => ({})) as Partial<Omit<CollaborationSessionResponse, 'success'>>
+      & { success?: boolean; error?: string; code?: string; retryable?: boolean };
     signal?.throwIfAborted();
     if (authScope && !isOpenedDocumentAuthCurrent(authScope)) throw new Error('The signed-in session changed.');
     if (!response.ok || payload.success !== true) {
       // Only the server's completed, pre-mutation read boundary may request a
       // fresh startup attempt. A Busy code alone (including Guest) is insufficient.
-      if (!guestInvitationId && authScope && response.status === 409 && payload.code === 'PRINCIPAL_BUSY'
-        && payload.retryable === true && startupRetriesRemaining > 0
+      const retryableStartup = !guestInvitationId && Boolean(authScope) && response.status === 409 && payload.success === false
+        && (payload.code === 'PRINCIPAL_BUSY' || payload.code === 'NATIVE_SESSION_BUSY') && payload.retryable === true
+        && openedDocumentRequestRevision() === authorizationRevision;
+      if (retryableStartup && authScope && startupRetriesRemaining > 0
         && openedDocumentRequestRevision() === authorizationRevision) {
         startupRetriesRemaining--;
         await new Promise<void>((resolve, reject) => {
@@ -409,6 +411,7 @@ async function requestSession(
       throw Object.assign(new Error(payload.error || 'Collaboration could not be started.'), {
         status: response.status,
         code: typeof payload.code === 'string' ? payload.code : null,
+        retryable: retryableStartup,
       });
     }
     if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
@@ -505,7 +508,8 @@ function canRejoinEntryAfterAdmission(entry: RegistryEntry): boolean {
     && isOpenedDocumentAuthCurrent(entry.authScope));
 }
 
-/** One invalidation may obtain one new session. Busy never schedules another attempt. */
+/** Each attempt obtains one fresh session. The identity-bound location watcher
+ * owns the finite retry window, so normal startup retries must not multiply it. */
 function rejoinEntryAfterAdmission(entry: RegistryEntry, scope: AbortController): Promise<void> {
   try { assertRequestActive(entry, scope); } catch (error) { return Promise.reject(error); }
   const existing = entry.admissionRejoinAttempt;
@@ -536,7 +540,7 @@ function rejoinEntryAfterAdmission(entry: RegistryEntry, scope: AbortController)
     assertRequestActive(entry, scope);
     controller.signal.throwIfAborted();
     const refreshed = requireTextSession(await Promise.race([
-      requestSession(path, 'auto', entry.key.split('\0')[0], controller.signal), cancellation,
+      requestSession(path, 'auto', entry.key.split('\0')[0], controller.signal, undefined, true, 0), cancellation,
     ]),
       previous.representation as TextCollaborationRepresentation);
     controller.signal.throwIfAborted();

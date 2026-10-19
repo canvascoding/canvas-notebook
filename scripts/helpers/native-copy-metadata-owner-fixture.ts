@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { lstat, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { types } from 'node:util';
 import { parse } from 'dotenv';
 import { Client, type Pool, type PoolClient, type QueryResult } from 'pg';
 import { NextRequest } from 'next/server';
@@ -160,12 +161,25 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
       const original = client.query;
       const raw = original.bind(client) as (sql: string, values?: unknown[]) => Promise<QueryResult>;
       Object.defineProperty(client, 'query', { configurable: true, writable: true, value: (...args: unknown[]) => {
-        // pg-pool owns its callback overload; preserve its real acknowledgement
-        // and QueryConfig/stream return values without substituting a Promise.
-        if (typeof args.at(-1) === 'function' || typeof args[0] !== 'string') return Reflect.apply(original, client, args);
-        const text = args[0], values = args[1] as unknown[] | undefined;
+        // Preserve callback/stream/other QueryConfig overloads. Observe only the
+        // fixed inert {name,text,values} config emitted by the real SQL adapter.
+        if (typeof args.at(-1) === 'function') return Reflect.apply(original, client, args);
+        let text: string, values: unknown[] | undefined;
+        if (typeof args[0] === 'string') {
+          text = args[0]; values = args[1] as unknown[] | undefined;
+        } else {
+          const config = args[0];
+          if (args.length !== 1 || !config || typeof config !== 'object' || types.isProxy(config)
+            || ![Object.prototype, null].includes(Object.getPrototypeOf(config))) return Reflect.apply(original, client, args);
+          const fields = Object.getOwnPropertyDescriptors(config), keys = Reflect.ownKeys(config);
+          if (keys.length !== 3 || !keys.every(key => typeof key === 'string' && ['name', 'text', 'values'].includes(key))
+            || !Object.values(fields).every(field => 'value' in field)
+            || typeof fields.name?.value !== 'string' || typeof fields.text?.value !== 'string'
+            || (fields.values?.value !== undefined && !Array.isArray(fields.values.value))) return Reflect.apply(original, client, args);
+          text = fields.text.value; values = fields.values.value;
+        }
         return (async () => {
-          const answer = await raw(text, values); if (probe && !activeProbe) { activeProbe = true;
+          const answer = await Reflect.apply(original, client, args) as QueryResult; if (probe && !activeProbe) { activeProbe = true;
             try { await probe({ text, values: values ?? [], client, result: answer, raw }); } finally { activeProbe = false; } }
           return answer;
         })();

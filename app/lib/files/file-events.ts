@@ -20,3 +20,17 @@ export interface WorkspaceFileEvent {
   fileVersion?: string;
   mutation?: WorkspacePathRenameMutation;
 }
+
+/** A workspace-scoped hint to re-read identities, never a file mutation or grant. */
+export type WorkspaceFileInvalidation = Readonly<{ workspaceId: string }>;
+
+export function isWorkspaceFileInvalidation(value: unknown): value is WorkspaceFileInvalidation {
+  try {
+    if (!value || typeof value !== 'object' || Object.getPrototypeOf(value) !== Object.prototype
+      || Reflect.ownKeys(value).length !== 1) return false;
+    const workspaceId = Object.getOwnPropertyDescriptor(value, 'workspaceId');
+    return workspaceId?.enumerable === true && Object.hasOwn(workspaceId, 'value')
+      && typeof workspaceId.value === 'string' && workspaceId.value.length > 0 && workspaceId.value.length <= 128
+      && !/[^a-zA-Z0-9_-]/u.test(workspaceId.value);
+  } catch { return false; }
+}

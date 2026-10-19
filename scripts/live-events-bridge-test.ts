@@ -48,6 +48,7 @@ async function actualRoutes() {
   const intervals: Array<() => void> = [];
   const controls = { allowed: true, subscriptions: 0, unsubscribed: 0, synced: 0, touches: 0, requests: [] as NextRequest[] };
   let sendFile: ((value: unknown) => void) | null = null;
+  let invalidateWorkspace: ((value: { workspaceId: string }) => void) | null = null;
   let sendTerminal: ((value: unknown) => void) | null = null;
   let sendReview: ((value: unknown) => void) | null = null;
   let sendBulk: ((value: unknown) => void) | null = null;
@@ -62,7 +63,10 @@ async function actualRoutes() {
       : { response: null, workspace, session: { user: { id: 'user' } } };
   };
   const watcher = {
-    subscribe(input: { send: (value: unknown) => void }) { controls.subscriptions++; sendFile = input.send; return () => controls.unsubscribed++; },
+    subscribe(input: { send: (value: unknown) => void; invalidate?: (value: { workspaceId: string }) => void }) {
+      controls.subscriptions++; sendFile = input.send; invalidateWorkspace = input.invalidate ?? null;
+      return () => controls.unsubscribed++;
+    },
     touchClient() { controls.touches++; },
     async syncDirs() { controls.synced++; }, getSubscribedDirs() { return ['.']; },
   };
@@ -99,6 +103,7 @@ async function actualRoutes() {
   return { handlers: { files: watch.GET, presence: presence.GET, terminal: terminal.GET,
     documentReview: documentReview.GET, studioBulk: studioBulk.GET }, controls, intervals, watchOtherBundle,
     emitFile(value: unknown) { sendFile?.(value); }, emitTerminal(value: unknown) { sendTerminal?.(value); },
+    emitInvalidation(workspaceId: string) { invalidateWorkspace?.({ workspaceId }); },
     emitReview(enabled: boolean) { reviewEnabled = enabled; sendReview?.({ documentReviewEnabled: enabled, updatedAt: null }); },
     emitBulk(enabled: boolean) { bulkEnabled = enabled; sendBulk?.({ studioBulkEnabled: enabled, updatedAt: null }); } };
 }
@@ -196,11 +201,24 @@ test('actual watch/presence/terminal GET handlers retain scope; cross-bundle HTT
     }));
     assert.equal(denied.status, 403); assert.equal(fixture.controls.synced, 1);
     assert.ok(socket.frames.some(frame => frame.type === 'event' && JSON.stringify(frame).includes('newRelativePath')));
+    const beforeInvalidation = socket.frames.length;
+    fixture.emitInvalidation('other'); await flush();
+    assert.equal(socket.frames.length, beforeInvalidation, 'the actual GET callback rejects a foreign workspace hint');
+    fixture.emitInvalidation('workspace'); await flush();
+    const invalidationFrames = socket.frames.slice(beforeInvalidation);
+    assert.equal(invalidationFrames.length, 1);
+    assert.equal(invalidationFrames[0].type, 'event');
+    assert.equal(invalidationFrames[0].id, 'watch');
+    const hintFrame = invalidationFrames[0].event as { event: string; data: string };
+    assert.equal(hintFrame.event, 'workspace-invalidated', 'the existing WS bridge preserves the separate SSE event');
+    assert.deepEqual(JSON.parse(hintFrame.data), { workspaceId: 'workspace' });
     socket.message({ type: 'unsubscribe', id: 'watch' }); await flush();
     assert.equal(fixture.controls.unsubscribed, 1);
     const afterClose = socket.frames.length;
     fixture.emitFile({ type: 'change', relativePath: 'late' }); await flush();
     assert.equal(socket.frames.length, afterClose, 'late watch callbacks cannot reach a canceled subscription');
+    fixture.emitInvalidation('workspace'); await flush();
+    assert.equal(socket.frames.length, afterClose, 'retained invalidation callbacks cannot reach a canceled subscription');
   } finally { close(); }
   assert.equal(fixture.controls.unsubscribed, 3);
 });

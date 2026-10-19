@@ -23,9 +23,17 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
 import { lockFileCollaborationPaths } from './collaboration-repository';
-import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
+import { decodeWorkspaceOperationNativeDeleteBatchPlan, getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
 import { readWorkspaceOperationOriginalDeleteIntentOnConnection } from './workspace-operation-original-delete-repository';
-import { parseIntent, assertOriginalDeleteIntentPlan } from './workspace-operation-original-delete-evidence';
+import { readWorkspaceOperationNativePathAdmissionOnConnection } from './workspace-operation-native-path-admission';
+import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
+import { parseIntent, assertOriginalDeleteIntentPlan, type WorkspaceOperationOriginalDeleteResult } from './workspace-operation-original-delete-evidence';
+import { readWorkspaceOperationOriginalDeleteObservationOnConnection } from './workspace-operation-original-delete-observation';
+import { completeWorkspaceOperationOriginalDeleteDomain } from './workspace-operation-original-delete-domain';
+import { readWorkspaceOperationOriginalDeleteAdmissionOnConnection,
+  workspaceOperationOriginalDeleteAdmissionResult } from './workspace-operation-original-delete-admission';
+import { readPreparedWorkspaceSingleFileTrash, assertPreparedWorkspaceSingleFileTrashCurrent,
+  type PreparedWorkspaceSingleFileTrash, type PreparedSingleFileTrashReceipt } from '../filesystem/prepared-single-file-trash';
 import { applyOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
   type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 import { readWorkspaceLinkSourceAuthorityOnConnection,
@@ -39,9 +47,13 @@ import { executeCollaborationAdmissionHandoffOnConnection } from '../collaborati
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { createWorkspaceOperationOriginalMoveAdmissionRequest } from './workspace-operation-original-move-admission';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, assertWorkspaceOperationNativeMoveBatchPlanCurrent,
-  captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness } from './workspace-operation-native-move-plan';
-import type { WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+  captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness, WorkspaceOperationNativeMovePlanError } from './workspace-operation-native-move-plan';
+import { captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness,
+  WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
+import { WorkspaceOperationNativeSourceEvidenceError, type WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
+import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './workspace-operation-original-move-handoff-storage';
+import { notifyWorkspaceFileInvalidationOnConnection } from '../filesystem/workspace-file-invalidation';
 import { createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent,
   decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
   decodeWorkspaceOperationOriginalMoveCompletion, serializeWorkspaceOperationOriginalMoveData,
@@ -73,6 +85,7 @@ export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJo
   /** Fixed claimed journal operation; never accepts SQL, prepared bytes or callbacks. */
   applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => Promise<OriginalDeleteNativeLinkReceipt[]>;
   readOriginalNativeDeleteSources: () => Promise<WorkspaceLinkSourceAuthorityObservation>;
+  readOriginalNativeDeleteAdmission: () => Promise<Readonly<{ requestId: string; requestDigest: string }>>;
 }>;
 type Identity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
 type Directory = { named: string; real: string; handle: FileHandle; stat: Stats };
@@ -87,6 +100,7 @@ type MoveCapture = { context: WorkspaceOperationOriginalMoveContext; preparedSte
   nativePhase?: Phase; nativeReceipts?: readonly import('../markdown/native-file-operation-handoff').NativeFileOperationReceipt[] };
 type Capture = {
   move?: MoveCapture;
+  nativePaths?: Readonly<{ guards: readonly string[]; documentIds: readonly string[] }>;
   mcp?: WorkspaceOperationMcpJobPrincipal;
   owner: WorkspaceOperationJobLifecycleOwner; claim: WorkspaceOperationBatchClaim; binding: WorkspaceOperationBatchClaimBinding;
   sourcePath: string; active: boolean; accepting: boolean; disposed: boolean; failure?: Error; disposalFailure?: Error;
@@ -154,7 +168,11 @@ async function checkDirectories(captured: Capture): Promise<void> {
       || await fs.realpath(directory.named) !== directory.real) fail('JOB_LIFECYCLE_CHANGED');
   }
 }
-async function identity(database: SqlConnection, assign: boolean): Promise<{ identity: Identity; transaction: string | null }> {
+async function identity(database: SqlConnection, assign: boolean, fence?: Capture): Promise<{
+  identity: Identity; transaction: string | null; workspaceHeld?: boolean; roomCount?: number;
+}> {
+  const key = fence ? BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(fence.binding.workspaceId))) : null;
+  const guards = fence?.nativePaths?.guards.map(guard => BigInt.asUintN(64, BigInt(guard)).toString()) ?? [];
   const row = await database.get(`SELECT pg_catalog.pg_backend_pid() AS backend,
     extract(epoch FROM a.backend_start)::text AS start,
     (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database,
@@ -164,28 +182,43 @@ async function identity(database: SqlConnection, assign: boolean): Promise<{ ide
     pg_catalog.current_setting('transaction_read_only') AS read_only,
     pg_catalog.current_setting('session_replication_role') AS replication,
     ${assign ? 'pg_catalog.pg_current_xact_id()' : 'pg_catalog.pg_current_xact_id_if_assigned()'}::text AS transaction
-    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`) as Record<string, unknown> | undefined;
+    ${fence ? `, EXISTS (SELECT 1 FROM pg_catalog.pg_locks l WHERE l.pid=a.pid
+      AND l.locktype='advisory' AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=$1::oid
+      AND l.classid::bigint=$2 AND l.objid::bigint=$3) AS workspace_held,
+      (SELECT count(*)::integer FROM pg_catalog.pg_locks l WHERE l.pid=a.pid
+        AND l.locktype='advisory' AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=$1::oid
+        AND (l.classid::bigint::numeric*4294967296+l.objid::bigint::numeric)=ANY($4::numeric[])) AS room_count` : ''}
+    FROM pg_catalog.pg_stat_activity a WHERE a.pid=pg_catalog.pg_backend_pid()`, fence
+  ? [fence.binding.source.databaseOid, Number(key! >> BigInt(32)), Number(key! & BigInt('0xffffffff')), guards]
+  : undefined) as Record<string, unknown> | undefined;
   if (!row || !Number.isSafeInteger(row.backend) || Number(row.backend) < 1 || typeof row.start !== 'string'
     || !/^[0-9]+\.[0-9]+$/u.test(row.start) || !Number.isSafeInteger(Number(row.database)) || Number(row.database) < 1
     || !Number.isSafeInteger(Number(row.schema)) || Number(row.schema) < 1 || typeof row.search_path !== 'string'
     || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin'
     || row.transaction !== null && (typeof row.transaction !== 'string' || !/^[0-9]{1,32}$/u.test(row.transaction))) fail('JOB_LIFECYCLE_CHANGED');
+  if (fence && (typeof row.workspace_held !== 'boolean' || !Number.isSafeInteger(row.room_count) || Number(row.room_count) < 0)) fail('JOB_LIFECYCLE_CHANGED');
   return { identity: Object.freeze({ backend: Number(row.backend), start: row.start, database: Number(row.database),
-    schema: Number(row.schema), searchPath: row.search_path }), transaction: row.transaction as string | null };
+    schema: Number(row.schema), searchPath: row.search_path }), transaction: row.transaction as string | null,
+  ...(fence ? { workspaceHeld: row.workspace_held as boolean, roomCount: row.room_count as number } : {}) };
 }
 const sameIdentity = (left: Identity, right: Identity) => Object.keys(left).every(key => Reflect.get(left, key) === Reflect.get(right, key));
 async function checkOwner(captured: Capture, transaction?: string): Promise<void> {
   const database = current(captured); await checkDirectories(captured); current(captured);
-  const now = await identity(database, transaction !== undefined), before = captured.identity!, source = captured.binding.source;
+  const now = await identity(database, transaction !== undefined, captured), before = captured.identity!, source = captured.binding.source;
+  current(captured);
   if (!sameIdentity(before, now.identity) || now.identity.database !== source.databaseOid || now.identity.schema !== source.schemaOid
     || now.identity.searchPath !== source.searchPath || (transaction === undefined ? now.transaction !== null : now.transaction !== transaction)) fail('JOB_LIFECYCLE_CHANGED');
-  const key = BigInt.asUintN(64, BigInt(collaborationAdmissionLockKey(captured.binding.workspaceId)));
-  const held = await database.get(`SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_stat_activity a ON a.pid=l.pid
-    WHERE l.locktype='advisory' AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=$1::oid
-      AND l.classid::bigint=$2 AND l.objid::bigint=$3 AND l.pid=$4 AND extract(epoch FROM a.backend_start)::text=$5) AS held`,
-  [source.databaseOid, Number(key >> BigInt(32)), Number(key & BigInt('0xffffffff')), before.backend, before.start]) as { held?: boolean } | undefined;
-  if (held?.held !== true || !await captured.lease!.verify()) fail('JOB_LIFECYCLE_CHANGED');
-  if (captured.move) await checkMoveGuards(captured);
+  if (captured.nativePaths) {
+    // This lease is created only by the private native guard on this same B.
+    // The just-read identity includes all its actual session locks. Check the
+    // live capability synchronously, without a second identical SQL snapshot
+    // or any await between the observation and the remaining local checks.
+    if (now.workspaceHeld !== true || !captured.lease?.active) {
+      if (captured.lease) captured.lease.active = false;
+      fail('JOB_LIFECYCLE_CHANGED');
+    }
+    checkMoveGuards(captured, now.roomCount);
+  } else if (now.workspaceHeld !== true || !await captured.lease!.verify()) fail('JOB_LIFECYCLE_CHANGED');
   current(captured);
 }
 async function checkIdle(captured: Capture): Promise<void> {
@@ -219,6 +252,17 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
     const captured: Capture = { owner, claim, binding, mcp: mcpPrincipal, sourcePath: step.sourcePath, active: false, accepting: true,
       disposed: false, directories: [], pending: new Set(), phaseCount: 0, forwardedQueries: 0 };
     if (move) captured.move = captureMove(binding);
+    const nativePlan = captured.move?.context.plan ?? (binding.actionMode === 'apply' && plan.version === 2
+      ? decodeWorkspaceOperationNativeDeleteBatchPlan(plan) : null);
+    if (nativePlan) {
+      if (!equal(nativePlan.sourceEvidence.workspaceScope, jobScope) || nativePlan.sourceEvidence.nativeBindings.length > 1024) fail('JOB_LIFECYCLE_INVALID');
+      const documentIds = nativePlan.sourceEvidence.nativeBindings.map(item => item.expected.documentId);
+      const guards = captured.move?.guards ?? documentIds.map(documentId => lockIdentity(documentId).key)
+        .sort((a,b) => BigInt(a)<BigInt(b)?-1:1);
+      if (new Set(documentIds).size !== documentIds.length || new Set(guards).size !== guards.length
+        || guards.includes(collaborationAdmissionLockKey(binding.workspaceId))) fail('JOB_LIFECYCLE_INVALID');
+      captured.nativePaths = Object.freeze({ guards: Object.freeze(guards), documentIds: Object.freeze(documentIds) });
+    }
     owners.set(owner, captured);
     let value: T | undefined, failure: Error | undefined;
     try {
@@ -229,7 +273,7 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
       // owners persist without reacquiring workspace admission on every update,
       // so all rooms/reservations must be idle before the exclusive lease is
       // retained through B1, FS and B2. New owners cannot enter beneath it.
-      const guard = move ? (input: { workspaceId: string; paths: readonly string[] }, callback: () => Promise<T>, open: () => Promise<SqlConnection>) => withMoveLifecycleGuard(captured, input, callback, open) : withWorkspaceFileLifecycleGuard;
+      const guard = captured.nativePaths ? (input: { workspaceId: string; paths: readonly string[] }, callback: () => Promise<T>, open: () => Promise<SqlConnection>) => withMoveLifecycleGuard(captured, input, callback, open) : withWorkspaceFileLifecycleGuard;
       value = await guard({ workspaceId: binding.workspaceId,
         paths: plan.version >= 2 ? [''] : [step.sourcePath] }, async () => {
         captured.lease = getWorkspaceFileLifecycleLeases()?.get(binding.workspaceId);
@@ -237,7 +281,11 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
         return context.run(captured, async () => {
           await checkIdle(captured);
           // A real current job policy is required before the caller can do physical work.
-          if (captured.move) await movePhase(owner, async () => undefined);
+          if (captured.nativePaths) {
+            const proceed = await prepareWorkspaceOperationNativePathOwner(owner);
+            if (!proceed) throw captured.move ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED')
+              : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
+          }
           else await withWorkspaceOperationJobLifecycleTransaction(owner, async () => undefined);
           let result: T | undefined, operationFailure: Error | undefined;
           try { result = await operation(owner); } catch (error) {
@@ -272,8 +320,12 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
       }, async () => {
         const original = await openConnection();
         const originalGet = original.get.bind(original), originalAll = original.all.bind(original), originalRun = original.run.bind(original);
+        const originalGetPrepared = original.getPrepared?.bind(original);
         const database: SqlConnection = Object.freeze({
           get: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalGet(sql, values); },
+          ...(originalGetPrepared ? { getPrepared: (sql: string, values?: unknown[]) => {
+            captured.forwardedQueries++; return originalGetPrepared(sql, values);
+          } } : {}),
           all: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalAll(sql, values); },
           run: (sql: string, values?: unknown[]) => { captured.forwardedQueries++; return originalRun(sql, values); },
           close: async (reason?: Error) => {
@@ -304,7 +356,7 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
 /** Short serial phases on the actual outer B. Internal DAL only, not an arbitrary SQL sandbox. */
 function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   operation: ((access: WorkspaceOperationJobLifecycleAccess) => Promise<T>) | undefined,
-  moveOperation?: (access: WorkspaceOperationJobPolicyAccess, database: SqlConnection, check: () => Promise<void>) => Promise<T>): Promise<T> {
+  moveOperation?: (access: WorkspaceOperationJobLifecycleAccess, database: SqlConnection, check: () => Promise<void>) => Promise<T>): Promise<T> {
   const captured = owner && typeof owner === 'object' ? owners.get(owner) : undefined;
   if (!captured) {
     const error = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REQUIRED'), active = context.getStore();
@@ -312,7 +364,9 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   }
   try {
     current(captured);
-    if (!captured.accepting || captured.phase || captured.pending.size || (captured.move ? typeof moveOperation !== 'function' || operation !== undefined : typeof operation !== 'function' || moveOperation !== undefined)) fail('JOB_LIFECYCLE_REENTRANT');
+    if (!captured.accepting || captured.phase || captured.pending.size
+      || (captured.move ? typeof moveOperation !== 'function' || operation !== undefined
+        : moveOperation !== undefined ? typeof moveOperation !== 'function' || operation !== undefined : typeof operation !== 'function')) fail('JOB_LIFECYCLE_REENTRANT');
   } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
   const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set(), index: ++captured.phaseCount,
     startedAt: null, startedMonotonic: 0, queriesBefore: 0, stage: 'preparation', operation: 'authority', relation: null };
@@ -339,6 +393,8 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
         const { schemaName, schemaOid, databaseOid } = captured.binding.source;
         phase.stage = 'storage';
         const storage = await (captured.move ? bindWorkspaceOperationOriginalMoveStorageOnConnection : bindWorkspaceOperationOriginalDeleteStorageOnConnection)(database, { schemaName, schemaOid, databaseOid });
+        const handoffStorage = captured.nativePaths && !captured.move
+          ? await bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection(database, { schemaName, schemaOid, databaseOid }) : null;
         // A fixed internal path set from the genuinely claimed native plan. Keep
         // advisory SQL on the actual owner B, outside the restricted facade.
         if (captured.binding.plan.version === 2) {
@@ -347,7 +403,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
         }
         const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
-          await access.assertCurrent(); await storage.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
+          await access.assertCurrent(); await storage.assertCurrent(); await handoffStorage?.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
         const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>,
           diagnosticOperation: Phase['operation'] = 'authority'): Promise<R> => {
           try {
@@ -376,7 +432,15 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           phase.stage = 'operation';
           await check();
           let result: T | undefined;
-          try { result = captured.move ? await moveOperation!(access, database, check) : await operation!(Object.freeze({ ...access, database: facade,
+          try {
+            const restrictedAccess: WorkspaceOperationJobLifecycleAccess = Object.freeze({ ...access, database: facade,
+            readOriginalNativeDeleteAdmission: () => dispatch(undefined, async () => {
+              if (captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
+              const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
+              if (!admission || !['reserved', 'draining'].includes(admission.status) || admission.outcome) fail('JOB_LIFECYCLE_CHANGED');
+              const original = captureCollaborationAdmissionRequest(admission.request);
+              return Object.freeze({ requestId: original.request.requestId, requestDigest: original.requestDigest });
+            }),
             readOriginalNativeDeleteSources: () => dispatch(undefined, async () => {
               if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
               // Fixed read of this claimed workspace only. The ordinary SQL
@@ -395,7 +459,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
-              if (intent.version !== 2 && intent.version !== 3 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
               assertOriginalDeleteIntentPlan(intent, binding.plan);
               assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
               // Keep current authority before every source (including receipt
@@ -404,9 +468,11 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
                 checkPhase(captured, phase); phase.stage = 'sql'; };
               return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate,
-                intent.version === 3 ? intent.currentWitness : undefined);
+                intent.version === 3 || intent.version === 4 ? intent.currentWitness : undefined);
             }, 'native-link-write'),
-            assertCurrent: () => dispatch(undefined, async () => undefined) })); }
+            assertCurrent: () => dispatch(undefined, async () => undefined) });
+            result = moveOperation ? await moveOperation(restrictedAccess, database, check) : await operation!(restrictedAccess);
+          }
           catch (error) { captured.failure ??= asError(error); }
           phase.accepting = false;
           if (phase.pending.size) {
@@ -466,6 +532,112 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
   return runLifecycleTransaction(owner, operation);
 }
 
+/** Fixed native Delete B2. Only the real Owner selects its immutable intent,
+ * current authority, admission request and restricted domain operation. */
+export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOperationJobLifecycleOwner,
+  input: Readonly<{ expectedIntentDigest: string; prepared: PreparedWorkspaceSingleFileTrash; physical: PreparedSingleFileTrashReceipt }>
+): Promise<WorkspaceOperationOriginalDeleteResult> {
+  const captured = owners.get(owner);
+  try {
+    if (!captured || captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_REQUIRED');
+    current(captured);
+    const fields = moveFields(input, ['expectedIntentDigest', 'prepared', 'physical']);
+    if (typeof fields.expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(fields.expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
+    const expectedIntentDigest = fields.expectedIntentDigest, prepared = fields.prepared as PreparedWorkspaceSingleFileTrash;
+    const physical = fields.physical as PreparedSingleFileTrashReceipt;
+    const original = readPreparedWorkspaceSingleFileTrash(prepared);
+    if (!equal(physical?.original, original)) fail('JOB_LIFECYCLE_CHANGED');
+    return runLifecycleTransaction(owner, undefined, async (access, database, check) => {
+      const { binding } = captured, schema = binding.source.schemaName;
+      const evidenceContext = { batchId: binding.batchId, planId: binding.planId, workspaceId: binding.workspaceId,
+        authorization: binding.authorization, sourcePath: captured.sourcePath };
+      const durable = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database, { schema, batchId: binding.batchId, forShare: true });
+      if (!durable || durable.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
+      const intent = parseIntent(durable, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
+      if (intent.version !== 4 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
+      assertOriginalDeleteIntentPlan(intent, binding.plan);
+      const admission = await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent });
+      if (admission.outcome || !['reserved', 'draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
+      const claimed = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
+      if (!claimed || !equal(captureCollaborationAdmissionRequest(claimed.request), captureCollaborationAdmissionRequest(admission.request))) fail('JOB_LIFECYCLE_CHANGED');
+      let result: WorkspaceOperationOriginalDeleteResult | undefined;
+      const outcome = await executeCollaborationAdmissionHandoffOnConnection(database, admission.request, {
+        kind: 'apply', authorize: async () => { await check(); },
+        prepare: async connection => {
+          if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
+          await check(); await assertPreparedWorkspaceSingleFileTrashCurrent(prepared); await check();
+        },
+        mutate: async connection => {
+          if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
+          await check();
+          result = await completeWorkspaceOperationOriginalDeleteDomain(access, { binding, evidenceContext,
+            originalDurable: durable, originalIntent: intent, prepared, physical });
+          await check();
+          return workspaceOperationOriginalDeleteAdmissionResult(result);
+        },
+      });
+      if (!result || outcome.version !== 1 || !equal(outcome.result, workspaceOperationOriginalDeleteAdmissionResult(result))) fail('JOB_LIFECYCLE_CHANGED');
+      await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent, result });
+      await check();
+      await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
+      return result;
+    });
+  } catch (error) {
+    if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+    return Promise.reject(error);
+  }
+}
+
+/** Validate the still-pristine source after real room quiescence. A concrete
+ * plan conflict is data until its no-write abort has committed; SQL, authority,
+ * lease and disposal failures still poison the ordinary owning phase. */
+async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperationJobLifecycleOwner): Promise<boolean> {
+  const captured = owners.get(owner);
+  if (!captured?.nativePaths) fail('JOB_LIFECYCLE_REQUIRED');
+  return runLifecycleTransaction(owner, undefined, async (access, database, check) => {
+    const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
+    if (!admission) return true; // Existing historical protocol, without a new P0.
+    if (admission.outcome) return admission.outcome.version === 1;
+    const { binding } = captured, plan = binding.plan;
+    if (plan.version === 3) {
+      const rows = await readMoveRows(captured, database);
+      if (rows.intent) return true; // Descriptor recovery must use its existing overlay.
+    } else if (plan.version === 2) {
+      if (await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
+        { schema: binding.source.schemaName, batchId: binding.batchId, forShare: true })) return true;
+    } else fail('JOB_LIFECYCLE_INVALID');
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+    await check();
+    let conflict = false;
+    try {
+      if (plan.version === 3 && plan.planIdentityVersion === 2) {
+        const prepared = await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+          { schema: binding.source.schemaName, context: captured.move!.context });
+        if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
+        const witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
+        conflict = !equal(witness, prepared.preparation.currentWitness);
+      } else if (plan.version === 2 && plan.planIdentityVersion === 2) {
+        captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceOperationNativeMovePlanError && error.code === 'NATIVE_MOVE_PLAN_CHANGED'
+        || error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_CHANGED'
+        || error instanceof WorkspaceOperationNativeSourceEvidenceError && error.code === 'NATIVE_SOURCE_EVIDENCE_CHANGED') conflict = true;
+      else throw error;
+    }
+    if (!conflict) return true;
+    await check();
+    const outcome = await executeCollaborationAdmissionHandoffOnConnection(database, admission.request, {
+      kind: 'abort', reasonCode: 'precondition_failed', authorize: async () => { await check(); },
+      prepare: async connection => { if (connection !== database) fail('JOB_LIFECYCLE_CHANGED'); await check(); },
+    });
+    if (outcome.version !== 2 || outcome.disposition !== 'aborted' || outcome.reasonCode !== 'precondition_failed') fail('JOB_LIFECYCLE_CHANGED');
+    await check();
+    await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
+    return false;
+  });
+}
+
 declare const moveOwnerBrand: unique symbol;
 export type WorkspaceOperationNativeMoveJobOwner = Readonly<{ [moveOwnerBrand]: true }>;
 export type WorkspaceOperationOriginalMoveJobReceipts = Readonly<{
@@ -520,14 +692,12 @@ function captureMovePrepared(input: readonly MovePrepared[], requireReceipts: bo
     return Object.freeze({ stepKey: fields[0], cap: fields[1], ...(requireReceipts ? { receipt: fields[2] } : {}) });
   }));
 }
-async function checkMoveGuards(captured: Capture): Promise<void> {
-  const database = current(captured), guards = captured.move!.guards.map(key => BigInt.asUintN(64,BigInt(key)).toString());
-  if (!guards.length) return;
-  const row = await database.get(`SELECT count(*)::integer AS count FROM pg_catalog.pg_locks WHERE pid=pg_catalog.pg_backend_pid()
-    AND locktype='advisory' AND granted AND mode='ExclusiveLock' AND objsubid=1 AND database=$1::oid
-    AND (classid::bigint::numeric*4294967296+objid::bigint::numeric)=ANY($2::numeric[])`,
-  [captured.binding.source.databaseOid,guards]) as {count?:number}|undefined;
-  if (row?.count !== guards.length) fail('JOB_LIFECYCLE_CHANGED'); current(captured);
+function checkMoveGuards(captured: Capture, observedCount: number | undefined): void {
+  current(captured);
+  if (observedCount !== captured.nativePaths!.guards.length) {
+    if (captured.lease) captured.lease.active = false;
+    fail('JOB_LIFECYCLE_CHANGED');
+  }
 }
 async function readMoveRows(captured: Pick<Capture,'binding'|'move'>, database: SqlConnection): Promise<WorkspaceOperationOriginalMoveJobReceipts> {
   const selected = captured.move!.context, schema = captured.binding.source.schemaName;
@@ -550,16 +720,13 @@ function moveRequest(captured: Pick<Capture,'binding'|'move'>, intent: Workspace
 async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:string;paths:readonly string[]},
   callback: () => Promise<T>, open: () => Promise<SqlConnection>): Promise<T> {
   const database = await open(); let closed = false;
-  const key = collaborationAdmissionLockKey(input.workspaceId), unsigned = BigInt.asUintN(64,BigInt(key));
+  const key = collaborationAdmissionLockKey(input.workspaceId);
   const lease: WorkspaceFileLifecycleLease = {active:true,verify:async () => {
     if (!lease.active || closed) return false;
     try {
-      const now = await identity(database,false);
-      const held = await database.get(`SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_locks WHERE pid=pg_catalog.pg_backend_pid()
-        AND locktype='advisory' AND granted AND mode='ExclusiveLock' AND objsubid=1 AND database=$1::oid
-        AND classid::bigint=$2 AND objid::bigint=$3) AS held`,
-      [captured.binding.source.databaseOid,Number(unsigned>>BigInt(32)),Number(unsigned&BigInt('0xffffffff'))]) as {held?:boolean}|undefined;
-      if (held?.held === true && sameIdentity(captured.identity!,now.identity) && lease.active && !closed) return true;
+      const now = await identity(database,false,captured);
+      if (now.workspaceHeld === true && now.roomCount === captured.nativePaths!.guards.length
+        && sameIdentity(captured.identity!,now.identity) && lease.active && !closed) return true;
     } catch { /* Lost B revokes the actual lease. */ }
     lease.active = false; return false;
   }};
@@ -567,22 +734,40 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
     await database.run("SET statement_timeout='5s'"); await database.run("SET lock_timeout='4s'");
     const locked = await database.get('SELECT pg_try_advisory_lock($1::bigint) AS locked',[key]) as {locked?:boolean}|undefined;
     if (locked?.locked !== true) fail('JOB_LIFECYCLE_CHANGED');
-    // Read the immutable original before allowing only its exact reservation.
-    const row = await readWorkspaceOperationOriginalMoveIntentOnConnection(database,{schema:captured.binding.source.schemaName,batchId:captured.binding.batchId});
+    // The held workspace session lease permits only this genuine Claim's
+    // exact durable P0, or its actual historical B1 without a new P0.
+    const prefix = `"${captured.binding.source.schemaName.replaceAll('"','""')}"`;
+    const row = captured.move ? await readWorkspaceOperationOriginalMoveIntentOnConnection(database,
+      {schema:captured.binding.source.schemaName,batchId:captured.binding.batchId}) : null;
     const intent = row ? parseWorkspaceOperationOriginalMoveIntent(row,captured.move!.context) : null;
-    const own = intent ? captureCollaborationAdmissionRequest(moveRequest(captured,intent)) : null;
-    const active = await database.all(`SELECT DISTINCT r.request_id,r.request_digest,r.intent_text FROM collaboration_admission_scopes s
-      JOIN collaboration_admission_requests r USING(request_id) WHERE s.workspace_id=$1 AND r.status NOT IN('committed','cancelled') LIMIT 3`,[input.workspaceId]) as Array<{request_id:string;request_digest:string;intent_text:string}>;
+    const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
+    if (admission?.outcome?.version === 2 || admission?.status === 'cancelled') throw captured.move
+      ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
+    if (admission && !['reserved','draining'].includes(admission.status)
+      && !(captured.move && intent && admission.status === 'committed' && admission.outcome?.version === 1)) fail('JOB_LIFECYCLE_CHANGED');
+    if ((captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
+      && captured.binding.plan.planIdentityVersion === 2 && !admission && !intent) {
+      const historical = !captured.move && await database.get(`SELECT 1 AS present FROM ${prefix}.workspace_file_operation_delete_intents WHERE batch_id=$1`,[captured.binding.batchId]);
+      if (!historical) fail('JOB_LIFECYCLE_CHANGED');
+    }
+    const own = admission ? captureCollaborationAdmissionRequest(admission.request)
+      : intent ? captureCollaborationAdmissionRequest(moveRequest(captured,intent)) : null;
+    const active = await database.all(`SELECT DISTINCT CASE WHEN octet_length(r.request_id)=36 THEN r.request_id END AS request_id,
+      CASE WHEN octet_length(r.request_digest)=64 THEN r.request_digest END AS request_digest,
+      CASE WHEN octet_length(r.intent_text)=$2 AND octet_length(r.intent_text)<=16777216 THEN r.intent_text END AS intent_text
+      FROM ${prefix}.collaboration_admission_scopes s JOIN ${prefix}.collaboration_admission_requests r USING(request_id)
+      WHERE s.workspace_id=$1 AND r.status NOT IN('committed','cancelled') LIMIT 3`,
+    [input.workspaceId,own ? Buffer.byteLength(own.intentText) : 0]) as Array<{request_id:string|null;request_digest:string|null;intent_text:string|null}>;
     if (active.some(item => !own || item.request_id !== own.request.requestId || item.request_digest !== own.requestDigest || item.intent_text !== own.intentText)
       || active.length > 1) fail('JOB_LIFECYCLE_CHANGED');
-    for (const room of captured.move!.guards) {
+    for (const room of captured.nativePaths!.guards) {
       const result = await database.get('SELECT pg_try_advisory_lock($1::bigint) AS locked',[room]) as {locked?:boolean}|undefined;
       if (result?.locked !== true) fail('JOB_LIFECYCLE_CHANGED');
     }
     const rows = await database.all(`SELECT document_id,room_owner_token,room_owner_backend_pid,room_owner_backend_start
-      FROM collaboration_yjs_states WHERE workspace_id=$1 AND status='active' ORDER BY document_id LIMIT 1025`,[input.workspaceId]) as Array<Record<string,unknown>>;
-    const ids = captured.move!.context.plan.sourceEvidence.nativeBindings.map(item => item.expected.documentId).sort();
-    if (rows.length !== ids.length || rows.some((row,index) => row.document_id !== ids[index] || row.room_owner_token !== null
+      FROM ${prefix}.collaboration_yjs_states WHERE workspace_id=$1 AND status='active' ORDER BY document_id COLLATE "C" LIMIT 1025`,[input.workspaceId]) as Array<Record<string,unknown>>;
+    const rowsById = new Map(rows.map(row => [row.document_id,row])), expectedIds = new Set(captured.nativePaths!.documentIds);
+    if (rows.length !== expectedIds.size || rowsById.size !== rows.length || rows.some(row => !expectedIds.has(row.document_id as string) || row.room_owner_token !== null
       || row.room_owner_backend_pid !== null || row.room_owner_backend_start !== null
       || getCollaborationRoomConnectionCount(String(row.document_id)) > 0)) fail('JOB_LIFECYCLE_CHANGED');
     const leases = new Map(getWorkspaceFileLifecycleLeases() ?? []); leases.set(input.workspaceId,lease);
@@ -617,8 +802,14 @@ export function readWorkspaceOperationOriginalMovePreparation(owner: WorkspaceOp
       if (plan.planIdentityVersion !== 2) return plan.sourceEvidence;
       const rows = await readMoveRows(captured, database);
       if (rows.intent || rows.completion) fail('JOB_LIFECYCLE_CHANGED');
+      const preparation = await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+        {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true});
+      const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
+      if (!preparation || !admission || !['reserved','draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
       const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
-      return captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
+      const currentWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
+      if (!equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
+      return preparation.preparation.currentWitness;
     });
   } catch (error) { return rejectMoveBoundary(owner, error); }
 }
@@ -667,16 +858,30 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
   return movePhase(owner,async (access,database,check) => {
     const { captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection } = await import('./workspace-operation-original-move-namespace-effects');
     for (const item of prepared) { await assertPreparedWorkspacePathMoveCurrent(item.cap); await check(); }
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace);
     const plan = captured.move!.context.plan;
+    const existing = await readMoveRows(captured,database);
+    const preparation = plan.planIdentityVersion === 2 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+      {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true}) : null;
+    if (plan.planIdentityVersion === 2 && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace);
     const currentWitness = plan.planIdentityVersion === 2
       ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
     if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
+    if (preparation && !equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
     const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context});
-    const nativeBundle = buildMoveNativeBundle(captured.move!.context,observation,currentWitness ?? plan.sourceEvidence);
+    // A legitimate null bundle is also final P0 data. Do not use ?? here:
+    // it would silently prepare new deltas for that original null arm.
+    const nativeBundle = preparation ? preparation.nativeBundleData
+      : buildMoveNativeBundle(captured.move!.context,observation,currentWitness ?? plan.sourceEvidence);
     const intent = createWorkspaceOperationOriginalMoveIntent({physical,nativeBundle,namespaceState,
-      ...(currentWitness ? {currentWitness} : {})},captured.move!.context);
-    const existing = await readMoveRows(captured,database);
+      ...(currentWitness ? {currentWitness:preparation ? preparation.preparation.currentWitness : currentWitness} : {})},captured.move!.context);
+    const request = moveRequest(captured,intent);
+    if (preparation) {
+      const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
+      if (!admission || !['reserved','draining'].includes(admission.status)
+        || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(preparation.request))
+        || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(admission.request))) fail('JOB_LIFECYCLE_CHANGED');
+    }
     if (existing.intentRow) {
       if (existing.intentRow.intentText !== moveJson(intent)) fail('JOB_LIFECYCLE_CHANGED');
       return existing;
@@ -689,7 +894,6 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
       const staged = await stageNativeFileOperationBundleOnConnection(database,bundle);
       if (staged.changesBundleProof !== intent.nativeBundle!.changesBundleProof || staged.actionPayloadText !== intent.nativeBundle!.actionPayloadText) fail('JOB_LIFECYCLE_CHANGED');
     }
-    const request = moveRequest(captured,intent);
     const reserved = await reserveCollaborationAdmissionOnConnection(database,request);
     if (!['reserved','draining'].includes(reserved.status)) fail('JOB_LIFECYCLE_CHANGED');
     for (const document of request.expectedDocuments) { await proveCollaborationAdmissionQuiescenceOnConnection(database,request,document.documentId); await check(); }
@@ -868,13 +1072,76 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
     const inserted = await insertWorkspaceOperationOriginalMoveReceiptOnConnection(database,{schema:captured.binding.source.schemaName,
       batchId:intent.batchId,intentDigest:rows.intentRow.intentDigest,receiptText});
     if (inserted.kind === 'conflict') fail('JOB_LIFECYCLE_CHANGED');
-    return decodeWorkspaceOperationOriginalMoveCompletion(inserted.row,intent,rows.parentRows,rows.pathRows);
+    const completed = decodeWorkspaceOperationOriginalMoveCompletion(inserted.row,intent,rows.parentRows,rows.pathRows);
+    await notifyWorkspaceFileInvalidationOnConnection(database, captured.binding.workspaceId);
+    return completed;
   });
   } catch (error) { return rejectMoveBoundary(owner,error); }
 }
 
 /** Authorized historical proof only. This opens no FS handle, acquires no room
  * or workspace guard and never replays physical/native/metadata operations. */
+export function readWorkspaceOperationOriginalDeleteJobHistory(claim: WorkspaceOperationBatchClaim,
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal
+): Promise<WorkspaceOperationOriginalDeleteResult | null> {
+  if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
+  const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization, plan = binding.plan;
+  if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
+    || plan.version === 3 || plan.pathSteps.length !== 1 || plan.pathSteps[0].kind !== 'delete'
+    || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
+  const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, false);
+  return withWorkspaceOperationJobClaimPhase(claim, async () => {
+    const policy = mcpPrincipal ? undefined : await captureWorkspaceOperationJobPolicy(), database = await openConnection();
+    let begun = false, commitAttempted = false, failure: Error | undefined;
+    try {
+      await database.run("SET statement_timeout='5s'"); await database.run("SET lock_timeout='50ms'");
+      const first = await identity(database, true), second = await identity(database, false);
+      if (!sameIdentity(first.identity, second.identity) || second.transaction !== null
+        || second.identity.database !== binding.source.databaseOid || second.identity.schema !== binding.source.schemaOid
+        || second.identity.searchPath !== binding.source.searchPath) fail('JOB_LIFECYCLE_CHANGED');
+      await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
+      const started = await identity(database, true);
+      if (!sameIdentity(started.identity, second.identity) || !started.transaction) fail('JOB_LIFECYCLE_CHANGED');
+      const check = async () => {
+        const now = await identity(database, false);
+        if (!sameIdentity(now.identity, second.identity) || now.transaction !== started.transaction
+          || readWorkspaceOperationBatchClaimBinding(claim) !== binding) fail('JOB_LIFECYCLE_CHANGED');
+      };
+      const authorize = (operation: (access: WorkspaceOperationJobPolicyAccess) => Promise<WorkspaceOperationOriginalDeleteResult | null>) => mcpPrincipal
+        ? withWorkspaceOperationMcpJobPolicyOnConnection(database, { claim, principal: mcpPrincipal }, operation)
+        : withWorkspaceOperationJobPolicyOnConnection(database, { claim, policy: policy! }, operation);
+      const result = await authorize(async access => {
+        const { schemaName, schemaOid, databaseOid } = binding.source;
+        const storage = await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database, { schemaName, schemaOid, databaseOid });
+        await access.assertCurrent(); await check();
+        const result = await readOriginalDeleteJobRows(database, binding, access);
+        await access.assertCurrent(); await storage.assertCurrent(); await check(); return result;
+      });
+      await check(); commitAttempted = true; await database.run('COMMIT'); begun = false; return result;
+    } catch (error) {
+      failure = asError(error);
+      if (begun) try { await database.run('ROLLBACK'); } catch (rollback) { failure = new AggregateError([failure, asError(rollback)]); }
+      if (commitAttempted) failure = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_COMMIT_UNCONFIRMED', { cause: failure });
+      throw failure;
+    } finally {
+      try { await database.close(failure ?? new Error('Discarding original Delete historical proof session.')); }
+      catch (close) { throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DISPOSAL_UNCONFIRMED', {
+        cause: failure ? new AggregateError([failure, asError(close)]) : close }); }
+    }
+  });
+}
+
+async function readOriginalDeleteJobRows(database: SqlConnection, binding: WorkspaceOperationBatchClaimBinding,
+  access: WorkspaceOperationJobPolicyAccess): Promise<WorkspaceOperationOriginalDeleteResult | null> {
+  const observed = await readWorkspaceOperationOriginalDeleteObservationOnConnection(database, { schema: binding.source.schemaName,
+    context: { batchId: binding.batchId, planId: binding.planId, workspaceId: binding.workspaceId,
+      authorization: binding.authorization, sourcePath: binding.plan.pathSteps[0].sourcePath },
+    workspace: access.workspace, dataRoot: resolveWorkspaceDataRoot() });
+  if (observed.original && binding.plan.version === 2) assertOriginalDeleteIntentPlan(observed.original, binding.plan);
+  return observed.deleted;
+}
+
+/** Authorized historical Move proof, without current-path or room lookup. */
 export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOperationBatchClaim,
   openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<WorkspaceOperationOriginalMoveJobReceipts|null> {
   if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
@@ -906,7 +1173,7 @@ export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOpe
         const rows = await readMoveRows(captured,database);
         if (!rows.completion || !rows.intent) return null;
         const request = moveRequest(captured,rows.intent), outcome = await readHistoricalCollaborationAdmissionOutcomeOnConnection(database,captureCollaborationAdmissionRequest(request));
-        if (!outcome) fail('JOB_LIFECYCLE_CHANGED');
+        if (!outcome || outcome.version !== 1) fail('JOB_LIFECYCLE_CHANGED');
         const bundle = readWorkspaceOperationOriginalMoveNativeBundle(rows.intent);
         if (bundle) {
           for (const reference of rows.completion.native!.receipts) {

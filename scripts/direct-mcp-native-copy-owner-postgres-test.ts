@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { Notification } from 'pg';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { SqlConnection } from '../app/lib/db';
 import type { DirectMcpWorkspaceCopyPrincipal } from '../app/lib/mcp/server/document-read-principal';
@@ -15,7 +16,7 @@ import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './hel
 
 // Actual fixture issuer/current MCP principal -> existing Owner -> real PG/FD.
 // No verifier, AuthInfo claim, permission, workspace, SQL result, writer or
-// publication acknowledgement is substituted. No public Copy handler exists.
+// publication acknowledgement is substituted. Public tools and SDK have separate acceptance suites.
 const sha = (value: string | Uint8Array) => crypto.createHash('sha256').update(value).digest('hex');
 const xid32 = (value: string) => (BigInt(value) % BigInt('4294967296')).toString();
 let currentCase = 'setup', groups = 0, completed = false;
@@ -142,7 +143,8 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
         assert(++statements <= 5000);
         // Observe actual statements after execution; CTE DML is included. No
         // SQL result, writer, verifier or permission is replaced by this probe.
-        if (/\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)) writes.push(event.text);
+        if (/\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)
+          || /\bpg_notify\s*\(/iu.test(event.text)) writes.push(event.text);
         await observe?.(event);
       }, operation);
       assert(statements > 0); assert.deepEqual(writes, [], 'Pure status must issue no actual DML or DDL.'); return result;
@@ -263,6 +265,116 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
         proof.intent = captureExcalidrawCopyIntent(row.intent_json); proof.client = event.client; proof.xid = proof.intent.b1TransactionId;
         assert.equal(row.xmin, xid32(proof.xid)); const stage = await staging.loadManagedCopyByOperationId(job.operationId); assert(stage); proof.stage = stage;
         assert.deepEqual(stage.origin, job.original); assert.equal(JSON.stringify(stage).includes('mcpPrincipal'), false);
+      }
+    };
+    // This helper owns the sole fixture probe. The product channel is never
+    // used for a test barrier, and source-workspace hints are rejected.
+    const observeNativeCopyTerminalNotifications = async <T>(job: Job, mode: 'committed' | 'rollback' | 'none',
+      operation: () => Promise<T>, loseCommitAck = false): Promise<T> => {
+      const productChannel = 'canvas_workspace_files', payload = JSON.stringify({ workspaceId: h.destination.workspaceId });
+      const controlChannel = `canvas_copy_notify_${crypto.randomBytes(12).toString('hex')}`, barrier = crypto.randomUUID();
+      const sql = `SELECT 'journal' AS kind,to_jsonb(t)::text AS body,xmin::text AS xmin FROM workspace_file_operations t WHERE operation_id=$1
+        UNION ALL SELECT 'native',to_jsonb(t)::text,xmin::text FROM collaboration_native_copy_receipts t WHERE operation_id=$1
+        UNION ALL SELECT 'scene',to_jsonb(t)::text,xmin::text FROM collaboration_excalidraw_copy_receipts t WHERE operation_id=$1 ORDER BY kind`;
+      const packets: Notification[] = [];
+      const subscriberPid = Number((await h.admin.query('SELECT pg_backend_pid() AS pid')).rows[0].pid);
+      assert(Number.isSafeInteger(subscriberPid) && subscriberPid > 0);
+      let selected: MetadataSqlEvent['client'] | undefined, observed: { rows: unknown; pid: number; start: string; xid: string } | undefined;
+      let before: unknown, terminal = false, barrierSeen = false, notifyCalls = 0, listenerFailure: unknown;
+      let failed = false, failure: unknown, result!: T, probeStage = 'listen';
+      const rollbackFault = Object.assign(new Error('FIXTURE_COPY_TERMINAL_NOTIFY_ROLLBACK'), { code: 'FIXTURE_COPY_TERMINAL_NOTIFY_ROLLBACK' });
+      const onNativeCopyTerminalNotification = (message: Notification): void => {
+        try {
+          if (message.channel === controlChannel && message.payload === barrier) {
+            assert.equal(message.processId, observed?.pid ?? subscriberPid); barrierSeen = true; return;
+          }
+          if (message.channel !== productChannel || message.payload !== payload
+            && message.payload !== JSON.stringify({ workspaceId: h.source.workspaceId })) return;
+          const value = JSON.parse(message.payload);
+          if (value?.workspaceId !== h.source.workspaceId && value?.workspaceId !== h.destination.workspaceId) return;
+          assert.deepEqual(value, { workspaceId: h.destination.workspaceId }, 'Copy invalidates destination only.');
+          assert(packets.length < 8); packets.push(message);
+        } catch (error) { listenerFailure ??= error; }
+      };
+      h.admin.on('notification', onNativeCopyTerminalNotification);
+      try {
+        await h.admin.query(`LISTEN ${productChannel}`); await h.admin.query(`LISTEN ${controlChannel}`);
+        try { result = await h.withProbe(async event => {
+          if (/\bpg_notify\s*\(/iu.test(event.text)) {
+            // Mixed Copy also emits the existing Scene lifecycle channel. It
+            // is a separate real event, not a workspace-files terminal hint.
+            if (event.text.trim() === "SELECT pg_notify('canvas_excalidraw_scene',json_build_object(\n    'documentId',document_id,'sceneSequence',scene_sequence)::text) FROM collaboration_excalidraw_states\n    WHERE workspace_id=$1 AND EXISTS (SELECT 1 FROM unnest($2::text[]) scope(path)\n      WHERE collaboration_excalidraw_states.path=scope.path\n        OR left(collaboration_excalidraw_states.path,char_length(scope.path)+1)=scope.path||'/')") {
+              assert.notEqual(mode, 'none', 'Historical Copy must execute no Notify statement.');
+              assert.equal(event.values.length, 2); assert.equal(event.values[0], h.destination.workspaceId);
+              assert(Array.isArray(event.values[1]) && event.values[1].length > 0
+                && event.values[1].every(value => typeof value === 'string'));
+              return;
+            }
+            probeStage = 'notify-arguments';
+            assert.notEqual(mode, 'none', 'Historical Copy must execute no Notify statement.');
+            assert.deepEqual(event.values, [productChannel, payload]); assert.equal(++notifyCalls, 1);
+            selected = event.client; probeStage = 'notify-witness';
+            const witness = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+              pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+            assert.equal(witness.schema, h.schema); assert(witness.xid); assert.notEqual(Number(witness.pid), subscriberPid); assert.equal(packets.length, 0);
+            probeStage = 'publication-rows';
+            const rows = (await event.raw(sql, [job.operationId])).rows; assert.equal(rows.length, 3);
+            const journalRow = JSON.parse(rows.find(row => row.kind === 'journal')!.body);
+            const native = JSON.parse(rows.find(row => row.kind === 'native')!.body);
+            const scene = JSON.parse(rows.find(row => row.kind === 'scene')!.body);
+            assert.equal(journalRow.operation_id, job.operationId); assert.equal(journalRow.status, 'completed');
+            assert.equal(native.operation_id, job.operationId); assert.equal(native.workspace_id, h.destination.workspaceId);
+            assert.equal(native.publication_status, 'published'); assert(scene.birth_json);
+            probeStage = 'uncommitted-observer';
+            before = (await h.admin.query(sql, [job.operationId])).rows;
+            assert.notDeepEqual(before, rows, 'Independent admin cannot see uncommitted publication.');
+            observed = { rows, pid: Number(witness.pid), start: witness.start, xid: witness.xid };
+            if (mode === 'rollback') { probeStage = 'rollback-fault'; throw rollbackFault; }
+          }
+          if (observed && event.client === selected && /^\s*(?:COMMIT|ROLLBACK)\s*$/iu.test(event.text) && !terminal) {
+            probeStage = 'terminal-witness';
+            assert.equal(event.result.command, mode === 'rollback' ? 'ROLLBACK' : 'COMMIT'); terminal = true;
+            const witness = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+              pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+            assert.equal(Number(witness.pid), observed.pid); assert.equal(witness.start, observed.start); assert.equal(witness.xid, null);
+            assert.deepEqual((await h.admin.query(sql, [job.operationId])).rows, mode === 'rollback' ? before : observed.rows);
+            await event.raw('SELECT pg_catalog.pg_notify($1,$2)', [controlChannel, barrier]);
+            if (loseCommitAck) throw Object.assign(new Error('FIXTURE_COPY_TERMINAL_NOTIFY_ACK_LOST'), { code: 'FIXTURE_COPY_TERMINAL_NOTIFY_ACK_LOST' });
+          }
+        }, operation); } catch (error) {
+          failed = true; failure = error;
+          const queued: unknown[] = [error], diagnostics: Record<string, unknown>[] = [];
+          while (queued.length && diagnostics.length < 8) {
+            const value = queued.shift();
+            if (!value || typeof value !== 'object') continue;
+            const fields = Object.getOwnPropertyDescriptors(value), record: Record<string, unknown> = {};
+            for (const key of ['name', 'code', 'actual', 'expected']) {
+              const scalar = fields[key]?.value;
+              if (scalar === null || typeof scalar === 'boolean' || typeof scalar === 'number'
+                || typeof scalar === 'string' && /^[A-Za-z0-9_ -]{1,96}$/u.test(scalar)) record[key] = scalar;
+            }
+            if (value instanceof Error) record.name = value.name;
+            diagnostics.push(record);
+            if (fields.cause && 'value' in fields.cause) queued.push(fields.cause.value);
+            if (Array.isArray(fields.errors?.value)) queued.push(...fields.errors.value.slice(0, 8));
+          }
+          console.error(JSON.stringify({ test: 'copy-terminal-notify-original-error', mode, probeStage,
+            notifyCalls, terminal, observed: Boolean(observed), diagnostics }));
+        }
+        if (mode === 'none') {
+          assert.equal(notifyCalls, 0); await h.admin.query('SELECT pg_catalog.pg_notify($1,$2)', [controlChannel, barrier]);
+        } else { assert.equal(notifyCalls, 1); assert(terminal && observed); }
+        const deadline = Date.now() + 10_000;
+        while (!barrierSeen && listenerFailure === undefined && Date.now() < deadline) await new Promise<void>(resolve => setTimeout(resolve, 10));
+        if (listenerFailure !== undefined) throw listenerFailure;
+        assert(barrierSeen, 'Actual Copy terminal-notification server barrier was not delivered.');
+        assert.equal(packets.length, mode === 'committed' ? 1 : 0);
+        if (mode === 'committed') { assert(observed); assert.equal(packets[0].processId, observed.pid); }
+        if (failed) throw failure; return result;
+      } finally {
+        h.admin.off('notification', onNativeCopyTerminalNotification);
+        try { await h.admin.query(`UNLISTEN ${controlChannel}`); }
+        finally { await h.admin.query(`UNLISTEN ${productChannel}`); }
       }
     };
     const group = async (name: string, action: () => Promise<void>) => { currentCase = name; await action(); groups++; console.log(`PASS MCP Copy owner ${groups}: ${name}`); };
@@ -517,9 +629,32 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       assert(historyClient && revokedAfterHistory); assert.equal(returnedStatus, false, 'A revoked C2 must withhold the already-observed historical status.');
       assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), filesBefore);
     });
+    await group('fresh Copy publication notifies destination on actual B2 COMMIT, rollback is silent and historical retry emits nothing', async () => {
+      const job = await seed();
+      await assert.rejects(observeNativeCopyTerminalNotifications(job, 'rollback', () => invoke(job)),
+        expectedCode('FIXTURE_COPY_TERMINAL_NOTIFY_ROLLBACK'));
+      assert.equal((await nativeLedger(job.operationId)).publication_status, 'native_committed');
+      assert.equal((await sceneLedger(job.operationId)).birth_json, null);
+      const interrupted = await observeNativeCopyTerminalNotifications(job, 'committed', () => recoverJob(job, tokenA), true);
+      assert.equal(interrupted.result.execution.status, 'needs_recovery');
+      assert.equal(interrupted.result.execution.errorCode, 'NATIVE_COPY_COMMIT_UNCONFIRMED');
+      const committedNative = await nativeLedger(job.operationId), committedScene = await sceneLedger(job.operationId);
+      assert.equal(committedNative.publication_status, 'published'); assert(committedScene.birth_json);
+      const repeated = await observeNativeCopyTerminalNotifications(job, 'none', () => invoke(job));
+      await complete(job, repeated.result, true);
+      assert.deepEqual(await nativeLedger(job.operationId), committedNative); assert.deepEqual(await sceneLedger(job.operationId), committedScene);
+      const before = await domainSnapshot(), files = await filesystem();
+      const historical = await observeNativeCopyTerminalNotifications(job, 'none', () => invoke(job));
+      await complete(job, historical.result, true);
+      await withoutStatusDml(() => capture(authInfo(tokenA), selection, async mcpPrincipal => {
+        assert(job.original); const visible = await readStatus({ origin: job.original, mcpPrincipal, operationId: job.operationId });
+        assert.deepEqual(visible.completion, { status: 'confirmed', historical: true, copiedPaths: [job.destinationPath] });
+      }));
+      assert.deepEqual(await domainSnapshot(), before); assert.deepEqual(await filesystem(), files);
+    });
   }); } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
-  assert.equal(groups, 9); completed = true;
-  console.log(`Direct MCP native Copy Owner: ${groups}/9 actual JWT/PG/FD Recover and pure-status families; no public tool, SDK, TCP, compiled OAuth or browser acceptance.`);
+  assert.equal(groups, 10); completed = true;
+  console.log(`Direct MCP native Copy Owner: ${groups}/10 actual JWT/PG/FD Recover, pure-status and terminal-notification families; no SDK, TCP, compiled OAuth or browser acceptance.`);
 }
 
 void directMcpNativeCopyOwnerPostgresTest().catch(error => {

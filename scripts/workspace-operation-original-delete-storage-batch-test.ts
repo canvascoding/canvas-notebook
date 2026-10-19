@@ -24,9 +24,11 @@ function body(name: string): readonly ts.Statement[] {
 }
 const statementsHash = (nodes: readonly ts.Statement[]) => hash(nodes.map(node => printer.printNode(ts.EmitHint.Unspecified, node, ast)).join('\n'));
 const baseline = {
-  // Normalized original AST at SHA48a24c11… before this batching change.
+  // Normalized original AST at SHA48a24c11… before batching. The trigger
+  // baseline additionally includes the already-existing native edit guard,
+  // confirmed unchanged against the source before fingerprinting.
   constraints: '747e2003dd79df6ab9574249bca5e4d4f499d89f3896e4ef7fca6c1cfd8dda53',
-  triggers: '8a34374b0a51cd1223cbc9d819d1ccda918974eeab20d5f5ce7c9b4bc12ee667',
+  triggers: '223cb06da120e5b620c0502f628c40125aec21a36e6af8f9093fd7d249261a54',
   realm: '33b59401508feb78d4d229f436e23c97cc018b50d7a11db84aa192762d1c7f92',
   relations: '0a400f9b24ef728cdd62d6cbde673b8f3042d7537aed3d53e8c018d0a7c04c5f',
   locks: '1a8ea73bc4d5c7b5b6e676e81587be1c5e34783b6df8254ba622efcfae345889',
@@ -44,15 +46,15 @@ test('all six original semantic validator blocks retain their original AST', () 
 type Row = Record<string, unknown>;
 type Column = { name: string; type: string; notNull: boolean };
 type Module = typeof Storage & { fixtureFacts: { names: string[]; expectedColumns: Record<string, Column[]>;
-  immutableSource: string; initializeSource: string; nativeLinkScopeSource: string } };
+  immutableSource: string; initializeSource: string; nativeLinkScopeSource: string; nativeEditGuardSource: string } };
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022,
   module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText;
 const native = createRequire(file), loaded = { exports: {} as Module };
 // The test VM exposes metadata solely to construct declared catalogue rows.
 // No production export, SQL result override or capability is added.
-new Function('require', 'module', 'exports', `${compiled}\nmodule.exports.fixtureFacts={names,expectedColumns,immutableSource,initializeSource,nativeLinkScopeSource};`)(
+new Function('require', 'module', 'exports', `${compiled}\nmodule.exports.fixtureFacts={names,expectedColumns,immutableSource,initializeSource,nativeLinkScopeSource,nativeEditGuardSource};`)(
   (name: string) => name === 'server-only' ? {} : native(name), loaded, loaded.exports);
-const { names, expectedColumns, immutableSource, initializeSource, nativeLinkScopeSource } = loaded.exports.fixtureFacts;
+const { names, expectedColumns, immutableSource, initializeSource, nativeLinkScopeSource, nativeEditGuardSource } = loaded.exports.fixtureFacts;
 const nativeLinkTable = 'collaboration_native_link_mutation_receipts';
 const realm = { schema_name: 'storage_fixture', schema_oid: '21', database_oid: '31' };
 const binding = { schemaName: realm.schema_name, schemaOid: 21, databaseOid: 31 };
@@ -86,13 +88,15 @@ function facts(): Row {
     for (const columns of spec.uniqueKeys) unique(spec.table, 'u', columns);
     for (const fk of spec.foreignKeys) foreign(spec.table, fk.columns, fk.table, fk.referencedColumns);
   }
-  for (const spec of [...specs.map(spec => ({ table: spec.table, name: spec.immutableTrigger, immutable: true })),
-    { table: 'collaboration_yjs_states', name: 'collaboration_yjs_state_initialized', immutable: false }]) {
-    triggers.push({ oid: nextOid++, table_name: spec.table, tgname: spec.name, tgtype: spec.immutable ? 27 : 5,
+  for (const spec of [...specs.map(spec => ({ table: spec.table, name: spec.immutableTrigger, immutable: true, nativeEdit: false })),
+    { table: 'collaboration_yjs_states', name: 'collaboration_yjs_state_initialized', immutable: false, nativeEdit: false },
+    { table: 'collaboration_agent_operations', name: 'native_edit_operation_guard', immutable: false, nativeEdit: true }]) {
+    triggers.push({ oid: nextOid++, table_name: spec.table, tgname: spec.name, tgtype: spec.immutable ? 27 : spec.nativeEdit ? 31 : 5,
       tgenabled: 'O', tgisinternal: false, tgnargs: 0, qualification: null, attributes: '', tgdeferrable: false,
-      tginitdeferred: false, constraint_oid: 0, function_oid: spec.immutable ? 5000 : 5001, function_schema: 21,
-      function_schema_name: realm.schema_name, proname: spec.immutable ? WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION : 'mark_collaboration_yjs_state_initialized',
-      prosrc: spec.immutable ? immutableSource : initializeSource, prosecdef: false, proconfig: null,
+      tginitdeferred: false, constraint_oid: 0, function_oid: spec.immutable ? 5000 : spec.nativeEdit ? 5003 : 5001, function_schema: 21,
+      function_schema_name: realm.schema_name, proname: spec.immutable ? WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION
+        : spec.nativeEdit ? 'canvas_native_edit_operation_guard' : 'mark_collaboration_yjs_state_initialized',
+      prosrc: spec.immutable ? immutableSource : spec.nativeEdit ? nativeEditGuardSource : initializeSource, prosecdef: false, proconfig: null,
       prokind: 'f', pronargs: 0, returns_trigger: true, lanname: 'plpgsql' });
   }
   triggers.push({ oid: nextOid++, table_name: nativeLinkTable, tgname: 'native_link_mutation_receipt_scope', tgtype: 31,
@@ -117,8 +121,12 @@ function harness(): Harness {
       // Keep one complete catalogue model for every existing mutator, and
       // project the two bounded result partitions exactly as the SQL does.
       const snapshot = structuredClone(result.snapshot), constraints = snapshot.constraints as Row[];
-      return { ...snapshot, constraints: constraints.filter(row => row.table_name !== nativeLinkTable),
-        native_link_constraints: constraints.filter(row => row.table_name === nativeLinkTable) }; },
+      const partitioned = { ...snapshot, constraints: constraints.filter(row => row.table_name !== nativeLinkTable),
+        native_link_constraints: constraints.filter(row => row.table_name === nativeLinkTable) };
+      // Declared SQL-result model: the digest covers every snapshot fact. This
+      // does not claim to execute PostgreSQL's JSONB serialization or SHA-256.
+      const fingerprint = hash(JSON.stringify(partitioned));
+      return sql.includes('SELECT s.*,') ? { ...partitioned, fingerprint } : { fingerprint }; },
     all: async (sql, parameters = []) => { call('all', sql, parameters);
       assert(sql.includes('pg_catalog.unnest($2::text[])'));
       return (facts().relations as Row[]).map(row => ({ ...row, oid: String(row.oid), resolved: String(row.resolved), schema_oid: '21' })); },
@@ -230,6 +238,9 @@ for (const native of [false, true]) test(`fresh inspection independently pins th
 const nativeScope = (snapshot: Row) => rows(snapshot, 'triggers').find(row => row.table_name === nativeLinkTable && row.tgname === 'native_link_mutation_receipt_scope')!;
 const nativeForeignTrigger = (snapshot: Row) => rows(snapshot, 'triggers').find(row => row.table_name === nativeLinkTable && row.tgisinternal === true)!;
 const nativeMutate: Array<[string, (snapshot: Row) => void]> = [
+  ['missing native edit guard', s => { s.triggers = rows(s, 'triggers').filter(row => row.tgname !== 'native_edit_operation_guard'); }],
+  ['disabled native edit guard', s => { rows(s, 'triggers').find(row => row.tgname === 'native_edit_operation_guard')!.tgenabled = 'D'; }],
+  ['changed native edit guard body', s => { rows(s, 'triggers').find(row => row.tgname === 'native_edit_operation_guard')!.prosrc = 'BEGIN RETURN NEW; END'; }],
   ['missing native PK', s => { s.constraints = rows(s, 'constraints').filter(row => row !== nativeConstraint(s, 'p')); }],
   ['duplicate native PK', s => { rows(s, 'constraints').push({ ...nativeConstraint(s, 'p'), oid: 9999 }); }],
   ['wrong native PK columns', s => { nativeConstraint(s, 'p').columns = ['document_id']; }],

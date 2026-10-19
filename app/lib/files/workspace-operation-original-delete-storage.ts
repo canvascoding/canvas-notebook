@@ -154,16 +154,18 @@ function assertColumns(groups: Row[], relationRows: Row[]): void {
 const constraintsSql = `SELECT c.oid::bigint AS oid,child.relname AS table_name,c.contype,c.convalidated,c.condeferrable,c.condeferred,c.conenforced,
     c.confrelid::bigint AS target_oid,parent.relname AS target_table,parent.relnamespace::bigint AS target_schema,
     ARRAY(SELECT a.attname::text FROM pg_catalog.unnest(c.conkey) WITH ORDINALITY k(num,ord)
-      JOIN pg_catalog.pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num ORDER BY k.ord) AS columns,
+      CROSS JOIN LATERAL (SELECT a.attname FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid=c.conrelid AND a.attnum=k.num OFFSET 0) a ORDER BY k.ord) AS columns,
     ARRAY(SELECT a.attname::text FROM pg_catalog.unnest(c.confkey) WITH ORDINALITY k(num,ord)
-      JOIN pg_catalog.pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.num ORDER BY k.ord) AS target_columns,
+      CROSS JOIN LATERAL (SELECT a.attname FROM pg_catalog.pg_attribute a
+        WHERE a.attrelid=c.confrelid AND a.attnum=k.num OFFSET 0) a ORDER BY k.ord) AS target_columns,
     i.indisvalid,i.indisready,i.indislive,i.indimmediate,pg_catalog.pg_get_constraintdef(c.oid,true) AS definition,
     (SELECT count(*)=2 AND bool_and(t.tgisinternal AND t.tgenabled IN('O','A')) FROM pg_catalog.pg_trigger t
       WHERE t.tgconstraint=c.oid AND t.tgrelid=c.conrelid) AS fk_triggers
-    FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class child ON child.oid=c.conrelid
+    FROM pg_catalog.pg_constraint c JOIN pg_catalog.pg_class child ON child.oid=c.conrelid AND child.oid=ANY($1::oid[])
       LEFT JOIN pg_catalog.pg_class parent ON parent.oid=c.confrelid LEFT JOIN pg_catalog.pg_index i ON i.indexrelid=c.conindid
     WHERE c.conrelid=ANY($1::oid[]) AND child.relnamespace=$2::oid
-      AND child.relname <> 'collaboration_native_link_mutation_receipts' ORDER BY c.oid LIMIT 257`;
+      AND child.relname <> 'collaboration_native_link_mutation_receipts' ORDER BY c.oid::bigint LIMIT 257`;
 // Keep the original sixteen-relation budget intact. The additive receipt
 // catalogue has its own fixed sentinel within the same statement snapshot.
 const nativeLinkConstraintsSql = constraintsSql.replace("child.relname <>", "child.relname =").replace('LIMIT 257', 'LIMIT 65');
@@ -198,11 +200,11 @@ const triggersSql = `SELECT t.oid::bigint AS oid,c.relname AS table_name,t.tgnam
     p.prosrc,p.prosecdef,p.proconfig,p.prokind,p.pronargs,p.prorettype='pg_catalog.trigger'::regtype AS returns_trigger,l.lanname,
     f.contype,f.convalidated,f.conenforced,f.condeferrable,
     child.relnamespace::bigint AS child_schema,parent.relnamespace::bigint AS parent_schema
-    FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid
+    FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class c ON c.oid=t.tgrelid AND c.oid=ANY($1::oid[])
       JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
       JOIN pg_catalog.pg_language l ON l.oid=p.prolang LEFT JOIN pg_catalog.pg_constraint f ON f.oid=t.tgconstraint
       LEFT JOIN pg_catalog.pg_class child ON child.oid=f.conrelid LEFT JOIN pg_catalog.pg_class parent ON parent.oid=f.confrelid
-    WHERE t.tgrelid=ANY($1::oid[]) ORDER BY t.oid LIMIT 257`;
+    WHERE t.tgrelid=ANY($1::oid[]) ORDER BY t.oid::bigint LIMIT 257`;
 function assertTriggers(rows: Row[], source: Source): Row[] {
   if (rows.length > 256 || !immutableSource || !nativeEditGuardSource) fail();
   const found = new Set<string>();
@@ -273,8 +275,8 @@ function boundedRows(value: unknown, limit: number): Row[] {
 /** One statement and one catalogue snapshot on the original B. Every section
  * is bound to the originally locked OIDs, never a caller-supplied relation list.
  * LIMIT sentinels stay local to each relation/constraint/trigger subquery. */
-async function inspectStorage(database: SqlConnection, source: Source, prefix: string, relationOids: number[]): Promise<Row> {
-  const snapshot = await database.get(`WITH current_relations AS MATERIALIZED (
+async function inspectStorage(database: SqlConnection, source: Source, prefix: string, relationOids: number[], initializing = false): Promise<Row> {
+  const snapshot = await (database.getPrepared ?? database.get).call(database, `WITH current_relations AS MATERIALIZED (
     SELECT n.name,pg_catalog.to_regclass(pg_catalog.quote_ident(n.name))::oid::bigint AS resolved,
       c.oid::bigint AS oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity
       FROM pg_catalog.unnest($5::text[]) n(name) LEFT JOIN pg_catalog.pg_class c
@@ -291,7 +293,8 @@ async function inspectStorage(database: SqlConnection, source: Source, prefix: s
     SELECT DISTINCT relation::bigint AS oid FROM pg_catalog.pg_locks
       WHERE locktype='relation' AND pid=pg_catalog.pg_backend_pid() AND database=$3::oid AND relation=ANY($1::oid[])
         AND granted AND mode IN('RowExclusiveLock','ShareRowExclusiveLock','ExclusiveLock','AccessExclusiveLock')
-  ) SELECT pg_catalog.current_schema() AS schema_name,
+  ), storage_snapshot AS MATERIALIZED (
+    SELECT pg_catalog.current_schema() AS schema_name,
     pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(r) ORDER BY r.name COLLATE "C"),'[]'::jsonb) FROM current_relations r) AS relations,
@@ -299,9 +302,12 @@ async function inspectStorage(database: SqlConnection, source: Source, prefix: s
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.oid),'[]'::jsonb) FROM current_constraints c) AS constraints,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(c) ORDER BY c.oid),'[]'::jsonb) FROM current_native_link_constraints c) AS native_link_constraints,
     (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(t) ORDER BY t.oid),'[]'::jsonb) FROM current_triggers t) AS triggers,
-    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(l) ORDER BY l.oid),'[]'::jsonb) FROM current_locks l) AS locks`,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(l) ORDER BY l.oid),'[]'::jsonb) FROM current_locks l) AS locks
+  ) SELECT ${initializing ? 's.*,' : ''}
+    pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.to_jsonb(s)::text, 'UTF8')), 'hex') AS fingerprint
+    FROM storage_snapshot s`,
   [relationOids, source.schemaOid, source.databaseOid, prefix, names]) as Row | undefined;
-  if (!snapshot) fail();
+  if (!snapshot || typeof snapshot.fingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(snapshot.fingerprint)) fail();
   return snapshot;
 }
 
@@ -314,8 +320,12 @@ export async function bindWorkspaceOperationOriginalDeleteStorageOnConnection(da
   await assertRealm(database, original);
   const initial = await relations(database, original, prefix), relationOids = initial.map(row => oid(row.oid));
   await database.run(`LOCK TABLE ${names.map(name => `${prefix}.${quote(name)}`).join(',')} IN ROW EXCLUSIVE MODE NOWAIT`);
-  const inspect = async () => {
-    const snapshot = await inspectStorage(database, original, prefix, relationOids);
+  const inspect = async (initializing = false) => {
+    const snapshot = await inspectStorage(database, original, prefix, relationOids, initializing);
+    // Every boundary still observes the complete bounded catalogue on this B.
+    // Only initial binding transfers and validates all facts; later checks
+    // compare SHA-256 over that same full snapshot, including realm and locks.
+    if (!initializing) return snapshot.fingerprint;
     assertRealmRow(snapshot, original);
     const current = assertRelations(boundedRows(snapshot.relations, names.length), original);
     if (key(current) !== key(initial)) fail();
@@ -327,8 +337,8 @@ export async function bindWorkspaceOperationOriginalDeleteStorageOnConnection(da
     const currentTriggers = boundedRows(snapshot.triggers, 257);
     assertNativeLinkReceiptScope(currentTriggers, original);
     assertTriggers(currentTriggers.filter(row => !nativeLinkReceiptScope(row)), original);
-    return key({ constraints: currentConstraints, nativeLinkConstraints, triggers: currentTriggers });
+    return snapshot.fingerprint;
   };
-  const expected = await inspect();
+  const expected = await inspect(true);
   return Object.freeze({ schema, prefix, assertCurrent: async () => { if (await inspect() !== expected) fail(); } });
 }

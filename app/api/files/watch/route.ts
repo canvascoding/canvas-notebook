@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFileWatcher, type FileEvent } from '@/app/lib/filesystem/file-watcher';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import type { WorkspaceFileInvalidation } from '@/app/lib/files/file-events';
 
 const SSE_HEADERS = {
   'Content-Type': 'text/event-stream',
@@ -60,6 +61,18 @@ export async function GET(request: NextRequest) {
             );
           } catch {
             console.warn('[FileWatcher SSE]', { code: 'STREAM_SEND_FAILED' });
+            cleanup?.();
+          }
+        },
+        invalidate: (hint: WorkspaceFileInvalidation) => {
+          if (closed || hint.workspaceId !== workspace.workspaceId) return;
+          try {
+            watcher.touchClient(clientId);
+            controller.enqueue(new TextEncoder().encode(
+              `event: workspace-invalidated\ndata: ${JSON.stringify(hint)}\n\n`
+            ));
+          } catch {
+            console.warn('[FileWatcher SSE]', { code: 'STREAM_INVALIDATION_SEND_FAILED' });
             cleanup?.();
           }
         },

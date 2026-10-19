@@ -9,6 +9,7 @@ import { withPreparedWorkspacePathMove, withRecoveredWorkspacePathMoves, readPre
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt } from '../filesystem/prepared-workspace-path-move-contract';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim } from './workspace-operation-batch-store';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { waitForWorkspaceOperationNativePathAdmission } from './workspace-operation-native-path-admission';
 import { withWorkspaceOperationNativeMoveJobOwner, readWorkspaceOperationOriginalMoveJobHistory,
   readWorkspaceOperationOriginalMoveJobReceipts, readWorkspaceOperationOriginalMovePreparation, stageWorkspaceOperationOriginalMoveJob,
   recordWorkspaceOperationOriginalMoveJobParentReceipt, recordWorkspaceOperationOriginalMoveJobPathReceipt,
@@ -40,6 +41,7 @@ export async function executeWorkspaceOperationOriginalMove(input: {
   // or new path. Current rights and exact historical SQL receipts are checked.
   const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, mcpPrincipal);
   if (history?.completion) return history.completion;
+  await waitForWorkspaceOperationNativePathAdmission(claim, openDb, mcpPrincipal);
   return withWorkspaceOperationNativeMoveJobOwner(claim, async owner => {
     let rows = await readWorkspaceOperationOriginalMoveJobReceipts(owner);
     if (rows.completion) return rows.completion;

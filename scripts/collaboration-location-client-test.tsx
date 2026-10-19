@@ -118,6 +118,9 @@ async function main() {
   const structural = (path: string, type = 'unlink', workspaceId = 'workspace') => act(async () => {
     source().emit('filechange', { type, workspaceId, relativePath: path, path, dir: 'folder', timestamp: Date.now() });
   });
+  const terminalHint = (detail: unknown) => act(async () => {
+    source().emit('workspace-invalidated', detail);
+  });
   const expectPath = (path: string) => assert.equal(useFileStore.getState().currentFile?.path, path);
   try {
     await render();
@@ -221,6 +224,147 @@ async function main() {
     await act(async () => useFileStore.setState({ currentFile: { ...file, editorIdentity: 'other-open' } }));
     await reply(admissionBase + 2, file.path);
     assert.equal(rejoins, 2, 'a late original-tab location reply cannot wake the current registry entry');
+
+    // This isolated hook model supplies the rejoin callback. It proves the
+    // terminal hint -> gated ID lookup -> callback path, not a registry HTTP grant.
+    await act(async () => root.render(null));
+    for (const request of requests) request.gate.resolve(Response.json({ success: false }, { status: 404 }));
+    await act(async () => {
+      useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+      useFileStore.getState().resetWorkspaceView('workspace');
+      useFileStore.setState({ currentFile: { ...file, editorIdentity: 'terminal-open-1' }, currentFileWorkspaceId: 'workspace',
+        refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    });
+    let terminalRejoins = 0;
+    requestAdmissionRejoin = async () => { terminalRejoins++; };
+    const terminalInitial = requests.length;
+    await render(); await until(() => requests.length === terminalInitial + 1);
+    await reply(terminalInitial, file.path);
+    assert.equal(terminalRejoins, 1);
+    const ignoredTerminalBase = requests.length;
+    for (const hint of [null, {}, [], { workspaceId: null }, { workspaceId: 'other-workspace' },
+      { workspaceId: 'workspace', documentId: 'document' }]) await terminalHint(hint);
+    await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
+    assert.equal(requests.length, ignoredTerminalBase, 'foreign and malformed terminal hints cannot request a location');
+    assert.equal(terminalRejoins, 1);
+
+    const terminalLookup = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === terminalLookup + 1);
+    assert.equal(requests[terminalLookup].url.pathname, '/api/files/collaboration/location');
+    assert.equal(requests[terminalLookup].signal.aborted, false);
+    assert.equal(terminalRejoins, 1, 'a hint cannot rejoin before the actual location GET completes');
+    expectPath(file.path);
+    await reply(terminalLookup, file.path);
+    assert.equal(terminalRejoins, 2, 'an unchanged path still requests admission rejoin after terminal completion');
+    expectPath(file.path);
+
+    const terminalIdentity = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === terminalIdentity + 1);
+    await act(async () => useFileStore.setState({ currentFile: { ...file, editorIdentity: 'terminal-open-2' } }));
+    assert.equal(requests[terminalIdentity].signal.aborted, true);
+    await reply(terminalIdentity, 'late-terminal-identity.txt');
+    expectPath(file.path);
+    assert.equal(terminalRejoins, 2, 'a retained terminal lookup cannot rejoin a replacement editor identity');
+    await until(() => requests.length === terminalIdentity + 2);
+    await reply(terminalIdentity + 1, file.path);
+    assert.equal(terminalRejoins, 3);
+
+    const terminalScope = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === terminalScope + 1);
+    await act(async () => useWorkspaceStore.setState({ activeWorkspaceId: 'other-workspace' }));
+    await reply(terminalScope, 'late-terminal-workspace.txt');
+    expectPath(file.path);
+    assert.equal(terminalRejoins, 3, 'a retained terminal lookup cannot rejoin after the active workspace changes');
+
+    // Controlled callback models only: one genuine terminal hint must keep its
+    // finite window alive through a specifically marked clean read conflict.
+    await act(async () => root.render(null));
+    await act(async () => {
+      useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+      useFileStore.getState().resetWorkspaceView('workspace');
+      useFileStore.setState({ currentFile: { ...file, editorIdentity: 'retry-open' }, currentFileWorkspaceId: 'workspace',
+        refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    });
+    let qualifiedBusy = false, retryRejoins = 0;
+    useEditorStore.getState().setActiveFile(file.path, file.content);
+    useEditorStore.getState().updateDraft('Local + peer draft');
+    requestAdmissionRejoin = async () => {
+      retryRejoins++;
+      if (qualifiedBusy) throw Object.assign(new Error('Controlled clean read marker'), {
+        code: 'NATIVE_SESSION_BUSY', status: 409, retryable: true,
+      });
+    };
+    const retryInitial = requests.length;
+    await render(); await until(() => requests.length === retryInitial + 1);
+    await reply(retryInitial, file.path); assert.equal(retryRejoins, 1);
+    qualifiedBusy = true;
+    const oneHint = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === oneHint + 1);
+    await reply(oneHint, file.path); assert.equal(retryRejoins, 2);
+    qualifiedBusy = false;
+    await until(() => requests.length === oneHint + 2);
+    await reply(oneHint + 1, file.path); assert.equal(retryRejoins, 3);
+    assert.equal(document.querySelector('#root output')?.textContent, 'ok');
+    expectPath(file.path); assert.equal(useEditorStore.getState().draft, 'Local + peer draft');
+    await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
+    assert.equal(requests.length, oneHint + 2, 'successful single-hint recovery closes the retry window');
+
+    const lookupBusy = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === lookupBusy + 1);
+    await act(async () => requests[lookupBusy].gate.resolve(Response.json({ success: false,
+      code: 'FILE_MUTATION_LOCK_BUSY', retryable: true }, { status: 503 })));
+    await until(() => requests.length === lookupBusy + 2);
+    await reply(lookupBusy + 1, file.path); assert.equal(retryRejoins, 4);
+    const unmarkedLookup = requests.length;
+    await terminalHint({ workspaceId: 'workspace' });
+    await until(() => requests.length === unmarkedLookup + 1);
+    await act(async () => requests[unmarkedLookup].gate.resolve(Response.json({ success: false,
+      code: 'FILE_MUTATION_LOCK_BUSY' }, { status: 503 })));
+    await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
+    assert.equal(requests.length, unmarkedLookup + 1, 'generic or unmarked 503 cannot create polling');
+    assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+
+    requestAdmissionRejoin = async () => { retryRejoins++; throw Object.assign(new Error('Revoked'), { status: 403 }); };
+    await render();
+    const denied = requests.length;
+    await terminalHint({ workspaceId: 'workspace' }); await until(() => requests.length === denied + 1);
+    await reply(denied, file.path);
+    await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
+    assert.equal(requests.length, denied + 1, 'rights revocation ends the window without another hint or reload');
+
+    requestAdmissionRejoin = async () => { throw Object.assign(new Error('Controlled clean read marker'), {
+      code: 'NATIVE_SESSION_BUSY', status: 409, retryable: true,
+    }); };
+    await render();
+    const authBusy = requests.length;
+    await terminalHint({ workspaceId: 'workspace' }); await until(() => requests.length === authBusy + 1);
+    await reply(authBusy, file.path);
+    const { invalidateOpenedDocumentAuth } = await import('../app/lib/collaboration/opened-document-registry');
+    await act(async () => invalidateOpenedDocumentAuth());
+    await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
+    assert.equal(requests.length, authBusy + 1, 'auth invalidation cancels an already scheduled retry');
+
+    const originalNow = Date.now;
+    let fixtureClock = originalNow() + 21_000;
+    Date.now = () => fixtureClock;
+    try {
+      let lateRejoins = 0;
+      requestAdmissionRejoin = async () => { lateRejoins++; };
+      await render();
+      const lateDeadline = requests.length;
+      await terminalHint({ workspaceId: 'workspace' }); await until(() => requests.length === lateDeadline + 1);
+      fixtureClock += 10_001;
+      await reply(lateDeadline, file.path);
+      assert.equal(lateRejoins, 0, 'a fixed ten-second rejoin cannot start outside the remaining common deadline');
+      assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+      await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
+      assert.equal(requests.length, lateDeadline + 1, 'deadline exhaustion is terminal');
+    } finally { Date.now = originalNow; }
     console.log('Location hook handles rename bursts, both reconnects, recovery errors, stale lifetimes, and reused-path session identity.');
   } finally {
     await act(async () => { root.unmount(); sessionRoot.unmount(); });

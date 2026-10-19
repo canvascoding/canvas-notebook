@@ -9,6 +9,7 @@ import { NextRequest } from 'next/server';
 import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../app/lib/db';
 import type { ExistingNativeSessionIdentity } from '../app/lib/collaboration/native-session-state-reader';
+import { collaborationAdmissionLockKey } from '../app/lib/collaboration/room-admission-contract';
 
 const privateEnvironment = '/Users/frankalexanderweber/.local/state/canvas-local-team-seat/notebook-host-dev.env';
 let stage = 'private configuration';
@@ -847,7 +848,199 @@ async function main(): Promise<void> {
         assert.equal(response.status, 409); assert.equal(response.wire.code, 'NATIVE_SESSION_SCOPE_CHANGED'); assert.equal(Object.hasOwn(response.wire, 'token'), false);
       } finally { Reflect.set(runtime, 'query', runtimeQuery); await admin.query('UPDATE canvas_workspaces SET root_relative_path=$1 WHERE id=$2', ['organizations/principal-org/shared', workspaceId]); }
     });
-    assert.equal(fetches, 0); if (!process.argv[2]) assert.equal(cases, 33); disposeMobileCollaborationTickets();
+    // These cases use the genuine native reader's locked=false result. They do
+    // not raise a SQL error or replace a Native/Principal capability factory.
+    let nativeReleaseObservation: { pending: Set<Client | PoolClient>; rolledBack: Set<Client | PoolClient>; releases: number } | undefined;
+    let nativeCloseFault: { client: Client; release: (error?: Error | boolean) => void; actualReleased: number } | undefined;
+    function nativeReleaseListener(_error: unknown, client: PoolClient): void {
+      const current = nativeReleaseObservation;
+      if (!current?.pending.has(client)) return;
+      assert(current.rolledBack.has(client), 'Actual native Busy lease release follows its genuine ROLLBACK.');
+      current.pending.delete(client); current.rolledBack.delete(client); current.releases++;
+    }
+    function afterNativeActualRelease(this: Client, error?: Error | boolean): never {
+      const current = nativeCloseFault;
+      assert(current && current.client === this);
+      assert.strictEqual(Reflect.get(current.client, 'release'), afterNativeActualRelease);
+      Reflect.apply(current.release, current.client, [error]); current.actualReleased++;
+      throw new Error('Owned native Busy close acknowledgement loss after actual pool release');
+    }
+    function restoreNativeRelease(): void {
+      const current = nativeCloseFault;
+      // A later real checkout may already own a fresh pg release function.
+      if (current && Reflect.get(current.client, 'release') === afterNativeActualRelease) {
+        assert.equal(Reflect.set(current.client, 'release', current.release), true);
+      }
+      nativeCloseFault = undefined;
+    }
+    await check('actual native advisory Busy retries require released SQL and transport ownership', async () => {
+      for (const surface of ['web', 'mobile'] as const) for (const durable of [false, true]) {
+        const target = await seed(`${surface}-native-advisory-${durable}`), before = await stored(target.identity), holder = await ownClient();
+        const holderPid = Number(Reflect.get(holder, 'processID'));
+        let held = false, released = false, busyReads = 0, healthyReads = 0, rollbacks = 0, awaitingFreshEnrollment = false;
+        nativeReleaseObservation = { pending: new Set(), rolledBack: new Set(), releases: 0 };
+        const releases = nativeReleaseObservation, transports = observeTransports();
+        (runtime as unknown as Pool).on('release', nativeReleaseListener);
+        const observed = observeTransactions(async (client, sql, result) => {
+          if (client === holder) return result;
+          if (sql === 'BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE' && busyReads > 0) {
+            assert.equal(releases.releases, busyReads, 'Every rejected native B is actually released before a new BEGIN.');
+            assert.equal(releases.pending.size, 0);
+            if (awaitingFreshEnrollment) { transports.assertDisposed(); awaitingFreshEnrollment = false; }
+          }
+          const value = await result;
+          if (sql === 'SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked') {
+            const rows = (value as { rows: Array<{ locked: unknown }> }).rows;
+            assert.equal(rows.length, 1); assert.notEqual(Number(Reflect.get(client, 'processID')), holderPid);
+            if (rows[0].locked === false) {
+              assert(held && !released); busyReads++; awaitingFreshEnrollment = true;
+              releases.pending.add(client); releases.rolledBack.delete(client);
+            } else { assert.equal(rows[0].locked, true); assert.equal(released, true); healthyReads++; }
+          }
+          if (sql === 'ROLLBACK' && releases.pending.has(client)) {
+            rollbacks++; releases.rolledBack.add(client);
+            if (!durable && !released) {
+              // `result` above is the actual rejected reader B's successful
+              // ROLLBACK promise; only now release the exclusive owner holder.
+              await holder.query('ROLLBACK'); held = false; released = true;
+            }
+          }
+          return value;
+        });
+        try {
+          await holder.query('BEGIN'); held = true;
+          await holder.query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+          const response = await post(surface, target.identity.path);
+          assert.equal(response.status, durable ? 409 : 200, JSON.stringify({ surface, durable, status: response.status, code: response.wire.code }));
+          assert.equal(busyReads, durable ? 3 : 1); assert.equal(healthyReads, durable ? 0 : 1);
+          assert.equal(rollbacks, busyReads); assert.equal(releases.releases, busyReads); assert.equal(releases.pending.size, 0);
+          assert.equal(observed.begins(), durable ? 7 : 5);
+          assert.equal(transports.records.length, durable ? 3 : 2); transports.assertDisposed();
+          if (durable) {
+            assert.equal(held, true); assert.equal(released, false);
+            assert.equal(response.wire.code, 'NATIVE_SESSION_BUSY'); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+            assert.equal(Object.hasOwn(response.wire, 'retryable'), surface === 'web');
+            if (surface === 'web') assert.equal(response.wire.retryable, true);
+          } else {
+            assert.equal(held, false); assert.equal(released, true);
+            assert.equal(response.wire.documentId, target.identity.documentId); assert.equal(response.wire.documentName, target.identity.documentId);
+            assert.equal(response.wire.lifecycleGeneration, target.identity.lifecycleGeneration); assert.equal(response.wire.representation, target.identity.representation);
+            assert.equal(response.wire.documentSequence, 7); assert.equal(response.wire.stateProof, target.proof);
+            assert.equal(typeof response.wire.stateVector, 'string');
+            assert.deepEqual(Buffer.from(response.wire.stateVector as string, 'base64'), target.vector);
+            assert.equal(Object.hasOwn(response.wire, 'retryable'), false);
+          }
+          const actualPool = runtime as unknown as Pool;
+          assert.equal(actualPool.waitingCount, 0); assert.equal(actualPool.idleCount, actualPool.totalCount);
+          assert.deepEqual(await stored(target.identity), before);
+        } finally {
+          observed.restore(); transports.restore(); (runtime as unknown as Pool).off('release', nativeReleaseListener);
+          nativeReleaseObservation = undefined;
+          try { if (held) await holder.query('ROLLBACK'); } finally { await endClient(holder); }
+        }
+      }
+    });
+    await check('actual native advisory Busy with rollback or post-release acknowledgement loss never retries', async () => {
+      for (const surface of ['web', 'mobile'] as const) for (const fault of ['rollback-ack', 'close-ack'] as const) {
+        const target = await seed(`${surface}-native-advisory-${fault}`), before = await stored(target.identity), holder = await ownClient();
+        const holderPid = Number(Reflect.get(holder, 'processID'));
+        let held = false, busyReads = 0, rollbackAcks = 0, injected = false, rejectedClient: Client | undefined;
+        nativeReleaseObservation = { pending: new Set(), rolledBack: new Set(), releases: 0 };
+        const releases = nativeReleaseObservation, transports = observeTransports();
+        (runtime as unknown as Pool).on('release', nativeReleaseListener);
+        const observed = observeTransactions(async (client, sql, result, ordinal) => {
+          if (client === holder) return result;
+          const value = await result;
+          if (sql === 'SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked') {
+            const rows = (value as { rows: Array<{ locked: unknown }> }).rows;
+            assert.equal(rows.length, 1); assert.equal(rows[0].locked, false);
+            assert(held); assert.notEqual(Number(Reflect.get(client, 'processID')), holderPid);
+            assert.equal(ordinal, 3); busyReads++; rejectedClient = client;
+            releases.pending.add(client); releases.rolledBack.delete(client);
+          }
+          if (client === rejectedClient && sql === 'ROLLBACK' && !injected) {
+            rollbackAcks++; releases.rolledBack.add(client); injected = true;
+            // Inject only after the genuine SQL rollback has completed. The
+            // other arm returns to the real pool before losing its close ack.
+            if (fault === 'rollback-ack') throw new Error('Owned native Busy ROLLBACK acknowledgement loss');
+            const release = Reflect.get(client, 'release') as (error?: Error | boolean) => void;
+            assert.equal(typeof release, 'function'); assert.equal(nativeCloseFault, undefined);
+            nativeCloseFault = { client, release, actualReleased: 0 };
+            assert.equal(Reflect.set(client, 'release', afterNativeActualRelease), true);
+          }
+          return value;
+        });
+        try {
+          await holder.query('BEGIN'); held = true;
+          await holder.query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+          const response = await post(surface, target.identity.path);
+          assert.equal(busyReads, 1); assert.equal(rollbackAcks, 1); assert.equal(injected, true);
+          assert.equal(releases.releases, 1); assert.equal(releases.pending.size, 0);
+          assert.equal(nativeCloseFault?.actualReleased ?? 0, fault === 'close-ack' ? 1 : 0);
+          assert.equal(observed.begins(), 3, 'Unconfirmed native read cleanup must not begin a new enrollment/read.');
+          assert.equal(response.status, 500); assert.equal(Object.hasOwn(response.wire, 'code'), false);
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+          assert.equal(transports.records.length, 1); transports.assertDisposed();
+          const actualPool = runtime as unknown as Pool;
+          assert.equal(actualPool.waitingCount, 0); assert.equal(actualPool.idleCount, actualPool.totalCount,
+            'Actual native cleanup faults leave no checked-out runtime client.');
+          assert.deepEqual(await stored(target.identity), before);
+        } finally {
+          observed.restore(); restoreNativeRelease(); transports.restore(); (runtime as unknown as Pool).off('release', nativeReleaseListener);
+          nativeReleaseObservation = undefined;
+          try { if (held) await holder.query('ROLLBACK'); } finally { await endClient(holder); }
+        }
+      }
+    });
+    await check('actual native advisory Busy with transport disposal acknowledgement loss never retries', async () => {
+      for (const surface of ['web', 'mobile'] as const) {
+        const target = await seed(`${surface}-native-advisory-disposal`), before = await stored(target.identity), holder = await ownClient();
+        const holderPid = Number(Reflect.get(holder, 'processID'));
+        let held = false, busyReads = 0, rollbackAcks = 0, injected = false, rejectedClient: Client | undefined;
+        nativeReleaseObservation = { pending: new Set(), rolledBack: new Set(), releases: 0 };
+        const releases = nativeReleaseObservation, transports = observeTransports();
+        (runtime as unknown as Pool).on('release', nativeReleaseListener);
+        const observed = observeTransactions(async (client, sql, result, ordinal) => {
+          if (client === holder) return result;
+          const value = await result;
+          if (sql === 'SELECT pg_try_advisory_xact_lock_shared($1::bigint) AS locked') {
+            const rows = (value as { rows: Array<{ locked: unknown }> }).rows;
+            assert.equal(rows.length, 1); assert.equal(rows[0].locked, false);
+            assert(held); assert.notEqual(Number(Reflect.get(client, 'processID')), holderPid);
+            assert.equal(ordinal, 3); busyReads++; rejectedClient = client;
+            releases.pending.add(client); releases.rolledBack.delete(client);
+          }
+          if (client === rejectedClient && sql === 'ROLLBACK' && !injected) {
+            rollbackAcks++; releases.rolledBack.add(client); assert.equal(transports.records.length, 1); injected = true;
+            // Existing fixture pattern: only the real record's disposal
+            // acknowledgement rejects. SQL, Native and Principal are genuine.
+            const failed = Promise.reject(new Error('Owned native Busy transport disposal acknowledgement loss'));
+            void failed.catch(() => undefined);
+            assert.equal(Reflect.set(transports.records[0], 'disposal', failed), true);
+          }
+          return value;
+        });
+        try {
+          await holder.query('BEGIN'); held = true;
+          await holder.query('SELECT pg_advisory_xact_lock($1::bigint)', [collaborationAdmissionLockKey(workspaceId)]);
+          const response = await post(surface, target.identity.path);
+          assert.equal(busyReads, 1); assert.equal(rollbackAcks, 1); assert.equal(injected, true);
+          assert.equal(releases.releases, 1); assert.equal(releases.pending.size, 0);
+          assert.equal(observed.begins(), 3, 'An unconfirmed transport disposal must not begin a new read.');
+          assert.equal(response.status, 500); assert.equal(Object.hasOwn(response.wire, 'code'), false);
+          assert.equal(Object.hasOwn(response.wire, 'retryable'), false); assert.equal(Object.hasOwn(response.wire, 'token'), false);
+          assert.equal(transports.records.length, 1); transports.assertDisposed();
+          const actualPool = runtime as unknown as Pool;
+          assert.equal(actualPool.waitingCount, 0); assert.equal(actualPool.idleCount, actualPool.totalCount);
+          assert.deepEqual(await stored(target.identity), before);
+        } finally {
+          observed.restore(); transports.restore(); (runtime as unknown as Pool).off('release', nativeReleaseListener);
+          nativeReleaseObservation = undefined;
+          try { if (held) await holder.query('ROLLBACK'); } finally { await endClient(holder); }
+        }
+      }
+    });
+    assert.equal(fetches, 0); if (!process.argv[2]) assert.equal(cases, 36); disposeMobileCollaborationTickets();
     console.log(`Authenticated native HTTP Busy: ${cases} genuine PostgreSQL18 families passed; existing product gate remains false.`);
   }finally{
     globalThis.fetch=originalFetch;

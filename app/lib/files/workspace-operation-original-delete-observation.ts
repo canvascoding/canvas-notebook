@@ -4,6 +4,7 @@ import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationMcpAuthorization } from './workspace-operation-mcp-authorization';
+import { readWorkspaceOperationOriginalDeleteAdmissionOnConnection } from './workspace-operation-original-delete-admission';
 import { parseIntent, completed, parseRestoreIntent, restored, WorkspaceOperationOriginalDeleteError,
   type OriginalIntent, type RestoreIntent, type WorkspaceOperationOriginalDeleteResult,
   type WorkspaceOperationOriginalRestoreResult, type WorkspaceOperationOriginalDeleteEvidenceContext } from './workspace-operation-original-delete-evidence';
@@ -46,8 +47,8 @@ function capture<T>(value: T, depth = 0): T {
   return Object.freeze(result) as T;
 }
 
-/** Five SELECTs on the caller's B, without checkout, transaction, locks, DDL,
- * mutation or finality assumption. Caller owns a consistent authorized read
+/** Five base SELECTs plus V4 Admission evidence reads, without checkout,
+ * transaction, locks, DDL, mutation or finality assumption. Caller owns a consistent authorized read
  * scope; unreadable, orphaned and mismatched evidence throws rather than ACKs. */
 export async function readWorkspaceOperationOriginalDeleteObservationOnConnection(database: SqlConnection,
   input: Input): Promise<WorkspaceOperationOriginalDeleteObservation> {
@@ -74,10 +75,12 @@ export async function readWorkspaceOperationOriginalDeleteObservationOnConnectio
   const original = parseIntent(deleteIntent, context, workspace, dataRoot);
   if (!deleteReceipt) {
     if (deleteTrashReceipt || restoreIntent || restoreReceipt) invalid();
+    if (original.version === 4) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original });
     return Object.freeze({ ...records, apply: 'started', undo: 'unknown', original,
       deleted: null, restoration: null, restored: null });
   }
   const deleted = completed(deleteReceipt, deleteTrashReceipt, deleteIntent, original);
+  if (original.version === 4) await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent: original, result: deleted });
   if (!restoreIntent) {
     if (restoreReceipt) invalid();
     return Object.freeze({ ...records, apply: 'complete', undo: 'pristine', original,
