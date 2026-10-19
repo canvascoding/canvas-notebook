@@ -1,5 +1,7 @@
 # Native MCP-Copy: reiner Status und ausdrückliche Wiederaufnahme
 
+**Historischer Status-/Recoverstand:** Die damals noch offene kanonische Größenprüfung ist inzwischen im [Requestbudget-Nachweis](./yjs-native-copy-request-budget-evidence.md) lokal abgenommen. Öffentlicher Dienst-/Tool-/SDK-Anschluss bleibt ein eigener offener Schritt.
+
 Stand: 19. Oktober 2026; Originaltests am 18. Oktober 2026. Dieser Schritt ergänzt die tatsächlichen internen Status- und Recoveryeingänge auf dem zuvor abgenommenen MCP-Copy-Owner. Öffentlicher MCP-Handler, Dienst-/Ansichtsanschluss, SDK-Dateiaktionen und kompilierte Gesamt-E2E-Abnahme bleiben offen. Der separat vorbereitete Wirevertrag ist noch nicht integriert oder öffentlich angeboten.
 
 ## Feste Eingänge und gemeinsame Belege

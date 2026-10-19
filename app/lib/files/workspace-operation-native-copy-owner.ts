@@ -48,6 +48,7 @@ import { readNativeCopyReceiptStorageIdentityOnConnection } from '../collaborati
 import type { WorkspaceOperationExecutionResult } from './workspace-file-operation-executor';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { captureNativeCopyMetadataSnapshotOnConnection } from './workspace-operation-native-copy-metadata';
+import { assertNativeCopyRequestBudget } from './workspace-operation-native-copy-request-budget';
 import type { NativeCopyViewOutcome } from './workspace-operation-copy-view-finalizer';
 
 export class NativeCopyOwnerError extends Error {
@@ -373,6 +374,7 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
     const plan = createWorkspaceOperationManagedCopyPlan({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
       destinationScope: { workspace: current.destinationWorkspace, fileOptions: {} }, selections: resolved,
       sourceObservation: source, destinationObservation: destination });
+    assertNativeCopyRequestBudget({ kind: 'copy', origin: owner.invocation.origin, selections: plan.selections });
     return { plan, source, destination, current };
   });
 }
