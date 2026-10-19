@@ -6,21 +6,54 @@ import type { JSONContent } from '@tiptap/core';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import type { NativeCopyDocumentReceipt, NativeCopyReceipt } from '../collaboration/native-copy-persistence';
 import type { PersistedCollaborationState } from '../collaboration/persistence';
-import type { NativeDocumentLinkInventory, NativeNamespaceEntry, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
-import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
-import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
+import type { NativeDocumentLinkInventory, NativeNamespaceEntry, NativeResolvedLink, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
+import type { WorkspaceMixedReadLinkSnapshotV3 } from '../markdown/workspace-link-contract-v3';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
+import { buildWorkspaceNativeLinkGraph, buildWorkspaceMixedReadLinkGraphV3 } from '../markdown/workspace-native-link-graph';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { captureWorkspaceSceneSnapshot, captureWorkspaceSceneSnapshotHeader,
   type WorkspaceSceneSnapshotRecord } from '../excalidraw-collaboration/workspace-scene-snapshot';
 import type { WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-scene-catalogue';
 import type { WorkspaceSceneSourceBinding } from './workspace-operation-copy-source-observation';
 import type { ExcalidrawCopyBirthReceipt } from '../excalidraw-collaboration/copy-contract';
+import { decodeWorkspaceOperationNativeSourceEvidenceV3,
+  type WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
+import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
+import type { WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
 
 export type NativeCopyFinalManagedScenes = Readonly<{
   originalBindings: readonly WorkspaceSceneSourceBinding[];
   finalSnapshots: readonly WorkspaceSceneSnapshotRecord[];
   receipt: ExcalidrawCopyBirthReceipt;
 }>;
+
+type CopyGraphSnapshot = NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3;
+type NativeCopyFinalGraphCommon = {
+  receipt: NativeCopyReceipt;
+  states: readonly PersistedCollaborationState[];
+  physicalCopies: readonly Readonly<{ entityKey: string; entry: NativeNamespaceEntry }>[];
+  createdParents: readonly NativeNamespaceEntry[];
+  managedScenes?: NativeCopyFinalManagedScenes;
+};
+/** These are captured fresh by the owner on its actual B, including reparsed
+ * original bytes. The pure graph comparison cannot establish that freshness. */
+export type NativeCopyFinalPhysicalEvidence = Readonly<{
+  original: WorkspaceOperationNativeSourceEvidenceV3;
+  current: WorkspaceOperationNativeSourceEvidenceV3;
+  currentCatalogue: readonly Readonly<WorkspaceDocumentCatalogueEntry>[];
+}>;
+type NativeCopyFinalMixedGraphInput = NativeCopyFinalGraphCommon & {
+  compiled: NativeMixedReadBatchPlanV3;
+  originals: readonly WorkspaceMixedReadLinkSnapshotV3[];
+  final: readonly WorkspaceMixedReadLinkSnapshotV3[];
+  physicalEvidence: readonly NativeCopyFinalPhysicalEvidence[];
+};
+type NativeCopyFinalLegacyGraphInput = NativeCopyFinalGraphCommon & {
+  compiled: NativeMixedBatchPlan;
+  originals: readonly NativeWorkspaceLinkSnapshot[];
+  final: readonly NativeWorkspaceLinkSnapshot[];
+};
+export type NativeCopyFinalGraphInput = NativeCopyFinalLegacyGraphInput | NativeCopyFinalMixedGraphInput;
 
 export class NativeCopyFinalGraphError extends Error {
   readonly status = 409;
@@ -86,7 +119,7 @@ function sceneField(input: unknown, name: string): unknown {
 /** Additional Scene postconditions within the same complete graph comparison.
  * Scene identities remain provider facts, never fabricated Yjs inventories. */
 function assertManagedScenes(input: NativeCopyFinalManagedScenes | undefined,
-  originals: readonly NativeWorkspaceLinkSnapshot[], final: readonly NativeWorkspaceLinkSnapshot[], compiled: NativeMixedBatchPlan): void {
+  originals: readonly CopyGraphSnapshot[], final: readonly CopyGraphSnapshot[], compiled: NativeMixedBatchPlan | NativeMixedReadBatchPlanV3): void {
   const originalEntries = originals.flatMap(snapshot => snapshot.namespace).filter(entry => entry.provider === 'excalidraw');
   const finalEntries = final.flatMap(snapshot => snapshot.namespace).filter(entry => entry.provider === 'excalidraw');
   if (!input) { if (originalEntries.length || finalEntries.length) fail(); return; }
@@ -170,23 +203,20 @@ function assertManagedScenes(input: NativeCopyFinalManagedScenes | undefined,
  * No source anchor or initial clone-link ID is reused after the link delta.
  * This comparison includes all original documents and resolution candidates.
  */
-export function assertNativeCopyFinalGraph(input: {
-  compiled: NativeMixedBatchPlan;
-  originals: readonly NativeWorkspaceLinkSnapshot[];
-  receipt: NativeCopyReceipt;
-  final: readonly NativeWorkspaceLinkSnapshot[];
-  states: readonly PersistedCollaborationState[];
-  physicalCopies: readonly Readonly<{ entityKey: string; entry: NativeNamespaceEntry }>[];
-  createdParents: readonly NativeNamespaceEntry[];
-  managedScenes?: NativeCopyFinalManagedScenes;
-}): void {
-  try { assertCopyGraph(input); }
+export function assertNativeCopyFinalGraph(input: NativeCopyFinalLegacyGraphInput): void {
+  try { if (input.compiled.contractVersion !== 2) fail(); assertCopyGraph(input); }
   catch (error) { if (error instanceof NativeCopyFinalGraphError) throw error; fail(); }
 }
 
-function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]): void {
+/** Explicit mixed contract; the historical entry point remains V2-only. */
+export function assertNativeCopyFinalMixedGraphV3(input: NativeCopyFinalMixedGraphInput): void {
+  try { if (input.compiled.contractVersion !== 3) fail(); assertCopyGraph(input); }
+  catch (error) { if (error instanceof NativeCopyFinalGraphError) throw error; fail(); }
+}
+
+function assertCopyGraph(input: NativeCopyFinalGraphInput): void {
   const { compiled, originals, receipt, final, states, physicalCopies, createdParents } = input;
-  if (compiled.contractVersion !== 2 || compiled.compilerVersion !== 1 || compiled.executionReady !== false
+  if (compiled.contractVersion !== 2 && compiled.contractVersion !== 3 || compiled.compilerVersion !== 1 || compiled.executionReady !== false
     || compiled.requests.length !== 1 || compiled.requests[0].kind !== 'copy' || compiled.issues.length
     || !compiled.finalGraphProof || !['ready', 'requires-clone-rebinding'].includes(compiled.readiness)
     || receipt.version !== 1 || receipt.workspaceId !== compiled.requests[0].destinationWorkspaceId
@@ -197,9 +227,10 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
     || final.some(snapshot => !beforeWorkspaces.has(snapshot.workspaceId))) fail();
   for (const snapshot of [...originals, ...final]) {
     const { snapshotProof, ...body } = snapshot;
-    if (snapshot.contractVersion !== 2 || !snapshot.coverage.complete || snapshot.coverage.gaps.length
+    if (snapshot.contractVersion !== compiled.contractVersion || !snapshot.coverage.complete || snapshot.coverage.gaps.length
       || snapshotProof !== proof(body) || snapshot.namespace.some(entry => entry.workspaceId !== snapshot.workspaceId)) fail();
   }
+  if (compiled.contractVersion === 3) assertCopyPhysicalReadSources(input as NativeCopyFinalMixedGraphInput);
   assertManagedScenes(input.managedScenes, originals, final, compiled);
   if (!equal(originals.map(snapshot => ({ workspaceId: snapshot.workspaceId, proof: snapshot.snapshotProof }))
     .sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
@@ -310,11 +341,13 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
     || [...expected.keys()].some(id => !actual.has(id))) fail();
   for (const [id, parent] of parents) if (parent.kind !== 'directory' || parent.documentId !== null
     || parent.lifecycleGeneration !== null || !equal(parent, actual.get(id))) fail();
-  const graphs = final.map(buildWorkspaceNativeLinkGraph);
+  const graphs = final.map(snapshot => snapshot.contractVersion === 3
+    ? buildWorkspaceMixedReadLinkGraphV3(snapshot) : buildWorkspaceNativeLinkGraph(snapshot));
   if (graphs.some(graph => !graph.coverage.complete || graph.coverage.gaps.length)
     || graphs.reduce((count, graph) => count + graph.edges.length, 0) !== compiled.finalEdges.length) fail();
-  const edgesByDocument = new Map<string, (typeof graphs)[number]['edges']>();
+  const edgesByDocument = new Map<string, NativeResolvedLink[]>();
   for (const graph of graphs) for (const edge of graph.edges) {
+    if ('sourceKind' in edge && edge.sourceKind === 'physical-read') continue;
     const edges = edgesByDocument.get(edge.source.documentId) ?? [];
     edges.push(edge); edgesByDocument.set(edge.source.documentId, edges);
   }
@@ -322,7 +355,28 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
   if (desiredEdges.size !== compiled.finalEdges.length) fail();
   for (const entity of compiled.finalNamespace) {
     const entry = actual.get(key(entity.workspaceId, entity.path))!;
-    if (!entry.documentId) continue;
+    if (!entry.documentId) {
+      if (compiled.contractVersion !== 3 || !entity.physicalReadSource) continue;
+      const original = originals.find(snapshot => snapshot.workspaceId === entity.workspaceId);
+      const source = original?.contractVersion === 3 ? original.physicalSources.find(source => source.path === entity.path) : undefined;
+      const graph = graphs.find(graph => graph.workspaceId === entity.workspaceId);
+      if (!source || !graph || graph.contractVersion !== 3 || entity.binding.kind !== 'existing'
+        || entity.physicalReadSource.physicalSourceProof !== source.physicalSourceProof) fail();
+      const edges = graph.edges.filter(edge => edge.sourceKind === 'physical-read' && edge.source.path === source.path);
+      if (edges.length !== source.links.length) fail();
+      const targetKey = (target: NativeNamespaceEntry) => {
+        if (!equal(target, actual.get(key(target.workspaceId, target.path)))) fail();
+        return expected.get(key(target.workspaceId, target.path))?.entityKey ?? fail();
+      };
+      for (const [index, link] of source.links.entries()) {
+        const wanted = desiredEdges.get(JSON.stringify([entity.entityKey, link.physicalLinkId])), edge = edges[index];
+        const resolution = { status: edge.resolution.status, targetEntityKey: edge.resolution.target ? targetKey(edge.resolution.target) : null,
+          candidateEntityKeys: edge.resolution.candidates.map(targetKey).sort() };
+        if (!wanted || wanted.physicalReadSource !== true || wanted.literal !== edge.literal
+          || wanted.targetPathText !== edge.targetPathText || !equal(wanted.resolution, resolution)) fail();
+      }
+      continue;
+    }
     const original = entity.binding.kind === 'existing' ? entity.binding.namespaceEvidence : originalEntries.get(entity.binding.sourceEntityKey);
     const before = original?.documentId ? originalInventories.get(original.documentId) : undefined;
     const edges = edgesByDocument.get(entry.documentId) ?? [];
@@ -339,4 +393,79 @@ function assertCopyGraph(input: Parameters<typeof assertNativeCopyFinalGraph>[0]
       if (!wanted || wanted.literal !== edge.literal || wanted.targetPathText !== edge.targetPathText || !equal(wanted.resolution, resolution)) fail();
     }
   }
+}
+
+/** Correlate only catalogue-derived physical IDs, after validating complete
+ * evidence and reversing exactly the receipt-certified native births. Raw
+ * bytes, FSI, parser facts, metadata and every span remain exact. */
+function assertCopyPhysicalReadSources(input: NativeCopyFinalMixedGraphInput): void {
+  const pieces = sceneArray(input.physicalEvidence), seen = new Set<string>(), bornIds = new Set<string>();
+  if (pieces.length < 1 || pieces.length > 2 || pieces.length !== input.originals.length) fail();
+  const physicalKeys = new Set<string>();
+  for (const piece of pieces) {
+    const original = decodeWorkspaceOperationNativeSourceEvidenceV3(sceneField(piece, 'original'));
+    if (Reflect.ownKeys(piece).length !== 3) fail();
+    const current = decodeWorkspaceOperationNativeSourceEvidenceV3(sceneField(piece, 'current'));
+    const workspaceId = original.workspaceScope.workspaceId;
+    if (seen.has(workspaceId) || !equal(original.workspaceScope, current.workspaceScope)) fail();
+    seen.add(workspaceId);
+    const before = input.originals.find(snapshot => snapshot.workspaceId === workspaceId);
+    const after = input.final.find(snapshot => snapshot.workspaceId === workspaceId);
+    if (!before || !after) fail();
+    const sourceScopes: WorkspaceOperationNativeSourceEvidenceV3['scope'][] = [];
+    for (const [snapshot, evidence] of [[before, original], [after, current]] as const) {
+      if (!equal(snapshot.physicalSources, evidence.physicalSources)
+        || !equal(snapshot.documents, evidence.nativeComponent.stage.sources.map(source => source.inventory))) fail();
+      const paths = new Set(evidence.namespace.map(entry => entry.path));
+      const retained = snapshot.namespace.filter(entry => {
+        if (entry.provider === 'excalidraw') return false;
+        if (paths.has(entry.path)) return true;
+        if (!implied(entry) || !snapshot.namespace.some(child => child.provider === 'excalidraw' && child.path.startsWith(entry.path + '/'))
+          || snapshot.namespace.some(child => child.path.startsWith(entry.path + '/') && child.provider !== 'excalidraw'
+            && !(implied(child) && !paths.has(child.path)))) fail();
+        return false;
+      });
+      if (!equal(retained, evidence.namespace)) fail();
+      const scenePaths = new Set(snapshot.namespace.filter(entry => entry.provider === 'excalidraw').map(entry => entry.path));
+      if ([...scenePaths].some(path => !evidence.scope.excludedPaths.includes(path))) fail();
+      // Partition exclusions legitimately grow with confirmed Scene copies.
+      // Strip only exact, actually observed Scene leaves; preserve all others.
+      sourceScopes.push({ ...evidence.scope, excludedPaths: evidence.scope.excludedPaths.filter(path => !scenePaths.has(path)) });
+    }
+    if (!equal(sourceScopes[0], sourceScopes[1])) fail();
+    const catalogue = captureWorkspaceOperationNativeCatalogueWitness(sceneField(piece, 'currentCatalogue'),
+      current.workspaceScope, current.nativeComponent.stage.catalogueProof!, current.nativeComponent.nativeBindings, fail);
+    if (catalogue.semanticCatalogueProof !== current.nativeComponent.semanticCatalogueProof) fail();
+    const births = input.receipt.workspaceId === workspaceId ? input.receipt.documents : [];
+    const byId = new Map(catalogue.entries.map(entry => [entry.id, entry]));
+    for (const birth of births) {
+      const row = byId.get(birth.clone.documentId);
+      if (!row || bornIds.has(row.id) || row.lineage_id !== birth.clone.lineageId || row.path !== birth.clone.path
+        || row.authority !== 'initialized' || row.lifecycle_generation !== 1) fail();
+      bornIds.add(row.id);
+    }
+    // Copy preserves original paths, hence removing inserted clone rows also
+    // preserves the real database's ordering of every original catalogue row.
+    const inverse = catalogue.entries.filter(entry => !bornIds.has(entry.id));
+    const originalBindings = current.nativeComponent.nativeBindings.filter(binding => !bornIds.has(binding.expected.documentId));
+    const witness = captureWorkspaceOperationNativeCatalogueWitness(inverse, original.workspaceScope, proof(inverse),
+      originalBindings, fail);
+    if (witness.semanticCatalogueProof !== original.nativeComponent.semanticCatalogueProof) fail();
+    const [originalFacts, currentFacts] = [original, current].map(evidence => evidence.physicalSources.map(source => {
+      const { physicalSourceProof: _proof, links, authority, ...body } = source;
+      const { catalogueProof: _catalogue, ...identity } = authority;
+      return { ...body, authority: identity, links: links.map(({ physicalLinkId: _id, ...link }) => link) };
+    }));
+    if (!equal(originalFacts, currentFacts)) fail();
+    for (const source of original.physicalSources) {
+      const entry = before.namespace.find(entry => entry.path === source.path);
+      const entity = input.compiled.finalNamespace.find(entity => entity.workspaceId === workspaceId && entity.path === source.path);
+      if (!entry || !entity || entity.entityKey !== entityKey(entry) || entity.binding.kind !== 'existing'
+        || !equal(entity.binding.namespaceEvidence, entry) || !equal(entity.metadata, source.metadata)
+        || entity.physicalReadSource?.physicalSourceProof !== source.physicalSourceProof) fail();
+      physicalKeys.add(entity.entityKey);
+    }
+  }
+  if (bornIds.size !== input.receipt.documents.length || input.compiled.finalNamespace.some(entity => entity.binding.kind === 'unbound-copy'
+    && physicalKeys.has(entity.binding.sourceEntityKey))) fail();
 }

@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '../db';
 import type { NativeCopyReceipt } from '../collaboration/native-copy-persistence';
-import type { WorkspaceOperationManagedCopyStageV4 } from '../files/workspace-operation-managed-copy-stage';
+import type { WorkspaceOperationAnyManagedCopyStage } from '../files/workspace-operation-managed-copy-stage';
 import { assertNativeCopySessionOnConnection } from '../files/workspace-operation-native-copy-owner';
 import { assertNativeCopyManagedScenePreparationOnConnection, assertNativeCopyManagedSceneCompletionOnConnection,
   type NativeCopyPhasePathReceipt } from '../files/workspace-operation-native-copy-phase';
@@ -25,10 +25,10 @@ type Ledger = Readonly<{ intent: ExcalidrawCopyIntent; receipt: ExcalidrawCopyBi
 function changed(): never { return copyInvalid('EXCALIDRAW_COPY_CHANGED'); }
 function conflict(): never { return copyInvalid('EXCALIDRAW_COPY_ASSET_CONFLICT'); }
 const TABLE = 'collaboration_excalidraw_copy_receipts';
-function checkedStage(stage: WorkspaceOperationManagedCopyStageV4): void {
-  if (stage.version !== 4 || captureNativeCopyPhaseStage(stage).payloadSha256 !== stage.payloadSha256) changed();
+function checkedStage(stage: WorkspaceOperationAnyManagedCopyStage): void {
+  if ((stage.version !== 4 && stage.version !== 5) || captureNativeCopyPhaseStage(stage).payloadSha256 !== stage.payloadSha256) changed();
 }
-function bind(intent: ExcalidrawCopyIntent, stage: WorkspaceOperationManagedCopyStageV4): void {
+function bind(intent: ExcalidrawCopyIntent, stage: WorkspaceOperationAnyManagedCopyStage): void {
   if (intent.operationId !== stage.identity.operationId || intent.stageDigest !== stage.payloadSha256
     || intent.requestHash !== stage.identity.canonicalRequestHash || !equal(intent.origin, stage.origin)
     || !equal(intent.assetOriginal.destinationScope, stage.origin.destinationScope)
@@ -46,7 +46,7 @@ async function xid(database: SqlConnection): Promise<string> {
     || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)) copyInvalid('EXCALIDRAW_COPY_TRANSACTION_CHANGED');
   return row.xid;
 }
-async function nativeLedger(database: SqlConnection, stage: WorkspaceOperationManagedCopyStageV4, receipt?: NativeCopyReceipt): Promise<Row> {
+async function nativeLedger(database: SqlConnection, stage: WorkspaceOperationAnyManagedCopyStage, receipt?: NativeCopyReceipt): Promise<Row> {
   const row = await database.get(`SELECT workspace_id,operation_id,version,kind,actor_user_id,actor_session_id,organization_id,
     request_fingerprint,publication_fingerprint,publication_status,xmin::text AS xmin,created_at,
     CASE WHEN octet_length(private_result::text)<=16777216 THEN private_result END AS private_result
@@ -64,7 +64,7 @@ async function nativeLedger(database: SqlConnection, stage: WorkspaceOperationMa
 /** Same original Owner/B only. This never calls a prepare grant or current
  * document/asset reader; it is safe before deciding prepared versus recovered. */
 export async function readOriginalExcalidrawCopyOnConnection(database: SqlConnection,
-  { stage }: Readonly<{ stage: WorkspaceOperationManagedCopyStageV4 }>): Promise<Ledger | null> {
+  { stage }: Readonly<{ stage: WorkspaceOperationAnyManagedCopyStage }>): Promise<Ledger | null> {
   checkedStage(stage); await assertNativeCopySessionOnConnection(database, stage.origin);
   const header = await database.get(`SELECT version,stage_digest,request_hash,native_request_fingerprint,intent_digest,
     b1_transaction_id,created_at,birth_digest,b2_transaction_id,completed_at,
@@ -90,12 +90,12 @@ export async function readOriginalExcalidrawCopyOnConnection(database: SqlConnec
   await assertNativeCopySessionOnConnection(database, stage.origin); checkedStage(stage);
   return copyFreeze({ intent, receipt });
 }
-async function lockScenes(database: SqlConnection, stage: WorkspaceOperationManagedCopyStageV4, intent?: ExcalidrawCopyIntent): Promise<void> {
+async function lockScenes(database: SqlConnection, stage: WorkspaceOperationAnyManagedCopyStage, intent?: ExcalidrawCopyIntent): Promise<void> {
   const ids = new Set([...stage.plan.sceneCopyRequirements.map(row => row.sourceDocumentId), ...(intent?.documents.map(row => row.documentId) ?? [])]);
   for (const id of [...ids].sort()) await database.get('SELECT pg_advisory_xact_lock(hashtext($1))', [`excalidraw:${id}`]);
   await lockFileCollaborationPaths(database, stage.origin.destinationScope.workspaceId, stage.plan.sceneCopyRequirements.map(row => row.destinationPath));
 }
-async function currentSources(database: SqlConnection, stage: WorkspaceOperationManagedCopyStageV4): Promise<void> {
+async function currentSources(database: SqlConnection, stage: WorkspaceOperationAnyManagedCopyStage): Promise<void> {
   let remaining = 128 * 1024 * 1024;
   for (const requirement of stage.plan.sceneCopyRequirements) {
     const source = stage.sceneRecords.find(row => row.header.id === requirement.sourceDocumentId); if (!source) changed();
@@ -185,7 +185,7 @@ async function assetRows(database: SqlConnection, original: ExcalidrawCopyAssetO
   return result;
 }
 export async function prepareExcalidrawCopyIntentsOnConnection(database: SqlConnection, input: Readonly<{
-  stage: WorkspaceOperationManagedCopyStageV4; assetOriginal: ExcalidrawCopyAssetOriginal; nativeReceipt: NativeCopyReceipt;
+  stage: WorkspaceOperationAnyManagedCopyStage; assetOriginal: ExcalidrawCopyAssetOriginal; nativeReceipt: NativeCopyReceipt;
 }>): Promise<ExcalidrawCopyIntent> {
   const { stage } = input; checkedStage(stage); await assertNativeCopyManagedScenePreparationOnConnection(database, stage);
   const assetOriginal = captureExcalidrawCopyAssetOriginal(input.assetOriginal), existing = await readOriginalExcalidrawCopyOnConnection(database, { stage });
@@ -206,7 +206,7 @@ export async function prepareExcalidrawCopyIntentsOnConnection(database: SqlConn
   if (!row || row.xmin !== native.xmin || await xid(database) !== transactionId) changed();
   await assertNativeCopyManagedScenePreparationOnConnection(database, stage); return intent;
 }
-function paths(stage: WorkspaceOperationManagedCopyStageV4, supplied: readonly NativeCopyPhasePathReceipt[]): readonly string[] {
+function paths(stage: WorkspaceOperationAnyManagedCopyStage, supplied: readonly NativeCopyPhasePathReceipt[]): readonly string[] {
   const captured = copyCapture(supplied) as readonly NativeCopyPhasePathReceipt[];
   if (!Array.isArray(captured) || captured.length !== stage.physical.length) changed();
   const seen = new Set<number>();
@@ -230,7 +230,7 @@ function paths(stage: WorkspaceOperationManagedCopyStageV4, supplied: readonly N
 }
 /** Borrowed B2 only: no helper below opens/commits a second connection. */
 export async function commitExcalidrawCopiesOnConnection(database: SqlConnection, input: Readonly<{
-  stage: WorkspaceOperationManagedCopyStageV4; intent: ExcalidrawCopyIntent; assetReceipt: ExcalidrawCopyAssetReceipt;
+  stage: WorkspaceOperationAnyManagedCopyStage; intent: ExcalidrawCopyIntent; assetReceipt: ExcalidrawCopyAssetReceipt;
   pathReceipts: readonly NativeCopyPhasePathReceipt[];
 }>): Promise<ExcalidrawCopyBirthReceipt> {
   const { stage } = input; checkedStage(stage); await assertNativeCopyManagedSceneCompletionOnConnection(database, stage);

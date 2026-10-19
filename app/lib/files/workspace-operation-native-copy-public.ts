@@ -2,12 +2,13 @@ import 'server-only';
 
 import { types } from 'node:util';
 import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-operation-planner';
-import { buildWorkspaceNativeLinkGraph } from '../markdown/workspace-native-link-graph';
+import { buildWorkspaceNativeLinkGraph, buildWorkspaceMixedReadLinkGraphV3 } from '../markdown/workspace-native-link-graph';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeCopyPlan, WorkspaceOperationNativeCopyPlanError,
   type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
-import { decodeWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
+import { decodeWorkspaceOperationAnyManagedCopyPlan, type WorkspaceOperationAnyManagedCopyPlan } from './workspace-operation-managed-copy-plan-v4';
+import { workspaceOperationMixedCopySourceSnapshot } from './workspace-operation-copy-source-evidence-v4';
 
 /** Display data only. The fixed Copy owner performs fresh clone rebinding;
  * this summary never exposes a native identity, recipe or mutation capability. */
@@ -34,16 +35,17 @@ export type WorkspaceOperationNativeCopyPreviewPublic = {
   issues: [];
 };
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan): WorkspaceOperationNativeCopyPreviewPublic {
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan): WorkspaceOperationNativeCopyPreviewPublic {
   const managed = input !== null && typeof input === 'object' && !types.isProxy(input)
     && Object.getPrototypeOf(input) === Object.prototype
-    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 3;
-  const plan = managed ? decodeWorkspaceOperationManagedCopyPlan(input) : decodeWorkspaceOperationNativeCopyPlan(input);
+    && [3, 4].includes(Object.getOwnPropertyDescriptor(input, 'version')?.value);
+  const plan = managed ? decodeWorkspaceOperationAnyManagedCopyPlan(input) : decodeWorkspaceOperationNativeCopyPlan(input);
   const evidence = plan.sourceScope.workspaceId === plan.destinationScope.workspaceId
     ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence];
-  const graphs = evidence.map(original => buildWorkspaceNativeLinkGraph(workspaceOperationNativePlanSnapshot(original,
+  const graphs = evidence.map(original => original.evidenceVersion === 4
+    ? buildWorkspaceMixedReadLinkGraphV3(workspaceOperationMixedCopySourceSnapshot(original)) : buildWorkspaceNativeLinkGraph(workspaceOperationNativePlanSnapshot(original,
     () => { throw new WorkspaceOperationNativeCopyPlanError('NATIVE_COPY_PLAN_INVALID'); })));
-  const unresolved = graphs.flatMap(graph => graph.edges.filter(edge => edge.classification === 'local'
+  const unresolved = graphs.flatMap(graph => graph.edges.filter(edge => ('classification' in edge && edge.classification === 'local')
     && edge.resolution.status !== 'resolved').map(edge => ({ workspaceId: graph.workspaceId, sourcePath: edge.source.path,
     targetLiteral: edge.literal, status: edge.resolution.status as Exclude<typeof edge.resolution.status, 'resolved'> })));
   const complete = graphs.every(graph => graph.coverage.complete && graph.coverage.gaps.length === 0);

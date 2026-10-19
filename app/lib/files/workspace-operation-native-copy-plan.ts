@@ -123,8 +123,8 @@ function pathPlan(source: WorkspaceOperationJobScope, destination: WorkspaceOper
 /** Reproduce the compiler's virtual binding contract from original inventories.
  * Content hashes cannot be reconstructed from link inventories; they remain
  * opaque here and MUST be reproduced by the current-byte compiler gate. */
-function cloneRequirements(original: NativeWorkspaceLinkSnapshot, destination: WorkspaceOperationJobScope,
-  selected: readonly WorkspaceOperationNativeCopySelection[], planned: NativeWorkspaceFileOperationPlan,
+function cloneRequirements(original: Pick<NativeWorkspaceLinkSnapshot, 'workspaceId' | 'namespace' | 'documents'>, destination: WorkspaceOperationJobScope,
+  selected: readonly WorkspaceOperationNativeCopySelection[], planned: Pick<NativeWorkspaceFileOperationPlan, 'pathMappings'>,
   supplied: NativeMixedBatchPlan['cloneRequirements']): NativeMixedBatchPlan['cloneRequirements'] {
   if (!Array.isArray(supplied)) fail();
   const result: NativeMixedBatchPlan['cloneRequirements'] = [];

@@ -66,6 +66,7 @@ export async function mcpServerWorkspaceCopyContractTest(): Promise<void> {
     const { NativeCopyStatusNotFoundError } = await import('../app/lib/files/workspace-operation-native-copy-status');
     const { NativeCopyOperationNotFoundError } = await import('../app/lib/files/workspace-operation-native-copy-owner');
     const { NativeCopyRequestTooLargeError } = await import('../app/lib/files/workspace-operation-native-copy-request-budget');
+    const { WorkspaceOperationManagedCopyPlanV4Error } = await import('../app/lib/files/workspace-operation-managed-copy-plan-v4');
     const error = (code: string, status?: number, selected?: string) => (value: unknown) => {
       assert(value instanceof WorkspaceCopyToolError); assert.equal(value.code, code);
       if (status !== undefined) assert.equal(value.status, status);
@@ -199,6 +200,12 @@ export async function mcpServerWorkspaceCopyContractTest(): Promise<void> {
       // frozen wire source: Root adds this mapping with the shared byte guard.
       const canonical = failure(new NativeCopyRequestTooLargeError(), operationId);
       assert.equal(canonical.status, 413); assert.equal(canonical.body.code, 'COPY_TOO_LARGE');
+      const importRequired = new WorkspaceOperationManagedCopyPlanV4Error('MANAGED_COPY_PLAN_IMPORT_REQUIRED');
+      assert.match(importRequired.message, /imported into the notebook/u);
+      const blocked = failure(importRequired, operationId);
+      assert.equal(blocked.status, 409);
+      assert.deepEqual(blocked.body, { apiVersion: 1, success: false, code: 'COPY_NATIVE_REQUIRED', operationId });
+      assert.deepEqual(formatError(importRequired, operationId).structuredContent, blocked.body);
     });
 
     check('actual authorization errors retain the original OAuth challenge while only bounded public error data is emitted', () => {

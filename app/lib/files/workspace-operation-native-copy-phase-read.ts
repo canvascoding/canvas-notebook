@@ -262,7 +262,7 @@ async function historyRelations(database: SqlConnection, storage: NativeCopyRece
  * published receipt and original completion never authorize another mutation. */
 export async function readCompletedNativeCopyHistoryOnConnection(database: SqlConnection,
   input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+    stageVersion: 2 | 3 | 4 | 5; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
   return readCompletedCopyHistory(database, input, 'owner');
 }
 
@@ -270,7 +270,7 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
  * establish its private RR/RO frame; this is not a mutation-owner adapter. */
 export async function readCompletedMcpNativeCopyHistoryOnConnection(database: SqlConnection,
   input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+    stageVersion: 2 | 3 | 4 | 5; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
   return readCompletedCopyHistory(database, input, 'mcp-status');
 }
 
@@ -282,7 +282,7 @@ async function assertCompletedCopyHistorySession(database: SqlConnection, origin
 
 async function readCompletedCopyHistory(database: SqlConnection, input: CompletedNativeCopyHistoryInput,
   mode: 'owner' | 'mcp-status'): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
+    stageVersion: 2 | 3 | 4 | 5; managedReceipt?: ExcalidrawCopyBirthReceipt }> | null> {
   const captured = captureWorkspaceOperationNativePlanData(input, copyPhaseChanged);
   const value = object(captured, ['operationId', 'origin', 'requestHash', 'planId', 'storage',
     ...(captured && typeof captured === 'object' && Object.hasOwn(captured, 'sceneStorage') ? ['sceneStorage'] : [])]) as unknown as CompletedNativeCopyHistoryInput;
@@ -325,11 +325,11 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
   const version = parsed && typeof parsed === 'object' ? Object.getOwnPropertyDescriptor(parsed, 'version')?.value : undefined;
   const completed = object(parsed, ['version', 'kind', 'canonicalRequestHash', 'planId', 'stageDigest',
     'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof', ...(version === 2 ? ['coreV2StageDigest', 'metadata'] : []),
-    ...(version === 3 ? ['metadata', 'sceneIntentProof', 'sceneBirthProof', 'assetReceiptProof'] : [])]);
-  if (![1, 2, 3].includes(completed.version as number) || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
+    ...((version === 3 || version === 4) ? ['metadata', 'sceneIntentProof', 'sceneBirthProof', 'assetReceiptProof'] : [])]);
+  if (![1, 2, 3, 4].includes(completed.version as number) || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
     || completed.planId !== value.planId || completed.stageDigest !== step.after_fence
     || ![completed.stageDigest, completed.nativeRequestFingerprint, completed.copyReceiptProof, completed.admissionsProof].every(hash)) copyPhaseChanged();
-  const metadata = completed.version === 2 || completed.version === 3 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
+  const metadata = completed.version === 2 || completed.version === 3 || completed.version === 4 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
   if (completed.version === 2 && metadata && (!hash(completed.coreV2StageDigest)
     || nativeCopyMetadataCompositeDigest(completed.coreV2StageDigest, { version: metadata.version, kind: metadata.kind,
       snapshotProof: metadata.snapshotProof, sourceRowCount: metadata.sourceRowCount, copiedTitleCount: metadata.copiedTitleCount }) !== completed.stageDigest)) copyPhaseChanged();
@@ -345,7 +345,7 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
     kind: 'native_clone', requestFingerprint: completed.nativeRequestFingerprint as string, publicationFingerprint: completed.stageDigest as string });
   if (!nativeReceipt || nativeReceipt.publicationStatus !== 'published' || nativeCopyPhaseReceiptProof(nativeReceipt) !== completed.copyReceiptProof) copyPhaseChanged();
   let managedReceipt: ExcalidrawCopyBirthReceipt | undefined;
-  if (completed.version === 3) {
+  if (completed.version === 3 || completed.version === 4) {
     if (!value.sceneStorage || ![completed.sceneIntentProof, completed.sceneBirthProof, completed.assetReceiptProof].every(hash)) copyPhaseChanged();
     const scene = await readHistoricalExcalidrawCopyOnConnection(database, { operationId: value.operationId,
       stageDigest: completed.stageDigest as string, requestHash: value.requestHash, origin, storage: value.sceneStorage });
@@ -365,5 +365,5 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
     actor: { type: origin.actor.type, id: origin.actor.userId }, sourceWorkspaceId: origin.sourceScope.workspaceId,
     destinationWorkspaceId: origin.destinationScope.workspaceId, expectedStepCount: Number(header.expected_step_count), status: 'completed', phase: 'completed',
     revision: Number(header.revision), errorCode: header.error_code as string | null, createdAt: Number(header.created_at), updatedAt: Number(header.updated_at) }, nativeReceipt,
-    stageVersion: completed.version === 3 ? 4 : completed.version === 2 ? 3 : 2, ...(managedReceipt ? { managedReceipt } : {}) };
+    stageVersion: completed.version === 4 ? 5 : completed.version === 3 ? 4 : completed.version === 2 ? 3 : 2, ...(managedReceipt ? { managedReceipt } : {}) };
 }

@@ -7,9 +7,9 @@ import { decodePreparedWorkspacePathCopyOriginal } from '../filesystem/prepared-
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeCopyPlan, type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
-import { decodeWorkspaceOperationManagedCopyPlan, type WorkspaceOperationManagedCopyPlan } from './workspace-operation-managed-copy-plan';
+import { decodeWorkspaceOperationAnyManagedCopyPlan, type WorkspaceOperationAnyManagedCopyPlan } from './workspace-operation-managed-copy-plan-v4';
 import type { WorkspaceOperationNativeCopyPhysical, WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
-import type { WorkspaceOperationManagedCopyStageV4, WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
+import type { WorkspaceOperationAnyManagedCopyStage, WorkspaceOperationOwnedCopyStage } from './workspace-operation-managed-copy-stage';
 
 export type NativeCopyMetadataRow = Readonly<{ path: string; title: string | null; createdAt: number; updatedAt: number }>;
 export type NativeCopyMetadataSnapshot = Readonly<{
@@ -23,8 +23,8 @@ export type NativeCopyMetadataCompletionWitness = NativeCopyMetadataWitness & Re
 export type NativeCopyMetadataStage = Omit<WorkspaceOperationNativeCopyStage, 'version'> & Readonly<{
   version: 3; metadata: NativeCopyMetadataSnapshot; coreV2StageDigest: string;
 }>;
-type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationManagedCopyStageV4;
-type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationManagedCopyPlan;
+type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationAnyManagedCopyStage;
+type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan;
 type Input = Readonly<{ plan: MetadataPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
 type Row = Record<string, unknown>;
 const MAX_ROWS = 2048;
@@ -82,8 +82,8 @@ function context(input: Input) {
   const fields = object(input, ['plan', 'physical']), supplied = fields.plan;
   const managed = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
     && Object.getPrototypeOf(supplied) === Object.prototype
-    && Object.getOwnPropertyDescriptor(supplied, 'version')?.value === 3;
-  const plan = managed ? decodeWorkspaceOperationManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
+    && [3, 4].includes(Object.getOwnPropertyDescriptor(supplied, 'version')?.value);
+  const plan = managed ? decodeWorkspaceOperationAnyManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
   const physical = list(fields.physical, 1000).map((value, index) => {
     const item = object(value, ['selectionIndex', 'original']), selected = plan.selections[index];
     const original = decodePreparedWorkspacePathCopyOriginal(item.original);
@@ -269,10 +269,10 @@ function capturedStage(stage: WorkspaceOperationOwnedCopyStage): NativeCopyMetad
   if (!stage || typeof stage !== 'object' || types.isProxy(stage) || Object.getPrototypeOf(stage) !== Object.prototype) fail();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
   if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value')
-    || discriminator.value !== 3 && discriminator.value !== 4) fail();
+    || discriminator.value !== 3 && discriminator.value !== 4 && discriminator.value !== 5) fail();
   object(stage, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256', 'metadata',
-    ...(discriminator.value === 4 ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest'])]);
-  if (stage.version !== 3 && stage.version !== 4) fail();
+    ...((discriminator.value === 4 || discriminator.value === 5) ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest'])]);
+  if (stage.version !== 3 && stage.version !== 4 && stage.version !== 5) fail();
   // The actual phase checker below requires this exact fully captured Stage
   // and checks its complete original pin. Do not rebuild C1/native snapshots
   // inside every short SQL boundary or treat a matching digest as authority.

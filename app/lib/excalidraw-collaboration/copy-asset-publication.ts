@@ -11,7 +11,7 @@ import { captureWorkspaceOperationJobScope } from '../files/workspace-operation-
 import { captureNativeCopyPhaseStage } from '../files/workspace-operation-native-copy-phase-contract';
 import { assertNativeCopyManagedAssetRetirement, assertNativeCopyManagedAssetOwner,
   assertNativeCopyManagedAssetPublication } from '../files/workspace-operation-native-copy-owner';
-import type { WorkspaceOperationManagedCopyStageV4 } from '../files/workspace-operation-managed-copy-stage';
+import type { WorkspaceOperationAnyManagedCopyStage } from '../files/workspace-operation-managed-copy-stage';
 import type { WorkspaceContext } from '../workspaces/types';
 import { captureExcalidrawReadonlyAssetMetadata } from './readonly-assets';
 import { captureExcalidrawCopyAssetOriginal, captureExcalidrawCopyAssetReceipt, copyDigest, copyFreeze, copyInvalid, copyJson,
@@ -24,7 +24,7 @@ declare const assetCap: unique symbol;
 export type PreparedExcalidrawCopyAssets = Readonly<{ [assetCap]: true }>;
 type Directory = { fd: number; absolute: string; identity: ExcalidrawCopyDirectoryIdentity; parent?: Directory; name?: string };
 type Frame = { active: boolean; failed: unknown; busy: boolean; io: FdPublicationBackend;
-  stage: WorkspaceOperationManagedCopyStageV4 | null;
+  stage: WorkspaceOperationAnyManagedCopyStage | null;
   directories: Directory[]; root: Directory; workspace: Directory; privateDirectory: Directory;
   original: ExcalidrawCopyAssetOriginal; receipt: ExcalidrawCopyAssetReceipt | null };
 const frames = new WeakMap<PreparedExcalidrawCopyAssets, Frame>(), context = new AsyncLocalStorage<Frame>();
@@ -75,7 +75,7 @@ function child(frame: Frame, parent: Directory, name: string, create: boolean): 
   const directory = { fd, absolute: path.join(parent.absolute, name), identity: identity(fs.fstatSync(fd, { bigint: true })), parent, name };
   frame.directories.push(directory); check(frame, directory); return directory;
 }
-function open(workspaceId: string, privateName: string, create: boolean, stage: WorkspaceOperationManagedCopyStageV4 | null = null): Frame {
+function open(workspaceId: string, privateName: string, create: boolean, stage: WorkspaceOperationAnyManagedCopyStage | null = null): Frame {
   const io = getFdPublicationBackend();
   const absolute = rootPath(), fd = fs.openSync(absolute, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   const root = { fd, absolute, identity: identity(fs.fstatSync(fd, { bigint: true })) };
@@ -163,9 +163,9 @@ async function run<T>(frame: Frame, callback: (cap: PreparedExcalidrawCopyAssets
 
 /** Caller holds the genuine Copy owner's workspace kernel and SQL lifecycle
  * fences. No workspace root, database checkout, authority or transaction is made. */
-export async function withPreparedExcalidrawCopyAssets<T>(input: Readonly<{ stage: WorkspaceOperationManagedCopyStageV4;
+export async function withPreparedExcalidrawCopyAssets<T>(input: Readonly<{ stage: WorkspaceOperationAnyManagedCopyStage;
   destinationWorkspace: WorkspaceContext }>, callback: (cap: PreparedExcalidrawCopyAssets) => T | Promise<T>): Promise<T> {
-  const stage = captureNativeCopyPhaseStage(input.stage); if (stage.version !== 4) changed();
+  const stage = captureNativeCopyPhaseStage(input.stage); if ((stage.version !== 4 && stage.version !== 5)) changed();
   const scope = captureWorkspaceOperationJobScope(input.destinationWorkspace);
   if (!equal(scope, stage.origin.destinationScope)) changed();
   const metadata = new Map<string, ReturnType<typeof captureExcalidrawReadonlyAssetMetadata>>();
@@ -208,11 +208,11 @@ export async function withPreparedExcalidrawCopyAssets<T>(input: Readonly<{ stag
   // Callback failures retain the original: a lost B1 ACK may have committed it.
   return run(frame, callback);
 }
-export async function withRecoveredExcalidrawCopyAssets<T>(input: Readonly<{ stage: WorkspaceOperationManagedCopyStageV4;
+export async function withRecoveredExcalidrawCopyAssets<T>(input: Readonly<{ stage: WorkspaceOperationAnyManagedCopyStage;
   destinationWorkspace: WorkspaceContext; original: ExcalidrawCopyAssetOriginal }>,
 callback: (cap: PreparedExcalidrawCopyAssets) => T | Promise<T>): Promise<T> {
   const stage = captureNativeCopyPhaseStage(input.stage), original = captureExcalidrawCopyAssetOriginal(input.original);
-  if (stage.version !== 4 || original.operationId !== stage.identity.operationId || original.stageDigest !== stage.payloadSha256
+  if ((stage.version !== 4 && stage.version !== 5) || original.operationId !== stage.identity.operationId || original.stageDigest !== stage.payloadSha256
     || !equal(original.destinationScope, stage.origin.destinationScope)
     || !equal(captureWorkspaceOperationJobScope(input.destinationWorkspace), original.destinationScope)) changed();
   assertNativeCopyManagedAssetOwner(stage);

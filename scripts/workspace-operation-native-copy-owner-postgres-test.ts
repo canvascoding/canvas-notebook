@@ -838,7 +838,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       const writesBefore = writeWitnesses.length;
       await assert.rejects(preview({ origin, request: actual,
         selections: [{ sourcePath: WORKSPACE_STARTER_DOCUMENT_NAME, destinationPath: 'copied-starter.md' }] }),
-      error => error instanceof Error && Reflect.get(error, 'code') === 'MANAGED_COPY_PLAN_UNSUPPORTED');
+      error => error instanceof Error && Reflect.get(error, 'code') === 'MANAGED_COPY_PLAN_IMPORT_REQUIRED');
       assert.equal(writeWitnesses.length, writesBefore, 'Preview rejection performs no clone, link, Journal or physical staging mutation.');
       assert.deepEqual(io.existsSync(privateStageRoot) ? await readdir(privateStageRoot) : null, stagesBefore);
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_native_copy_receipts')).rows[0].n, 0);

@@ -8,7 +8,8 @@ import type { NativeCopyReceipt } from '../collaboration/native-copy-persistence
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { captureCollaborationAdmissionRequest, collaborationAdmissionActionDigest,
   type CollaborationAdmissionRequest, type CollaborationAdmissionScope } from '../collaboration/room-admission-contract';
-import type { NativeMixedBatchPlan } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
+import { workspaceOperationMixedCopySourceSnapshot } from './workspace-operation-copy-source-evidence-v4';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeCopyPlanCurrent } from './workspace-operation-native-copy-plan';
@@ -31,18 +32,18 @@ export const nativeCopyPhaseSha = (value: string | Uint8Array) => createHash('sh
 function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationOwnedCopyStage): WorkspaceOperationOwnedCopyStage {
   if (!stage || Object.getPrototypeOf(stage) !== Object.prototype) copyPhaseChanged();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
-  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || ![2, 3, 4].includes(discriminator.value)) copyPhaseChanged();
-  if (discriminator.value === 4) {
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || ![2, 3, 4, 5].includes(discriminator.value)) copyPhaseChanged();
+  if (discriminator.value === 4 || discriminator.value === 5) {
     const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'metadata',
       'nativeRecords', 'sceneRecords', 'sceneAssets', 'payloadSha256'];
     if (Reflect.ownKeys(stage).length !== expected.length || expected.some(key => {
       const property = Object.getOwnPropertyDescriptor(stage, key);
       return !property?.enumerable || !Object.hasOwn(property, 'value');
-    }) || stage.version !== 4) copyPhaseChanged();
+    }) || stage.version !== 4 && stage.version !== 5) copyPhaseChanged();
     const prepared = prepareManagedCopyStage({ operationId: stage.identity.operationId, request: stage.request, plan: stage.plan,
       physical: stage.physical, nativeRecords: stage.nativeRecords, sceneRecords: stage.sceneRecords,
       sceneAssets: stage.sceneAssets, metadata: stage.metadata });
-    if (stage.kind !== 'native-copy' || prepared.manifest.payloadSha256 !== stage.payloadSha256
+    if (stage.kind !== 'native-copy' || stage.version !== prepared.manifest.version || prepared.manifest.payloadSha256 !== stage.payloadSha256
       || !equal(stage.origin, prepared.manifest.origin) || !equal(stage.identity, prepared.manifest.identity)) copyPhaseChanged();
     return decodeManagedCopyStage(prepared.manifest, { recordsBytes: prepared.recordsBytes,
       sceneRecordsBytes: prepared.sceneRecordsBytes, sceneAssetsBytes: prepared.sceneAssetsBytes }, prepared.manifest.identity);
@@ -73,13 +74,15 @@ export function captureNativeCopyPhaseStage(stage: WorkspaceOperationOwnedCopySt
   return captureNativeCopyPhaseStageRaw(stage);
 }
 export function nativeCopyPhaseOriginals(stage: WorkspaceOperationOwnedCopyStage) {
+  if (stage.version === 5) return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
+    ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence]).map(workspaceOperationMixedCopySourceSnapshot);
   return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
     ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence])
     .map(evidence => workspaceOperationNativePlanSnapshot(evidence, copyPhaseChanged));
 }
 type CompilationFrame = {
   stage: WorkspaceOperationOwnedCopyStage | null; pin: string | null; active: boolean;
-  compiled: NativeMixedBatchPlan | null; failure: unknown; failed: boolean;
+  compiled: NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | null; failure: unknown; failed: boolean;
 };
 const compilations = new AsyncLocalStorage<CompilationFrame>();
 /** Pin every original data descriptor, including native lineage/state metadata.
@@ -88,9 +91,9 @@ const compilations = new AsyncLocalStorage<CompilationFrame>();
 function compilationPin(stage: WorkspaceOperationOwnedCopyStage): string {
   const hash = createHash('sha256'), parents = new Set<object>();
   let nodes = 0, metadataBytes = 0, binaryBytes = 0;
-  const maximumMetadataBytes = (stage.version === 4 ? 384 : 64) * 1024 * 1024;
-  const maximumBinaryBytes = (stage.version === 4 ? 178 : 128) * 1024 * 1024;
-  const maximumNodes = stage.version === 4 ? maximumMetadataBytes : 1_000_000;
+  const maximumMetadataBytes = ((stage.version === 4 || stage.version === 5) ? 384 : 64) * 1024 * 1024;
+  const maximumBinaryBytes = ((stage.version === 4 || stage.version === 5) ? 178 : 128) * 1024 * 1024;
+  const maximumNodes = (stage.version === 4 || stage.version === 5) ? maximumMetadataBytes : 1_000_000;
   const pending: string[] = [];
   let pendingBytes = 0;
   const flush = () => {
@@ -182,12 +185,12 @@ export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperatio
     });
   } finally { frame.active = false; frame.compiled = null; frame.stage = null; frame.pin = null; }
 }
-export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan {
+export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 {
   const frame = compilations.getStore();
   if (frame && !frame.active) copyPhaseChanged();
   const current = frame?.stage === stage ? frame : null;
   if (current) { assertCompilationPin(current); if (current.compiled) return current.compiled; }
-  if (stage.version === 4) {
+  if (stage.version === 4 || stage.version === 5) {
     try {
       const compiled = replayManagedCopyStageCompiler(stage.plan, stage.nativeRecords);
       if (current) { assertCompilationPin(current); current.compiled = compiled; }
@@ -228,11 +231,11 @@ export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationOwnedC
     })) } as const;
   if (stage.version === 2) return original;
   if (copyCreatedAt === undefined) copyPhaseChanged();
-  if (stage.version === 4) {
+  if (stage.version === 4 || stage.version === 5) {
     if (!managedReceipt || managedReceipt.operationId !== stage.identity.operationId || managedReceipt.stageDigest !== stage.payloadSha256
       || managedReceipt.intent.nativeRequestFingerprint !== receipt.requestFingerprint
       || managedReceipt.intent.nativeReceiptProof !== nativeCopyPhaseReceiptProof(receipt)) copyPhaseChanged();
-    return { ...original, version: 3 as const, metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt),
+    return { ...original, version: stage.version === 5 ? 4 as const : 3 as const, metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt),
       sceneIntentProof: managedReceipt.intent.intentDigest, sceneBirthProof: managedReceipt.receiptProof,
       assetReceiptProof: managedReceipt.assetReceipt.receiptProof };
   }

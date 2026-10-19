@@ -115,7 +115,15 @@ async function assertNativeActionsWithUnselectedRawMarkdown(h: Fixture, selectio
             sourceWorkspace: h.source, destinationWorkspace: h.destination });
           const plan = await previewWorkspaceNativeCopyOperation({ origin, request: await h.request(h.source, 'member', true),
             selections: [{ sourcePath: selection.sourcePath, destinationPath: selection.copyPath }] });
-          assert.equal(plan.version, 3); assert.equal(plan.executionReady, false);
+          assert.equal(plan.version, label === 'baseline' ? 3 : 4); assert.equal(plan.executionReady, false);
+          if (label === 'unselected-raw') {
+            assert(plan.version === 4); assert.equal(plan.nativePathPlan.contractVersion, 3);
+            assert.equal(plan.sourceEvidence.evidenceVersion, 4);
+            const sources = plan.sourceEvidence.nativeComponent.physicalSources;
+            assert.equal(sources.length, 1); assert.equal(sources[0].path, 'm1-unselected-raw.md');
+            assert.equal(sources[0].coverage.complete, true);
+            assert.equal(sources[0].authority.kind, 'unregistered');
+          }
           assert.equal(plan.readiness, 'requires-provider-publication');
           assert.equal(plan.selections.length, 1); assert.equal(plan.selections[0].sourcePath, selection.sourcePath);
         } else {
