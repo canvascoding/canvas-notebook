@@ -33,7 +33,16 @@ export type WorkspaceOperationDirectAuthorization = {
   /** Older stored jobs remain readable without inventing their original scope. */
   jobScope?: WorkspaceOperationJobScope;
 };
-export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization;
+/** Original MCP attribution only. Current rights require the separate live
+ * action principal; actorSessionId remains the first initiating SID_A. */
+export type WorkspaceOperationDirectMcpAuthorization = Readonly<{
+  mode: 'direct-mcp'; version: 1;
+  tool: 'move_knowledge_source' | 'delete_knowledge_source'; clientId: string;
+  actorUserId: string; actorId: string; actorType: 'agent'; actorDisplayName: string;
+  actorSessionId: string; requestHash: string; jobScope: WorkspaceOperationJobScope;
+}>;
+export type WorkspaceOperationBatchAuthorization = { mode: 'review' } | WorkspaceOperationDirectAuthorization
+  | WorkspaceOperationDirectMcpAuthorization;
 export type WorkspaceOperationBatchAction = {
   /** Stable action identity. Direct jobs have no associated review row. */
   reviewId: string;

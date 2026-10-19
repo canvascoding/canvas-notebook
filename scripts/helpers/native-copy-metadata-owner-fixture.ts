@@ -18,9 +18,9 @@ export type MetadataSqlProbe = (event: MetadataSqlEvent) => Promise<void>;
 export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture: {
   schema: string; schemaOid: string; applicationName: string; dataRoot: string;
   admin: Client; connection: SqlConnection; source: WorkspaceContext; destination: WorkspaceContext;
-  request: (workspace?: WorkspaceContext, userId?: 'owner' | 'member', cookie?: boolean) => Promise<NextRequest>;
+  request: (workspace?: WorkspaceContext, userId?: 'owner' | 'member', cookie?: boolean, sessionToken?: string) => Promise<NextRequest>;
   upload: (filePath: string, content: Buffer) => Promise<{ documentId: string; lifecycleGeneration: number }>;
-  metadata: (workspace: WorkspaceContext, filePath: string, values: { title?: string | null; isFavorite?: boolean; pinned?: boolean }, userId?: 'owner' | 'member') => Promise<void>;
+  metadata: (workspace: WorkspaceContext, filePath: string, values: { title?: string | null; isFavorite?: boolean; pinned?: boolean }, userId?: 'owner' | 'member', sessionToken?: string) => Promise<void>;
   withProbe: <R>(probe: MetadataSqlProbe, callback: () => Promise<R>) => Promise<R>;
 }) => Promise<T>): Promise<T> {
   assert.equal(process.env.NODE_ENV, 'test');
@@ -112,8 +112,9 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
     const source = await readPostgresWorkspaceForActorOnConnection(connection, actor('member'), sourceOwner.workspaceId);
     const destination = await readPostgresWorkspaceForActorOnConnection(connection, actor('member'), destinationOwner.workspaceId); assert(source && destination);
     assert(source.permissions.canRead && !source.permissions.canWrite); assert(destination.permissions.canWrite);
-    const request = async (workspace = source, userId: 'owner' | 'member' = 'member', cookie = false) => {
-      const token = tokens.get(userId); assert(token); const headers = new Headers({ 'x-canvas-workspace-id': workspace.workspaceId });
+    const request = async (workspace = source, userId: 'owner' | 'member' = 'member', cookie = false, sessionToken?: string) => {
+      // A rotated fixture session remains a real credential checked by auth.
+      const token = sessionToken ?? tokens.get(userId); assert(token); const headers = new Headers({ 'x-canvas-workspace-id': workspace.workspaceId });
       if (cookie) headers.set('cookie', (await serializeSignedCookie('better-auth.session_token', token, process.env.BETTER_AUTH_SECRET!)).split(';')[0]);
       else headers.set('authorization', `Bearer ${token}`);
       return new NextRequest('http://localhost/api/files/copy', { method: 'POST', headers });
@@ -146,10 +147,10 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
       assert.equal(applied.projection.status, 'projected'); assert.deepEqual(await readFile(path.join(source.rootPath, filePath)), content);
       return { documentId: applied.receipt.target.documentId, lifecycleGeneration: applied.receipt.target.lifecycleGeneration };
     };
-    const metadata = async (workspace: WorkspaceContext, filePath: string, values: { title?: string | null; isFavorite?: boolean; pinned?: boolean }, userId: 'owner' | 'member' = 'owner') => {
+    const metadata = async (workspace: WorkspaceContext, filePath: string, values: { title?: string | null; isFavorite?: boolean; pinned?: boolean }, userId: 'owner' | 'member' = 'owner', sessionToken?: string) => {
       const { updateWorkspaceFileMetadata } = await import('../../app/lib/files/workspace-file-metadata');
       const row = (await admin!.query('SELECT d.id,s.lifecycle_generation FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id WHERE d.workspace_id=$1 AND d.path=$2 AND d.status=$3', [workspace.workspaceId, filePath, 'active'])).rows[0]; assert(row);
-      await updateWorkspaceFileMetadata(await request(workspace, userId), { path: filePath,
+      await updateWorkspaceFileMetadata(await request(workspace, userId, false, sessionToken), { path: filePath,
         expectedTarget: { version: 1, kind: 'native_file', workspaceId: workspace.workspaceId, path: filePath, documentId: row.id, lifecycleGeneration: Number(row.lifecycle_generation) }, ...values });
     };
     // SQL is always executed first. Hooks observe/fault actual acknowledgements;

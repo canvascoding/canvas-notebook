@@ -2,16 +2,23 @@ import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
 import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
-import { decodeWorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
+import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
+import { decodeWorkspaceOperationMcpAuthorization, createWorkspaceOperationMcpAuthorization,
+  assertWorkspaceOperationMcpAuthorizationCurrent, workspaceOperationMcpBatchId } from './workspace-operation-mcp-authorization';
+import { assertDirectMcpWorkspaceMovePrincipalCaptured, assertDirectMcpWorkspaceDeletePrincipalCaptured,
+  withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
+  type DirectMcpWorkspaceMovePrincipal, type DirectMcpWorkspaceDeletePrincipal,
+  type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
-  WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
+  WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
+  WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 
 export type WorkspaceOperationBatchStatus = 'preview' | 'blocked' | 'queued' | 'applying' | 'applied'
   | 'needs_review' | 'needs_recovery' | 'failed' | 'undone';
@@ -179,7 +186,7 @@ export function assertWorkspaceOperationBatchClaimOnConnection(database: SqlConn
   }
   return trackedClaim(captured, async () => {
     claimCurrent(captured);
-    if (captured.binding.authorization.mode === 'direct' && (!captured.binding.authorization.jobScope
+    if (captured.binding.authorization.mode !== 'review' && (!captured.binding.authorization.jobScope
       || captured.binding.authorization.jobScope.workspaceId !== captured.binding.workspaceId)) throw claimError('BATCH_CLAIM_CHANGED');
     const first = await database.get(`SELECT pg_catalog.pg_current_xact_id()::text AS transaction_id,
       pg_catalog.current_setting('transaction_isolation') AS isolation,
@@ -206,6 +213,7 @@ function authorization(value: unknown): WorkspaceOperationBatchAuthorization {
   if (value === undefined || value === null) return { mode: 'review' };
   const parsed = JSON.parse(String(value)) as WorkspaceOperationBatchAuthorization;
   if (parsed?.mode === 'review') return { mode: 'review' };
+  if (parsed?.mode === 'direct-mcp') return decodeWorkspaceOperationMcpAuthorization(parsed);
   if (parsed?.mode !== 'direct' || ![parsed.actorUserId, parsed.actorId, parsed.actorDisplayName]
     .every((field) => typeof field === 'string' && field.trim().length > 0)
     || !['user', 'agent'].includes(parsed.actorType) || typeof parsed.requestHash !== 'string'
@@ -262,7 +270,8 @@ function captureDirectAuthorization(input: unknown): WorkspaceOperationDirectAut
 }
 
 export function workspaceOperationBatchAuthorityUserId(batch: WorkspaceOperationBatchRecord): string | null {
-  return batch.authorization?.mode === 'direct' ? batch.authorization.actorUserId : batch.reviewerUserId;
+  return batch.authorization?.mode === 'direct' || batch.authorization?.mode === 'direct-mcp'
+    ? batch.authorization.actorUserId : batch.reviewerUserId;
 }
 
 function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
@@ -311,8 +320,13 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   const plan = decodeStoredPlan(JSON.parse(planText));
   const parsedAuthorization = authorization(row.authorization_json);
   if (plan?.version !== 1 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
-  if (plan?.version !== 1 && parsedAuthorization.mode === 'direct'
+  if (plan?.version !== 1 && parsedAuthorization.mode !== 'review'
     && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
+  if (parsedAuthorization.mode === 'direct-mcp' && (row.action_mode !== 'apply'
+    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2)
+    || String(row.review_ids_json) !== '[]' || String(row.review_refs_json) !== '[]'
+    || row.reviewer_user_id !== null || row.reviewer_display_name !== null
+    || workspaceOperationBatchTotalActions(plan) !== Number(row.total_actions))) throw claimError('BATCH_INVALID_PLAN');
   return {
     batchId: String(row.batch_id), planId: String(row.plan_id), workspaceId: String(row.workspace_id),
     reviewIds: JSON.parse(String(row.review_ids_json)), reviewRefs: JSON.parse(String(row.review_refs_json)),
@@ -325,6 +339,218 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
     trashEntryIds: JSON.parse(String(row.trash_entry_ids_json)), leaseOwner: row.lease_owner == null ? null : String(row.lease_owner),
     createdAt: Number(row.created_at), updatedAt: Number(row.updated_at),
   };
+}
+
+/** Pure stored-row decoding. This does not mint a claim or grant current rights. */
+export function decodeWorkspaceOperationBatchRecord(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
+  return record(row);
+}
+
+type ReturnedClaim = {
+  batch: WorkspaceOperationBatchRecord; binding: WorkspaceOperationBatchClaimBinding;
+  planBytes: string; authorizationBytes: string; reviewIdsBytes: string; reviewRefsBytes: string;
+  owner: string; token: string; expiresAt: number;
+};
+/** Only actual RETURNING rows and their same-B relation proof enter here. */
+function captureReturnedClaim(row: Record<string, unknown>, source: WorkspaceOperationBatchClaimBinding['source'],
+  owner: string, token: string, expiresAt: number): ReturnedClaim {
+  if (typeof row.plan_json !== 'string' || typeof row.authorization_json !== 'string'
+    || typeof row.review_ids_json !== 'string' || typeof row.review_refs_json !== 'string'
+    || row.lease_token !== token || row.lease_owner !== owner || Number(row.lease_expires_at) !== expiresAt
+    || Number(row.claim_table_oid) !== source.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+  const batch = record(row), planBytes = row.plan_json, authorizationBytes = row.authorization_json;
+  const reviewIdsBytes = row.review_ids_json, reviewRefsBytes = row.review_refs_json;
+  const binding = frozen({ batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
+    plan: JSON.parse(planBytes) as WorkspaceOperationBatchPlan, authorization: authorization(authorizationBytes),
+    actionMode: batch.actionMode, totalActions: batch.totalActions, createdAt: batch.createdAt,
+    reviewIds: JSON.parse(reviewIdsBytes) as string[], reviewRefs: JSON.parse(reviewRefsBytes) as WorkspaceOperationBatchReviewRef[],
+    reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source });
+  return { batch, binding, planBytes, authorizationBytes, reviewIdsBytes, reviewRefsBytes, owner, token, expiresAt };
+}
+/** Registration is deliberately separate from SQL/COMMIT/awaited disposal. */
+function registerClaimedBatch(store: WorkspaceOperationBatchStore, runtime: Runtime, selected: ReturnedClaim): void {
+  claimedRows.set(selected.batch, { store, runtime, original: selected.batch, binding: selected.binding,
+    originalFingerprint: fingerprint(selected.batch), planBytes: selected.planBytes, authorizationBytes: selected.authorizationBytes,
+    reviewIdsBytes: selected.reviewIdsBytes, reviewRefsBytes: selected.reviewRefsBytes,
+    leaseOwner: selected.owner, leaseToken: selected.token, expiresAt: selected.expiresAt,
+    state: 'claimed', accepting: false, failure: undefined, pending: new Set(), finished: false });
+}
+
+export type WorkspaceOperationMcpClaimResult = Readonly<
+  { kind: 'claimed'; batch: WorkspaceOperationBatchRecord }
+  | { kind: 'historical-header'; batch: WorkspaceOperationBatchRecord }
+  | { kind: 'absent' }
+>;
+type McpSelection = Readonly<{ kind: 'move'; principal: DirectMcpWorkspaceMovePrincipal }>
+  | Readonly<{ kind: 'delete'; principal: DirectMcpWorkspaceDeletePrincipal }>;
+type McpCommand = Readonly<{ operationId: string; workspaceId: string }> & (
+  Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan }>
+  | Readonly<{ mode: 'existing'; planId: string }>
+);
+type McpAccess = DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
+function mcpSelection(input: unknown, names: readonly string[]): Record<string, unknown> {
+  if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype
+    || Reflect.ownKeys(input).length !== names.length || names.some(name => {
+      const descriptor = Object.getOwnPropertyDescriptor(input, name);
+      return !descriptor?.enumerable || !Object.hasOwn(descriptor, 'value');
+    })) throw claimError('BATCH_INVALID_REQUEST');
+  return input as Record<string, unknown>;
+}
+function captureMcpCreateInput(kind: McpSelection['kind'], input: unknown): McpCommand {
+  const selected = mcpSelection(input, ['operationId', 'plan']);
+  const plan = kind === 'move' ? decodeWorkspaceOperationNativeMoveBatchPlan(selected.plan)
+    : decodeWorkspaceOperationNativeDeleteBatchPlan(selected.plan);
+  if (typeof selected.operationId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(selected.operationId)
+    || plan.readiness !== 'ready') throw claimError('BATCH_INVALID_REQUEST');
+  return Object.freeze({ mode: 'create', operationId: selected.operationId, workspaceId: plan.workspaceId, plan });
+}
+function captureMcpExistingInput(input: unknown): McpCommand {
+  const selected = mcpSelection(input, ['operationId', 'workspaceId', 'planId']);
+  if (typeof selected.operationId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(selected.operationId)
+    || typeof selected.workspaceId !== 'string' || !selected.workspaceId || selected.workspaceId.length > 256
+    || selected.workspaceId !== selected.workspaceId.trim() || /[\u0000-\u001f\u007f]/u.test(selected.workspaceId)
+    || Buffer.from(selected.workspaceId).toString('utf8') !== selected.workspaceId
+    || typeof selected.planId !== 'string' || !/^[a-f0-9]{64}$/u.test(selected.planId)) throw claimError('BATCH_INVALID_REQUEST');
+  return Object.freeze({ mode: 'existing', operationId: selected.operationId, workspaceId: selected.workspaceId, planId: selected.planId });
+}
+function withMcpStorePolicy<T>(database: SqlConnection, selected: McpSelection,
+  operation: (access: McpAccess) => Promise<T>): Promise<T> {
+  return selected.kind === 'move'
+    ? withDirectMcpWorkspaceMovePrincipalOnConnection(database, selected.principal, operation)
+    : withDirectMcpWorkspaceDeletePrincipalOnConnection(database, selected.principal, operation);
+}
+async function assertMcpClaimSource(database: SqlConnection,
+  expected?: WorkspaceOperationBatchClaimBinding['source']): Promise<WorkspaceOperationBatchClaimBinding['source']> {
+  const row = await database.get(`SELECT pg_catalog.to_regclass('workspace_file_operation_batches')::oid::bigint AS table_oid,
+    pg_catalog.current_schema() AS schema_name,pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid`) as Record<string, unknown> | undefined;
+  const source = await readClaimSource(database, row?.table_oid);
+  if (source.schemaName !== row?.schema_name || source.schemaOid !== Number(row?.schema_oid)
+    || expected && !isDeepStrictEqual(source, expected)) throw claimError('BATCH_CLAIM_CHANGED');
+  const qualified = await database.get(`SELECT pg_catalog.to_regclass($1)::oid::bigint AS table_oid`,
+    [`${quote(source.schemaName)}.workspace_file_operation_batches`]) as Record<string, unknown> | undefined;
+  if (Number(qualified?.table_oid) !== source.tableOid) throw claimError('BATCH_CLAIM_CHANGED');
+  return source;
+}
+async function readMcpJobRow(database: SqlConnection, source: WorkspaceOperationBatchClaimBinding['source'], batchId: string) {
+  const row = await database.get(`SELECT batch_id,plan_id,workspace_id,
+    CASE WHEN octet_length(review_ids_json)<=2 THEN review_ids_json END AS review_ids_json,
+    CASE WHEN octet_length(review_refs_json)<=2 THEN review_refs_json END AS review_refs_json,
+    CASE WHEN octet_length(plan_json)<=16777216 THEN plan_json END AS plan_json,
+    CASE WHEN octet_length(authorization_json)<=65536 THEN authorization_json END AS authorization_json,
+    status,action_mode,reviewer_user_id,reviewer_display_name,completed_actions,total_actions,phase,
+    CASE WHEN octet_length(error_code)<=256 THEN error_code END AS error_code,
+    octet_length(error_code) AS error_code_bytes,
+    CASE WHEN octet_length(trash_entry_ids_json)<=65536 THEN trash_entry_ids_json END AS trash_entry_ids_json,
+    lease_owner,lease_expires_at,lease_token,created_at,updated_at,tableoid::oid::bigint AS claim_table_oid
+    FROM ${quote(source.schemaName)}.workspace_file_operation_batches WHERE batch_id=$1`, [batchId]) as Record<string, unknown> | undefined;
+  if (row && (typeof row.plan_json !== 'string' || typeof row.authorization_json !== 'string'
+    || row.review_ids_json !== '[]' || row.review_refs_json !== '[]' || typeof row.trash_entry_ids_json !== 'string'
+    || row.error_code_bytes !== null && Number(row.error_code_bytes) > 256
+    || Number(row.claim_table_oid) !== source.tableOid)) throw claimError('BATCH_CLAIM_CHANGED');
+  return row;
+}
+async function assertMcpPredecessor(database: SqlConnection, source: WorkspaceOperationBatchClaimBinding['source'],
+  workspaceId: string, batchId: string): Promise<void> {
+  const earlier = await database.get(`SELECT batch_id FROM ${quote(source.schemaName)}.workspace_file_operation_batches
+    WHERE workspace_id=$1 AND batch_id<>$2 AND (status='applying' OR status='queued') LIMIT 1`, [workspaceId, batchId]);
+  if (earlier) throw claimError('BATCH_CLAIM_BUSY');
+}
+/** Fixed MCP lease/header mechanics. No operation callback, auth DTO or proof supplied by callers. */
+async function runMcpClaim(store: WorkspaceOperationBatchStore, selected: McpSelection,
+  command: McpCommand): Promise<WorkspaceOperationMcpClaimResult> {
+  if (selected.kind === 'move') assertDirectMcpWorkspaceMovePrincipalCaptured(selected.principal, { workspaceId: command.workspaceId });
+  else assertDirectMcpWorkspaceDeletePrincipalCaptured(selected.principal, { workspaceId: command.workspaceId });
+  const runtime = runtimes.get(store);
+  if (!runtime) throw claimError('BATCH_CLAIM_REQUIRED');
+  const owner = randomUUID(), token = randomUUID(), database = await runtime.connect();
+  let began = false, commitAttempted = false, committed = false, failed = false, failure: unknown;
+  let result: WorkspaceOperationMcpClaimResult | undefined;
+  const returned: { value?: ReturnedClaim } = {};
+  try {
+    await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); began = true;
+    result = await withMcpStorePolicy(database, selected, async access => {
+      const tool = selected.kind === 'move' ? 'move_knowledge_source' as const : 'delete_knowledge_source' as const;
+      if (access.tool !== tool || access.workspace.workspaceId !== command.workspaceId) throw claimError('BATCH_SCOPE_CHANGED');
+      const facts = { userId: access.userId, clientId: access.clientId, sessionId: access.sessionId, workspace: access.workspace, tool };
+      const batchId = workspaceOperationMcpBatchId({ userId: access.userId, clientId: access.clientId,
+        workspaceId: command.workspaceId, tool, operationId: command.operationId });
+      const source = await assertMcpClaimSource(database), table = `${quote(source.schemaName)}.workspace_file_operation_batches`;
+      const validate = (row: Record<string, unknown>) => {
+        const batch = record(row);
+        if (batch.authorization.mode !== 'direct-mcp' || batch.workspaceId !== command.workspaceId
+          || batch.planId !== (command.mode === 'create' ? command.plan.planId : command.planId)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+        assertWorkspaceOperationMcpAuthorizationCurrent(batch.authorization, facts, batch.plan);
+        if (command.mode === 'create' && !isDeepStrictEqual(batch.plan, command.plan)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+        return batch;
+      };
+      let row = await readMcpJobRow(database, source, batchId);
+      if (row && validate(row).status === 'applied') {
+        await access.assertCurrent(); await assertMcpClaimSource(database, source);
+        return Object.freeze({ kind: 'historical-header' as const, batch: validate(row) });
+      }
+      if (!row && command.mode === 'existing') return Object.freeze({ kind: 'absent' as const });
+      try { await database.run(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE NOWAIT`); }
+      catch (error) {
+        if (error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === '55P03') throw claimError('BATCH_CLAIM_BUSY');
+        throw error;
+      }
+      await assertMcpClaimSource(database, source); await access.assertCurrent();
+      row = await readMcpJobRow(database, source, batchId);
+      const now = runtime.now(), expiresAt = now + 90_000;
+      if (!Number.isSafeInteger(now) || !Number.isSafeInteger(expiresAt)) throw claimError('BATCH_CLAIM_INVALID');
+      if (row) {
+        const original = validate(row);
+        if (original.status === 'applied') return Object.freeze({ kind: 'historical-header' as const, batch: original });
+        if (original.status === 'applying') {
+          if (typeof row.lease_owner !== 'string' || !row.lease_owner || typeof row.lease_token !== 'string' || !row.lease_token
+            || row.lease_expires_at === null || !Number.isSafeInteger(Number(row.lease_expires_at))
+            || Number(row.lease_expires_at) < 1) throw claimError('BATCH_CLAIM_CHANGED');
+          if (Number(row.lease_expires_at) > now) throw claimError('BATCH_CLAIM_BUSY');
+        }
+        if (!['failed', 'needs_recovery', 'applying'].includes(original.status)) throw claimError('BATCH_CONFLICT');
+        await assertMcpPredecessor(database, source, command.workspaceId, batchId);
+        const updated = await database.get(`UPDATE ${table} SET status='applying',lease_owner=$2,lease_token=$3,
+          lease_expires_at=$4,updated_at=$5 WHERE batch_id=$1 AND plan_json=$6 AND authorization_json=$7
+          AND status=$8 AND action_mode='apply' AND tableoid=$9::pg_catalog.oid RETURNING *,tableoid::oid::bigint AS claim_table_oid`,
+        [batchId, owner, token, expiresAt, now, row.plan_json, row.authorization_json, row.status, source.tableOid]) as Record<string, unknown> | undefined;
+        if (!updated) throw claimError('BATCH_CLAIM_CHANGED');
+        returned.value = captureReturnedClaim(updated, source, owner, token, expiresAt);
+      } else {
+        if (command.mode === 'existing') return Object.freeze({ kind: 'absent' as const });
+        await assertMcpPredecessor(database, source, command.workspaceId, batchId);
+        const original = createWorkspaceOperationMcpAuthorization({ ...facts, plan: command.plan });
+        const inserted = await database.get(`INSERT INTO ${table}
+          (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,status,
+           action_mode,total_actions,lease_owner,lease_token,lease_expires_at,created_at,updated_at)
+          VALUES($1,$2,$3,'[]','[]',$4,$5,'applying','apply',$6,$7,$8,$9,$10,$10)
+          RETURNING *,tableoid::oid::bigint AS claim_table_oid`,
+        [batchId, command.plan.planId, command.workspaceId, JSON.stringify(command.plan), JSON.stringify(original),
+          workspaceOperationBatchTotalActions(command.plan), owner, token, expiresAt, now]) as Record<string, unknown> | undefined;
+        if (!inserted) throw claimError('BATCH_CLAIM_CHANGED');
+        returned.value = captureReturnedClaim(inserted, source, owner, token, expiresAt);
+      }
+      await access.assertCurrent(); await assertMcpClaimSource(database, source);
+      return Object.freeze({ kind: 'claimed' as const, batch: returned.value.batch });
+    });
+    commitAttempted = true; await database.run('COMMIT'); committed = true;
+  } catch (error) {
+    failed = true;
+    failure = commitAttempted ? Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_COMMIT_UNCONFIRMED', 503,
+      'MCP file action commit is unconfirmed.'), { cause: error }) : error;
+    if (began && !committed && !commitAttempted) try { await database.run('ROLLBACK'); }
+    catch (rollback) { failure = Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_DISPOSAL_UNCONFIRMED', 503,
+      'MCP file action rollback is unconfirmed.'), { cause: new AggregateError([failure, rollback]) }); }
+  }
+  try { await database.close(failed ? claimFailure(failure) : undefined); }
+  catch (close) { failure = Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_DISPOSAL_UNCONFIRMED', 503,
+    'MCP file action connection disposal is unconfirmed.'), { cause: failure === undefined ? close : new AggregateError([failure, close]) }); }
+  if (failed || failure !== undefined) throw failure;
+  if (!committed || !result) throw claimError('BATCH_CLAIM_COMMIT_UNCONFIRMED', 503);
+  if (result.kind === 'claimed') {
+    if (!returned.value) throw claimError('BATCH_CLAIM_CHANGED');
+    registerClaimedBatch(store, runtime, returned.value);
+  }
+  return result;
 }
 
 /** SQL leases select work; the executor additionally owns the kernel workspace mutation lock. */
@@ -403,6 +629,26 @@ export class WorkspaceOperationBatchStore {
     return matchingExisting(await this.get(batchId));
   }
 
+  async createMcpMoveAndClaim(principal: DirectMcpWorkspaceMovePrincipal,
+    input: { operationId: string; plan: WorkspaceOperationNativeMoveBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
+    return runMcpClaim(this, { kind: 'move', principal }, captureMcpCreateInput('move', input));
+  }
+
+  async createMcpDeleteAndClaim(principal: DirectMcpWorkspaceDeletePrincipal,
+    input: { operationId: string; plan: WorkspaceOperationNativeDeleteBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
+    return runMcpClaim(this, { kind: 'delete', principal }, captureMcpCreateInput('delete', input));
+  }
+
+  async claimExistingMcpMove(principal: DirectMcpWorkspaceMovePrincipal,
+    input: { operationId: string; workspaceId: string; planId: string }): Promise<WorkspaceOperationMcpClaimResult> {
+    return runMcpClaim(this, { kind: 'move', principal }, captureMcpExistingInput(input));
+  }
+
+  async claimExistingMcpDelete(principal: DirectMcpWorkspaceDeletePrincipal,
+    input: { operationId: string; workspaceId: string; planId: string }): Promise<WorkspaceOperationMcpClaimResult> {
+    return runMcpClaim(this, { kind: 'delete', principal }, captureMcpExistingInput(input));
+  }
+
   async enqueue(input: { batchId: string; planId: string; userId: string; displayName: string;
     action?: 'accept' | 'resume' | 'undo' }): Promise<WorkspaceOperationBatchRecord> {
     const action = input.action ?? 'accept';
@@ -411,6 +657,7 @@ export class WorkspaceOperationBatchStore {
       const row = await db.get('SELECT * FROM workspace_file_operation_batches WHERE batch_id = $1 FOR UPDATE', [input.batchId]);
       if (!row) throw new WorkspaceOperationBatchError('BATCH_NOT_FOUND', 404, 'File action batch not found.');
       const batch = record(row as Record<string, unknown>);
+      if (batch.authorization.mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
       if (batch.planId !== input.planId) throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The exact batch plan is required.');
       const direct = batch.authorization.mode === 'direct';
       const authorityUserId = workspaceOperationBatchAuthorityUserId(batch);
@@ -473,51 +720,44 @@ export class WorkspaceOperationBatchStore {
     if (typeof owner !== 'string' || !owner || owner.length > 256 || /[\u0000-\u001f\u007f]/u.test(owner)
       || !Number.isSafeInteger(now) || !Number.isSafeInteger(leaseMs) || leaseMs < 1 || !Number.isSafeInteger(now + leaseMs)) throw claimError('BATCH_CLAIM_INVALID');
     const database = await runtime.connect();
-    let batch: WorkspaceOperationBatchRecord | null = null, source: WorkspaceOperationBatchClaimBinding['source'] | undefined;
-    let planBytes = '', authorizationBytes = '', reviewIdsBytes = '', reviewRefsBytes = '', failure: unknown;
+    let selected: ReturnedClaim | undefined, failure: unknown;
     try {
       const row = await database.get(`UPDATE workspace_file_operation_batches AS batch SET status = 'applying',
       lease_owner = $1, lease_expires_at = $2, updated_at = $3, lease_token = $4 FROM (
         SELECT candidate.batch_id FROM workspace_file_operation_batches candidate
         WHERE (candidate.status = 'queued' OR candidate.status = 'applying' AND candidate.lease_expires_at <= $3)
+          AND CASE WHEN candidate.authorization_json IS JSON OBJECT
+            THEN candidate.authorization_json::jsonb->>'mode' IN ('review','direct') ELSE false END
           AND NOT EXISTS (SELECT 1 FROM workspace_file_operation_batches earlier
             WHERE earlier.workspace_id = candidate.workspace_id AND earlier.batch_id <> candidate.batch_id
               AND (earlier.status = 'applying' OR earlier.status = 'queued'
+                AND CASE WHEN earlier.authorization_json IS JSON OBJECT
+                  THEN earlier.authorization_json::jsonb->>'mode' IN ('review','direct') ELSE false END
                 AND (earlier.created_at,earlier.batch_id) < (candidate.created_at,candidate.batch_id)))
         ORDER BY candidate.created_at,candidate.batch_id FOR UPDATE SKIP LOCKED LIMIT 1
       ) AS candidate WHERE batch.batch_id = candidate.batch_id RETURNING batch.*,batch.tableoid::oid::bigint AS claim_table_oid`,
       [owner, now + leaseMs, now, token]) as Record<string, unknown> | undefined;
       if (row) {
-        if (typeof row.plan_json !== 'string' || typeof row.authorization_json !== 'string'
-          || typeof row.review_ids_json !== 'string' || typeof row.review_refs_json !== 'string' || row.lease_token !== token
-          || row.lease_owner !== owner || Number(row.lease_expires_at) !== now + leaseMs) throw claimError('BATCH_CLAIM_CHANGED');
-        source = await readClaimSource(database, row.claim_table_oid);
-        planBytes = row.plan_json; authorizationBytes = row.authorization_json;
-        reviewIdsBytes = row.review_ids_json; reviewRefsBytes = row.review_refs_json; batch = record(row);
+        const source = await readClaimSource(database, row.claim_table_oid);
+        selected = captureReturnedClaim(row, source, owner, token, now + leaseMs);
       }
     } catch (error) { failure = claimFailure(error); }
     try { await database.close(); }
     catch (error) { failure = failure === undefined ? claimFailure(error) : new AggregateError([failure, claimFailure(error)], 'File action claim checkout cleanup failed.'); }
     if (failure !== undefined) throw failure;
-    if (batch) {
-      const binding = frozen({ batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
-        plan: JSON.parse(planBytes) as WorkspaceOperationBatchPlan, authorization: authorization(authorizationBytes),
-        actionMode: batch.actionMode, totalActions: batch.totalActions, createdAt: batch.createdAt,
-        reviewIds: JSON.parse(reviewIdsBytes) as string[], reviewRefs: JSON.parse(reviewRefsBytes) as WorkspaceOperationBatchReviewRef[],
-        reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source: source! });
+    if (selected) {
+      const { binding, batch } = selected;
       await claimConnection({ runtime }, async db => {
         await assertClaimSource(db, { binding });
-        await db.run(`UPDATE ${quote(source!.schemaName)}.workspace_file_operation_reviews SET status = 'applying',
+        await db.run(`UPDATE ${quote(binding.source.schemaName)}.workspace_file_operation_reviews SET status = 'applying',
           revision = revision + 1, updated_at = $3 WHERE batch_id = $1 AND status = 'queued'
-          AND EXISTS (SELECT 1 FROM ${quote(source!.schemaName)}.workspace_file_operation_batches
+          AND EXISTS (SELECT 1 FROM ${quote(binding.source.schemaName)}.workspace_file_operation_batches
             WHERE batch_id = $1 AND lease_owner = $2 AND lease_token=$4 AND status = 'applying')`,
         [batch.batchId, owner, now, token]);
       });
-      claimedRows.set(batch, { store: this, runtime, original: batch, binding, originalFingerprint: fingerprint(batch),
-        planBytes, authorizationBytes, reviewIdsBytes, reviewRefsBytes, leaseOwner: owner, leaseToken: token, expiresAt: now + leaseMs,
-        state: 'claimed', accepting: false, failure: undefined, pending: new Set(), finished: false });
+      registerClaimedBatch(this, runtime, selected);
     }
-    return batch;
+    return selected?.batch ?? null;
   }
 
   async withClaim<T>(originalBatch: WorkspaceOperationBatchRecord,
@@ -604,10 +844,13 @@ export class WorkspaceOperationBatchStore {
   }
 
   async heartbeat(batchId: string, owner: string, progress?: WorkspaceOperationBatchProgress): Promise<boolean> {
+    const existing = await this.get(batchId);
+    if (existing?.authorization.mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
     const now = this.now();
     const batch = await this.query(`UPDATE workspace_file_operation_batches SET lease_expires_at = $3,
       updated_at = $4, completed_actions = COALESCE($5,completed_actions), phase = COALESCE($6,phase)
-      WHERE batch_id = $1 AND lease_owner = $2 AND status = 'applying' RETURNING *`,
+      WHERE batch_id = $1 AND lease_owner = $2 AND status = 'applying'
+        AND CASE WHEN authorization_json IS JSON OBJECT THEN authorization_json::jsonb->>'mode' IN ('review','direct') ELSE false END RETURNING *`,
     [batchId, owner, now + 90_000, now, progress?.completedActions ?? null, progress?.phase ?? null]);
     return Boolean(batch);
   }
@@ -615,10 +858,13 @@ export class WorkspaceOperationBatchStore {
   async finish(batchId: string, owner: string, input: { status: WorkspaceOperationBatchStatus;
     errorCode?: string | null; trashEntryIds?: string[]; completedActions?: number; phase?: string }): Promise<WorkspaceOperationBatchRecord | null> {
     return executeLifecycleTransaction({ openConnection: this.connect, execute: async (db) => {
+      const selected = await db.get('SELECT authorization_json FROM workspace_file_operation_batches WHERE batch_id=$1 FOR UPDATE', [batchId]) as Record<string, unknown> | undefined;
+      if (selected && authorization(selected.authorization_json).mode === 'direct-mcp') throw claimError('BATCH_DIRECT_AUTHORIZATION_REQUIRED', 403);
       const row = await db.get(`UPDATE workspace_file_operation_batches SET status = $3, error_code = $4,
         trash_entry_ids_json = COALESCE($5,trash_entry_ids_json), completed_actions = COALESCE($6,completed_actions),
         phase = COALESCE($7,phase), lease_owner = NULL, lease_expires_at = NULL, updated_at = $8
-        WHERE batch_id = $1 AND lease_owner = $2 AND status = 'applying' RETURNING *`,
+        WHERE batch_id = $1 AND lease_owner = $2 AND status = 'applying'
+          AND CASE WHEN authorization_json IS JSON OBJECT THEN authorization_json::jsonb->>'mode' IN ('review','direct') ELSE false END RETURNING *`,
       [batchId, owner, input.status, input.errorCode ?? null,
         input.trashEntryIds ? JSON.stringify(input.trashEntryIds) : null, input.completedActions ?? null,
         input.phase ?? null, this.now()]);
@@ -636,7 +882,7 @@ export class WorkspaceOperationBatchStore {
     }, recoverCommitted: async (value, error) => {
       if (!value) return null;
       const persisted = await this.get(batchId);
-      if (persisted?.status === value.status && persisted.leaseOwner === null) return persisted;
+      if (persisted?.authorization.mode !== 'direct-mcp' && persisted?.status === value.status && persisted.leaseOwner === null) return persisted;
       throw error;
     } });
   }

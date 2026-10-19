@@ -7,6 +7,7 @@ import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-op
 import { createWorkspaceOperationJobScopeFixture } from './helpers/workspace-operation-job-scope-fixture';
 import { runPgliteFixture as runSqlFixture } from './helpers/pglite-pool-harness';
 import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspace-operation-legacy-plan-fixture';
+import { WorkspaceFileUndoDisabledError } from '../app/lib/files/workspace-file-undo-policy';
 
 const planId = 'a'.repeat(64);
 type WorkerExecuteInput = Parameters<NonNullable<NonNullable<Parameters<typeof createWorkspaceOperationBatchWorker>[0]>['execute']>>[0];
@@ -61,6 +62,23 @@ async function main(): Promise<void> {
   };
   const rejectsWith = (status: number, code?: string) => (error: unknown) => error instanceof WorkspaceOperationBatchError
     && error.status === status && (!code || error.code === code);
+  const assertStoredUndoDisabled = async (batchId: string, original: WorkspaceOperationDirectAuthorization) => {
+    const before = await store.get(batchId); assert(before); assert.equal(before.actionMode, 'undo');
+    let resolves = 0, builds = 0, mutations = 0;
+    await createWorkspaceOperationBatchWorker({ store, lock: inlineLock,
+      resolveScope: async () => { resolves += 1; return scope(before.workspaceId); },
+      hasExecution: async () => true, mutationEvidence: async () => 'complete',
+      buildPlan: async () => { builds += 1; return before.plan; },
+      execute: async () => { mutations += 1; return complete; }, undo: async () => { mutations += 1; return complete; },
+      dependentReviews: async () => undefined, projectFileViews: ignoreProjection }).tick();
+    const stored = await store.get(batchId); assert(stored);
+    assert.equal(stored.status, 'needs_recovery'); assert.equal(stored.errorCode, 'FILE_OPERATION_UNDO_DISABLED');
+    assert.equal(resolves, 0, 'historical Undo is refused before current scope resolution');
+    assert.equal(builds, 0, 'historical Undo is refused before rebuilding a plan');
+    assert.equal(mutations, 0, 'historical Undo is refused before any executor or restore');
+    assert.deepEqual(stored.authorization, original, 'disabled Undo preserves its actual stored original authorization');
+    return stored;
+  };
   try {
     for (const statement of WORKSPACE_OPERATION_REVIEW_STATEMENTS) await pg.exec(statement);
 
@@ -217,26 +235,27 @@ async function main(): Promise<void> {
     assert.equal(freshPlans, 1, 'partially executed direct jobs use their stored plan');
     assert.equal(executions, 2);
     const beforeUndo = await store.get(interrupted.batchId);
-    await assert.rejects(store.enqueue({ batchId: interrupted.batchId, planId, action: 'undo',
-      userId: 'another-user', displayName: 'Another user' }), rejectsWith(403));
-    assert.deepEqual(await store.get(interrupted.batchId), beforeUndo);
-    const undoQueued = await store.enqueue({ batchId: interrupted.batchId, planId, action: 'undo',
-      userId: agentGrant.actorUserId, displayName: 'Initiator' });
+    const beforeUndoRow = (await pg.query<{ body: string; xmin: string }>(
+      'SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM workspace_file_operation_batches t WHERE batch_id=$1', [interrupted.batchId])).rows;
+    for (const userId of ['another-user', agentGrant.actorUserId]) {
+      await assert.rejects(store.enqueue({ batchId: interrupted.batchId, planId, action: 'undo', userId, displayName: 'Initiator' }),
+        error => error instanceof WorkspaceFileUndoDisabledError && error.code === 'FILE_OPERATION_UNDO_DISABLED' && error.status === 409);
+      assert.deepEqual(await store.get(interrupted.batchId), beforeUndo);
+      assert.deepEqual((await pg.query<{ body: string; xmin: string }>(
+        'SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM workspace_file_operation_batches t WHERE batch_id=$1', [interrupted.batchId])).rows, beforeUndoRow,
+      'normal Undo enqueue is rejected without even changing the existing row xmin');
+    }
+    // Explicit adversarial/historical SQL fixture, never product Undo approval.
+    // A pre-policy stored queue must be stopped by the Worker before consumers.
+    assert.equal((await pg.query(`UPDATE workspace_file_operation_batches SET status='queued',action_mode='undo',
+      lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,phase='preparing',completed_actions=0,error_code=NULL
+      WHERE batch_id=$1 AND status='applied' RETURNING batch_id`, [interrupted.batchId])).rows.length, 1);
+    const undoQueued = await store.get(interrupted.batchId); assert(undoQueued);
     assert.equal(undoQueued.actionMode, 'undo');
     assert.equal(undoQueued.reviewerUserId, null);
     assert.deepEqual(undoQueued.authorization, agentGrant);
-    let undos = 0;
-    await createWorkspaceOperationBatchWorker({ store, lock: inlineLock,
-      resolveScope: async () => scope(interrupted.snapshot.workspaceId), hasExecution: async () => true,
-      mutationEvidence: async () => 'complete',
-      undo: async (input) => {
-        undos += 1;
-        assert.equal(input.actorUserId, agentGrant.actorUserId);
-        await input.onProgress?.({ completedActions: 1, totalActions: 1, phase: 'complete' });
-        return complete;
-      }, dependentReviews: async () => undefined, projectFileViews: ignoreProjection }).tick();
-    assert.equal(undos, 1);
-    assert.equal((await store.get(interrupted.batchId))!.status, 'undone');
+    await assertStoredUndoDisabled(interrupted.batchId, agentGrant);
+    assert.equal((await store.get(interrupted.batchId))!.status, 'needs_recovery');
     assert.equal((await store.get(interrupted.batchId))!.reviewerUserId, null);
 
     const revoked = await create('revoked-progress');
@@ -320,7 +339,12 @@ async function main(): Promise<void> {
       const item = await create(name, undefined, 'delete');
       if (mode === 'undo') {
         await settle(item.batchId, `prepare-${name}`);
-        await store.enqueue({ batchId: item.batchId, planId, action: 'undo', userId: 'initiator', displayName: 'Initiator' });
+        // Only arrange the historical stored queue. The actual public enqueue
+        // remains disabled and is checked above without any policy toggle.
+        assert.equal((await pg.query(`UPDATE workspace_file_operation_batches SET status='queued',action_mode='undo',
+          lease_owner=NULL,lease_token=NULL,lease_expires_at=NULL,phase='preparing',completed_actions=0,error_code=NULL
+          WHERE batch_id=$1 AND status='applied' RETURNING batch_id`, [item.batchId])).rows.length, 1);
+        assert.deepEqual((await store.get(item.batchId))!.authorization, item.grant);
       }
       return item;
     };
@@ -329,6 +353,10 @@ async function main(): Promise<void> {
       let builds = 0, executions = 0;
       const changed = scope(item.snapshot.workspaceId);
       Object.assign(changed.workspace, { [field]: value });
+      if (['undo'].includes(mode)) {
+        await assertStoredUndoDisabled(item.batchId, item.grant);
+        continue;
+      }
       await createWorkspaceOperationBatchWorker({ store, lock: inlineLock, resolveScope: async () => changed,
         hasExecution: async () => mode === 'undo', mutationEvidence: async () => mode === 'undo' ? 'complete' : 'absent',
         buildPlan: async () => { builds += 1; return item.snapshot; },
@@ -342,6 +370,10 @@ async function main(): Promise<void> {
     }
     for (const mode of ['apply', 'undo'] as const) for (const [field, value] of driftCases) {
       const item = await scopeJob(`progress-${mode}-${field}`, mode);
+      if (['undo'].includes(mode)) {
+        await assertStoredUndoDisabled(item.batchId, item.grant);
+        continue;
+      }
       let changed = false, mutations = 0, nextMutations = 0;
       const phase = async (input: Pick<WorkerExecuteInput, 'onProgress'>) => {
         await input.onProgress?.({ completedActions: 0, totalActions: 1, phase: 'paths' });
@@ -369,6 +401,10 @@ async function main(): Promise<void> {
       await pg.query('UPDATE workspace_file_operation_batches SET authorization_json=$1 WHERE batch_id=$2', [JSON.stringify(legacyGrant), item.batchId]);
       const readable = await store.get(item.batchId); assert(readable);
       assert.deepEqual(readable.authorization, legacyGrant, 'legacy unbound direct jobs remain readable without an invented scope');
+      if (['undo'].includes(mode)) {
+        await assertStoredUndoDisabled(item.batchId, legacyGrant);
+        continue;
+      }
       let builds = 0, executions = 0;
       await createWorkspaceOperationBatchWorker({ store, lock: inlineLock, resolveScope: async () => scope(item.snapshot.workspaceId),
         hasExecution: async () => mode === 'undo', mutationEvidence: async () => mode === 'undo' ? 'complete' : 'absent',
@@ -386,8 +422,8 @@ async function main(): Promise<void> {
       dependentReviews: async () => undefined, projectFileViews: ignoreProjection }).tick();
     assert.equal(ordinaryExecutions, 1); assert.equal((await store.get(ordinary.batchId))!.status, 'applied');
     assert.equal((await store.get(ordinary.batchId))!.authorization.mode, 'direct');
-    console.log('direct job scope: 18 queued drift fences, 18 progress fences, 2 legacy apply/Undo fences and ordinary success OK');
-    console.log('direct file worker: immutable durable authorization, no fake review, lease takeover, stale plan, agent attribution, exact resume/Undo and progress permission fence OK');
+    console.log('direct job scope: 9 Apply queued drift fences, 9 Apply progress fences, legacy Apply and ordinary success; 20 stored Undo refusal gates OK');
+    console.log('direct file worker: immutable durable authorization, no fake review, lease takeover, stale plan, agent attribution, exact resume, Undo-Off409/no-row-change and progress permission fence OK');
   } finally { await pg.close(); }
 }
 

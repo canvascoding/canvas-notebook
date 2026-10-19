@@ -1,7 +1,9 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
+import { openDb } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
+import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import { withPreparedWorkspacePathMove, withRecoveredWorkspacePathMoves, readPreparedWorkspacePathMove,
   movePreparedWorkspacePath, bindPreparedWorkspacePathMoveSharedParent } from '../filesystem/prepared-workspace-path-move';
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt } from '../filesystem/prepared-workspace-path-move-contract';
@@ -19,16 +21,24 @@ import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOpera
 export async function executeWorkspaceOperationOriginalMove(input: {
   claim: WorkspaceOperationBatchClaim; workspace: WorkspaceContext;
   onPathCommitted?: (completed: number) => Promise<void>;
+  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal;
 }): Promise<WorkspaceOperationOriginalMoveCompletionData> {
+  if (types.isProxy(input)) throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
+  const mcpField = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
+  if (mcpField && (!mcpField.enumerable || !Object.hasOwn(mcpField, 'value'))) {
+    throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
+  }
+  const mcpPrincipal = mcpField?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(mcpField.value);
   const claim = input.claim, workspace = input.workspace, onPathCommitted = input.onPathCommitted;
   const binding = readWorkspaceOperationBatchClaimBinding(claim), plan = binding.plan;
-  if (plan.version !== 3 || binding.actionMode !== 'apply' || binding.authorization.mode !== 'direct'
+  if (plan.version !== 3 || binding.actionMode !== 'apply'
+    || binding.authorization.mode !== 'direct' && binding.authorization.mode !== 'direct-mcp'
     || !isDeepStrictEqual(captureWorkspaceOperationJobScope(workspace), plan.sourceEvidence.workspaceScope)) {
     throw Object.assign(new Error('Original Move job scope changed.'), {code:'ORIGINAL_MOVE_SCOPE_CHANGED',status:409});
   }
   // A completed retry never requires a filesystem object to remain at the old
   // or new path. Current rights and exact historical SQL receipts are checked.
-  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim);
+  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, mcpPrincipal);
   if (history?.completion) return history.completion;
   return withWorkspaceOperationNativeMoveJobOwner(claim, async owner => {
     let rows = await readWorkspaceOperationOriginalMoveJobReceipts(owner);
@@ -67,6 +77,10 @@ export async function executeWorkspaceOperationOriginalMove(input: {
       });
       let completed=0;
       for (const step of order) {
+        // A stored intent is no continuing permission for a physical effect.
+        // Re-enter the fixed actual MCP owner phase immediately before each
+        // move; revocation after that phase still follows original recovery.
+        if (mcpPrincipal) await readWorkspaceOperationOriginalMoveJobReceipts(owner);
         const prior=rows.pathRows.find(row=>row.stepKey===step.stepKey);
         const births: Array<import('../filesystem/prepared-workspace-path-move-contract').PreparedWorkspacePathMoveParentReceipt> = [];
         const receipt=await movePreparedWorkspacePath(step.cap,async birth=>{
@@ -92,5 +106,5 @@ export async function executeWorkspaceOperationOriginalMove(input: {
       }
       return completeWorkspaceOperationOriginalMoveJob(owner,{preparedSteps:prepared.map(step=>({stepKey:step.stepKey,cap:step.cap,receipt:receipts.get(step.stepKey)!}))});
     });
-  });
+  }, undefined, mcpPrincipal);
 }

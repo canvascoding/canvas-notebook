@@ -9,6 +9,7 @@ import { serializeCanonicalText } from '../collaboration/persistence';
 import { prepareNativeFileArchiveTransition, type NativeFileArchiveExpected, type NativeFileArchiveTransition } from '../collaboration/native-file-archive-transition';
 import { readWorkspaceDocumentCatalogue } from '../collaboration/workspace-document-catalogue';
 import { resolveWorkspaceDataRoot } from '../workspaces/context';
+import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import { withPreparedWorkspaceSingleFileTrash, withRecoveredWorkspaceSingleFileTrash,
   readPreparedWorkspaceSingleFileTrash, movePreparedWorkspaceSingleFileTrash,
   assertPreparedWorkspaceSingleFileTrashCurrent, assertPreparedWorkspaceSingleFileTrashSourceVacant,
@@ -17,6 +18,7 @@ import { withPreparedWorkspaceSingleFileRestore, withRecoveredWorkspaceSingleFil
   readPreparedWorkspaceSingleFileRestore, readPreparedWorkspaceSingleFileRestoreDisposition, restorePreparedWorkspaceSingleFileTrash,
   assertPreparedWorkspaceSingleFileRestoreCurrent, type PreparedWorkspaceSingleFileRestore } from '../filesystem/prepared-single-file-trash';
 import { computeWorkspaceOperationBatchPlanId } from './workspace-operation-batch-plan';
+import { decodeWorkspaceOperationMcpAuthorization } from './workspace-operation-mcp-authorization';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan, assertWorkspaceOperationNativeDeleteBatchPlanCurrent,
   captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness } from './workspace-operation-native-delete-plan';
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
@@ -57,8 +59,10 @@ function freeze<T>(value: T): T {
 function selection(claim: WorkspaceOperationBatchClaim, actionMode: 'apply' | 'undo' = 'apply'): WorkspaceOperationBatchClaimBinding {
   const binding = readWorkspaceOperationBatchClaimBinding(claim), { plan, authorization } = binding;
   if (plan.version === 3) fail('ORIGINAL_DELETE_UNSUPPORTED');
+  if (authorization.mode === 'direct-mcp' && (actionMode !== 'apply' || plan.version !== 2
+    || decodeWorkspaceOperationMcpAuthorization(authorization).tool !== 'delete_knowledge_source')) fail('ORIGINAL_DELETE_UNSUPPORTED');
   const step = plan.pathSteps[0], action = plan.actions[0], deleted = plan.deletedPaths[0];
-  if (binding.actionMode !== actionMode || authorization.mode !== 'direct' || !authorization.jobScope
+  if (binding.actionMode !== actionMode || authorization.mode !== 'direct' && authorization.mode !== 'direct-mcp' || !authorization.jobScope
     || authorization.jobScope.legacy || ![1, 2].includes(plan.version) || plan.readiness !== 'ready' || plan.issues.length
     || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId
     || computeWorkspaceOperationBatchPlanId(plan) !== binding.planId || plan.pathSteps.length !== 1
@@ -76,7 +80,8 @@ function selection(claim: WorkspaceOperationBatchClaim, actionMode: 'apply' | 'u
   return binding;
 }
 function actor(binding: WorkspaceOperationBatchClaimBinding): OriginalIntent['actor'] {
-  const auth = binding.authorization; if (auth.mode !== 'direct') fail('ORIGINAL_DELETE_INVALID');
+  const auth = binding.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp') fail('ORIGINAL_DELETE_INVALID');
+  if (auth.mode === 'direct-mcp' && decodeWorkspaceOperationMcpAuthorization(auth).tool !== 'delete_knowledge_source') fail('ORIGINAL_DELETE_INVALID');
   return Object.freeze({ userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null });
 }
 
@@ -147,9 +152,9 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
   const observation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
   const currentWitness = binding.plan.version === 2 && binding.plan.planIdentityVersion === 2 && observation
     ? captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(binding.plan, observation,
-      binding.authorization.mode === 'direct' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID')) : null;
+      binding.authorization.mode === 'direct' || binding.authorization.mode === 'direct-mcp' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID')) : null;
   if (binding.plan.version === 2 && observation && !currentWitness) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan, observation,
-    binding.authorization.mode === 'direct' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID'));
+    binding.authorization.mode === 'direct' || binding.authorization.mode === 'direct-mcp' ? binding.authorization.jobScope! : fail('ORIGINAL_DELETE_INVALID'));
   const catalogue = await readWorkspaceDocumentCatalogue(access.database, access.workspace, { paths: [source], maxEntries: 2 });
   if (catalogue.some(entry => entry.path !== source) || catalogue.length > 1) fail('ORIGINAL_DELETE_UNSUPPORTED');
   let native: NativeFileArchiveExpected | null = null, nativeContentHash: string | null = null;
@@ -173,7 +178,7 @@ async function prepareIntent(access: WorkspaceOperationJobLifecycleAccess, bindi
   assertPlanSource(binding, physical, native, nativeContentHash, currentWitness ?? undefined);
   const publicShare = await captureOriginalDeletePublicShareOnConnection(access.database,
     { schema, workspace: access.workspace, path: source, ...(native ? { nativeExpected: native } : {}) });
-  const auth = binding.authorization; if (auth.mode !== 'direct' || !auth.jobScope) fail('ORIGINAL_DELETE_INVALID');
+  const auth = binding.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope) fail('ORIGINAL_DELETE_INVALID');
   const nativeLinks = binding.plan.version === 2 && observation ? prepareOriginalDeleteNativeLinks(binding.plan, observation,
     { batchId: binding.batchId, workspaceId: binding.workspaceId, sourcePath: source, requestHash: auth.requestHash, actor: actor(binding) }) : [];
   if (nativeLinks.length && !access.workspace.permissions.canWrite) {
@@ -236,7 +241,8 @@ export function verifyTrashRow(intent: OriginalIntent, intentDigest: string, row
 /** Original single-file Delete path stage. The native V2 arm rechecks its full
  * source/graph basis on the genuine B; no Markdown export or span plan is used. */
 export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOperationBatchClaim,
-  openConnection: () => Promise<SqlConnection> = openDb): Promise<WorkspaceOperationOriginalDeleteResult> {
+  openConnection: () => Promise<SqlConnection> = openDb, mcpPrincipal?: WorkspaceOperationMcpJobPrincipal): Promise<WorkspaceOperationOriginalDeleteResult> {
+  const mcp = mcpPrincipal === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(mcpPrincipal);
   const binding = selection(claim), schema = binding.source.schemaName, prefix = quote(schema);
   const evidenceContext: WorkspaceOperationOriginalDeleteEvidenceContext = Object.freeze({ batchId: binding.batchId,
     planId: binding.planId, workspaceId: binding.workspaceId, authorization: binding.authorization,
@@ -339,7 +345,7 @@ export async function executeWorkspaceOperationOriginalDelete(claim: WorkspaceOp
       ? withRecoveredWorkspaceSingleFileTrash({ workspace: observed.workspace, dataRoot: resolveWorkspaceDataRoot(), original: observed.intent.physical }, apply)
       : withPreparedWorkspaceSingleFileTrash({ workspace: observed.workspace, dataRoot: resolveWorkspaceDataRoot(),
         canonicalPath: binding.plan.pathSteps[0].sourcePath, trashEntryId: `trash-${randomUUID()}` }, apply);
-  }, openConnection);
+  }, openConnection, mcp);
 }
 
 async function assertPhysicalRestoreVacancy(access: WorkspaceOperationJobLifecycleAccess, prefix: string, source: string): Promise<void> {

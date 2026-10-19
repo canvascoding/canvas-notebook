@@ -353,13 +353,58 @@ async function main(): Promise<void> {
     });
     await check('lost external COMMIT reply disposes actual B and retires its lease before caught callback returns', async () => {
       const job = await freshJob(); let pid = 0, closes = 0, armed = false, injected = false, commits = 0, inserts = 0;
-      let callbacks = 0, replayCallbacks = 0, checkedBeforeReturn = false;
+      let callbacks = 0, replayCallbacks = 0, checkedBeforeReturn = false, backendStart = '';
       const transport = Object.assign(new Error('Expected lost actual external COMMIT reply.'), { code: 'ECONNRESET' });
-      const unconfirmed = (error: unknown) => error instanceof Error && Reflect.get(error, 'code') === 'JOB_LIFECYCLE_COMMIT_UNCONFIRMED'
-        && Reflect.get(error, 'status') === 503 && Reflect.get(error, 'cause') === transport;
+      const unconfirmed = (error: unknown) => {
+        const matched = error instanceof Error && Reflect.get(error, 'code') === 'JOB_LIFECYCLE_COMMIT_UNCONFIRMED'
+          && Reflect.get(error, 'status') === 503 && Reflect.get(error, 'cause') === transport;
+        if (!matched) {
+          const own = (value: unknown, key: string): unknown => {
+            if (!value || typeof value !== 'object') return undefined;
+            const descriptor = Object.getOwnPropertyDescriptor(value, key);
+            return descriptor && Object.hasOwn(descriptor, 'value') ? descriptor.value : undefined;
+          };
+          const label = (value: unknown): string | null => typeof value === 'string'
+            && /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/u.test(value) ? value : null;
+          const name = (value: unknown): string | null => {
+            let current = value;
+            for (let depth = 0; current && typeof current === 'object' && depth < 3; depth++) {
+              const actual = label(own(current, 'name')); if (actual) return actual;
+              current = Object.getPrototypeOf(current);
+            }
+            return null;
+          };
+          const status = (value: unknown): number | string | null => typeof value === 'number' && Number.isSafeInteger(value)
+            ? value : typeof value === 'string' && /^\d{1,5}$/u.test(value) ? value : null;
+          let remaining = 3;
+          const tree = (value: unknown): Record<string, unknown> | null => {
+            if (remaining-- <= 0) return null;
+            const result: Record<string, unknown> = { isError: value instanceof Error,
+              name: name(value), code: label(own(value, 'code')), status: status(own(value, 'status')) };
+            if (value instanceof AggregateError) {
+              const errors = own(value, 'errors'), length = own(errors, 'length'), children: unknown[] = [];
+              if (Array.isArray(errors) && typeof length === 'number') for (let index = 0; index < Math.min(length, 3) && remaining > 0; index++) {
+                children.push(tree(own(errors, String(index))));
+              }
+              result.errors = children;
+            }
+            return result;
+          };
+          const cause = own(error, 'cause');
+          console.error(JSON.stringify({ diagnostic: 'owned-job-unconfirmed-validator-mismatch',
+            isError: error instanceof Error, name: name(error), code: label(own(error, 'code')), status: status(own(error, 'status')),
+            causeCode: label(own(cause, 'code')), causeName: name(cause),
+            identityCause: error instanceof Error && Reflect.get(error, 'cause') === transport, aggregateTree: tree(error) }));
+        }
+        return matched;
+      };
       const open = async (): Promise<SqlConnection> => {
         const actual = await database.openDb(); checkouts.add(actual);
-        pid = Number((await actual.get('SELECT pg_backend_pid() AS pid') as Row).pid);
+        const backend = await actual.get(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS backend_start
+          FROM pg_stat_activity WHERE pid=pg_backend_pid()`) as Row;
+        pid = Number(backend.pid); assert(Number.isSafeInteger(pid) && pid > 0);
+        assert(typeof backend.backend_start === 'string' && backend.backend_start);
+        backendStart = backend.backend_start;
         return { get: actual.get.bind(actual), all: actual.all.bind(actual), run: async (sql, values) => {
           const result = await actual.run(sql, values);
           if (/^INSERT INTO fixture_job_effects\b/u.test(sql) && values?.[0] === 'lost-commit') { inserts++; armed = true; }
@@ -373,6 +418,24 @@ async function main(): Promise<void> {
           closes++; assert.equal(closes, 1); assert(error); await actual.close(error); checkouts.delete(actual);
         } };
       };
+      const waitForOriginalBackendAbsent = async (): Promise<void> => {
+        assert(pid > 0 && backendStart); const deadline = performance.now() + 1000;
+        for (;;) {
+          const remaining = Math.floor(deadline - performance.now());
+          assert(remaining > 0, 'Original discarded backend was not observed absent within one second.');
+          // SELECT observation only. Query read timeout bounds this observer;
+          // it is not a server cancellation or a retry of COMMIT/file effects.
+          const query = { text: 'SELECT pid,extract(epoch FROM backend_start)::text AS backend_start FROM pg_stat_activity WHERE pid=$1',
+            values: [pid], query_timeout: remaining };
+          const observed = (await control.query<{ pid: number; backend_start: string }>(query)).rows;
+          assert(performance.now() <= deadline, 'Original backend observation exceeded its one-second budget.');
+          assert(observed.length <= 1);
+          if (observed.length === 0) return;
+          assert.equal(Number(observed[0].pid), pid, 'Administrative backend observation returned a different PID.');
+          assert.equal(observed[0].backend_start, backendStart, 'Original PID was reused by a different backend; absence is unconfirmed.');
+          await new Promise<void>(resolve => setTimeout(resolve, 5));
+        }
+      };
       await assert.rejects(store.withClaim(job.claimed, claim => withOwner(claim, async owner => {
         const lease = getWorkspaceFileLifecycleLeases()?.get(workspaceId); assert(lease); assert.equal(lease.active, true);
         try {
@@ -381,7 +444,7 @@ async function main(): Promise<void> {
         } catch (error) {
           assert(unconfirmed(error)); assert.equal(injected, true); assert.equal(closes, 1);
           assert.equal(lease.active, false); assert.equal(await lease.verify(), false);
-          assert.equal((await control.query('SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1) AS alive', [pid])).rows[0].alive, false);
+          await waitForOriginalBackendAbsent();
           assert.equal(await count('lost-commit'), 1, 'The actual first COMMIT was durable.');
           await assert.rejects(transaction(owner, async () => { replayCallbacks++; }), unconfirmed);
           checkedBeforeReturn = true;

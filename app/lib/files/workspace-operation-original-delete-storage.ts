@@ -8,6 +8,7 @@ import { NATIVE_FILE_SIDE_EFFECT_ROW_SPECS } from '../db/native-file-operation-s
 import { WORKSPACE_OPERATION_ORIGINAL_DELETE_TABLE_SPECS, WORKSPACE_OPERATION_ORIGINAL_DELETE_STATEMENTS,
   WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION } from '../db/workspace-operation-original-delete-migration';
 import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from '../db/native-link-mutation-migration';
+import { NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS } from '../db/native-document-edit-operation-migration';
 
 type Row = Record<string, unknown>;
 type Column = Readonly<{ name: string; type: string; notNull: boolean }>;
@@ -47,6 +48,7 @@ const nativeColumns: Readonly<Record<string, readonly Column[]>> = {
     ...typed('operation_id document_id workspace_id initiated_by_user_id actor_id idempotency_key payload_hash operation_type requested_mode atomicity status action_keys_json', 'text'),
     ...typed('document_path document_representation organization_id agent_run_id actor_session_id supersedes_operation_id operation_payload reverse_payload resulting_state_vector_hash file_edit_request_json checkpoint_revision_id version_revision_id result_json error_code correlation_id causation_id expected_canonical_hash direct_edit_grant_id', 'text', true),
     ...typed('base_state_vector', 'bytea'), ...typed('resulting_state_snapshot version_content_snapshot', 'bytea', true),
+    ...typed('native_edit_original_json native_edit_after_json', 'jsonb', true),
     ...typed('document_lifecycle_generation schema_version run_generation base_document_sequence cas_version trigger_depth created_at updated_at', 'bigint'),
     ...typed('cancel_requested_at applied_at persisted_at checkpointed_at expires_at applied_document_sequence', 'bigint', true),
   ],
@@ -74,6 +76,9 @@ const immutableSource = immutableStatement && /\$\$([\s\S]*)\$\$/u.exec(immutabl
 const nativeLinkScopeStatement = NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS.find(statement =>
   statement.startsWith('CREATE OR REPLACE FUNCTION validate_native_link_mutation_receipt_scope()'));
 const nativeLinkScopeSource = nativeLinkScopeStatement && /\$\$([\s\S]*)\$\$/u.exec(nativeLinkScopeStatement)?.[1];
+const nativeEditGuardStatement = NATIVE_DOCUMENT_EDIT_OPERATION_STATEMENTS.find(statement =>
+  statement.startsWith('CREATE OR REPLACE FUNCTION canvas_native_edit_operation_guard()'));
+const nativeEditGuardSource = nativeEditGuardStatement && /\$\$([\s\S]*)\$\$/u.exec(nativeEditGuardStatement)?.[1];
 const initializeSource = `
     BEGIN
       UPDATE collaboration_documents SET yjs_state_lifecycle = 'initialized'
@@ -199,7 +204,7 @@ const triggersSql = `SELECT t.oid::bigint AS oid,c.relname AS table_name,t.tgnam
       LEFT JOIN pg_catalog.pg_class child ON child.oid=f.conrelid LEFT JOIN pg_catalog.pg_class parent ON parent.oid=f.confrelid
     WHERE t.tgrelid=ANY($1::oid[]) ORDER BY t.oid LIMIT 257`;
 function assertTriggers(rows: Row[], source: Source): Row[] {
-  if (rows.length > 256 || !immutableSource) fail();
+  if (rows.length > 256 || !immutableSource || !nativeEditGuardSource) fail();
   const found = new Set<string>();
   for (const row of rows) {
     if (row.tgenabled !== 'O' && row.tgenabled !== 'A') fail();
@@ -214,17 +219,19 @@ function assertTriggers(rows: Row[], source: Source): Row[] {
     const spec = WORKSPACE_OPERATION_ORIGINAL_DELETE_TABLE_SPECS.find(spec => spec.table === row.table_name
       && spec.immutableTrigger === row.tgname);
     const initialization = row.table_name === 'collaboration_yjs_states' && row.tgname === 'collaboration_yjs_state_initialized';
-    if ((!spec && !initialization) || Number(row.function_schema) !== source.schemaOid
-      || row.proname !== (spec ? WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION : 'mark_collaboration_yjs_state_initialized')
-      || row.prosrc !== (spec ? immutableSource : initializeSource) || row.lanname !== 'plpgsql'
+    const nativeEdit = row.table_name === 'collaboration_agent_operations' && row.tgname === 'native_edit_operation_guard';
+    if ((!spec && !initialization && !nativeEdit) || Number(row.function_schema) !== source.schemaOid
+      || row.proname !== (spec ? WORKSPACE_OPERATION_ORIGINAL_DELETE_IMMUTABLE_FUNCTION
+        : nativeEdit ? 'canvas_native_edit_operation_guard' : 'mark_collaboration_yjs_state_initialized')
+      || row.prosrc !== (spec ? immutableSource : nativeEdit ? nativeEditGuardSource : initializeSource) || row.lanname !== 'plpgsql'
       || row.prosecdef !== false || row.proconfig !== null || row.prokind !== 'f' || Number(row.pronargs) !== 0
-      || row.returns_trigger !== true || Number(row.tgtype) !== (spec ? 27 : 5) || Number(row.tgnargs) !== 0
+      || row.returns_trigger !== true || Number(row.tgtype) !== (spec ? 27 : nativeEdit ? 31 : 5) || Number(row.tgnargs) !== 0
       || row.qualification !== null || row.attributes !== '' || Number(row.constraint_oid) !== 0
       || row.tgdeferrable !== false || row.tginitdeferred !== false) fail();
     const identity = `${String(row.table_name)}:${String(row.tgname)}`;
     if (found.has(identity)) fail(); found.add(identity);
   }
-  if (found.size !== WORKSPACE_OPERATION_ORIGINAL_DELETE_TABLE_SPECS.length + 1) fail();
+  if (found.size !== WORKSPACE_OPERATION_ORIGINAL_DELETE_TABLE_SPECS.length + 2) fail();
   return rows;
 }
 

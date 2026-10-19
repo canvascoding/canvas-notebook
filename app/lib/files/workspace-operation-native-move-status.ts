@@ -1,9 +1,10 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { isDeepStrictEqual as equal } from 'node:util';
+import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
+import { captureWorkspaceOperationMcpJobPrincipal, type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import { captureCollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection } from '../collaboration/room-admission-outcome';
 import { readHistoricalNativeFileOperationReceiptOnConnection } from '../markdown/native-file-operation-handoff';
@@ -37,7 +38,8 @@ export class WorkspaceOperationNativeMoveStatusError extends Error {
   constructor(readonly code: 'BATCH_ACCESS_DENIED' | 'BATCH_SCOPE_CHANGED' | 'BATCH_JOURNAL_UNAVAILABLE', readonly status = 409,
     options?: ErrorOptions) { super(code, options); this.name = 'WorkspaceOperationNativeMoveStatusError'; }
 }
-type Input = { batchId: string; scope: WorkspaceOperationBatchScope; expectedPlan?: WorkspaceOperationNativeMoveBatchPlan };
+type Input = { batchId: string; scope: WorkspaceOperationBatchScope; expectedPlan?: WorkspaceOperationNativeMoveBatchPlan;
+  mcpPrincipal?: WorkspaceOperationMcpJobPrincipal };
 type ReadContext = Readonly<{ database: SqlConnection; schema: string; workspace: WorkspaceContext;
   status: WorkspaceOperationNativeMoveBatchStatus }>;
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -106,9 +108,14 @@ async function observe(database: SqlConnection, schema: string, context: Workspa
 export async function withWorkspaceOperationNativeMoveReadContext<T>(input: Input,
   operation: (context: ReadContext) => Promise<T>): Promise<T | null> {
   try {
-    return await withWorkspaceOperationNativeBatchReadContext({ ...input, planVersion: 3 }, async context => {
+    if (types.isProxy(input)) throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
+    const field = Object.getOwnPropertyDescriptor(input, 'mcpPrincipal');
+    if (field && (!field.enumerable || !Object.hasOwn(field, 'value'))) throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
+    const mcpPrincipal = field?.value === undefined ? undefined : captureWorkspaceOperationMcpJobPrincipal(field.value);
+    return await withWorkspaceOperationNativeBatchReadContext({ batchId: input.batchId, scope: input.scope,
+      expectedPlan: input.expectedPlan, mcpPrincipal, planVersion: 3 }, async context => {
       const { database, schema, workspace, batch, plan } = context;
-      if (plan.version !== 3 || batch.authorization.mode !== 'direct') throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
+      if (plan.version !== 3 || batch.authorization.mode !== 'direct' && batch.authorization.mode !== 'direct-mcp') throw new WorkspaceOperationNativeMoveStatusError('BATCH_SCOPE_CHANGED');
       const auth = batch.authorization;
       const original: WorkspaceOperationOriginalMoveContext = { batchId: batch.batchId, requestHash: auth.requestHash,
         actor: { userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null }, plan };

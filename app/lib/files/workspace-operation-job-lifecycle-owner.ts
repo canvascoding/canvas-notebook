@@ -14,6 +14,8 @@ import { resolveWorkspaceDataRoot } from '../workspaces/context';
 import { workspaceAbsoluteRoot } from '../workspaces/contracts';
 import { captureWorkspaceOperationJobPolicy, withWorkspaceOperationJobPolicyOnConnection,
   type WorkspaceOperationJobPolicyAccess } from '../workspaces/workspace-operation-job-principal';
+import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJobPrincipalCaptured, withWorkspaceOperationMcpJobPolicyOnConnection,
+  type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim,
   type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
@@ -85,6 +87,7 @@ type MoveCapture = { context: WorkspaceOperationOriginalMoveContext; preparedSte
   nativePhase?: Phase; nativeReceipts?: readonly import('../markdown/native-file-operation-handoff').NativeFileOperationReceipt[] };
 type Capture = {
   move?: MoveCapture;
+  mcp?: WorkspaceOperationMcpJobPrincipal;
   owner: WorkspaceOperationJobLifecycleOwner; claim: WorkspaceOperationBatchClaim; binding: WorkspaceOperationBatchClaimBinding;
   sourcePath: string; active: boolean; accepting: boolean; disposed: boolean; failure?: Error; disposalFailure?: Error;
   database?: SqlConnection; identity?: Identity; lease?: WorkspaceFileLifecycleLease;
@@ -106,6 +109,19 @@ export class WorkspaceOperationJobLifecycleError extends Error {
   }
 }
 function fail(code: WorkspaceOperationJobLifecycleError['code']): never { throw new WorkspaceOperationJobLifecycleError(code); }
+/** Capture only the actual live handle. This wrapper never enters stored intent data. */
+function captureMcpJobPrincipal(binding: WorkspaceOperationBatchClaimBinding,
+  input: WorkspaceOperationMcpJobPrincipal | undefined, move: boolean): WorkspaceOperationMcpJobPrincipal | undefined {
+  if (binding.authorization.mode !== 'direct-mcp') {
+    if (input !== undefined) fail('JOB_LIFECYCLE_INVALID');
+    return undefined;
+  }
+  if (binding.actionMode !== 'apply' || binding.plan.version !== (move ? 3 : 2)) fail('JOB_LIFECYCLE_INVALID');
+  const captured = captureWorkspaceOperationMcpJobPrincipal(input);
+  if (captured.kind !== (move ? 'move' : 'delete')) fail('JOB_LIFECYCLE_INVALID');
+  assertWorkspaceOperationMcpJobPrincipalCaptured(captured, binding);
+  return captured;
+}
 function poison(captured: Capture, error: unknown): never {
   const failure = asError(error); captured.failure ??= failure;
   const current = context.getStore(); if (current && current !== captured) current.failure ??= failure;
@@ -185,21 +201,22 @@ function checkPhase(captured: Capture, phase: Phase): void {
 /** Original direct Delete Apply/Undo. This exposes no raw owner connection. */
 async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
   operation: (owner: WorkspaceOperationJobLifecycleOwner) => Promise<T>,
-  openConnection: () => Promise<SqlConnection>, move = false): Promise<T> {
+  openConnection: () => Promise<SqlConnection>, move = false, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<T> {
   const inherited = context.getStore();
   if (inherited) poison(inherited, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), authorization = binding.authorization;
-  const plan = binding.plan, step = plan.pathSteps[0], jobScope = authorization.mode === 'direct' ? authorization.jobScope : undefined;
-  if (authorization.mode !== 'direct' || !(move ? binding.actionMode === 'apply' : ['apply','undo'].includes(binding.actionMode)) || !jobScope || jobScope.legacy
+  const plan = binding.plan, step = plan.pathSteps[0], jobScope = authorization.mode === 'direct' || authorization.mode === 'direct-mcp' ? authorization.jobScope : undefined;
+  if (authorization.mode !== 'direct' && authorization.mode !== 'direct-mcp' || !(move ? binding.actionMode === 'apply' : ['apply','undo'].includes(binding.actionMode)) || !jobScope || jobScope.legacy
     || binding.workspaceId !== jobScope.workspaceId || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId
     || plan.readiness !== 'ready' || (move ? plan.version !== 3 || !plan.pathSteps.length : plan.pathSteps.length !== 1 || step?.kind !== 'delete' || step.destinationPath != null)
     || !isCanonicalAdmissionPath(step?.sourcePath) || typeof operation !== 'function' || typeof jobScope.rootRelativePath !== 'string'
     || workspaceAbsoluteRoot(jobScope.rootRelativePath) !== jobScope.rootPath) fail('JOB_LIFECYCLE_INVALID');
+  const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, move);
   const rootRelativePath = jobScope.rootRelativePath;
   if (getWorkspaceFileLifecycleLeases()?.has(binding.workspaceId) || hasCollaborationHandoffExecutionContext()) fail('JOB_LIFECYCLE_REENTRANT');
   return withWorkspaceMutationLock(binding.workspaceId, async () => {
     const owner = Object.freeze(Object.create(null)) as WorkspaceOperationJobLifecycleOwner;
-    const captured: Capture = { owner, claim, binding, sourcePath: step.sourcePath, active: false, accepting: true,
+    const captured: Capture = { owner, claim, binding, mcp: mcpPrincipal, sourcePath: step.sourcePath, active: false, accepting: true,
       disposed: false, directories: [], pending: new Set(), phaseCount: 0, forwardedQueries: 0 };
     if (move) captured.move = captureMove(binding);
     owners.set(owner, captured);
@@ -304,7 +321,8 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
     const database = captured.database!; let begun = false, commitAttempted = false;
     try {
       await checkIdle(captured);
-      const policy = await captureWorkspaceOperationJobPolicy(); current(captured);
+      const mcp = captured.mcp;
+      const policy = mcp ? undefined : await captureWorkspaceOperationJobPolicy(); current(captured);
       phase.startedAt = Date.now(); phase.startedMonotonic = performance.now(); phase.queriesBefore = captured.forwardedQueries;
       phase.stage = 'begin';
       await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
@@ -312,7 +330,10 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
       const started = await identity(database, true);
       if (!started.transaction) fail('JOB_LIFECYCLE_CHANGED'); phase.transaction = started.transaction;
       phase.stage = 'policy';
-      const result = await withWorkspaceOperationJobPolicyOnConnection(database, { claim: captured.claim, policy }, async access => {
+      const authorize = (operation: (access: WorkspaceOperationJobPolicyAccess) => Promise<T>): Promise<T> => mcp
+        ? withWorkspaceOperationMcpJobPolicyOnConnection(database, { claim: captured.claim, principal: mcp }, operation)
+        : withWorkspaceOperationJobPolicyOnConnection(database, { claim: captured.claim, policy: policy! }, operation);
+      const result = await authorize(async access => {
         // Every owner is an original direct Delete. Bind its fixed storage on
         // the actual B before exposing the deliberately restricted SQL facade.
         const { schemaName, schemaOid, databaseOid } = captured.binding.source;
@@ -434,8 +455,8 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
 /** Original Delete API. Move capabilities cannot enter its restricted SQL facade. */
 export function withWorkspaceOperationJobLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
   operation: (owner: WorkspaceOperationJobLifecycleOwner) => Promise<T>,
-  openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
-  return withLifecycleOwner(claim, operation, openConnection);
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<T> {
+  return withLifecycleOwner(claim, operation, openConnection, false, mcp);
 }
 export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   operation: (access: WorkspaceOperationJobLifecycleAccess) => Promise<T>): Promise<T> {
@@ -460,7 +481,7 @@ const moveHash = (text: string) => createHash('sha256').update(text).digest('hex
 const moveJson = serializeWorkspaceOperationOriginalMoveData;
 function captureMove(binding: WorkspaceOperationBatchClaimBinding): MoveCapture {
   const auth = binding.authorization;
-  if (auth.mode !== 'direct' || !auth.jobScope || auth.jobScope.legacy || binding.actionMode !== 'apply'
+  if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy || binding.actionMode !== 'apply'
     || binding.plan.version !== 3) fail('JOB_LIFECYCLE_INVALID');
   const plan = decodeWorkspaceOperationNativeMoveBatchPlan(binding.plan);
   if (!equal(plan.sourceEvidence.workspaceScope, auth.jobScope) || plan.sourceEvidence.nativeBindings.length > 1024) fail('JOB_LIFECYCLE_INVALID');
@@ -575,9 +596,9 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
 /** Fixed Move owner; the private actual B never leaves this module. */
 export function withWorkspaceOperationNativeMoveJobOwner<T>(claim: WorkspaceOperationBatchClaim,
   operation: (owner: WorkspaceOperationNativeMoveJobOwner) => Promise<T>,
-  openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<T> {
   if (typeof operation !== 'function') return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
-  return withLifecycleOwner(claim, owner => operation(owner as unknown as WorkspaceOperationNativeMoveJobOwner),openConnection,true);
+  return withLifecycleOwner(claim, owner => operation(owner as unknown as WorkspaceOperationNativeMoveJobOwner),openConnection,true,mcp);
 }
 export function readWorkspaceOperationOriginalMoveJobReceipts(owner: WorkspaceOperationNativeMoveJobOwner) {
   try {
@@ -855,11 +876,12 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
 /** Authorized historical proof only. This opens no FS handle, acquires no room
  * or workspace guard and never replays physical/native/metadata operations. */
 export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOperationBatchClaim,
-  openConnection: () => Promise<SqlConnection> = openDb): Promise<WorkspaceOperationOriginalMoveJobReceipts|null> {
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<WorkspaceOperationOriginalMoveJobReceipts|null> {
   if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), captured = {binding,move:captureMove(binding)};
+  const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, true);
   return withWorkspaceOperationJobClaimPhase(claim,async () => {
-    const policy = await captureWorkspaceOperationJobPolicy(), database = await openConnection();
+    const policy = mcpPrincipal ? undefined : await captureWorkspaceOperationJobPolicy(), database = await openConnection();
     let begun = false, commitAttempted = false, failure: Error|undefined;
     try {
       const first = await identity(database,true), second = await identity(database,false);
@@ -874,7 +896,10 @@ export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOpe
         if (!sameIdentity(now.identity,second.identity) || now.transaction !== started.transaction
           || readWorkspaceOperationBatchClaimBinding(claim) !== binding) fail('JOB_LIFECYCLE_CHANGED');
       };
-      const result = await withWorkspaceOperationJobPolicyOnConnection(database,{claim,policy},async access => {
+      const authorize = (operation: (access: WorkspaceOperationJobPolicyAccess) => Promise<WorkspaceOperationOriginalMoveJobReceipts|null>) => mcpPrincipal
+        ? withWorkspaceOperationMcpJobPolicyOnConnection(database,{claim,principal:mcpPrincipal},operation)
+        : withWorkspaceOperationJobPolicyOnConnection(database,{claim,policy:policy!},operation);
+      const result = await authorize(async access => {
         const {schemaName,schemaOid,databaseOid} = binding.source;
         const storage = await bindWorkspaceOperationOriginalMoveStorageOnConnection(database,{schemaName,schemaOid,databaseOid});
         await access.assertCurrent(); await check();

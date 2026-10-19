@@ -3,6 +3,7 @@ import 'server-only';
 import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
+import { decodeWorkspaceOperationMcpAuthorization } from './workspace-operation-mcp-authorization';
 import { parseIntent, completed, parseRestoreIntent, restored, WorkspaceOperationOriginalDeleteError,
   type OriginalIntent, type RestoreIntent, type WorkspaceOperationOriginalDeleteResult,
   type WorkspaceOperationOriginalRestoreResult, type WorkspaceOperationOriginalDeleteEvidenceContext } from './workspace-operation-original-delete-evidence';
@@ -53,9 +54,11 @@ export async function readWorkspaceOperationOriginalDeleteObservationOnConnectio
   const captured = capture(input), { schema, context, workspace, dataRoot } = captured;
   if (Reflect.ownKeys(captured).length !== 4 || Reflect.ownKeys(context).length !== 5
     || !['batchId', 'planId', 'workspaceId', 'authorization', 'sourcePath'].every(key => Object.hasOwn(context, key))
-    || context.authorization.mode !== 'direct' || context.workspaceId !== workspace.workspaceId
+    || context.authorization.mode !== 'direct' && context.authorization.mode !== 'direct-mcp' || context.workspaceId !== workspace.workspaceId
     || !workspaceOperationJobScopeMatches(context.authorization.jobScope, workspace)
     || typeof context.sourcePath !== 'string' || !context.sourcePath || typeof dataRoot !== 'string' || !dataRoot) invalid();
+  if (context.authorization.mode === 'direct-mcp'
+    && decodeWorkspaceOperationMcpAuthorization(context.authorization).tool !== 'delete_knowledge_source') invalid();
   const selected = { schema, batchId: context.batchId };
   const deleteIntent = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database, selected);
   const deleteReceipt = await readWorkspaceOperationOriginalDeleteReceiptOnConnection(database, selected);
