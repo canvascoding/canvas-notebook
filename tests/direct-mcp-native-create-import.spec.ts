@@ -1074,4 +1074,322 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       recoveryCoverage: 'completed existing operation only; interrupted recovery remains the separate actual PG proof',
       operationId, targetDocumentId, resolvedPath, fullVersion: copiedVersion, readOnlyProbes: probes, immutableCopySnapshotSha256: immutableSnapshots[0] });
   });
+  test('9: visible Move/Delete opt-ins drive OAuth native paths, live file lists, links and renewed historical recovery', async ({ browser }, info) => {
+    assert(contextB && mcpB && identityB && workspace);
+    await reviewOff(contextB);
+    const originalWorkspace = workspace, originalA = identityB, originalClientId = mcpB.registration.clientId;
+    const initial = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Observe path tool settings')).data);
+    assert.equal(initial.activationManagedByEnvironment, false); assert.equal(initial.capabilitiesManagedByEnvironment, false);
+    assert(Array.isArray(initial.capabilities));
+    const restore = { enabled: initial.desiredEnabled === true,
+      tools: initial.capabilities.filter(value => object(value).enabled === true).map(value => String(object(value).id)) };
+    const ids = ['move_knowledge_source', 'delete_knowledge_source'] as const;
+    for (const id of ids) {
+      const capability: Record<string, unknown> | undefined = initial.capabilities.map(value => object(value)).find(value => value.id === id);
+      assert(capability); assert.equal(capability.available, true); assert.equal(capability.enabled, false);
+      assert.equal(restore.tools.includes(id), false);
+    }
+    const beforeListing = await mcpB.rpc('tools/list'); assert(Array.isArray(beforeListing.tools));
+    for (const id of ids) assert.equal(beforeListing.tools.some(value => object(value).name === id), false);
+    type Kind = 'move' | 'delete';
+    type CasePage = Awaited<ReturnType<BrowserContext['newPage']>>;
+    type Retained = { kind: Kind; request: Row; operation: Row; operationId: string; batchId: string; planId: string };
+    const pages: CasePage[] = [], errors: unknown[] = [], retained: Retained[] = [], probes: Probe[] = [];
+    const sourcePath = 'path-target.md', destinationPath = 'path-moved.md', incomingPath = 'path-incoming.md';
+    const keptHref = 'https://example.com/unchanged-native-link';
+    const moveId = randomUUID(), deleteId = randomUUID();
+    let ownWorkspace: Workspace | undefined, target: DocumentCreateMutationResultV1 | undefined;
+    let incoming: DocumentCreateMutationResultV1 | undefined, movedVersion = '', immutableHash = '';
+    const callPath = async (kind: Kind, arguments_: Row): Promise<Row> => {
+      assert(mcpB); const result = await mcpB.call(kind === 'move' ? ids[0] : ids[1], arguments_);
+      const body = success(result); assert(Array.isArray(result.content)); assert.equal(result.content.length, 1);
+      assert.deepEqual(JSON.parse(result.content[0].text ?? ''), body); return body;
+    };
+    const pathRead = async (documentId: string, expectedVersion?: string): Promise<DocumentReadPageV1> => {
+      assert(mcpB && ownWorkspace);
+      const page = success(await mcpB.call('read_knowledge_source', { workspace_id: ownWorkspace.id,
+        document_id: documentId, format: 'native', max_bytes: 262144,
+        ...(expectedVersion ? { expected_version: expectedVersion } : {}) })) as unknown as DocumentReadPageV1;
+      assert.equal(page.apiVersion, 1); assert.equal(page.document.workspaceId, ownWorkspace.id);
+      assert.equal(page.document.documentId, documentId); assert.equal(page.document.representation, 'tiptap_blocks');
+      assert.equal(page.format, 'native'); assert.equal(page.encoding, 'utf-8'); assert.equal(page.byteOffset, 0);
+      assert.equal(page.complete, true); assert.equal(page.nextCursor, null);
+      assert.equal(page.byteLength, Buffer.byteLength(page.fragment)); assert.equal(page.totalBytes, page.byteLength);
+      assert.equal(page.currency.observedDurable, true); assert.equal(page.currency.observedVersion, page.document.version);
+      assert.equal(page.currency.durableVersion, page.document.version);
+      assert.match(page.document.version, /^canvas-document-v1:[a-f0-9]{64}$/u);
+      if (expectedVersion) assert.equal(page.document.version, expectedVersion);
+      assert.equal(object(JSON.parse(page.fragment)).bodyVersion, 1); nativeJson(page); return page;
+    };
+    const assertPathOperation = (result: Row, action: 'apply' | 'status' | 'recover', operationId: string, planId: string): Row => {
+      assert(ownWorkspace); assert.equal(result.apiVersion, 1); assert.equal(result.action, action);
+      assert.deepEqual(Object.keys(result).sort(), ['apiVersion', 'action', 'operation', ...(action === 'status' ? [] : ['alreadyKnown'])].sort());
+      const operation = object(result.operation), execution = object(operation.execution);
+      assert.equal(operation.operationId, operationId); assert.equal(operation.workspaceId, ownWorkspace.id); assert.equal(operation.planId, planId);
+      assert(typeof operation.batchId === 'string' && /^[a-f0-9]{64}$/u.test(operation.batchId)); assert.notEqual(operation.batchId, operationId);
+      assert.deepEqual(operation.completion, { status: 'confirmed', historical: true });
+      assert.equal(execution.receiptStatus, 'available'); assert.equal(execution.finalization, 'complete');
+      assert(Array.isArray(execution.steps) && execution.steps.length > 0);
+      assert(execution.steps.every(value => object(value).state === 'applied'));
+      for (const key of ['origin', 'authorization', 'actor', 'sessionId', 'requestHash', 'intent', 'receiptText', 'yjsState']) {
+        assert.equal(Object.hasOwn(operation, key), false);
+      }
+      return operation;
+    };
+    const expectedPathLinkChange = (beforeDocument: Row, beforeHref: string, afterHref: string | null): Row => {
+      const expected = structuredClone(beforeDocument); let changed = 0;
+      const visit = (node: Row): void => {
+        if (Array.isArray(node.marks)) {
+          const marks = node.marks.filter(value => {
+            const mark = object(value);
+            if (mark.type !== 'link' || object(mark.attrs).href !== beforeHref) return true;
+            changed++; if (afterHref === null) return false; object(mark.attrs).href = afterHref; return true;
+          });
+          if (marks.length) node.marks = marks; else delete node.marks;
+        }
+        if (Array.isArray(node.content)) for (const child of node.content) visit(object(child));
+      };
+      visit(expected); assert.equal(changed, 1, 'The one actual authored incoming link must be changed.'); return expected;
+    };
+    const observePathEditor = async (page: CasePage, document: DocumentReadPageV1, reload = false): Promise<void> => {
+      const observer = page.waitForResponse(response => {
+        if (new URL(response.url()).pathname !== '/api/files/collaboration/session' || response.request().method() !== 'POST'
+          || response.request().headers()['x-canvas-workspace-id'] !== document.document.workspaceId) return false;
+        const body: unknown = response.request().postDataJSON(); return object(body).path === document.document.path;
+      });
+      // Immediately handle the observer, including when navigation fails.
+      const observed = Promise.allSettled([observer]);
+      const navigation = await Promise.allSettled([reload ? page.reload({ waitUntil: 'domcontentloaded' })
+        : page.goto(`/en/notebook?workspaceId=${encodeURIComponent(document.document.workspaceId)}&path=${encodeURIComponent(document.document.path)}`, { waitUntil: 'domcontentloaded' })]);
+      const sessions = await observed;
+      if (navigation[0].status === 'rejected' || sessions[0].status === 'rejected') throw new AggregateError([
+        ...(navigation[0].status === 'rejected' ? [navigation[0].reason] : []),
+        ...(sessions[0].status === 'rejected' ? [sessions[0].reason] : []),
+      ], 'Actual native editor navigation/session observation failed.');
+      const response = sessions[0].value; assert.equal(response.status(), 200);
+      const bytes = await response.body(); assert(bytes.length <= 65536);
+      const session = object(JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)));
+      assert.equal(session.success, true); assert.equal(session.provider, 'yjs'); assert.equal(session.degraded, false);
+      assert.equal(session.documentId, document.document.documentId); assert.equal(session.representation, document.document.representation);
+      const editor = page.locator(editorSelector); await expect(editor).toBeVisible();
+      await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 });
+      await expect(page.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+      await expect.poll(async () => (await readNativeRichCandidate(page, editorSelector)).document, { timeout: 30000 }).toEqual(nativeJson(document));
+    };
+    const snapshotPathOriginals = async (): Promise<{ rows: Row; probe: Probe }> => {
+      assert(ownWorkspace && target && retained.length === 2 && mcpB);
+      const database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
+        options: '-c default_transaction_read_only=on -c statement_timeout=10000 -c application_name=native-path-compiled-read' });
+      let ended = false, asynchronous: Error | undefined, failure: unknown, failed = false, backendPid = 0;
+      const rows: Row = {}; database.once('end', () => { ended = true; }); database.on('error', error => { asynchronous ??= error; });
+      try {
+        await database.connect(); await database.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+        const actual = (await database.query<Row>(`SELECT current_database() AS name,d.oid::text,pg_get_userbyid(d.datdba) AS owner,
+          current_user AS role,shobj_description(d.oid,'pg_database') AS marker,pg_backend_pid() AS pid,current_schema() AS schema,
+          current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation,
+          pg_current_xact_id_if_assigned() IS NULL AS unassigned FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+        assert(actual); assertDatabaseOwnership(owned, actual as unknown as DatabaseIdentity);
+        assert.equal(actual.read_only, 'on'); assert.equal(actual.isolation, 'repeatable read'); assert.equal(actual.unassigned, true);
+        assert(typeof actual.pid === 'number'); backendPid = actual.pid; assert(typeof actual.schema === 'string' && actual.schema);
+        const prefix = `"${actual.schema.replaceAll('"', '""')}"`;
+        for (const selected of retained) {
+          const selectedRows: Row = {};
+          const tables = ['workspace_file_operation_batches', `workspace_file_operation_${selected.kind}_intents`,
+            ...(selected.kind === 'move' ? ['workspace_file_operation_move_parent_receipts', 'workspace_file_operation_move_path_receipts']
+              : ['workspace_file_operation_delete_trash_receipts']), `workspace_file_operation_${selected.kind}_receipts`];
+          for (const table of tables) {
+            const found = (await database.query<Row>(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM ${prefix}."${table}" t
+              WHERE batch_id=$1 ORDER BY to_jsonb(t)::text LIMIT 33`, [selected.batchId])).rows;
+            assert(found.length <= 32); for (const row of found) assert(typeof row.body === 'string' && Buffer.byteLength(row.body) <= 2 * 1024 * 1024);
+            selectedRows[table] = found;
+          }
+          const batches = selectedRows.workspace_file_operation_batches as Row[]; assert.equal(batches.length, 1);
+          const batch = object(JSON.parse(String(batches[0].body))), authorization = object(JSON.parse(String(batch.authorization_json)));
+          assert.equal(batch.batch_id, selected.batchId); assert.equal(batch.plan_id, selected.planId); assert.equal(batch.workspace_id, ownWorkspace.id);
+          assert.equal(authorization.mode, 'direct-mcp'); assert.equal(authorization.version, 1);
+          assert(authorization.clientId === originalClientId && authorization.actorUserId === originalA.userId
+            && authorization.actorSessionId === originalA.sessionId);
+          assert.equal(authorization.actorType, 'agent'); assert.equal(authorization.tool, selected.kind === 'move' ? ids[0] : ids[1]);
+          assert.equal(object(authorization.jobScope).workspaceId, ownWorkspace.id);
+          const intents = selectedRows[`workspace_file_operation_${selected.kind}_intents`] as Row[];
+          const receipts = selectedRows[`workspace_file_operation_${selected.kind}_receipts`] as Row[];
+          assert.equal(intents.length, 1); assert.equal(receipts.length, 1);
+          const storedIntent = object(JSON.parse(String(intents[0].body))), intent = object(JSON.parse(String(storedIntent.intent_text)));
+          assert.equal(storedIntent.request_hash, authorization.requestHash); assert.equal(storedIntent.plan_id, selected.planId);
+          assert.equal(storedIntent.intent_digest, sha(String(storedIntent.intent_text)));
+          assert(object(intent.actor).userId === originalA.userId && object(intent.actor).actorSessionId === originalA.sessionId);
+          const receipt = object(JSON.parse(String(receipts[0].body)));
+          assert.equal(receipt.intent_digest, storedIntent.intent_digest); assert.equal(receipt.receipt_digest, sha(String(receipt.receipt_text)));
+          rows[selected.kind] = selectedRows;
+        }
+        const archived = (await database.query<Row>(`SELECT to_jsonb(d)::text AS body,d.xmin::text AS xmin FROM ${prefix}.collaboration_documents d WHERE id=$1 AND workspace_id=$2`, [target.document.documentId, ownWorkspace.id])).rows;
+        assert.equal(archived.length, 1); const document = object(JSON.parse(String(archived[0].body)));
+        assert.equal(document.status, 'archived'); assert.equal(document.path, destinationPath); assert.equal(document.lineage_id, target.document.lineageId);
+        const trash = (await database.query<Row>(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM ${prefix}.workspace_trash_entries t
+          WHERE workspace_id=$1 AND original_path=$2 ORDER BY id LIMIT 3`, [ownWorkspace.id, destinationPath])).rows;
+        assert.equal(trash.length, 1); const trashed = object(JSON.parse(String(trash[0].body)));
+        assert.equal(trashed.status, 'trashed'); assert(trashed.deleted_by_user_id === originalA.userId);
+        const deleteRows = object(rows.delete), deleteIntents = deleteRows.workspace_file_operation_delete_intents as Row[];
+        const deleteIntentRow = object(JSON.parse(String(deleteIntents[0].body)));
+        const physical = object(object(JSON.parse(String(deleteIntentRow.intent_text))).physical), source = object(physical.source);
+        assert(source.kind === 'regular_file' || source.kind === 'projection_absent');
+        const trashMetadata = object(JSON.parse(String(trashed.metadata_json)));
+        assert.equal(trashed.id, physical.trashEntryId); assert.equal(trashMetadata.originalDeleteIntent, deleteIntentRow.intent_digest);
+        assert.equal(trashMetadata.payloadKind, source.kind === 'regular_file' ? 'file' : 'native_archive');
+        assert.equal(trashMetadata.nativeDocumentId, target.document.documentId); assert.equal(trashMetadata.nativeLineageId, target.document.lineageId);
+        rows.archivedDocument = archived; rows.trash = trash;
+        assert.equal((await database.query<Row>('SELECT pg_current_xact_id_if_assigned() IS NULL AS unassigned')).rows[0].unassigned, true);
+        await database.query('COMMIT');
+      } catch (error) { failure = error; failed = true; }
+      let closing: unknown; try { await database.end(); assert(ended); } catch (error) { closing = error; }
+      if (failed || closing || asynchronous) throw new AggregateError([...(failed ? [failure] : []), ...(closing ? [closing] : []),
+        ...(asynchronous ? [asynchronous] : [])], 'Own compiled path read-only observation failed.');
+      return { rows, probe: { backendPid, readOnly: true, xidUnassigned: true, closed: true } };
+    };
+    try {
+      const settings = await contextB.newPage(); pages.push(settings); await settings.goto('/en/settings?tab=mcp', { waitUntil: 'domcontentloaded' });
+      const switches = [settings.getByRole('switch', { name: 'Move files and documents', exact: true }),
+        settings.getByRole('switch', { name: 'Delete native documents', exact: true })];
+      for (const selected of switches) { await expect(selected).toBeVisible(); await expect(selected).not.toBeChecked(); await expect(selected).toBeEnabled(); await selected.click(); }
+      const saved = settings.waitForResponse(response => new URL(response.url()).pathname === '/api/integrations/mcp-server' && response.request().method() === 'PATCH');
+      const saveResult = Promise.allSettled([saved]);
+      await settings.getByRole('button', { name: 'Save changes', exact: true }).filter({ visible: true }).click();
+      const savedResponses = await saveResult; if (savedResponses[0].status === 'rejected') throw savedResponses[0].reason;
+      assert.equal(savedResponses[0].value.status(), 200); assert.equal(object(await savedResponses[0].value.json()).success, true);
+      await settings.reload({ waitUntil: 'domcontentloaded' }); for (const selected of switches) await expect(selected).toBeChecked();
+      assert(await settings.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
+      await settings.locator('section[aria-labelledby="mcp-capabilities-title"]').screenshot({ path: info.outputPath('native-mcp-path-capabilities-enabled.png'), animations: 'disabled' });
+      await settings.close();
+      const enabled = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Saved path capabilities')).data); assert(Array.isArray(enabled.capabilities));
+      const listing = await mcpB.rpc('tools/list'); assert(Array.isArray(listing.tools));
+      for (const id of ids) {
+        assert.equal(object(enabled.capabilities.find(value => object(value).id === id)).enabled, true);
+        const offered: Array<Record<string, unknown>> = listing.tools.map(value => object(value)).filter(value => value.name === id); assert.equal(offered.length, 1);
+        const schema = object(offered[0].inputSchema); assert(Array.isArray(schema.oneOf));
+        assert.deepEqual(schema.oneOf.map(value => object(object(object(value).properties).action).const).sort(), ['apply', 'preview', 'recover', 'status']);
+      }
+      const workspaceResponse = await contextB.request.post('/api/workspaces', { data: { type: 'personal', name: `MCP paths ${randomUUID()}` } });
+      const createdWorkspace = await ok(workspaceResponse, 'Create only own path workspace'); assert.equal(workspaceResponse.status(), 201);
+      const selected = object(createdWorkspace.workspace); assert(typeof selected.id === 'string' && typeof selected.name === 'string' && typeof selected.rootRelativePath === 'string');
+      ownWorkspace = { id: selected.id, name: selected.name, rootRelativePath: selected.rootRelativePath };
+      assert.equal(object(createdWorkspace.starterDocumentInitialization).status, 'completed');
+      await ok(await contextB.request.put('/api/integrations/mcp-server/workspaces', { data: { workspaceId: ownWorkspace.id, enabled: true } }), 'Opt in own path workspace');
+      const workspaceIds = [originalWorkspace.id, ownWorkspace.id];
+      await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', { data: { connectionId: mcpB.connectionId, workspaceIds } }), 'Grant actual path client owned workspace');
+      target = mutationResult(await mcpB.call('create_knowledge_source', { api_version: 1, workspace_id: ownWorkspace.id, path: sourcePath,
+        content: '# Public path target\n\nPublic Move/Delete target 🧪\n\nStable target tail.\n', idempotency_key: `path-target-${randomUUID()}` }));
+      incoming = mutationResult(await mcpB.call('create_knowledge_source', { api_version: 1, workspace_id: ownWorkspace.id, path: incomingPath,
+        content: `# Incoming path link\n\nKeep **rich** [Target](${sourcePath}) and [Other](${keptHref}).\n\nPreserve incoming tail.\n`, idempotency_key: `path-incoming-${randomUUID()}` }));
+      const targetBefore = await pathRead(target.document.documentId, target.document.version);
+      const incomingBefore = await pathRead(incoming.document.documentId, incoming.document.version);
+      const expectedIncomingMove = expectedPathLinkChange(nativeJson(incomingBefore), sourcePath, destinationPath);
+      const files = await contextB.newPage(); pages.push(files);
+      await files.addInitScript(({ id, host }) => { if (location.origin === host) localStorage.setItem('canvas.activeWorkspaceId', id); }, { id: ownWorkspace.id, host: origin });
+      await files.goto(`/en/files?workspaceId=${encodeURIComponent(ownWorkspace.id)}`, { waitUntil: 'domcontentloaded' });
+      await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
+      const sourceRow = files.locator('[data-file-path="path-target.md"]').filter({ visible: true });
+      const movedRow = files.locator('[data-file-path="path-moved.md"]').filter({ visible: true });
+      const incomingRow = files.locator('[data-file-path="path-incoming.md"]').filter({ visible: true });
+      await expect(sourceRow.first()).toBeVisible(); await expect(incomingRow.first()).toBeVisible(); await expect(movedRow).toHaveCount(0);
+      const common = { api_version: 1, workspace_id: ownWorkspace.id };
+      const movePreview = object((await callPath('move', { ...common, action: 'preview', selections: [{ source_path: sourcePath, destination_path: destinationPath }] })).preview);
+      assert.equal(movePreview.kind, 'move'); assert.equal(movePreview.workspaceId, ownWorkspace.id); assert.equal(movePreview.readiness, 'ready');
+      assert.deepEqual(movePreview.paths, [{ sourcePath, destinationPath }]); assert.deepEqual(movePreview.linkChanges, { rewrites: 1, unlinks: 0, affectedDocuments: 1 });
+      assert(typeof movePreview.planId === 'string' && /^[a-f0-9]{64}$/u.test(movePreview.planId));
+      const moveRequest: Row = { ...common, action: 'apply', operation_id: moveId, plan_id: movePreview.planId,
+        selections: [{ source_path: sourcePath, destination_path: destinationPath }] };
+      const moveResult = await callPath('move', moveRequest), moved = assertPathOperation(moveResult, 'apply', moveId, movePreview.planId); assert.equal(moveResult.alreadyKnown, false);
+      assert(typeof moved.batchId === 'string'); retained.push({ kind: 'move', request: moveRequest, operation: moved, operationId: moveId, batchId: moved.batchId, planId: movePreview.planId });
+      // The already mounted Files list must follow actual server notifications.
+      await expect(sourceRow).toHaveCount(0); await expect(movedRow.first()).toBeVisible();
+      const targetAfter = await pathRead(target.document.documentId, targetBefore.document.version);
+      for (const key of ['documentId', 'lineageId', 'workspaceId', 'organizationId', 'lifecycleGeneration', 'representation', 'schemaVersion'] as const) assert.equal(targetAfter.document[key], targetBefore.document[key]);
+      assert.equal(targetAfter.document.path, destinationPath); assert.deepEqual(nativeJson(targetAfter), nativeJson(targetBefore)); movedVersion = targetAfter.document.version;
+      const targetPage = await contextB.newPage(); pages.push(targetPage);
+      await targetPage.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: ownWorkspace.id, host: origin });
+      await observePathEditor(targetPage, targetAfter); await expect(targetPage.locator(editorSelector)).toContainText('Public Move/Delete target 🧪');
+      await observePathEditor(targetPage, targetAfter, true); await expect(targetPage.locator(editorSelector)).toContainText('Stable target tail.');
+      await targetPage.locator(editorSelector).screenshot({ path: info.outputPath('native-mcp-move-editor-reloaded.png'), animations: 'disabled' }); await targetPage.close();
+      const incomingMoved = await pathRead(incoming.document.documentId); assert.notEqual(incomingMoved.document.version, incomingBefore.document.version);
+      assert.deepEqual(nativeJson(incomingMoved), expectedIncomingMove);
+      const incomingPage = await contextB.newPage(); pages.push(incomingPage);
+      await incomingPage.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id); localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: ownWorkspace.id, host: origin });
+      await observePathEditor(incomingPage, incomingMoved);
+      await expect(incomingPage.locator(editorSelector).locator(`a[href="${destinationPath}"]`)).toHaveText('Target');
+      await expect(incomingPage.locator(editorSelector).locator(`a[href="${keptHref}"]`)).toHaveText('Other');
+      const deletePreview = object((await callPath('delete', { ...common, action: 'preview', path: destinationPath })).preview);
+      assert.equal(deletePreview.kind, 'delete'); assert.equal(deletePreview.workspaceId, ownWorkspace.id); assert.equal(deletePreview.readiness, 'ready');
+      assert.deepEqual(deletePreview.paths, [{ sourcePath: destinationPath }]); assert.deepEqual(deletePreview.linkChanges, { rewrites: 0, unlinks: 1, affectedDocuments: 1 });
+      assert(typeof deletePreview.planId === 'string' && /^[a-f0-9]{64}$/u.test(deletePreview.planId));
+      const deleteRequest: Row = { ...common, action: 'apply', operation_id: deleteId, plan_id: deletePreview.planId, path: destinationPath };
+      const deleteResult = await callPath('delete', deleteRequest), deleted = assertPathOperation(deleteResult, 'apply', deleteId, deletePreview.planId); assert.equal(deleteResult.alreadyKnown, false);
+      assert(typeof deleted.batchId === 'string'); retained.push({ kind: 'delete', request: deleteRequest, operation: deleted, operationId: deleteId, batchId: deleted.batchId, planId: deletePreview.planId });
+      await expect(movedRow).toHaveCount(0); await expect(sourceRow).toHaveCount(0); await expect(incomingRow.first()).toBeVisible();
+      const incomingDeleted = await pathRead(incoming.document.documentId), expectedIncomingDelete = expectedPathLinkChange(nativeJson(incomingMoved), destinationPath, null);
+      assert.notEqual(incomingDeleted.document.version, incomingMoved.document.version); assert.deepEqual(nativeJson(incomingDeleted), expectedIncomingDelete);
+      await expect(incomingPage.locator(editorSelector).locator(`a[href="${destinationPath}"]`)).toHaveCount(0);
+      await expect(incomingPage.locator(editorSelector).locator(`a[href="${keptHref}"]`)).toHaveText('Other');
+      await expect(incomingPage.locator(editorSelector)).toContainText('Target'); await expect(incomingPage.locator(editorSelector)).toContainText('Preserve incoming tail.');
+      await expect.poll(async () => (await readNativeRichCandidate(incomingPage, editorSelector)).document, { timeout: 30000 }).toEqual(expectedIncomingDelete);
+      await incomingPage.locator(editorSelector).screenshot({ path: info.outputPath('native-mcp-delete-incoming-link-removed.png'), animations: 'disabled' });
+      await incomingPage.close(); await files.close();
+      const statusBefore = new Map<Kind, Row>();
+      for (const selected of retained) {
+        const status = await callPath(selected.kind, { ...common, action: 'status', operation_id: selected.operationId });
+        assertPathOperation(status, 'status', selected.operationId, selected.planId); assert.equal(object(status.operation).batchId, selected.batchId); statusBefore.set(selected.kind, status);
+      }
+      const originalSnapshot = await snapshotPathOriginals(); probes.push(originalSnapshot.probe); immutableHash = sha(JSON.stringify(originalSnapshot.rows));
+      const previousContext: BrowserContext = contextB, previousClient: Mcp = mcpB, previousIdentity: Identity = identityB;
+      const signed = await ok(await previousContext.request.post('/api/auth/sign-out', { headers: { Origin: origin }, data: {}, maxRedirects: 0 }), 'Expire only path Original A session');
+      assert.equal(signed.success, true); signedOut.add(previousContext);
+      for (const selected of retained) {
+        const expired = await previousClient.call(selected.kind === 'move' ? ids[0] : ids[1], { ...common, action: 'status', operation_id: selected.operationId });
+        assert.equal(expired.isError, true); assert.equal(expired.structuredContent?.http_status, 401);
+      }
+      contextB = await browser.newContext({ baseURL: origin, storageState: { cookies: [], origins: [] }, colorScheme: 'light' }); contexts.push(contextB);
+      identityB = await login(contextB); assert(identityB.userId === previousIdentity.userId && identityB.sessionId !== previousIdentity.sessionId);
+      mcpB = await authorizeIngestE2EMcp(contextB, origin, originalWorkspace.id, protocol, { scopes, registration: previousClient.registration });
+      assert.deepEqual(mcpB.registration, previousClient.registration); tokenIdentity(mcpB, identityB);
+      await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', { data: { connectionId: mcpB.connectionId, workspaceIds } }), 'Renew actual path workspace grant');
+      for (const selected of retained) {
+        const status = await callPath(selected.kind, { ...common, action: 'status', operation_id: selected.operationId });
+        assertPathOperation(status, 'status', selected.operationId, selected.planId); assert.deepEqual(status, statusBefore.get(selected.kind));
+        const recovered = await callPath(selected.kind, { ...selected.request, action: 'recover' });
+        const recoveredOperation = assertPathOperation(recovered, 'recover', selected.operationId, selected.planId);
+        assert.equal(recovered.alreadyKnown, true); assert.equal(recoveredOperation.batchId, selected.batchId); assert.deepEqual(recoveredOperation, object(status.operation));
+      }
+      const afterSnapshot = await snapshotPathOriginals(); probes.push(afterSnapshot.probe); assert.equal(sha(JSON.stringify(afterSnapshot.rows)), immutableHash);
+      await reviewOff(contextB);
+    } catch (error) { errors.push(error); }
+    finally {
+      for (const page of pages) if (!page.isClosed()) try { await page.close(); } catch { errors.push(new Error('Own path browser page did not close.')); }
+      if (contextB && mcpB) {
+        try { await ok(await contextB.request.put('/api/integrations/mcp-server/connections/workspaces', { data: { connectionId: mcpB.connectionId, workspaceIds: [originalWorkspace.id] } }), 'Restore only original path client workspace grant'); }
+        catch { errors.push(new Error('Own path workspace grant restore remained unconfirmed.')); }
+        if (ownWorkspace) try { await ok(await contextB.request.delete(`/api/workspaces/${encodeURIComponent(ownWorkspace.id)}`), 'Delete only own path workspace'); }
+        catch { errors.push(new Error('Own path workspace cleanup remained unconfirmed.')); }
+        try {
+          await ok(await contextB.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore path capability selection');
+          await ok(await contextB.request.patch('/api/integrations/mcp-server', { data: restore }), 'Restore exact path capability selection');
+          const restored = object((await ok(await contextB.request.get('/api/integrations/mcp-server'), 'Observe restored path selection')).data); assert(Array.isArray(restored.capabilities));
+          for (const id of ids) assert.equal(object(restored.capabilities.find(value => object(value).id === id)).enabled, false);
+          await reviewOff(contextB);
+        } catch { errors.push(new Error('Own path settings restore remained unconfirmed.')); }
+      }
+    }
+    if (errors.length) throw new AggregateError(errors, 'Compiled OAuth Move/Delete or own cleanup failed.');
+    assert(target && incoming && retained.length === 2 && movedVersion && immutableHash && probes.length === 2);
+    await evidence(info, { scope: 'actual compiled OAuth MCP Move/Delete, visible Settings/Files/native editors and historical completed recovery',
+      visibleOptInsSaveReload: true, bothInitiallyOff: true, actualOwnedWorkspaceAndGrants: true, actualOAuthSameClientNewSession: true,
+      originalTokensRejectedWith401: true, nativeCreateTargetAndIncoming: true, fileListMoveAndDeleteWithoutManualReload: true,
+      stableTargetDocumentAndLineage: true, originalFullVersionReadAfterMove: true, browserSessionBoundToOriginalId: true,
+      editorAndReloadMatchActualNativeJson: true, exactIncomingHrefRewriteThenMarkRemoval: true, unrelatedRichContentAndLinkPreserved: true,
+      historicalMoveAfterLaterArchive: true, completedRecoveryBothOriginalOperations: true, originalAttributionAndReceiptXminsUnchanged: true,
+      recoveryCoverage: 'completed existing operation only; interrupted recovery remains the separate actual PG proof',
+      sdkMoveDeleteClaim: false, reviewAndUndoEnabled: false, targetDocumentId: target.document.documentId,
+      incomingDocumentId: incoming.document.documentId, movedFullVersion: movedVersion,
+      operationIds: retained.map(value => value.operationId), batchIds: retained.map(value => value.batchId), immutableOriginalSnapshotSha256: immutableHash,
+      readOnlyProbes: probes });
+  });
 });
