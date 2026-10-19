@@ -35,7 +35,13 @@ async function child(testCase: Case): Promise<void> {
   pool.on('acquire', client => { raw = client; });
   pool.on('release', () => { releases++; });
   const connections = new Set<SqlConnection>();
-  const open = async () => { const b = await openDb(); connections.add(b); return b; };
+  const prepared = process.env.CANVAS_LEASE_TEST_PREPARED === 'true';
+  const open = async () => {
+    const b = await openDb(); connections.add(b);
+    // Run the identical lifetime cases through the actual optional method too.
+    if (prepared) { assert(b.getPrepared); b.get = b.getPrepared; }
+    return b;
+  };
   const failure = (error: unknown, code?: string) => {
     assert(error instanceof DatabaseUnavailableError, 'A terminal product connection failure must reject safely.');
     assert.equal(error.code, 'postgres_unavailable');
@@ -209,7 +215,7 @@ async function child(testCase: Case): Promise<void> {
       assert.equal(executions, 1); assert.equal(recoveries, 0); assert.equal(releases, 1);
       assert.equal((await control.query('SELECT count(*)::int AS n FROM lease_markers WHERE id=$1', [marker])).rows[0].n, 1);
     }
-    console.log(JSON.stringify({ case: testCase, passed: true }));
+    console.log(JSON.stringify({ case: testCase, prepared, passed: true }));
   } finally {
     for (const b of connections) { try { await b.close(new Error('Final owned fixture cleanup.')); } catch { /* Already closed poisoned lease. */ } }
     await closeDatabaseConnections(); await control.end();
@@ -236,6 +242,7 @@ async function main(): Promise<void> {
       await control.connect(); await control.query(`CREATE SCHEMA "${schema}"`); created = true;
       await control.query(`CREATE TABLE "${schema}".lease_markers(id text PRIMARY KEY)`);
       const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test', DATABASE_URL: connectionString, CANVAS_DATABASE_PROVIDER: 'postgres',
+        CANVAS_LEASE_TEST_PREPARED: process.argv.includes('--prepared') ? 'true' : 'false',
         PGOPTIONS: `-c search_path=${schema},pg_catalog -c statement_timeout=5000 -c application_name=${applicationName}`,
         CANVAS_POSTGRES_POOL_MAX: '1', CANVAS_POSTGRES_CONNECTION_TIMEOUT_MS: '5000', DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot,
         CANVAS_INSTANCE_ID: `pg-lease-${id}`, CANVAS_LEASE_TEST_SCHEMA: schema, CANVAS_LEASE_TEST_APPLICATION: applicationName };
@@ -250,7 +257,7 @@ async function main(): Promise<void> {
         task.once('exit', (code, signal) => { clearTimeout(watchdog); resolve({ code, signal, stdout, stderr }); });
       });
       // Never publish the driver's error text, environment or connection URL.
-      console.log(JSON.stringify({ case: testCase, childExit: outcome.code, signal: outcome.signal,
+      console.log(JSON.stringify({ case: testCase, prepared: environment.CANVAS_LEASE_TEST_PREPARED === 'true', childExit: outcome.code, signal: outcome.signal,
         unhandledClientEvent: /Unhandled 'error' event/u.test(outcome.stderr), fatal25P04: /25P04/u.test(outcome.stderr),
         passed: outcome.code === 0 && outcome.stdout.includes('"passed":true') }));
       if (outcome.code !== 0) {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   createPostgresDrizzle,
   createPostgresPool,
@@ -13,6 +14,8 @@ import {
 
 export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+  /** Optional server-prepared execution; results are read fresh on this connection. */
+  getPrepared?: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
   /** A supplied error discards the connection instead of returning it to the pool. */
@@ -172,11 +175,13 @@ async function openPostgresDb(): Promise<SqlConnection> {
     if (connectionError) throw connectionError;
     if (closed) throw new Error('The PostgreSQL connection is closed.');
   };
-  const query = (sql: string, params?: unknown[]) => runPostgresOperation(async () => {
+  const query = (sql: string, params?: unknown[], prepared = false) => runPostgresOperation(async () => {
     assertAvailable();
     inFlight++;
     try {
-      const result = await client.query(sql, params);
+      const result = await (prepared
+        ? client.query({ name: `canvas_sql_${createHash('sha256').update(sql).digest('base64url')}`, text: sql, values: params })
+        : client.query(sql, params));
       assertAvailable();
       return result;
     } catch (error) {
@@ -188,6 +193,10 @@ async function openPostgresDb(): Promise<SqlConnection> {
   return {
     get: async (sql: string, params?: unknown[]) => {
       const result = await query(sql, params);
+      return result.rows[0];
+    },
+    getPrepared: async (sql: string, params?: unknown[]) => {
+      const result = await query(sql, params, true);
       return result.rows[0];
     },
     run: async (sql: string, params?: unknown[]) => {
