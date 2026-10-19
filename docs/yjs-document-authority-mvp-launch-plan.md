@@ -2,13 +2,15 @@
 
 Stand: 19. Oktober 2026. Direkte Nutzerpriorität: ein zeitnah nutzbares MVP veröffentlichen. Der vollständige [Konsolidierungsplan](./yjs-document-authority-consolidation-plan.md) bleibt erhalten; dieser Meilenstein priorisiert seine erste Veröffentlichung. Die sieben offenen Roadmap-Pakete werden dadurch nicht als erledigt erklärt.
 
+Aktueller Freigabestand: **noch nicht bereit für Main**. Die gemischte Markdown-Planungsgrundlage ist mit Root `2bb1f7210` / QA `1e51d4a8e` committet. Die verbleibenden Gates sind tatsächlicher Dateiaktions-/Importanschluss, zentraler interner Create-Schreibweg, Produktionsaktivierung samt Linux-Schreibschutznachweis sowie gemeinsame finale Abnahme und PR-Prüfungen. Die grüne Grundlage ersetzt diese Anschlüsse nicht.
+
 ## Geprüfter Ausgangspunkt
 
 - Produkt-/Testquellen der vollständigen lokalen Neunerabnahme: Root `fb0d492d7`, QA `192d8458f`; danach nur Dokumentationscommit Root `831c67071` / QA `67523cbb5`.
 - Frischer Originalproduktionsbuild, unabhängiger Artefaktabgleich und vollständige echte OAuth-/Browserfolge **9/9** bestehen, einschließlich Create/Import/Read/Edit, sichtbarem Editor/Reload, Copy sowie Move/Delete mit zentralen Links und erneuerter Sitzung. Alle 14 unabhängigen Abschlussprüfungen bestehen. [Originalbelege und Grenzen](./yjs-native-path-unlink-oracle-evidence.md).
 - Die tatsächliche Live-Room-Backendfolge besteht zweimal mit **16/16**. Der einzelne ursprüngliche Produktionsfehler ist dadurch noch nicht als behoben nachgewiesen.
 - `authenticatedNativeTextSessionEnabled()` enthält im Root weiterhin `const enabled = false`; die Neunerabnahme verwendet den separat aktivierten QA-Stand. Ein Merge mit diesem Schalter allein aktiviert den neuen Dokumentkern nicht.
-- Aktuelles `origin/main` ist `1506927038b80036749266a56fb769dcb6e6d18c` und bereits Vorfahr des Root. Es gibt noch keinen PR für `codex/yjs-document-authority-plan`. Der Branch enthält 1.090 geänderte Dateien einschließlich 473 Skript-/Testdateien und 161 Dokumentationen; der Mergeumfang benötigt ausdrücklich Review.
+- Frisch abgeglichenes `origin/main` ist weiterhin `1506927038b80036749266a56fb769dcb6e6d18c` und bereits Vorfahr des Root. Es gibt noch keinen PR für `codex/yjs-document-authority-plan`. Auf Root `2bb1f7210` umfasst der Branch 413 Commits und 1.098 geänderte Dateien gegenüber Main; der Mergeumfang benötigt ausdrücklich Review.
 
 ## Erster Veröffentlichungsumfang
 
@@ -43,6 +45,8 @@ Rein physische Moves, physisches Delete, native Ordner-Deletes und Scene-Move/-D
 Die eigentliche Aktivierung wird erst nach belegtem Schema-/Migrations-, Ticket-/Room-, Lifecycle- und Writeranschluss geändert. Kein Test-Environment-Bypass wird als Produktionskonfiguration verwendet. API-/Toolverfügbarkeit und UI müssen dem tatsächlich freigegebenen Umfang entsprechen.
 
 Der auf Produktion eingesetzte Linux-Agentenpfad muss rohe Projektionswrites aus Shell/Python/Kindprozessen und Skills tatsächlich verhindern. Fehlende Isolation darf nicht auf freies Exec zurückfallen. Weitere Plattform- oder Launcherwege dürfen nachgelagert bleiben, wenn sie für den MVP nicht freigegeben sind und sicher geschlossen bleiben.
+
+Die vorhandene Landlock-Shellprobe allein genügt dafür nicht: Sie prüft einen anderen C-Launcher und kann bei dessen Fehlen erfolgreich überspringen. Der tatsächliche Linuxpfad über den isolierten Python-Launcher benötigt eine passende echte Probe und einen verpflichtenden CI-Aufruf; bislang fehlt dieser Workflowanschluss.
 
 Bereits vorhandene interne Native-Editwege müssen unter echter Agentenautorität funktionieren. Noch fehlende interne Neuanlage darf keinen unkontrollierten Markdown-Fallback öffnen; vor deren Freigabe ist sie an den bestehenden zentralen Createkern anzuschließen. Externes MCP-Create ist separat bereits Bestandteil der Neunerabnahme.
 
