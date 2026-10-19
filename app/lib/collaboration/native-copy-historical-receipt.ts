@@ -86,7 +86,7 @@ export async function readNativeCopyReceiptStorageIdentityOnConnection(database:
     t.tgconstraint::bigint AS constraint_oid,p.oid::bigint AS function_oid,p.proname,p.pronamespace::bigint AS function_schema,
     p.prosrc,p.prosecdef,p.proconfig,p.prokind,p.pronargs,p.prorettype='pg_catalog.trigger'::regtype AS returns_trigger,l.lanname
     FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_proc p ON p.oid=t.tgfoid
-    JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE t.tgrelid=$1::oid ORDER BY t.oid LIMIT 3`,
+    JOIN pg_catalog.pg_language l ON l.oid=p.prolang WHERE t.tgrelid=$1::oid AND NOT t.tgisinternal ORDER BY t.oid LIMIT 3`,
   [oid(relation.table_oid)]) as Row[];
   if (triggers.length !== 1) fail('NATIVE_COPY_HISTORY_STORAGE_CHANGED');
   const trigger = triggers[0];

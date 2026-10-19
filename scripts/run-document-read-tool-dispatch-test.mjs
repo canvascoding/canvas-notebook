@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/native-copy-historical-receipt-runner-test.ts': [entryPoint,
+    'scripts/native-copy-historical-receipt-postgres-test.ts',
+    'scripts/helpers/rich-markdown-projection-fixtures.ts',
+    'app/lib/collaboration/native-copy-historical-receipt.ts',
+    'app/lib/collaboration/native-copy-persistence.ts',
+    'app/lib/collaboration/workspace-native-recovery.ts',
+    'app/lib/collaboration/persistence.ts',
+    'app/lib/db/collaboration-native-copy-migration.ts'],
   'scripts/workspace-raw-copy-stage-postgres-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'scripts/workspace-raw-copy-stage-test.ts',

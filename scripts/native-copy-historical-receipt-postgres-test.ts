@@ -17,6 +17,7 @@ const PREFIX = 'canvas_native_copy_history_';
 const SCHEMA = new RegExp(`^${PREFIX}[0-9a-f]{32}$`, 'u');
 const TABLES = ['file_collaboration_lineages', 'collaboration_documents', 'collaboration_yjs_states',
   'collaboration_yjs_state_backups', 'collaboration_agent_operations', 'collaboration_excalidraw_states',
+  'collaboration_excalidraw_agent_operations',
   'file_revisions', 'file_locks', 'file_guest_invitations', 'collaboration_admission_requests',
   'collaboration_admission_scopes', 'collaboration_admission_targets'] as const;
 type Representation = 'plain_text' | 'tiptap_xml' | 'tiptap_blocks';
@@ -78,6 +79,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
   const schema = `${PREFIX}${randomUUID().replaceAll('-', '')}`;
   const admin = new Pool({ connectionString: url.toString(), max: 2, connectionTimeoutMillis: 3_000, allowExitOnIdle: true });
   let pool: Pool | undefined, created = false, failed = false, primary: unknown;
+  let resource: { schemaOid: string; pid: number; backendStart: string; applicationName: string } | undefined;
   const shadows: string[] = [];
   try {
     const identity = (await admin.query(`SELECT current_setting('server_version_num')::int AS version,
@@ -101,6 +103,16 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
       for (const statement of COLLABORATION_NATIVE_COPY_STATEMENTS) await pool.query(statement);
     }
     const fixturePool = pool;
+    const observed = (await fixturePool.query(`SELECT n.oid::bigint::text AS schema_oid,pg_get_userbyid(n.nspowner) AS owner,
+      pg_backend_pid() AS pid,a.backend_start::text AS backend_start,current_setting('application_name') AS application_name
+      FROM pg_namespace n CROSS JOIN pg_stat_activity a WHERE n.nspname=$1 AND a.pid=pg_backend_pid()`, [schema])).rows[0];
+    assert(observed && /^[0-9]+$/u.test(observed.schema_oid) && Number.isSafeInteger(observed.pid) && observed.pid > 0);
+    assert.equal(observed.owner, identity.role); assert.equal(observed.application_name, 'native-copy-history-isolated-fixtures');
+    assert.equal(typeof observed.backend_start, 'string'); assert(observed.backend_start);
+    resource = { schemaOid: observed.schema_oid, pid: observed.pid, backendStart: observed.backend_start,
+      applicationName: observed.application_name };
+    console.log(JSON.stringify({ probe: 'native-copy-history-fixture-open', schema, database: identity.database,
+      owner: observed.owner, ...resource }));
     await run({ pool, schema, openConnection: connectionFactory(pool), createShadow: async () => {
       const shadow = `${PREFIX}${randomUUID().replaceAll('-', '')}`;
       await admin.query(`CREATE SCHEMA ${identifier(shadow)}`); shadows.push(shadow);
@@ -120,12 +132,16 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
   } catch (error) { failed = true; primary = error; }
   finally {
     const cleanup: unknown[] = [];
-    try { await pool?.end(); } catch (error) { cleanup.push(error); }
+    let poolClosed = false, schemaDropped = false, adminClosed = false, shadowsDropped = 0;
+    try { await pool?.end(); poolClosed = true; } catch (error) { cleanup.push(error); }
     for (const shadow of shadows.reverse()) {
-      try { await admin.query(`DROP SCHEMA ${identifier(shadow)} CASCADE`); } catch (error) { cleanup.push(error); }
+      try { await admin.query(`DROP SCHEMA ${identifier(shadow)} CASCADE`); shadowsDropped++; } catch (error) { cleanup.push(error); }
     }
-    if (created) try { await admin.query(`DROP SCHEMA ${identifier(schema)} CASCADE`); } catch (error) { cleanup.push(error); }
-    try { await admin.end(); } catch (error) { cleanup.push(error); }
+    if (created) try { await admin.query(`DROP SCHEMA ${identifier(schema)} CASCADE`); schemaDropped = true; } catch (error) { cleanup.push(error); }
+    try { await admin.end(); adminClosed = true; } catch (error) { cleanup.push(error); }
+    console.log(JSON.stringify({ probe: 'native-copy-history-fixture-closed', schema, ...resource,
+      created, poolClosed, schemaDropped, shadowSchemas: shadows, shadowsDropped, adminClosed,
+      cleanupSucceeded: cleanup.length === 0, suiteFailed: failed }));
     if (cleanup.length) throw new AggregateError(failed ? [primary, ...cleanup] : cleanup, 'Owned native copy history fixture cleanup failed.');
     if (failed) throw primary;
   }
@@ -372,6 +388,99 @@ async function immutableDdlCounterexample(fixture: Fixture, copy: PublishedCopy)
   } finally { try { await client.query('ROLLBACK'); } finally { client.release(); } }
 }
 
+/** A real foreign key adds PostgreSQL RI triggers; it must not replace or
+ * weaken the one immutable user trigger pinned by the historical reader. */
+async function foreignKeyTriggerStorageCase(fixture: Fixture): Promise<void> {
+  const copy = await publishCopy(fixture, 'plain_text'), storage = await captureStorage(fixture), input = historyInput(copy, storage);
+  assert.deepEqual(await historical(fixture, input), copy.published);
+  const nonce = randomUUID().replaceAll('-', ''), own = identifier(fixture.schema);
+  const child = `history_fk_child_${nonce}`, constraint = `history_fk_${nonce}`, extra = `history_extra_${nonce}`;
+  const before = (await fixture.pool.query(`SELECT xmin::text AS xmin,ctid::text AS tid,row_to_json(r) AS row
+    FROM collaboration_native_copy_receipts r WHERE workspace_id=$1 AND operation_id=$2`, [input.workspaceId, input.operationId])).rows;
+  assert.equal(before.length, 1);
+  const currentBefore = await currentRows(fixture);
+  let phase = 'create-foreign-key', childCreated = false, functionCreated = false, triggerCreated = false;
+  let failed = false, primary: unknown;
+  const cleanup: unknown[] = [];
+  try {
+    await fixture.pool.query(`CREATE TABLE ${own}."${child}" (workspace_id text NOT NULL,operation_id text NOT NULL,
+      CONSTRAINT "${constraint}" FOREIGN KEY (workspace_id,operation_id)
+      REFERENCES ${own}.collaboration_native_copy_receipts(workspace_id,operation_id))`);
+    childCreated = true;
+    const fk = (await fixture.pool.query(`SELECT c.oid::bigint::text AS oid,c.contype,c.convalidated,c.condeferrable,c.condeferred,
+      c.conrelid::bigint::text AS child_oid,c.confrelid::bigint::text AS parent_oid,c.confupdtype,c.confdeltype,c.confmatchtype,
+      ARRAY(SELECT a.attname::text FROM unnest(c.conkey) WITH ORDINALITY k(attnum,ord)
+        JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.attnum ORDER BY k.ord) AS child_columns,
+      ARRAY(SELECT a.attname::text FROM unnest(c.confkey) WITH ORDINALITY k(attnum,ord)
+        JOIN pg_attribute a ON a.attrelid=c.confrelid AND a.attnum=k.attnum ORDER BY k.ord) AS parent_columns
+      FROM pg_constraint c WHERE c.conrelid=to_regclass($1) AND c.conname=$2`, [`${fixture.schema}.${child}`, constraint])).rows;
+    assert.equal(fk.length, 1); assert.equal(fk[0].contype, 'f'); assert.equal(fk[0].convalidated, true);
+    assert.equal(fk[0].condeferrable, false); assert.equal(fk[0].condeferred, false);
+    assert.equal(fk[0].parent_oid, String(storage.tableOid)); assert.deepEqual(fk[0].child_columns, ['workspace_id', 'operation_id']);
+    assert.deepEqual(fk[0].parent_columns, ['workspace_id', 'operation_id']);
+    assert.equal(fk[0].confupdtype, 'a'); assert.equal(fk[0].confdeltype, 'a'); assert.equal(fk[0].confmatchtype, 's');
+    const ri = (await fixture.pool.query(`SELECT t.oid::bigint::text AS oid,t.tgrelid::bigint::text AS relation_oid,
+      t.tgconstraint::bigint::text AS constraint_oid,t.tgisinternal,t.tgenabled,t.tgtype
+      FROM pg_trigger t WHERE t.tgconstraint=$1::oid ORDER BY t.tgrelid,t.tgtype`, [fk[0].oid])).rows;
+    assert.equal(ri.length, 4); assert(ri.every(row => row.tgisinternal === true && row.tgenabled === 'O' && row.constraint_oid === fk[0].oid));
+    assert.deepEqual(ri.filter(row => row.relation_oid === String(storage.tableOid)).map(row => Number(row.tgtype)).sort((a, b) => a - b), [9, 17]);
+    assert.deepEqual(ri.filter(row => row.relation_oid === fk[0].child_oid).map(row => Number(row.tgtype)).sort((a, b) => a - b), [5, 17]);
+    assert(!ri.some(row => row.oid === String(storage.triggerOid)));
+    await fixture.pool.query(`INSERT INTO ${own}."${child}" (workspace_id,operation_id) VALUES ($1,$2)`, [input.workspaceId, input.operationId]);
+    phase = 'storage-after-real-foreign-key';
+    console.log(JSON.stringify({ probe: 'native-copy-history-foreign-key', phase, constraintOid: fk[0].oid,
+      parentTableOid: storage.tableOid, childTableOid: fk[0].child_oid, actualInternalParentTriggers: 2, actualInternalChildTriggers: 2 }));
+    assert.deepEqual(await captureStorage(fixture), storage);
+    phase = 'historical-after-real-foreign-key';
+    assert.deepEqual(await historical(fixture, input), copy.published);
+
+    phase = 'create-extra-user-trigger';
+    await fixture.pool.query(`CREATE FUNCTION ${own}."${extra}"() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END;$$`);
+    functionCreated = true;
+    await fixture.pool.query(`CREATE TRIGGER "${extra}" BEFORE UPDATE ON ${own}.collaboration_native_copy_receipts
+      FOR EACH ROW EXECUTE FUNCTION ${own}."${extra}"()`);
+    triggerCreated = true;
+    const user = (await fixture.pool.query(`SELECT t.oid::bigint::text AS oid,t.tgisinternal,t.tgenabled
+      FROM pg_trigger t WHERE t.tgrelid=$1::oid AND t.tgname=$2`, [storage.tableOid, extra])).rows;
+    assert.equal(user.length, 1); assert.equal(user[0].tgisinternal, false); assert.equal(user[0].tgenabled, 'O');
+    assert.notEqual(user[0].oid, String(storage.triggerOid));
+    phase = 'extra-user-trigger-must-reject';
+    await assert.rejects(() => captureStorage(fixture), { code: 'NATIVE_COPY_HISTORY_STORAGE_CHANGED' });
+    await assert.rejects(() => historical(fixture, input), { code: 'NATIVE_COPY_HISTORY_STORAGE_CHANGED' });
+    phase = 'drop-only-extra-user-trigger';
+    await fixture.pool.query(`DROP TRIGGER "${extra}" ON ${own}.collaboration_native_copy_receipts`); triggerCreated = false;
+    await fixture.pool.query(`DROP FUNCTION ${own}."${extra}"()`); functionCreated = false;
+    phase = 'restored-user-trigger-with-foreign-key-still-present';
+    assert.equal((await fixture.pool.query('SELECT count(*)::int AS n FROM pg_constraint WHERE oid=$1::oid AND contype=\'f\'', [fk[0].oid])).rows[0].n, 1);
+    assert.equal((await fixture.pool.query('SELECT count(*)::int AS n FROM pg_trigger WHERE tgconstraint=$1::oid AND tgisinternal AND tgrelid=$2::oid',
+      [fk[0].oid, storage.tableOid])).rows[0].n, 2);
+    assert.deepEqual(await captureStorage(fixture), storage);
+    assert.deepEqual(await historical(fixture, input), copy.published);
+    await assert.rejects(() => fixture.pool.query(`UPDATE collaboration_native_copy_receipts SET actor_user_id='changed'
+      WHERE workspace_id=$1 AND operation_id=$2`, [input.workspaceId, input.operationId]), { code: '55000' });
+    assert.deepEqual((await fixture.pool.query(`SELECT xmin::text AS xmin,ctid::text AS tid,row_to_json(r) AS row
+      FROM collaboration_native_copy_receipts r WHERE workspace_id=$1 AND operation_id=$2`, [input.workspaceId, input.operationId])).rows, before);
+    assert.equal(await currentRows(fixture), currentBefore);
+    phase = 'verified';
+    console.log(JSON.stringify({ probe: 'native-copy-history-foreign-key', phase, storageIdentityUnchanged: true,
+      genuinePublishedReceiptUnchanged: true, extraUserTriggerRejected: true, immutableUpdateRejected55000: true,
+      originalRowAndXminUnchanged: true, currentDocumentsUnchanged: true, readerUsesExistingRORRNoXidOracle: true }));
+  } catch (error) {
+    failed = true; primary = error;
+    const value = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : null;
+    console.error(JSON.stringify({ probe: 'native-copy-history-foreign-key', phase,
+      errorName: error instanceof Error ? error.name : 'unknown',
+      errorCode: typeof value === 'string' && /^[A-Z0-9_]{1,96}$/u.test(value) ? value : null }));
+  } finally {
+    if (triggerCreated) try { await fixture.pool.query(`DROP TRIGGER "${extra}" ON ${own}.collaboration_native_copy_receipts`); }
+    catch (error) { cleanup.push(error); }
+    if (functionCreated) try { await fixture.pool.query(`DROP FUNCTION ${own}."${extra}"()`); } catch (error) { cleanup.push(error); }
+    if (childCreated) try { await fixture.pool.query(`DROP TABLE ${own}."${child}"`); } catch (error) { cleanup.push(error); }
+  }
+  if (cleanup.length) throw new AggregateError(failed ? [primary, ...cleanup] : cleanup, 'Owned FK/user-trigger probe cleanup failed.');
+  if (failed) throw primary;
+}
+
 async function main(): Promise<void> {
   const completed: string[] = [];
   await withFixture(async fixture => {
@@ -555,9 +664,13 @@ async function main(): Promise<void> {
       });
     }
     completed.push('compact payload and pre-transfer SQL text bounds reject actual oversized rows');
+    await foreignKeyTriggerStorageCase(fixture);
+    completed.push('real FK internal triggers retain pinned historical storage; an additional user trigger rejects until targeted removal');
     console.log(JSON.stringify({ suite: 'native-copy-historical-receipt-postgres', families: completed.length, completed }));
   });
 }
+
+export { main as nativeCopyHistoricalReceiptPostgresTest };
 
 // Execution is deliberately a separate explicit command after the owner marks
 // its implementation stable. Importing this helper never starts a fixture.
