@@ -5,6 +5,7 @@ import type { WorkspaceOperationBatchPlan } from './workspace-operation-batch-co
 import { WorkspaceOperationBatchError } from './workspace-operation-batch-store';
 import { workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
+import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 
 /** Native preview text is a display summary. No Markdown offsets, document
  * IDs, relative positions or native evidence are exposed or fabricated. */
@@ -17,12 +18,57 @@ export type WorkspaceOperationNativeMovePreviewPublic = {
   issues: [];
 };
 export type WorkspacePathOperationPreviewPublic = Omit<WorkspaceFileOperationPreview, 'previewContents'>
-  | WorkspaceOperationNativeMovePreviewPublic | WorkspaceOperationNativeCopyPreviewPublic;
+  | WorkspaceOperationNativeMovePreviewPublic | WorkspaceOperationNativeCopyPreviewPublic
+  | WorkspacePathImportPreparationPreviewPublic | WorkspaceOperationNativeDeletePreviewPublic;
+
+export type WorkspaceOperationNativeDeletePreviewPublic = Omit<WorkspaceOperationNativeMovePreviewPublic,
+  'version' | 'kind' | 'readiness'> & { version: 2; kind: 'native-original-delete'; readiness: 'ready' | 'blocked' };
+export type WorkspacePathImportPreparationPreviewPublic = {
+  version: 1; kind: 'native-path-import-preparation'; executionReady: false;
+  workspaceId: string; planId: string; readiness: 'requires-import-rebinding' | 'blocked';
+  pathMappings: Array<{ sourcePath: string; destinationPath: string }>;
+  linkEdits: [];
+  linkAssessment?: undefined;
+  coverage: WorkspaceFileOperationPreview['coverage'];
+  issues: Array<{ code: string; path: string }>;
+  imports: Array<{ path: string; reasons: Array<'selected' | 'link-change'> }>;
+  physicalLinkChanges: Array<{ sourcePathBefore: string; sourcePathAfter: string;
+    previousTargetLiteral: string; targetPathAfter: string | null; action: 'rewrite' | 'unlink' }>;
+};
+
+/** Display only: final native references and spellings do not exist before import. */
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
+): WorkspacePathImportPreparationPreviewPublic {
+  if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
+    'This file action uses its ordinary preview.');
+  return { version: 1, kind: plan.kind, executionReady: false, workspaceId: plan.scope.workspaceId,
+    planId: plan.planId, readiness: plan.readiness,
+    pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
+    linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },
+    issues: plan.issues.map(({ code, path }) => ({ code, path })),
+    imports: plan.importRequirements.map(({ path, reasons }) => ({ path, reasons: [...reasons] })),
+    physicalLinkChanges: plan.physicalLinkIntents.map(intent => ({ sourcePathBefore: intent.sourcePath,
+      sourcePathAfter: intent.sourcePathAfter, previousTargetLiteral: intent.expectedSourceLiteral,
+      targetPathAfter: intent.targetPathAfter, action: intent.action })) };
+}
 
 export function workspacePathOperationPreview(plan: WorkspaceOperationBatchPlan): WorkspacePathOperationPreviewPublic {
   if (plan.version === 1) {
     const { previewContents: _privateContents, ...publicPlan } = plan.linkPlan;
     return { ...publicPlan, planId: plan.planId, readiness: plan.readiness };
+  }
+  if (plan.version === 2) {
+    return { version: 2, kind: 'native-original-delete', workspaceId: plan.workspaceId,
+      planId: plan.planId, readiness: plan.readiness, pathMappings: [], coverage: plan.coverage,
+      linkAssessment: plan.linkAssessment, issues: [],
+      linkEdits: plan.nativeGraphPlan.steps.flatMap(step => step.linkIntents.map(intent => {
+        const source = plan.nativeGraphPlan.finalNamespace.find(entry => entry.entityKey === intent.entityKey);
+        if (!source || intent.action !== 'unlink' || intent.nextValue !== null) {
+          throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409, 'The deletion preview could not be verified.');
+        }
+        return { sourcePathBefore: source.path, sourcePathAfter: source.path,
+          previousTargetLiteral: intent.expectedValue, nextTargetLiteral: '' };
+      })) };
   }
   if (plan.version !== 3) throw new WorkspaceOperationBatchError('BATCH_NATIVE_PREVIEW_UNSUPPORTED', 409,
     'This plan does not describe a path change.');

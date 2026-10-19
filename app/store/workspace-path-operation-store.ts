@@ -6,6 +6,7 @@ import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import type { WorkspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-public';
 import { readWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-parser';
+import { observeWorkspacePathOperationAttemptCompletion } from '@/app/lib/files/workspace-path-operation-attempts';
 import type { WorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { useWorkspaceStore } from './workspace-store';
 
@@ -73,6 +74,7 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
     throw new Error('identity');
   }
   pinnedPlans.set(request, operation.planId);
+  if (requestCurrent(request)) observeWorkspacePathOperationAttemptCompletion(operation);
   return { operation,
   ...(value.recovery ? { recovery: { canResume: value.recovery.canResume, canUndo: value.recovery.canUndo } } : {}) };
 }

@@ -93,6 +93,17 @@ const previewIssueKeys = {
 
 function FileOperationLinkAssessment({ plan }: { plan: WorkspaceFileOperationDryRun['plan'] }) {
   const t = useTranslations('notebook');
+  if (plan.kind === 'native-path-import-preparation') return <section className="my-2 space-y-2" data-testid="file-operation-import-preview">
+    <p>{t('fileOperationImportSummary', { count: plan.imports.length })}</p>
+    <ul className="max-h-40 space-y-1 overflow-auto font-mono">
+      {plan.imports.map(item => <li key={item.path} className="break-all">{item.path}</li>)}
+    </ul>
+    <p>{t('fileOperationImportLinks', { count: plan.physicalLinkChanges.length })}</p>
+    {plan.physicalLinkChanges.slice(0, 5).map((item, index) => <p key={`${item.sourcePathBefore}:${index}`} className="break-all">
+      {item.sourcePathBefore}: {item.previousTargetLiteral} → {item.targetPathAfter ?? t('fileOperationLinkRemoved')}
+    </p>)}
+    <p className="text-muted-foreground">{t('fileOperationImportRevalidate')}</p>
+  </section>;
   const assessment = plan.linkAssessment;
   return <div className="my-2 space-y-2">
     {assessment?.blockers.length ? <section className="rounded border border-destructive/30 p-2"
@@ -394,7 +405,7 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmRename = async () => {
-    if (!node) return;
+    if (!node || renamePreview?.plan.readiness === 'blocked' || isPreviewingRename) return;
     const trimmedName = newName.trim();
     if (!trimmedName) {
       setRenameError(t('pleaseEnterName'));
@@ -411,6 +422,7 @@ export function FileActionsDropdown({
     try {
       const result = await renamePath(node.path, newPath, false, true, activeWorkspace?.id ?? null,
         renamePreview?.plan.planId);
+      if (result?.historical) { setRenameOpen(false); return; }
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
           description: linkWarningDescription(result.linkStatus),
@@ -488,10 +500,10 @@ export function FileActionsDropdown({
     closeMenu();
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (planId?: string) => {
     if (!node) return;
-    const result = await deleteWithUndo(node.path);
-    if (result.reviewRequired) return;
+    const result = await deleteWithUndo(node.path, planId);
+    if (result.reviewRequired || result.historical) return;
     onAfterDelete?.(node);
   };
 
@@ -718,7 +730,7 @@ export function FileActionsDropdown({
   };
 
   const handleConfirmMove = async () => {
-    if (!node || isMoving || creatingMoveDirectory) return;
+    if (!node || isMoving || creatingMoveDirectory || isPreviewingMove || movePreview?.plan.readiness === 'blocked') return;
     const trimmedName = moveName.trim();
     if (!trimmedName) {
       setMoveError(t('pleaseEnterName'));
@@ -743,6 +755,7 @@ export function FileActionsDropdown({
     try {
       const result = await renamePath(node.path, destination, false, true, workspaceId, movePreview?.plan.planId);
       if (!current() || !result) return;
+      if (result.historical) { setMoveOpen(false); return; }
       if (result && result.linkStatus && result.linkStatus !== 'complete') {
         toast.warning(t('fileOperationLinksIncomplete'), {
           description: linkWarningDescription(result.linkStatus),
@@ -773,7 +786,8 @@ export function FileActionsDropdown({
       const preview = await previewWorkspaceRename(node.path, resolveMoveDestination(moveTarget, moveName.trim()), workspaceId);
       if (!current()) return;
       setMovePreview(preview);
-      setMoveOperation((previous) => previous?.planId === preview.plan.planId ? previous : null);
+      setMoveOperation((previous) => previous && (previous.planId === preview.plan.planId
+        || previous.preparation?.previewPlanId === preview.plan.planId) ? previous : null);
     } catch (error) {
       if (current()) setMoveError(fileOperationErrorMessage(error, 'moveFailed'));
     } finally { if (current()) setIsPreviewingMove(false); }
@@ -963,12 +977,12 @@ export function FileActionsDropdown({
             {renameError && <p className="mt-1.5 text-xs text-destructive" role="alert">{renameError}</p>}
             {renamePreview && (
               <div className="mt-3 rounded-md border p-3 text-xs" role="status">
-                <p className="font-semibold">{t('fileOperationPreviewReadiness', { readiness: t(renamePreview.plan.readiness === 'ready'
-                  ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
-                <p>{t('fileOperationPreviewSummary', {
+                <p className="font-semibold">{t('fileOperationPreviewReadiness', { readiness: t(renamePreview.plan.readiness === 'requires-import-rebinding'
+                  ? 'fileOperationPreviewImportRequired' : renamePreview.plan.readiness === 'ready' ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}</p>
+                {renamePreview.plan.kind !== 'native-path-import-preparation' && <p>{t('fileOperationPreviewSummary', {
                   paths: renamePreview.plan.pathMappings.length,
                   links: renamePreview.plan.linkEdits.length,
-                })}</p>
+                })}</p>}
                 <FileOperationLinkAssessment plan={renamePreview.plan} />
                 {renamePreview.plan.pathMappings.slice(0, 5).map((mapping) => (
                   <p key={mapping.sourcePath}>{mapping.sourcePath} → {mapping.destinationPath}</p>
@@ -982,7 +996,8 @@ export function FileActionsDropdown({
                 {renamePreview.plan.linkEdits.length > 5 && <p>+{renamePreview.plan.linkEdits.length - 5}</p>}
                 {renamePreview.plan.issues.slice(0, 3).map((issue, index) => (
                   <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">
-                    {issue.path ? `${issue.path}: ` : ''}{t(previewIssueKeys[issue.code])}
+                    {issue.path ? `${issue.path}: ` : ''}{Object.hasOwn(previewIssueKeys, issue.code)
+                      ? t(previewIssueKeys[issue.code as keyof typeof previewIssueKeys]) : t('fileOperationPreviewBlocked')}
                   </p>
                 ))}
                 <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>
@@ -995,7 +1010,7 @@ export function FileActionsDropdown({
               {isPreviewingRename && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('fileOperationPreview')}
             </Button>
-            <Button variant="secondary" onClick={() => void handleConfirmRename()} disabled={isRenaming}>
+            <Button variant="secondary" onClick={() => void handleConfirmRename()} disabled={isRenaming || renamePreview?.plan.readiness === 'blocked'}>
               {isRenaming && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('rename')}
             </Button>
@@ -1077,10 +1092,11 @@ export function FileActionsDropdown({
                   </li>)}
                 </ul>
               </section> : null}
-            {movePreview ? <p role="status" data-testid="workspace-move-preview" className="text-sm">
-              {t('fileOperationPreviewReadiness', { readiness: t(movePreview.plan.readiness === 'ready'
-                ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}
-            </p> : null}
+            {movePreview ? <div role="status" data-testid="workspace-move-preview" className="text-sm">
+              {t('fileOperationPreviewReadiness', { readiness: t(movePreview.plan.readiness === 'requires-import-rebinding'
+                ? 'fileOperationPreviewImportRequired' : movePreview.plan.readiness === 'ready' ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}
+              <FileOperationLinkAssessment plan={movePreview.plan} />
+            </div> : null}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="ghost" onClick={() => { setMoveOpen(false); invalidateMovePreview(); }} disabled={isMoving || creatingMoveDirectory}>
@@ -1089,7 +1105,7 @@ export function FileActionsDropdown({
             <Button variant="outline" onClick={() => void handlePreviewMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending || !moveName.trim()}>
               {isPreviewingMove && <Loader2 className="h-4 w-4 animate-spin" />}{tStatus('recheck')}
             </Button>
-            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending}>
+            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving || creatingMoveDirectory || isPreviewingMove || movePending || movePreview?.plan.readiness === 'blocked'}>
               {isMoving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('move')}
             </Button>
@@ -1133,7 +1149,8 @@ export function FileActionsDropdown({
               {copyPreview.plan.linkEdits.length > 5 && <p>+{copyPreview.plan.linkEdits.length - 5}</p>}
               {copyPreview.plan.issues.slice(0, 3).map((issue, index) => (
                 <p key={`${issue.code}-${issue.path}-${index}`} className="text-amber-600">
-                  {issue.path ? `${issue.path}: ` : ''}{t(previewIssueKeys[issue.code])}
+                  {issue.path ? `${issue.path}: ` : ''}{Object.hasOwn(previewIssueKeys, issue.code)
+                    ? t(previewIssueKeys[issue.code as keyof typeof previewIssueKeys]) : t('fileOperationPreviewBlocked')}
                 </p>
               ))}
               <p className="mt-1 text-muted-foreground">{t('fileOperationPreviewRevalidate')}</p>

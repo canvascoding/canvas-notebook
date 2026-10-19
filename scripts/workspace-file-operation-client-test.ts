@@ -10,9 +10,14 @@ import {
 } from '../app/lib/files/client';
 import { WorkspacePathOperationClientError } from '../app/lib/files/workspace-path-operation-client';
 import type { WorkspacePathOperationPublic } from '../app/lib/files/workspace-path-operation-public';
+import { observeOpenedDocumentAuth, openedDocumentAuthScope } from '../app/lib/collaboration/opened-document-registry';
 
 async function main() {
   const originalFetch = globalThis.fetch;
+  const originalAuth = openedDocumentAuthScope();
+  // Unit auth observation only: this does not establish backend authentication.
+  observeOpenedDocumentAuth({ data: { user: { id: 'file-client-user' }, session: { id: 'file-client-session' } } });
+  const renamePlanId = 'c'.repeat(64);
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   let renameFailure: Record<string, unknown> | null = null;
   globalThis.fetch = async (input, init) => {
@@ -21,14 +26,20 @@ async function main() {
     requests.push({ url, body });
     if (url === '/api/files/rename' && body.dryRun === true) {
       return Response.json({ dryRun: true, requiresRevalidation: true, plan: {
-        planId: 'plan-1', readiness: 'ready', pathMappings: [{ sourcePath: 'a.png', destinationPath: 'b.png' }],
+        planId: renamePlanId, readiness: 'ready', pathMappings: [{ sourcePath: 'a.png', destinationPath: 'b.png' }],
         linkEdits: [{ previousTargetLiteral: 'a.png', nextTargetLiteral: 'b.png' }],
         coverage: { complete: true, omittedSources: [], unresolvedLinks: [] }, issues: [],
       } });
     }
     if (url === '/api/files/rename') {
       if (renameFailure) return Response.json(renameFailure, { status: 409 });
-      return Response.json({ mutation: { type: 'rename', oldPath: 'a.png', newPath: 'b.png',
+      assert.equal(body.planId, renamePlanId);
+      assert.match(String(body.idempotencyKey), /^[a-f0-9-]{36}$/u);
+      return Response.json({ operation: {
+        batchId: 'rename-success-batch-1234567890', planId: renamePlanId, workspaceId: 'ws', kind: 'rename',
+        selections: [{ sourcePath: 'a.png', destinationPath: 'b.png' }], status: 'applied', phase: 'complete',
+        completedActions: 1, totalActions: 1, errorCode: null,
+      }, mutation: { type: 'rename', oldPath: 'a.png', newPath: 'b.png',
         workspaceId: 'ws', operationId: 'op' }, linkStatus: 'partial',
       linkUpdates: { updatedFiles: [], updatedLinks: 0, warnings: ['Markdown link not rewritten'] } });
     }
@@ -53,6 +64,9 @@ async function main() {
     assert.deepEqual(requests[0], { url: '/api/files/rename', body: { oldPath: 'a.png', newPath: 'b.png', dryRun: true } });
     const rename = await renameWorkspacePath('a.png', 'b.png', false, 'ws', preview.plan.planId);
     assert.equal(rename.linkStatus, 'partial');
+    assert.equal(rename.operation?.kind, 'rename');
+    assert.equal(rename.operation?.status, 'applied');
+    assert.equal(rename.operation?.planId, renamePlanId);
     assert.deepEqual(rename.linkUpdates?.warnings, ['Markdown link not rewritten']);
     assert.equal(requests[1].body.planId, preview.plan.planId);
     const copyPreview = await previewWorkspaceCopy({ sources: ['a.png'], destDir: '.',
@@ -70,7 +84,7 @@ async function main() {
     const blockedOperation: WorkspacePathOperationPublic = {
       batchId: 'rename-client-batch-1234567890', planId: 'a'.repeat(64), workspaceId: 'ws',
       status: 'blocked', completedActions: 0, totalActions: 2, phase: 'preparing',
-      errorCode: 'PREVIEW_BLOCKED', kind: 'move',
+      errorCode: 'PREVIEW_BLOCKED', kind: 'rename',
       selections: [{ sourcePath: 'a.png', destinationPath: 'b.png' }],
       issues: [{ code: 'unevaluated-link', path: 'Bild.md' }, { code: 'unknown', path: '' }],
     };
@@ -134,6 +148,7 @@ async function main() {
     console.log('workspace-file-operation-client-test: ok');
   } finally {
     globalThis.fetch = originalFetch;
+    observeOpenedDocumentAuth(originalAuth ? { data: { user: { id: originalAuth.userId }, session: { id: originalAuth.sessionId } } } : null);
   }
 }
 

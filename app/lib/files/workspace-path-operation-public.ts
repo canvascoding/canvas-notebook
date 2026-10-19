@@ -37,10 +37,14 @@ export type WorkspacePathOperationPublic = WorkspaceOperationBatchProgress & {
   kind: 'move' | 'rename' | 'delete';
   selections: Array<{ sourcePath: string; destinationPath?: string }>;
   issues?: WorkspacePathOperationIssue[];
+  /** Added only by a server that verified the immutable import/operation mapping. */
+  preparation?: { previewPlanId: string };
 };
 
 export type WorkspacePathOperationResponse = {
   operation: WorkspacePathOperationPublic;
+  /** Verified original request replay: revalidate current files instead of replaying path effects. */
+  historical?: true;
   mutation?: WorkspacePathRenameMutation;
   deleted?: string[];
   failed?: Array<{ path: string; error: string }>;

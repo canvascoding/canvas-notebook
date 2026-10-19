@@ -12,6 +12,64 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-path-import-web-routes-postgres-runner-test.ts': [entryPoint,
+    'scripts/workspace-path-import-web-routes-postgres-test.ts',
+    'scripts/helpers/native-copy-metadata-owner-fixture.ts',
+    'app/api/files/rename/route.ts',
+    'app/api/files/delete/route.ts',
+    'app/api/files/operations/batches/[batchId]/route.ts',
+    'app/lib/api/route-helpers.ts',
+    'app/lib/workspaces/request.ts',
+    'app/lib/workspaces/request-principal.ts',
+    'app/lib/workspaces/postgres-runtime.ts',
+    'app/lib/files/workspace-path-operation-preview.ts',
+    'app/lib/files/workspace-path-operation-public.ts',
+    'app/lib/files/workspace-path-operation-service.ts',
+    'app/lib/files/workspace-path-operation-response.ts',
+    'app/lib/files/workspace-path-operation-problems.ts',
+    'app/lib/files/workspace-path-import-operation-history.ts',
+    'app/lib/files/workspace-path-import-operation-preview.ts',
+    'app/lib/files/workspace-path-import-operation.ts',
+    'app/lib/files/workspace-path-import-preparation-phase.ts',
+    'app/lib/files/workspace-path-import-preparation-record.ts',
+    'app/lib/files/workspace-path-import-preparation-plan.ts',
+    'app/lib/db/workspace-path-import-preparation-migration.ts',
+    'app/lib/files/workspace-operation-batch-store.ts',
+    'app/lib/files/workspace-operation-batch-worker.ts',
+    'app/lib/files/workspace-operation-batch-executor.ts',
+    'app/lib/files/workspace-operation-claim-renewals.ts',
+    'app/lib/files/workspace-operation-native-path-admission.ts',
+    'app/lib/files/workspace-operation-native-move-plan.ts',
+    'app/lib/files/workspace-operation-native-delete-plan.ts',
+    'app/lib/files/workspace-operation-original-move.ts',
+    'app/lib/files/workspace-operation-original-move-preparation.ts',
+    'app/lib/files/workspace-operation-original-delete.ts',
+    'app/lib/files/workspace-operation-original-delete-admission.ts',
+    'app/lib/files/workspace-operation-job-lifecycle-owner.ts',
+    'app/lib/files/workspace-file-lifecycle-guard.ts',
+    'app/lib/files/workspace-operation-path-source-parser.ts',
+    'app/lib/collaboration/markdown-file-import-persistence.ts',
+    'app/lib/collaboration/markdown-file-import.ts',
+    'app/lib/collaboration/lifecycle-transaction.ts',
+    'app/lib/collaboration/document-snapshot.ts',
+    'app/lib/collaboration/archived-native-snapshot.ts',
+    'app/lib/collaboration/native-inspection-schema.ts',
+    'app/lib/markdown/workspace-source-authority-stage.ts',
+    'app/lib/markdown/physical-native-import-binding.ts',
+    'app/lib/documents/service.ts',
+    'app/lib/documents/read-body.ts',
+    'app/lib/auth.ts',
+    'app/lib/db/index.ts',
+  ],
+  'scripts/workspace-path-operation-attempts-runner-test.ts': [entryPoint,
+    'scripts/workspace-path-operation-attempts-test.ts',
+    'app/lib/files/client.ts',
+    'app/lib/files/workspace-path-operation-attempts.ts',
+    'app/lib/files/workspace-path-operation-parser.ts',
+    'app/lib/files/workspace-path-operation-client.ts',
+    'app/lib/collaboration/opened-document-registry.ts',
+    'app/store/workspace-store.ts',
+  ],
   'scripts/workspace-path-import-public-postgres-runner-test.ts': [entryPoint,
     'scripts/helpers/native-copy-metadata-owner-fixture.ts',
     'app/lib/mcp/server/workspace-path-tool-contract.ts',
@@ -1117,6 +1175,8 @@ const criticalInputsByEntryPoint = {
 };
 assert(Object.hasOwn(criticalInputsByEntryPoint, entryPoint), 'Unknown document-authority integration suite.');
 const criticalInputs = criticalInputsByEntryPoint[entryPoint];
+const importConditions = entryPoint === 'scripts/workspace-path-operation-attempts-runner-test.ts'
+  ? [] : ['react-server'];
 let stage = 'preflight';
 let temporaryDirectory;
 let temporaryIdentity;
@@ -1172,7 +1232,7 @@ try {
   assert.equal(process.env.NODE_ENV, 'test', 'Run with NODE_ENV=test; the runner does not replace the caller environment.');
   assert(Number(process.versions.node.split('.')[0]) >= 22, 'Node.js 22 or newer is required.');
   assert(!/(?:^|\s)(?:--conditions|-C)(?:=|\s|$)/u.test(process.env.NODE_OPTIONS ?? ''),
-    'NODE_OPTIONS must not add import conditions; the child uses react-server only.');
+    'NODE_OPTIONS must not add import conditions; the suite fixes its import conditions.');
   assert(!process.execArgv.some(argument => argument === '--conditions' || argument.startsWith('--conditions=')
     || argument === '-C' || argument.startsWith('-C=')),
     'Invoke this runner without extra import conditions.');
@@ -1199,7 +1259,7 @@ try {
     absWorkingDir: root, entryPoints: [entryPoint], outfile: bundle,
     bundle: true, format: 'esm', platform: 'node', target: 'node22',
     packages: 'external', splitting: false, metafile: true, sourcemap: 'external',
-    tsconfig: path.join(root, 'tsconfig.json'), conditions: ['react-server'],
+    tsconfig: path.join(root, 'tsconfig.json'), conditions: importConditions,
     banner: { js: 'import {createRequire as __canvasCreateRequire} from "node:module";const require=__canvasCreateRequire('
       + JSON.stringify(path.join(root, 'package.json')) + ');' },
     plugins: [{
@@ -1244,7 +1304,7 @@ try {
     kind: 'real-source-esm-document-read-tool-dispatch', esbuildVersion: esbuild.version,
     sourceInputCount, bundleSha256,
     options: { bundle: true, format: 'esm', platform: 'node', target: 'node22', packages: 'external',
-      splitting: false, conditions: ['react-server'] },
+      splitting: false, conditions: importConditions },
     resolvedNext, resolvedConstructorPackages, metafile: result.metafile,
   }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   for (const file of [bundle, `${bundle}.map`, meta]) {
@@ -1260,7 +1320,7 @@ try {
   outcome = await new Promise((resolve, reject) => {
     const nextBaseline = entryPoint === 'scripts/document-read-http-boundary-test.ts'
       ? ['--require', requireFromRoot.resolve('next/dist/server/node-environment-baseline')] : [];
-    const child = spawn(process.execPath, ['--conditions=react-server', ...nextBaseline, bundle], {
+    const child = spawn(process.execPath, [...importConditions.map(condition => `--conditions=${condition}`), ...nextBaseline, bundle], {
       cwd: root, env: { ...process.env }, stdio: 'inherit',
     });
     child.once('error', reject);

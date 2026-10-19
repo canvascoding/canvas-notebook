@@ -314,8 +314,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     }
   };
 
-  const handleConfirmDelete = async () => {
-    const result = await deleteWithUndo(deletePaths);
+  const handleConfirmDelete = async (planId?: string) => {
+    const result = await deleteWithUndo(deletePaths, planId);
     if (result.reviewRequired) return;
     if (deleteSkippedCount > 0) toast.info(t('protectedFoldersSkipped', { count: deleteSkippedCount }));
     clearMultiSelect();

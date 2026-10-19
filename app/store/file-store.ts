@@ -1,6 +1,7 @@
 import { matchesWorkspaceFileLinkIdentity } from '@/app/lib/files/file-link-target';
 import { useFilePresenceStore } from '@/app/store/file-presence-store';
 import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
+import { reserveWorkspacePathOperationAttempt, abandonWorkspacePathOperationAttempt } from '@/app/lib/files/workspace-path-operation-attempts';
 import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
   isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
@@ -438,7 +439,7 @@ interface FileStoreState {
     preserveCurrentDirectory?: boolean,
   ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw'; workspaceId?: string | null; requestId?: string }) => Promise<void>;
-  deletePath: (path: string | string[], workspaceId?: string | null) => Promise<DeleteWorkspacePathsResult>;
+  deletePath: (path: string | string[], workspaceId?: string | null, planId?: string) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null, planId?: string) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
   applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
@@ -1559,19 +1560,31 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return true;
   },
 
-  deletePath: async (paths: string | string[], requestedWorkspaceId?: string | null) => {
+  deletePath: async (paths: string | string[], requestedWorkspaceId?: string | null, planId?: string) => {
     const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const treeGeneration = get().treeGeneration;
     const isCurrent = () => useWorkspaceStore.getState().activeWorkspaceId === workspaceId && get().treeGeneration === treeGeneration;
-    const pathsToDelete = Array.isArray(paths) ? paths : [paths];
+    const pathsToDelete = Array.isArray(paths) ? [...paths] : [paths];
+    const attempt = reserveWorkspacePathOperationAttempt({ workspaceId, kind: 'delete',
+      selections: pathsToDelete.map(sourcePath => ({ sourcePath })), planId });
     const currentPath = get().currentFile?.path;
     if (currentPath && pathsToDelete.some((path) => isSameOrDescendantPath(currentPath, path))) {
-      await get().prepareCurrentFileForTransition();
+      await get().prepareCurrentFileForTransition().catch(error => { abandonWorkspacePathOperationAttempt(attempt); throw error; });
     }
-    if (!isCurrent()) return {};
-    const result = await deleteWorkspacePaths(pathsToDelete, workspaceId);
-    if (!isCurrent()) return result;
+    if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) {
+      abandonWorkspacePathOperationAttempt(attempt);
+      throw new Error('The workspace or signed-in session changed. Please retry.');
+    }
+    const result = await deleteWorkspacePaths(pathsToDelete, workspaceId, attempt.planId, attempt);
+    if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) return result;
+    if (result.historical) {
+      for (const parent of new Set(pathsToDelete.map(getParentDirectory))) {
+        if (!isCurrent() || openedDocumentAuthScope() !== attempt.authScope) return result;
+        await get().refreshDirectory(parent, true, workspaceId);
+      }
+      return result;
+    }
     if (result.reviewRequired) return result;
     const deleted = result.deleted ?? (result.failed?.length ? [] : pathsToDelete);
     get().applyPathsDeleted(deleted, workspaceId, true);
@@ -1590,12 +1603,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = requestedWorkspaceId === undefined ? useWorkspaceStore.getState().activeWorkspaceId : requestedWorkspaceId;
     if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) throw new Error('The workspace changed. Please retry.');
     const treeGeneration = get().treeGeneration;
+    const attempt = reserveWorkspacePathOperationAttempt({ workspaceId, kind: 'rename',
+      selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite, planId });
     if (get().currentFile && isSameOrDescendantPath(get().currentFile!.path, oldPath)) {
-      await get().prepareCurrentFileForTransition();
+      await get().prepareCurrentFileForTransition().catch(error => { abandonWorkspacePathOperationAttempt(attempt); throw error; });
     }
-    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
-    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId, planId);
-    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration) return;
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration
+      || openedDocumentAuthScope() !== attempt.authScope) {
+      abandonWorkspacePathOperationAttempt(attempt);
+      throw new Error('The workspace or signed-in session changed. Please retry.');
+    }
+    const result = await renameWorkspacePath(oldPath, newPath, overwrite, workspaceId, attempt.planId, attempt);
+    if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || get().treeGeneration !== treeGeneration
+      || openedDocumentAuthScope() !== attempt.authScope) return;
+    if (result.historical) {
+      for (const parent of new Set([getParentDirectory(oldPath), getParentDirectory(newPath)])) {
+        if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId || openedDocumentAuthScope() !== attempt.authScope) return result;
+        await get().refreshDirectory(parent, true, workspaceId);
+      }
+      return result;
+    }
     get().applyPathRename(result.mutation ?? {
       type: 'rename', workspaceId: workspaceId!, oldPath, newPath, operationId: crypto.randomUUID(),
     });

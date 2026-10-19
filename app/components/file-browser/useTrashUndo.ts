@@ -34,15 +34,16 @@ export function useTrashUndo(options: { toasterId?: string } = {}) {
   })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
-  return useCallback(async (paths: string | string[]): Promise<DeleteWorkspacePathsResult> => {
+  return useCallback(async (paths: string | string[], planId?: string): Promise<DeleteWorkspacePathsResult> => {
     const workspaceId = activeWorkspaceId;
     const authScope = openedDocumentAuthScope();
     let partialError: WorkspaceDeletePartialError | null = null;
-    const result = await deletePath(paths, workspaceId).catch((error) => {
+    const result = await deletePath(paths, workspaceId, planId).catch((error) => {
       if (!(error instanceof WorkspaceDeletePartialError)) throw error;
       partialError = error;
       return error.result;
     });
+    if (result.historical) return result;
     if (result.reviewRequired) {
       if (result.reviewRequired.workspaceId === workspaceId
         && useWorkspaceStore.getState().activeWorkspaceId === workspaceId

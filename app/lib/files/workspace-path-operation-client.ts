@@ -3,6 +3,7 @@
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
 import { readWorkspacePathOperation } from './workspace-path-operation-parser';
+import { observeWorkspacePathOperationAttemptCompletion } from './workspace-path-operation-attempts';
 
 const pending = (operation: WorkspacePathOperationPublic) => ['queued', 'applying'].includes(operation.status);
 
@@ -12,8 +13,17 @@ export class WorkspacePathOperationClientError extends Error {
   }
 }
 
+/** The original caller key survives; no successful UI mutation may be inferred. */
+export class WorkspacePathOperationOutcomeUnknownError extends Error {
+  readonly code = 'WORKSPACE_OPERATION_OUTCOME_UNCONFIRMED';
+  constructor(readonly operationId: string, readonly planId?: string) {
+    super('The file action outcome could not be confirmed. Check Notification Center before retrying.');
+    this.name = 'WorkspacePathOperationOutcomeUnknownError';
+  }
+}
+
 /** The file store receives a successful mutation only after the durable action finishes. */
-export async function waitForWorkspacePathOperationResult<T extends { operation?: WorkspacePathOperationPublic }>(
+export async function waitForWorkspacePathOperationResult<T extends { operation?: WorkspacePathOperationPublic; historical?: true }>(
   initial: T, workspaceId?: string | null,
   options: { timeoutMs?: number; intervalMs?: number; expectedOutcome?: 'applied' | 'undone' } = {},
 ): Promise<T> {
@@ -45,7 +55,7 @@ export async function waitForWorkspacePathOperationResult<T extends { operation?
     let operation: WorkspacePathOperationPublic;
     try { operation = readWorkspacePathOperation(payload.operation, identity); }
     catch { throw new WorkspacePathOperationClientError(result.operation, 'Invalid file action status response'); }
-    result = { ...payload, operation };
+    result = { ...payload, operation, ...(initial.historical === true ? { historical: true as const } : {}) };
   }
   const operation = result.operation!;
   if (operation.status !== (options.expectedOutcome ?? 'applied')) {
@@ -53,6 +63,7 @@ export async function waitForWorkspacePathOperationResult<T extends { operation?
       ? 'The file action is still running. Check Notification Center for its progress.'
       : 'The file action could not finish safely. Check Notification Center for details.');
   }
+  observeWorkspacePathOperationAttemptCompletion(operation);
   return result;
 }
 
