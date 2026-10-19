@@ -4,6 +4,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import ts from 'typescript';
 import { CollaborationFileOperationProjectionPendingError } from '../app/lib/collaboration/checkpoint-errors';
+import { CollaborationAdmissionError } from '../app/lib/collaboration/room-admission-contract';
 import type * as Guard from '../app/lib/collaboration/projection-publication-guard';
 
 /** Pure coordinator contracts with the actual compiled guard. SQL replies and
@@ -13,7 +14,8 @@ async function fixture() {
   const state = { documentId: 'document', workspaceId: 'workspace', organizationId: null, path: 'document.md',
     representation: 'tiptap_blocks' as const, lifecycleGeneration: 1, schemaVersion: 1 };
   const controls = { locked: true, held: true, move: false, delete: false, scope: true, switched: false, closed: 0,
-    discard: false, kernel: false, calls: [] as string[] };
+    discard: false, kernel: false, reservedScope: false, reservedDocument: false,
+    admissionFailure: undefined as unknown, calls: [] as string[] };
   const realm = { schema: 'fixture', searchPath: 'fixture, pg_catalog', schemaOid: 11, database: 12, backend: 13, start: '14' };
   const database = {
     run: async (sql: string) => { assert.match(sql, /^SET /u); },
@@ -33,6 +35,20 @@ async function fixture() {
       }
       throw new Error('Unexpected guard SQL in pure fixture.');
     },
+    all: async (sql: string, values: unknown[]) => {
+      assert.equal(controls.kernel, true, 'admission mechanics must retain the kernel guard');
+      assert(controls.calls.includes('acquire') && controls.calls.includes('lock'));
+      if (controls.admissionFailure !== undefined) throw controls.admissionFailure;
+      if (sql === 'fixture reserved scope') {
+        controls.calls.push('admission-scope'); assert.deepEqual(values, [state.workspaceId, state.path]);
+        return controls.reservedScope ? [{ request_id: 'reserved' }] : [];
+      }
+      if (sql === 'fixture reserved document') {
+        controls.calls.push('admission-document'); assert.deepEqual(values, [state.documentId]);
+        return controls.reservedDocument ? [{ request_id: 'reserved' }] : [];
+      }
+      throw new Error('Unexpected mocked admission SQL.');
+    },
     close: async (reason?: Error) => { controls.closed++; controls.discard = reason instanceof Error; },
   };
   const mocks: Record<string, unknown> = {
@@ -42,7 +58,18 @@ async function fixture() {
       try { return await callback(); } finally { controls.kernel = false; }
     } },
     '@/app/lib/workspaces/path-identity': { isCanonicalWorkspacePath: (value: unknown) => value === state.path },
-    './room-admission-contract': { collaborationAdmissionLockKey: (workspaceId: string) => { assert.equal(workspaceId, state.workspaceId); return '42'; } },
+    './room-admission-contract': { CollaborationAdmissionError,
+      collaborationAdmissionLockKey: (workspaceId: string) => { assert.equal(workspaceId, state.workspaceId); return '42'; } },
+    // Explicit mechanics mock: real reservation semantics/SQL are exercised by
+    // collaboration-admission-projection-postgres-test.ts, not this fixture.
+    './room-admission': { assertCollaborationAdmissionOpen: async (
+      query: (sql: string, values: unknown[]) => Promise<unknown[]>, selected: unknown,
+    ) => {
+      assert.deepEqual(selected, state); assert.equal(Object.isFrozen(selected), true);
+      const scopes = await query('fixture reserved scope', [state.workspaceId, state.path]);
+      const documents = await query('fixture reserved document', [state.documentId]);
+      if (scopes.length || documents.length) throw new CollaborationAdmissionError('ADMISSION_CONFLICT');
+    } },
     './projection-identity': { currentProjectionIdentityJoins: '' },
     './checkpoint-errors': { CollaborationFileOperationProjectionPendingError },
   };
@@ -65,6 +92,8 @@ test('retains kernel/shared session and rechecks actual backend/lock/scope befor
   assert.equal(result, 'complete'); assert.equal(controls.closed, 1); assert.equal(controls.discard, true); assert.equal(controls.kernel, false);
   assert.equal(controls.calls.filter(value => value === 'acquire').length, 1);
   assert.equal(controls.calls.filter(value => value === 'pending').length, 3);
+  assert.equal(controls.calls.filter(value => value === 'admission-scope').length, 3);
+  assert.equal(controls.calls.filter(value => value === 'admission-document').length, 3);
 });
 
 for (const kind of ['move', 'delete'] as const) test(`${kind} pending original blocks before publication and discards the guard`, async () => {
@@ -101,4 +130,49 @@ test('the rejection-only I04 predicate fails closed on missing or malformed obse
     await assert.rejects(api.assertNoPendingOriginalFileOperationProjection({ get: async () => reply }, 'workspace'),
       { code: 'COLLABORATION_PROJECTION_GUARD_UNAVAILABLE' });
   }
+});
+
+for (const kind of ['reservedScope', 'reservedDocument'] as const) test(`${kind} defers before callback without waiting for a B1 intent`, async () => {
+  const { api, controls, state } = await fixture(); controls[kind] = true; let attempted = false;
+  assert.equal(controls.move, false); assert.equal(controls.delete, false);
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => { attempted = true; }), CollaborationFileOperationProjectionPendingError);
+  assert.equal(attempted, false); assert.equal(controls.calls.includes('pending'), false);
+  assert.equal(controls.closed, 1); assert.equal(controls.discard, true); assert.equal(controls.kernel, false);
+});
+
+test('final guard recheck rejects a newly observed reservation', async () => {
+  const { api, controls, state } = await fixture(); let entered = false;
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => {
+    entered = true; controls.reservedScope = true; return 'must not publish as successful';
+  }), CollaborationFileOperationProjectionPendingError);
+  assert.equal(entered, true); assert.equal(controls.calls.filter(value => value === 'admission-scope').length, 2);
+  assert.equal(controls.closed, 1); assert.equal(controls.discard, true);
+});
+
+test('unknown admission SQL failures retain their exact error identity', async () => {
+  const { api, controls, state } = await fixture(); const failure = new Error('fixture SQL failure');
+  controls.admissionFailure = failure; let entered = false;
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => { entered = true; }), error => error === failure);
+  assert.equal(entered, false); assert.equal(controls.closed, 1); assert.equal(controls.discard, true);
+});
+
+test('a lookalike ADMISSION_CONFLICT code is not a trusted deferral', async () => {
+  const { api, controls, state } = await fixture(); const failure = Object.assign(new Error('fixture SQL failure'), { code: 'ADMISSION_CONFLICT' });
+  controls.admissionFailure = failure;
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => assert.fail('publication must not start')), error => error === failure);
+  assert.equal(controls.closed, 1);
+});
+
+test('other genuine admission errors are not swallowed as busy', async () => {
+  const { api, controls, state } = await fixture(); const failure = new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+  controls.admissionFailure = failure;
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => assert.fail('publication must not start')), error => error === failure);
+  assert.equal(controls.closed, 1);
+});
+
+test('an aborted publication preserves its error and closes the reservation-checking guard', async () => {
+  const { api, controls, state } = await fixture(); const failure = new Error('fixture publication abort');
+  await assert.rejects(api.withCollaborationProjectionPublicationGuard(state, async () => { throw failure; }), error => error === failure);
+  assert.equal(controls.calls.filter(value => value === 'admission-scope').length, 1);
+  assert.equal(controls.closed, 1); assert.equal(controls.discard, true); assert.equal(controls.kernel, false);
 });

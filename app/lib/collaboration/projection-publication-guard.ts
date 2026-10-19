@@ -4,7 +4,8 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import { isCanonicalWorkspacePath } from '@/app/lib/workspaces/path-identity';
 import type { PersistedCollaborationState } from './persistence';
-import { collaborationAdmissionLockKey } from './room-admission-contract';
+import { collaborationAdmissionLockKey, CollaborationAdmissionError } from './room-admission-contract';
+import { assertCollaborationAdmissionOpen } from './room-admission';
 import { currentProjectionIdentityJoins } from './projection-identity';
 import { CollaborationFileOperationProjectionPendingError } from './checkpoint-errors';
 
@@ -99,6 +100,18 @@ export async function withCollaborationProjectionPublicationGuard<T>(state: Publ
       [scope.documentId, scope.workspaceId, scope.organizationId, scope.path, scope.representation, scope.lifecycleGeneration, scope.schemaVersion]) as
         { document_id?: unknown } | undefined;
       if (currentScope?.document_id !== scope.documentId) throw new CollaborationProjectionPublicationGuardError('COLLABORATION_PROJECTION_SCOPE_CHANGED');
+      // A P0 reservation remains exclusive protocol state after its short
+      // transaction releases the workspace lock. Retain this same genuine
+      // shared session through both file publication and registry finalization.
+      try {
+        await assertCollaborationAdmissionOpen(async (sql, values) =>
+          await database.all(sql, values) as Array<Record<string, unknown>>, scope);
+      } catch (error) {
+        if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') {
+          throw new CollaborationFileOperationProjectionPendingError();
+        }
+        throw error;
+      }
       await assertNoPendingOriginalFileOperationProjection(database, scope.workspaceId, first.schema);
       if (!active || !accepting || JSON.stringify(await identity(database)) !== JSON.stringify(first)) throw unavailable();
     };
