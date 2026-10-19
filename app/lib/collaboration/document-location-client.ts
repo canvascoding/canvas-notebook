@@ -17,6 +17,8 @@ type LocationInput = {
   lifecycleGeneration?: number;
   representation?: TextCollaborationRepresentation;
   connection?: TextCollaborationConnectionState;
+  /** Parameterless request owned by the mounted collaboration registry entry. */
+  requestAdmissionRejoin?: () => Promise<void>;
 };
 
 function isCurrentLocationScope(scope: CurrentCollaborationLocationScope): boolean {
@@ -34,6 +36,8 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
   const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation]);
   const [issue, setIssue] = useState<{ key: string; value: CollaborationLocationIssue | null } | null>(null);
   const refresh = useRef<(() => void) | null>(null);
+  const admissionRejoin = useRef(input.requestAdmissionRejoin);
+  useEffect(() => { admissionRejoin.current = input.requestAdmissionRejoin; }, [input.requestAdmissionRejoin]);
 
   useEffect(() => {
     if (!workspaceId || !documentId || !documentKey || !path) return;
@@ -87,6 +91,12 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
         }
         report(null);
         if (location.path !== path) useFileStore.getState().adoptCurrentCollaborationLocation(scope, location.path);
+        else {
+          // An unchanged Incoming path still needs a new ticket after its room
+          // was drained. This hint is not a grant; the registry performs fresh
+          // HTTP authorization and exact identity checks before reconnecting.
+          try { await admissionRejoin.current?.(); } catch { /* Another invalidation may retry; no catch-driven polling. */ }
+        }
       } catch {
         if (canApply()) {
           report('lookupFailed');

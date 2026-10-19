@@ -40,6 +40,7 @@ async function main() {
   const { useWorkspaceStore } = await import('../app/store/workspace-store');
   const { useEditorStore } = await import('../app/store/editor-store');
   const { getFileWatcherClient } = await import('../app/lib/file-watcher/client');
+  const { getNotebookQueryClient } = await import('../app/lib/queries/client');
   const { useCollaborationDocumentLocation } = await import('../app/lib/collaboration/document-location-client');
   const { useTextCollaborationSession } = await import('../app/lib/collaboration/client');
   const requests: { gate: ReturnType<typeof deferred<Response>>; signal: AbortSignal; url: URL }[] = [];
@@ -85,12 +86,13 @@ async function main() {
   useEditorStore.getState().setActiveFile(file.path, file.content);
   useEditorStore.getState().updateDraft('Local + peer draft');
   let connection: 'live' | 'reconnecting' = 'live';
+  let requestAdmissionRejoin: (() => Promise<void>) | undefined;
   function Probe() {
     const state = useFileStore();
     const issue = useCollaborationDocumentLocation({ workspaceId: state.currentFileWorkspaceId,
       documentId: state.currentFile?.collaboration?.document?.id ?? null,
       documentKey: state.currentFile?.editorIdentity, path: state.currentFile?.path ?? null,
-      lifecycleGeneration: 1, representation: 'plain_text', connection });
+      lifecycleGeneration: 1, representation: 'plain_text', connection, requestAdmissionRejoin });
     return <output>{issue ?? 'ok'}</output>;
   }
   let session: CollaborationSessionResponse | null = null;
@@ -192,11 +194,40 @@ async function main() {
     await act(async () => retry?.());
     await until(() => session?.documentId === 'document');
     assert.equal(sessionAttempts, 2);
+    // A completion hint for another path must also wake an unchanged Incoming
+    // location. Only the fixed registry request can obtain a new authorization.
+    await act(async () => root.render(null));
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    useFileStore.setState({ currentFile: file, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    let rejoins = 0, reservationBusy = true;
+    requestAdmissionRejoin = async () => {
+      rejoins++;
+      if (reservationBusy) throw Object.assign(new Error('Synthetic reservation is still active'), { code: 'NATIVE_SESSION_BUSY', status: 409 });
+    };
+    const admissionBase = requests.length;
+    await render(); await until(() => requests.length === admissionBase + 1);
+    await reply(admissionBase, file.path); assert.equal(rejoins, 1); expectPath(file.path);
+    await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
+    assert.equal(requests.length, admissionBase + 1); assert.equal(rejoins, 1, 'Busy rejoin cannot create a location retry loop');
+    await structural('foreign.md', 'unlink', 'other-workspace'); await structural('unrelated.md', 'change');
+    await act(async () => { await new Promise(done => setTimeout(done, 200)); });
+    assert.equal(rejoins, 1); assert.equal(requests.length, admissionBase + 1);
+    reservationBusy = false;
+    await structural('actually-deleted.md'); await until(() => requests.length === admissionBase + 2);
+    await reply(admissionBase + 1, file.path); assert.equal(rejoins, 2); expectPath(file.path);
+    await structural('late-deleted.md'); await until(() => requests.length === admissionBase + 3);
+    await act(async () => useFileStore.setState({ currentFile: { ...file, editorIdentity: 'other-open' } }));
+    await reply(admissionBase + 2, file.path);
+    assert.equal(rejoins, 2, 'a late original-tab location reply cannot wake the current registry entry');
     console.log('Location hook handles rename bursts, both reconnects, recovery errors, stale lifetimes, and reused-path session identity.');
   } finally {
     await act(async () => { root.unmount(); sessionRoot.unmount(); });
     getFileWatcherClient().disconnect();
     for (const request of requests) request.gate.resolve(Response.json({ success: false }, { status: 404 }));
+    await getNotebookQueryClient().cancelQueries();
+    getNotebookQueryClient().clear();
     globalThis.fetch = originalFetch;
     internal._load = originalLoad;
     useFileStore.getState().resetWorkspaceView(null);

@@ -86,6 +86,8 @@ type RegistryEntry = {
   startProvider?: () => void;
   checkpointPromise?: Promise<void>;
   locationRevalidationPromise?: Promise<void>;
+  admissionRejoinAttempt?: { scope: AbortController; path: string; authScope: OpenedDocumentAuthScope | null;
+    controller: AbortController; promise: Promise<void> };
   pendingAuthoritativeSnapshot?: CollaborationDurabilitySnapshot;
   locationAuthorization?: LocationAuthorization;
   /** Retired HTTP provenance can request authorization, never confirm persistence. */
@@ -111,6 +113,8 @@ export type CollaborationDocument = {
   requestLocationRevalidation?: () => Promise<void>;
   canRevalidateLocation?: boolean;
   revalidatingLocation?: boolean;
+  /** A hint may request fresh authorization; it never supplies a ticket or a grant. */
+  requestAdmissionRejoin?: () => Promise<void>;
 };
 
 const registry = new Map<string, RegistryEntry>();
@@ -402,7 +406,10 @@ async function requestSession(
         continue;
       }
       if (!guestInvitationId) invalidateOpenedLiveDocument(workspaceId, { path }, authScope);
-      throw new Error(payload.error || 'Collaboration could not be started.');
+      throw Object.assign(new Error(payload.error || 'Collaboration could not be started.'), {
+        status: response.status,
+        code: typeof payload.code === 'string' ? payload.code : null,
+      });
     }
     if (authScope && payload.user?.id !== authScope.userId) throw new Error('The signed-in user changed.');
     if (authScope && !validateOpenedLiveDocumentSession(workspaceId, path,
@@ -488,6 +495,102 @@ function hasFreshLocationSession(entry: RegistryEntry, path: string, session: Co
   return Boolean(authorization && authorization.workspaceId === workspaceId && authorization.path === path
     && authorization.invitationId === session.guestAccess.invitationId && session.guestAccess.workspaceId === workspaceId
     && authorization.revision === (guestAuthorizationRevisions.get(guestAuthorizationKey(workspaceId, authorization.invitationId)) ?? 0));
+}
+
+function canRejoinEntryAfterAdmission(entry: RegistryEntry): boolean {
+  return Boolean(registry.get(entry.key) === entry && !entry.lifecycle.signal.aborted && !entry.requests.signal.aborted
+    && entry.refs > 0 && entry.provider && entry.session && !entry.session.guestAccess
+    && entry.clientState.admissionBusy && entry.clientState.connection !== 'denied'
+    && entry.clientState.durability !== 'degraded' && !entry.clientState.failure
+    && isOpenedDocumentAuthCurrent(entry.authScope));
+}
+
+/** One invalidation may obtain one new session. Busy never schedules another attempt. */
+function rejoinEntryAfterAdmission(entry: RegistryEntry, scope: AbortController): Promise<void> {
+  try { assertRequestActive(entry, scope); } catch (error) { return Promise.reject(error); }
+  const existing = entry.admissionRejoinAttempt;
+  if (!canRejoinEntryAfterAdmission(entry)) {
+    existing?.controller.abort(new Error('Collaboration rejoin is no longer available.'));
+    return Promise.resolve();
+  }
+  const previous = entry.session!, path = entry.path, authScope = entry.authScope;
+  if (existing && existing.scope === scope && existing.path === path && existing.authScope === authScope
+    && !existing.controller.signal.aborted) return existing.promise;
+  existing?.controller.abort(new Error('Collaboration rejoin was superseded by the current location.'));
+  const controller = new AbortController();
+  const attempt: NonNullable<RegistryEntry['admissionRejoinAttempt']> = {
+    scope, path, authScope, controller, promise: Promise.resolve(),
+  };
+  let rejectCancellation!: (reason: unknown) => void;
+  const cancellation = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+  // Retiring before the request microtask runs must not leave an unobserved
+  // cancellation rejection. The race below still receives the actual error.
+  void cancellation.catch(() => undefined);
+  const onAttemptAbort = () => rejectCancellation(controller.signal.reason ?? new Error('Collaboration rejoin was aborted.'));
+  const onScopeAbort = () => controller.abort(scope.signal.reason);
+  controller.signal.addEventListener('abort', onAttemptAbort, { once: true });
+  scope.signal.addEventListener('abort', onScopeAbort, { once: true });
+  const timeout = setTimeout(() => controller.abort(new Error('Collaboration rejoin timed out.')), 10_000);
+  if (scope.signal.aborted) onScopeAbort();
+  const promise = Promise.resolve().then(async () => {
+    assertRequestActive(entry, scope);
+    controller.signal.throwIfAborted();
+    const refreshed = requireTextSession(await Promise.race([
+      requestSession(path, 'auto', entry.key.split('\0')[0], controller.signal), cancellation,
+    ]),
+      previous.representation as TextCollaborationRepresentation);
+    controller.signal.throwIfAborted();
+    assertRequestActive(entry, scope);
+    if (entry.admissionRejoinAttempt !== attempt || !canRejoinEntryAfterAdmission(entry) || entry.path !== path || entry.authScope !== authScope
+      || !sameOpenedDocumentSession(entry.session!, previous) || !sameOpenedDocumentSession(refreshed, previous)
+      || !hasFreshLocationSession(entry, path, refreshed)
+      || !['read', 'write'].includes(refreshed.permission) || typeof refreshed.token !== 'string' || !refreshed.token
+      || !Number.isFinite(Date.parse(refreshed.expiresAt)) || Date.parse(refreshed.expiresAt) <= Date.now()) {
+      throw new Error('The document or signed-in session changed during collaboration rejoin.');
+    }
+    if (refreshed.degraded || refreshed.projectionError?.permanent) {
+      transition(entry, { type: 'degraded', code: refreshed.projectionError?.code ?? COLLABORATION_CHECKPOINT_ERROR_CODES.quarantined,
+        sequence: refreshed.documentSequence, message: 'The saved document is quarantined. Recovery is required.' });
+      throw new Error('The saved document is quarantined. Recovery is required.');
+    }
+    // Retire every old provider/token/checkpoint callback before the pause can
+    // clear. The Y.Doc and its committed IndexedDB lifetime remain unchanged.
+    entry.requests.abort();
+    entry.requests = new AbortController();
+    entry.checkpointPromise = undefined;
+    entry.provider?.destroy();
+    entry.provider = null;
+    entry.session = refreshed;
+    entry.requiresFreshSession = false;
+    entry.locationAuthorization = { scope: entry.requests, session: refreshed, path, authScope };
+    entry.locationRevalidationCandidate = undefined;
+    entry.pendingAuthoritativeSnapshot = durabilitySnapshot(refreshed) ?? undefined;
+    transition(entry, { type: 'admission_reauthorized', permission: refreshed.permission });
+    entry.startProvider?.();
+    emit(entry);
+  }).catch(error => {
+    if (entry.admissionRejoinAttempt === attempt && !controller.signal.aborted
+      && scope === entry.requests && !scope.signal.aborted && !entry.lifecycle.signal.aborted) {
+      const status = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'status')?.value : undefined;
+      if (status === 401 || status === 403) {
+        if (entry.session) entry.session = { ...entry.session, permission: 'read' };
+        entry.provider?.disconnect();
+        transition(entry, { type: 'authentication_failed', message: 'Collaboration access was revoked. Local changes are preserved.' });
+      }
+    }
+    throw error;
+  }).finally(() => {
+    clearTimeout(timeout);
+    scope.signal.removeEventListener('abort', onScopeAbort);
+    controller.signal.removeEventListener('abort', onAttemptAbort);
+    if (entry.admissionRejoinAttempt === attempt) {
+      entry.admissionRejoinAttempt = undefined;
+      if (!entry.lifecycle.signal.aborted) emit(entry);
+    }
+  });
+  attempt.promise = promise;
+  entry.admissionRejoinAttempt = attempt;
+  return promise;
 }
 
 function hasHistoricalLocationSession(entry: RegistryEntry, path: string, session: CollaborationSessionResponse): boolean {
@@ -859,6 +962,17 @@ function createEntry(
               permission: entry.session!.permission,
             });
           },
+          onClose: ({ event }) => {
+            // Hocuspocus's document CLOSE frame retains this exact reason but
+            // reconstructs code 1000; a whole-socket close can retain 1013.
+            if (!active() || event.reason !== 'Collaboration document transition' || ![1000, 1013].includes(event.code)) return;
+            if (entry.tokenRetryTimer) clearTimeout(entry.tokenRetryTimer);
+            entry.tokenRetryTimer = undefined;
+            entry.requiresFreshSession = true;
+            transition(entry, { type: 'admission_busy', message: 'Collaboration is busy. Local changes are preserved.' });
+            provider.configuration?.websocketProvider.cancelWebsocketRetry?.();
+            provider.disconnect();
+          },
           onSynced: () => {
             if (!active() || entry.clientState.admissionBusy) return;
             transition(entry, { type: 'remote_synced', permission: entry.session!.permission });
@@ -1149,6 +1263,7 @@ function snapshot(entry: RegistryEntry): CollaborationDocument {
     requestLocationRevalidation: () => revalidateEntryLocation(entry, requestScope),
     canRevalidateLocation: canRevalidateEntryLocation(entry),
     revalidatingLocation: Boolean(entry.locationRevalidationPromise),
+    requestAdmissionRejoin: () => rejoinEntryAfterAdmission(entry, requestScope),
   };
 }
 

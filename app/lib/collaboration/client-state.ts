@@ -57,6 +57,8 @@ export type TextCollaborationClientEvent =
   | { type: 'projection_failed'; sequence: number; code?: string }
   | { type: 'degraded'; message: string; code?: string; sequence?: number }
   | { type: 'admission_busy'; message: string }
+  /** Emitted only after a fresh scoped HTTP session validates this same open document. */
+  | { type: 'admission_reauthorized'; permission: CollaborationPermission }
   | { type: 'authentication_failed'; message: string };
 
 export function createInitialTextCollaborationClientState(input: {
@@ -119,7 +121,7 @@ export function reduceTextCollaborationClientState(
 ): TextCollaborationClientState {
   // A late transport/checkpoint callback cannot authorize another admission
   // origin or acknowledge a draft after this provider's join was exhausted.
-  if (state.admissionBusy && event.type !== 'admission_busy' && event.type !== 'indexeddb_hydrated'
+  if (state.admissionBusy && event.type !== 'admission_busy' && event.type !== 'admission_reauthorized' && event.type !== 'indexeddb_hydrated'
     && event.type !== 'local_document_restored' && event.type !== 'document_changed'
     && event.type !== 'unsynced_changes' && event.type !== 'authentication_failed' && event.type !== 'degraded') return state;
   switch (event.type) {
@@ -308,6 +310,19 @@ export function reduceTextCollaborationClientState(
         remoteSynced: false,
         locallyUsable: state.locallyUsable === true || state.ready,
         error: state.connection === 'denied' || state.durability === 'degraded' ? state.error : event.message,
+      });
+    case 'admission_reauthorized':
+      if (!state.admissionBusy || state.connection === 'denied' || state.durability === 'degraded' || state.failure) return state;
+      return withReadiness({
+        ...state,
+        admissionBusy: false,
+        remoteSynced: false,
+        connection: event.permission === 'read' ? 'read_only' : 'reconnecting',
+        durability: state.unsyncedChanges > 0 ? 'local_pending' : 'server_received',
+        checkpointStateVector: null,
+        checkpointStateProof: null,
+        persistedStateProof: null,
+        error: null,
       });
   }
 }

@@ -17,7 +17,7 @@ import { createInitialTextCollaborationClientState, reduceTextCollaborationClien
   textCollaborationLegacyStatus } from '../app/lib/collaboration/client-state';
 import { collaborationFailure, NATIVE_PEER_ADMISSION_BUSY_REASON } from '../app/lib/collaboration/failure';
 import { collaborationStateProof } from '../app/lib/collaboration/state-proof';
-import { findOpenedLiveDocument, observeOpenedDocumentAuth, openedDocumentAuthScope,
+import { findOpenedLiveDocument, invalidateOpenedDocumentAuth, observeOpenedDocumentAuth, openedDocumentAuthScope,
   validateOpenedLiveDocumentSession } from '../app/lib/collaboration/opened-document-registry';
 import { committedCollaborationTestDatabase } from './collaboration-client-test-storage';
 
@@ -26,6 +26,7 @@ type ProviderOptions = {
   onAuthenticationFailed: (value: { reason: string }) => void; onSynced: () => void;
   onStatus: (value: { status: string }) => void; onUnsyncedChanges: (value: { number: number }) => void;
   onStateless: (value: { payload: string }) => void;
+  onClose: (value: { event: Pick<CloseEvent, 'code' | 'reason'> }) => void;
 };
 
 async function main() {
@@ -55,8 +56,13 @@ async function main() {
   const denied = reduceTextCollaborationClientState(busy, { type: 'authentication_failed', message: 'revoked' });
   assert.equal(denied.connection, 'denied'); assert.equal(denied.failure?.kind, 'authentication');
   assert.equal(reduceTextCollaborationClientState(denied, { type: 'admission_busy', message: 'busy' }).error, 'revoked');
+  const reauthorized = reduceTextCollaborationClientState(busy, { type: 'admission_reauthorized', permission: 'read' });
+  assert.equal(reauthorized.admissionBusy, false); assert.equal(reauthorized.connection, 'read_only');
+  assert.equal(reauthorized.unsyncedChanges, 3); assert.equal(reauthorized.remoteSynced, false);
+  assert.equal(reauthorized.persistedStateProof, null); assert.equal(reauthorized.checkpointStateProof, null);
+  assert.equal(reduceTextCollaborationClientState(denied, { type: 'admission_reauthorized', permission: 'write' }), denied);
   assert.deepEqual(collaborationFailure(NATIVE_PEER_ADMISSION_BUSY_REASON), { kind: 'unknown', code: null },
-    'the existing failure classifier is unchanged; only AuthDenied can set admission busy');
+    'the existing failure classifier is unchanged; only exact provider signals pause admission');
 
   const dom = new JSDOM('<!doctype html><main id="root"></main>', { url: 'https://canvas.test' });
   const prior = new Map<string, PropertyDescriptor | undefined>();
@@ -68,8 +74,14 @@ async function main() {
   const originalTimeout = globalThis.setTimeout;
   const originalClearTimeout = globalThis.clearTimeout;
   const retryTasks = new Map<ReturnType<typeof setTimeout>, { run: () => void; cancelled: boolean }>();
+  const rejoinDeadlines = new Map<ReturnType<typeof setTimeout>, { run: () => void; cancelled: boolean }>();
   let captureRetry = false;
+  let captureRejoinDeadline = false;
   globalThis.setTimeout = ((callback: () => void, delay?: number, ...args: unknown[]) => {
+    if (captureRejoinDeadline && delay === 10_000) {
+      const handle = {} as ReturnType<typeof setTimeout>;
+      rejoinDeadlines.set(handle, { run: callback, cancelled: false }); return handle;
+    }
     if (captureRetry && delay === 1000) {
       const handle = {} as ReturnType<typeof setTimeout>;
       retryTasks.set(handle, { run: callback, cancelled: false }); return handle;
@@ -77,6 +89,8 @@ async function main() {
     return originalTimeout(callback, delay, ...args);
   }) as typeof setTimeout;
   globalThis.clearTimeout = ((handle: ReturnType<typeof setTimeout>) => {
+    const deadline = rejoinDeadlines.get(handle);
+    if (deadline) { deadline.cancelled = true; return; }
     const task = retryTasks.get(handle);
     if (task) task.cancelled = true; else originalClearTimeout(handle);
   }) as typeof clearTimeout;
@@ -93,6 +107,10 @@ async function main() {
     pendingCount = 0;
     tokens: string[] = [];
     acknowledgements: string[] = [];
+    closeEvents: Array<{ code: number; reason: string }> = [];
+    pendingUpdates: Uint8Array[] = [];
+    pendingAwarenessClients = new Set<number>();
+    flushTimeout: ReturnType<typeof setTimeout> | null = null;
     effectiveName: string;
     socket = { shouldConnect: true, webSocket: null, configuration: { delay: 1000 },
       cleanupWebSocket() {},
@@ -105,7 +123,8 @@ async function main() {
         this.options.onStatus({ status: 'disconnected' });
       },
     };
-    configuration = { websocketProvider: this.socket };
+    configuration = { websocketProvider: this.socket,
+      onClose: (value: { event: Pick<CloseEvent, 'code' | 'reason'> }) => this.options.onClose(value) };
     update = () => this.options.onUnsyncedChanges({ number: ++this.pendingCount });
     constructor(readonly options: ProviderOptions) {
       this.effectiveName = options.name; providers.push(this); options.document.on('update', this.update);
@@ -122,6 +141,8 @@ async function main() {
       HocuspocusProvider.prototype.permissionDeniedHandler.call(this as unknown as HocuspocusProvider, reason);
     }
     authenticatedHandler() {}
+    onClose() { HocuspocusProvider.prototype.onClose.call(this as unknown as HocuspocusProvider); }
+    forwardClose(value: { event: { code: number; reason: string } }) { this.closeEvents.push(value.event); }
     authDenied(reason: string) {
       const encoder = createEncoder(); writeVarString(encoder, this.effectiveName); writeVarUint(encoder, MessageType.Auth);
       writePermissionDenied(encoder, reason);
@@ -325,13 +346,194 @@ async function main() {
     await act(async () => { closedRetry.run(); await Promise.resolve(); });
     assert.equal(closedProvider.socketConnects, 0); assert.equal(closedProvider.tokens.length, 0);
     assert.equal(http, priorHttp, 'a closed lifecycle cannot reconnect or refresh its token');
+
+    for (const event of [{ code: 1013, reason: 'Synthetic ordinary retry' },
+      { code: 1000, reason: 'Collaboration document transition ' }]) {
+      const ordinaryProvider = await open('ordinary-close');
+      await act(async () => ordinaryProvider.options.onClose({ event }));
+      assert.notEqual(get().clientState.admissionBusy, true, 'a transport code or approximate reason cannot claim a transition');
+    }
+
+    // The actual installed receiver converts a document CLOSE frame to code
+    // 1000. This is the server's live-room handoff path, not another AuthDenied.
+    const transitionProvider = await open('transition-rejoin');
+    const transitionDoc = get().doc;
+    await act(async () => transitionDoc.getText('content').insert(0, 'Retained local '));
+    const transitionBytes = Y.encodeStateAsUpdate(transitionDoc), transitionPending = get().clientState.unsyncedChanges;
+    const transitionRetry = await queueSocketRetry(transitionProvider);
+    await act(async () => {
+      const encoder = createEncoder(); writeVarString(encoder, transitionProvider.effectiveName); writeVarUint(encoder, MessageType.CLOSE);
+      writeVarString(encoder, 'Collaboration document transition');
+      HocuspocusProvider.prototype.onMessage.call(transitionProvider as unknown as HocuspocusProvider,
+        { data: toUint8Array(encoder) } as MessageEvent);
+      transitionRetry.run();
+    });
+    assert.deepEqual(transitionProvider.closeEvents, [{ code: 1000, reason: 'Collaboration document transition' }]);
+    assert.equal(get().clientState.admissionBusy, true); assert.equal(transitionProvider.socketConnects, 0);
+    assert.equal(get().doc, transitionDoc); assert.deepEqual(Y.encodeStateAsUpdate(transitionDoc), transitionBytes);
+    assert.equal(transitionProvider.destroyed, false);
+
+    let rejoinHttp = 0, resolveRejoin!: (response: Response) => void;
+    globalThis.fetch = async (_input, init) => {
+      rejoinHttp++; assert.equal(init?.method, 'POST');
+      assert.equal(JSON.parse(String(init?.body)).path, openedPath);
+      return new Promise<Response>(resolve => { resolveRejoin = resolve; });
+    };
+    const pausedView = get(), providerCount = providers.length, retryCount = retryTasks.size;
+    const firstRejoin = pausedView.requestAdmissionRejoin!(), duplicateRejoin = pausedView.requestAdmissionRejoin!();
+    assert.equal(firstRejoin, duplicateRejoin);
+    const busyRejoin = assert.rejects(firstRejoin, error => (error as { code: string; status: number }).code === 'NATIVE_SESSION_BUSY'
+      && (error as { status: number }).status === 409);
+    await until(() => rejoinHttp === 1);
+    await act(async () => { resolveRejoin(Response.json({ success: false, code: 'NATIVE_SESSION_BUSY', error: 'Synthetic reservation still active' }, { status: 409 })); await busyRejoin; });
+    assert.equal(get().clientState.admissionBusy, true); assert.equal(providers.length, providerCount);
+    assert.equal(rejoinHttp, 1); assert.equal(retryTasks.size, retryCount, 'busy rejoin schedules no token/network retry');
+    assert.equal(get().provider, transitionProvider as unknown as HocuspocusProvider);
+
+    globalThis.fetch = async () => { rejoinHttp++; return Response.json({ ...session, token: 'synthetic-rejoin-fresh' }); };
+    await act(async () => { await get().requestAdmissionRejoin!(); });
+    const rejoinedProvider = providers.at(-1)!;
+    assert.equal(rejoinHttp, 2); assert.equal(providers.length, providerCount + 1); assert(transitionProvider.destroyed);
+    assert.equal(get().doc, transitionDoc); assert.deepEqual(Y.encodeStateAsUpdate(transitionDoc), transitionBytes);
+    assert.equal(transitionDoc.isDestroyed, false); assert.equal(get().clientState.unsyncedChanges, transitionPending);
+    assert.equal(get().clientState.admissionBusy, false); assert.equal(get().clientState.remoteSynced, false);
+    assert.equal(get().clientState.persistedStateProof, null); assert.equal(get().clientState.checkpointStateProof, null);
+    await act(async () => {
+      transitionProvider.options.onStatus({ status: 'connected' }); transitionProvider.options.onSynced();
+      transitionProvider.options.onUnsyncedChanges({ number: 0 }); transitionProvider.authDenied('synthetic-late-revoke');
+      await rejoinedProvider.sendToken();
+    });
+    assert.equal(get().clientState.connection, 'reconnecting'); assert.equal(get().clientState.unsyncedChanges, transitionPending);
+    assert.deepEqual(rejoinedProvider.tokens, ['synthetic-rejoin-fresh']); assert.equal(rejoinHttp, 2);
+    await assert.rejects(pausedView.requestAdmissionRejoin!(), /location changed/u);
+
+    const downgradeProvider = await open('rejoin-downgrade');
+    await act(async () => downgradeProvider.options.onClose({ event: { code: 1013, reason: 'Collaboration document transition' } }));
+    globalThis.fetch = async () => Response.json({ ...session, permission: 'read', token: 'synthetic-read-ticket' });
+    await act(async () => { await get().requestAdmissionRejoin!(); });
+    assert.equal(get().session?.permission, 'read'); assert.equal(get().connection, 'read_only'); assert.equal(get().clientState.admissionBusy, false);
+
+    for (const invalid of [
+      { documentId: 'synthetic-replacement', documentName: 'synthetic-replacement' },
+      { lifecycleGeneration: 2 }, { representation: 'tiptap_xml', richTextSchemaVersion: 3 },
+      { user: { id: 'synthetic-other', name: 'Other', color: '#123456', colorLight: '#abcdef' } },
+      { expiresAt: new Date(0).toISOString() },
+    ]) {
+      const retainedProvider = await open('rejoin-invalid'); await busyFrame(retainedProvider);
+      const retainedDoc = get().doc, bytes = Y.encodeStateAsUpdate(retainedDoc), count = providers.length;
+      globalThis.fetch = async () => Response.json({ ...session, ...invalid });
+      await act(async () => { await assert.rejects(get().requestAdmissionRejoin!()); });
+      assert.equal(get().clientState.admissionBusy, true); assert.equal(providers.length, count);
+      assert.equal(get().doc, retainedDoc); assert.deepEqual(Y.encodeStateAsUpdate(retainedDoc), bytes);
+      assert.equal(retainedProvider.destroyed, false);
+    }
+    for (const status of [401, 403]) {
+      const deniedProvider = await open(`rejoin-denied-${status}`); await busyFrame(deniedProvider);
+      globalThis.fetch = async () => Response.json({ success: false, error: 'Synthetic access revoked' }, { status });
+      await act(async () => { await assert.rejects(get().requestAdmissionRejoin!()); });
+      assert.equal(get().connection, 'denied'); assert.equal(get().session?.permission, 'read');
+      assert.equal(get().clientState.admissionBusy, true); assert.equal(deniedProvider.destroyed, false);
+    }
+    const epochProvider = await open('rejoin-auth-epoch'); await busyFrame(epochProvider);
+    resolveRejoin = undefined as unknown as (response: Response) => void;
+    globalThis.fetch = () => new Promise<Response>(resolve => { resolveRejoin = resolve; });
+    const epochView = get(), epochSession = session;
+    const epochRejoin = assert.rejects(epochView.requestAdmissionRejoin!());
+    await until(() => Boolean(resolveRejoin));
+    await act(async () => {
+      observeOpenedDocumentAuth({ data: { user: { id: 'synthetic-owner' }, session: { id: 'synthetic-new-login' } } });
+      resolveRejoin(Response.json(epochSession)); await epochRejoin;
+    });
+    assert.equal(get().connection, 'denied'); assert.equal(get().clientState.admissionBusy, true); assert.equal(epochProvider.destroyed, false);
+    observeOpenedDocumentAuth({ data: { user: { id: 'synthetic-owner' }, session: { id: 'synthetic-login' } } });
+
+    const invalidatedProvider = await open('rejoin-same-session-epoch'); await busyFrame(invalidatedProvider);
+    resolveRejoin = undefined as unknown as (response: Response) => void;
+    globalThis.fetch = () => new Promise<Response>(resolve => { resolveRejoin = resolve; });
+    const invalidatedSession = session, invalidatedCount = providers.length;
+    const invalidatedRejoin = assert.rejects(get().requestAdmissionRejoin!());
+    await until(() => Boolean(resolveRejoin));
+    await act(async () => { invalidateOpenedDocumentAuth(); resolveRejoin(Response.json(invalidatedSession)); await invalidatedRejoin; });
+    assert.equal(get().clientState.admissionBusy, true); assert.equal(providers.length, invalidatedCount);
+    assert.equal(invalidatedProvider.destroyed, false, 'unchanged user/session IDs cannot bypass an invalidated authorization epoch');
+
+    const staleProvider = await open('rejoin-retired'); await busyFrame(staleProvider);
+    resolveRejoin = undefined as unknown as (response: Response) => void;
+    globalThis.fetch = () => new Promise<Response>(resolve => { resolveRejoin = resolve; });
+    const staleSession = session, staleView = get(), countBeforeRetire = providers.length;
+    const staleRejoin = assert.rejects(staleView.requestAdmissionRejoin!());
+    await until(() => Boolean(resolveRejoin));
+    await act(async () => root.render(null));
+    await act(async () => { resolveRejoin(Response.json(staleSession)); await staleRejoin; });
+    assert.equal(providers.length, countBeforeRetire); assert.equal(staleView.clientState.admissionBusy, true);
+
+    // An aborted fetch is not assumed to settle. The attempt's own deadline
+    // must release its Promise as well, without destroying the open document.
+    const timeoutProvider = await open('rejoin-post-timeout'); await busyFrame(timeoutProvider);
+    const timeoutDoc = get().doc, timeoutBytes = Y.encodeStateAsUpdate(timeoutDoc), timeoutCount = providers.length;
+    const timeoutSignals: AbortSignal[] = [];
+    let timeoutHttp = 0;
+    globalThis.fetch = async (_input, init) => {
+      timeoutHttp++; assert(init?.signal); timeoutSignals.push(init.signal);
+      return new Promise<Response>(() => {});
+    };
+    captureRejoinDeadline = true;
+    const timedRejoin = assert.rejects(get().requestAdmissionRejoin!(), /rejoin timed out/u);
+    captureRejoinDeadline = false;
+    await until(() => timeoutHttp === 1);
+    assert.equal(rejoinDeadlines.size, 1);
+    const deadline = [...rejoinDeadlines.values()][0];
+    await act(async () => { deadline.run(); await timedRejoin; });
+    assert.equal(timeoutSignals[0].aborted, true); assert.equal(deadline.cancelled, true);
+    assert.equal(timeoutHttp, 1); assert.equal(providers.length, timeoutCount);
+    assert.equal(get().clientState.admissionBusy, true); assert.equal(get().doc, timeoutDoc);
+    assert.deepEqual(Y.encodeStateAsUpdate(timeoutDoc), timeoutBytes); assert.equal(timeoutProvider.destroyed, false);
+    globalThis.fetch = async () => { timeoutHttp++; return Response.json({ ...session, token: 'synthetic-after-timeout' }); };
+    await act(async () => { await get().requestAdmissionRejoin!(); });
+    assert.equal(timeoutHttp, 2); assert.equal(providers.length, timeoutCount + 1);
+    assert.equal(get().doc, timeoutDoc); assert.equal(get().clientState.admissionBusy, false);
+
+    // A genuine location change retires the old path attempt. A late old reply
+    // and its finally must neither adopt that path nor clear the new attempt.
+    const pathProvider = await open('rejoin-path-superseded'); await busyFrame(pathProvider);
+    const pathDoc = get().doc, pathBytes = Y.encodeStateAsUpdate(pathDoc), pathCount = providers.length;
+    const pathRequests: Array<{ path: string; signal: AbortSignal; resolve: (response: Response) => void }> = [];
+    globalThis.fetch = (_input, init) => new Promise<Response>(resolve => {
+      assert(init?.signal);
+      pathRequests.push({ path: JSON.parse(String(init.body)).path as string, signal: init.signal, resolve });
+    });
+    const oldPathSession = session;
+    const oldPathAttempt = assert.rejects(get().requestAdmissionRejoin!(), /superseded/u);
+    await until(() => pathRequests.length === 1);
+    openedPath = 'synthetic-current-path.txt'; session = { ...session, token: 'synthetic-location-metadata' };
+    assert(validateOpenedLiveDocumentSession('synthetic-workspace', openedPath, session));
+    await act(async () => root.render(<Probe />));
+    const currentPathAttempt = get().requestAdmissionRejoin!();
+    await until(() => pathRequests.length === 2);
+    await act(async () => { await oldPathAttempt; });
+    assert.equal(pathRequests[0].signal.aborted, true); assert.equal(pathRequests[1].signal.aborted, false);
+    assert.deepEqual(pathRequests.map(request => request.path), ['synthetic.txt', openedPath]);
+    assert.equal(get().requestAdmissionRejoin!(), currentPathAttempt, 'old finally cannot clear the current attempt');
+    await act(async () => { pathRequests[0].resolve(Response.json({ ...oldPathSession, token: 'synthetic-old-path-late' })); });
+    assert.equal(providers.length, pathCount); assert.equal(get().clientState.admissionBusy, true);
+    assert.equal(get().requestAdmissionRejoin!(), currentPathAttempt); assert.equal(pathRequests.length, 2);
+    await act(async () => {
+      pathRequests[1].resolve(Response.json({ ...session, token: 'synthetic-current-path-fresh' }));
+      await currentPathAttempt;
+    });
+    assert.equal(providers.length, pathCount + 1); assert.equal(get().session?.token, 'synthetic-current-path-fresh');
+    assert.equal(get().doc, pathDoc); assert.deepEqual(Y.encodeStateAsUpdate(pathDoc), pathBytes);
+    assert.equal(get().clientState.admissionBusy, false); assert.equal(pathProvider.destroyed, true);
     console.log(JSON.stringify({ scope: 'source-only', busyAuthDeniedCases: busyCases, unknownAuthDeniedCases: unknownDenied,
       draftPreserved: true, authScopePreserved: true, retryTimerCancelled: true, queuedRetryStopped: true,
       queuedSocketReconnects: 0, lateTokenStopped: true, lateNetworkRetryStopped: true,
       lateCheckpointStopped: true, locationProviderRestarts: 0, revokeStillDenied: true,
-      nonBusySocketConnects: 1, retiredSocketReconnects: 0, closedSocketReconnects: 0 }));
+      nonBusySocketConnects: 1, retiredSocketReconnects: 0, closedSocketReconnects: 0,
+      actualDocumentCloseCode: 1000, admissionRejoinRequests: 2, sameDocRetained: true,
+      busyRejoinNoRetry: true, freshPermissionDowngrade: true, staleEpochAndViewRejected: true,
+      rejoinPostDeadline: true, supersededPathAttemptRetired: true }));
   } finally {
-    captureRetry = false; await act(async () => root.unmount());
+    captureRetry = false; captureRejoinDeadline = false; await act(async () => root.unmount());
     await new Promise(resolve => originalTimeout(resolve, 1100));
     globalThis.fetch = originalFetch; globalThis.setTimeout = originalTimeout; globalThis.clearTimeout = originalClearTimeout;
     observeOpenedDocumentAuth(null); seed.destroy(); dom.window.close();
