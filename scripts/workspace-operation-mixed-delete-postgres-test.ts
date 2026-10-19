@@ -15,8 +15,8 @@ process.once('beforeExit', () => { if (!complete) process.exitCode = 1; });
 const mixedDeleteCode = (error: unknown): string | null => error instanceof Error
   && typeof Object.getOwnPropertyDescriptor(error, 'code')?.value === 'string'
   ? Object.getOwnPropertyDescriptor(error, 'code')!.value : null;
-// Actual public-service boundaries confirmed from the fixed production paths.
-const selectedRawCode = 'PATH_NATIVE_REQUIRED', requiredRawRewriteCode = 'NATIVE_DELETE_PLAN_UNSUPPORTED';
+// Actual service errors; the wire formatter maps both to PATH_NATIVE_REQUIRED.
+const selectedRawCode = 'NATIVE_SOURCE_IMPORT_REQUIRED', requiredRawRewriteCode = 'NATIVE_DELETE_PLAN_UNSUPPORTED';
 
 export async function workspaceOperationMixedDeletePostgresTest(): Promise<void> {
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';

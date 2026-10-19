@@ -46,6 +46,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
     const { DirectMcpAuthorizationError } = await import('../app/lib/mcp/server/access-token-verifier');
     const { directMcpToolAuthorizationError } = await import('../app/lib/mcp/server/tool-auth');
     const { WorkspaceFileLifecycleBusyError } = await import('../app/lib/files/workspace-file-lifecycle-guard');
+    const { WorkspaceOperationNativeSourceEvidenceError } = await import('../app/lib/files/workspace-operation-native-source-evidence');
     const error = (code: string, status: number, selected?: string) => (value: unknown): boolean => {
       assert(value instanceof WorkspacePathToolError); assert.equal(value.code, code); assert.equal(value.status, status);
       if (selected !== undefined) assert.equal(value.operationId, selected); return true;
@@ -160,6 +161,22 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       Object.defineProperty(auth, 'challenge', { value: 'x'.repeat(resultCap), enumerable: true });
       assert.throws(() => formatError(auth, operationId), error('PATH_OUTPUT_TOO_LARGE', 413, operationId));
     });
+    check('required original Markdown import remains a bounded native conflict', () => {
+      const required = new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_IMPORT_REQUIRED');
+      assert.equal(normalize(required.code), 'PATH_NATIVE_REQUIRED');
+      const expected = { apiVersion: 1, success: false, code: 'PATH_NATIVE_REQUIRED', operationId };
+      for (const actual of [required, new Error('private wrapper', { cause: required })]) {
+        assert.deepEqual(failure(actual, operationId), { status: 409, body: expected });
+        const wire = formatError(actual, operationId); assert.equal(wire.isError, true);
+        assert.deepEqual(wire.structuredContent, expected); assert(!JSON.stringify(wire).includes('private'));
+      }
+      for (const code of [required.code.toLowerCase(), `${required.code}_UNKNOWN`, `${required.code} private`]) {
+        assert.equal(normalize(code), 'PATH_UNAVAILABLE');
+      }
+      const stored = result(); stored.operation.journal.errorCode = required.code;
+      const encoded = encode(stored, operationId); assert(encoded.action !== 'preview');
+      assert.equal(encoded.operation.journal.errorCode, 'PATH_NATIVE_REQUIRED');
+    });
     check('real lifecycle Busy remains an explicit conflict in failures and stored recovery status', () => {
       const busy = new WorkspaceFileLifecycleBusyError();
       assert.equal(busy.status, 409); assert.equal(normalize(busy.code), 'PATH_BUSY');
@@ -209,7 +226,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       assert(bytes(format(fits)) <= resultCap); assert.throws(() => format(over), error('PATH_OUTPUT_TOO_LARGE', 413));
       const emitted = format(result('recover'), operationId); assert.deepEqual(JSON.parse((emitted.content[0] as { text: string }).text), emitted.structuredContent);
     });
-    assert.equal(groups, 9); completed = true;
+    assert.equal(groups, 10); completed = true;
     console.log(JSON.stringify({ test: 'mcp-server-workspace-path-contract', groups, scope: 'pure strict wire/schema/formatter only; no runtime authority or owner claim' }));
   } finally {
     if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase;

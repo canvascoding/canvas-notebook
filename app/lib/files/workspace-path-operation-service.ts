@@ -5,6 +5,8 @@ import { promises as fs } from 'node:fs';
 import { resolveExistingWorkspacePath } from '@/app/lib/filesystem/workspace-files';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
+import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
+import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
 import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
@@ -67,7 +69,15 @@ dependencies: PlanDependencies = {}) {
   }
   actions.push({ reviewId: `${actionId}-request`, kind: input.kind, selections: input.selections,
     ...(input.ignoreMissing ? { ignoreMissing: true } : {}) });
-  return (dependencies.buildPlan ?? buildWorkspaceOperationBatchPlan)({ scope: input.scope, actions });
+  const plan = await (dependencies.buildPlan ?? buildWorkspaceOperationBatchPlan)({ scope: input.scope, actions });
+  // New active requests must import selected raw Markdown before a fresh native
+  // plan. Historical V1 executor rebuilds retain their existing separate entry.
+  if (!dependencies.buildPlan && authenticatedNativeTextSessionEnabled() && plan.version === 1
+    && (plan.pathMappings.some(mapping => mapping.sourceKind === 'file' && /\.(?:md|markdown)$/iu.test(mapping.sourcePath))
+      || plan.deletedPaths.some(entry => entry.kind === 'file' && /\.(?:md|markdown)$/iu.test(entry.path)))) {
+    throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_IMPORT_REQUIRED');
+  }
+  return plan;
 }
 
 /** The request is authorized once; the durable worker rechecks authority before every mutation. */
