@@ -15,6 +15,9 @@ export const DIRECT_MCP_TOOL_IDS = [
   'edit_knowledge_source',
   // Copy uses the fixed central Owner and requires explicit administrator opt-in.
   'copy_knowledge_source',
+  // Reserved for the fixed native Move/Delete owners. No public handlers yet.
+  'move_knowledge_source',
+  'delete_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
   'create_knowledge_source',
@@ -25,11 +28,12 @@ export const DIRECT_MCP_TOOL_IDS = [
 ] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 
-// New creation, Copy and scene capabilities require an explicit selection on
+// New creation, file action and scene capabilities require an explicit selection on
 // first activation, upgrades and reactivation. Keep this list shared with UI.
 export const DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS = [
   'create_knowledge_source', 'import_knowledge_file',
   'copy_knowledge_source',
+  'move_knowledge_source', 'delete_knowledge_source',
   'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene',
 ] as const satisfies readonly DirectMcpToolId[];
 

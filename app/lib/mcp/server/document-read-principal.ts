@@ -56,14 +56,32 @@ export type DirectMcpWorkspaceCopyPrincipalAccess = Readonly<{
   userId: string; clientId: string; sessionId: string; tool: 'copy_knowledge_source';
   assertCurrent: () => Promise<void>;
 }>;
+declare const movePrincipalBrand: unique symbol;
+declare const deletePrincipalBrand: unique symbol;
+/** Distinct live captures: neither a stored job nor another tool is a grant. */
+export type DirectMcpWorkspaceMovePrincipal = Readonly<{ [movePrincipalBrand]: never }>;
+export type DirectMcpWorkspaceDeletePrincipal = Readonly<{ [deletePrincipalBrand]: never }>;
+export type DirectMcpWorkspaceMoveCurrentOrigin = DirectMcpDocumentReadHistoricalOrigin
+  & Readonly<{ tool: 'move_knowledge_source' }>;
+export type DirectMcpWorkspaceDeleteCurrentOrigin = DirectMcpDocumentReadHistoricalOrigin
+  & Readonly<{ tool: 'delete_knowledge_source' }>;
+export type DirectMcpWorkspaceMovePrincipalAccess = DirectMcpDocumentReadPrincipalAccess
+  & Readonly<{ tool: 'move_knowledge_source' }>;
+export type DirectMcpWorkspaceDeletePrincipalAccess = DirectMcpDocumentReadPrincipalAccess
+  & Readonly<{ tool: 'delete_knowledge_source' }>;
 type FixedPolicy = Readonly<{ kind: 'read'; purpose: DirectMcpDocumentReadPurpose }>
   | Readonly<{ kind: 'create'; tool: DirectMcpDocumentCreateTool }>
   | Readonly<{ kind: 'edit'; tool: 'edit_knowledge_source' }>
-  | Readonly<{ kind: 'copy'; tool: 'copy_knowledge_source' }>;
+  | Readonly<{ kind: 'copy'; tool: 'copy_knowledge_source' }>
+  | Readonly<{ kind: 'move'; tool: 'move_knowledge_source' }>
+  | Readonly<{ kind: 'delete'; tool: 'delete_knowledge_source' }>;
 type SharedPrincipal = DirectMcpDocumentReadPrincipal | DirectMcpDocumentCreatePrincipal
-  | DirectMcpDocumentEditPrincipal | DirectMcpWorkspaceCopyPrincipal;
+  | DirectMcpDocumentEditPrincipal | DirectMcpWorkspaceCopyPrincipal
+  | DirectMcpWorkspaceMovePrincipal | DirectMcpWorkspaceDeletePrincipal;
 type AccessFor<Kind extends FixedPolicy['kind']> = Kind extends 'copy'
-  ? DirectMcpWorkspaceCopyPrincipalAccess : Kind extends 'create'
+  ? DirectMcpWorkspaceCopyPrincipalAccess : Kind extends 'move'
+    ? DirectMcpWorkspaceMovePrincipalAccess : Kind extends 'delete'
+      ? DirectMcpWorkspaceDeletePrincipalAccess : Kind extends 'create'
     ? DirectMcpDocumentCreatePrincipalAccess : Kind extends 'edit'
       ? DirectMcpDocumentEditPrincipalAccess : DirectMcpDocumentReadPrincipalAccess;
 type ErrorCode = 'MCP_READ_PRINCIPAL_REQUIRED' | 'MCP_READ_PRINCIPAL_INVALID' | 'MCP_READ_PRINCIPAL_BUSY'
@@ -265,7 +283,9 @@ async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<Workspace
   const requiresWrite = slots.kind === 'single' ? capture.policy.kind !== 'read' : slot === slots.destination;
   alive(phase); if (!workspace || workspace.permissions.canRead !== true
     || requiresWrite && (workspace.permissions.canWrite !== true
-      || workspace.permissions.canRunAgent !== true)) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
+      || workspace.permissions.canRunAgent !== true)
+    || (capture.policy.kind === 'move' || capture.policy.kind === 'delete')
+      && workspace.permissions.canDelete !== true) fail('MCP_READ_PRINCIPAL_ACCESS_DENIED');
   const origin = historical(workspace, capture, slot), original = capture.originals.get(slot);
   if (original && !isDeepStrictEqual(origin, original)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   if (!original) capture.originals.set(slot, origin);
@@ -369,6 +389,55 @@ export async function withDirectMcpWorkspaceCopyPrincipal<T>(authInfo: AuthInfo,
     principal => operation(principal as DirectMcpWorkspaceCopyPrincipal));
 }
 
+/** Fixed Move policy on one selected workspace. The observer receives current
+ * facts only; original attribution never enters this live authority factory. */
+export async function withDirectMcpWorkspaceMovePrincipal<T>(authInfo: AuthInfo,
+  options: { workspaceId: string }, observeCurrent: (origin: DirectMcpWorkspaceMoveCurrentOrigin) => void,
+  operation: (principal: DirectMcpWorkspaceMovePrincipal) => Promise<T>): Promise<T> {
+  const workspaceId = own(options, 'workspaceId');
+  if (typeof observeCurrent !== 'function' || typeof operation !== 'function') fail('MCP_READ_PRINCIPAL_INVALID');
+  return withFixedPrincipalCapture(authInfo, singleSlots(workspaceId,
+    origin => observeCurrent(Object.freeze({ ...origin, tool: 'move_knowledge_source' }))),
+    Object.freeze({ kind: 'move', tool: 'move_knowledge_source' }),
+    principal => operation(principal as DirectMcpWorkspaceMovePrincipal));
+}
+
+/** Delete has its own brand and exact tool opt-in, independently of Move. */
+export async function withDirectMcpWorkspaceDeletePrincipal<T>(authInfo: AuthInfo,
+  options: { workspaceId: string }, observeCurrent: (origin: DirectMcpWorkspaceDeleteCurrentOrigin) => void,
+  operation: (principal: DirectMcpWorkspaceDeletePrincipal) => Promise<T>): Promise<T> {
+  const workspaceId = own(options, 'workspaceId');
+  if (typeof observeCurrent !== 'function' || typeof operation !== 'function') fail('MCP_READ_PRINCIPAL_INVALID');
+  return withFixedPrincipalCapture(authInfo, singleSlots(workspaceId,
+    origin => observeCurrent(Object.freeze({ ...origin, tool: 'delete_knowledge_source' }))),
+    Object.freeze({ kind: 'delete', tool: 'delete_knowledge_source' }),
+    principal => operation(principal as DirectMcpWorkspaceDeletePrincipal));
+}
+
+/** These preflights borrow no SQL connection and do not authorize a mutation.
+ * Each real owner B still requires its complete current same-B policy phase. */
+export function assertDirectMcpWorkspaceMovePrincipalCaptured(principal: DirectMcpWorkspaceMovePrincipal,
+  options: Readonly<{ workspaceId: string }>): void {
+  assertWorkspacePathPrincipalCaptured(principal, 'move', options);
+}
+export function assertDirectMcpWorkspaceDeletePrincipalCaptured(principal: DirectMcpWorkspaceDeletePrincipal,
+  options: Readonly<{ workspaceId: string }>): void {
+  assertWorkspacePathPrincipalCaptured(principal, 'delete', options);
+}
+function assertWorkspacePathPrincipalCaptured(principal: DirectMcpWorkspaceMovePrincipal | DirectMcpWorkspaceDeletePrincipal,
+  kind: 'move' | 'delete', options: Readonly<{ workspaceId: string }>): void {
+  const capture = captures.get(principal);
+  if (!capture?.active || !capture.accepting) fail('MCP_READ_PRINCIPAL_REQUIRED');
+  if (capture.failure !== undefined) throw capture.failure;
+  try {
+    if (capture.policy.kind !== kind || capture.slots.kind !== 'single') fail('MCP_READ_PRINCIPAL_REQUIRED');
+    if (capture.busy) fail('MCP_READ_PRINCIPAL_REENTRANT');
+    const workspaceId = own(options, 'workspaceId');
+    if (!validId(workspaceId) || workspaceId !== capture.slots.workspace.workspaceId) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+    assertCaptureUnexpired(capture);
+  } catch (error) { capture.failure ??= primary(error); throw capture.failure; }
+}
+
 /** Registry/lifetime preflight before a Copy owner borrows B. This confirms
  * only the actual current capture and its fixed selections, never SQL rights.
  * Call outside its authority phase; every B still needs the full current
@@ -453,6 +522,18 @@ export function withDirectMcpWorkspaceCopyPrincipalOnConnection<T>(connection: S
   principal: DirectMcpWorkspaceCopyPrincipal,
   operation: (access: DirectMcpWorkspaceCopyPrincipalAccess) => Promise<T>): Promise<T> {
   return withFixedPrincipalOnConnection(connection, principal, 'copy', operation);
+}
+
+/** Caller retains the actual B, lifecycle claim, rollback and COMMIT duties. */
+export function withDirectMcpWorkspaceMovePrincipalOnConnection<T>(connection: SqlConnection,
+  principal: DirectMcpWorkspaceMovePrincipal,
+  operation: (access: DirectMcpWorkspaceMovePrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'move', operation);
+}
+export function withDirectMcpWorkspaceDeletePrincipalOnConnection<T>(connection: SqlConnection,
+  principal: DirectMcpWorkspaceDeletePrincipal,
+  operation: (access: DirectMcpWorkspaceDeletePrincipalAccess) => Promise<T>): Promise<T> {
+  return withFixedPrincipalOnConnection(connection, principal, 'delete', operation);
 }
 
 function assertEditPhaseActive(phase: Phase): void {

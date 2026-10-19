@@ -87,6 +87,13 @@ async function main() {
     assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS, 'auth_probe,copy_knowledge_source',
       'The reserved exact Copy capability must survive restart without discarding all MCP preferences.');
 
+    await writePreferences(dataDir, { enabled: true, toolsVersion: 7,
+      tools: ['auth_probe', 'move_knowledge_source', 'delete_knowledge_source'] });
+    loadAppEnv(process.cwd());
+    assert.equal(process.env.CANVAS_MCP_DIRECT_ENABLED, 'true');
+    assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS, 'auth_probe,move_knowledge_source,delete_knowledge_source',
+      'Reserved Move/Delete names must survive restart without discarding saved MCP preferences.');
+
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'true';
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     delete process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE;

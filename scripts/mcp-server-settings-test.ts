@@ -273,6 +273,23 @@ async function main(): Promise<void> {
       tools: ['auth_probe', 'copy_knowledge_source'] });
     assert.deepEqual(selectedCopy.tools, ['auth_probe', 'copy_knowledge_source']);
     assert.deepEqual((await getDirectMcpServerPreferences())?.tools, selectedCopy.tools);
+    for (const tool of ['move_knowledge_source', 'delete_knowledge_source'] as const) {
+      assert(DIRECT_MCP_EXPLICIT_OPT_IN_TOOL_IDS.includes(tool));
+      assert.equal(getDirectMcpEnabledTools({}).includes(tool), false);
+      assert.equal(preferences.tools.includes(tool), false);
+      assert.equal(reactivated.tools.includes(tool), false);
+      assert.deepEqual(getDirectMcpEnabledTools({ CANVAS_MCP_DIRECT_TOOLS: tool }), [tool]);
+      const status = buildDirectMcpServerSettingsStatus(null, {
+        BASE_URL: 'https://canvas.example.test', BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+        CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: tool,
+      });
+      assert.equal(status.configurationError, null);
+      assert.equal(status.capabilities.some(capability => capability.id === tool), false,
+        'Internal principal reservations must not advertise unfinished public Move/Delete tools.');
+      const saved = await setDirectMcpServerPreferences('admin-1', { enabled: true, tools: ['auth_probe', tool] });
+      assert.deepEqual(saved.tools, ['auth_probe', tool]);
+      assert.deepEqual((await getDirectMcpServerPreferences())?.tools, saved.tools);
+    }
     console.log('mcp-server-settings-test: ok (scene capabilities require explicit activation, upgrade and reactivation selection)');
   } finally {
     for (const key of runtimeEnvironmentKeys) {
