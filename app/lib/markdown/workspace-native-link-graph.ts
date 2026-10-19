@@ -3,8 +3,9 @@ import { resolveExactWorkspaceLink } from './workspace-local-link-parser';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLink, NativeResolvedLink, NativeWorkspaceLinkGraph, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
 import type { MixedReadResolvedLinkV3, PhysicalReadLinkInventory, WorkspaceMixedReadLinkGraphV3, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
+import type { WorkspaceMixedImportFinalLinkGraphV4, WorkspaceMixedImportFinalLinkSnapshotV4 } from './workspace-link-final-contract-v4';
 
-function createWorkspaceLinkResolutionContext(snapshot: NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3,
+function createWorkspaceLinkResolutionContext(snapshot: NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | WorkspaceMixedImportFinalLinkSnapshotV4,
   physicalSources: PhysicalReadLinkInventory[] = []) {
   const entries = new Map(snapshot.namespace.filter((entry) => entry.kind === 'file').map((entry) => [entry.path, entry]));
   const paths = new Set(entries.keys());
@@ -48,7 +49,7 @@ export function buildWorkspaceNativeLinkGraph(snapshot: NativeWorkspaceLinkSnaps
 export function buildWorkspaceMixedReadLinkGraphV3(snapshot: WorkspaceMixedReadLinkSnapshotV3): WorkspaceMixedReadLinkGraphV3 {
   const stale = [...snapshot.documents.filter(inventory => inventory.parserVersion !== 2)
     .map(inventory => ({ code: 'unsupported-source', path: inventory.document.path })),
-  ...snapshot.physicalSources.filter(inventory => inventory.parserVersion !== 2)
+  ...snapshot.physicalSources.filter(inventory => inventory.parserVersion !== undefined && inventory.parserVersion !== 2 && inventory.parserVersion !== 3)
     .map(inventory => ({ code: 'unsupported-source', path: inventory.path }))];
   const coverage = { complete: snapshot.coverage.complete && !stale.length, gaps: [...snapshot.coverage.gaps, ...stale] };
   const context = createWorkspaceLinkResolutionContext(snapshot, snapshot.physicalSources), edges: MixedReadResolvedLinkV3[] = [];
@@ -69,4 +70,32 @@ export function buildWorkspaceMixedReadLinkGraphV3(snapshot: WorkspaceMixedReadL
   return { contractVersion: 3, workspaceId: snapshot.workspaceId,
     snapshotProof: nativeLinkJsonProof({ base: snapshot.snapshotProof, edges, coverage }), namespace: snapshot.namespace,
     documents: snapshot.documents, physicalSources: snapshot.physicalSources, edges, coverage };
+}
+
+/** Data-only resolver, not birth certification or current authority. Its fixed
+ * caller must first validate the complete RawBirth cohort and actual states.
+ * Parser 3 is never relabelled as parser 2; historical builders stay unchanged. */
+export function buildWorkspaceMixedImportFinalLinkGraphV4(snapshot: WorkspaceMixedImportFinalLinkSnapshotV4): WorkspaceMixedImportFinalLinkGraphV4 {
+  const stale = [...snapshot.documents.filter(inventory => inventory.parserVersion !== 2 && inventory.parserVersion !== 3)
+    .map(inventory => ({ code: 'unsupported-source', path: inventory.document.path })),
+  ...snapshot.physicalSources.filter(inventory => inventory.parserVersion !== undefined && inventory.parserVersion !== 2 && inventory.parserVersion !== 3)
+    .map(inventory => ({ code: 'unsupported-source', path: inventory.path }))];
+  const coverage = { complete: snapshot.coverage.complete && !stale.length, gaps: [...snapshot.coverage.gaps, ...stale] };
+  const context = createWorkspaceLinkResolutionContext(snapshot, snapshot.physicalSources), edges: MixedReadResolvedLinkV3[] = [];
+  for (const inventory of snapshot.documents) for (const link of inventory.links) {
+    // Compiler4 raw sources contain physical local occurrences, not external
+    // links. Their entire body is independently certified by import/link proofs.
+    if (inventory.parserVersion === 3 && link.classification !== 'local' && !(link.classification === 'anchor-only' && link.kind === 'wiki')) continue;
+    edges.push({ ...link, sourceKind: 'native', source: inventory.document,
+      resolution: resolveWorkspaceLinkGraphTarget(link, inventory.document.path, context) });
+  }
+  for (const inventory of snapshot.physicalSources) for (const link of inventory.links) {
+    const value = { id: link.physicalLinkId, kind: link.kind, syntax: link.syntax, literal: link.targetLiteral,
+      targetPathText: link.targetPathText, fragment: link.fragment, alias: link.alias, embed: link.embed, classification: 'local' as const };
+    edges.push({ ...value, sourceKind: 'physical-read', source: { workspaceId: inventory.workspaceId,
+      organizationId: inventory.organizationId, path: inventory.path, physicalSourceIdentity: inventory.physical },
+    physicalSourceProof: inventory.physicalSourceProof,
+    resolution: resolveWorkspaceLinkGraphTarget(value, inventory.path, context) });
+  }
+  return { ...snapshot, snapshotProof: nativeLinkJsonProof({ base: snapshot.snapshotProof, edges, coverage }), edges, coverage };
 }

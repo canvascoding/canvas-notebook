@@ -24,6 +24,7 @@ import { COLLABORATION_NATIVE_COPY_STATEMENTS } from './collaboration-native-cop
 import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from './native-link-mutation-migration';
 import { MARKDOWN_FILE_IMPORT_STATEMENTS } from './markdown-file-import-migration';
 import { MARKDOWN_ORIGINAL_IMPORT_STATEMENTS } from './markdown-original-import-migration';
+import { NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS } from './native-copy-markdown-birth-migration';
 import { NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS } from './native-file-operation-handoff-migration';
 import { NATIVE_FILE_OPERATION_SIDE_EFFECT_STATEMENTS } from './native-file-operation-side-effects-migration';
 import { FILE_GUEST_TARGET_BINDING_STATEMENTS } from './file-guest-target-migration';
@@ -1391,6 +1392,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   for (const statement of NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS) await pool.query(statement);
   for (const statement of MARKDOWN_FILE_IMPORT_STATEMENTS) await pool.query(statement);
   for (const statement of MARKDOWN_ORIGINAL_IMPORT_STATEMENTS) await pool.query(statement);
+  for (const statement of NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS) await pool.query(statement);
   for (const statement of NATIVE_FILE_OPERATION_HANDOFF_STATEMENTS) await pool.query(statement);
   for (const statement of FILE_GUEST_TARGET_BINDING_STATEMENTS) await pool.query(statement);
   for (const statement of PUBLIC_FILE_SHARE_TARGET_BINDING_STATEMENTS) await pool.query(statement);

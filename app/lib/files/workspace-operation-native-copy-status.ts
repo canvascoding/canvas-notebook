@@ -248,6 +248,12 @@ export async function readMcpWorkspaceNativeCopyOperationStatus(supplied: Input)
         const current = await witness(database);
         if (current.isolation !== 'read committed' || current.readOnly !== 'off' || current.xid === null) fail();
         frame.identity = current.identity; frame.relations = await relations(frame);
+        // Keep the authenticated canonical realm across C1/history/C2. The
+        // checkout is discarded below, so this session setting cannot escape
+        // into another request through the pool.
+        const pinned = await database.get("SELECT pg_catalog.set_config('search_path',$1,false) AS search_path",
+          [current.identity.searchPath]) as Row | undefined;
+        if (pinned?.search_path !== current.identity.searchPath || !equal(await assertIdentity(frame), current)) fail();
         const header = await readHeader(frame, input.operationId);
         try { assertWorkspaceOperationCopyOriginCurrent(header.original, access.originalOrigin); } catch { throw new NativeCopyStatusNotFoundError(); }
         frame.original = header.original;
@@ -266,7 +272,8 @@ export async function readMcpWorkspaceNativeCopyOperationStatus(supplied: Input)
   } catch (error) { failed = true; failure = error; }
   finally {
     frame.active = false; frames.delete(database);
-    try { await database.close(failed ? failure instanceof Error ? failure : unconfirmed(failure) : undefined); }
+    try { await database.close(failed ? failure instanceof Error ? failure : unconfirmed(failure)
+      : new Error('Discarding native Copy status session.')); }
     catch (close) { failure = unconfirmed(new AggregateError(failed ? [failure, close] : [close], 'Copy status connection disposal was not confirmed.')); failed = true; }
   }
   if (failed) throw failure;

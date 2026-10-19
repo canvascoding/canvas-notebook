@@ -196,6 +196,45 @@ async function identity(phase: Phase): Promise<Identity> {
   if (phase.identity && !isDeepStrictEqual(result, phase.identity)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
   return result;
 }
+/** Copy begins in its factory realm or the owner's exact fixed receipt realm.
+ * Pin that one initial transition before a consumer or phase identity exists.
+ * Original capture/origin facts remain unchanged; later drift is never reset. */
+async function pinCopyReceiptRealm(phase: Phase): Promise<void> {
+  alive(phase);
+  if (phase.capture.policy.kind !== 'copy' || !phase.accepting || !phase.capture.accepting
+    || phase.identity || phase.writeRealm) fail('MCP_READ_PRINCIPAL_INVALID');
+  const row = await phase.connection.get(`SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start,
+    CASE WHEN pg_catalog.current_setting('transaction_isolation')='read committed'
+      AND pg_catalog.current_setting('transaction_read_only')='off' THEN pg_catalog.pg_current_xact_id()::text END AS xid,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication,
+    pg_catalog.quote_ident($1::text)||', pg_catalog, pg_temp' AS canonical_search_path
+    FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`,
+  [phase.capture.realm.schema]) as Row | undefined;
+  alive(phase);
+  const observed = parseRealm(row);
+  const canonical = parseRealm({ schema: phase.capture.realm.schema, schema_oid: phase.capture.realm.schemaOid,
+    database_oid: phase.capture.realm.databaseOid, search_path: row?.canonical_search_path });
+  if (!row || (!isDeepStrictEqual(observed, phase.capture.realm) && !isDeepStrictEqual(observed, canonical))
+    || !integer(row.backend) || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
+    || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)
+    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') {
+    fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  }
+  const before = Object.freeze({ ...observed, backend: Number(row.backend), start: row.start, xid: row.xid });
+  // Check actual relation ownership before the fixed path transition. An
+  // effective temporary auth-table shadow must not be hidden by normalization.
+  phase.writeRealm = observed; phase.identity = before;
+  await schema(phase);
+  const pinned = await phase.connection.get(`SELECT pg_catalog.set_config('search_path',$1,true) AS search_path`,
+  [canonical.searchPath]) as Row | undefined;
+  alive(phase);
+  if (pinned?.search_path !== canonical.searchPath) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  phase.writeRealm = canonical;
+  phase.identity = Object.freeze({ ...before, ...canonical });
+  await identity(phase); await schema(phase);
+}
 /** Create alone enters the existing receipt triggers' fixed schema path.
  * The caller's original B/realm is checked first. The same backend/start/XID
  * must then confirm this one fixed transition before any consumer runs.
@@ -602,6 +641,7 @@ function withFixedPrincipalOnConnection<T, Kind extends FixedPolicy['kind']>(con
   phases.set(connection, phase);
   const result = (async () => {
     try {
+      if (capture.policy.kind === 'copy') await pinCopyReceiptRealm(phase);
       phase.identity = await identity(phase);
       await connection.run("SET LOCAL statement_timeout='5s'");
       await connection.run("SET LOCAL lock_timeout='50ms'");

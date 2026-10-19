@@ -3,7 +3,7 @@ import 'server-only';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { loadCollaborationStateOnConnection, type PersistedCollaborationState } from '../collaboration/persistence';
 import { mapValidatedNativeStateRow, validateRawState } from '../collaboration/native-session-state-reader';
@@ -26,7 +26,7 @@ import type { WorkspaceSceneSourceBinding } from '../files/workspace-operation-c
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
-import { inspectOriginalPhysicalLinks, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, workspaceSourceAuthorityStageProof, type PhysicalSourceGap,
   type WorkspaceSourceAuthorityStage } from './workspace-physical-link-inventory';
 
 type Limits = { maxPaths: number; maxDepth: number; maxSourceBytes: number; maxTotalSourceBytes: number; maxLinks: number };
@@ -71,7 +71,9 @@ export type WorkspaceLinkSourceAuthorityObservation = Readonly<{
   privateSceneSnapshots?: readonly WorkspaceSceneSnapshotRecord[];
   privateSceneCatalogue?: readonly Readonly<WorkspaceSceneCatalogueEntry>[];
 }>;
-type CollectorDependencies = Omit<Dependencies, 'openConnection'>;
+/** A data-reader choice only. It never changes the caller's fences or rights. */
+export type WorkspacePhysicalSourceReadOptions = Readonly<{ physicalParserVersion?: 2 | 3 }>;
+type CollectorDependencies = Omit<Dependencies, 'openConnection'> & WorkspacePhysicalSourceReadOptions;
 type Row = Record<string, unknown>;
 const MAX_VECTOR_BYTES = 1024 * 1024;
 const stateMetadata = ['document_id', 'workspace_id', 'organization_id', 'path', 'representation', 'lifecycle_generation',
@@ -214,6 +216,12 @@ async function readNativeSources(connection: SqlConnection, workspace: Workspace
  * mutation authority. Re-run the whole observation under genuine B before use. */
 export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: SqlConnection, workspace: WorkspaceContext,
   dependencies: CollectorDependencies = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
+  if (!dependencies || typeof dependencies !== 'object' || types.isProxy(dependencies)
+    || Object.getPrototypeOf(dependencies) !== Object.prototype) throw new Error('Invalid physical source parser version.');
+  const parserDescriptor = Object.getOwnPropertyDescriptor(dependencies, 'physicalParserVersion');
+  if (parserDescriptor && (!parserDescriptor.enumerable || !Object.hasOwn(parserDescriptor, 'value'))) throw new Error('Invalid physical source parser version.');
+  const physicalParserVersion = parserDescriptor?.value === undefined ? 2 : parserDescriptor.value;
+  if (physicalParserVersion !== 2 && physicalParserVersion !== 3) throw new Error('Invalid physical source parser version.');
   workspace = structuredClone(workspace);
   if (!workspace.permissions.canRead || workspace.status !== undefined && workspace.status !== 'active') throw Object.assign(new Error('Current workspace read permission is required.'), { status: 403 });
   const originalMove = readOriginalMoveCollectorOverlay(connection, workspace);
@@ -337,7 +345,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         totalBytes += bytes.length;
         const authority = document ? { kind: 'registered-never-initialized' as const, catalogueProof,
           registeredDocumentId: document.id, lineageId: document.lineage_id } : { kind: 'unregistered' as const, catalogueProof };
-        const inventory = inspectOriginalPhysicalLinks({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
+        const inventory = (physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
           path: item.relativePath, authority, bytes, filesystemIdentity: item.identity, maxLinks: limits.maxLinks - totalLinks });
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);

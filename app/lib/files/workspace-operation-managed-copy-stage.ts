@@ -28,7 +28,7 @@ import { captureNativeCopyStageIdentity, NativeCopyStageDataError, NATIVE_COPY_S
   type WorkspaceOperationNativeCopyStageIdentity } from './workspace-operation-native-copy-stage';
 import type { WorkspaceOperationNativeCopyStage } from './workspace-operation-native-copy-stage';
 import { decodeWorkspaceOperationManagedCopyPlanV5, type WorkspaceOperationManagedCopyPlanV5 } from './workspace-operation-managed-copy-plan-v5';
-import { inspectOriginalPhysicalLinks, type OriginalPhysicalLinkInventory } from '../markdown/workspace-physical-link-inventory';
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, type OriginalPhysicalLinkInventory } from '../markdown/workspace-physical-link-inventory';
 import { MAX_INDEXED_MARKDOWN_BYTES } from '../markdown/workspace-link-limits';
 import { prepareMarkdownFileImport } from '../collaboration/markdown-file-import';
 
@@ -92,10 +92,10 @@ export type WorkspaceOperationRawCopyStageInput = Readonly<Omit<WorkspaceOperati
 }>;
 type LegacyManagedCopyStage = WorkspaceOperationManagedCopyStageV4 | WorkspaceOperationManagedCopyStageV5;
 type ManagedCopyPlanData = WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
-export type WorkspaceOperationAnyManagedCopyStage = LegacyManagedCopyStage;
+export type WorkspaceOperationAnyManagedCopyStage = LegacyManagedCopyStage | WorkspaceOperationManagedCopyStageV6;
 export type WorkspaceOperationOwnedCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationAnyManagedCopyStage;
-/** Stored originals may precede their fixed Owner/Phase execution support. */
-export type WorkspaceOperationStoredCopyStage = WorkspaceOperationOwnedCopyStage | WorkspaceOperationManagedCopyStageV6;
+/** The fixed owner admits every stored version through its original decoder. */
+export type WorkspaceOperationStoredCopyStage = WorkspaceOperationOwnedCopyStage;
 export type ManagedCopyStagePayloads = Readonly<{ recordsBytes: Buffer; sceneRecordsBytes: Buffer; sceneAssetsBytes: Buffer }>;
 export type ManagedCopyRawStagePayloads = ManagedCopyStagePayloads & Readonly<{ rawOriginalsBytes: Buffer }>;
 const fail = (code: NativeCopyStageDataError['code'] = 'STAGE_CONFLICT'): never => { throw new NativeCopyStageDataError(code); };
@@ -481,7 +481,8 @@ function rawRequirementSource(plan: WorkspaceOperationManagedCopyPlanV5, index: 
   const sources = plan.sourceEvidence.nativeComponent.physicalSources;
   const source = sources.find(source => source.path === requirement.sourcePath);
   const entry = plan.sourceEvidence.stage.namespace.find(entry => entry.path === requirement.sourcePath);
-  if (!source || !entry || entry.kind !== 'file' || source.parserVersion !== 2 || !source.coverage.complete || source.coverage.gaps.length
+  if (!source || !entry || entry.kind !== 'file' || (source.parserVersion !== 2 && source.parserVersion !== 3)
+    || requirement.importPolicy.parserVersion !== source.parserVersion || !source.coverage.complete || source.coverage.gaps.length
     || source.workspaceId !== plan.sourceScope.workspaceId || source.organizationId !== plan.sourceScope.organizationId
     || source.physicalSourceProof !== requirement.physicalSourceProof || !equal(source.physical, requirement.physical)
     || requirement.sourceEntityKey !== proof({ workspaceId: entry.workspaceId, identity: entry.identity })
@@ -505,7 +506,8 @@ function rawOriginals(input: unknown, plan: WorkspaceOperationManagedCopyPlanV5,
     const raw = object(value, fields), source = rawRequirementSource(plan, index), requirement = plan.rawImportRequirements[index];
     const bytes = binary(raw.originalBytes, MAX_INDEXED_MARKDOWN_BYTES, source.physical.byteLength);
     const facts = capture(Object.fromEntries(fields.filter(name => name !== 'originalBytes').map(name => [name, raw[name]])));
-    const original = inspectOriginalPhysicalLinks({ workspaceId: source.workspaceId, organizationId: source.organizationId,
+    const inspectPhysical = source.parserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks;
+    const original = inspectPhysical({ workspaceId: source.workspaceId, organizationId: source.organizationId,
       path: source.path, authority: source.authority, filesystemIdentity: source.physical.filesystemIdentity, bytes });
     const { originalBytes: _bytes, ...parsedFacts } = original;
     if (!equal(facts, source) || !equal(parsedFacts, source) || hash(bytes) !== source.physical.byteHash) return fail();

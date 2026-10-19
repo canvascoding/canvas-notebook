@@ -274,10 +274,11 @@ function capturedStage(stage: WorkspaceOperationOwnedCopyStage): NativeCopyMetad
   if (!stage || typeof stage !== 'object' || types.isProxy(stage) || Object.getPrototypeOf(stage) !== Object.prototype) fail();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
   if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value')
-    || discriminator.value !== 3 && discriminator.value !== 4 && discriminator.value !== 5) fail();
+    || discriminator.value !== 3 && discriminator.value !== 4 && discriminator.value !== 5 && discriminator.value !== 6) fail();
   object(stage, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256', 'metadata',
-    ...((discriminator.value === 4 || discriminator.value === 5) ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest'])]);
-  if (stage.version !== 3 && stage.version !== 4 && stage.version !== 5) fail();
+    ...((discriminator.value === 4 || discriminator.value === 5 || discriminator.value === 6) ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest']),
+    ...(discriminator.value === 6 ? ['rawOriginals'] : [])]);
+  if (stage.version !== 3 && stage.version !== 4 && stage.version !== 5 && stage.version !== 6) fail();
   // The actual phase checker below requires this exact fully captured Stage
   // and checks its complete original pin. Do not rebuild C1/native snapshots
   // inside every short SQL boundary or treat a matching digest as authority.

@@ -165,7 +165,7 @@ async function run<T>(frame: Frame, callback: (cap: PreparedExcalidrawCopyAssets
  * fences. No workspace root, database checkout, authority or transaction is made. */
 export async function withPreparedExcalidrawCopyAssets<T>(input: Readonly<{ stage: WorkspaceOperationAnyManagedCopyStage;
   destinationWorkspace: WorkspaceContext }>, callback: (cap: PreparedExcalidrawCopyAssets) => T | Promise<T>): Promise<T> {
-  const stage = captureNativeCopyPhaseStage(input.stage); if ((stage.version !== 4 && stage.version !== 5)) changed();
+  const stage = captureNativeCopyPhaseStage(input.stage); if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6)) changed();
   const scope = captureWorkspaceOperationJobScope(input.destinationWorkspace);
   if (!equal(scope, stage.origin.destinationScope)) changed();
   const metadata = new Map<string, ReturnType<typeof captureExcalidrawReadonlyAssetMetadata>>();
@@ -212,7 +212,7 @@ export async function withRecoveredExcalidrawCopyAssets<T>(input: Readonly<{ sta
   destinationWorkspace: WorkspaceContext; original: ExcalidrawCopyAssetOriginal }>,
 callback: (cap: PreparedExcalidrawCopyAssets) => T | Promise<T>): Promise<T> {
   const stage = captureNativeCopyPhaseStage(input.stage), original = captureExcalidrawCopyAssetOriginal(input.original);
-  if ((stage.version !== 4 && stage.version !== 5) || original.operationId !== stage.identity.operationId || original.stageDigest !== stage.payloadSha256
+  if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6) || original.operationId !== stage.identity.operationId || original.stageDigest !== stage.payloadSha256
     || !equal(original.destinationScope, stage.origin.destinationScope)
     || !equal(captureWorkspaceOperationJobScope(input.destinationWorkspace), original.destinationScope)) changed();
   assertNativeCopyManagedAssetOwner(stage);

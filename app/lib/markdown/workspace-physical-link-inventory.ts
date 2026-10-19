@@ -7,7 +7,7 @@ import { parseObsidianBlockIds } from './obsidian-flavored-markdown';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
 import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
 import { extractWorkspaceMarkdownHeadings, resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
-import { parseWorkspaceLocalLinks, resolveExactWorkspaceLink, type ParsedWorkspaceLocalLink } from './workspace-local-link-parser';
+import { parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV3, resolveExactWorkspaceLink, type ParsedWorkspaceLocalLink } from './workspace-local-link-parser';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
 import type { WorkspaceLinkTargetRangeV1 } from './workspace-link-contract-v1';
@@ -23,8 +23,8 @@ export type OriginalPhysicalLink = ParsedWorkspaceLocalLink & {
 };
 export type OriginalPhysicalLinkInventory = {
   physicalSourceVersion: 1;
-  /** Omitted on historical evidence; fresh exact Canvas parsing emits 2. */
-  parserVersion?: 2;
+  /** Omitted historical evidence and explicit 2 retain legacy parsing. */
+  parserVersion?: 2 | 3;
   source: 'original-physical-bytes';
   workspaceId: string;
   organizationId: string | null;
@@ -98,6 +98,17 @@ export function inspectOriginalPhysicalLinks(input: {
   workspaceId: string; organizationId: string | null; path: string;
   authority: PhysicalLinkSourceAuthority; bytes: Uint8Array; filesystemIdentity: string; maxLinks?: number;
 }): OriginalPhysicalLinkInventory {
+  return inspectOriginalPhysicalLinksForParser(input, 2);
+}
+
+/** Explicit parser-3 capture keeps source bytes and original UTF-16/UTF-8
+ * ranges; historical parser-2 captures never enter this arm implicitly. */
+export function inspectOriginalPhysicalLinksV3(input: Parameters<typeof inspectOriginalPhysicalLinks>[0]): OriginalPhysicalLinkInventory {
+  return inspectOriginalPhysicalLinksForParser(input, 3);
+}
+
+function inspectOriginalPhysicalLinksForParser(input: Parameters<typeof inspectOriginalPhysicalLinks>[0],
+  parserVersion: 2 | 3): OriginalPhysicalLinkInventory {
   const originalBytes = Uint8Array.from(input.bytes);
   const originalBuffer = Buffer.from(originalBytes.buffer, originalBytes.byteOffset, originalBytes.byteLength);
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(originalBytes);
@@ -108,11 +119,13 @@ export function inspectOriginalPhysicalLinks(input: {
   const gaps: PhysicalSourceGap[] = []; const links: OriginalPhysicalLink[] = [];
   const parsedDocument = parseCanvasMarkdownDocument(text);
   if (parsedDocument.error) gaps.push({ code: 'invalid-frontmatter', path: input.path });
-  const headings = parsedDocument.error ? [] : extractWorkspaceMarkdownHeadings(parsedDocument.body);
+  const metadataBody = parserVersion === 3 && !parsedDocument.frontmatter && text.charCodeAt(0) === 0xfeff
+    ? parsedDocument.body.slice(1) : parsedDocument.body;
+  const headings = parsedDocument.error ? [] : extractWorkspaceMarkdownHeadings(metadataBody);
   const metadata = { path: input.path, aliases: parsedDocument.frontmatter?.aliases ?? [], tags: parsedDocument.frontmatter?.tags ?? [],
     title: parsedDocument.frontmatter?.title || headings[0]?.text || path.posix.basename(input.path).replace(/\.(?:md|markdown)$/iu, ''),
     hasExplicitTitle: Boolean(parsedDocument.frontmatter?.title), headings,
-    blockIds: parsedDocument.error ? [] : parseObsidianBlockIds(parsedDocument.body).map((entry) => entry.id) };
+    blockIds: parsedDocument.error ? [] : parseObsidianBlockIds(metadataBody).map((entry) => entry.id) };
   const physical = { filesystemIdentity: input.filesystemIdentity, byteHash: originalPhysicalByteHash(originalBytes), byteLength: originalBytes.length };
   if (/\.mdx$/iu.test(input.path)) gaps.push({ code: 'unsupported-mdx-source', path: input.path });
   else if (/\.html?$/iu.test(input.path)) {
@@ -120,7 +133,7 @@ export function inspectOriginalPhysicalLinks(input: {
     gaps.push({ code: 'uninspected-html', path: input.path, ...(html.explicitLocalTargets ? { htmlTargets: html.explicitLocalTargets } : {}) });
   } else if (!/\.(?:md|markdown)$/iu.test(input.path)) gaps.push({ code: 'unsupported-physical-source', path: input.path });
   else if (!parsedDocument.error) {
-    const parsed = parseWorkspaceLocalLinks(text, input.path, { notebookPaths: 'exact' });
+    const parsed = (parserVersion === 3 ? parseWorkspaceLocalLinksV3 : parseWorkspaceLocalLinks)(text, input.path, { notebookPaths: 'exact' });
     for (const unevaluated of parsed.unevaluated) gaps.push({ code: unevaluated.reason === 'html' ? 'uninspected-html' : `unevaluated-${unevaluated.reason}`,
       path: input.path, startUtf16: unevaluated.start, ...(unevaluated.htmlTargets ? { htmlTargets: unevaluated.htmlTargets } : {}) });
     const maxLinks = input.maxLinks ?? 20_000;
@@ -136,7 +149,7 @@ export function inspectOriginalPhysicalLinks(input: {
         physical, syntaxRange, targetRange, raw: link.raw })}`, syntaxRange, targetRange });
     }
   }
-  const body: Omit<OriginalPhysicalLinkInventory, 'physicalSourceProof'> = { physicalSourceVersion: 1, parserVersion: 2, source: 'original-physical-bytes',
+  const body: Omit<OriginalPhysicalLinkInventory, 'physicalSourceProof'> = { physicalSourceVersion: 1, parserVersion, source: 'original-physical-bytes',
     workspaceId: input.workspaceId, organizationId: input.organizationId, path: input.path, authority: structuredClone(input.authority),
     physical, originalBytes, encoding: 'utf8', hasBom: text.charCodeAt(0) === 0xfeff,
     lineEndings: { style, lf, crlf, bareCr }, frontmatterPrefix: parsedDocument.frontmatterPrefix, metadata, links,
@@ -164,7 +177,8 @@ export function previewStagedWorkspaceLinkEffects(stage: WorkspaceSourceAuthorit
   kind: 'rename' | 'move' | 'delete'; sourcePath: string; destinationPath?: string;
 }): StagedWorkspaceLinkEffectPreview {
   const gaps = structuredClone(stage.coverage.gaps); const effects: StagedWorkspaceLinkEffectPreview['effects'] = [];
-  for (const source of stage.sources) if (source.inventory.parserVersion !== 2) gaps.push({ code: 'stale-source-parser',
+  for (const source of stage.sources) if (source.kind === 'native' ? source.inventory.parserVersion !== 2
+    : source.inventory.parserVersion !== undefined && source.inventory.parserVersion !== 2 && source.inventory.parserVersion !== 3) gaps.push({ code: 'stale-source-parser',
     path: source.kind === 'physical' ? source.inventory.path : source.inventory.document.path });
   if (workspaceSourceAuthorityStageProof(stage) !== stage.stageProof) gaps.push({ code: 'stage-proof-mismatch', path: '' });
   if (!isCanonicalAdmissionPath(request.sourcePath) || request.kind !== 'delete' && !isCanonicalAdmissionPath(request.destinationPath)) gaps.push({ code: 'invalid-path', path: request.sourcePath });

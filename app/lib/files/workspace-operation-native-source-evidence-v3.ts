@@ -4,7 +4,7 @@ import { isDeepStrictEqual, types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { MAX_INDEXED_MARKDOWN_BYTES } from '../markdown/workspace-link-limits';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
-import { inspectOriginalPhysicalLinks, workspaceSourceAuthorityStageProof,
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, originalPhysicalSourceProof, workspaceSourceAuthorityStageProof,
   type OriginalPhysicalLinkInventory, type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
@@ -57,7 +57,9 @@ function freezeV3Evidence<T>(input: T): T {
  * never grants authority and does not reconstruct fictitious native identities. */
 function physicalV3Inventory(input: unknown, original: boolean,
   budget: { bytes: number; links: number }): PhysicalReadSourceEvidenceV3 {
-  const raw = captureV3Object(input, ['physicalSourceVersion', 'parserVersion', 'source', 'workspaceId', 'organizationId',
+  const hasParserVersion = input !== null && typeof input === 'object' && !types.isProxy(input)
+    && Object.hasOwn(input, 'parserVersion');
+  const raw = captureV3Object(input, ['physicalSourceVersion', ...(hasParserVersion ? ['parserVersion'] : []), 'source', 'workspaceId', 'organizationId',
     'path', 'authority', 'physical', ...(original ? ['originalBytes'] : []), 'encoding', 'hasBom', 'lineEndings',
     'frontmatterPrefix', 'metadata', 'links', 'coverage', 'applicability', 'executionReady', 'physicalSourceProof']);
   const suppliedBytes = raw.originalBytes; delete raw.originalBytes;
@@ -74,7 +76,8 @@ function physicalV3Inventory(input: unknown, original: boolean,
   const metadata = captureV3Object(value.metadata, ['path', 'aliases', 'tags', 'title', 'hasExplicitTitle', 'headings', 'blockIds']);
   const endings = captureV3Object(value.lineEndings, ['style', 'lf', 'crlf', 'bareCr']);
   const coverage = captureV3Object(value.coverage, ['complete', 'gaps']);
-  if (value.physicalSourceVersion !== 1 || value.parserVersion !== 2 || value.source !== 'original-physical-bytes'
+  if (value.physicalSourceVersion !== 1 || value.parserVersion !== undefined && value.parserVersion !== 2 && value.parserVersion !== 3
+    || value.source !== 'original-physical-bytes'
     || !v3EvidenceIdentifier(value.workspaceId) || value.organizationId !== null && !v3EvidenceIdentifier(value.organizationId)
     || !isCanonicalAdmissionPath(value.path) || value.path.length > 4096 || value.path.split('/').length > 33
     || !/\.(?:md|markdown)$/iu.test(value.path) || value.encoding !== 'utf8' || typeof value.hasBom !== 'boolean'
@@ -141,8 +144,15 @@ function physicalV3Inventory(input: unknown, original: boolean,
     if (length > budget.bytes) return rejectV3Evidence('too-large');
     budget.bytes -= length;
     const bytes = new Uint8Array(length); Uint8Array.prototype.set.call(bytes, suppliedBytes as Uint8Array);
-    const parsed = inspectOriginalPhysicalLinks({ workspaceId: value.workspaceId, organizationId: value.organizationId,
+    const parsed = (value.parserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: value.workspaceId, organizationId: value.organizationId,
       path: value.path, authority: value.authority, bytes, filesystemIdentity: value.physical.filesystemIdentity });
+    // The absent historical marker is part of the original proof bytes. Replay
+    // legacy semantics and remove only the new wrapper's explicit marker from
+    // the comparison copy, never relabel the supplied historical evidence.
+    if (!hasParserVersion) {
+      delete parsed.parserVersion;
+      parsed.physicalSourceProof = originalPhysicalSourceProof(parsed);
+    }
     const { originalBytes: _private, ...actual } = parsed;
     if (!isDeepStrictEqual(actual, value)) return rejectV3Evidence();
   }

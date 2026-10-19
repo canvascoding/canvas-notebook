@@ -100,6 +100,7 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
 
     await check('source READ and destination WRITE share one genuine B and one bounded phase', async () => {
       const sourceRealm = (await pool.query("SELECT current_schema() AS schema,current_setting('search_path') AS search_path")).rows[0];
+      const canonicalRealm = (await pool.query("SELECT current_schema() AS schema,pg_catalog.quote_ident(current_schema())||', pg_catalog, pg_temp' AS search_path")).rows[0];
       const result = await copy(async (access, db, client, sql) => {
         assert.equal(access.tool, 'copy_knowledge_source'); assert.equal(access.userId, 'reader');
         assert.equal(access.clientId, clientId); assert.equal(access.sessionId, 'reader-session');
@@ -110,7 +111,7 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
           access.destinationWorkspace.permissions.canRunAgent], [true, true, true]);
         for (const value of [access, access.sourceWorkspace, access.sourceWorkspace.permissions,
           access.destinationWorkspace, access.destinationWorkspace.permissions]) assert(Object.isFrozen(value));
-        const before = await facts(client); assert.deepEqual({ schema: before.schema, search_path: before.search_path }, sourceRealm);
+        const before = await facts(client); assert.deepEqual({ schema: before.schema, search_path: before.search_path }, canonicalRealm);
         assert.equal(before.lock_timeout, '50ms'); assert.equal(before.statement_timeout, '5s'); assert.equal(before.transaction_timeout, '5s');
         const row = await witness(db, 'committed'); assert.equal(row.backend, before.pid); assert.equal(row.xid, before.xid);
         await access.assertCurrent(); assert.deepEqual(await facts(client), before);
@@ -119,6 +120,8 @@ export async function directMcpWorkspaceCopyPrincipalPostgresTest(): Promise<voi
         return 'same-actual-B';
       });
       assert.equal(result, 'same-actual-B');
+      assert.deepEqual((await pool.query("SELECT current_schema() AS schema,current_setting('search_path') AS search_path")).rows[0], sourceRealm,
+        'Copy execution realm must not change the original factory realm after COMMIT.');
       assert.equal((await admin.query('SELECT count(*)::integer AS count FROM copy_mcp_principal_writes WHERE id=$1', ['committed'])).rows[0].count, 1);
       await copy(async access => {
         assert.equal(access.sourceWorkspace.workspaceId, destinationWorkspaceId);

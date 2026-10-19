@@ -178,7 +178,7 @@ export function normalizePublicCopyErrorCode(value: unknown): PublicCopyCode {
 const unresolvedStatuses = ['missing', 'ambiguous', 'outside-workspace', 'external', 'anchor-only', 'not-evaluated', 'omitted'];
 function preview(value: Json | undefined, invalid: () => never): WorkspaceOperationNativeCopyPreviewPublic {
   const row = record(value, ['version', 'kind', 'sourceWorkspaceId', 'destinationWorkspaceId', 'planId', 'readiness',
-    'pathMappings', 'linkEdits', 'coverage', 'linkAssessment', 'issues'], [], invalid);
+    'pathMappings', 'linkEdits', 'coverage', 'linkAssessment', 'issues'], ['importLinkBindings'], invalid);
   if (row.version !== 4 || row.kind !== 'native-copy' || row.readiness !== 'ready') return invalid();
   const source = workspace(row.sourceWorkspaceId, invalid), destination = workspace(row.destinationWorkspaceId, invalid);
   planId(row.planId, invalid);
@@ -194,6 +194,17 @@ function preview(value: Json | undefined, invalid: () => never): WorkspaceOperat
     pathname(edit.sourcePathBefore, invalid); pathname(edit.sourcePathAfter, invalid);
     text(edit.previousTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
     text(edit.nextTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+  }
+  if (Object.hasOwn(row, 'importLinkBindings')) {
+    const bindings = record(row.importLinkBindings, ['status', 'targets'], [], invalid);
+    if (bindings.status !== 'requires-native-import-rebinding') return invalid();
+    for (const item of list(bindings.targets, 100_000, invalid)) {
+      const target = record(item, ['sourcePathBefore', 'sourcePathAfter', 'previousTargetLiteral', 'targetPathAfter', 'fragment', 'alias', 'embed'], [], invalid);
+      pathname(target.sourcePathBefore, invalid); pathname(target.sourcePathAfter, invalid); pathname(target.targetPathAfter, invalid);
+      text(target.previousTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+      for (const field of ['fragment', 'alias']) if (target[field] !== null) text(target[field], WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+      boolean(target.embed, invalid);
+    }
   }
   const coverage = record(row.coverage, ['complete', 'omittedSources', 'unresolvedLinks'], [], invalid);
   boolean(coverage.complete, invalid);

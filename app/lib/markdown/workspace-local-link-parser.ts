@@ -154,11 +154,27 @@ function unescapedPipe(value: string): number {
   return -1;
 }
 
-export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
-  options?: { notebookPaths: 'exact' }): {
+type ParsedWorkspaceLocalLinks = {
   links: ParsedWorkspaceLocalLink[];
   unevaluated: WorkspaceLinkUnevaluated[];
-} {
+};
+
+/** Historical parser-2 semantics, including its original BOM treatment. */
+export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
+  return parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, options, false);
+}
+
+/** Parser 3 keeps every source range in original UTF-16 units. The Markdown
+ * tokenizer consumes one initial BOM; masks and Wiki scanning use that same
+ * visible grammar without adding an indentation character. */
+export function parseWorkspaceLocalLinksV3(markdown: string, sourcePath: string,
+  options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
+  return parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, options, true);
+}
+
+function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: string,
+  options: { notebookPaths: 'exact' } | undefined, originalBomOffsets: boolean): ParsedWorkspaceLocalLinks {
   const links: ParsedWorkspaceLocalLink[] = [];
   const unevaluated: WorkspaceLinkUnevaluated[] = [];
   const document = parseCanvasMarkdownDocument(markdown);
@@ -166,7 +182,9 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
     // AST offsets and source splices use UTF-16 units, including surrogate pairs.
     ? document.frontmatterPrefix.replace(/[^\r\n]/g, ' ') + document.body
     : markdown;
-  const mask = createObsidianSyntaxMask(visibleMarkdown);
+  const bomOffset = originalBomOffsets && visibleMarkdown.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const syntaxMarkdown = visibleMarkdown.slice(bomOffset);
+  const mask = visibleMarkdown.slice(0, bomOffset) + createObsidianSyntaxMask(syntaxMarkdown);
   const definitions = new Map<string, { node: Nodes; uses: Array<'link' | 'image'> }>();
   const textRanges: Array<{ start: number; end: number }> = [];
 
@@ -212,6 +230,10 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
   };
 
   const collect = (node: Nodes): void => {
+    if (bomOffset && node.position) {
+      if (node.position.start.offset !== undefined) node.position.start.offset += bomOffset;
+      if (node.position.end.offset !== undefined) node.position.end.offset += bomOffset;
+    }
     if (node.type === 'definition' && !definitions.has(node.identifier)) {
       definitions.set(node.identifier, { node, uses: [] });
     }
@@ -266,7 +288,8 @@ export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
       : 'reference-definition');
   }
 
-  for (const wiki of parseObsidianWikiLinks(visibleMarkdown)) {
+  for (const parsedWiki of parseObsidianWikiLinks(syntaxMarkdown)) {
+    const wiki = bomOffset ? { ...parsedWiki, start: parsedWiki.start + bomOffset, end: parsedWiki.end + bomOffset } : parsedWiki;
     if (!textRanges.some((range) => range.start <= wiki.start && range.end >= wiki.end)) continue;
     const innerStart = wiki.start + (wiki.embed ? 3 : 2);
     const inner = markdown.slice(innerStart, wiki.end - 2);

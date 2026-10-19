@@ -26,7 +26,7 @@ function changed(): never { return copyInvalid('EXCALIDRAW_COPY_CHANGED'); }
 function conflict(): never { return copyInvalid('EXCALIDRAW_COPY_ASSET_CONFLICT'); }
 const TABLE = 'collaboration_excalidraw_copy_receipts';
 function checkedStage(stage: WorkspaceOperationAnyManagedCopyStage): void {
-  if ((stage.version !== 4 && stage.version !== 5) || captureNativeCopyPhaseStage(stage).payloadSha256 !== stage.payloadSha256) changed();
+  if ((stage.version !== 4 && stage.version !== 5 && stage.version !== 6) || captureNativeCopyPhaseStage(stage).payloadSha256 !== stage.payloadSha256) changed();
 }
 function bind(intent: ExcalidrawCopyIntent, stage: WorkspaceOperationAnyManagedCopyStage): void {
   if (intent.operationId !== stage.identity.operationId || intent.stageDigest !== stage.payloadSha256

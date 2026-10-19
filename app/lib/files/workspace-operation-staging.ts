@@ -775,9 +775,7 @@ export class WorkspaceOperationStaging {
   /** One manifest-version routing read for the fixed owner. This returns
    * original data only; strict provider-specific APIs remain unchanged. */
   async loadOwnedCopyByOperationId(operationId: string): Promise<WorkspaceOperationOwnedCopyStage | null> {
-    const result = await this.loadStoredCopyByOperationId(operationId);
-    if (result?.version === 6) fail('STAGE_CONFLICT', 'Raw stage requires its fixed owner integration.');
-    return result;
+    return this.loadStoredCopyByOperationId(operationId);
   }
 
   /** Original Stage6 data only; this read does not grant execution authority. */

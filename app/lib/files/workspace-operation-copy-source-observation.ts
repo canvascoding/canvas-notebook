@@ -1,7 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import type { SqlConnection } from '../db';
 import { readWorkspaceSceneCatalogue, type WorkspaceSceneCatalogueEntry } from '../collaboration/workspace-scene-catalogue';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
@@ -12,8 +12,11 @@ import type { NativeNamespaceEntry } from '../markdown/workspace-link-contract-v
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
 import { workspaceSourceAuthorityStageProof } from '../markdown/workspace-physical-link-inventory';
 import { readWorkspaceLinkSourceAuthorityOnConnection,
-  type WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
+  type WorkspaceLinkSourceAuthorityObservation, type WorkspacePhysicalSourceReadOptions } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceContext } from '../workspaces/types';
+import type { WorkspaceOperationCopySourceEvidenceV3 } from './workspace-operation-copy-source-evidence';
+import type { WorkspaceOperationCopySourceEvidenceV4 } from './workspace-operation-copy-source-evidence-v4';
+import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
 
 export type WorkspaceSceneSourceBinding = Readonly<{
   provider: 'excalidraw'; header: Readonly<WorkspaceSceneCatalogueEntry>; contentProof: string;
@@ -35,6 +38,49 @@ export class WorkspaceCopySourceObservationError extends Error {
 const fail = (code: SceneSourceErrorCode): never => { throw new WorkspaceCopySourceObservationError(code); };
 const MAX_PATHS = 10_000, MAX_DEPTH = 32;
 const SCENE_LIMITS = Object.freeze({ maxSceneBytes: EXCALIDRAW_PORTABLE_MAX_BYTES, maxTotalBytes: 128 * 1024 * 1024 });
+
+/** Select only the parser already bound by a strictly decoded stored Copy
+ * evidence. This is not an evidence decoder or an authorization check. Missing
+ * historical markers and an empty physical set retain parser 2; mixed markers
+ * cannot silently reinterpret one source or destination during recovery. */
+export function deriveCopyPhysicalParserVersion(evidence: WorkspaceOperationCopySourceEvidenceV3
+  | WorkspaceOperationCopySourceEvidenceV4): 2 | 3 {
+  if (!evidence || typeof evidence !== 'object' || types.isProxy(evidence)
+    || Object.getPrototypeOf(evidence) !== Object.prototype) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  const version = Object.getOwnPropertyDescriptor(evidence, 'evidenceVersion');
+  const componentDescriptor = Object.getOwnPropertyDescriptor(evidence, 'nativeComponent');
+  if (!version?.enumerable || !Object.hasOwn(version, 'value') || ![3, 4].includes(version.value)
+    || !componentDescriptor?.enumerable || !Object.hasOwn(componentDescriptor, 'value')) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  const component: unknown = componentDescriptor.value;
+  if (!component || typeof component !== 'object' || types.isProxy(component)
+    || Object.getPrototypeOf(component) !== Object.prototype) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  const componentVersion = Object.getOwnPropertyDescriptor(component, 'evidenceVersion');
+  if (!componentVersion?.enumerable || !Object.hasOwn(componentVersion, 'value')
+    || componentVersion.value !== (version.value === 3 ? 2 : 3)) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  const physicalDescriptor = Object.getOwnPropertyDescriptor(component, 'physicalSources');
+  if (version.value === 3) {
+    if (physicalDescriptor) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    return 2;
+  }
+  if (!physicalDescriptor?.enumerable || !Object.hasOwn(physicalDescriptor, 'value')) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  const physical: unknown = physicalDescriptor.value;
+  if (!Array.isArray(physical) || types.isProxy(physical) || Object.getPrototypeOf(physical) !== Array.prototype
+    || physical.length > MAX_PATHS || Reflect.ownKeys(physical).length !== physical.length + 1) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+  let parserVersion: 2 | 3 | undefined;
+  for (let index = 0; index < physical.length; index++) {
+    const sourceDescriptor = Object.getOwnPropertyDescriptor(physical, String(index));
+    if (!sourceDescriptor?.enumerable || !Object.hasOwn(sourceDescriptor, 'value')) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    const source: unknown = sourceDescriptor.value;
+    if (!source || typeof source !== 'object' || types.isProxy(source)
+      || Object.getPrototypeOf(source) !== Object.prototype) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    const marker = Object.getOwnPropertyDescriptor(source, 'parserVersion');
+    if (marker && (!marker.enumerable || !Object.hasOwn(marker, 'value'))) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    const current = marker === undefined ? 2 : marker.value;
+    if (current !== 2 && current !== 3 || parserVersion !== undefined && current !== parserVersion) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');
+    parserVersion = current;
+  }
+  return parserVersion ?? 2;
+}
 function checkSceneHeaders(catalogue: readonly WorkspaceSceneCatalogueEntry[], workspace: WorkspaceContext): void {
   if (catalogue.length > MAX_PATHS) return fail('SCENE_SOURCE_NAMESPACE_LIMIT');
   const ids = new Set<string>(), lineages = new Set<string>(), paths = new Set<string>();
@@ -103,12 +149,18 @@ function overlayScenes(observation: WorkspaceLinkSourceAuthorityObservation, wor
  * transaction through consumption. No connection/TX/lock/permission is created.
  * Scene bodies come solely from SQL; projection files never supply Scene data. */
 export async function readWorkspaceCopySourceObservationOnConnection(connection: SqlConnection,
-  workspace: WorkspaceContext): Promise<WorkspaceCopySourceObservation> {
+  workspace: WorkspaceContext, options: WorkspacePhysicalSourceReadOptions = {}): Promise<WorkspaceCopySourceObservation> {
+  if (!options || typeof options !== 'object' || types.isProxy(options)
+    || Object.getPrototypeOf(options) !== Object.prototype) throw new Error('Invalid physical source parser version.');
+  const parserDescriptor = Object.getOwnPropertyDescriptor(options, 'physicalParserVersion');
+  if (parserDescriptor && (!parserDescriptor.enumerable || !Object.hasOwn(parserDescriptor, 'value'))) throw new Error('Invalid physical source parser version.');
+  const physicalParserVersion = parserDescriptor?.value === undefined ? 2 : parserDescriptor.value;
+  if (physicalParserVersion !== 2 && physicalParserVersion !== 3) throw new Error('Invalid physical source parser version.');
   const scope = structuredClone(workspace);
   const catalogue = await readWorkspaceSceneCatalogue(connection, scope, { maxEntries: MAX_PATHS });
   checkSceneHeaders(catalogue, scope);
   const before = await readWorkspaceSceneSnapshotsOnConnection(connection, scope, catalogue, SCENE_LIMITS);
-  const observation = await readWorkspaceLinkSourceAuthorityOnConnection(connection, scope);
+  const observation = await readWorkspaceLinkSourceAuthorityOnConnection(connection, scope, { physicalParserVersion });
   const namespace = overlayScenes(observation, scope, before);
   const currentCatalogue = await readWorkspaceSceneCatalogue(connection, scope, { maxEntries: MAX_PATHS });
   checkSceneHeaders(currentCatalogue, scope);

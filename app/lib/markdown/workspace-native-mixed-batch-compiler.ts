@@ -104,7 +104,7 @@ export type NativeMixedRawImportRequirementV4 = {
   entityKey: string; sourceEntityKey: string; requestIndex: number;
   sourceWorkspaceId: string; sourcePath: string; destinationWorkspaceId: string; destinationPath: string;
   physicalSourceProof: string; physical: PhysicalReadLinkInventory['physical'];
-  importPolicy: { version: 1; initialRepresentation: 'auto'; parserVersion: 2 };
+  importPolicy: { version: 1; initialRepresentation: 'auto'; parserVersion: 2 | 3 };
   linkBindings: Array<{ virtualLinkKey: string; sourceVirtualLinkKey: string; physicalLinkId: string }>;
   applicability: 'requires-fresh-destination-import-and-occurrence-binding';
 };
@@ -238,7 +238,12 @@ function graphProof(entities: Entity[], edges: Edge[]): string {
     edges: edges.map(publicEdge) });
 }
 function nextTarget(edge: NativeEdge, targetPath: string, sourcePath: string): string | null {
-  const link = edge.link.current;
+  return formatNativeLinkTargetForPathChange(edge.link.current, targetPath, sourcePath);
+}
+/** Same historical formatting formula over genuine inspected native fields.
+ * No fake resolved edge, source document ID or physical offset is required. */
+export function formatNativeLinkTargetForPathChange(link: Pick<NativeDocumentLink,
+  'kind' | 'ref' | 'literal' | 'fragment' | 'targetPathText'>, targetPath: string, sourcePath: string): string | null {
   if (link.kind === 'wiki') {
     if (/[#|\]\\]/u.test(targetPath)) return null;
     const old = parseObsidianWikiTarget(link.ref.kind === 'node-attribute' ? link.ref.expected : link.literal);
@@ -322,7 +327,8 @@ function compileMixedBatch(input: {
       const physical = new Map<string, PhysicalReadLinkInventory>();
       if (contractVersion >= 3 && snapshot.contractVersion === 3) for (const source of snapshot.physicalSources) {
         const { physicalSourceProof, ...physicalBody } = source;
-        if (physical.has(source.path) || source.workspaceId !== snapshot.workspaceId || source.parserVersion !== 2
+        if (physical.has(source.path) || source.workspaceId !== snapshot.workspaceId
+          || source.parserVersion !== undefined && source.parserVersion !== 2 && source.parserVersion !== 3
           || source.physicalSourceVersion !== 1 || source.source !== 'original-physical-bytes' || source.encoding !== 'utf8'
           || !/\.(?:md|markdown)$/iu.test(source.path) || source.metadata.path !== source.path
           || !source.coverage.complete || source.coverage.gaps.length || source.executionReady !== false
@@ -442,7 +448,7 @@ function compileMixedBatch(input: {
             if (!/\.(?:md|markdown)$/iu.test(copy.path)) issue('unsupported-import-destination', requestIndex, destinationWorkspaceId, copy.path);
             imports.push({ entityKey, sourceEntityKey: source.entityKey, requestIndex, sourceWorkspaceId, sourcePath: source.path,
               destinationWorkspaceId, destinationPath: copy.path, physicalSourceProof: source.physical.physicalSourceProof,
-              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: 2 },
+              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: source.physical.parserVersion ?? 2 },
               linkBindings: source.physical.links.map(link => ({ physicalLinkId: link.physicalLinkId,
                 sourceVirtualLinkKey: proof({ entityKey: source.entityKey, physicalLinkId: link.physicalLinkId }),
                 virtualLinkKey: proof({ entityKey, physicalLinkId: link.physicalLinkId }) })),
@@ -473,6 +479,14 @@ function compileMixedBatch(input: {
         if (edge.provider === 'physical-read') {
           if (contractVersion === 4 && kind === 'copy' && sourceMap?.copy?.binding.kind === 'unbound-import') {
             const owner = sourceMap.copy, target = entities.find(entity => entity.entityKey === edge.resolution.targetEntityKey)!;
+            // Native rich clones receive fresh structural block IDs. This
+            // first Raw-import contract does not yet bind those fragments to
+            // the genuine clone receipt; reject before any B1/FD effects.
+            if (edge.link.current.fragment?.startsWith('^') && targetMap?.source.inventory
+              && targetMap.source.inventory.document.representation !== 'plain_text') {
+              issue('unsupported-import-native-block-fragment', requestIndex, sourceWorkspaceId, edge.entity.path, edge.originEvidenceLinkId);
+              continue;
+            }
             const targetPathAfter = targetMap?.destinationPath ?? target.path;
             // These are semantic path intents. Actual native syntax/anchors are
             // obtained from the genuine import binding, never invented here.

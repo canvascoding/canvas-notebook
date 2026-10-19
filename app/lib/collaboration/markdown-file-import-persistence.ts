@@ -61,6 +61,12 @@ import { Y } from './server-runtime';
 import { isCollaborationStateProof } from './state-proof';
 import { readWorkspaceDocumentCatalogue } from './workspace-document-catalogue';
 import type { TextCollaborationRepresentation } from './types';
+import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
+import type { WorkspaceOperationManagedCopyStageV6 } from '../files/workspace-operation-managed-copy-stage';
+import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
+import { nativeCopyMarkdownImportIds, NativeCopyMarkdownBirthError,
+  type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
+import { persistNativeCopyMarkdownBirthOnConnection } from './native-copy-markdown-birth-persistence';
 
 export type MarkdownImportIdentity = Pick<PersistedCollaborationState, 'documentId' | 'workspaceId' | 'organizationId'
   | 'path' | 'representation' | 'schemaVersion' | 'lifecycleGeneration' | 'newlineStyle' | 'hasBom'>;
@@ -2114,12 +2120,91 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
 
+type CopyMarkdownImportScope = { active: boolean; database: SqlConnection; stage: WorkspaceOperationManagedCopyStageV6;
+  requirementIndex: number; documentId: string; lineageId: string; existingLineage: boolean };
+const copyMarkdownImportScopes = new WeakMap<Captured, CopyMarkdownImportScope>();
+async function assertCopyMarkdownImportScope(database: SqlConnection, input: Captured, scope: CopyMarkdownImportScope): Promise<void> {
+  if (!scope.active || scope.database !== database || copyMarkdownImportScopes.get(input) !== scope) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+  const { assertNativeCopyMarkdownImportPreparationOnConnection } = await import('../files/workspace-operation-native-copy-phase');
+  const current = await assertNativeCopyMarkdownImportPreparationOnConnection(database, scope.stage, scope.requirementIndex);
+  const req = scope.stage.plan.rawImportRequirements[scope.requirementIndex];
+  if (current.destinationWorkspace.workspaceId !== input.workspace.workspaceId || !current.sourceWorkspace.permissions.canRead
+    || !current.destinationWorkspace.permissions.canRead || !current.destinationWorkspace.permissions.canWrite
+    || req.destinationPath !== input.path || req.destinationWorkspaceId !== input.workspace.workspaceId
+    || input.actorUserId !== scope.stage.origin.actor.userId || input.actorSessionId !== scope.stage.origin.actor.sessionId
+    || input.expectedTarget.kind !== 'absent' || input.prepared.sourceHash !== req.preparation.sourceHash
+    || input.prepared.sourceBytes !== req.preparation.sourceBytes || input.prepared.representation !== req.preparation.representation
+    || input.prepared.newlineStyle !== req.preparation.newlineStyle || input.prepared.hasBom !== req.preparation.hasBom
+    || hash(input.prepared.canonical) !== req.preparation.canonicalHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+}
+async function bindCopyMarkdownImportLineage(database: SqlConnection, input: Captured, scope: CopyMarkdownImportScope, now: number) {
+  await assertCopyMarkdownImportScope(database,input,scope); await assertBootstrapVirgin(database,scope.documentId);
+  if (scope.existingLineage) {
+    const row = await database.get(`SELECT id FROM file_collaboration_lineages WHERE id=$1 AND workspace_id=$2
+      AND organization_id IS NOT DISTINCT FROM $3 AND path=$4 AND status='active' AND workspace_type=$5
+      AND customer_id IS NOT DISTINCT FROM $6 AND project_id IS NOT DISTINCT FROM $7
+      AND xmin::text=(pg_catalog.pg_current_xact_id()::text::numeric % 4294967296)::text
+      AND NOT EXISTS(SELECT 1 FROM collaboration_documents WHERE lineage_id=$1)`,
+    [scope.lineageId,input.workspace.workspaceId,input.workspace.organizationId??null,input.path,input.workspace.workspaceType,
+      input.workspace.customerId??null,input.workspace.projectId??null]);
+    if (!row) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  } else await database.run(`INSERT INTO file_collaboration_lineages(id,organization_id,customer_id,project_id,workspace_id,workspace_type,path,status,created_at)
+    VALUES($1,$2,$3,$4,$5,$6,$7,'active',$8)`,[scope.lineageId,input.workspace.organizationId??null,input.workspace.customerId??null,
+    input.workspace.projectId??null,input.workspace.workspaceId,input.workspace.workspaceType,input.path,now]);
+  return {id:scope.lineageId,organizationId:input.workspace.organizationId??null};
+}
+
+/** Fixed Stage6/B1 entry only. It opens no connection, transaction, principal,
+ * lease, checkpoint or file writer. The caller owns rollback and COMMIT proof. */
+export async function persistNativeCopyMarkdownImportOnConnection(database: SqlConnection, supplied: Readonly<{
+  stage: WorkspaceOperationManagedCopyStageV6; requirementIndex: number;
+}>): Promise<NativeCopyMarkdownBirthV1> {
+  if (!supplied || types.isProxy(supplied) || Object.getPrototypeOf(supplied)!==Object.prototype
+    || Reflect.ownKeys(supplied).length!==2 || !['stage','requirementIndex'].every(key=>{
+      const property=Object.getOwnPropertyDescriptor(supplied,key);return property?.enumerable && Object.hasOwn(property,'value');
+    })) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const {stage,requirementIndex}=supplied;
+  if (!Number.isSafeInteger(requirementIndex) || requirementIndex<0 || requirementIndex>9999) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const {assertNativeCopyMarkdownImportPreparationOnConnection}=await import('../files/workspace-operation-native-copy-phase');
+  const current=await assertNativeCopyMarkdownImportPreparationOnConnection(database,stage,requirementIndex);
+  const req=stage.plan.rawImportRequirements[requirementIndex],original=stage.rawOriginals[requirementIndex];
+  if (!req || !original || stage.version!==6 || stage.plan.version!==5) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  const ids=nativeCopyMarkdownImportIds(stage.identity.operationId,stage.payloadSha256,requirementIndex);
+  const input=capture({workspace:current.destinationWorkspace,path:req.destinationPath,...ids,
+    actorUserId:stage.origin.actor.userId,actorSessionId:stage.origin.actor.sessionId,bytes:original.originalBytes,
+    expectedTarget:{kind:'absent'},representation:req.preparation.representation,validateAuthority:async()=>undefined});
+  input.fingerprint=nativeLinkJsonProof({version:1,kind:'raw-copy-markdown-birth',parentOperationId:stage.identity.operationId,
+    stageDigest:stage.payloadSha256,requestHash:stage.identity.canonicalRequestHash,requirementIndex,requirementProof:nativeLinkJsonProof(req),
+    originalFingerprint:input.fingerprint});
+  const scope:CopyMarkdownImportScope={active:true,database,stage,requirementIndex,documentId:`collab-${randomUUID()}`,
+    lineageId:`file-lineage-${randomUUID()}`,existingLineage:false};
+  copyMarkdownImportScopes.set(input,scope);
+  try { return await withBorrowedWriteTransaction(database,async()=>{
+    await assertCopyMarkdownImportScope(database,input,scope);
+    await assertWorkspaceFileLifecycleSqlAvailable(database,input.workspace.workspaceId,[input.path]);
+    await lockFileCollaborationPaths(database,input.workspace.workspaceId,[input.path]);
+    const rows=await database.all(`SELECT id FROM file_collaboration_lineages WHERE workspace_id=$1 AND path=$2 AND status='active'
+      ORDER BY id LIMIT 2 FOR UPDATE`,[input.workspace.workspaceId,input.path]) as Array<{id:string}>;
+    if (rows.length>1 || rows.length===1 && !validId(rows[0].id)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    if (rows.length) {scope.lineageId=rows[0].id;scope.existingLineage=true;}
+    const result=await executeCapturedMarkdownImportOnConnection(database,input,()=>assertCopyMarkdownImportScope(database,input,scope));
+    // The parent's original-history branch owns repeats. No foreign/old import
+    // receipt can authorize fresh link mutations in this B1.
+    if (result.disposition!=='applied') return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+    const birth=await persistNativeCopyMarkdownBirthOnConnection(database,{stage,requirementIndex,receipt:result.receipt});
+    await assertCopyMarkdownImportScope(database,input,scope); return birth;
+  },()=>new NativeCopyMarkdownBirthError()); }
+  finally {scope.active=false;copyMarkdownImportScopes.delete(input);}
+}
+
 async function executeCapturedMarkdownImportOnConnection(database: SqlConnection, input: Captured,
   validateAuthority: MarkdownFileImportRequest['validateAuthority']): Promise<MarkdownFileImportResult> {
   const original = originalBootstrapScopes.get(input);
   const staging = authenticatedUploadScopes.get(input);
+  const copy = copyMarkdownImportScopes.get(input);
   if (original) await assertBootstrapScope(database, input, original);
   else if (staging) await assertAuthenticatedUploadScope(database, input, staging);
+  else if (copy) await assertCopyMarkdownImportScope(database,input,copy);
   else { await database.run("SET LOCAL statement_timeout='5s'"); await database.run("SET LOCAL lock_timeout='4s'"); }
   await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
   await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
@@ -2132,7 +2217,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   if (input.expectedTarget.kind === 'absent' ? documents.length !== 0 || all.length !== 0
     : documents.length !== 1 || all.length !== 1 || !document || document.id !== input.expectedTarget.documentId
       || document.authority !== (input.expectedTarget.kind === 'pristine' ? 'pristine' : 'initialized')) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
-  const documentId = document?.id ?? original?.documentId ?? staging?.documentId ?? `collab-${randomUUID()}`;
+  const documentId = document?.id ?? original?.documentId ?? staging?.documentId ?? copy?.documentId ?? `collab-${randomUUID()}`;
   const active = await database.get(`SELECT operation_id FROM collaboration_agent_operations WHERE document_id=$1
           AND status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') LIMIT 1`, [documentId]);
   if (active) return fail('MARKDOWN_IMPORT_BUSY');
@@ -2149,6 +2234,7 @@ async function executeCapturedMarkdownImportOnConnection(database: SqlConnection
   } else state = importedState(input, documentId, Date.now());
   const lineage = original ? await bindBootstrapLineage(database, input, original, state.persistedAt)
     : staging ? await bindAuthenticatedUploadLineage(database, input, staging, state.persistedAt)
+    : copy ? await bindCopyMarkdownImportLineage(database,input,copy,state.persistedAt)
     : await ensureActiveFileLineage(database, { id: document?.lineage_id ?? `file-lineage-${randomUUID()}`,
     workspace: input.workspace, path: input.path, nowMs: state.persistedAt });
   if (lineage.organizationId !== state.organizationId || document?.lineage_id && lineage.id !== document.lineage_id) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');

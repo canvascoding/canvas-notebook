@@ -8,6 +8,7 @@ import { workspaceOperationNativePlanSnapshot } from './workspace-operation-nati
 import { decodeWorkspaceOperationNativeCopyPlan, WorkspaceOperationNativeCopyPlanError,
   type WorkspaceOperationNativeCopyPlan } from './workspace-operation-native-copy-plan';
 import { decodeWorkspaceOperationAnyManagedCopyPlan, type WorkspaceOperationAnyManagedCopyPlan } from './workspace-operation-managed-copy-plan-v4';
+import { decodeWorkspaceOperationManagedCopyPlanV5, type WorkspaceOperationManagedCopyPlanV5 } from './workspace-operation-managed-copy-plan-v5';
 import { workspaceOperationMixedCopySourceSnapshot } from './workspace-operation-copy-source-evidence-v4';
 
 /** Display data only. The fixed Copy owner performs fresh clone rebinding;
@@ -30,16 +31,27 @@ export type WorkspaceOperationNativeCopyPreviewPublic = {
     sourcePathBefore: string; sourcePathAfter: string;
     previousTargetLiteral: string; nextTargetLiteral: string;
   }>;
+  /** Semantic import targets only. Concrete native spelling/anchors exist
+   * after the actual target import and are not predicted by a Raw rehearsal. */
+  importLinkBindings?: {
+    status: 'requires-native-import-rebinding';
+    targets: Array<{ sourcePathBefore: string; sourcePathAfter: string; previousTargetLiteral: string;
+      targetPathAfter: string; fragment: string | null; alias: string | null; embed: boolean }>;
+  };
   coverage: WorkspaceFileOperationPreview['coverage'];
   linkAssessment: WorkspaceFileOperationPreview['linkAssessment'];
   issues: [];
 };
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan): WorkspaceOperationNativeCopyPreviewPublic {
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5): WorkspaceOperationNativeCopyPreviewPublic {
   const managed = input !== null && typeof input === 'object' && !types.isProxy(input)
     && Object.getPrototypeOf(input) === Object.prototype
     && [3, 4].includes(Object.getOwnPropertyDescriptor(input, 'version')?.value);
-  const plan = managed ? decodeWorkspaceOperationAnyManagedCopyPlan(input) : decodeWorkspaceOperationNativeCopyPlan(input);
+  const raw = input !== null && typeof input === 'object' && !types.isProxy(input)
+    && Object.getPrototypeOf(input) === Object.prototype
+    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 5;
+  const plan = raw ? decodeWorkspaceOperationManagedCopyPlanV5(input)
+    : managed ? decodeWorkspaceOperationAnyManagedCopyPlan(input) : decodeWorkspaceOperationNativeCopyPlan(input);
   const evidence = plan.sourceScope.workspaceId === plan.destinationScope.workspaceId
     ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence];
   const graphs = evidence.map(original => original.evidenceVersion === 4
@@ -49,10 +61,20 @@ export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperat
     && edge.resolution.status !== 'resolved').map(edge => ({ workspaceId: graph.workspaceId, sourcePath: edge.source.path,
     targetLiteral: edge.literal, status: edge.resolution.status as Exclude<typeof edge.resolution.status, 'resolved'> })));
   const complete = graphs.every(graph => graph.coverage.complete && graph.coverage.gaps.length === 0);
+  const importLinkBindings = plan.version === 5 ? {
+    status: 'requires-native-import-rebinding' as const,
+    targets: plan.nativePathPlan.physicalLinkIntents.map(intent => {
+      const requirement = plan.rawImportRequirements.find(value => value.entityKey === intent.entityKey);
+      if (!requirement) throw new WorkspaceOperationNativeCopyPlanError('NATIVE_COPY_PLAN_INVALID');
+      return { sourcePathBefore: requirement.sourcePath, sourcePathAfter: requirement.destinationPath,
+        previousTargetLiteral: intent.expectedSourceLiteral, targetPathAfter: intent.targetPathAfter,
+        fragment: intent.fragment, alias: intent.alias, embed: intent.embed };
+    }),
+  } : undefined;
   return {
     version: 4, kind: 'native-copy', sourceWorkspaceId: plan.sourceScope.workspaceId,
     destinationWorkspaceId: plan.destinationScope.workspaceId, planId: plan.planId,
-    // Both private C1 states are supported by the fixed owner. Its private
+    // Private C1 plan data is supported by the fixed owner. Its private
     // executionReady:false remains an integrity/authority boundary, not a UI blocker.
     readiness: 'ready',
     pathMappings: plan.nativePathPlan.pathMappings.map(mapping => ({
@@ -69,6 +91,7 @@ export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperat
       return previous === recipe.nextValue ? [] : [{ sourcePathBefore: recipe.source.path, sourcePathAfter: recipe.sourcePathAfter,
         previousTargetLiteral: previous, nextTargetLiteral: recipe.nextValue }];
     }),
+    ...(importLinkBindings === undefined ? {} : { importLinkBindings }),
     coverage: { complete: complete && unresolved.length === 0, omittedSources: [],
       unresolvedLinks: unresolved.map(({ workspaceId: _workspaceId, ...entry }) => entry) },
     linkAssessment: { version: 1, complete, warnings: unresolved.map(entry => ({ ...entry, reason: 'unaffected-existing-link' })), blockers: [] },

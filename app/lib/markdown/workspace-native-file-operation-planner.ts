@@ -159,7 +159,9 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
           || !registered || registered.kind !== 'file' || registered.documentId !== null || registered.lifecycleGeneration !== null
           || registered.filesystemIdentity !== inventory.physical.filesystemIdentity || registered.identity !== inventory.physical.filesystemIdentity
           || inventory.workspaceId !== snapshot.workspaceId || inventory.metadata.path !== inventory.path
-          || inventory.physicalSourceVersion !== 1 || inventory.parserVersion !== 2 || inventory.source !== 'original-physical-bytes'
+          || inventory.physicalSourceVersion !== 1
+          || inventory.parserVersion !== undefined && inventory.parserVersion !== 2 && inventory.parserVersion !== 3
+          || inventory.source !== 'original-physical-bytes'
           || inventory.encoding !== 'utf8' || inventory.executionReady !== false || inventory.applicability !== 'requires-import-and-rebinding'
           || !inventory.coverage.complete || inventory.coverage.gaps.length
           || !/\.(?:md|markdown)$/iu.test(inventory.path)

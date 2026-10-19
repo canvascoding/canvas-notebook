@@ -15,7 +15,7 @@ import type { NativeDocumentLink, NativeDocumentLinkInventory } from './workspac
 import { inspectPersistedDocumentLinksV3, nativeLinkJsonProof as proof,
   type NativeDocumentLinkInventoryV3 } from './workspace-native-link-inventory';
 import { prepareNativeLinkInverse, prepareNativeLinkMutations } from './workspace-native-link-mutations';
-import { inspectOriginalPhysicalLinks, type OriginalPhysicalLink, type OriginalPhysicalLinkInventory } from './workspace-physical-link-inventory';
+import { inspectOriginalPhysicalLinks, inspectOriginalPhysicalLinksV3, type OriginalPhysicalLink, type OriginalPhysicalLinkInventory } from './workspace-physical-link-inventory';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
 
 export type PhysicalNativeImportBindingInput = Readonly<{
@@ -215,7 +215,9 @@ export function bindPhysicalNativeImportLinks(input: PhysicalNativeImportBinding
       || !isCanonicalAdmissionPath(originalFacts.path) || !/\.(?:md|markdown)$/iu.test(originalFacts.path)
       || !isNativeSourceFilesystemFingerprint(originalFacts.physical.filesystemIdentity)
       || Number(originalFacts.physical.filesystemIdentity.split(':')[2]) !== originalBytes.byteLength) return reject();
-    const original = inspectOriginalPhysicalLinks({ workspaceId: originalFacts.workspaceId, organizationId: originalFacts.organizationId,
+    if (originalFacts.parserVersion !== 2 && originalFacts.parserVersion !== 3) return reject();
+    const inspectPhysical = originalFacts.parserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks;
+    const original = inspectPhysical({ workspaceId: originalFacts.workspaceId, organizationId: originalFacts.organizationId,
       path: originalFacts.path, authority: originalFacts.authority, bytes: originalBytes,
       filesystemIdentity: originalFacts.physical.filesystemIdentity, maxLinks: MAX_LINKS });
     const { originalBytes: _private, ...reparsedFacts } = original;
@@ -254,7 +256,7 @@ export function bindPhysicalNativeImportLinks(input: PhysicalNativeImportBinding
     if (!inventory.coverage.complete || inventory.coverage.gaps.length || inventory.parserVersion !== 3
       || inventory.version.stateProof !== receipt.target.initialStateProof || inventory.version.documentSequence !== 0
       || inventory.version.persistedAt !== receipt.target.persistedAt) return reject('CHANGED');
-    const targetPhysical = inspectOriginalPhysicalLinks({ workspaceId: state.workspaceId, organizationId: state.organizationId,
+    const targetPhysical = inspectPhysical({ workspaceId: state.workspaceId, organizationId: state.organizationId,
       path: state.path, authority: original.authority, bytes: originalBytes, filesystemIdentity: original.physical.filesystemIdentity, maxLinks: MAX_LINKS });
     if (!targetPhysical.coverage.complete || !equal(targetPhysical.metadata, inventory.metadata)) return reject('UNSUPPORTED');
     // The physical parser includes self-heading/block Wiki targets. Its

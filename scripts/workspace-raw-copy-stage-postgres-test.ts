@@ -201,7 +201,7 @@ async function rawCopyStagePostgresTest(): Promise<void> {
         await fs.writeFile(target, bytes, { flag: 'wx', mode: 0o600 }); const info = await fs.lstat(target, { bigint: true });
         laterTarget = { path: target, dev: String(info.dev), ino: String(info.ino), bytes };
         assert.deepEqual(await new WorkspaceOperationStaging({ dataRoot: h.dataRoot }).loadRawCopyByOperationId(baseline.operationId), saved);
-        await assert.rejects(store.loadOwnedCopyByOperationId(baseline.operationId), rejectStage);
+        assert.deepEqual(await store.loadOwnedCopyByOperationId(baseline.operationId), saved);
         await assert.rejects(store.loadNativeCopy(saved.identity), rejectStage); await assert.rejects(store.loadManagedCopy(saved.identity), rejectStage);
         await assert.rejects(store.removeCompletedRawCopy(saved.identity), (error: unknown) => code(error) === 'NOT_COMPLETED');
         assert.deepEqual(await store.loadRawCopy(saved.identity), saved); assert.equal(await journal.get(baseline.operationId), null);

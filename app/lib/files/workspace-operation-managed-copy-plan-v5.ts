@@ -199,7 +199,7 @@ function rawCopyV5Historical(value: WorkspaceOperationManagedCopyPlanV5): Worksp
       || raw.physicalSourceProof !== original.physicalSourceProof || raw.sourceEntityKey !== proof({ workspaceId: raw.sourceWorkspaceId, identity: mapping.source.identity })
       || raw.entityKey !== proof({ requestIndex: 0, sourceEntityKey: raw.sourceEntityKey, destinationWorkspaceId: raw.destinationWorkspaceId, destinationPath: raw.destinationPath })
       || raw.applicability !== 'requires-fresh-destination-import-and-occurrence-binding'
-      || !equal(raw.importPolicy, { version: 1, initialRepresentation: 'auto', parserVersion: 2 })
+      || !equal(raw.importPolicy, { version: 1, initialRepresentation: 'auto', parserVersion: original.parserVersion ?? 2 })
       || preparation.version !== 1 || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(preparation.representation)
       || preparation.sourceHash !== original.physical.byteHash || preparation.sourceBytes !== original.physical.byteLength
       || !['none', 'lf', 'crlf'].includes(original.lineEndings.style) || preparation.newlineStyle !== (original.lineEndings.style === 'crlf' ? 'crlf' : 'lf')
