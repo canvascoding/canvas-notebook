@@ -9,6 +9,7 @@ import { readStoredAgentWorkspaceOnConnection } from '@/app/lib/pi/session-works
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { withWorkspaceOperationJobClaimScheduling } from './workspace-operation-job-phase-scheduling';
+import { createWorkspaceOperationClaimRenewals } from './workspace-operation-claim-renewals';
 import { WORKSPACE_FILE_UNDO_ENABLED, WorkspaceFileUndoDisabledError } from './workspace-file-undo-policy';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { executeWorkspaceOperationBatch, getWorkspaceOperationBatchMutationEvidence,
@@ -101,16 +102,9 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
     async tick(): Promise<boolean> {
       if (busy) return false;
       busy = true;
-      let timer: ReturnType<typeof setInterval> | undefined;
       let batch: WorkspaceOperationBatchRecord | null = null;
-      let leaseLost = false;
-      let renewal: Promise<void> | undefined;
-      let renewalsOpen = false;
-      const stopRenewals = async () => {
-        renewalsOpen = false;
-        if (timer) { clearInterval(timer); timer = undefined; }
-        await renewal;
-      };
+      let renewals: ReturnType<typeof createWorkspaceOperationClaimRenewals> | undefined;
+      const stopRenewals = async () => { await renewals?.pauseAndDrain(); };
       try {
         batch = await store.claim(owner);
         if (!batch) return false;
@@ -123,20 +117,12 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               errorCode: new WorkspaceFileUndoDisabledError().code });
             return;
           }
-          const startRenewals = () => {
-            renewalsOpen = true;
-            timer = setInterval(() => {
-              if (!renewalsOpen || renewal) return;
-              const pending = store.heartbeatClaim(currentBatch).then((owned) => { if (!owned) leaseLost = true; })
-                .catch(() => { leaseLost = true; }).finally(() => { if (renewal === pending) renewal = undefined; });
-              renewal = pending;
-            }, 20_000);
-            timer.unref?.();
-          };
-          startRenewals();
+          const activeRenewals = createWorkspaceOperationClaimRenewals(store, currentBatch);
+          renewals = activeRenewals;
+          activeRenewals.start();
           const finish = async (input: Parameters<WorkspaceOperationBatchStore['finishClaim']>[1]) => {
             await stopRenewals();
-            if (leaseLost) throw new Error('BATCH_LEASE_LOST');
+            if (activeRenewals.hasLeaseLost()) throw new Error('BATCH_LEASE_LOST');
             return store.finishClaim(currentBatch, input);
           };
           try {
@@ -151,7 +137,7 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               const scope = await resolveScope(currentBatch);
               assertJobScope(scope);
               const gate = async (progress?: WorkspaceOperationBatchProgress) => {
-                if (leaseLost || !await store.heartbeatClaim(currentBatch, progress)) throw new Error('BATCH_LEASE_LOST');
+                if (activeRenewals.hasLeaseLost() || !await store.heartbeatClaim(currentBatch, progress)) throw new Error('BATCH_LEASE_LOST');
                 const fresh = await resolveScope(currentBatch);
                 assertJobScope(fresh);
                 if (fresh.workspace.rootPath !== scope.workspace.rootPath) throw new Error('BATCH_SCOPE_CHANGED');
@@ -181,11 +167,10 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
               const result = await withWorkspaceOperationJobClaimScheduling(jobClaim, {
                 pauseAndDrain: async () => {
                   await stopRenewals();
-                  if (leaseLost) throw new Error('BATCH_LEASE_LOST');
+                  if (activeRenewals.hasLeaseLost()) throw new Error('BATCH_LEASE_LOST');
                 },
                 resume: async () => {
-                  if (leaseLost || !await store.heartbeatClaim(currentBatch)) throw new Error('BATCH_LEASE_LOST');
-                  startRenewals();
+                  await activeRenewals.resume();
                 },
               }, () => currentBatch.actionMode === 'undo'
                 ? undo({ batchId: currentBatch.batchId, scope, actorUserId,
@@ -210,7 +195,7 @@ export function createWorkspaceOperationBatchWorker(dependencies: WorkerDependen
         });
         return true;
       } catch (error) {
-        if (batch && !leaseLost) {
+        if (batch && !renewals?.hasLeaseLost()) {
           const currentBatch = batch;
           const evidence = await (currentBatch.plan.version !== 1
             ? resolveScope(currentBatch).then(scope => mutationEvidence(currentBatch.batchId, currentBatch.workspaceId,

@@ -15,7 +15,7 @@ export const DIRECT_MCP_TOOL_IDS = [
   'edit_knowledge_source',
   // Copy uses the fixed central Owner and requires explicit administrator opt-in.
   'copy_knowledge_source',
-  // Reserved for the fixed native Move/Delete owners. No public handlers yet.
+  // Move/Delete use the fixed native Owners and require explicit administrator opt-in.
   'move_knowledge_source',
   'delete_knowledge_source',
   'read_knowledge_asset',

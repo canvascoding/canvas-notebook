@@ -30,6 +30,8 @@ import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-t
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
 import { finalizeWorkspaceNativeCopyViews } from './workspace-operation-copy-view-finalizer';
 
+export { runDirectMcpWorkspaceMoveService, runDirectMcpWorkspaceDeleteService } from './workspace-operation-mcp-path-service';
+
 type Selection = { sourcePath: string; destinationPath: string };
 type Scope = { workspace: WorkspaceContext; fileOptions: WorkspaceFileOperationOptions };
 

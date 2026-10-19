@@ -5928,6 +5928,14 @@
             "title": "Dateien und Dokumente kopieren",
             "description": "Kopiert sichtbare Dateien, Ordner und native Dokumente über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Benötigt Lesezugriff auf die Quelle und Schreibzugriff auf das Ziel."
           },
+          "move_knowledge_source": {
+            "title": "Dateien und Dokumente verschieben",
+            "description": "Verschiebt unterstützte Workspace-Pfade über den zentralen nativen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Belegte Ziele sind Konflikte. Benötigt Lese-, Schreib- und Löschrechte."
+          },
+          "delete_knowledge_source": {
+            "title": "Native Dokumente löschen",
+            "description": "Archiviert ein natives Dokument, aktualisiert eingehende Links und entfernt Dateiannotationen über den zentralen Dienst, mit Vorschau, gespeichertem Status und ausdrücklicher Wiederaufnahme. Datei-Undo ist nicht verfügbar. Benötigt Lese-, Schreib- und Löschrechte."
+          },
           "read_knowledge_asset": {
             "title": "Bilder und PDFs lesen",
             "description": "Stellt begrenzten visuellen und Textkontext aus sichtbaren Bildern und PDF-Dokumenten nach einer ausdrücklichen Freigabe durch die Administration bereit."

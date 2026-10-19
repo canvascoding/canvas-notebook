@@ -163,6 +163,8 @@ async function main(): Promise<void> {
         { id: 'read_knowledge_source', available: true, enabled: true, scopes: ['knowledge:read'] },
         { id: 'edit_knowledge_source', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'copy_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'move_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
+        { id: 'delete_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
         { id: 'read_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:assets'] },
         { id: 'upload_knowledge_asset', available: true, enabled: true, scopes: ['knowledge:write'] },
         { id: 'create_knowledge_source', available: true, enabled: false, scopes: ['knowledge:write'] },
@@ -284,8 +286,9 @@ async function main(): Promise<void> {
         CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_TOOLS: tool,
       });
       assert.equal(status.configurationError, null);
-      assert.equal(status.capabilities.some(capability => capability.id === tool), false,
-        'Internal principal reservations must not advertise unfinished public Move/Delete tools.');
+      assert.deepEqual(status.capabilities.find(capability => capability.id === tool),
+        { id: tool, available: true, scopes: ['knowledge:write'], enabled: true },
+        'The connected Move/Delete capability is advertised after explicit selection with its actual Write scope.');
       const saved = await setDirectMcpServerPreferences('admin-1', { enabled: true, tools: ['auth_probe', tool] });
       assert.deepEqual(saved.tools, ['auth_probe', tool]);
       assert.deepEqual((await getDirectMcpServerPreferences())?.tools, saved.tools);

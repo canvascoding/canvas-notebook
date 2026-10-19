@@ -111,6 +111,10 @@ import {
 } from '@/app/lib/mcp/server/workspace-access-policy';
 import { decodeDirectMcpWorkspaceCopyRequestV1, formatDirectMcpWorkspaceCopyResult, formatDirectMcpWorkspaceCopyError,
   DIRECT_MCP_WORKSPACE_COPY_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_COPY_OUTPUT_SCHEMA_V1 } from './workspace-copy-tool-contract';
+import { decodeDirectMcpWorkspaceMoveRequestV1, decodeDirectMcpWorkspaceDeleteRequestV1,
+  formatDirectMcpWorkspacePathResult, formatDirectMcpWorkspacePathError,
+  DIRECT_MCP_WORKSPACE_MOVE_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1,
+  DIRECT_MCP_WORKSPACE_DELETE_INPUT_SCHEMA_V1, DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1 } from './workspace-path-tool-contract';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { createOrdinaryAgentProposal, type OrdinaryAgentProposalResult } from '@/app/lib/file-version-center/ordinary-agent-proposal';
 import { ProposalGraphContractError } from '@/app/lib/file-version-center/contracts/proposal-graph-v1';
@@ -124,6 +128,8 @@ export const DIRECT_MCP_WORKSPACE_TOOL_IDS = [
   'read_knowledge_source',
   'edit_knowledge_source',
   'copy_knowledge_source',
+  'move_knowledge_source',
+  'delete_knowledge_source',
   'read_knowledge_asset',
   'upload_knowledge_asset',
 ] as const satisfies readonly DirectMcpToolId[];
@@ -295,6 +301,20 @@ function getToolSecurity(scope: DirectMcpResourceScope) {
 }
 
 export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): DirectMcpToolDescriptor {
+  if (tool === 'move_knowledge_source' || tool === 'delete_knowledge_source') {
+    const move = tool === 'move_knowledge_source';
+    return {
+      name: tool, title: move ? 'Move workspace files and documents' : 'Delete a native workspace document',
+      ...getToolSecurity('knowledge:write'),
+      description: 'Explicit api_version:1 native path operation through the central owner. Use action:preview with workspace_id and '
+        + (move ? 'selections of source_path and destination_path, preserving their order. Existing destinations are hard conflicts; no automatic collision naming. '
+          : 'one native document path. This archives the document and removes its file annotations. ')
+        + 'Retain the preview planId, exact original paths and a caller-selected operation_id for apply. Recover is one explicit existing-operation attempt with the same operation_id, plan_id and original paths; it never creates a new job. Status uses workspace_id and operation_id only and publishes no file events. A missing recorded status is separate from a missing recoverable operation. Journal status and historical receipt-confirmed completion are separate facts. Preserve the same request and ID after uncertainty; never automatically replay or generate a replacement ID. Requires knowledge:write and current read/write/delete/agent permission in the same workspace. Preview/apply/recover require native mutations enabled; historical status remains available under current rights when that gate is off. No Undo or legacy Markdown fallback. Results do not invent native document IDs.',
+      inputSchema: { ...(move ? DIRECT_MCP_WORKSPACE_MOVE_INPUT_SCHEMA_V1 : DIRECT_MCP_WORKSPACE_DELETE_INPUT_SCHEMA_V1), type: 'object' },
+      outputSchema: { ...(move ? DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1 : DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1), type: 'object' },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    };
+  }
   if (tool === 'copy_knowledge_source') {
     return {
       name: tool,
@@ -2086,6 +2106,27 @@ async function executeCopyKnowledgeSource(args: unknown, authInfo?: AuthInfo): P
   }
 }
 
+async function executeMoveKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    const input = decodeDirectMcpWorkspaceMoveRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceMoveService } = await import('../../files/workspace-file-operation-service');
+    return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceMoveService(input, authInfo), selectedOperationId);
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+}
+async function executeDeleteKnowledgeSource(args: unknown, authInfo?: AuthInfo): Promise<CallToolResult> {
+  let selectedOperationId: string | undefined;
+  try {
+    const input = decodeDirectMcpWorkspaceDeleteRequestV1(args);
+    selectedOperationId = input.action === 'preview' ? undefined : input.operationId;
+    if (!authInfo) throw new DirectMcpAuthorizationError('invalid_token', 401, 'Authentication is required.', { challengeError: 'invalid_token' });
+    const { runDirectMcpWorkspaceDeleteService } = await import('../../files/workspace-file-operation-service');
+    return formatDirectMcpWorkspacePathResult(await runDirectMcpWorkspaceDeleteService(input, authInfo), selectedOperationId);
+  } catch (error) { return formatDirectMcpWorkspacePathError(error, selectedOperationId); }
+}
+
 export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDefinition[] {
   return [
     {
@@ -2123,6 +2164,8 @@ export function getDirectMcpWorkspaceToolDefinitions(): DirectMcpWorkspaceToolDe
       descriptor: getDirectMcpWorkspaceToolDescriptor('copy_knowledge_source'),
       execute: executeCopyKnowledgeSource,
     },
+    { id: 'move_knowledge_source', descriptor: getDirectMcpWorkspaceToolDescriptor('move_knowledge_source'), execute: executeMoveKnowledgeSource },
+    { id: 'delete_knowledge_source', descriptor: getDirectMcpWorkspaceToolDescriptor('delete_knowledge_source'), execute: executeDeleteKnowledgeSource },
     {
       id: 'read_knowledge_asset',
       descriptor: getDirectMcpWorkspaceToolDescriptor('read_knowledge_asset'),

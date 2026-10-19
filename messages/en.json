@@ -5929,6 +5929,14 @@
             "title": "Copy files and documents",
             "description": "Copies visible files, folders and native documents through the central service, with preview, recorded status and explicit recovery. Requires source read and destination write access."
           },
+          "move_knowledge_source": {
+            "title": "Move files and documents",
+            "description": "Moves supported workspace paths through the central native service, with preview, recorded status and explicit recovery. Existing destinations are conflicts. Requires read, write and delete access."
+          },
+          "delete_knowledge_source": {
+            "title": "Delete native documents",
+            "description": "Archives one native document, updates incoming links and removes file annotations through the central service, with preview, recorded status and explicit recovery. File Undo is unavailable. Requires read, write and delete access."
+          },
           "read_knowledge_asset": {
             "title": "Read images and PDFs",
             "description": "Provides bounded visual and text context from visible images and PDF documents after an explicit administrator enablement."
