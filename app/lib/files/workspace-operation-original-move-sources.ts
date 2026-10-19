@@ -21,6 +21,7 @@ import { captureWorkspaceOperationNativeSourceEvidenceV3 } from './workspace-ope
 import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
 import { workspaceOperationMixedSourceSnapshot, workspaceOperationSourceNamespace,
   workspaceOperationSourceNativeEvidence, workspaceOperationSourceScope } from './workspace-operation-mixed-source-evidence';
+import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
 import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
   readWorkspaceOperationOriginalMoveNativeBundle, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveIntentData } from './workspace-operation-original-move';
@@ -346,7 +347,8 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
   const frame: Frame = { database, workspace, mode, facts, active: true, claimed: false, failed: false };
   try {
     const { readWorkspaceLinkSourceAuthorityOnConnection } = await import('../markdown/workspace-source-authority-stage');
-    const observation = await frames.run(frame, () => readWorkspaceLinkSourceAuthorityOnConnection(database, workspace));
+    const observation = await frames.run(frame, () => readWorkspaceLinkSourceAuthorityOnConnection(database, workspace,
+      { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(owner.context.plan.sourceEvidence) }));
     if (!frame.claimed || frame.failed) fail();
     await owner.assertCurrent();
     if (await transactionIdentity(database) !== transaction) fail();

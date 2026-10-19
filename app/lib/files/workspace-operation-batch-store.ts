@@ -1,11 +1,11 @@
 import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { executeLifecycleTransaction } from '@/app/lib/collaboration/lifecycle-transaction';
-import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
+import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 import { decodeWorkspaceOperationMcpAuthorization, createWorkspaceOperationMcpAuthorization,
@@ -19,6 +19,13 @@ import { workspaceOperationBatchTotalActions } from './workspace-operation-nativ
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
   WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+import type { WorkspaceContext } from '../workspaces/types';
+import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
+import { decodeWorkspacePathImportPreparationRecordV1, readWorkspacePathImportPreparationRecordOnConnection,
+  type WorkspacePathImportPreparationRecordV1 } from './workspace-path-import-preparation-record';
+import { captureCollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
+import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
+import { createWorkspaceOperationOriginalDeleteAdmissionRequest } from './workspace-operation-original-delete-admission';
 
 export type WorkspaceOperationBatchStatus = 'preview' | 'blocked' | 'queued' | 'applying' | 'applied'
   | 'needs_review' | 'needs_recovery' | 'failed' | 'undone';
@@ -904,4 +911,198 @@ export class WorkspaceOperationBatchStore {
       throw error;
     } });
   }
+}
+
+/** Fixed B0 header insertion only. The genuine operation frame owns B, current
+ * policy, lifecycle locks and all imports. This never creates/registers a Claim,
+ * opens a transaction, commits, closes B or adopts a historical import-only row. */
+export async function insertWorkspacePathImportOperationBatchOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle): Promise<Readonly<{
+    batch: WorkspaceOperationBatchRecord; binding: WorkspaceOperationBatchClaimBinding;
+  }>> {
+  const { assertWorkspacePathImportOperationPreparationOnConnection } = await import('./workspace-path-import-preparation-phase');
+  const frame = await assertWorkspacePathImportOperationPreparationOnConnection(database, handle);
+  const original = decodeWorkspacePathImportPreparationRecordV1(frame.record), { access } = frame;
+  const { origin, nativePlan } = original, workspace = access.workspace;
+  const scope = captureWorkspaceOperationJobScope(workspace);
+  const clientId = 'clientId' in access ? access.clientId : null;
+  const tool = origin.tool === 'delete' ? 'delete_knowledge_source' as const : 'move_knowledge_source' as const;
+  if (!isDeepStrictEqual(scope, origin.scope) || access.userId !== origin.userId || access.sessionId !== origin.sessionId
+    || clientId !== origin.clientId || (origin.kind === 'direct-mcp'
+      ? !('tool' in access) || access.tool !== tool || typeof clientId !== 'string'
+      : 'clientId' in access)) throw claimError('BATCH_SCOPE_CHANGED');
+  const current = await database.get(`SELECT pg_catalog.pg_current_xact_id_if_assigned()::text AS xid,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,
+    pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication`) as Record<string, unknown> | undefined;
+  if (current?.xid !== original.b0TransactionId || current.isolation !== 'read committed'
+    || current.read_only !== 'off' || current.replication !== 'origin') throw claimError('BATCH_CLAIM_CHANGED');
+  const saved = await readWorkspacePathImportPreparationRecordOnConnection(database,
+    { schema: origin.realm.schemaName, workspaceId: scope.workspaceId, batchId: original.batchId });
+  if (!saved || !isDeepStrictEqual(saved, original)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  const source = await assertMcpClaimSource(database), table = `${quote(source.schemaName)}.workspace_file_operation_batches`;
+  if (source.databaseOid !== origin.realm.databaseOid || source.schemaOid !== origin.realm.schemaOid
+    || source.schemaName !== origin.realm.schemaName) throw claimError('BATCH_SCOPE_CHANGED');
+  try { await database.run(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE NOWAIT`); }
+  catch (error) {
+    if (error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === '55P03') throw claimError('BATCH_CLAIM_BUSY');
+    throw error;
+  }
+  await assertMcpClaimSource(database, source);
+  if (!isDeepStrictEqual((await assertWorkspacePathImportOperationPreparationOnConnection(database, handle)).record, original)) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  if (await readMcpJobRow(database, source, original.batchId)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  await assertMcpPredecessor(database, source, scope.workspaceId, original.batchId);
+  const selections = original.previewPlan.request.selections.map(selection => ({ sourcePath: selection.sourcePath,
+    ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) }));
+  const actor = workspace.actor;
+  const displayName = actor?.userId === access.userId && typeof actor.email === 'string' && actor.email.trim()
+    ? actor.email : access.userId;
+  const selected: WorkspaceOperationBatchAuthorization = origin.kind === 'direct-mcp'
+    ? createWorkspaceOperationMcpAuthorization({ userId: access.userId, clientId: clientId as string,
+      sessionId: access.sessionId, workspace, tool, plan: nativePlan })
+    : captureDirectAuthorization({ mode: 'direct', actorUserId: access.userId, actorId: access.userId,
+      actorType: 'user', actorDisplayName: displayName, actorSessionId: access.sessionId, jobScope: scope,
+      requestHash: createHash('sha256').update(JSON.stringify(['workspace-path-operation-v1', scope.workspaceId,
+        origin.tool, selections, false, false, original.previewPlan.planId, access.userId, 'user', access.userId,
+        access.sessionId])).digest('hex') });
+  const planText = JSON.stringify(nativePlan), authorizationText = JSON.stringify(selected);
+  if (Buffer.byteLength(planText) > 16 * 1024 * 1024 || Buffer.byteLength(authorizationText) > 65536) throw claimError('BATCH_INVALID_PLAN');
+  const status = origin.kind === 'direct-mcp' ? 'needs_recovery' : 'queued';
+  const totalActions = workspaceOperationBatchTotalActions(nativePlan);
+  await access.assertCurrent();
+  if (!isDeepStrictEqual((await assertWorkspacePathImportOperationPreparationOnConnection(database, handle)).record, original)) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  const inserted = await database.get(`INSERT INTO ${table}
+    (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,status,
+     action_mode,reviewer_user_id,reviewer_display_name,completed_actions,total_actions,phase,error_code,
+     trash_entry_ids_json,lease_owner,lease_token,lease_expires_at,created_at,updated_at)
+    VALUES($1,$2,$3,'[]','[]',$4,$5,$6,'apply',NULL,NULL,0,$7,'preparing',NULL,'[]',NULL,NULL,NULL,$8,$8)
+    RETURNING *,tableoid::oid::bigint AS claim_table_oid,xmin::text AS row_xmin`,
+  [original.batchId, nativePlan.planId, scope.workspaceId, planText, authorizationText, status,
+    totalActions, original.preparedAt]) as Record<string, unknown> | undefined;
+  if (!inserted || Number(inserted.claim_table_oid) !== source.tableOid
+    || inserted.row_xmin !== String(BigInt(original.b0TransactionId) & BigInt('4294967295'))
+    || inserted.plan_json !== planText || inserted.authorization_json !== authorizationText
+    || inserted.review_ids_json !== '[]' || inserted.review_refs_json !== '[]' || inserted.trash_entry_ids_json !== '[]'
+    || inserted.lease_owner !== null || inserted.lease_token !== null || inserted.lease_expires_at !== null
+    || inserted.reviewer_user_id !== null || inserted.reviewer_display_name !== null) throw claimError('BATCH_CLAIM_CHANGED');
+  const batch = record(inserted);
+  if (batch.batchId !== original.batchId || batch.planId !== nativePlan.planId || batch.workspaceId !== scope.workspaceId
+    || !isDeepStrictEqual(batch.plan, nativePlan) || !isDeepStrictEqual(batch.authorization, selected)
+    || batch.status !== status || batch.actionMode !== 'apply' || batch.completedActions !== 0 || batch.totalActions !== totalActions
+    || batch.phase !== 'preparing' || batch.errorCode !== null || batch.createdAt !== original.preparedAt
+    || batch.updatedAt !== original.preparedAt) throw claimError('BATCH_CLAIM_CHANGED');
+  await assertMcpClaimSource(database, source); await access.assertCurrent();
+  if (!isDeepStrictEqual((await assertWorkspacePathImportOperationPreparationOnConnection(database, handle)).record, original)) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  const binding: WorkspaceOperationBatchClaimBinding = frozen({ batchId: batch.batchId, planId: batch.planId,
+    workspaceId: batch.workspaceId, plan: batch.plan, authorization: batch.authorization, actionMode: batch.actionMode,
+    totalActions: batch.totalActions, createdAt: batch.createdAt, reviewIds: batch.reviewIds, reviewRefs: batch.reviewRefs,
+    reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source });
+  return frozen({ batch, binding });
+}
+
+/** Historical data only. Caller owns the authorized consistent B/current
+ * principal; workspace supplies scope facts, never a grant. A stored record or
+ * header alone cannot replace its original P0. No current native/FD read or
+ * new planning, claim, lease, reservation, transaction or COMMIT is performed. */
+export async function readWorkspacePathImportOperationBatchOnConnection(database: SqlConnection,
+  supplied: Readonly<{ record: WorkspacePathImportPreparationRecordV1; workspace: WorkspaceContext }>
+): Promise<WorkspaceOperationBatchRecord | null> {
+  if (!supplied || typeof supplied !== 'object' || types.isProxy(supplied) || Object.getPrototypeOf(supplied) !== Object.prototype
+    || Reflect.ownKeys(supplied).length !== 2) throw claimError('BATCH_CLAIM_CHANGED');
+  const recordField = Object.getOwnPropertyDescriptor(supplied, 'record'), workspaceField = Object.getOwnPropertyDescriptor(supplied, 'workspace');
+  if (!recordField?.enumerable || !Object.hasOwn(recordField, 'value')
+    || !workspaceField?.enumerable || !Object.hasOwn(workspaceField, 'value')) throw claimError('BATCH_CLAIM_CHANGED');
+  const original = decodeWorkspacePathImportPreparationRecordV1(recordField.value);
+  const workspace: unknown = workspaceField.value;
+  if (!workspace || typeof workspace !== 'object' || types.isProxy(workspace)
+    || Object.getPrototypeOf(workspace) !== Object.prototype) throw claimError('BATCH_SCOPE_CHANGED');
+  const scope = captureWorkspaceOperationJobScope(workspace as WorkspaceContext), { origin, nativePlan } = original;
+  if (!isDeepStrictEqual(scope, origin.scope)) throw claimError('BATCH_SCOPE_CHANGED');
+  // Capture current workspace namespace facts before the first await. The
+  // authorization constructor is pure data and intentionally reads no grant.
+  const expectedMcp = origin.kind === 'direct-mcp' && typeof origin.clientId === 'string'
+    ? createWorkspaceOperationMcpAuthorization({ userId: origin.userId, clientId: origin.clientId,
+      sessionId: origin.sessionId, workspace: workspace as WorkspaceContext,
+      tool: origin.tool === 'delete' ? 'delete_knowledge_source' : 'move_knowledge_source', plan: nativePlan }) : null;
+  if (origin.kind === 'direct-mcp' && !expectedMcp) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  const saved = await readWorkspacePathImportPreparationRecordOnConnection(database,
+    { schema: origin.realm.schemaName, workspaceId: scope.workspaceId, batchId: original.batchId });
+  if (!saved || !isDeepStrictEqual(saved, original)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  const source = await assertMcpClaimSource(database);
+  if (source.databaseOid !== origin.realm.databaseOid || source.schemaOid !== origin.realm.schemaOid
+    || source.schemaName !== origin.realm.schemaName) throw claimError('BATCH_SCOPE_CHANGED');
+  const row = await readMcpJobRow(database, source, original.batchId);
+  if (!row) throw claimError('BATCH_CLAIM_CHANGED');
+  const batch = record(row);
+  if (batch.batchId !== original.batchId || batch.planId !== nativePlan.planId || batch.workspaceId !== scope.workspaceId
+    || !isDeepStrictEqual(batch.plan, nativePlan) || batch.actionMode !== 'apply'
+    || batch.reviewIds.length !== 0 || batch.reviewRefs.length !== 0 || batch.reviewerUserId !== null || batch.reviewerDisplayName !== null
+    || batch.totalActions !== workspaceOperationBatchTotalActions(nativePlan) || !Number.isSafeInteger(batch.completedActions)
+    || batch.completedActions < 0 || batch.completedActions > batch.totalActions || batch.createdAt !== original.preparedAt
+    || !Number.isSafeInteger(batch.updatedAt) || batch.updatedAt < batch.createdAt
+    || !['queued', 'applying', 'applied', 'needs_review', 'needs_recovery', 'failed'].includes(batch.status)
+    || !['preparing', 'paths', 'links', 'complete', 'recovery'].includes(batch.phase)) throw claimError('BATCH_CLAIM_CHANGED');
+  const selections = original.previewPlan.request.selections.map(selection => ({ sourcePath: selection.sourcePath,
+    ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) }));
+  if (origin.kind === 'direct-mcp') {
+    if (batch.authorization.mode !== 'direct-mcp' || !isDeepStrictEqual(batch.authorization, expectedMcp)) {
+      throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+    }
+  } else {
+    const expected = { mode: 'direct', actorUserId: origin.userId, actorId: origin.userId, actorType: 'user',
+      actorDisplayName: batch.authorization.mode === 'direct' ? batch.authorization.actorDisplayName : null,
+      actorSessionId: origin.sessionId, jobScope: scope,
+      requestHash: createHash('sha256').update(JSON.stringify(['workspace-path-operation-v1', scope.workspaceId, origin.tool,
+        selections, false, false, original.previewPlan.planId, origin.userId, 'user', origin.userId, origin.sessionId])).digest('hex') };
+    if (batch.authorization.mode !== 'direct' || !isDeepStrictEqual(batch.authorization, expected)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  }
+  const binding: WorkspaceOperationBatchClaimBinding = frozen({ batchId: batch.batchId, planId: batch.planId,
+    workspaceId: batch.workspaceId, plan: batch.plan, authorization: batch.authorization, actionMode: batch.actionMode,
+    totalActions: batch.totalActions, createdAt: batch.createdAt, reviewIds: batch.reviewIds, reviewRefs: batch.reviewRefs,
+    reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source });
+  const names = ['collaboration_admission_requests', ...(nativePlan.version === 3
+    ? ['workspace_file_operation_move_preparations', 'collaboration_native_file_operation_intents'] : [])];
+  const relations = await database.all(`SELECT n.name,c.oid::bigint AS oid,c.relnamespace::bigint AS schema_oid,c.relkind,c.relpersistence,
+    c.relrowsecurity,c.relforcerowsecurity,pg_catalog.to_regclass(pg_catalog.quote_ident(n.name))::oid::bigint AS resolved
+    FROM pg_catalog.unnest($2::text[]) n(name) LEFT JOIN pg_catalog.pg_class c
+      ON c.oid=pg_catalog.to_regclass($1||'.'||pg_catalog.quote_ident(n.name)) ORDER BY n.name COLLATE "C"`,
+  [quote(source.schemaName), names]) as Record<string, unknown>[];
+  if (relations.length !== names.length || new Set(relations.map(item => item.name)).size !== names.length || relations.some(item =>
+    !names.includes(String(item.name)) || Number(item.schema_oid) !== source.schemaOid
+    || !Number.isSafeInteger(Number(item.oid)) || Number(item.oid) < 1 || Number(item.resolved) !== Number(item.oid)
+    || item.relkind !== 'r' || item.relpersistence !== 'p' || item.relrowsecurity !== false || item.relforcerowsecurity !== false)) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  let request: ReturnType<typeof captureCollaborationAdmissionRequest>;
+  if (nativePlan.version === 3) {
+    const auth = batch.authorization;
+    if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp') throw claimError('BATCH_CLAIM_CHANGED');
+    const prepared = await readWorkspaceOperationOriginalMovePreparationOnConnection(database, { schema: source.schemaName,
+      context: { batchId: batch.batchId, requestHash: auth.requestHash, plan: nativePlan,
+        actor: { userId: auth.actorUserId, actorId: auth.actorId, actorType: auth.actorType, actorSessionId: auth.actorSessionId ?? null } },
+      readOnly: true });
+    if (!prepared) throw claimError('BATCH_CLAIM_CHANGED');
+    request = captureCollaborationAdmissionRequest(prepared.request);
+    if (prepared.preparation.requestId !== request.request.requestId || prepared.preparation.requestDigest !== request.requestDigest) {
+      throw claimError('BATCH_CLAIM_CHANGED');
+    }
+  } else request = captureCollaborationAdmissionRequest(createWorkspaceOperationOriginalDeleteAdmissionRequest(binding));
+  const header = await database.get(`SELECT CASE WHEN octet_length(request_id)=36 THEN request_id END AS request_id,
+    CASE WHEN octet_length(request_digest)=64 THEN request_digest END AS request_digest,
+    CASE WHEN octet_length(intent_text)=$2 AND octet_length(intent_text)<=16777216 THEN intent_text END AS intent_text,
+    CASE WHEN octet_length(status)<=32 THEN status END AS status
+    FROM ${quote(source.schemaName)}.collaboration_admission_requests WHERE request_id=$1`,
+  [request.request.requestId, Buffer.byteLength(request.intentText)]) as Record<string, unknown> | undefined;
+  if (!header || header.request_id !== request.request.requestId || header.request_digest !== request.requestDigest
+    || header.intent_text !== request.intentText || !['reserved', 'draining', 'recovery_required', 'committed', 'cancelled'].includes(header.status as string)) {
+    throw claimError('BATCH_CLAIM_CHANGED');
+  }
+  await assertMcpClaimSource(database, source);
+  return frozen(batch);
 }

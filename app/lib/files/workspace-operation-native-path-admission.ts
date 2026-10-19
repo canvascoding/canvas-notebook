@@ -24,6 +24,7 @@ import type { WorkspaceOperationDirectAuthorization, WorkspaceOperationDirectMcp
   WorkspaceOperationJobScope, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
+import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
 import { WorkspaceFileLifecycleBusyError } from './workspace-file-lifecycle-guard';
@@ -45,6 +46,7 @@ import { createWorkspaceOperationOriginalMovePreparation, readWorkspaceOperation
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './workspace-operation-original-move-handoff-storage';
+import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
 
 type NativePathBinding = Readonly<{
   binding: WorkspaceOperationBatchClaimBinding; authorization: WorkspaceOperationDirectAuthorization | WorkspaceOperationDirectMcpAuthorization;
@@ -61,7 +63,13 @@ export { createWorkspaceOperationOriginalDeleteAdmissionRequest } from './worksp
 
 
 function nativePathBinding(claim: WorkspaceOperationBatchClaim): NativePathBinding {
-  const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization;
+  return captureNativePathBindingFacts(readWorkspaceOperationBatchClaimBinding(claim));
+}
+
+/** Shape and original-plan facts only. This never registers a Claim or grants
+ * current authorization; its two callers retain their own genuine boundary. */
+function captureNativePathBindingFacts(binding: WorkspaceOperationBatchClaimBinding): NativePathBinding {
+  const auth = binding.authorization;
   if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
     || binding.workspaceId !== auth.jobScope.workspaceId || binding.plan.workspaceId !== binding.workspaceId || binding.plan.planId !== binding.planId
     || binding.plan.readiness !== 'ready' || binding.plan.version !== 2 && binding.plan.version !== 3
@@ -74,6 +82,42 @@ function nativePathBinding(claim: WorkspaceOperationBatchClaim): NativePathBindi
     : decodeWorkspaceOperationNativeDeleteBatchPlan(binding.plan);
   if (!equal(plan.sourceEvidence.workspaceScope, auth.jobScope)) throw new WorkspaceOperationBatchError('BATCH_SCOPE_CHANGED', 409, 'The original workspace scope changed.');
   return Object.freeze({ binding, authorization: auth, scope: auth.jobScope, plan, kind: plan.version === 3 ? 'move' : 'delete' });
+}
+
+/** Fixed borrowed B0 operation phase only. The actual Header, imports, P0 and
+ * later reservation remain provisional until the caller confirms COMMIT.
+ * This mints no Claim, opens no transaction and starts no room drain. */
+export async function prepareWorkspacePathImportOperationAdmissionOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle): Promise<CollaborationAdmissionRequest> {
+  const { assertWorkspacePathImportOperationPreparationOnConnection } = await import('./workspace-path-import-preparation-phase');
+  const current = await assertWorkspacePathImportOperationPreparationOnConnection(database, handle);
+  const operation = current.operation;
+  if (!operation) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  const original = captureNativePathBindingFacts(operation.binding), origin = current.record.origin;
+  if (original.binding.batchId !== current.record.batchId || !equal(original.plan, current.record.nativePlan)
+    || !equal(original.scope, origin.scope) || !workspaceOperationJobScopeMatches(original.scope, current.access.workspace)
+    || original.authorization.actorUserId !== origin.userId || original.authorization.actorSessionId !== origin.sessionId
+    || original.binding.source.schemaName !== origin.realm.schemaName || original.binding.source.schemaOid !== origin.realm.schemaOid
+    || original.binding.source.databaseOid !== origin.realm.databaseOid
+    || (origin.kind === 'direct-mcp' ? original.authorization.mode !== 'direct-mcp'
+      || original.authorization.clientId !== origin.clientId : original.authorization.mode !== 'direct')) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  const { schemaName, schemaOid, databaseOid } = original.binding.source;
+  const source = Object.freeze({ schemaName, schemaOid, databaseOid });
+  const storage = original.kind === 'move' ? await bindWorkspaceOperationOriginalMoveStorageOnConnection(database, source)
+    : await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database, source);
+  const handoff = original.kind === 'move' ? null : await bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection(database, source);
+  await current.access.assertCurrent();
+  const selected = await prepareNativePathRequest(database, original, 'prepare', current.access);
+  if (!selected || selected.legacy || !selected.requiresHeader) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+  await current.access.assertCurrent(); await storage.assertCurrent(); await handoff?.assertCurrent();
+  const after = await assertWorkspacePathImportOperationPreparationOnConnection(database, handle);
+  if (!after.operation || !equal(after.operation.binding, operation.binding) || !equal(after.record, current.record)
+    || !workspaceOperationJobScopeMatches(original.scope, after.access.workspace)) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  return captureCollaborationAdmissionRequest(selected.request).request;
 }
 
 function nativePathMoveContext(original: NativePathBinding): WorkspaceOperationOriginalMoveContext {
@@ -287,7 +331,7 @@ async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, 
 }
 
 async function prepareNativePathRequest(database: SqlConnection, original: NativePathBinding, mode: 'read' | 'prepare',
-  access?: WorkspaceOperationJobPolicyAccess): Promise<NativePathRequest | null> {
+  access?: Pick<WorkspaceOperationJobPolicyAccess, 'workspace' | 'assertCurrent'>): Promise<NativePathRequest | null> {
   const { binding, plan, authorization: auth } = original, prefix = `"${binding.source.schemaName.replaceAll('"', '""')}"`;
   if (plan.version === 3) {
     const context = nativePathMoveContext(original);
@@ -369,7 +413,8 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
       || Number(row.schema_version) !== selected.schemaVersion || row.status !== 'active';
   })) throw original.kind === 'move' ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED')
     : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
-  await access.assertCurrent(); const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+  await access.assertCurrent(); const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
+    { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
   await access.assertCurrent();
   if (plan.version === 2) {
     assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observation, original.scope);

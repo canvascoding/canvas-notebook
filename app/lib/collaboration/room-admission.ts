@@ -1,7 +1,9 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '@/app/lib/db';
+import type { WorkspacePathImportPreparationHandle } from '../files/workspace-path-import-preparation-phase';
 import { withWorkspaceMutationLock } from '@/app/lib/files/workspace-mutation-lock';
 import type { CollaborationRoomOwnerFence, CollaborationRoomOwnerScope } from './room-owner';
 import { executeLifecycleTransaction } from './lifecycle-transaction';
@@ -234,6 +236,44 @@ export async function reserveCollaborationAdmissionOnConnection(database: SqlCon
   input: CollaborationAdmissionRequest): Promise<CollaborationAdmissionResult> {
   const captured = captureCollaborationAdmissionRequest(input);
   await lockRequest(database, captured, true);
+  return reserveCapturedAdmissionOnConnection(database, captured);
+}
+
+/** Fixed borrowed B0 only. The private operation frame supplies its exact P0
+ * request; the genuine separate A backend already retains the exclusive
+ * workspace lock. No lock-skip option, free request or callback is accepted. */
+export async function reserveWorkspacePathImportOperationAdmissionOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle): Promise<CollaborationAdmissionResult> {
+  const { assertWorkspacePathImportOperationAdmissionPreparationOnConnection } = await import('../files/workspace-path-import-preparation-phase');
+  const { assertWorkspaceFileLifecycleSourceLeaseCurrent } = await import('../files/workspace-file-lifecycle-guard');
+  const current = await assertWorkspacePathImportOperationAdmissionPreparationOnConnection(database, handle);
+  const captured = captureCollaborationAdmissionRequest(current.request), scope = current.record.origin.scope;
+  if (!current.operation || captured.workspaceIds.length !== 1 || captured.workspaceIds[0] !== scope.workspaceId
+    || captured.request.scopes.length !== 1 || captured.request.scopes[0].path !== ''
+    || captured.request.scopes[0].kind !== 'subtree' || captured.request.scopes[0].organizationId !== scope.organizationId) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  await assertWorkspaceFileLifecycleSourceLeaseCurrent(database, scope.workspaceId);
+  // The exact request-key lock is retained. Taking its workspace XACT lock on
+  // B would conflict with the proven exclusive session lock on actual A.
+  const key = BigInt.asIntN(64, BigInt(`0x${createHash('sha256')
+    .update(`canvas.collaboration.admission-request-lock.v1\0${captured.request.requestId}`).digest('hex').slice(0, 16)}`)).toString();
+  await database.run('SELECT pg_catalog.pg_advisory_xact_lock($1::bigint)', [key]);
+  const result = await reserveCapturedAdmissionOnConnection(database, captured);
+  const after = await assertWorkspacePathImportOperationAdmissionPreparationOnConnection(database, handle);
+  const expected = captureCollaborationAdmissionRequest(after.request);
+  if (!after.operation || !equal(after.operation.binding, current.operation.binding) || !equal(after.record, current.record)
+    || expected.requestDigest !== captured.requestDigest || expected.intentText !== captured.intentText) {
+    throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+  }
+  await assertWorkspaceFileLifecycleSourceLeaseCurrent(database, scope.workspaceId);
+  return result;
+}
+
+/** Shared post-lock mechanics. Both callers first establish their own actual
+ * request lock and workspace fence; this private core supplies no authority. */
+async function reserveCapturedAdmissionOnConnection(database: SqlConnection,
+  captured: CapturedRequest): Promise<CollaborationAdmissionResult> {
   const existing = await readRequest(database, captured);
   if (existing) return existing;
   for (const scope of captured.request.scopes) await assertNoOverlap(database, scope);

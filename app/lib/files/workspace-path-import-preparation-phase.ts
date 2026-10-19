@@ -3,6 +3,8 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { SqlConnection } from '../db';
+import type { CollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
+import type { WorkspaceOperationBatchClaimBinding, WorkspaceOperationBatchRecord } from './workspace-operation-batch-store';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { persistWorkspacePathOriginalMarkdownImportOnConnection,
   assertWorkspacePathImportedOriginalsOnConnection } from '../collaboration/markdown-file-import-persistence';
@@ -38,11 +40,17 @@ export type WorkspacePathImportPreparationPrincipal = Readonly<{ kind: 'request'
   | Readonly<{ kind: 'delete'; principal: DirectMcpWorkspaceDeletePrincipal }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
 type Origin = WorkspacePathImportPreparationRecordV1['origin'];
+export type WorkspacePathImportPreparationInput = Readonly<{ principal: WorkspacePathImportPreparationPrincipal;
+  operationId: string; plan: WorkspacePathImportPreparationPlanV1 }>;
+export type WorkspacePathImportOperationPreparation = Readonly<{
+  record: WorkspacePathImportPreparationRecordV1; batch: WorkspaceOperationBatchRecord }>;
+type OperationFacts = Readonly<{ batch: WorkspaceOperationBatchRecord; binding: WorkspaceOperationBatchClaimBinding }>;
 type Identity = Readonly<{ schemaName: string; schemaOid: number; databaseOid: number; backend: number;
   start: string; searchPath: string; xid: string }>;
 type Frame = { active: boolean; database: SqlConnection; access: Access; identity: Identity; origin: Origin;
   operationId: string; plan: WorkspacePathImportPreparationPlanV1; nextIndex: number;
-  bindings: PhysicalNativeImportBindingV1[]; record?: WorkspacePathImportPreparationRecordV1 };
+  bindings: PhysicalNativeImportBindingV1[]; purpose: 'import-only' | 'operation';
+  record?: WorkspacePathImportPreparationRecordV1; operation?: OperationFacts; admissionRequest?: CollaborationAdmissionRequest };
 const frames = new WeakMap<WorkspacePathImportPreparationHandle, Frame>();
 const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 const relations = ['collaboration_documents', 'collaboration_yjs_states', 'collaboration_yjs_state_backups',
@@ -131,6 +139,25 @@ export async function assertWorkspacePathImportRecordPreparationOnConnection(dat
   const frame = await assertFrame(database, handle);
   if (!frame.record || frame.nextIndex !== frame.plan.importRequirements.length
     || !equal(captureWorkspaceOperationNativePlanData(record, () => fail()), frame.record)) return fail();
+}
+
+/** Fixed operation writers alone consume these same-B0 original facts. No
+ * claim is minted: the ordinary store acquires one after confirmed COMMIT. */
+export async function assertWorkspacePathImportOperationPreparationOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle) {
+  const frame = await assertFrame(database, handle);
+  if (frame.purpose !== 'operation' || !frame.record || frame.nextIndex !== frame.plan.importRequirements.length) return fail();
+  return Object.freeze({ record: frame.record, access: frame.access, operation: frame.operation });
+}
+
+/** The reservation cannot choose its own request: only the fixed P0 writer's
+ * returned request is retained in this private live operation frame. */
+export async function assertWorkspacePathImportOperationAdmissionPreparationOnConnection(database: SqlConnection,
+  handle: WorkspacePathImportPreparationHandle) {
+  const frame = await assertWorkspacePathImportOperationPreparationOnConnection(database, handle);
+  const request = frames.get(handle)?.admissionRequest;
+  if (!frame.operation || !request) return fail();
+  return Object.freeze({ ...frame, request });
 }
 
 function edgeResolution(edge: MixedReadResolvedLinkV3, identityMap: ReadonlyMap<string, string>, anchorIdentity?: string) {
@@ -222,9 +249,23 @@ function assertImportedGraph(plan: WorkspacePathImportPreparationPlanV1, binding
 /** Borrowed, fixed B0 only. Caller owns BEGIN/rollback, the genuine exclusive
  * lifecycle guard, COMMIT confirmation and recovery. This entry returns no
  * claim/admission authority and does not execute the later file action. */
-export async function prepareWorkspacePathImportsOnConnection(database: SqlConnection, supplied: Readonly<{
-  principal: WorkspacePathImportPreparationPrincipal; operationId: string; plan: WorkspacePathImportPreparationPlanV1;
-}>): Promise<WorkspacePathImportPreparationRecordV1> {
+export async function prepareWorkspacePathImportsOnConnection(database: SqlConnection, supplied: WorkspacePathImportPreparationInput
+): Promise<WorkspacePathImportPreparationRecordV1> {
+  const result = await prepareWorkspacePathImportPhase(database, supplied, 'import-only');
+  if ('record' in result) return fail(); return result;
+}
+
+/** Atomically prepare original imports, the real header, P0 and admission.
+ * The caller owns commit/recovery and must leave its exclusive lease before
+ * acquiring the ordinary executable claim or waiting for room drain. */
+export async function prepareWorkspacePathImportOperationOnConnection(database: SqlConnection,
+  supplied: WorkspacePathImportPreparationInput): Promise<WorkspacePathImportOperationPreparation> {
+  const result = await prepareWorkspacePathImportPhase(database, supplied, 'operation');
+  if (!('record' in result)) return fail(); return result;
+}
+
+async function prepareWorkspacePathImportPhase(database: SqlConnection, supplied: WorkspacePathImportPreparationInput,
+  purpose: Frame['purpose']): Promise<WorkspacePathImportPreparationRecordV1 | WorkspacePathImportOperationPreparation> {
   exact(supplied, ['principal', 'operationId', 'plan']);
   const selected = field(supplied, 'principal') as WorkspacePathImportPreparationPrincipal;
   exact(selected, ['kind', 'principal']); const kind = field(selected, 'kind'), principal = field(selected, 'principal');
@@ -239,7 +280,7 @@ export async function prepareWorkspacePathImportsOnConnection(database: SqlConne
   // Canonicalize before entering the genuine principal phase, whose own
   // backend/XID/search-path identity must remain unchanged until it returns.
   if (kind === 'request') await database.get("SELECT pg_catalog.set_config('search_path',pg_catalog.quote_ident($1)||', pg_catalog, pg_temp',true)", [actualRealm.schemaName]);
-  const execute = async (access: Access): Promise<WorkspacePathImportPreparationRecordV1> => {
+  const execute = async (access: Access): Promise<WorkspacePathImportPreparationRecordV1 | WorkspacePathImportOperationPreparation> => {
     assertAccess(access, plan); await access.assertCurrent(); await assertRelations(database, actualRealm.schemaName);
     const clientId = 'clientId' in access ? access.clientId : null;
     const origin: Origin = Object.freeze({ version: 1, kind: kind === 'request' ? 'request' : 'direct-mcp',
@@ -257,7 +298,11 @@ export async function prepareWorkspacePathImportsOnConnection(database: SqlConne
         || existing.origin.userId !== origin.userId || existing.origin.clientId !== clientId || existing.origin.tool !== origin.tool) {
         return fail('PATH_IMPORT_PREPARATION_PHASE_CHANGED');
       }
-      await access.assertCurrent(); return existing;
+      if (purpose === 'import-only') { await access.assertCurrent(); return existing; }
+      const { readWorkspacePathImportOperationBatchOnConnection } = await import('./workspace-operation-batch-store');
+      const batch = await readWorkspacePathImportOperationBatchOnConnection(database, { record: existing, workspace: access.workspace });
+      if (!batch) return fail('PATH_IMPORT_PREPARATION_PHASE_CHANGED');
+      await access.assertCurrent(); return Object.freeze({ record: existing, batch });
     }
     await assertWorkspaceFileLifecycleSourceLeaseCurrent(database, origin.scope.workspaceId);
     await assertWorkspaceFileLifecycleSqlAvailable(database, origin.scope.workspaceId, plan.importRequirements.map(item => item.path));
@@ -265,7 +310,7 @@ export async function prepareWorkspacePathImportsOnConnection(database: SqlConne
     assertWorkspacePathImportPreparationPlanV1Current(plan, observed, origin.scope);
     const handle = Object.freeze({}) as WorkspacePathImportPreparationHandle;
     const frame: Frame = { active: true, database, access, identity: await identity(database), origin, operationId,
-      plan, nextIndex: 0, bindings: [] }; frames.set(handle, frame);
+      plan, nextIndex: 0, bindings: [], purpose }; frames.set(handle, frame);
     try {
       for (let index = 0; index < plan.importRequirements.length; index++) {
         const binding = await persistWorkspacePathOriginalMarkdownImportOnConnection(database, { preparation: handle, requirementIndex: index });
@@ -294,8 +339,17 @@ export async function prepareWorkspacePathImportsOnConnection(database: SqlConne
       await assertWorkspacePathImportRecordPreparationOnConnection(database, handle, frame.record);
       await insertWorkspacePathImportPreparationRecordOnConnection(database, { handle, record: frame.record });
       await assertWorkspacePathImportRecordPreparationOnConnection(database, handle, frame.record);
+      if (purpose === 'operation') {
+        const { insertWorkspacePathImportOperationBatchOnConnection } = await import('./workspace-operation-batch-store');
+        frame.operation = await insertWorkspacePathImportOperationBatchOnConnection(database, handle);
+        const { prepareWorkspacePathImportOperationAdmissionOnConnection } = await import('./workspace-operation-native-path-admission');
+        frame.admissionRequest = await prepareWorkspacePathImportOperationAdmissionOnConnection(database, handle);
+        const { reserveWorkspacePathImportOperationAdmissionOnConnection } = await import('../collaboration/room-admission');
+        await reserveWorkspacePathImportOperationAdmissionOnConnection(database, handle);
+        await assertWorkspacePathImportRecordPreparationOnConnection(database, handle, frame.record);
+      }
       await assertWorkspacePathImportedOriginalsOnConnection(database, handle);
-      return frame.record;
+      return purpose === 'operation' ? Object.freeze({ record: frame.record, batch: frame.operation!.batch }) : frame.record;
     } finally { frame.active = false; frames.delete(handle); }
   };
   if (kind === 'request') return withWorkspaceRequestPrincipalOnConnection(database, principal as WorkspaceRequestPrincipal, execute);

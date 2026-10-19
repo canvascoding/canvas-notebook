@@ -52,6 +52,7 @@ import { captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
 import { workspaceOperationSourceNativeEvidence, type WorkspaceOperationMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
+import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
 import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './workspace-operation-original-move-handoff-storage';
 import { notifyWorkspaceFileInvalidationOnConnection } from '../filesystem/workspace-file-invalidation';
@@ -447,7 +448,8 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
               // Fixed read of this claimed workspace only. The ordinary SQL
               // facade remains restricted and every method boundary is checked.
-              return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+              return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
+                { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(captured.binding.plan.sourceEvidence) });
             }, 'native-source-read'),
             applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;
@@ -610,7 +612,8 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
       if (await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
         { schema: binding.source.schemaName, batchId: binding.batchId, forShare: true })) return true;
     } else fail('JOB_LIFECYCLE_INVALID');
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
+      { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
     await check();
     let conflict = false;
     try {
@@ -811,7 +814,8 @@ export function readWorkspaceOperationOriginalMovePreparation(owner: WorkspaceOp
         {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true});
       const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
       if (!preparation || !admission || !['reserved','draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
-      const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace);
+      const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
+        { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
       const currentWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
       if (!equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
       return preparation.preparation.currentWitness;
@@ -868,7 +872,8 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
     const preparation = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
       {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true}) : null;
     if ((plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3) && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace);
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace,
+      { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
     const currentWitness = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
       ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
     if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
