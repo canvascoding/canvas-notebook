@@ -77,7 +77,7 @@ export async function completeManualMarkdownCreate(request: NextRequest, selecti
       } };
     };
     let failure: unknown, hasFailure = false, completion: ManualMarkdownCreateCompletion | undefined;
-    try { completion = await inCollaborationProjectionPhase('create_effects', () => withWorkspaceFileLifecycleGuard({ workspaceId: selected.workspaceId, paths: [selected.path] }, async () => {
+    try { completion = await inCollaborationProjectionPhase('create_effects', () => withWorkspaceFileLifecycleGuard({ workspaceId: selected.workspaceId, paths: [selected.path], admissionLock: 'wait' }, async () => {
       if (await observe() !== 'completed') return result('recovery_required');
       await withWorkspaceRequestPrincipal(original, { workspaceId: selected.workspaceId, permission: 'canWrite' }, principal =>
         executeLifecycleTransaction({ openConnection: openVerified,

@@ -325,9 +325,11 @@ export async function assertWorkspaceFileLifecycleSqlAvailable(database: SqlConn
 }
 
 /** File actions retain a dedicated session guard across physical work and existing metadata commits. */
-export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: string; paths: readonly string[] },
+export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: string; paths: readonly string[]; admissionLock?: 'try' | 'wait' },
   operation: () => Promise<T>, openConnection: () => Promise<SqlConnection> = openDb): Promise<T> {
   const paths = capturePaths(input.workspaceId, input.paths);
+  const admissionLock = input.admissionLock ?? 'try';
+  if (admissionLock !== 'try' && admissionLock !== 'wait') throw new Error('Invalid workspace file lifecycle admission mode.');
   return withWorkspaceMutationLock(input.workspaceId, async () => {
     const inheritedLease = getWorkspaceFileLifecycleLeases()?.get(input.workspaceId);
     const alreadyHeld = inheritedLease?.active === true && await inheritedLease.verify();
@@ -361,8 +363,20 @@ export async function withWorkspaceFileLifecycleGuard<T>(input: { workspaceId: s
       await database.run("SET statement_timeout = '5s'");
       await database.run("SET lock_timeout = '4s'");
       if (!alreadyHeld) {
-        const result = await database.get('SELECT pg_try_advisory_lock($1::bigint) AS locked',
+        let result: { locked?: boolean } | undefined;
+        try {
+          // Create may wait for an ordinary native tree/read fence. The fixed
+          // lock timeout still closes admission before any document work.
+          result = await database.get(admissionLock === 'wait'
+            ? 'SELECT pg_advisory_lock($1::bigint), true AS locked'
+            : 'SELECT pg_try_advisory_lock($1::bigint) AS locked',
           [collaborationAdmissionLockKey(input.workspaceId)]) as { locked?: boolean } | undefined;
+        } catch (error) {
+          if (admissionLock === 'wait' && error instanceof Error && 'code' in error && error.code === '55P03') {
+            throw Object.assign(new WorkspaceFileLifecycleBusyError(), { cause: error });
+          }
+          throw error;
+        }
         if (result?.locked !== true) throw new WorkspaceFileLifecycleBusyError();
         acquired = true;
       }

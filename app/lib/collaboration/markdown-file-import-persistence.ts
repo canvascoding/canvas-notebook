@@ -1916,7 +1916,7 @@ async function observeAuthenticatedCreateCompletion(original: NextRequest, inten
     } };
   };
   let value: 'absent' | 'projection_pending' | 'completed' | undefined, failure: unknown, hasFailure = false;
-  try { value = await withWorkspaceFileLifecycleGuard({ workspaceId: intent.workspaceId, paths: [intent.targetPath] }, () =>
+  try { value = await withWorkspaceFileLifecycleGuard({ workspaceId: intent.workspaceId, paths: [intent.targetPath], admissionLock: 'wait' }, () =>
     withWorkspaceRequestPrincipal(original, { workspaceId: intent.workspaceId, permission: 'canWrite' }, principal =>
       executeLifecycleTransaction({ openConnection: dependencies.openConnection,
         execute: async database => {
@@ -2018,7 +2018,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         return owner;
       } catch (error) { await actual.close(new Error('Discarding mismatched staging owner.', { cause: error })); throw error; }
     };
-    const execute = async () => withWorkspaceFileLifecycleGuard({ workspaceId: intent.workspaceId, paths: [intent.targetPath] }, async () => {
+    const execute = async () => withWorkspaceFileLifecycleGuard({ workspaceId: intent.workspaceId, paths: [intent.targetPath], admissionLock: 'wait' }, async () => {
       if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       const common = { selection: { workspaceId: intent.workspaceId, path: intent.targetPath,
         operationId: intent.operationId, requestId: intent.requestId, expectedTarget: { kind: 'absent' as const } },
