@@ -12,6 +12,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-ordinary-link-v4-runner-test.ts': [entryPoint,
+    'scripts/workspace-local-link-parser-v4-test.ts',
+    'scripts/workspace-native-link-inventory-v4-test.ts',
+    'app/lib/markdown/workspace-local-link-parser.ts',
+    'app/lib/markdown/workspace-native-link-inventory.ts'],
   'scripts/workspace-native-html-source-evidence-test.ts': [entryPoint,
     'scripts/workspace-markdown-html-occurrence-test.ts',
     'scripts/workspace-operation-native-source-evidence-v3-test.ts',

@@ -13,7 +13,7 @@ import { getObsidianWikiDisplayLabel, parseObsidianBlockIds, parseObsidianWikiTa
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
 import { extractWorkspaceMarkdownHeadings } from './workspace-link-index-core';
 import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
-import { parseWorkspaceLocalLinks } from './workspace-local-link-parser';
+import { parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV4 } from './workspace-local-link-parser';
 import type { NativeDocumentLink, NativeDocumentLinkInventory, NativeLinkCoverageGap, NativeLinkReference, NativeLinkTextReference } from './workspace-link-contract-v2';
 
 const NODE_TYPES = new Set(['doc', 'paragraph', 'heading', 'text', 'hardBreak', 'codeBlock', 'horizontalRule',
@@ -79,6 +79,19 @@ export function inspectNativeDocumentLinks(
   doc: YTypes.Doc,
   snapshot: NativeCollaborationSnapshot,
 ): NativeDocumentLinkInventory {
+  return inspectNativeDocumentLinksForParser(doc, snapshot, 2);
+}
+
+/** A separate ordinary-link grammar. Original source offsets are converted
+ * directly to native relative positions in the same verified Yjs document. */
+export type NativeDocumentLinkInventoryV4 = Omit<NativeDocumentLinkInventory, 'parserVersion'> & { parserVersion: 4 };
+export function inspectNativeDocumentLinksV4(doc: YTypes.Doc,
+  snapshot: NativeCollaborationSnapshot): NativeDocumentLinkInventoryV4 {
+  return inspectNativeDocumentLinksForParser(doc, snapshot, 4);
+}
+
+function inspectNativeDocumentLinksForParser<Parser extends 2 | 4>(doc: YTypes.Doc,
+  snapshot: NativeCollaborationSnapshot, parserVersion: Parser): Omit<NativeDocumentLinkInventory, 'parserVersion'> & { parserVersion: Parser } {
   const gaps: NativeLinkCoverageGap[] = [];
   const links: NativeDocumentLink[] = [];
   const { documentId, workspaceId, organizationId, path, lifecycleGeneration, representation, schemaVersion } = snapshot;
@@ -92,7 +105,11 @@ export function inspectNativeDocumentLinks(
   const parsedMetadata = parseCanvasMarkdownDocument(metadataSource);
   if (parsedMetadata.error || content.kind === 'rich_text'
     && (metadataSource.trim() && !parsedMetadata.hasFrontmatter || parsedMetadata.body.trim())) gap('invalid-frontmatter');
-  const headings = content.kind === 'plain_text' ? extractWorkspaceMarkdownHeadings(content.text) : [];
+  const metadataBody = parserVersion === 4
+    ? !parsedMetadata.hasFrontmatter && metadataSource.charCodeAt(0) === 0xfeff
+      ? parsedMetadata.body.slice(1) : parsedMetadata.body
+    : metadataSource;
+  const headings = content.kind === 'plain_text' ? extractWorkspaceMarkdownHeadings(metadataBody) : [];
   if (content.kind === 'rich_text') {
     const headingsIn = (node: JSONContent) => {
       if (node.type === 'heading') headings.push({ depth: Number(node.attrs?.level ?? 1), text: headingText(node) });
@@ -104,8 +121,8 @@ export function inspectNativeDocumentLinks(
     tags: parsedMetadata.frontmatter?.tags ?? [], title: parsedMetadata.frontmatter?.title || headings[0]?.text
       || path.split('/').at(-1)!.replace(/\.(?:md|markdown)$/iu, ''),
     hasExplicitTitle: Boolean(parsedMetadata.frontmatter?.title), headings,
-    blockIds: content.kind === 'plain_text' ? parseObsidianBlockIds(content.text).map((entry) => entry.id) : [] };
-  const result = () => ({ contractVersion: 2 as const, parserVersion: 2 as const, document,
+    blockIds: content.kind === 'plain_text' ? parseObsidianBlockIds(metadataBody).map((entry) => entry.id) : [] };
+  const result = () => ({ contractVersion: 2 as const, parserVersion, document,
     version: { ...snapshot.version }, metadata, links, coverage: { complete: gaps.length === 0, gaps } });
   if (Buffer.byteLength(content.kind === 'plain_text' ? content.text : JSON.stringify(content), 'utf8') > MAX_INDEXED_MARKDOWN_BYTES) {
     gap('limit-exceeded'); return result();
@@ -122,7 +139,14 @@ export function inspectNativeDocumentLinks(
   };
   if (content.kind === 'plain_text') {
     const text = doc.getText('content');
-    const parsed = parseWorkspaceLocalLinks(content.text, path, { notebookPaths: 'exact' });
+    let parsed: ReturnType<typeof parseWorkspaceLocalLinks>;
+    if (parserVersion === 4) {
+      try { parsed = parseWorkspaceLocalLinksV4(content.text, path, { notebookPaths: 'exact' }); }
+      catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+        gap('limit-exceeded'); return result();
+      }
+    } else parsed = parseWorkspaceLocalLinks(content.text, path, { notebookPaths: 'exact' });
     for (const link of parsed.links) add({ kind: link.kind, syntax: link.syntax, literal: link.targetLiteral,
       targetPathText: link.targetPathText, fragment: link.fragment, alias: link.alias, embed: link.embed,
       classification: 'local', ref: { kind: 'plain-target', text: textReference(text, link.targetStart, link.targetEnd, null),
@@ -244,4 +268,8 @@ export function inspectNativeDocumentLinksV3(doc: YTypes.Doc,
 
 export function inspectPersistedDocumentLinksV3(state: PersistedCollaborationState): NativeDocumentLinkInventoryV3 {
   return inspectPersistedNativeCollaborationSnapshot(state, inspectNativeDocumentLinksV3);
+}
+
+export function inspectPersistedDocumentLinksV4(state: PersistedCollaborationState): NativeDocumentLinkInventoryV4 {
+  return inspectPersistedNativeCollaborationSnapshot(state, inspectNativeDocumentLinksV4);
 }
