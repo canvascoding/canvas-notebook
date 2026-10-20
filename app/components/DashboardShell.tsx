@@ -1520,7 +1520,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
         <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground" data-document-focus={documentFocus}>
-          <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4">
+          <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-1.5 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4 md:gap-3">
             <div className="flex min-w-0 items-center gap-2">
               <AppBackButton fallbackHref="/" className="shrink-0 gap-2 px-2 sm:px-3" />
               <div className="hidden min-w-0 md:block">
@@ -1528,18 +1528,17 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <div className="truncate text-[11px] text-muted-foreground">{tNotebook('workbenchSubtitle')}</div>
               </div>
             </div>
+            {layout.isMobile && showWorkspaceSwitcher ? (
+              <div className="min-w-0 flex-1 md:hidden">
+                <WorkspaceSwitcher source="notebook" variant="mobile-header" />
+              </div>
+            ) : null}
             <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
               <WorkspaceSwitcher source="notebook" variant="compact" className="hidden md:inline-flex" />
               <NotificationBell />
               <AppLauncher />
             </div>
           </header>
-
-          {layout.isMobile && showWorkspaceSwitcher ? (
-            <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
-              <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
-            </div>
-          ) : null}
 
           <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2 pointer-coarse:h-14" data-testid="notebook-toolbar">
             <TooltipProvider delayDuration={250}>
