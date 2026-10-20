@@ -83,11 +83,17 @@ export async function login(browser: Browser, member = false): Promise<BrowserCo
   const env = await runtimeEnv('source');
   const secondary = member ? parse(await fs.readFile(path.join(os.homedir(), '.local/state/canvas-local-team-seat/fixtures.env'))) : {};
   const context = await browser.newContext({ baseURL: origin, viewport: { width: 1440, height: 960 } });
-  const response = await context.request.post('/api/auth/sign-in/email', { headers: { origin }, data: {
+  const signIn = () => context.request.post('/api/auth/sign-in/email', { headers: { origin }, data: {
     email: member ? secondary.LOCAL_TEAM_SEAT_SECONDARY_EMAIL : env.BOOTSTRAP_ADMIN_EMAIL,
     password: member ? secondary.LOCAL_TEAM_SEAT_SECONDARY_PASSWORD : env.BOOTSTRAP_ADMIN_PASSWORD,
   } });
-  expect(response.ok(), 'Configured local fixture login succeeds; credentials are never attached.').toBeTruthy();
+  let response = await signIn();
+  if (response.status() === 429) {
+    const retryAfter = Number(response.headers()['retry-after'] || '10');
+    await delay(Math.min(60_000, Math.max(1_000, retryAfter * 1_000)) + 100);
+    response = await signIn();
+  }
+  expect(response.ok(), `Configured local fixture login succeeds (HTTP ${response.status()}); credentials are never attached.`).toBeTruthy();
   return context;
 }
 

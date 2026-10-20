@@ -155,7 +155,7 @@ export function WorkspaceExportCard({ isAdmin = false }: WorkspaceExportCardProp
     return () => controller.abort();
   }, [canExportSelectedWorkspace, selectedWorkspace, statsRequestKey, t]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!selectedWorkspace || !canExportSelectedWorkspace) return;
 
     setActiveDownload(selectedWorkspace.id);
@@ -164,10 +164,13 @@ export function WorkspaceExportCard({ isAdmin = false }: WorkspaceExportCardProp
       const query = new URLSearchParams({
         scope: 'workspace',
         workspaceId: selectedWorkspace.id,
-        download: '1',
+        prepare: '1',
       });
+      const response = await fetch(`/api/files/download?${query}`, { cache: 'no-store' });
+      const result = await response.json() as { downloadUrl?: string; error?: string };
+      if (!response.ok || !result.downloadUrl) throw new Error(result.error || t('errors.downloadFailed'));
       const anchor = document.createElement('a');
-      anchor.href = `/api/files/download?${query.toString()}`;
+      anchor.href = result.downloadUrl;
       anchor.download = 'workspace.zip';
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
@@ -176,7 +179,7 @@ export function WorkspaceExportCard({ isAdmin = false }: WorkspaceExportCardProp
     } catch (err) {
       setDownloadError(err instanceof Error ? err.message : t('errors.downloadFailed'));
     } finally {
-      window.setTimeout(() => setActiveDownload(null), 2000);
+      setActiveDownload(null);
     }
   };
 

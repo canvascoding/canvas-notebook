@@ -384,6 +384,21 @@ test.describe('source export and migration acceptance', () => {
     expect(entries.some(entry => entry.path === directory && entry.directory), 'Empty directories are part of the source file tree.').toBe(true);
   });
 
+  test('AUTH: prepared ZIPs belong to one session and can only be downloaded once', async ({ browser }) => {
+    const other = await login(browser);
+    try {
+      const prepared = await json<{ downloadUrl: string }>(await admin.request.get('/api/files/download?' + new URLSearchParams({
+        scope: 'workspace', workspaceId: fixture.selected.id, prepare: '1',
+      })));
+      expect((await other.request.get(prepared.downloadUrl)).status()).toBe(403);
+      const downloaded = await admin.request.get(prepared.downloadUrl);
+      expect(downloaded.status()).toBe(200);
+      expect(downloaded.headers()['content-type']).toContain('application/zip');
+      expect((await downloaded.body()).subarray(0, 2).toString()).toBe('PK');
+      expect((await admin.request.get(prepared.downloadUrl)).status()).toBe(410);
+    } finally { await other.close(); }
+  });
+
   test('ERR VIEW: a rejected ZIP download displays an actionable error in settings', async () => {
     const env = await runtimeEnv('source'); const symlink = path.join(env.DATA, fixture.selected.rootRelativePath, 'export-error-99b4-link');
     await fs.symlink('/etc/hosts', symlink); const page = await admin.newPage();

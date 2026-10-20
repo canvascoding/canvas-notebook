@@ -10,6 +10,8 @@ type Entry = { archivePath: string; fullPath: string | null; stats?: Awaited<Ret
 type ArchiveMethods = {
   collectArchiveEntries(paths: string[], options: object): Promise<Entry[]>;
   writeArchive(entries: Entry[]): Promise<{ archivePath: string; tempDirectory: string }>;
+  storePreparedArchive(archive: { archivePath: string; tempDirectory: string; fileName: string }, owner: object): string;
+  claimPreparedArchive(token: string, owner: object): { archivePath: string; tempDirectory: string };
 };
 
 async function main() {
@@ -28,7 +30,7 @@ async function main() {
       : filename.startsWith(path.join(root, 'case-conflict') + path.sep) ? fileStats : fs.lstat(filename),
   };
   const javascript = ts.transpileModule(readFileSync(routePath, 'utf8')
-    + '\nexport const archiveContractMethods = { collectArchiveEntries, writeArchive };', {
+    + '\nexport const archiveContractMethods = { collectArchiveEntries, writeArchive, storePreparedArchive, claimPreparedArchive };', {
     fileName: routePath,
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, esModuleInterop: true },
   }).outputText;
@@ -40,7 +42,7 @@ async function main() {
     return requireDependency(name);
   };
   new Function('require', 'module', 'exports', javascript)(load, evaluated, evaluated.exports);
-  const { collectArchiveEntries, writeArchive } = evaluated.exports.archiveContractMethods;
+  const { collectArchiveEntries, writeArchive, storePreparedArchive, claimPreparedArchive } = evaluated.exports.archiveContractMethods;
   const rejections: unknown[] = [];
   const recordRejection = (error: unknown) => rejections.push(error);
   process.on('unhandledRejection', recordRejection);
@@ -55,6 +57,23 @@ async function main() {
     console.log('PASS: a file changed after planning is rejected before ZIP publication.');
     await delay(50);
     assert.equal(rejections.length, 0, 'Source-change rejection must also settle the output stream completion promise.');
+    const archive = { ...await writeArchive(await collectArchiveEntries(['actual.txt'], {})), fileName: 'fixture.zip' };
+    const owner = { userId: 'owner', sessionId: 'session', workspaceId: 'workspace' };
+    try {
+      const token = storePreparedArchive(archive, owner);
+      for (const other of [{ ...owner, userId: 'other' }, { ...owner, sessionId: 'other' }, { ...owner, workspaceId: 'other' }]) {
+        assert.throws(() => claimPreparedArchive(token, other), (error: unknown) => (error as { status: number }).status === 403);
+      }
+      assert.equal(claimPreparedArchive(token, owner).archivePath, archive.archivePath);
+      assert.throws(() => claimPreparedArchive(token, owner), (error: unknown) => (error as { status: number }).status === 410);
+      const expired = storePreparedArchive(archive, owner);
+      const now = Date.now;
+      try {
+        Date.now = () => now() + 301_000;
+        assert.throws(() => claimPreparedArchive(expired, owner), (error: unknown) => (error as { status: number }).status === 410);
+      } finally { Date.now = now; }
+    } finally { await fs.rm(archive.tempDirectory, { recursive: true, force: true }); }
+    console.log('PASS: prepared archives are session/workspace bound, single-use and expire; source-change failures have no unhandled rejection.');
   } finally {
     process.off('unhandledRejection', recordRejection);
     await fs.rm(root, { recursive: true, force: true });
