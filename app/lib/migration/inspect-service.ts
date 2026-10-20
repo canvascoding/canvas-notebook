@@ -32,6 +32,9 @@ import { mapMigrationWorkspaces, parseMigrationWorkspaces } from './mappings';
 import type { MigrationMappingChoices, MigrationWorkspaceDescriptor } from './types';
 import { buildRestoreFilePlan } from './restore-plan';
 import { getMigrationDataRoot } from './paths';
+import { DATABASE_ARTIFACT } from './database-schema';
+import { inspectPortableDatabase } from './database-inspect';
+import { mapDatabaseUsers, mapDatabaseWorkspaces } from './database-mappings';
 
 function hasUnsafeZipEntry(entryName: string): boolean {
   if (!entryName || entryName.includes('\0')) return true;
@@ -57,8 +60,9 @@ async function validatePostgresDatabaseArtifact(params: {
   const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
   if (sourceProvider !== 'postgres') return blockers;
   const backupKind = params.manifest.database?.backupKind ?? 'none';
-  if (backupKind !== 'postgres_dump' && backupKind !== 'none') blockers.push('PostgreSQL migration archive has an unsupported database backup kind.');
+  if (backupKind !== 'postgres_rows') blockers.push('PostgreSQL migration requires a current portable row snapshot; metadata-only and SQL dump archives cannot be applied.');
   const artifactPath = params.manifest.database?.artifactPath;
+  if (artifactPath !== DATABASE_ARTIFACT) blockers.push('Portable PostgreSQL artifact path is missing or unsupported.');
   if (artifactPath && !params.entries.includes(artifactPath)) blockers.push(`Migration archive is missing ${artifactPath}.`);
 
   return blockers;
@@ -142,7 +146,7 @@ function parseExportDatabase(value: unknown): MigrationExportDatabase | undefine
   const provider = database.provider === 'postgres' || database.provider === 'unknown'
     ? database.provider
     : 'unknown';
-  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'none'
+  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'postgres_rows' || database.backupKind === 'none'
     ? database.backupKind
     : 'none';
   return {
@@ -490,8 +494,11 @@ async function buildDryRun(params: {
 }): Promise<MigrationImportDryRun> {
   const target = await readLocalImportContext(params.warnings);
   const archivePaths = sourceArchivePaths(params.manifest, params.entries);
-  const users = buildUserMappings({ manifest: params.manifest, archivePaths, target, choices: params.choices });
-  const workspaces = buildWorkspaceMappings({ manifest: params.manifest, archivePaths, target, users, choices: params.choices });
+  const databaseSnapshot = params.manifest.components.database && params.manifest.database?.backupKind === 'postgres_rows';
+  const users = databaseSnapshot ? mapDatabaseUsers(params.manifest.users ?? [], target.users)
+    : buildUserMappings({ manifest: params.manifest, archivePaths, target, choices: params.choices });
+  const workspaces = databaseSnapshot ? mapDatabaseWorkspaces(params.manifest, archivePaths, users)
+    : buildWorkspaceMappings({ manifest: params.manifest, archivePaths, target, users, choices: params.choices });
   const blockers: string[] = [];
 
   if (params.manifest.components.database) {
@@ -500,7 +507,8 @@ async function buildDryRun(params: {
       if (target.databaseProvider !== 'postgres') {
         blockers.push('This export requires a Postgres target before database restore can be staged.');
       }
-      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or a dedicated provider migration.');
+      if (!databaseSnapshot) blockers.push('Postgres database restore requires a current portable row snapshot.');
+      if (params.manifest.source?.organizationId !== target.organizationId) blockers.push('Source and target database organizations must match; target license and Team Seat identity are preserved.');
     } else {
       blockers.push(`Source database provider ${sourceProvider ?? 'unknown'} is not supported by the PostgreSQL-only restore engine.`);
     }
@@ -576,7 +584,7 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
   }
 
   const risks = [
-    'Full restore replaces selected data areas on the target VM.',
+    'Selected files are written to approved target paths; matching files are replaced.',
     'All active sessions are invalidated; users must log in again.',
     'Automations are paused during restore and must be reviewed before reactivation.',
     'OAuth-based integrations are cleared where possible and may need re-authentication.',
@@ -595,8 +603,8 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
   if (!manifest.components.secrets) {
     risks.push('Secrets are not included. API keys and local integration credentials must be configured again.');
   }
-  if (manifest.database?.provider === 'postgres') {
-    risks.push('Postgres database data cannot be restored by the V1 migration restore script; use Full Backup restore or a dedicated provider migration.');
+  if (manifest.components.database) {
+    risks.push('Application database tables are replaced. Target organization, Team Seat and license records are retained. Existing accounts with the same email must have matching IDs; use file migration mapping to reassign data between different accounts.');
   }
   if (manifest.restore?.requiresReindex) {
     risks.push('Knowledge or embedding indexes require reindexing after restore.');
@@ -677,6 +685,13 @@ export async function inspectMigrationArchive(params: {
       manifest,
       entries,
     });
+    if (manifest.components.database && !databaseBlockers.length) {
+      try {
+        const entry = (await openMigrationArchive(params.archivePath)).find(file => file.path === DATABASE_ARTIFACT);
+        if (!entry) throw new Error('Missing portable database snapshot.');
+        await inspectPortableDatabase(entry, manifest);
+      } catch (error) { databaseBlockers.push(error instanceof Error ? error.message : 'Invalid portable database snapshot.'); }
+    }
     if (databaseBlockers.length > 0) {
       dryRun.blockers.push(...databaseBlockers);
       dryRun.canApply = false;

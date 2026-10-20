@@ -44,6 +44,9 @@ import { ensurePortableTextCheckpointsCurrent } from '@/app/lib/exports/text-che
 import { migrationFileSha256 } from '@/app/lib/migration/archive';
 import { openDb } from '@/app/lib/db';
 import type { MigrationWorkspaceDescriptor } from '@/app/lib/migration/types';
+import { exportPortableDatabase } from './database-export';
+import { DATABASE_ARTIFACT } from './database-schema';
+import { writeMigrationJson } from './restore-storage';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const EXPORT_WRITE_THROTTLE_MS = 750;
@@ -109,9 +112,7 @@ function getExportStatusPath(exportId: string): string {
 
 async function writeJobStatus(job: MigrationExportJob): Promise<void> {
   const filePath = getExportStatusPath(job.id);
-  await ensureMigrationDir(path.dirname(filePath));
-  await fs.writeFile(filePath, `${JSON.stringify(job, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  await fs.chmod(filePath, 0o600).catch(() => undefined);
+  await writeMigrationJson(filePath, job);
 }
 
 async function readJobStatus(exportId: string): Promise<MigrationExportJob | null> {
@@ -364,7 +365,7 @@ function buildDatabaseManifest(params: {
       provider,
       logicalSchemaVersion: null,
       migrationVersion: MIGRATION_BUNDLE_SCHEMA_VERSION,
-      backupKind: 'postgres_dump',
+      backupKind: 'postgres_rows',
       artifactPath: params.postgresDump.entry.archivePath,
       artifactSha256: params.postgresDump.sha256,
       pgvectorEnabled: null,
@@ -428,7 +429,7 @@ function buildManifest(params: {
     warnings.push('Only a redacted reconnect manifest is included for secrets; raw secret files and OAuth tokens are excluded.');
   }
   if (params.database.provider === 'postgres' && params.components.database) {
-    warnings.push('Postgres database contents are not embedded in normal migration exports. Use Full Backup for a Postgres dump.');
+    warnings.push('The logical PostgreSQL snapshot includes account password hashes and personal application data. Sessions, OAuth credentials, public links and runtime queues are excluded. Target organization, Team Seat and license records are preserved.');
   }
 
   return {
@@ -490,9 +491,9 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     }
     await ensureMigrationDir(exportDir);
     const files: MigrationFileEntry[] = [];
-    const postgresDump: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
+    let postgresDump: { filePath: string; entry: MigrationFileEntry; sha256: string } | null = null;
     if (job.components.database) {
-      job.phase = 'Recording database provider metadata';
+      job.phase = 'Preparing PostgreSQL snapshot';
       await persist(true);
     }
 
@@ -510,6 +511,15 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     });
     const directories = new Set<string>();
     const virtualFileContents = new Map<string, string>();
+    let databaseUsers: Array<{ id: string; email: string | null }> | null = null;
+    if (job.components.database) {
+      const filePath = path.join(exportDir, 'postgres.jsonl.gz');
+      const snapshot = await exportPortableDatabase(filePath);
+      databaseUsers = snapshot.header.users;
+      postgresDump = { filePath, sha256: snapshot.sha256, entry: { component: 'database', archivePath: DATABASE_ARTIFACT,
+        size: snapshot.bytes, modifiedAt: new Date().toISOString(), sha256: snapshot.sha256 } };
+      files.push(postgresDump.entry);
+    }
 
     for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
@@ -533,6 +543,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     }
 
     for (const entry of files) {
+      if (entry === postgresDump?.entry) continue;
       const virtual = virtualFileContents.get(entry.archivePath);
       if (virtual !== undefined) entry.sha256 = crypto.createHash('sha256').update(virtual).digest('hex');
       else {
@@ -572,9 +583,10 @@ async function runExport(job: MigrationExportJob): Promise<void> {
           && (w.rootRelativePath === path.relative(dataRoot, root.sourcePath).split(path.sep).join('/')
             || w.rootRelativePath.startsWith(path.relative(dataRoot, root.sourcePath).split(path.sep).join('/') + '/'))));
         const owners = [...new Set(manifest.workspaces.map(w => w.ownerUserId).filter((id): id is string => Boolean(id)))];
-        manifest.users = owners.length ? await database.all('SELECT id, email FROM "user" WHERE id = ANY($1::text[])', [owners]) as Array<{ id: string; email: string | null }> : [];
+        manifest.users = databaseUsers ?? (owners.length ? await database.all('SELECT id, email FROM "user" WHERE id = ANY($1::text[])', [owners]) as Array<{ id: string; email: string | null }> : []);
       } finally { await database.close(); }
     }
+    if (databaseUsers) manifest.users = databaseUsers;
     job.progress.fileCount = manifest.fileCount;
     job.progress.totalBytes = manifest.totalBytes;
     job.phase = 'Writing archive';
@@ -601,6 +613,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     for (const directory of manifest.directories) await addZipEntry(archive, null, { name: directory, type: 'directory' });
 
     const filePathByArchivePath = new Map<string, string>();
+    if (postgresDump) filePathByArchivePath.set(postgresDump.entry.archivePath, postgresDump.filePath);
 
     for (const entry of files) {
       const matchingRoot = componentRoots
@@ -669,6 +682,9 @@ export async function createMigrationExportJob(options: Partial<MigrationExportO
     profile,
     includePersonalWorkspaces: options.includePersonalWorkspaces,
   });
+  if (components.database && (profile !== 'full_admin' || !selection.includePersonalWorkspaces)) {
+    throw Object.assign(new Error('Database export requires Full Admin Export with explicit personal data inclusion.'), { status: 400 });
+  }
   const source = buildExportSource(options.source);
   const now = new Date().toISOString();
   const job: MigrationExportJob = {

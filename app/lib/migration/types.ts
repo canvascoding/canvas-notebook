@@ -20,7 +20,7 @@ export const MIGRATION_EXPORT_PROFILES = ['standard', 'full_admin'] as const;
 export type MigrationExportProfile = (typeof MIGRATION_EXPORT_PROFILES)[number];
 
 export const DEFAULT_MIGRATION_COMPONENTS: MigrationComponents = {
-  database: true,
+  database: false,
   workspace: true,
   studioAssets: true,
   studioOutputs: true,
@@ -124,7 +124,7 @@ export interface MigrationExportSecurity {
 
 export type MigrationExportDatabaseProvider = 'postgres' | 'unknown';
 
-export type MigrationExportDatabaseBackupKind = 'postgres_dump' | 'none';
+export type MigrationExportDatabaseBackupKind = 'postgres_dump' | 'postgres_rows' | 'none';
 
 export interface MigrationExportDatabase {
   provider: MigrationExportDatabaseProvider;
@@ -307,4 +307,6 @@ export interface MigrationRestoreResult {
   filesApplied: number;
   rollbackComplete: boolean;
   error?: string;
+  databaseRows?: number;
+  databaseTables?: number;
 }

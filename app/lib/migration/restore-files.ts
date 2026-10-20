@@ -5,14 +5,18 @@ import { getMigrationRoot } from './paths';
 import { writeMigrationJson } from './restore-storage';
 import { assertRestoreAncestors, resolveRestoreTarget } from './restore-plan';
 import type { SecretDataStorageScope } from '@/app/lib/runtime-data-paths';
+import { publishDatabaseRestoreAreas, rollbackDatabaseRestoreAreas, inDatabaseRestoreArea } from './database-areas';
 
 export type RestoreJournal = {
-  version: 1; id: string; phase: 'applying' | 'files_applied';
+  version: 1; id: string; phase: 'applying' | 'database_pending' | 'files_applied';
   files: Array<{ target: string; staged: string; backup: string; previous: boolean }>;
   directories: string[];
   oauth: Array<{ target: string; backup: string }>;
   native: Array<{ workspaceId: string; paths: string[] }>;
-  secretFiles?: Array<{ scope: SecretDataStorageScope; backup: string }>;
+  secretFiles?: Array<{ scope: SecretDataStorageScope; backup: string; existed?: boolean }>;
+  areas?: Array<{ target: string; backup: string; previous: boolean }>;
+  databaseRows?: number;
+  databaseTables?: number;
 };
 
 export function restoreJournalPath(): string { return path.join(getMigrationRoot(), 'restore-in-progress.json'); }
@@ -51,6 +55,7 @@ export async function prepareRestoreFileJournal(input: {
 
 export async function publishRestoreFiles(dataRoot: string, journal: RestoreJournal): Promise<void> {
   await saveRestoreJournal(journal);
+  await publishDatabaseRestoreAreas(dataRoot, journal);
   if (journal.native.length) {
     const { archiveFileCollaborationPaths } = await import('@/app/lib/files/collaboration-policy');
     const { resolveExcalidrawCheckpointWorkspace: resolve } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
@@ -62,7 +67,9 @@ export async function publishRestoreFiles(dataRoot: string, journal: RestoreJour
   }
   for (const relative of journal.directories) {
     await assertRestoreAncestors(dataRoot, relative);
-    await fs.mkdir(resolveRestoreTarget(dataRoot, relative), { mode: 0o700 });
+    await fs.mkdir(resolveRestoreTarget(dataRoot, relative), { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
   }
   for (const file of journal.files) {
     await assertRestoreAncestors(dataRoot, file.target);
@@ -103,10 +110,6 @@ export async function resetRestoreOAuthFiles(dataRoot: string, journal: RestoreJ
 /** Interrupted publication is compensated before any HTTP listener is opened. */
 export async function rollbackRestoreFiles(dataRoot: string, journal: RestoreJournal): Promise<void> {
   if (journal.version !== 1 || !/^[a-f0-9-]{36}$/iu.test(journal.id)) throw new Error('Invalid restore recovery journal.');
-  if (journal.secretFiles?.length) {
-    const { restoreMigrationSecrets } = await import('./restore-secrets');
-    await restoreMigrationSecrets(dataRoot, journal);
-  }
   for (const file of [...journal.oauth].reverse()) {
     await assertRestoreAncestors(dataRoot, file.target);
     await assertRestoreAncestors(dataRoot, file.backup);
@@ -143,7 +146,13 @@ export async function rollbackRestoreFiles(dataRoot: string, journal: RestoreJou
       for (const p of group.paths) await restoreFileCollaborationPath({ workspace, path: p, trashEntryId: journal.id });
     }
   }
+  await rollbackDatabaseRestoreAreas(dataRoot, journal);
+  if (journal.secretFiles?.length) {
+    const { restoreMigrationSecrets } = await import('./restore-secrets');
+    await restoreMigrationSecrets(dataRoot, journal);
+  }
   for (const directory of [...journal.directories].reverse()) {
+    if (inDatabaseRestoreArea(journal, directory)) continue;
     await fs.rmdir(resolveRestoreTarget(dataRoot, directory)).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT' && error.code !== 'ENOTEMPTY') throw error;
     });

@@ -14,6 +14,9 @@ import { prepareRestoreFileJournal, publishRestoreFiles, resetRestoreOAuthFiles,
 import { isPortableRuntimeConfigPath, redactPortableRuntimeConfig } from './secret-export-policy';
 import type { MigrationRestoreResult, PendingMigrationRestore } from './types';
 import { resetMigrationSecrets } from './restore-secrets';
+import { DATABASE_ARTIFACT, DATABASE_RECEIPTS, sqlName } from './database-schema';
+import { databaseRestoreWasCommitted, ensureDatabaseRestoreReceipts, stagePortableDatabase, replacePortableDatabase } from './database-restore';
+import { prepareDatabaseRestoreAreas } from './database-areas';
 
 export function migrationRestoreResultPath(): string { return path.join(getMigrationRoot(), 'last-restore.json'); }
 
@@ -36,7 +39,7 @@ async function finishRestore(client: Client, pending: PendingMigrationRestore, j
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; }
   const result: MigrationRestoreResult = { id: pending.id, status: 'completed', completedAt: new Date().toISOString(),
-    filesApplied: journal.files.length, rollbackComplete: false };
+    filesApplied: journal.files.length, rollbackComplete: false, databaseRows: journal.databaseRows, databaseTables: journal.databaseTables };
   await writeMigrationJson(migrationRestoreResultPath(), result);
   await fs.rm(getPendingRestorePath(), { force: true });
   await fs.rm(restoreJournalPath(), { force: true });
@@ -45,7 +48,7 @@ async function finishRestore(client: Client, pending: PendingMigrationRestore, j
 }
 
 async function rejectRestore(pending: PendingMigrationRestore, journal: RestoreJournal | null, error: unknown): Promise<MigrationRestoreResult> {
-  if (journal?.phase === 'files_applied') throw new Error('Restore cleanup is incomplete. Restart to finish recovery before serving requests.', { cause: error });
+  if (journal?.phase === 'files_applied' || journal?.phase === 'database_pending') throw new Error('Restore cleanup is incomplete. Restart to finish recovery before serving requests.', { cause: error });
   if (journal) await rollbackRestoreFiles(getMigrationDataRoot(), journal);
   const result: MigrationRestoreResult = { id: pending.id, status: 'failed', completedAt: new Date().toISOString(),
     filesApplied: 0, rollbackComplete: true, error: error instanceof Error ? error.message : 'Restore failed.' };
@@ -70,11 +73,20 @@ export async function applyPendingMigrationRestore(): Promise<MigrationRestoreRe
   try {
     const lock = await client.query<{ locked: boolean }>("SELECT pg_try_advisory_lock(hashtext('canvas-notebook-migration-restore')) AS locked");
     if (!lock.rows[0]?.locked) throw new Error('Another migration restore is already running for this database.');
+    if (journal?.phase === 'database_pending') {
+      if (await databaseRestoreWasCommitted(client, pending.id)) {
+        journal.phase = 'files_applied'; await saveRestoreJournal(journal);
+      } else {
+        journal.phase = 'applying'; await saveRestoreJournal(journal);
+        return await rejectRestore(pending, journal, new Error('Interrupted database restore was rolled back before startup.'));
+      }
+    }
     if (journal?.phase === 'files_applied') return await finishRestore(client, pending, journal);
     if (journal) {
       // An interrupted publish is compensated, never guessed to be successful.
       return await rejectRestore(pending, journal, new Error('Interrupted file restore was rolled back. Upload and inspect again.'));
     }
+    let databaseTransaction = false;
     try {
       if (pending.preserveTargetInstanceAndLicense !== true || pending.invalidateSessions !== true
         || pending.pauseAutomations !== true || pending.clearOAuthTokens !== true) throw new Error('Invalid restore safety policy.');
@@ -89,16 +101,17 @@ export async function applyPendingMigrationRestore(): Promise<MigrationRestoreRe
         || await migrationFileSha256(archivePath) !== pending.archiveSha256) throw new Error('Approved restore archive checksum is missing or changed. Upload and inspect again.');
       const inspection = await inspectMigrationArchive({ uploadId: pending.uploadId, archivePath, mappings: pending.mappings });
       if (!inspection.canRestore || !inspection.manifest || !inspection.dryRun) throw new Error('The restore no longer passes inspection and mapping validation.');
-      if (inspection.manifest.components.database) throw new Error('Database restore is not available for this archive format.');
       const dataRoot = getMigrationDataRoot();
       const entries = await openMigrationArchive(archivePath);
       const plan = buildRestoreFilePlan({ dataRoot, manifest: inspection.manifest, entries, mappings: inspection.dryRun.workspaces });
       const stageRoot = path.join(getMigrationRoot(), 'restores', pending.id, 'staged');
       await ensureMigrationDir(stageRoot);
       const publications: Array<{ target: string; staged: string; workspaceId: string | null; workspacePath: string | null }> = [];
+      let databaseFile: string | null = null;
       for (const [index, file] of plan.files.entries()) {
         const staged = path.join(stageRoot, String(index));
         await stageMigrationEntry(file.zip, staged, file.source.sha256);
+        if (file.source.component === 'database' && file.source.archivePath === DATABASE_ARTIFACT) databaseFile = staged;
         if (!file.target) continue;
         const target = resolveRestoreTarget(dataRoot, file.target);
         if (isPortableRuntimeConfigPath(target, dataRoot)) {
@@ -110,12 +123,35 @@ export async function applyPendingMigrationRestore(): Promise<MigrationRestoreRe
       }
       if (await migrationFileSha256(archivePath) !== pending.archiveSha256) throw new Error('Restore archive changed while staging.');
       journal = await prepareRestoreFileJournal({ id: pending.id, dataRoot, files: publications, directories: plan.directories });
+      if (inspection.manifest.components.database) {
+        if (!databaseFile) throw new Error('Portable database snapshot is missing.');
+        journal.native = [];
+        if (inspection.manifest.components.workspace) await prepareDatabaseRestoreAreas(dataRoot, journal, plan.directories);
+        await ensureDatabaseRestoreReceipts(client);
+        await client.query('BEGIN'); databaseTransaction = true;
+        const database = await stagePortableDatabase(client, databaseFile, inspection.manifest);
+        // The same transaction replaces native state. Filesystem compensation
+        // must not separately restore lineages from the incoming snapshot.
+        journal.databaseRows = database.rows; journal.databaseTables = database.tables.size;
+        await saveRestoreJournal(journal);
+        await resetMigrationSecrets(client, dataRoot, journal);
+        await replacePortableDatabase(client, database);
+      }
       await publishRestoreFiles(dataRoot, journal);
-      await resetMigrationSecrets(client, dataRoot, journal);
+      if (!databaseTransaction) await resetMigrationSecrets(client, dataRoot, journal);
       await resetRestoreOAuthFiles(dataRoot, journal);
+      if (await migrationTargetFingerprint() !== pending.targetFingerprint) throw new Error('Restore changed the preserved target identity.');
+      if (databaseTransaction) {
+        await client.query(`INSERT INTO ${sqlName(DATABASE_RECEIPTS)} (id,committed_at) VALUES ($1,$2)`, [pending.id, Date.now()]);
+        journal.phase = 'database_pending'; await saveRestoreJournal(journal);
+        await client.query('COMMIT'); databaseTransaction = false;
+      }
       journal.phase = 'files_applied'; await saveRestoreJournal(journal);
       return await finishRestore(client, pending, journal);
-    } catch (error) { return await rejectRestore(pending, journal, error); }
+    } catch (error) {
+      if (databaseTransaction) await client.query('ROLLBACK').catch(() => undefined);
+      return await rejectRestore(pending, journal, error);
+    }
   } finally {
     await client.query("SELECT pg_advisory_unlock(hashtext('canvas-notebook-migration-restore'))").catch(() => undefined);
     await client.end();

@@ -307,23 +307,55 @@ test.describe('source export and migration acceptance', () => {
     } finally { await page.close(); }
   });
 
-  test('DB: database metadata has no dump and the inspector blocks PostgreSQL restore', async () => {
-    const page = await admin.newPage();
+  test('DB: explicit full-admin export contains real PostgreSQL rows without live credentials', async () => {
+    const page = await admin.newPage(); const env = await runtimeEnv('source');
+    const database = new Pool({ connectionString: env.DATABASE_URL });
+    const accountId = 'migration-oauth-fixture-99b4';
     try {
-      await settings(page, 'data-migration'); await configureExport(page, ['database', 'workspace']);
+      const actor = await json<{ user: { id: string } }>(await admin.request.get('/api/auth/get-session'));
+      const template = (await database.query("SELECT * FROM account WHERE user_id=$1 AND provider_id='credential' LIMIT 1", [actor.user.id])).rows[0];
+      expect(template).toBeTruthy();
+      await database.query("DELETE FROM account WHERE id=$1 AND provider_id='migration-test-fixture'", [accountId]);
+      await database.query('INSERT INTO account SELECT * FROM json_populate_record(NULL::account,$1::json)', [JSON.stringify({
+        ...template, id: accountId, account_id: 'fixture-account-99b4', provider_id: 'migration-test-fixture', password: null,
+        access_token: sentinel, refresh_token: sentinel, id_token: sentinel,
+      })]);
+      const proof = await json<{ project: { id: string; name: string } }>(await admin.request.post('/api/projects', { data: { name: 'Migration DB proof 99b4 ' + Date.now() } }));
+      const sourceStatus = await json<{ instanceId: string; licensed: boolean }>(await admin.request.get('/api/license/status'));
+      const cert = (await database.query('SELECT cert FROM license_certs WHERE instance_id=$1 ORDER BY id DESC LIMIT 1', [sourceStatus.instanceId])).rows[0].cert as string;
+      const licenseId = JSON.parse(Buffer.from(cert.split('.')[1], 'base64url').toString()).licenseId || digest(Buffer.from(cert));
+      await fs.writeFile(path.join(artifacts, 'database-proof.json'), JSON.stringify({ project: proof.project,
+        sourceInstanceId: sourceStatus.instanceId, sourceLicenseId: licenseId }, null, 2), { mode: 0o600 });
+      await settings(page, 'data-migration'); await configureExport(page, ['database', 'workspace'], 'full_admin', true);
       const exported = await exportDownload(page, 'database-selection');
-      expect(exported.manifest.components.database).toBe(true); expect(exported.manifest.database?.backupKind).toBe('none');
-      expect(exported.manifest.database?.artifactPath).toBeNull();
-      const completed = page.waitForResponse(r => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(r.url()));
-      await page.locator('input[type=file]').setInputFiles(exported.filename); const response = await completed;
-      const payload = await response.json(); expect(payload.inspection.canRestore).toBe(false);
-      expect(payload.inspection.dryRun.blockers.join(' ')).toContain('Postgres database restore is not supported');
-      await expect(page.getByRole('button', { name: 'Full Restore starten', exact: true })).toBeDisabled();
-      await page.setViewportSize({ width: 390, height: 844 });
-      await page.getByText('Dry Run blockiert', { exact: true }).scrollIntoViewIfNeeded();
-      await page.screenshot({ path: path.join(artifacts, '05-postgres-blocked-mobile.png') });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    } finally { await page.close(); }
+      expect(exported.manifest.database?.backupKind).toBe('postgres_rows');
+      expect(exported.manifest.database?.artifactPath).toBe('data/database/postgres.jsonl.gz');
+      const { execFileSync } = await import('node:child_process');
+      const summary = JSON.parse(execFileSync('python3', ['-c',
+        'import zipfile,gzip,json,sys\nz=zipfile.ZipFile(sys.argv[1]); f=gzip.GzipFile(fileobj=z.open("data/database/postgres.jsonl.gz")); h=json.loads(f.readline()); n=0; tokens=0; excluded=0; fixture=False; trailer=None\nfor line in f:\n r=json.loads(line)\n if r.get("end"): trailer=r; continue\n n+=1; t=r["table"]; v=r["row"]\n if t=="account":\n  tokens+=int(any(v.get(k) is not None for k in ["access_token","refresh_token","id_token"]))\n  fixture=fixture or v["id"]=="migration-oauth-fixture-99b4"\n excluded+=int(t in ["session","oauth_access_token","public_file_shares","license_certs","license_public_keys","team_memberships"])\nassert trailer and trailer["rowCount"]==n\nprint(json.dumps(dict(format=h["format"],rows=n,accountsWithTokens=tokens,excludedRows=excluded,fixturePresent=fixture)))', exported.filename], { encoding: 'utf8', maxBuffer: 4096 }));
+      expect(summary.format).toBe('canvas-postgres-rows'); expect(summary.rows).toBeGreaterThan(100);
+      expect(summary.accountsWithTokens).toBe(0); expect(summary.excludedRows).toBe(0); expect(summary.fixturePresent).toBe(true);
+      await fs.writeFile(path.join(artifacts, 'database-snapshot-result.json'), JSON.stringify(summary, null, 2), { mode: 0o600 });
+      const completed = page.waitForResponse(response => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(response.url()));
+      await page.locator('input[type=file]').setInputFiles(exported.filename);
+      const result = await (await completed).json(); expect(result.inspection.canRestore).toBe(true);
+      await expect(page.getByRole('button', { name: 'Full Restore starten', exact: true })).toBeEnabled();
+      await page.getByText('Dry Run bestanden', { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(artifacts, '14-postgres-snapshot-ready.png') });
+    } finally {
+      await database.query("DELETE FROM account WHERE id=$1 AND provider_id='migration-test-fixture'", [accountId]);
+      await database.end(); await page.close();
+    }
+  });
+
+  test('DB LEGACY: metadata-only PostgreSQL archives remain blocked', async () => {
+    const filename = await syntheticBundle('synthetic-database-metadata-only');
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('python3', ['-c',
+      'import zipfile,json,sys,os\np=sys.argv[1]; z=zipfile.ZipFile(p); entries={n:z.read(n) for n in z.namelist()}; z.close(); m=json.loads(entries["manifest.json"]); m["components"]["database"]=True; m["database"]={"provider":"postgres","backupKind":"none","artifactPath":None}; entries["manifest.json"]=json.dumps(m).encode(); out=zipfile.ZipFile(p+".new","w"); [out.writestr(k,v) for k,v in entries.items()]; out.close(); os.replace(p+".new",p)', filename]);
+    const result = await uploadArchive(admin.request, filename);
+    expect(result.payload.inspection.canRestore).toBe(false);
+    expect(result.payload.inspection.dryRun.blockers.join(' ')).toContain('portable row snapshot');
   });
 
   test('UP1: real UI uploads an archive larger than one chunk and verifies exact bytes', async () => {
@@ -588,6 +620,77 @@ test.describe('isolated target restore acceptance', () => {
       await expect(panel).toContainText(content.trim().replace(/\\/g, ''));
       await page.screenshot({ path: path.join(artifacts, '13-migrated-native-markdown.png') });
       await fs.writeFile(path.join(artifacts, 'actual-file-transfer-result.json'), JSON.stringify({ checked, differentTargetRoots: true, nativeDocumentVisible: true }, null, 2), { mode: 0o600 });
+    } finally { await page.close(); await context.close(); }
+  });
+
+  test('DB TRANSFER: real PostgreSQL snapshot and files survive restart while distinct target identity, license and API keys remain', async ({ browser }) => {
+    const filename = path.join(artifacts, 'database-selection.zip');
+    const proof = JSON.parse(await fs.readFile(path.join(artifacts, 'database-proof.json'), 'utf8')) as {
+      project: { id: string; name: string }; sourceInstanceId: string; sourceLicenseId: string;
+    };
+    const snapshot = JSON.parse(await fs.readFile(path.join(artifacts, 'database-snapshot-result.json'), 'utf8')) as { rows: number };
+    const manifest = JSON.parse(zipRead(filename, 'manifest.json').toString()) as CanvasMigrationManifest;
+    const target = await runtimeEnv('target');
+    let context = await login(browser); let page = await context.newPage();
+    const licenseIdentity = async (instanceId: string) => {
+      const database = new Pool({ connectionString: target.DATABASE_URL });
+      try {
+        const cert = (await database.query('SELECT cert FROM license_certs WHERE instance_id=$1 ORDER BY id DESC LIMIT 1', [instanceId])).rows[0]?.cert as string;
+        expect(Boolean(cert)).toBe(true);
+        return JSON.parse(Buffer.from(cert.split('.')[1], 'base64url').toString()).licenseId || digest(Buffer.from(cert));
+      } finally { await database.end(); }
+    };
+    try {
+      const before = await json<{ instanceId: string; licensed: boolean; edition: string }>(await context.request.get('/api/license/status'));
+      const beforeLicense = await licenseIdentity(before.instanceId);
+      expect(before.licensed).toBe(true); expect(before.edition).toBe('team');
+      expect(before.instanceId).not.toBe(proof.sourceInstanceId); expect(beforeLicense).not.toBe(proof.sourceLicenseId);
+      const oldSession = await json<{ session: { id: string } }>(await context.request.get('/api/auth/get-session'));
+      await json(await context.request.patch('/api/integrations/env', { data: { secretScope: 'system', scope: 'all',
+        patches: [{ key: 'MIGRATION_TARGET_KEEP_99B4', value: 'target-private-fixture-key-99b4' }] } }));
+      const stale = path.join(target.DATA, 'workspaces/target-only-99b4/stale.txt');
+      await fs.mkdir(path.dirname(stale), { recursive: true }); await fs.writeFile(stale, 'Target-only file must stay in rollback backup.');
+      await settings(page, 'data-migration');
+      const completed = page.waitForResponse(response => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(response.url()));
+      await page.locator('input[type=file]').setInputFiles(filename);
+      const inspection = (await (await completed).json()).inspection;
+      expect(inspection.canRestore).toBe(true);
+      page.once('dialog', dialog => dialog.accept('FULL_RESTORE'));
+      const staged = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/migration/restore'));
+      await page.getByRole('button', { name: 'Full Restore starten', exact: true }).click();
+      expect((await staged).status()).toBe(200);
+      await stopRuntime(); await startRuntime('target');
+      const old = await (await context.request.get('/api/auth/get-session')).json();
+      expect(old?.session?.id === oldSession.session.id).toBe(false);
+      await page.close(); await context.close(); context = await login(browser); page = await context.newPage();
+      const after = await json<{ instanceId: string; licensed: boolean; edition: string }>(await context.request.get('/api/license/status'));
+      expect(after.instanceId).toBe(before.instanceId); expect(after.licensed).toBe(true); expect(after.edition).toBe('team');
+      expect(await licenseIdentity(after.instanceId)).toBe(beforeLicense);
+      const result = await json<{ result: { status: string; databaseRows: number; databaseTables: number } }>(await context.request.get('/api/migration/restore'));
+      expect(result.result.status).toBe('completed'); expect(result.result.databaseRows).toBe(snapshot.rows); expect(result.result.databaseTables).toBeGreaterThan(100);
+      const projectList = await json<{ projects: Array<{ id: string; name: string }> }>(await context.request.get('/api/projects'));
+      expect(projectList.projects.some(project => project.id === proof.project.id && project.name === proof.project.name)).toBe(true);
+      const secret = await json<{ data: { entries: Array<{ key: string; value: string }> } }>(await context.request.get('/api/integrations/env?scope=all&secretScope=system&key=MIGRATION_TARGET_KEEP_99B4'));
+      expect(secret.data.entries.find(entry => entry.key === 'MIGRATION_TARGET_KEEP_99B4')?.value === 'target-private-fixture-key-99b4').toBe(true);
+      expect(await fs.stat(stale).then(() => true, () => false)).toBe(false);
+      const expectedHashes = new Map(zipEntries(filename).filter(entry => !entry.directory).map(entry => [entry.path, entry.sha256]));
+      let checked = 0;
+      for (const file of manifest.files.filter(file => file.component === 'workspace')) {
+        const mapping = [...inspection.dryRun.workspaces].sort((a, b) => b.sourcePath.length - a.sourcePath.length)
+          .find(mapping => file.archivePath.startsWith(mapping.sourcePath + '/'));
+        const destination = mapping.targetPath.slice(5) + file.archivePath.slice(mapping.sourcePath.length);
+        expect(digest(await fs.readFile(path.join(target.DATA, destination))), destination).toBe(expectedHashes.get(file.archivePath)); checked++;
+      }
+      await settings(page, 'data-migration');
+      await expect(page.getByTestId('migration-restore-receipt')).toContainText('PostgreSQL:');
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByTestId('migration-restore-receipt').scrollIntoViewIfNeeded();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: path.join(artifacts, '15-postgres-restored-mobile.png') });
+      await fs.writeFile(path.join(artifacts, 'database-transfer-result.json'), JSON.stringify({ rows: result.result.databaseRows,
+        tables: result.result.databaseTables, filesChecked: checked, distinctTargetInstancePreserved: true,
+        distinctTargetLicensePreserved: true, sourceProjectVisible: true, targetApiKeyPreserved: true,
+        staleWorkspaceFilesRemoved: true, previousSessionInvalidated: true }, null, 2), { mode: 0o600 });
     } finally { await page.close(); await context.close(); }
   });
 

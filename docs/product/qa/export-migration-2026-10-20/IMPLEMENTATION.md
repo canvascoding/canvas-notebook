@@ -7,7 +7,7 @@ Die Arbeitsschritte werden nacheinander implementiert, geprüft und committed.
 - [x] Exporte: Organisationspfad, leere Verzeichnisse und aktuelle native Text-Checkpoints für Einzel- und Gesamtexport; Benutzerordner namens `cache` bewahren.
 - [x] Fehlerbehandlung: sichtbare Downloadfehler und vollständig behandelte Output-Stream-Ablehnungen.
 - [x] Dateimigration: sichere Zuordnung, tatsächliche Anwendung vor Serverstart, Rücknahme bei Fehlern und zugesagte Nacharbeiten.
-- [ ] PostgreSQL: echter Datenbanktransfer unter Erhalt der Zielinstanz und Lizenz.
+- [x] PostgreSQL: echter Datenbanktransfer unter Erhalt der Zielinstanz und Lizenz.
 - [ ] Gesamtabnahme: tatsächlicher Export auf isoliertem Ziel, Neustart und Prüfung über API und Browser.
 
 ## Validierung des Exports
@@ -45,3 +45,19 @@ Private Testdaten, ZIPs und Traces liegen weiterhin unter `~/.local/state/canvas
 Die geerbte Testquelle enthält 660 registrierte Workspaces, davon 618 deaktiviert und 23 gesperrt. Das unveränderte erste Archiv wird korrekt blockiert. 632 vorhandene Dateiwurzeln dieser alten deaktivierten/gesperrten QA-Workspaces wurden außerhalb der aktiven Quell-Datenkopie privat gesichert; ihre Datenbankstatus bleiben unverändert. Die positive Dateiabnahme verwendet 19 vorhandene aktive Workspace-Wurzeln und 224 Dateien. Das ursprüngliche Archiv bleibt als Negativprüfung erhalten. Dieses Vorgehen ist eine Bereinigung der isolierten Testquelle, keine automatische Wiederherstellung gesperrter Produktdaten.
 
 Die sechs Browserfälle auf der bereinigten Quelle bestanden (Gesamtexporte, Komponenten/Secrets, mehrteiliger Upload, exakte Wurzeln, gesperrte Altbestände und ungültige Archive/Zuordnungen). Zwei Ziel-Browserfälle bestanden nach dem letzten Produktionsbuild: tatsächliche Wiederherstellung nach Neustart samt zugesagten Nacharbeiten sowie vollständiger Export von 224 Dateien in andere bestätigte Workspace-Wurzeln mit anschließendem Öffnen eines nativen Markdown-Dokuments. Desktop- und 390-px-Ansichten wurden geprüft; kein horizontaler Überlauf. Gezieltes TypeScript und ESLint bestanden.
+
+
+## PostgreSQL-Transfer
+
+- Ein Full Admin Export mit ausdrücklich eingeschlossenen persönlichen Daten erzeugt jetzt einen echten, komprimierten logischen PostgreSQL-Snapshot. Die Datenbank ist standardmäßig nicht ausgewählt.
+- Der Snapshot enthält ausschließlich Daten für bekannte, geprüfte Tabellen und Zieltypen. Unbekannte Tabellen, ein abweichendes Schema und eine andere Organisation blockieren den Import. Bestehende Konten mit derselben E-Mail müssen dieselbe ID haben; eine bereichsübergreifende Neuzuordnung solcher Konten ist auf die Dateimigration beschränkt. Damit bleiben auch gespeicherte persönliche Namensräume konsistent.
+- Lizenz-, Zielorganisations- und Team-Seat-Tabellen werden nicht importiert oder beschrieben. Ihre tatsächlichen Zielinhalte werden vor und nach dem Datenbankaustausch verglichen. Zielkonten, die nur zum Ziel gehören, bleiben erhalten.
+- Aktive Sitzungen, OAuth-Zugänge, Freigabe-/Gastzugänge, Verbindungsregistrierungen und laufzeitgebundene Warteschlangen werden nicht als aktive Berechtigungen übernommen. Passwort-Hashes gehören zum ausdrücklich bestätigten persönlichen Datenexport. Benutzerinhalte und Chatverläufe bleiben unverändert; sie können früher hineinkopierte Links oder Zugangsdaten enthalten. Der Export bleibt ein privates, unverschlüsseltes Archiv.
+- Daten werden mit gebundenen Parametern gegen die bekannten PostgreSQL-Zieltypen eingespielt. Vom Archiv kommt kein ausführbares SQL. Fremdschlüssel und Zielvorgaben müssen vor der Dateiveröffentlichung bestehen; automatisch erzeugte numerische IDs werden ohne Rücksetzen der Sequenzen fortgeführt.
+- Der Datenbankaustausch liegt in einer Transaktion. Ein zusammen mit dem Commit gespeicherter Beleg unterscheidet einen bestätigten Austausch von einem abgebrochenen Versuch beim nächsten Start. Die Workspace-Dateiwurzeln werden dazu mit privaten Sicherungen ausgetauscht. Konfigurierte Ziel-Schlüssel bleiben erhalten.
+- Ein direkter Test spielte 116 Tabellen mit über 68.000 Datensätzen in einer echten PostgreSQL-Transaktion ein und nahm diese wieder zurück. Die tatsächlichen Ziel-Lizenzdaten blieben unverändert. Verzeichnisaustausch und wiederholte Dateirücknahme mit einem Schlüssel innerhalb der Workspace-Wurzel bestanden ebenfalls.
+- Die Zielkopie hat jetzt eine eigene Instanz-ID und eine eigene über die regulären lokalen Community-/Claim-/Development-Team-Flows aktivierte, nicht abrechenbare Entwicklungslizenz. Veraltete Verbindungsdateien der ursprünglichen Kopie wurden privat gesichert; keine Lizenz wurde durch direkte SQL-Änderungen hergestellt.
+- Produktionsbuild, gezieltes TypeScript, ESLint, Upload-, Archiv- und Secrets-Prüfungen bestanden.
+- Drei abschließende Browserfälle bestanden: echter Datenbankexport mit nachweislich entfernten OAuth-Fixture-Tokens, Blockierung eines reinen Metadatenarchivs und Export/Upload/Bestätigung/Neustart auf der separat lizenzierten Zielinstanz. Beim Zieltransfer wurden 68.104 Datensätze und alle Workspace-Dateien geprüft; maßgeblich ist die am Ende gespeicherte Gesamtabnahme. Quellprojekt, Zielinstanz, Ziel-Lizenz, Ziel-API-Key und Sitzungsabmeldung wurden tatsächlich geprüft.
+
+Der längere Datenbankexport deckte außerdem ein bestehendes Rennen beim Lesen des Fortschritts auf: eine gerade überschriebene Statusdatei konnte kurz als fehlender Auftrag erscheinen. Exportstatus wird jetzt atomar gespeichert. Die Wiederholungen des echten Browserexports bestanden.

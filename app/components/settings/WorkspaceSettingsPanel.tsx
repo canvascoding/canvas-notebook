@@ -245,6 +245,7 @@ function SettingsDataContent({
     setMigrationExportProfile(profile);
     if (profile !== 'full_admin') {
       setIncludePersonalWorkspaces(false);
+      setMigrationComponents(current => ({ ...current, database: false }));
     }
   };
 
@@ -604,7 +605,7 @@ function SettingsDataContent({
                 type="button"
                 className="w-full justify-center sm:w-auto"
                 onClick={() => void createMigrationExport()}
-                disabled={!canExportData || isCreatingExport || selectedComponentCount === 0 || exportJob?.status === 'running' || exportJob?.status === 'queued'}
+                disabled={!canExportData || isCreatingExport || selectedComponentCount === 0 || (migrationComponents.database && !includePersonalWorkspaces) || exportJob?.status === 'running' || exportJob?.status === 'queued'}
               >
                 {isCreatingExport || exportJob?.status === 'running' || exportJob?.status === 'queued' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -646,7 +647,7 @@ function SettingsDataContent({
                 type="checkbox"
                 checked={includePersonalWorkspaces}
                 onChange={() => setIncludePersonalWorkspaces((value) => !value)}
-                disabled={!canExportData || migrationExportProfile !== 'full_admin' || !migrationComponents.workspace}
+                disabled={!canExportData || migrationExportProfile !== 'full_admin' || (!migrationComponents.workspace && !migrationComponents.database)}
                 className="mt-0.5 h-4 w-4 accent-primary"
               />
               <span className="min-w-0">
@@ -669,7 +670,7 @@ function SettingsDataContent({
                       type="checkbox"
                       checked={migrationComponents[key]}
                       onChange={() => toggleMigrationComponent(key)}
-                      disabled={!canExportData}
+                      disabled={!canExportData || (key === 'database' && migrationExportProfile !== 'full_admin')}
                       className="h-4 w-4 accent-primary"
                     />
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -682,6 +683,7 @@ function SettingsDataContent({
               })}
             </div>
 
+            {migrationComponents.database ? <p className="text-sm text-muted-foreground">{t('workspacePanel.migration.databaseScopeWarning')}</p> : null}
             {migrationComponents.secrets ? (
               <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -905,6 +907,9 @@ function SettingsDataContent({
                 ? t('workspacePanel.migration.restoreCompleted', { count: restoreReceipt.filesApplied })
                 : t('workspacePanel.migration.restoreRejected', { error: restoreReceipt.error || t('workspacePanel.migration.errors.restoreFailed') })}
             </p>
+            {restoreReceipt.status === 'completed' && restoreReceipt.databaseRows !== undefined ? (
+              <p className="text-sm">{t('workspacePanel.migration.restoreDatabaseCompleted', { count: restoreReceipt.databaseRows, tables: restoreReceipt.databaseTables || 0 })}</p>
+            ) : null}
           </div> : null}
         </CardContent>
       </Card>

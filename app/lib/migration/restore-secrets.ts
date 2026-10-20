@@ -30,6 +30,10 @@ export async function resetMigrationSecrets(client: Client, dataRoot: string, jo
     if (!state.readable) throw new Error('OAuth reset requires readable target Secrets. See /settings?tab=secrets.');
     const keys = state.entries.filter(entry => entry.key === 'CANVAS_CREDENTIAL_PI_OAUTH'
       || /^CANVAS_CREDENTIAL_MCP_[a-f0-9]{64}$/u.test(entry.key)).map(entry => entry.key);
+    if (scope.secretScope === 'system' && process.env.OAUTH_STORAGE_PATH
+      && await fs.stat(process.env.OAUTH_STORAGE_PATH).then(() => true, (error: NodeJS.ErrnoException) => {
+        if (error.code === 'ENOENT') return false; throw error;
+      }) && !keys.includes('CANVAS_CREDENTIAL_PI_OAUTH')) keys.push('CANVAS_CREDENTIAL_PI_OAUTH');
     const accounts = emails.filter(email => scope.secretScope === 'system' ? email.secret_ref.startsWith('workspace/') : email.user_id === scope.userId);
     if (!keys.length && !accounts.length) continue;
     const backup = `.restore-backups/migration-${journal.id}/secrets/${journal.secretFiles.length}`;
@@ -40,7 +44,7 @@ export async function resetMigrationSecrets(client: Client, dataRoot: string, jo
       if (error.code === 'ENOENT') return Buffer.alloc(0); throw error;
     });
     await fs.writeFile(destination, raw, { mode: 0o600, flag: 'wx' });
-    journal.secretFiles.push({ scope, backup }); await saveRestoreJournal(journal);
+    journal.secretFiles.push({ scope, backup, existed: state.exists }); await saveRestoreJournal(journal);
     for (const key of keys) await mutateUnifiedSecretValue(key, async () => null, scope);
     for (const account of accounts) await deleteEmailAccountSecret(account.secret_ref);
   }
@@ -52,6 +56,7 @@ export async function restoreMigrationSecrets(dataRoot: string, journal: Restore
     const raw = await fs.readFile(resolveRestoreTarget(dataRoot, record.backup));
     const filename = getUnifiedEnvFilePath(record.scope);
     await withFileMutationLock(filename, async () => {
+      if (record.existed === false) { await fs.rm(filename, { force: true }); return; }
       await fs.mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
       const temporary = filename + '.restore-' + journal.id;
       await fs.writeFile(temporary, raw, { mode: 0o600, flag: 'wx' });

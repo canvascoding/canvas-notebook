@@ -39,6 +39,14 @@ async function main() {
     assert.equal(mapMigrationWorkspaces({ ...input, choices })[0].status, 'mapped');
     assert.throws(() => mapMigrationWorkspaces({ ...input, users: [], choices }), /owner/);
     assert.throws(() => parseMigrationMappingChoices({ users: { a: 1 } }));
+    const { mapDatabaseUsers } = await import('../app/lib/migration/database-mappings');
+    assert.equal(mapDatabaseUsers([{ id: 'same', email: 'same@example.test' }], [{ id: 'same', email: 'SAME@example.test' }])[0].targetUserId, 'same');
+    assert.equal(mapDatabaseUsers([{ id: 'new', email: 'new@example.test' }], [])[0].targetUserId, 'new');
+    assert.throws(() => mapDatabaseUsers([{ id: 'source', email: 'same@example.test' }], [{ id: 'other', email: 'same@example.test' }]), /matching IDs/);
+    const { assertDatabaseWorkspaceRoot } = await import('../app/lib/migration/database-workspaces');
+    assertDatabaseWorkspaceRoot(source);
+    assert.throws(() => assertDatabaseWorkspaceRoot({ ...source, rootRelativePath: 'system/secrets' }));
+    assert.throws(() => assertDatabaseWorkspaceRoot({ ...source, rootRelativePath: 'workspaces/personal/source-user/../../../system' }));
     await fs.mkdir(path.join(root, 'workspace'), { recursive: true });
     await fs.writeFile(path.join(root, 'workspace/old.txt'), 'old bytes');
     const journal = await prepareRestoreFileJournal({ id: randomUUID(), dataRoot: root, directories: ['workspace/new-dir'], files: [
@@ -67,6 +75,25 @@ async function main() {
     assert.equal(readUnifiedSecretValue('MIGRATION_KEEP_API_KEY', scope), 'fixture-api-key');
     await restoreMigrationSecrets(root, secretsJournal);
     assert.deepEqual(await fs.readFile(getUnifiedEnvFilePath(scope)), previous);
+    const { prepareDatabaseRestoreAreas } = await import('../app/lib/migration/database-areas');
+    const oldAreaFile = path.join(root, 'workspaces/old/extra.txt');
+    await fs.mkdir(path.dirname(oldAreaFile), { recursive: true }); await fs.writeFile(oldAreaFile, 'previous area bytes');
+    await fs.mkdir(path.join(root, 'workspaces/old/empty'), { recursive: true });
+    process.env.CANVAS_SECRETS_ENV_PATH = path.join(root, 'workspaces/target-env/Canvas-Secrets.env');
+    await mutateUnifiedSecretValue('MIGRATION_KEEP_API_KEY', async () => 'area-key', scope);
+    await fs.writeFile(path.join(root, 'area-stage'), 'incoming area bytes');
+    const areaJournal = await prepareRestoreFileJournal({ id: randomUUID(), dataRoot: root, directories: ['workspaces/new'], files: [
+      { target: 'workspaces/new/incoming.txt', staged: 'area-stage', workspaceId: null, workspacePath: null },
+      { target: 'workspaces/new/missing.txt', staged: 'area-stage-missing', workspaceId: null, workspacePath: null },
+    ] });
+    await prepareDatabaseRestoreAreas(root, areaJournal, ['workspaces', 'workspaces/new']);
+    await assert.rejects(publishRestoreFiles(root, areaJournal), /ENOENT/);
+    await assert.rejects(fs.stat(oldAreaFile), /ENOENT/);
+    assert.equal(readUnifiedSecretValue('MIGRATION_KEEP_API_KEY', scope), 'area-key');
+    await rollbackRestoreFiles(root, areaJournal); await rollbackRestoreFiles(root, areaJournal);
+    assert.equal(await fs.readFile(oldAreaFile, 'utf8'), 'previous area bytes');
+    assert.ok((await fs.stat(path.join(root, 'workspaces/old/empty'))).isDirectory());
+    assert.equal(readUnifiedSecretValue('MIGRATION_KEEP_API_KEY', scope), 'area-key');
     console.log('PASS: archive checksums/unsafe paths/links, explicit owner mapping, interrupted publication rollback, symlink targets and OAuth reset preserving API keys with exact rollback.');
   } finally { await fs.rm(root, { recursive: true, force: true }); }
 }
