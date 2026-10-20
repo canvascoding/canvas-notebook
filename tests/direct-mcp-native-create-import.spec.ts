@@ -1695,14 +1695,22 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
             await editorPage.locator(editorSelector).screenshot({ path: info.outputPath(`raw-web-${pair.kind}-${isTarget ? 'target' : 'incoming'}-reloaded.png`), animations: 'disabled' });
             await editorPage.close();
           }
-          const old = after.physical.find(file => file.path === pair.targetPath); assert(old && old.missing);
-          const incomingFile = after.physical.find(file => file.path === pair.incomingPath); assert(incomingFile && !incomingFile.missing); assert.equal(incomingFile.bytes.toString('utf8'), expectedIncoming);
-          if (pair.kind === 'move') { const moved = after.physical.find(file => file.path === pair.destinationPath); assert(moved && !moved.missing); assert.deepEqual(moved.bytes, pair.targetBytes); }
+          // Native link completion precedes asynchronous Markdown publication.
+          // Read fresh bytes; the earlier frozen snapshot cannot observe a later checkpoint.
+          let projected = after;
+          await expect.poll(async () => {
+            projected = await snapshotRawMarkdownPair(selected, [pair.targetPath, pair.incomingPath, ...(pair.kind === 'move' ? [pair.destinationPath] : [])]);
+            const incoming = projected.physical.find(file => file.path === pair.incomingPath);
+            assert(incoming && !incoming.missing); return incoming.bytes.toString('utf8');
+          }, { timeout: 30000 }).toBe(expectedIncoming);
+          const old = projected.physical.find(file => file.path === pair.targetPath); assert(old && old.missing);
+          const incomingFile = projected.physical.find(file => file.path === pair.incomingPath); assert(incomingFile && !incomingFile.missing); assert.equal(incomingFile.bytes.toString('utf8'), expectedIncoming);
+          if (pair.kind === 'move') { const moved = projected.physical.find(file => file.path === pair.destinationPath); assert(moved && !moved.missing); assert.deepEqual(moved.bytes, pair.targetBytes); }
           proofs.push({ kind: pair.kind, originalPreviewPlanId: preview.planId, nativePlanId: firstOperation.planId, batchId: firstOperation.batchId,
             operationId: submitted.idempotencyKey, importedIdentities: identities, beforePreviewHash: sha(JSON.stringify(before.rows)),
             afterPreviewHash: sha(JSON.stringify(afterPreview.rows)), fullPreviewDocumentAndFileNoWrite: true,
             completeNativeBodyAndExpectedLinkDelta: true, actualVisibleEditorAndReload: true,
-            probes: [before.probe, afterPreview.probe, after.probe] });
+            probes: [before.probe, afterPreview.probe, after.probe, projected.probe] });
           await files.reload({ waitUntil: 'domcontentloaded' });
           await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
           await expect(files.locator(`[data-file-path="${pair.targetPath}"]`).filter({ visible: true })).toHaveCount(0);
