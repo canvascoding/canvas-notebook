@@ -426,9 +426,9 @@ function checkIntent(value: unknown, selected: WorkspaceOperationOriginalMoveCon
     const decoded=decodeWorkspaceOperationOriginalMoveNamespaceStage(stage.stageText as string,selected,sourceEvidence);
     if(decoded.effectsProof!==nativeLinkJsonProof(valueTyped.namespaceEffects))changed();
   } else if(valueTyped.namespaceState!==null)changed();
-  decodeNative(valueTyped.nativeBundle,selected,sourceEvidence);
+  const nativeBundle = decodeNative(valueTyped.nativeBundle,selected,sourceEvidence);
   contexts.set(valueTyped,selected);
-  try{assertWorkspaceOperationOriginalMovePreflightBudget(valueTyped);}catch(error){contexts.delete(valueTyped);throw error;}
+  try{assertOriginalMovePreflightBudgetFromCapturedBundle(valueTyped,nativeBundle);}catch(error){contexts.delete(valueTyped);throw error;}
   return freeze(valueTyped);
 }
 export function captureWorkspaceOperationOriginalMoveIntent(input: unknown, supplied: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveIntentData {
@@ -476,6 +476,13 @@ function referenceList(intent: WorkspaceOperationOriginalMoveIntentData, step?: 
 /** Conservative exact JSON-token accounting of the largest possible receipts,
  * before FS. Physical hash/entry limits are cumulative over distinct roots. */
 export function assertWorkspaceOperationOriginalMovePreflightBudget(intent: WorkspaceOperationOriginalMoveIntentData): void {
+  assertOriginalMovePreflightBudgetFromCapturedBundle(intent);
+}
+/** Pure local factoring only. The optional bundle is supplied solely by the
+ * immediately preceding strict decode in checkIntent, within one synchronous
+ * call. Public callers retain a fresh decode at the original budget position. */
+function assertOriginalMovePreflightBudgetFromCapturedBundle(intent: WorkspaceOperationOriginalMoveIntentData,
+  capturedBundle?: NativeFileOperationBundle | null): void {
   const selected=originalContext(intent);let entries=0,hashBytes=BigInt(0),parentBytes=0,pathBytes=0;
   if(Buffer.byteLength(canonical(intent))>L.intentBytes)fail('ORIGINAL_MOVE_TOO_LARGE');
   const parentTemplates=new Map<string,WorkspaceOperationOriginalMoveParentReceiptData>();
@@ -504,7 +511,8 @@ export function assertWorkspaceOperationOriginalMovePreflightBudget(intent: Work
     const bytes=Buffer.byteLength(canonical(predicted));if(bytes>L.pathReceiptBytes)fail('ORIGINAL_MOVE_TOO_LARGE');
     pathBytes+=bytes+8192;if(pathBytes>L.pathReceiptBytes)fail('ORIGINAL_MOVE_TOO_LARGE');
   }
-  const bundle=decodeNative(intent.nativeBundle,selected,intent.version!==1?intent.currentWitness:undefined);
+  const bundle=capturedBundle === undefined
+    ? decodeNative(intent.nativeBundle,selected,intent.version!==1?intent.currentWitness:undefined) : capturedBundle;
   const predicted:WorkspaceOperationOriginalMoveCompletionData={version:1,batchId:intent.batchId,intentDigest:intentHash(intent),planId:intent.planId,
     compilerPlanProof:intent.compilerPlanProof,finalGraphProof:intent.finalGraphProof,parentReceipts:referenceList(intent),
     pathReceipts:intent.steps.map(step=>({stepKey:step.stepKey,receiptDigest:'0'.repeat(64)})),native:bundle?{operationId:bundle.operationId,requestId:bundle.requestId,
@@ -621,16 +629,21 @@ export function prepareWorkspaceOperationOriginalMoveNativeBundleData(selected: 
   observation: WorkspaceLinkSourceAuthorityObservation,
   sourceEvidence: WorkspaceOperationAnyMixedSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
   const nativeEvidence = workspaceOperationSourceNativeEvidence(sourceEvidence);
-  const plan = selected.plan, mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
+  const candidatePlan = selected.plan, candidateMappings = candidatePlan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
+  const candidateIds = [...new Set([...candidateMappings.map(mapping => mapping.source.documentId!),...candidatePlan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
+  if (!candidateIds.length) return null; // Preserve the existing physical-only/null arm.
+  // Capture/strictly decode once in this synchronous pure block. Each ID below
+  // uses only that detached context; no captured fact crosses an await.
+  const captured = context(selected), plan = captured.plan;
+  const mappings = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
   const ids = [...new Set([...mappings.map(mapping => mapping.source.documentId!),...plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)])].sort();
-  if (!ids.length) return null;
-  const identity = getWorkspaceOperationOriginalMoveNativeIds(selected);
+  const identity = nativeIds(captured);
   const mutations = ids.map(documentId => {
     const original = nativeEvidence.nativeBindings.find(binding => binding.expected.documentId === documentId)?.expected;
     const state = observation.privateNativeStates.find(item => item.documentId === documentId);
     const version = nativeEvidence.stage.sources.find(source => source.inventory.document.documentId === documentId)?.inventory.version;
     if (!original || !state || !version) changed();
-    const mutationId = getWorkspaceOperationOriginalMoveNativeIds(selected,documentId).mutationId!;
+    const mutationId = nativeIds(captured,documentId).mutationId!;
     const mapping = mappings.find(mapping => mapping.source.documentId === documentId);
     const source = {documentId,workspaceId:original.workspaceId,organizationId:original.organizationId,path:original.path,
       representation:original.representation,lifecycleGeneration:original.lifecycleGeneration,schemaVersion:original.schemaVersion};
@@ -642,7 +655,7 @@ export function prepareWorkspaceOperationOriginalMoveNativeBundleData(selected: 
       prepared:recipes.length ? (plan.planIdentityVersion===4?prepareNativeLinkMutationsV4:prepareNativeLinkMutations)({state,recipes,operationId:mutationId}) : null};
   });
   const bundle = captureNativeFileOperationBundle({version:1,operationId:identity.operationId,requestId:identity.requestId,
-    action:plan.actions[0].kind,actor:{actorUserId:selected.actor.userId,actorId:selected.actor.actorId,actorType:selected.actor.actorType,
-      actorSessionId:selected.actor.actorSessionId},reviewDigest:plan.planId,mutations});
+    action:plan.actions[0].kind,actor:{actorUserId:captured.actor.userId,actorId:captured.actor.actorId,actorType:captured.actor.actorType,
+      actorSessionId:captured.actor.actorSessionId},reviewDigest:plan.planId,mutations});
   return Object.freeze({privateText:bundle.privateText,changesBundleProof:bundle.changesBundleProof,actionPayloadText:bundle.actionPayloadText});
 }

@@ -349,3 +349,83 @@ test('logical native-only directory has an absent physical root and retains ever
   assert.equal(codec.readWorkspaceOperationOriginalMoveNativeBundle(intent)?.mutations[0].destinationPath,'new/moved/note.md');
   const paths=pathRows(intent);codec.decodeWorkspaceOperationOriginalMoveCompletion(completion(intent,[],paths),intent,[],paths);
 });
+
+// Pure ID/context regression. fixture() above already builds its native bundle
+// independently with the public native-ID API and actual prepared Yjs updates.
+// Keep that builder and all existing test bodies unchanged.
+for (const representation of ['plain_text','tiptap_xml','tiptap_blocks'] as const) {
+  test(`actual ${representation} bundle preparation matches the independent native and PDF incoming-link fixture`, () => {
+    for (const asset of [false,true]) {
+      const sourcePath = asset ? 'a.pdf' : 'a.md', destinationPath = asset ? 'b.pdf' : 'b.md';
+      const observed = observation([
+        ...(asset ? [] : [state(sourcePath, 'Original', representation)]),
+        state('incoming.md', `[Target](${sourcePath})`, representation),
+      ], asset ? [{path:sourcePath,kind:'file'}] : []);
+      const before = structuredClone(observed);
+      const reference = fixture(observed, [{sourcePath,destinationPath}], [physical(sourcePath, destinationPath,
+        asset ? {kind:'regular_file',identity:identity('file'),sha256:hash('pdf')} : {kind:'projection_absent'})]);
+      assert(reference.nativeBundle);
+      const actual = codec.prepareWorkspaceOperationOriginalMoveNativeBundleData(reference.context, observed);
+      assert(actual);
+      const expectedBundle = codec.decodeWorkspaceOperationOriginalMoveNativeBundleData(reference.nativeBundle, reference.context);
+      const actualBundle = codec.decodeWorkspaceOperationOriginalMoveNativeBundleData(actual, reference.context);
+      assert(expectedBundle && actualBundle);
+      const stable = (bundle:NativeFileOperationBundle) => ({...bundle,mutations:bundle.mutations.map(({prepared,...mutation}) => ({
+        ...mutation,prepared:prepared === null ? null : {contractVersion:prepared.contractVersion,
+          operationId:prepared.operationId,source:prepared.source,before:prepared.before,
+          inverseRecipes:prepared.inverseRecipes.map(({contractVersion,originalLinkId,source,authorizedForwardRecipeProof}) => ({
+            contractVersion,originalLinkId,source,authorizedForwardRecipeProof,
+          }))},
+      }))});
+      assert.deepEqual(stable(actualBundle), stable(expectedBundle));
+      assert.deepEqual(actualBundle.mutations.map(mutation => mutation.kind).sort(), asset ? ['link'] : ['link','move']);
+      for (const data of [reference.nativeBundle, actual]) {
+        const captured = captureNativeFileOperationBundle(codec.decodeWorkspaceOperationOriginalMoveNativeBundleData(data, reference.context)!);
+        assert.equal(captured.privateText, data.privateText);
+        assert.equal(captured.changesBundleProof, data.changesBundleProof);
+        assert.equal(captured.actionPayloadText, data.actionPayloadText);
+      }
+      for (const [index,mutation] of actualBundle.mutations.entries()) {
+        const expected: NativeFileOperationBundle['mutations'][number] = expectedBundle.mutations[index];
+        const original = observed.privateNativeStates.find(value => value.documentId === mutation.source.documentId); assert(original);
+        // Each independent prepare creates a genuine fresh Y.Doc/client ID.
+        // Compare its proven rendered content and links after applying the
+        // actual update; random Yjs binary IDs need not equal one another.
+        const views: Array<{ content: unknown; links: Array<Pick<ReturnType<typeof inspectNativeDocumentLinks>['links'][number],
+          'syntax' | 'targetPathText' | 'embed'>> }> = [mutation,expected].map(item => {
+          const doc = new Y.Doc();
+          try {
+            Y.applyUpdate(doc, original.yjsState);
+            if (item.prepared) Y.applyUpdate(doc, item.prepared.update);
+            const next = {...original,yjsState:Y.encodeStateAsUpdate(doc),stateVector:Y.encodeStateVector(doc)};
+            return inspectPersistedNativeCollaborationSnapshot(next, (verified,snapshot) => {
+              if (item.prepared) {
+                assert.equal(snapshot.version.stateProof, item.prepared.after.stateProof);
+                assert.equal(snapshot.version.stateVector, item.prepared.after.stateVector);
+              }
+              return {content:snapshot.content,links:inspectNativeDocumentLinks(verified,snapshot).links.map(link => ({
+                syntax:link.syntax,targetPathText:link.targetPathText,embed:link.embed,
+              }))};
+            });
+          } finally { doc.destroy(); }
+        });
+        assert.deepEqual(views[0], views[1]);
+        if (mutation.source.path === 'incoming.md') {
+          assert.equal(views[0].links.filter(link => link.targetPathText === destinationPath).length, 1);
+          assert.equal(views[0].links.some(link => link.targetPathText === sourcePath), false);
+        }
+      }
+      assert.deepEqual(observed, before);
+    }
+  });
+}
+
+test('actual physical-only PDF bundle preparation preserves the independent null arm', () => {
+  const observed = observation([], [{path:'a.pdf',kind:'file'}]);
+  const reference = fixture(observed, [{sourcePath:'a.pdf',destinationPath:'b.pdf'}],
+    [physical('a.pdf','b.pdf',{kind:'regular_file',identity:identity('file'),sha256:hash('pdf')})]);
+  const before = structuredClone({observed,context:reference.context});
+  assert.equal(reference.nativeBundle, null);
+  assert.equal(codec.prepareWorkspaceOperationOriginalMoveNativeBundleData(reference.context, observed), null);
+  assert.deepEqual({observed,context:reference.context}, before);
+});

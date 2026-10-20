@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { checkRenameConflict } from '@/app/lib/filesystem/workspace-files';
@@ -18,7 +19,10 @@ import { withWorkspaceRequestPrincipal } from '@/app/lib/workspaces/request-prin
 import { readWorkspacePathImportPreparationPlan } from '@/app/lib/files/workspace-path-import-operation-preview';
 import { readWorkspacePathImportOperationHistory } from '@/app/lib/files/workspace-path-import-operation-history';
 import { prepareWorkspacePathImportOperation } from '@/app/lib/files/workspace-path-import-operation';
-import { WorkspaceOperationBatchError } from '@/app/lib/files/workspace-operation-batch-store';
+import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
+import type { WorkspaceOperationBatchScope } from '@/app/lib/files/workspace-operation-batch-contract';
+import { prepareWorkspaceImplicitMoveOperation, WorkspaceImplicitMoveOperationError } from '@/app/lib/files/workspace-implicit-move-operation';
+import { workspaceImplicitMoveResponse } from '@/app/lib/files/workspace-implicit-move-response';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -79,7 +83,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     if (planId !== undefined && (typeof planId !== 'string' || !/^[0-9a-f]{64}$/u.test(planId))) {
       return invalid('Invalid file action preview identity', 422, 'PREVIEW_UNSUPPORTED_APPLY');
     }
-    const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
+    const selected = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
       const fresh = await requireRequestWorkspace(original, { permissions: [...permissions] });
       if (fresh.response) return { mode: 'response' as const, response: fresh.response };
       if (fresh.workspace.workspaceId !== workspaceResult.workspace.workspaceId
@@ -108,6 +112,14 @@ export async function POST(request: NextRequest): Promise<Response> {
                 historicalResult = true;
                 return { mode: 'direct' as const, batch: historical.batch, scope };
               }
+            }
+            if (!dryRun && !overwrite && planId === undefined) {
+              // Preserve original-import history before selecting a new arm.
+              // Only data leaves this mutex; the actual drain starts outside.
+              return { mode: 'implicit-move' as const, workspaceId: fresh.workspace.workspaceId,
+                operationId: idempotencyKey ?? randomUUID(), kind: 'rename' as const, selections: input.selections };
+            }
+            if (!dryRun && idempotencyKey) {
               preparationReadOnly = false;
               const existing = await getExistingDirectWorkspacePathOperation(direct);
               if (existing) {
@@ -123,6 +135,8 @@ export async function POST(request: NextRequest): Promise<Response> {
               requiresRevalidation: true, plan: workspacePathImportPreparationPreview(preview) }) };
             if (preview.readiness === 'blocked') throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
               'The file action has unresolved link or path conflicts.');
+            if (preview.version !== 1) throw new WorkspaceOperationBatchError('PREVIEW_UNSUPPORTED_APPLY', 409,
+              'This file action preview does not support importing Markdown.');
             if (overwrite) throw new WorkspaceOperationBatchError('PATH_IMPORT_OVERWRITE_UNSUPPORTED', 409,
               'Existing Markdown files cannot be imported while overwriting another path.');
             if (!idempotencyKey || !planId || planId !== preview.planId) {
@@ -149,7 +163,16 @@ export async function POST(request: NextRequest): Promise<Response> {
       const batch = await submitDirectWorkspacePathOperation(direct);
       return { mode: 'direct' as const, batch, scope };
     });
-    if (result.mode === 'response') return result.response;
+    if (selected.mode === 'response') return selected.response;
+    let result: { batch: WorkspaceOperationBatchRecord; scope: WorkspaceOperationBatchScope };
+    if (selected.mode === 'implicit-move') {
+      const prepared = await prepareWorkspaceImplicitMoveOperation(original, {
+        workspaceId: selected.workspaceId, operationId: selected.operationId, kind: selected.kind, selections: selected.selections,
+      });
+      if (prepared.state !== 'batch') return workspaceImplicitMoveResponse(prepared, false);
+      historicalResult = prepared.historical;
+      result = { batch: prepared.batch, scope: prepared.scope };
+    } else result = selected;
     // The worker acquires the same lock, so waiting begins after request preparation releases it.
     operation = { ...workspacePathOperationMetadata(result.batch), ...(preparation ? { preparation } : {}) };
     const batch = await waitForWorkspacePathOperation(result.batch);
@@ -183,6 +206,10 @@ export async function POST(request: NextRequest): Promise<Response> {
   } catch (error) {
     await recordFailure(error);
     const message = error instanceof Error ? error.message : 'Failed to rename path';
+    if (error instanceof WorkspaceImplicitMoveOperationError) return jsonError(
+      'The original file preparation could not be confirmed.', error.status, { code: error.code,
+        ...(error.operationId ? { operationId: error.operationId } : {}),
+        ...(error.requestId ? { requestId: error.requestId } : {}) });
     if (error instanceof WorkspacePreviewStaleError) return jsonError(message, 409, { code: 'PREVIEW_STALE' });
     if (error instanceof WorkspacePreviewUnavailableError) return jsonError(message, 422, { code: 'PREVIEW_UNREADABLE' });
     if (error instanceof WorkspacePreviewBlockedError) return jsonError(message, 409, { code: 'PREVIEW_BLOCKED' });

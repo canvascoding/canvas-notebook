@@ -880,51 +880,77 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
   const prepared = captureMovePrepared(fields.preparedSteps as readonly MovePrepared[],false);
   const physical = prepared.map(item => readPreparedWorkspacePathMove(item.cap));
   return movePhase(owner,async (access,database,check) => {
-    const { captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection } = await import('./workspace-operation-original-move-namespace-effects');
-    for (const item of prepared) { await assertPreparedWorkspacePathMoveCurrent(item.cap); await check(); }
-    const plan = captured.move!.context.plan;
-    const existing = await readMoveRows(captured,database);
-    const preparation = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
-      {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true}) : null;
-    if ((plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace,
-      { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
-    const currentWitness = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4
-      ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
-    if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
-    if (preparation && !equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
-    const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{
-      schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context,
-      observation,...(currentWitness ? {currentWitness} : {})});
-    // A legitimate null bundle is also final P0 data. Do not use ?? here:
-    // it would silently prepare new deltas for that original null arm.
-    const nativeBundle = preparation ? preparation.nativeBundleData
-      : buildMoveNativeBundle(captured.move!.context,observation,currentWitness ?? plan.sourceEvidence);
-    const intent = createWorkspaceOperationOriginalMoveIntent({physical,nativeBundle,namespaceState,
-      ...(currentWitness ? {currentWitness:preparation ? preparation.preparation.currentWitness : currentWitness} : {})},captured.move!.context);
-    const request = moveRequest(captured,intent);
-    if (preparation) {
-      const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
-      if (!admission || !['reserved','draining'].includes(admission.status)
-        || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(preparation.request))
-        || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(admission.request))) fail('JOB_LIFECYCLE_CHANGED');
+    const phase = captured.phase, startedAt = phase?.startedMonotonic ?? performance.now();
+    const queriesBefore = phase?.queriesBefore ?? captured.forwardedQueries;
+    const milestones: Array<Readonly<{ stage: string; elapsedMs: number; forwardedQueries: number }>> = [];
+    const mark = (stage: string) => { milestones.push({ stage, elapsedMs: Math.round(performance.now() - startedAt),
+      forwardedQueries: captured.forwardedQueries - queriesBefore }); };
+    mark('stage-enter');
+    try {
+      const { captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection } = await import('./workspace-operation-original-move-namespace-effects');
+      for (const item of prepared) { await assertPreparedWorkspacePathMoveCurrent(item.cap); await check(); }
+      mark('file-capabilities-checked');
+      const plan = captured.move!.context.plan;
+      const existing = await readMoveRows(captured,database);
+      mark('original-rows-read');
+      const preparation = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+        {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true}) : null;
+      mark('preparation-read');
+      if ((plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
+      const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace,
+        { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
+      mark('source-collected');
+      const currentWitness = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4
+        ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
+      if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
+      if (preparation && !equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
+      mark('witness-checked');
+      const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{
+        schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context,
+        observation,...(currentWitness ? {currentWitness} : {})});
+      mark('namespace-captured');
+      // A legitimate null bundle is also final P0 data. Do not use ?? here:
+      // it would silently prepare new deltas for that original null arm.
+      const nativeBundle = preparation ? preparation.nativeBundleData
+        : buildMoveNativeBundle(captured.move!.context,observation,currentWitness ?? plan.sourceEvidence);
+      const intent = createWorkspaceOperationOriginalMoveIntent({physical,nativeBundle,namespaceState,
+        ...(currentWitness ? {currentWitness:preparation ? preparation.preparation.currentWitness : currentWitness} : {})},captured.move!.context);
+      const request = moveRequest(captured,intent);
+      mark('intent-created');
+      if (preparation) {
+        const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
+        if (!admission || !['reserved','draining'].includes(admission.status)
+          || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(preparation.request))
+          || !equal(captureCollaborationAdmissionRequest(request),captureCollaborationAdmissionRequest(admission.request))) fail('JOB_LIFECYCLE_CHANGED');
+      }
+      mark('admission-read');
+      if (existing.intentRow) {
+        if (existing.intentRow.intentText !== moveJson(intent)) fail('JOB_LIFECYCLE_CHANGED');
+        return existing;
+      }
+      const inserted = await insertWorkspaceOperationOriginalMoveIntentOnConnection(database,{schema:captured.binding.source.schemaName,
+        batchId:intent.batchId,planId:intent.planId,workspaceId:captured.binding.workspaceId,requestHash:intent.requestHash,intentText:moveJson(intent)});
+      if (inserted.kind === 'conflict') fail('JOB_LIFECYCLE_CHANGED');
+      mark('intent-inserted');
+      const bundle = readWorkspaceOperationOriginalMoveNativeBundle(intent);
+      if (bundle) {
+        const staged = await stageNativeFileOperationBundleOnConnection(database,bundle);
+        if (staged.changesBundleProof !== intent.nativeBundle!.changesBundleProof || staged.actionPayloadText !== intent.nativeBundle!.actionPayloadText) fail('JOB_LIFECYCLE_CHANGED');
+      }
+      mark('native-staged');
+      const reserved = await reserveCollaborationAdmissionOnConnection(database,request);
+      if (!['reserved','draining'].includes(reserved.status)) fail('JOB_LIFECYCLE_CHANGED');
+      mark('admission-reserved');
+      // DA03 proofs are retained protocol facts. The runner must complete its
+      // fixed proof groups after this stage commits, before any physical move.
+      const result = await readMoveRows(captured,database); mark('final-rows-read'); return result;
+    } finally {
+      // This callback has not committed; report only bounded phase timings/counts.
+      try { console.info('[File action owner] Move stage timings.', JSON.stringify({ version: 1,
+        phaseIndex: phase?.index ?? null, elapsedMs: Math.round(performance.now() - startedAt),
+        forwardedQueries: captured.forwardedQueries - queriesBefore, milestones })); }
+      catch { /* Preserve the original operation result. */ }
     }
-    if (existing.intentRow) {
-      if (existing.intentRow.intentText !== moveJson(intent)) fail('JOB_LIFECYCLE_CHANGED');
-      return existing;
-    }
-    const inserted = await insertWorkspaceOperationOriginalMoveIntentOnConnection(database,{schema:captured.binding.source.schemaName,
-      batchId:intent.batchId,planId:intent.planId,workspaceId:captured.binding.workspaceId,requestHash:intent.requestHash,intentText:moveJson(intent)});
-    if (inserted.kind === 'conflict') fail('JOB_LIFECYCLE_CHANGED');
-    const bundle = readWorkspaceOperationOriginalMoveNativeBundle(intent);
-    if (bundle) {
-      const staged = await stageNativeFileOperationBundleOnConnection(database,bundle);
-      if (staged.changesBundleProof !== intent.nativeBundle!.changesBundleProof || staged.actionPayloadText !== intent.nativeBundle!.actionPayloadText) fail('JOB_LIFECYCLE_CHANGED');
-    }
-    const reserved = await reserveCollaborationAdmissionOnConnection(database,request);
-    if (!['reserved','draining'].includes(reserved.status)) fail('JOB_LIFECYCLE_CHANGED');
-    for (const document of request.expectedDocuments) { await proveCollaborationAdmissionQuiescenceOnConnection(database,request,document.documentId); await check(); }
-    return readMoveRows(captured,database);
   });
   } catch (error) { return rejectMoveBoundary(owner,error); }
 }
@@ -942,6 +968,70 @@ function moveStep(captured: Capture, input: unknown, keys: readonly string[]) {
   if (original.workspace.workspaceId !== captured.binding.workspaceId) fail('JOB_LIFECYCLE_INVALID');
   return {fields,stepKey,cap,proof:preparedWorkspacePathMoveProof(original)};
 }
+/** One bounded DA03 group on the genuine continuous Owner B. The runner
+ * always starts at zero for fresh and recovered intents before physical work.
+ * This is one ordinary tracked movePhase, never a multi-phase owner promise. */
+export function proveWorkspaceOperationOriginalMoveJobQuiescenceGroup(owner: WorkspaceOperationNativeMoveJobOwner,
+  input: Readonly<{expectedIntentDigest:string;preparedSteps:readonly Readonly<{stepKey:string;cap:PreparedWorkspacePathMove}>[];documentOffset:number}>) {
+  try {
+  const captured = moveOwner(owner), fields = moveFields(input,['expectedIntentDigest','preparedSteps','documentOffset']);
+  const prepared = captureMovePrepared(fields.preparedSteps as readonly MovePrepared[],false);
+  const expectedIntentDigest = fields.expectedIntentDigest, documentOffset = fields.documentOffset;
+  const groupSize = 8;
+  if (typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)
+    || typeof documentOffset !== 'number' || !Number.isSafeInteger(documentOffset) || Object.is(documentOffset,-0)
+    || documentOffset < 0 || documentOffset > 1024 || documentOffset % groupSize !== 0) fail('JOB_LIFECYCLE_INVALID');
+  return movePhase(owner,async (_access,database,check) => {
+    const phase = captured.phase, startedAt = phase?.startedMonotonic ?? performance.now();
+    const queriesBefore = phase?.queriesBefore ?? captured.forwardedQueries;
+    let count = 0, finishedCallback = false;
+    try {
+      const rows = await readMoveRows(captured,database), intent = rows.intent;
+      if (!intent || !rows.intentRow || rows.completion || rows.intentRow.intentDigest !== expectedIntentDigest
+        || intent.steps.length !== prepared.length || intent.steps.some((step,index) =>
+          step.stepKey !== prepared[index].stepKey || !equal(step.physical,readPreparedWorkspacePathMove(prepared[index].cap)))) fail('JOB_LIFECYCLE_CHANGED');
+      // Cap/original binding above remains exact. Payload verification stays
+      // at the existing Stage/recovery and immediate pre-move FD boundaries;
+      // a protocol-only proof group must not rehash every selected payload.
+      const request = moveRequest(captured,intent), bound = captureCollaborationAdmissionRequest(request);
+      if (documentOffset > request.expectedDocuments.length
+        || request.expectedDocuments.length > 0 && documentOffset === request.expectedDocuments.length) fail('JOB_LIFECYCLE_INVALID');
+      const end = Math.min(documentOffset + groupSize,request.expectedDocuments.length);
+      count = end - documentOffset;
+      for (const document of request.expectedDocuments.slice(documentOffset,end)) {
+        await proveCollaborationAdmissionQuiescenceOnConnection(database,request,document.documentId); await check();
+      }
+      // Per-document proofs keep their original Header -> Target -> State path.
+      // Check the full actual target set without interpreting DB collation as
+      // JavaScript ordering. All mutation guards remain continuously held on B.
+      const header = await database.get('SELECT * FROM collaboration_admission_requests WHERE request_id=$1 FOR SHARE',
+        [request.requestId]) as Record<string,unknown>|undefined;
+      const revision = Number(header?.revision);
+      if (!header || header.request_digest !== bound.requestDigest || header.intent_text !== bound.intentText
+        || !['reserved','draining'].includes(header.status as string) || header.outcome_text !== null || header.completed_at !== null
+        || !Number.isSafeInteger(revision) || revision < 1 || revision >= Number.MAX_SAFE_INTEGER
+        || request.expectedDocuments.length > 0 && header.status !== 'draining') fail('JOB_LIFECYCLE_CHANGED');
+      const targets = await database.all(`SELECT document_id,active,status,quiescence_text IS NOT NULL AS has_proof
+        FROM collaboration_admission_targets WHERE request_id=$1
+        ORDER BY document_id COLLATE "C" LIMIT $2 FOR SHARE`,[request.requestId,request.expectedDocuments.length+1]) as Array<Record<string,unknown>>;
+      const expectedIds = new Set(request.expectedDocuments.map(document => document.documentId));
+      if (targets.length !== expectedIds.size || new Set(targets.map(row => row.document_id)).size !== targets.length
+        || targets.some(row => !expectedIds.has(row.document_id as string) || row.active !== true
+          || !['reserved','draining','released'].includes(row.status as string)
+          || end === request.expectedDocuments.length && (row.status !== 'released' || row.has_proof !== true))) fail('JOB_LIFECYCLE_CHANGED');
+      await check(); finishedCallback = true;
+      return end < request.expectedDocuments.length ? end : null;
+    } finally {
+      // Callback timing only: the existing owner still confirms COMMIT later.
+      try { console.info('[File action owner] Move quiescence group timings.', JSON.stringify({version:1,
+        offset:documentOffset,count,phaseIndex:phase?.index ?? null,
+        elapsedMs:Math.round(performance.now()-startedAt),forwardedQueries:captured.forwardedQueries-queriesBefore,finishedCallback})); }
+      catch { /* Preserve the original operation result. */ }
+    }
+  });
+  } catch (error) { return rejectMoveBoundary(owner,error); }
+}
+
 export function recordWorkspaceOperationOriginalMoveJobParentReceipt(owner: WorkspaceOperationNativeMoveJobOwner,
   input: Readonly<{stepKey:string;cap:PreparedWorkspacePathMove;birth:PreparedWorkspacePathMoveParentReceipt}>) {
   try {

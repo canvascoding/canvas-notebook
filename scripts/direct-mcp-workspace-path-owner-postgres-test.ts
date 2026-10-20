@@ -8,12 +8,14 @@ import { Client, type Notification } from 'pg';
 import { WebSocket } from 'ws';
 import { Hocuspocus, MessageType } from '@hocuspocus/server';
 import { AuthMessageType } from '@hocuspocus/common';
+import { NextRequest } from 'next/server';
 import * as encoding from 'lib0/encoding';
 import * as decoding from 'lib0/decoding';
 import type * as YTypes from 'yjs';
 import type { DocumentVersionIdentityV1 } from '../app/lib/documents/read-version';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { WorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import type { WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationDirectMcpAuthorization,
   WorkspaceOperationNativeDeleteBatchPlan } from '../app/lib/files/workspace-operation-batch-contract';
 import type { WorkspaceOperationNativeMoveBatchPlan } from '../app/lib/files/workspace-operation-native-move-plan';
@@ -22,8 +24,9 @@ import type { DirectMcpWorkspaceMovePrincipalAccess, DirectMcpWorkspaceDeletePri
 import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './helpers/native-copy-metadata-owner-fixture';
 
 // Actual fixture JWT -> current fixed MCP principal -> actual Store claim and
-// OriginalMove/Delete owner -> PG18/native links/FD/Trash. No HTTP, OAuth issue,
-// SDK, original browser incident or public tool integration is claimed here.
+// OriginalMove/Delete owner -> PG18/native links/FD/Trash, plus two actual Web
+// Request/Response rename boundaries. No HTTP listener for file routes, OAuth
+// issue, SDK, original browser incident or public tool integration is claimed.
 const sha = (value: string | Uint8Array): string => crypto.createHash('sha256').update(value).digest('hex');
 type Kind = 'move' | 'delete';
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
@@ -671,6 +674,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws/collaboration`, { headers: { origin: 'http://localhost', cookie, 'x-canvas-workspace-id': h.source.workspaceId } });
       room.sockets.add(socket); const doc = new room.Y.Doc(); room.clientDocs.add(doc);
       let opened = false, authenticated = false, denied = false, startup = false, failure: unknown, closeReason: string | null = null;
+      let acceptedUpdates = 0, rejectedUpdates = 0;
       socket.once('open', () => { opened = true; }); socket.on('error', error => { failure = error; });
       socket.on('message', data => {
         try {
@@ -678,6 +682,10 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           const decoder = decoding.createDecoder(bytes); assert.equal(decoding.readVarString(decoder), documentId); const type = decoding.readVarUint(decoder);
           if (type === MessageType.Auth) { const value = decoding.readVarUint(decoder); authenticated ||= value === AuthMessageType.Authenticated; denied ||= value === AuthMessageType.PermissionDenied; }
           if (type === MessageType.Stateless) startup ||= JSON.parse(decoding.readVarString(decoder)).type === 'durability_snapshot';
+          if (type === MessageType.SyncStatus) {
+            const accepted = decoding.readVarUint(decoder); assert(accepted === 0 || accepted === 1);
+            if (accepted === 1) acceptedUpdates++; else rejectedUpdates++;
+          }
           if (type === MessageType.CLOSE) closeReason = decoding.readVarString(decoder);
           if (type === MessageType.Sync) { const subtype = decoding.readVarUint(decoder); if (subtype === 1 || subtype === 2) room.Y.applyUpdate(doc, decoding.readVarUint8Array(decoder)); }
         } catch (error) { failure = error; }
@@ -700,6 +708,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         FROM collaboration_yjs_states WHERE document_id=$1`, [documentId])).rows[0];
       assert(ownerRow?.room_owner_token); assert(room.backends.some(value => value.pid === Number(ownerRow.room_owner_backend_pid)));
       return { doc, socket, identity, ownerRow, closeReason: () => closeReason,
+        updateAcks: () => ({ accepted: acceptedUpdates, rejected: rejectedUpdates }),
         sendUpdate: (update: Uint8Array) => { assert.equal(socket.readyState, WebSocket.OPEN); const frame = encoding.createEncoder();
           encoding.writeVarString(frame, documentId); encoding.writeVarUint(frame, MessageType.Sync); encoding.writeVarUint(frame, 2); encoding.writeVarUint8Array(frame, update); socket.send(encoding.toUint8Array(frame)); } };
     }
@@ -1190,12 +1199,455 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         const inventory = links(retained); assert(inventory.links.some(link => link.targetPathText === job.sourcePath));
         await absent(path.join(h.source.rootPath, job.sourcePath)); nativeRooms.assertHealthy();
       });
+      // Reuse the same owned server, current cookie session, actual Web handler
+      // and ordinary queued worker. Neither a substituted plan nor an MCP
+      // principal grants the two Web requests their execution authority.
+      const { POST: renameWeb } = await import('../app/api/files/rename/route');
+      const { GET: readWebBatch } = await import('../app/api/files/operations/batches/[batchId]/route');
+      const { inspectNativeDocument, authoritativeNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
+      const { nativeCollaborationSearchText } = await import('../app/lib/collaboration/workspace-search-reader');
+      type WebRenameResult = { status: number; body: WorkspacePathOperationResponse & {
+        success: boolean; code?: string; dryRun?: boolean; plan?: { planId: string } } };
+      const renameWithActualCookie = async (body: Record<string, unknown>): Promise<WebRenameResult> => {
+        const actual = await h.request(h.source, 'member', true, currentRequestToken);
+        assert(actual.headers.has('cookie')); assert.equal(actual.headers.has('authorization'), false);
+        const headers = new Headers(actual.headers); headers.set('Content-Type', 'application/json');
+        const response = await renameWeb(new NextRequest('http://localhost/api/files/rename', {
+          method: 'POST', headers, body: JSON.stringify(body),
+        }));
+        const text = await response.text(); assert(Buffer.byteLength(text) <= 1024 * 1024);
+        return { status: response.status, body: JSON.parse(text) as WebRenameResult['body'] };
+      };
+      const readPendingWebRename = async (initial: WebRenameResult): Promise<WebRenameResult> => {
+        if (initial.status !== 202) return initial;
+        assert.equal(initial.body.success, true);
+        const original = initial.body.operation; assert(original);
+        assert.match(original.batchId, /^[a-f0-9]{64}$/u); assert.match(original.planId, /^[a-f0-9]{64}$/u);
+        assert.equal(original.workspaceId, h.source.workspaceId);
+        assert(['queued', 'applying'].includes(original.status));
+        assert.equal(initial.body.mutation, undefined); assert.equal(initial.body.linkStatus, undefined);
+        let current = initial;
+        await waitForNativePathRoomCondition(async () => {
+          const actual = await h.request(h.source, 'member', true, currentRequestToken);
+          assert(actual.headers.has('cookie')); assert.equal(actual.headers.has('authorization'), false);
+          const response = await readWebBatch(new NextRequest(`http://localhost/api/files/operations/batches/${original.batchId}`,
+            { headers: actual.headers }), { params: Promise.resolve({ batchId: original.batchId }) });
+          assert.equal(response.status, 200);
+          const text = await response.text(); assert(Buffer.byteLength(text) <= 1024 * 1024);
+          const body = JSON.parse(text) as WebRenameResult['body'];
+          assert.equal(body.success, true); assert(body.operation);
+          assert.equal(body.operation.batchId, original.batchId); assert.equal(body.operation.planId, original.planId);
+          assert.equal(body.operation.workspaceId, original.workspaceId); assert.equal(body.operation.kind, original.kind);
+          assert.deepEqual(body.operation.selections, original.selections);
+          assert(['queued', 'applying', 'applied', 'blocked', 'needs_review', 'needs_recovery', 'failed', 'undone'].includes(body.operation.status));
+          current = { status: response.status, body };
+          const terminal = !['queued', 'applying'].includes(body.operation.status);
+          if (!terminal) await new Promise(resolve => setTimeout(resolve, 500));
+          return terminal;
+        }, 'The real pending Web rename never reached a terminal status through its original authenticated batch route.');
+        return current;
+      };
+      await check('implicit Web rename retains a real accepted rich update through its pending final store and original Move', async () => {
+        const job = await seed('move'), peer = await openNativePathRoomPeer(nativeRooms, job.targetId);
+        assert(peer.identity.representation === 'tiptap_xml' || peer.identity.representation === 'tiptap_blocks');
+        await nativeRooms.flush();
+        const oldPersisted = await load(h.connection, job.targetId); assert(oldPersisted);
+        const document = nativeRooms.actualDocument(job.targetId); assert(document);
+        // This is Hocuspocus's actual save mutex. Peer frame processing still
+        // runs normally; only scheduled/final stores wait for this real lock.
+        const unlockSave = await document.saveMutex.acquire(); let saveReleased = false;
+        const releaseSave = () => { if (!saveReleased) { saveReleased = true; unlockSave(); } };
+        const request = { oldPath: job.sourcePath, newPath: job.destinationPath, idempotencyKey: crypto.randomUUID() };
+        let pending: Promise<void> | undefined, pump: Promise<void> | undefined, finished = false;
+        let requestFailure: unknown, workerFailure: unknown, result: WebRenameResult | undefined, initialResult: WebRenameResult | undefined, requestId: string | undefined;
+        let acceptedBinary: Buffer | undefined, acceptedVector: Buffer | undefined, acceptedContent: unknown;
+        try {
+          const acks = peer.updateAcks(), marker = `implicit-accepted-${crypto.randomUUID()}`;
+          const acceptedProof = await sendNativePathRoomParagraph(nativeRooms, peer, marker);
+          await waitForNativePathRoomCondition(() => peer.updateAcks().accepted === acks.accepted + 1,
+            'The actual rich update never received a positive WebSocket SyncStatus ACK.');
+          assert.equal(peer.updateAcks().rejected, acks.rejected);
+          const accepted = inspectNativeDocument(document, peer.identity.representation);
+          assert.equal(accepted.version.stateProof, acceptedProof);
+          assert(nativeCollaborationSearchText(accepted.content).includes(marker));
+          acceptedBinary = Buffer.from(nativeRooms.Y.encodeStateAsUpdate(document));
+          acceptedVector = Buffer.from(nativeRooms.Y.encodeStateVector(document));
+          acceptedContent = JSON.parse(JSON.stringify(accepted.content));
+          const stillOld = await load(h.connection, job.targetId); assert(stillOld);
+          assert.deepEqual(Buffer.from(stillOld.yjsState), Buffer.from(oldPersisted.yjsState));
+          assert.equal(stillOld.documentSequence, oldPersisted.documentSequence);
+          assert.notDeepEqual(acceptedBinary, Buffer.from(stillOld.yjsState), 'An accepted room edit must genuinely be absent from PG.');
+          const worker = createWorkspaceOperationBatchWorker({ store });
+          pending = renameWithActualCookie(request).then(async value => {
+            if (value.body.operation) {
+              assert.equal(value.body.operation.batchId, sha(JSON.stringify(['workspace-path-operation-id-v1',
+                h.source.workspaceId, 'member', request.idempotencyKey])));
+              assert.equal(value.body.operation.kind, 'rename');
+              assert.deepEqual(value.body.operation.selections, [{ sourcePath: job.sourcePath, destinationPath: job.destinationPath }]);
+            }
+            initialResult = value; result = await readPendingWebRename(value);
+          }).catch(error => { requestFailure = error; })
+            .finally(() => { finished = true; });
+          pump = (async () => {
+            try { while (!finished) { await worker.tick(); if (!finished) await new Promise(resolve => setTimeout(resolve, 25)); } }
+            catch (error) { workerFailure = error; }
+          })();
+          let targets: Record<string, unknown>[] = [];
+          await waitForNativePathRoomCondition(async () => {
+            if (workerFailure) throw workerFailure;
+            targets = (await h.admin.query(`SELECT request_id,status,active,release_id,snapshot_text
+              FROM collaboration_admission_targets WHERE document_id=$1 AND active ORDER BY request_id LIMIT 2`, [job.targetId])).rows;
+            if (targets.length === 1 && targets[0].status === 'draining') return true;
+            assert(!finished, `Web rename settled before a genuine room drain: ${result?.status}/${result?.body.code ?? 'unknown'}`);
+            return false;
+          }, 'Implicit Web rename never committed the real accepted-update drain request.');
+          assert.equal(targets.length, 1); assert.equal(targets[0].status, 'draining');
+          assert.equal(targets[0].active, true); assert.equal(targets[0].release_id, null);
+          assert.equal(typeof targets[0].request_id, 'string'); requestId = targets[0].request_id as string;
+          const reserved = JSON.parse(String(targets[0].snapshot_text));
+          const { lineageId: _lineageId, ...roomIdentity } = peer.identity;
+          assert.deepEqual(reserved.document, { ...roomIdentity, path: job.sourcePath, status: 'active' });
+          assert.equal(reserved.ownerEpoch, Number(peer.ownerRow.room_owner_epoch));
+          assert.equal(reserved.ownerToken, peer.ownerRow.room_owner_token);
+          assert.equal(document.saveMutex.isLocked(), true); assert.equal(nativeRooms.actualDocument(job.targetId), document);
+          const notStored = await load(h.connection, job.targetId); assert(notStored);
+          assert.equal(notStored.path, job.sourcePath); assert.deepEqual(Buffer.from(notStored.yjsState), Buffer.from(oldPersisted.yjsState));
+          await absent(path.join(h.source.rootPath, job.destinationPath));
+          // The independently visible draining row proves the actual initial
+          // reservation COMMIT. Release the real save lock here; waiting for
+          // the close packet first needlessly consumes the owner's 10s budget.
+          releaseSave();
+          await waitForNativePathRoomCondition(() => peer.closeReason() === 'Collaboration document transition',
+            'Implicit Web rename never closed the actual room for its committed drain.');
+          await pending;
+        } finally {
+          releaseSave(); if (pending) await pending; finished = true; if (pump) await pump;
+        }
+        if (requestFailure) throw requestFailure; if (workerFailure) throw workerFailure;
+        assert(result && requestId && acceptedBinary && acceptedVector);
+        const safeCode = (value: unknown) => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value) ? value : null;
+        console.log(JSON.stringify({ test: 'implicit-web-rename-accepted-update-result', initialStatus: initialResult?.status, status: result.status,
+          success: result.body.success === true, code: safeCode(result.body.code),
+          operationCode: safeCode(result.body.operation?.errorCode),
+          operationStatus: ['queued', 'applying', 'applied', 'blocked', 'needs_review', 'needs_recovery', 'failed']
+            .includes(result.body.operation?.status) ? result.body.operation.status : null }));
+        assert.equal(result.status, 200, `Implicit rename lost an accepted update: ${result.body.code ?? result.body.operation?.errorCode ?? 'unknown'}`);
+        assert.equal(result.body.success, true); assert.equal(result.body.operation.status, 'applied');
+        assert.equal(result.body.linkStatus, 'complete'); assert.equal(result.body.linkUpdates?.updatedLinks, 1);
+        const batch = await store.get(result.body.operation.batchId); assert(batch);
+        assert.equal(batch.authorization.mode, 'direct'); assert.equal(batch.status, 'applied'); assert.equal(batch.completedActions, batch.totalActions);
+        assert.equal(batch.plan.version, 3);
+        const registry = (await h.admin.query('SELECT id,lineage_id,path,status FROM collaboration_documents WHERE id=$1', [job.targetId])).rows;
+        assert.deepEqual(registry, [{ id: job.targetId, lineage_id: job.lineageId, path: job.destinationPath, status: 'active' }]);
+        assert.deepEqual((await h.admin.query('SELECT id,path,status FROM file_collaboration_lineages WHERE id=$1', [job.lineageId])).rows,
+          [{ id: job.lineageId, path: job.destinationPath, status: 'active' }]);
+        const movedState = await load(h.connection, job.targetId), incomingState = await load(h.connection, job.incomingId); assert(movedState && incomingState);
+        assert.equal(movedState.lifecycleGeneration, job.generation); assert.equal(movedState.path, job.destinationPath);
+        assert.deepEqual(Buffer.from(movedState.yjsState), acceptedBinary); assert.deepEqual(Buffer.from(movedState.stateVector), acceptedVector);
+        assert.deepEqual(JSON.parse(JSON.stringify(authoritativeNativeCollaborationSnapshot(movedState).content)), acceptedContent);
+        assert.equal(links(incomingState).links.filter(link => link.targetPathText === job.destinationPath).length, 1);
+        assert.equal(links(incomingState).links.some(link => link.targetPathText === job.sourcePath), false);
+        assert.equal((await row('workspace_file_operation_move_intents', batch.batchId)).length, 1);
+        const completedRows = await row('workspace_file_operation_move_receipts', batch.batchId); assert.equal(completedRows.length, 1);
+        const completion = JSON.parse(JSON.parse(completedRows[0].body).receipt_text); assert(completion.native);
+        const mutationRows = (await h.admin.query(`SELECT document_id,mutation_id,receipt_digest FROM collaboration_native_file_operation_receipts
+          WHERE operation_id=$1 ORDER BY document_id COLLATE "C"`, [completion.native.operationId])).rows;
+        assert.deepEqual(mutationRows.map(value => value.document_id).sort(), [job.targetId, job.incomingId].sort());
+        // The existing proof helper compares the real old-path ticket. Its
+        // incomingPath field is comparison data, not an execution grant.
+        await captureNativePathAdmissionProof({ ...job, incomingPath: job.sourcePath }, requestId, peer);
+        assert.equal(nativeRooms.isLoaded(job.targetId), false);
+        const retry = await renameWithActualCookie(request); assert.equal(retry.status, 200);
+        assert.equal(retry.body.operation.batchId, batch.batchId);
+        assert.deepEqual(await row('workspace_file_operation_move_receipts', batch.batchId), completedRows);
+        assert.deepEqual((await h.admin.query(`SELECT document_id,mutation_id,receipt_digest FROM collaboration_native_file_operation_receipts
+          WHERE operation_id=$1 ORDER BY document_id COLLATE "C"`, [completion.native.operationId])).rows, mutationRows);
+        const retriedState = await load(h.connection, job.targetId), retriedIncoming = await load(h.connection, job.incomingId); assert(retriedState && retriedIncoming);
+        assert.deepEqual(Buffer.from(retriedState.yjsState), Buffer.from(movedState.yjsState)); assert.equal(retriedState.documentSequence, movedState.documentSequence);
+        assert.deepEqual(Buffer.from(retriedIncoming.yjsState), Buffer.from(incomingState.yjsState)); assert.equal(retriedIncoming.documentSequence, incomingState.documentSequence);
+        nativeRooms.assertHealthy();
+      });
+      await check('explicit Web preview stays stale after a real accepted and persisted rich edit, without path or native effects', async () => {
+        const job = await seed('move'), peer = await openNativePathRoomPeer(nativeRooms, job.targetId);
+        assert(peer.identity.representation === 'tiptap_xml' || peer.identity.representation === 'tiptap_blocks'); await nativeRooms.flush();
+        const request = { oldPath: job.sourcePath, newPath: job.destinationPath, idempotencyKey: crypto.randomUUID() };
+        const preview = await renameWithActualCookie({ ...request, dryRun: true });
+        assert.equal(preview.status, 200); assert.equal(preview.body.dryRun, true); assert(preview.body.plan);
+        assert.match(preview.body.plan.planId, /^[a-f0-9]{64}$/u);
+        const acks = peer.updateAcks(), marker = `explicit-stale-${crypto.randomUUID()}`;
+        const acceptedProof = await sendNativePathRoomParagraph(nativeRooms, peer, marker);
+        await waitForNativePathRoomCondition(() => peer.updateAcks().accepted === acks.accepted + 1,
+          'The explicit-preview edit never received its actual positive SyncStatus ACK.');
+        assert.equal(peer.updateAcks().rejected, acks.rejected); await nativeRooms.flush();
+        const persisted = await load(h.connection, job.targetId); assert(persisted);
+        assert.equal(authoritativeNativeCollaborationSnapshot(persisted).version.stateProof, acceptedProof);
+        assert(nativeCollaborationSearchText(authoritativeNativeCollaborationSnapshot(persisted).content).includes(marker));
+        const before = await snapshot(), files = await filesystem(), domainWrites: string[] = [];
+        const result = await h.withProbe(async event => {
+          if (/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE)\b/iu.test(event.text)
+            && /\b(?:collaboration_[a-z_]+|file_collaboration_[a-z_]+|workspace_file_[a-z_]+|file_revisions|file_revision_contents|file_version_blobs|workspace_trash_entries)\b/iu.test(event.text)) domainWrites.push(event.text);
+        }, () => renameWithActualCookie({ ...request, planId: preview.body.plan!.planId }));
+        assert.equal(result.status, 409); assert.equal(result.body.code, 'PREVIEW_STALE');
+        assert.deepEqual(domainWrites, []); assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), files);
+        assert.equal(peer.closeReason(), null); assert.equal(nativeRooms.isLoaded(job.targetId), true);
+        const unchanged = await load(h.connection, job.targetId); assert(unchanged);
+        assert.equal(unchanged.path, job.sourcePath); assert.deepEqual(Buffer.from(unchanged.yjsState), Buffer.from(persisted.yjsState));
+        await absent(path.join(h.source.rootPath, job.destinationPath)); peer.socket.close(); nativeRooms.assertHealthy();
+      });
     } catch (error) { nativeRoomFailure = error; throw error; }
     finally {
       try { await nativeRooms.close(); }
       catch (cleanup) { throw nativeRoomFailure === undefined ? cleanup
         : new AggregateError([nativeRoomFailure, cleanup], 'Live native path assertion and resource closure failed.'); }
     }
+    // These two families observe the actual new Stage -> proof-group -> FS
+    // boundary. Existing families above/below retain their bodies and oracles.
+    type ProofGroupRows = Array<{body:string;xmin:string}>;
+    const proofGroupRows = async (table:string, key:string, value:string):Promise<ProofGroupRows> => {
+      assert(['workspace_file_operation_move_preparations','collaboration_native_file_operation_intents',
+        'collaboration_native_file_operation_receipts','collaboration_admission_targets'].includes(table));
+      assert(['batch_id','operation_id','request_id'].includes(key));
+      return (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM "${table}" t
+        WHERE "${key}"=$1 ORDER BY to_jsonb(t)::text,xmin::text`,[value])).rows;
+    };
+    const readProofGroupOriginal = async (job:Job) => {
+      assert(job.kind==='move' && job.batch);
+      const p0=await proofGroupRows('workspace_file_operation_move_preparations','batch_id',job.batch.batchId);
+      assert.equal(p0.length,1);
+      const preparation=JSON.parse(p0[0].body) as {request_id:string;request_digest:string;preparation_text:string};
+      const body=JSON.parse(preparation.preparation_text) as {requestId:string;nativeBundle:{operationId:string;requestId:string}};
+      assert.equal(body.requestId,preparation.request_id); assert(body.nativeBundle);
+      const headers=(await h.admin.query(`SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests
+        WHERE request_id=$1`,[preparation.request_id])).rows;
+      assert.equal(headers.length,1);
+      const {captureCollaborationAdmissionRequest}=await import('../app/lib/collaboration/room-admission-contract');
+      const captured=captureCollaborationAdmissionRequest(JSON.parse(headers[0].intent_text));
+      assert.equal(captured.intentText,headers[0].intent_text); assert.equal(captured.requestDigest,headers[0].request_digest);
+      assert.equal(captured.request.requestId,body.requestId); assert.equal(captured.requestDigest,preparation.request_digest);
+      assert(captured.request.expectedDocuments.some(document=>document.documentId===job.targetId));
+      assert(captured.request.expectedDocuments.some(document=>document.documentId===job.incomingId));
+      const native=await proofGroupRows('collaboration_native_file_operation_intents','operation_id',body.nativeBundle.operationId);
+      assert.equal(native.length,1);
+      const nativeRow=JSON.parse(native[0].body) as {operation_id:string;request_id:string;intent_text:string};
+      assert.equal(nativeRow.operation_id,body.nativeBundle.operationId); assert.equal(nativeRow.request_id,body.nativeBundle.requestId);
+      const nativeIntent=JSON.parse(nativeRow.intent_text) as {mutations:Array<{mutationId:string}>};
+      const intent=await row(intentTable(job),job.batch.batchId); assert.equal(intent.length,1);
+      return {p0,native,intent,header:headers[0] as {request_id:string;request_digest:string;intent_text:string},
+        request:captured.request,operationId:nativeRow.operation_id,
+        mutationIds:nativeIntent.mutations.map(mutation=>mutation.mutationId).sort()};
+    };
+    type ProofGroupOriginal=Awaited<ReturnType<typeof readProofGroupOriginal>>;
+    type ProofGroupWitness={client:MetadataSqlEvent['client'];pid:number;start:string;xid:string};
+    type ProofGroupObservation={protocol?:ProofGroupOriginal;owner?:ProofGroupWitness;stageWitness?:ProofGroupWitness;stageCommitted:boolean;
+      files?:Awaited<ReturnType<typeof filesystem>>;targetsAtCommit?:ProofGroupRows;
+      commits:Array<{pid:number;start:string;xid:string;documentIds:string[]}>;
+      groups:string[][];physicalObserved:boolean;lostAcknowledgement:boolean};
+    const observeActualMoveProofGroups = async <T>(job:Job,observed:ProofGroupObservation,loseFirstGroupCommit:boolean,operation:()=>Promise<T>):Promise<T> => {
+      assert(job.kind==='move' && job.batch);
+      const {collaborationAdmissionLockKey}=await import('../app/lib/collaboration/room-admission-contract');
+      const {lockIdentity}=await import('../app/lib/collaboration/room-owner');
+      const workspaceSessionKey=collaborationAdmissionLockKey(job.plan.workspaceId);
+      const workspaceKey=BigInt.asUintN(64,BigInt(workspaceSessionKey));
+      const sessionGuards=new Map<MetadataSqlEvent['client'],{pid:number;start:string;rooms:Set<string>}>();
+      const exactSessionGuards=(client:MetadataSqlEvent['client'],protocol:ProofGroupOriginal) => {
+        const actual=sessionGuards.get(client);
+        const expected=new Set(protocol.request.expectedDocuments.map(document=>lockIdentity(document.documentId).key));
+        return actual && actual.rooms.size===expected.size && [...expected].every(key=>actual.rooms.has(key)) ? actual : undefined;
+      };
+      let stage: {client:MetadataSqlEvent['client'];witness:ProofGroupWitness;rows:Awaited<ReturnType<typeof row>>}|undefined;
+      let group:{witness:ProofGroupWitness;ids:string[]}|undefined;
+      const witness=async(event:MetadataSqlEvent,requireGuards:boolean):Promise<ProofGroupWitness|undefined> => {
+        const protocol=observed.protocol;
+        const session=protocol && requireGuards ? exactSessionGuards(event.client,protocol) : sessionGuards.get(event.client);
+        if(!session || requireGuards && !protocol) return undefined;
+        const guards=protocol?.request.expectedDocuments.map(document=>BigInt.asUintN(64,BigInt(lockIdentity(document.documentId).key)).toString()) ?? [];
+        const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM a.backend_start)::text AS start,
+          pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+          EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.locktype='advisory' AND l.granted
+            AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+            AND l.classid::bigint=$1 AND l.objid::bigint=$2) AS workspace_held,
+          (SELECT count(*)::int FROM pg_locks l WHERE l.pid=a.pid AND l.locktype='advisory' AND l.granted
+            AND l.mode='ExclusiveLock' AND l.objsubid=1 AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+            AND (l.classid::bigint::numeric*4294967296+l.objid::bigint::numeric)=ANY($3::numeric[])) AS rooms
+          FROM pg_stat_activity a WHERE pid=pg_backend_pid()`,
+        [Number(workspaceKey>>BigInt(32)),Number(workspaceKey&BigInt('0xffffffff')),guards])).rows[0];
+        assert.equal(actual.schema,h.schema);
+        assert.equal(Number(actual.pid),session.pid); assert.equal(actual.start,session.start);
+        if(actual.workspace_held!==true || requireGuards && (!protocol || actual.rooms!==guards.length)) return undefined;
+        if(actual.xid===null) return undefined;
+        assert(/^[0-9]+$/u.test(actual.xid)); assert.equal(typeof actual.start,'string');
+        return {client:event.client,pid:Number(actual.pid),start:actual.start,xid:actual.xid};
+      };
+      return h.withProbe(async event=>{
+        // Only successful session locks qualify. Prelude's pg_*_advisory_xact_lock
+        // events can never install this observed owner identity.
+        if(/^\s*SELECT\s+pg_advisory_lock\(\$1::bigint\),\s*true\s+AS\s+locked\s*$/iu.test(event.text)
+          && event.values[0]===workspaceSessionKey && event.result.rows[0]?.locked===true) {
+          const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            current_schema() AS schema FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(actual.schema,h.schema); assert.equal(typeof actual.start,'string');
+          sessionGuards.set(event.client,{pid:Number(actual.pid),start:actual.start,rooms:new Set()});
+        }
+        if(/^\s*SELECT\s+pg_try_advisory_lock\(\$1::bigint\)\s+AS\s+locked\s*$/iu.test(event.text)) {
+          const session=sessionGuards.get(event.client);
+          if(session) {
+            assert.equal(event.result.rows[0]?.locked,true); assert.equal(typeof event.values[0],'string');
+            const key=event.values[0] as string; assert(/^-?[0-9]+$/u.test(key));
+            session.rooms.add(key); assert(session.rooms.size<=1024);
+          }
+        }
+        if(/\bpg_advisory_unlock(?:_all)?\s*\(/iu.test(event.text)) sessionGuards.delete(event.client);
+        if(/^\s*INSERT\s+INTO\b/iu.test(event.text) && event.text.includes('workspace_file_operation_move_intents')
+          && event.values[0]===job.batch!.batchId && event.result.rowCount===1) {
+          assert.equal(stage,undefined); assert.equal(observed.protocol,undefined);
+          const actual=await witness(event,false); assert(actual);
+          const own=(await event.raw(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+            FROM workspace_file_operation_move_intents t WHERE batch_id=$1`,[job.batch!.batchId])).rows;
+          assert.equal(own.length,1); assert.equal((await row(intentTable(job),job.batch!.batchId)).length,0);
+          stage={client:event.client,witness:actual,rows:own};
+        }
+        if(/^\s*COMMIT\s*$/iu.test(event.text) && stage?.client===event.client && !observed.stageCommitted) {
+          assert.equal(event.result.command,'COMMIT');
+          const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(Number(actual.pid),stage.witness.pid); assert.equal(actual.start,stage.witness.start); assert.equal(actual.xid,null);
+          assert.deepEqual(await row(intentTable(job),job.batch!.batchId),stage.rows);
+          observed.protocol=await readProofGroupOriginal(job); observed.stageCommitted=true; observed.stageWitness=stage.witness;
+          observed.files=await filesystem(); // Exact baseline while the outer owner still holds its genuine fences.
+          const held=exactSessionGuards(event.client,observed.protocol); assert(held);
+          assert.equal(held.pid,stage.witness.pid); assert.equal(held.start,stage.witness.start);
+          observed.owner=stage.witness; // Fresh execution stays on its independently confirmed actual Stage B.
+          return;
+        }
+        const protocol=observed.protocol;
+        if(!protocol || !observed.stageCommitted || observed.physicalObserved) return;
+        assert(observed.files);
+        if(!observed.owner && /^\s*SELECT\b/iu.test(event.text) && event.text.includes('workspace_file_operation_move_intents')
+          && /\bFOR\s+SHARE\s+NOWAIT\s*$/iu.test(event.text) && event.values[0]===job.batch!.batchId && event.result.rowCount===1) {
+          const actual=await witness(event,true); if(actual) observed.owner=actual;
+        }
+        const actualOwner=observed.owner; if(!actualOwner || event.client!==actualOwner.client) return;
+        if(/^\s*SELECT\s+\*\s+FROM\s+collaboration_admission_requests\s+WHERE\s+request_id\s*=\s*\$1\s+FOR\s+UPDATE\s*$/iu.test(event.text)
+          && event.values[0]===protocol.request.requestId) {
+          if(!group) { const actual=await witness(event,true); assert(actual); assert.equal(actual.pid,actualOwner.pid);
+            assert.equal(actual.start,actualOwner.start);
+            if(observed.stageWitness) assert.notEqual(actual.xid,observed.stageWitness.xid);
+            assert.deepEqual(await filesystem(),observed.files,'Proof-group entry remains before every physical effect.');
+            group={witness:actual,ids:[]}; }
+          const header=event.result.rows[0]; assert(header); assert.equal(header.request_digest,protocol.header.request_digest);
+          assert.equal(header.intent_text,protocol.header.intent_text);
+        }
+        if(group && /^\s*SELECT\s+\*\s+FROM\s+collaboration_admission_targets\b/iu.test(event.text)
+          && /\bFOR\s+UPDATE\s*$/iu.test(event.text) && event.values[0]===protocol.request.requestId) {
+          assert.equal(typeof event.values[1],'string'); const documentId=event.values[1] as string;
+          assert(protocol.request.expectedDocuments.some(document=>document.documentId===documentId));
+          assert(!group.ids.includes(documentId)); group.ids.push(documentId); assert(group.ids.length<=8);
+        }
+        if(/^\s*COMMIT\s*$/iu.test(event.text) && group) {
+          assert.equal(event.result.command,'COMMIT');
+          const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(Number(actual.pid),group.witness.pid); assert.equal(actual.start,group.witness.start); assert.equal(actual.xid,null);
+          const offset=observed.groups.flat().length;
+          const expected=protocol.request.expectedDocuments.slice(offset,offset+8).map(document=>document.documentId);
+          assert(expected.length>0); assert.deepEqual(group.ids,expected);
+          // Prelude may already have persisted every proof: this actual group
+          // COMMIT can be SELECT-only. Never label existing xmins as group writes.
+          const targets=await proofGroupRows('collaboration_admission_targets','request_id',protocol.request.requestId);
+          assert.equal(targets.length,protocol.request.expectedDocuments.length);
+          assert.deepEqual(await row(intentTable(job),job.batch!.batchId),protocol.intent);
+          assert.deepEqual(await filesystem(),observed.files,'Every proof group COMMIT precedes mkdir/rename and physical receipts.');
+          observed.targetsAtCommit=targets;
+          observed.commits.push({pid:group.witness.pid,start:group.witness.start,xid:group.witness.xid,documentIds:[...group.ids]});
+          observed.groups.push([...group.ids]); group=undefined;
+          if(loseFirstGroupCommit && !observed.lostAcknowledgement) {
+            observed.lostAcknowledgement=true;
+            throw Object.assign(new Error('Lost actual proof-group COMMIT acknowledgement.'),{code:'FIXTURE_MOVE_PROOF_GROUP_ACK_LOST'});
+          }
+        }
+        if(/^\s*INSERT\s+INTO\b/iu.test(event.text) && /\bworkspace_file_operation_move_(?:parent|path)_receipts\b/iu.test(event.text)
+          && event.values[0]===job.batch!.batchId) {
+          assert.equal(group,undefined);
+          assert.deepEqual(observed.groups.flat(),protocol.request.expectedDocuments.map(document=>document.documentId),
+            'An existing intent must not bypass even one current proof group before physical receipts.');
+          observed.physicalObserved=true;
+        }
+      },operation);
+    };
+    const assertProofGroupOriginal = async(job:Job,original:ProofGroupOriginal) => {
+      assert.deepEqual(await readProofGroupOriginal(job),original);
+      const nativeReceipts=await proofGroupRows('collaboration_native_file_operation_receipts','operation_id',original.operationId);
+      assert.deepEqual(nativeReceipts.map(value=>(JSON.parse(value.body) as {mutation_id:string}).mutation_id).sort(),original.mutationIds);
+      await run('move',currentToken,h.source.workspaceId,live=>noMutation(async()=>{
+        const known=await existing(job,live); assert.equal(known.kind,'historical-header');
+        assert.deepEqual(known.batch.authorization,job.original); const historical=await status(job,live); assert(historical);
+        assert.equal(historical.observation.apply,'complete');
+      }));
+      assert.deepEqual(await proofGroupRows('collaboration_native_file_operation_receipts','operation_id',original.operationId),nativeReceipts);
+    };
+    await check('Move Stage COMMIT then actual grant loss has no FS; existing-intent recovery commits every current proof group before FS',async()=>{
+      const job=await seed('move',true); let revoked=false;
+      let original:Awaited<ReturnType<typeof immutableBatch>>|undefined,stageFiles:Awaited<ReturnType<typeof filesystem>>|undefined;
+      const incoming=await load(h.connection,job.incomingId); assert(incoming);
+      try {
+        await assert.rejects(run('move',currentToken,h.source.workspaceId,async live=>{
+          await create(job,live); original=await immutableBatch(job);
+          return afterActualCommit(job,intentTable(job),async()=>{
+            stageFiles=await filesystem(); // Actual Stage committed while its kernel/room fences remain held.
+            assert.equal((await h.admin.query(`DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id='member'
+              AND workspace_id=$2 RETURNING client_id`,[clientId,h.source.workspaceId])).rowCount,1); revoked=true;
+          },()=>invoke(job,live,job.batch!));
+        }),rejected('MCP_READ_PRINCIPAL_ACCESS_DENIED'));
+        assert(revoked && job.batch && job.original && original && stageFiles);
+        assert.deepEqual(await filesystem(),stageFiles); assert.deepEqual(await immutableBatch(job),original);
+        assert.equal((await row(receiptTable(job),job.batch.batchId)).length,0);
+        const retained=await readProofGroupOriginal(job); assert(retained.request.expectedDocuments.length>8);
+        assert.deepEqual(Buffer.from((await load(h.connection,job.incomingId))!.yjsState),Buffer.from(incoming.yjsState));
+        await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+          VALUES($1,'member',$2,100,100)`,[clientId,h.source.workspaceId]); revoked=false;
+        const observed:ProofGroupObservation={protocol:retained,stageCommitted:true,files:stageFiles,commits:[],groups:[],physicalObserved:false,lostAcknowledgement:false};
+        await observeActualMoveProofGroups(job,observed,false,()=>recover(job));
+        assert(observed.owner && observed.physicalObserved); assert(observed.groups.length>1);
+        assert.equal(observed.commits.length,observed.groups.length);
+        assert.deepEqual(observed.groups.flat(),retained.request.expectedDocuments.map(document=>document.documentId));
+        assert.deepEqual(await immutableBatch(job),original); await assertComplete(job); await assertProofGroupOriginal(job,retained);
+        const after=await load(h.connection,job.incomingId); assert(after); assert.equal(after.documentSequence,incoming.documentSequence+1);
+      } finally {
+        if(revoked) await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+          VALUES($1,'member',$2,100,100) ON CONFLICT DO NOTHING`,[clientId,h.source.workspaceId]);
+      }
+    });
+    await check('actual proof-group COMMIT then lost ACK preserves Original and no FS; real SID-B repeats all groups and completes once',async()=>{
+      const job=await seed('move',true);
+      let original:Awaited<ReturnType<typeof immutableBatch>>|undefined;
+      const incoming=await load(h.connection,job.incomingId); assert(incoming);
+      const first:ProofGroupObservation={stageCommitted:false,commits:[],groups:[],physicalObserved:false,lostAcknowledgement:false};
+      await assert.rejects(run('move',currentToken,h.source.workspaceId,async live=>{
+        await create(job,live); original=await immutableBatch(job);
+        return observeActualMoveProofGroups(job,first,true,()=>invoke(job,live,job.batch!));
+      }),rejected('JOB_LIFECYCLE_COMMIT_UNCONFIRMED'));
+      assert(job.batch && job.original && original && first.files);
+      assert(first.stageCommitted && first.lostAcknowledgement && first.owner && first.protocol && first.stageWitness);
+      assert.equal(first.groups.length,1); assert.equal(first.groups[0].length,8); assert.equal(first.physicalObserved,false);
+      assert.equal(first.commits.length,1); assert.notEqual(first.commits[0].xid,first.stageWitness.xid);
+      const retained=first.protocol; assert(retained.request.expectedDocuments.length>8);
+      assert.deepEqual(await filesystem(),first.files); assert.deepEqual(await immutableBatch(job),original);
+      assert.equal((await row(receiptTable(job),job.batch.batchId)).length,0);
+      const targetRows=await proofGroupRows('collaboration_admission_targets','request_id',retained.request.requestId);
+      assert.deepEqual(targetRows,first.targetsAtCommit,'Independent rows/xmins remain exactly those observed after the actual uncertain group COMMIT.');
+      assert.deepEqual(Buffer.from((await load(h.connection,job.incomingId))!.yjsState),Buffer.from(incoming.yjsState));
+      const originalSession=job.original.actorSessionId,old=await rotate(); assert.notEqual(currentSession,originalSession);
+      await assert.rejects(run('move',old,h.source.workspaceId,async live=>{await freshScope(live);}),rejected('invalid_token'));
+      const resumed:ProofGroupObservation={protocol:retained,stageCommitted:true,files:first.files,commits:[],groups:[],physicalObserved:false,lostAcknowledgement:false};
+      await observeActualMoveProofGroups(job,resumed,false,()=>recover(job));
+      assert(resumed.owner && resumed.physicalObserved); assert(resumed.groups.length>1);
+      assert.equal(resumed.commits.length,resumed.groups.length);
+      assert.deepEqual(resumed.groups.flat(),retained.request.expectedDocuments.map(document=>document.documentId),
+        'Recovery revalidates from offset zero rather than trusting the uncertain committed group.');
+      assert.equal(job.original.actorSessionId,originalSession); assert.deepEqual(await immutableBatch(job),original);
+      await assertComplete(job); await assertProofGroupOriginal(job,retained);
+      const after=await load(h.connection,job.incomingId); assert(after); assert.equal(after.documentSequence,incoming.documentSequence+1);
+    });
     await check('current expired session denies historical status and existing claim with zero domain/FS changes', async () => {
       assert.equal((await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1 RETURNING id', [currentSession])).rowCount, 1);
       const before = await snapshot(), files = await filesystem();
@@ -1203,9 +1655,9 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => { await existing(deleted!, live); }), rejected('invalid_token'));
       assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), files);
     });
-    assert.equal(groups, 16);
+    assert.equal(groups, 20);
     console.log(JSON.stringify({ test: 'direct-mcp-job-owner-integration', groups,
-      scope: 'actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD plus real room/socket/admission tickets; no OAuth issuance, HTTP, SDK, public-handler or browser claim' }));
+      scope: 'actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD plus real room/socket/admission tickets and Web rename Request/Response; no OAuth issuance, file-route TCP, SDK or browser claim' }));
   }); completed = true;
   } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
 }

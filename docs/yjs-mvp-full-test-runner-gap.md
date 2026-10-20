@@ -14,6 +14,14 @@ Nächster enger Schritt: Produktkorrekturen reviewen und auf dem frischen Build 
 
 Der anschließende frische Build auf Root/QA `18845697c` und alle sieben CI-Prüfungen bestehen. Die erste zusätzliche echte Browserfolge endet nach zwei bestandenen Fällen an einem veralteten Source-Button im Rich-Blocks-Test; weitere 20 Fälle sind noch nicht ausgeführt. Die enge Testkorrektur verwendet zentrale Markdownausgabe und echten Reload, ohne Serialisierungsassertionen zu entfernen. Originale und vollständiger Ressourcenabschluss sind im [aktuellen Abnahmebericht](./yjs-mvp-tool-and-restore-acceptance.md#neuer-build-und-erster-zusätzlicher-browserlauf) gebunden. Dieser neue RED ersetzt oder erklärt nicht pauschal die 218 Fehler des ursprünglichen Gesamtlaufs.
 
+## Engere Einordnung des erhaltenen roten Laufs
+
+Eine zusätzliche reine Prüfung des gespeicherten Originallogs grenzt 95 der 218 Fehler auf konkrete frühere Abbruchstellen ein: 20 Fälle erfüllen den Owned-Request-Budget-Ausführungsvertrag nicht, 17 erhalten keine Owned-Yjs-Freigabe, 18 stoppen im Fixture-Unterprozessimport `pi-ai/compat`, 15 warten auf entfernte Read/Edit-Schalter und 25 auf alte Chat-Input-Selektoren. Diese Fälle sind dadurch **nicht nachträglich bestanden**; ihre späteren Fachorakel wurden nicht ausgeführt. Die übrigen 123 Fehler sind durch diese Zählung nicht erklärt.
+
+Veraltete Erwartungen an Dateiaktions-Undo oder Review Center werden auf den ausdrücklich ausgeschalteten Vertrag korrigiert. Die Funktionen werden nicht für ein grünes Testergebnis aktiviert. Zwei große Discoveryfälle erreichen die Suche nicht, weil bereits der initiale Upload von 505 TXT- und 105 PNG-Dateien abbricht; der Upload bleibt ungeklärt. Weitere Rechte-, Wiederherstellungs-, Agenten-, Plugin- und E-Mailbefunde werden nicht pauschal als Baseline klassifiziert.
+
+Für den zeitnahen MVP bleibt die Reihenfolge: Kernfehler und Pending-/Reloadanschluss schließen, endgültiges Main integrieren und bauen, gemeinsame 53er-Abnahme samt fehlenden MVP-nahen Copy-/Recoverygruppen mit den bestehenden jeweiligen Owned-Runnern prüfen, dann die verbliebenen Gesamtcheckfehler konkret bearbeiten. Ein pauschales ENV-Umschalten oder ein neuer Universalrunner ersetzt die unterschiedlichen echten Testverträge nicht. Diese Einordnung ist Quellen-/Loganalyse und kein neuer Testlauf.
+
 ## Verbindliches Produktionsgate
 
 [AGENTS.md](../AGENTS.md) verlangt: „Run `npm run test:all` before production deploys.“ Das Gesamtkommando wurde inzwischen tatsächlich ausgeführt, ist aber noch nicht vollständig bestanden. Eine Ausnahme von dieser Vorgabe benötigt eine direkte Nutzerentscheidung; bis dahin gilt das ursprüngliche Gate weiter. Main-Merge, Release und Produktionsprüfung bleiben eigenständige Schritte.

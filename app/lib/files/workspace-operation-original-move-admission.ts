@@ -24,8 +24,28 @@ export function createWorkspaceOperationOriginalMoveAdmissionRequest(context: Wo
 export function createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context: WorkspaceOperationOriginalMoveContext,
   data: WorkspaceOperationOriginalMoveNativeBundleData | null,
   sourceEvidence?: WorkspaceOperationAnyMixedSourceEvidence): CollaborationAdmissionRequest {
-  const plan = context.plan, bundle = data === null ? null
-    : decodeWorkspaceOperationOriginalMoveNativeBundleData(data, context, sourceEvidence);
+  // Historical admission-only fallback deliberately accepts null even when
+  // a native preparation would require a bundle. Keep that existing contract.
+  if (data === null) return captureOriginalMoveAdmissionRequestData(context, null, null).request;
+  return captureWorkspaceOperationOriginalMoveAdmissionBundleData(context, data, sourceEvidence).capturedRequest.request;
+}
+
+/** Strict pure data only. Always validate bundle semantics, including null;
+ * the preparation caller receives the same decoded bundle and captured request
+ * from one synchronous validation, without a reusable authority/cache token. */
+export function captureWorkspaceOperationOriginalMoveAdmissionBundleData(context: WorkspaceOperationOriginalMoveContext,
+  data: WorkspaceOperationOriginalMoveNativeBundleData | null,
+  sourceEvidence?: WorkspaceOperationAnyMixedSourceEvidence) {
+  const bundle = decodeWorkspaceOperationOriginalMoveNativeBundleData(data, context, sourceEvidence);
+  return Object.freeze({ bundle, capturedRequest: captureOriginalMoveAdmissionRequestData(context, data, bundle) });
+}
+
+/** Module-private request assembly. Every public non-null entry above first
+ * runs the existing strict context/bundle decoder in this same sync block. */
+function captureOriginalMoveAdmissionRequestData(context: WorkspaceOperationOriginalMoveContext,
+  data: WorkspaceOperationOriginalMoveNativeBundleData | null,
+  bundle: ReturnType<typeof decodeWorkspaceOperationOriginalMoveNativeBundleData>) {
+  const plan = context.plan;
   const hex = createHash('sha256').update(`canvas.original-move.admission.v1\0${context.batchId}\0${context.requestHash}\0${plan.planId}`).digest('hex');
   const requestId = bundle?.requestId ?? `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`;
   const action = plan.actions[0].kind;
@@ -36,5 +56,5 @@ export function createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(c
     scopes:[{workspaceId:plan.workspaceId,organizationId:plan.sourceEvidence.workspaceScope.organizationId,path:'',kind:'subtree'}],
     expectedDocuments:workspaceOperationSourceNativeEvidence(plan.sourceEvidence).nativeBindings.map(item => ({documentId:item.expected.documentId,workspaceId:item.expected.workspaceId,
       organizationId:item.expected.organizationId,path:item.expected.path,representation:item.expected.representation,
-      lifecycleGeneration:item.expected.lifecycleGeneration,schemaVersion:item.expected.schemaVersion,status:'active'}))}).request;
+      lifecycleGeneration:item.expected.lifecycleGeneration,schemaVersion:item.expected.schemaVersion,status:'active'}))});
 }

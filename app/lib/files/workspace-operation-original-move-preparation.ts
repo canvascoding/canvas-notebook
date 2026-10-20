@@ -10,10 +10,10 @@ import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
-import { decodeWorkspaceOperationOriginalMoveNativeBundleData, getWorkspaceOperationOriginalMoveNativeIds,
+import { getWorkspaceOperationOriginalMoveNativeIds,
   type WorkspaceOperationOriginalMoveActor, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
-import { createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle } from './workspace-operation-original-move-admission';
+import { captureWorkspaceOperationOriginalMoveAdmissionBundleData } from './workspace-operation-original-move-admission';
 
 /** Immutable P0 data, never a claim, admission lease, actor or SQL authority.
  * The original owner captures the real witness and owns the whole transaction. */
@@ -146,9 +146,8 @@ export function createWorkspaceOperationOriginalMovePreparation(context: Workspa
   const currentWitness = decodeWorkspaceOperationMixedOriginalSourceWitness(selected.plan.sourceEvidence,
     captureOriginalMovePreparationJson(fields.currentWitness.value, nativeBundleLimit));
   const nativeBundleData = captureOriginalMovePreparationJson(fields.nativeBundleData.value, 8 * nativeBundleLimit) as WorkspaceOperationOriginalMoveNativeBundleData | null;
-  const bundle = decodeWorkspaceOperationOriginalMoveNativeBundleData(nativeBundleData, selected, currentWitness);
-  const request = createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(selected, nativeBundleData, currentWitness);
-  const requestDigest = captureCollaborationAdmissionRequest(request).requestDigest;
+  const { bundle, capturedRequest } = captureWorkspaceOperationOriginalMoveAdmissionBundleData(selected, nativeBundleData, currentWitness);
+  const { request, requestDigest } = capturedRequest;
   if (typeof request.actionPayloadText !== 'string') originalMovePreparationFailure();
   const preparation = captureOriginalMovePreparationJson({ version: selected.plan.planIdentityVersion === 4 ? 3 : selected.plan.planIdentityVersion === 3 ? 2 : 1,
     batchId: selected.batchId, planId: selected.plan.planId,

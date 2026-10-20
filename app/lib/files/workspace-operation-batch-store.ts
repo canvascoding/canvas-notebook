@@ -1106,3 +1106,66 @@ export async function readWorkspacePathImportOperationBatchOnConnection(database
   await assertMcpClaimSource(database, source);
   return frozen(batch);
 }
+
+
+/** Fresh implicit member Move only. Same actual B; no claim is minted. */
+export async function insertWorkspaceImplicitMoveBatchOnConnection(database: SqlConnection,
+  handle: import('./workspace-implicit-move-phase').WorkspaceImplicitMovePreparationHandle
+): Promise<Readonly<{ batch: WorkspaceOperationBatchRecord; binding: WorkspaceOperationBatchClaimBinding }>> {
+  const { assertWorkspaceImplicitMovePreparationOnConnection } = await import('./workspace-implicit-move-phase');
+  const { getWorkspaceImplicitMoveSelectionBatchIdentity } = await import('./workspace-implicit-move-selection');
+  const frame = await assertWorkspaceImplicitMovePreparationOnConnection(database, handle);
+  if (frame.operation) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  const { selection, nativePlan, access, identity } = frame;
+  const selectedIdentity = getWorkspaceImplicitMoveSelectionBatchIdentity(selection);
+  const scope = captureWorkspaceOperationJobScope(access.workspace);
+  if (access.userId !== selection.origin.userId || access.sessionId !== frame.actualCurrentOrigin.sessionId
+    || !isDeepStrictEqual(scope, selection.scope) || !isDeepStrictEqual(nativePlan.sourceEvidence.workspaceScope, scope)) {
+    throw claimError('BATCH_SCOPE_CHANGED');
+  }
+  const source = await assertMcpClaimSource(database), table = `${quote(source.schemaName)}.workspace_file_operation_batches`;
+  if (source.databaseOid !== identity.databaseOid || source.schemaOid !== identity.schemaOid
+    || source.schemaName !== identity.schemaName || source.searchPath !== identity.searchPath) throw claimError('BATCH_SCOPE_CHANGED');
+  await database.run(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE NOWAIT`);
+  await assertMcpClaimSource(database, source);
+  if (await readMcpJobRow(database, source, selectedIdentity.batchId)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
+  await assertMcpPredecessor(database, source, scope.workspaceId, selectedIdentity.batchId);
+  const actor = access.workspace.actor;
+  const displayName = actor?.userId === access.userId && typeof actor.email === 'string' && actor.email.trim()
+    ? actor.email : access.userId;
+  // Preserve the direct legacy hash/actorSessionId=null contract exactly.
+  // The real session is independently bound by the Fresh origin and actual Principal phase.
+  const authorization = captureDirectAuthorization({ mode: 'direct', actorUserId: access.userId, actorId: access.userId,
+    actorType: 'user', actorDisplayName: displayName, requestHash: selectedIdentity.requestHash, jobScope: scope });
+  const planText = JSON.stringify(nativePlan), authorizationText = JSON.stringify(authorization);
+  if (Buffer.byteLength(planText) > 16 * 1024 * 1024 || Buffer.byteLength(authorizationText) > 65536) throw claimError('BATCH_INVALID_PLAN');
+  const totalActions = workspaceOperationBatchTotalActions(nativePlan);
+  const before = await assertWorkspaceImplicitMovePreparationOnConnection(database, handle);
+  if (!isDeepStrictEqual(before, frame)) throw claimError('BATCH_CLAIM_CHANGED');
+  const inserted = await database.get(`INSERT INTO ${table}
+    (batch_id,plan_id,workspace_id,review_ids_json,review_refs_json,plan_json,authorization_json,status,
+     action_mode,reviewer_user_id,reviewer_display_name,completed_actions,total_actions,phase,error_code,
+     trash_entry_ids_json,lease_owner,lease_token,lease_expires_at,created_at,updated_at)
+    VALUES($1,$2,$3,'[]','[]',$4,$5,'queued','apply',NULL,NULL,0,$6,'preparing',NULL,'[]',NULL,NULL,NULL,$7,$7)
+    RETURNING *,tableoid::oid::bigint AS claim_table_oid,xmin::text AS row_xmin`,
+  [selectedIdentity.batchId, nativePlan.planId, scope.workspaceId, planText, authorizationText,
+    totalActions, frame.preparedAt]) as Record<string, unknown> | undefined;
+  if (!inserted || Number(inserted.claim_table_oid) !== source.tableOid
+    || inserted.row_xmin !== String(BigInt(identity.xid) & BigInt('4294967295'))
+    || inserted.plan_json !== planText || inserted.authorization_json !== authorizationText
+    || inserted.review_ids_json !== '[]' || inserted.review_refs_json !== '[]' || inserted.trash_entry_ids_json !== '[]'
+    || inserted.lease_owner !== null || inserted.lease_token !== null || inserted.lease_expires_at !== null
+    || inserted.reviewer_user_id !== null || inserted.reviewer_display_name !== null) throw claimError('BATCH_CLAIM_CHANGED');
+  const batch = record(inserted);
+  if (batch.batchId !== selectedIdentity.batchId || batch.planId !== nativePlan.planId || batch.workspaceId !== scope.workspaceId
+    || !isDeepStrictEqual(batch.plan, nativePlan) || !isDeepStrictEqual(batch.authorization, authorization)
+    || batch.status !== 'queued' || batch.actionMode !== 'apply' || batch.completedActions !== 0
+    || batch.totalActions !== totalActions || batch.phase !== 'preparing' || batch.errorCode !== null
+    || batch.createdAt !== frame.preparedAt || batch.updatedAt !== frame.preparedAt) throw claimError('BATCH_CLAIM_CHANGED');
+  await assertMcpClaimSource(database, source);
+  if (!isDeepStrictEqual(await assertWorkspaceImplicitMovePreparationOnConnection(database, handle), frame)) throw claimError('BATCH_CLAIM_CHANGED');
+  return frozen({ batch, binding: { batchId: batch.batchId, planId: batch.planId, workspaceId: batch.workspaceId,
+    plan: batch.plan, authorization: batch.authorization, actionMode: batch.actionMode, totalActions: batch.totalActions,
+    createdAt: batch.createdAt, reviewIds: batch.reviewIds, reviewRefs: batch.reviewRefs,
+    reviewerUserId: batch.reviewerUserId, reviewerDisplayName: batch.reviewerDisplayName, source } });
+}

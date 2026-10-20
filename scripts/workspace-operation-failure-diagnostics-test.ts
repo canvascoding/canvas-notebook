@@ -47,6 +47,19 @@ test('inherited code, cause and aggregate fields are never adopted', () => {
   const inherited = Object.create({ code: '25P04', cause: { code: '57014' }, errors: [{ code: '55P03' }] });
   assert.deepEqual(diagnose(inherited), { version: 1, tree: { code: 'UNCLASSIFIED' }, truncated: false });
 });
+test('implicit preparation retains finite admission causes without exposing payloads', () => {
+  for (const code of ['IMPLICIT_MOVE_PHASE_CHANGED', 'ADMISSION_RECOVERY_REQUIRED',
+    'ADMISSION_REQUEST_CHANGED', 'ADMISSION_SCOPE_CHANGED', 'ADMISSION_STATE_CHANGED', 'NATIVE_MOVE_PLAN_CHANGED',
+    'NATIVE_MOVE_PLAN_INVALID', 'NATIVE_MOVE_PLAN_TOO_LARGE', 'NATIVE_SOURCE_EVIDENCE_INVALID',
+    'NATIVE_SOURCE_EVIDENCE_TOO_LARGE', 'NATIVE_SOURCE_IMPORT_REQUIRED', 'NATIVE_SOURCE_EVIDENCE_CHANGED']) {
+    const error = Object.assign(new Error(secret, { cause: { code, payload: secret } }),
+      { code: 'IMPLICIT_MOVE_OUTCOME_UNCONFIRMED', request: secret });
+    assert.deepEqual(diagnose(error), { version: 1, truncated: false,
+      tree: { code: 'IMPLICIT_MOVE_OUTCOME_UNCONFIRMED', cause: { code } } });
+    assert.equal(JSON.stringify(diagnose(error)).includes(secret), false);
+  }
+  assert.equal(diagnose({ code: 'IMPLICIT_MOVE_PRIVATE_DOCUMENT_CONTENT' }).tree?.code, 'UNCLASSIFIED');
+});
 test('no error getters, coercion or message/name/stack/private fields are evaluated', () => {
   let reads = 0;
   const error = {};

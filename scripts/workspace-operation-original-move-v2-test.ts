@@ -19,6 +19,9 @@ import { createWorkspaceOperationNativeMoveBatchPlanV1, createWorkspaceOperation
 import { stageWorkspaceOperationOriginalMoveJob, WorkspaceOperationJobLifecycleError,
   type WorkspaceOperationNativeMoveJobOwner } from '../app/lib/files/workspace-operation-job-lifecycle-owner';
 import * as codec from '../app/lib/files/workspace-operation-original-move';
+import { captureCollaborationAdmissionRequest } from '../app/lib/collaboration/room-admission-contract';
+import { captureWorkspaceOperationOriginalMoveAdmissionBundleData, createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle }
+  from '../app/lib/files/workspace-operation-original-move-admission';
 import { createWorkspaceOperationOriginalMovePreparation as createP0,
   decodeWorkspaceOperationOriginalMovePreparation as decodeP0,
   readWorkspaceOperationOriginalMovePreparationOnConnection as readP0,
@@ -115,7 +118,8 @@ function context(plan: WorkspaceOperationNativeMoveBatchPlan): codec.WorkspaceOp
 }
 function nativeBundle(selected: codec.WorkspaceOperationOriginalMoveContext, observed: WorkspaceLinkSourceAuthorityObservation,
   sourceEvidence = selected.plan.sourceEvidence): codec.WorkspaceOperationOriginalMoveNativeBundleData {
-  assert(sourceEvidence.evidenceVersion !== 3, 'This historical fixture exercises only the original V1/V2 contracts.');
+  assert(sourceEvidence.evidenceVersion !== 3 && sourceEvidence.evidenceVersion !== 5,
+    'This historical fixture exercises only the original V1/V2 contracts.');
   const plan = selected.plan, paths = plan.nativePathPlan.pathMappings.filter(mapping => mapping.source.documentId !== null);
   const recipes = plan.nativePathPlan.mutations;
   const ids = [...new Set([...paths.map(mapping => mapping.source.documentId!), ...recipes.map(recipe => recipe.source.documentId)])].sort();
@@ -509,4 +513,71 @@ test('DECLARED borrowed-insert spy distinguishes created/existing/conflict and r
     assert(calls.every(sql => !/\b(?:BEGIN|COMMIT|ROLLBACK)\b/u.test(sql)));
     assert(calls.every(sql => !sql.includes('collaboration_native_file_operation_intents') && !sql.includes('collaboration_admission_')));
   }
+});
+
+for (const representation of ['plain_text','tiptap_xml','tiptap_blocks'] as const) {
+  test(`${representation}: shared strict bundle/request data preserves exact existing public admission bytes`, () => {
+    for (const present of [false,true]) {
+      const value = fixture(representation, present), before = clone(value);
+      const shared = captureWorkspaceOperationOriginalMoveAdmissionBundleData(value.context, value.nativeBundle, value.currentWitness);
+      const publicRequest = createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(value.context, value.nativeBundle, value.currentWitness);
+      const expected = captureCollaborationAdmissionRequest(publicRequest);
+      assert.deepEqual(shared.bundle, codec.decodeWorkspaceOperationOriginalMoveNativeBundleData(value.nativeBundle, value.context, value.currentWitness));
+      assert.deepEqual(shared.capturedRequest, expected);
+      assert.equal(shared.capturedRequest.intentText, expected.intentText);
+      assert.deepEqual(Buffer.from(shared.capturedRequest.intentText), Buffer.from(expected.intentText));
+      assert.equal(shared.capturedRequest.requestDigest, expected.requestDigest);
+      assert.equal(shared.capturedRequest.requestDigest, hash(`canvas.collaboration.admission-request.v1\0${shared.capturedRequest.intentText}`));
+      assert.equal(JSON.stringify(shared.capturedRequest.request), JSON.stringify(publicRequest));
+      // Bundle payload field order and canonical admission field order differ;
+      // exact admission bytes are compared against the public API above.
+      assert.deepEqual(JSON.parse(shared.capturedRequest.request.actionPayloadText!), JSON.parse(value.nativeBundle.actionPayloadText));
+      assert(shared.bundle); const independentIds = codec.getWorkspaceOperationOriginalMoveNativeIds(value.context);
+      assert.equal(shared.bundle.operationId, independentIds.operationId); assert.equal(shared.bundle.requestId, independentIds.requestId);
+      const prepared = createP0(value.context, {currentWitness:value.currentWitness,nativeBundleData:value.nativeBundle});
+      assert.deepEqual(captureCollaborationAdmissionRequest(prepared.request), expected);
+      assert.equal(prepared.preparation.requestId, expected.request.requestId);
+      assert.equal(prepared.preparation.requestDigest, expected.requestDigest);
+      assert.equal(prepared.nativeBundleData?.privateText, value.nativeBundle.privateText);
+      assert.equal(prepared.nativeBundleData?.changesBundleProof, value.nativeBundle.changesBundleProof);
+      assert(Object.isFrozen(shared) && Object.isFrozen(shared.capturedRequest) && Object.isFrozen(shared.capturedRequest.request));
+      assert.deepEqual(value, before);
+    }
+  });
+}
+
+test('shared strict native-required null rejects while the original public historical null fallback remains available', () => {
+  for (const representation of ['plain_text','tiptap_xml','tiptap_blocks'] as const) {
+    const value = fixture(representation), before = clone(value);
+    const changed = (error:unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED';
+    assert.throws(() => captureWorkspaceOperationOriginalMoveAdmissionBundleData(value.context, null, value.currentWitness), changed);
+    assert.throws(() => createP0(value.context, {currentWitness:value.currentWitness,nativeBundleData:null}), changed);
+    const fallback = createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(value.context, null, value.currentWitness);
+    const hex = hash(`canvas.original-move.admission.v1\0${value.context.batchId}\0${value.context.requestHash}\0${value.plan.planId}`);
+    assert.equal(fallback.requestId, `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20,32)}`);
+    assert.notEqual(fallback.requestId, codec.getWorkspaceOperationOriginalMoveNativeIds(value.context).requestId);
+    assert.equal(fallback.actorId, actor.actorId); assert.equal(fallback.action, 'move');
+    assert.equal(fallback.actionPayloadText, JSON.stringify({batchId:value.context.batchId,planId:value.plan.planId,requestHash:value.context.requestHash,version:1}));
+    const captured = captureCollaborationAdmissionRequest(fallback);
+    assert.equal(captured.requestDigest, hash(`canvas.collaboration.admission-request.v1\0${captured.intentText}`));
+    assert.equal(fallback.expectedDocuments.length, value.plan.sourceEvidence.nativeBindings.length);
+    assert.deepEqual(value, before);
+  }
+  // Existing actual compiler/observation pattern: a physical PDF root with no
+  // native mapping or rewrite still accepts the strict helper's null bundle.
+  const observed = observation('plain_text');
+  observed.stage.namespace.push({workspaceId:jobScope.workspaceId,path:'a.pdf',kind:'file',
+    identity:'1:100:3:100:100',filesystemIdentity:'1:100:3:100:100',documentId:null,lifecycleGeneration:null});
+  refresh(observed);
+  const plan = createWorkspaceOperationNativeMoveBatchPlanV2({scope,actions:[{kind:'move',reviewId:'physical_shared_admission',
+    selections:[{sourcePath:'a.pdf',destinationPath:'b.pdf'}]}],observation:observed});
+  assert.equal(plan.nativePathPlan.mutations.length, 0); assert(plan.nativePathPlan.pathMappings.every(mapping => mapping.source.documentId === null));
+  const selected = context(plan), witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observed, jobScope);
+  const shared = captureWorkspaceOperationOriginalMoveAdmissionBundleData(selected, null, witness);
+  assert.equal(shared.bundle, null);
+  const expected = captureCollaborationAdmissionRequest(createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(selected, null, witness));
+  assert.deepEqual(shared.capturedRequest, expected); assert.equal(shared.capturedRequest.intentText, expected.intentText);
+  assert.equal(shared.capturedRequest.requestDigest, expected.requestDigest);
+  const prepared = createP0(selected, {currentWitness:witness,nativeBundleData:null});
+  assert.deepEqual(captureCollaborationAdmissionRequest(prepared.request), expected); assert.equal(prepared.preparation.nativeBundle, null);
 });

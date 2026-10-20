@@ -13,6 +13,7 @@ import { workspaceOperationSourceNamespace } from './workspace-operation-mixed-s
 import { waitForWorkspaceOperationNativePathAdmission } from './workspace-operation-native-path-admission';
 import { withWorkspaceOperationNativeMoveJobOwner, readWorkspaceOperationOriginalMoveJobHistory,
   readWorkspaceOperationOriginalMoveJobReceipts, readWorkspaceOperationOriginalMovePreparation, stageWorkspaceOperationOriginalMoveJob,
+  proveWorkspaceOperationOriginalMoveJobQuiescenceGroup,
   recordWorkspaceOperationOriginalMoveJobParentReceipt, recordWorkspaceOperationOriginalMoveJobPathReceipt,
   completeWorkspaceOperationOriginalMoveJob } from './workspace-operation-job-lifecycle-owner';
 import { decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
@@ -67,8 +68,21 @@ export async function executeWorkspaceOperationOriginalMove(input: {
     }) : [];
     return withRecoveredWorkspacePathMoves({workspace,moves:originals,parents},async prepared=>{
       if (!rows.intent) rows = await stageWorkspaceOperationOriginalMoveJob(owner,{preparedSteps:prepared});
+      if (!rows.intent || !rows.intentRow) throw new Error('ORIGINAL_MOVE_INTENT_UNCONFIRMED');
+      const expectedIntentDigest=rows.intentRow.intentDigest;
+      // An intent may have committed before only some DA03 groups. Every
+      // non-historical attempt re-proves the entire fixed sequence from zero;
+      // no mkdir/rename/physical receipt may run before all groups commit.
+      let documentOffset:number|null=0;
+      do {
+        documentOffset=await proveWorkspaceOperationOriginalMoveJobQuiescenceGroup(owner,
+          {expectedIntentDigest,preparedSteps:prepared,documentOffset});
+      } while(documentOffset!==null);
+      rows=await readWorkspaceOperationOriginalMoveJobReceipts(owner);
       const intent=rows.intent;
-      if (!intent || !rows.intentRow) throw new Error('ORIGINAL_MOVE_INTENT_UNCONFIRMED');
+      if (!intent || !rows.intentRow || rows.intentRow.intentDigest!==expectedIntentDigest || rows.completion) {
+        throw new Error('ORIGINAL_MOVE_INTENT_UNCONFIRMED');
+      }
       const receipts=new Map<string,PreparedWorkspacePathMoveReceipt>();
       // Physical producers run first, retaining the original selection/step IDs.
       // A native-only absence may depend on parent births from a later physical

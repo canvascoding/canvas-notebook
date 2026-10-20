@@ -470,3 +470,54 @@ async function advanceNativePathTargets(database: SqlConnection, original: Nativ
   }
   return pending;
 }
+
+
+export async function prepareWorkspaceImplicitMoveAdmissionOnConnection(database: SqlConnection,
+  handle: import('./workspace-implicit-move-phase').WorkspaceImplicitMovePreparationHandle
+): Promise<import('./workspace-implicit-move-phase').WorkspaceImplicitMoveAdmissionPreparation> {
+  const startedAt = performance.now(), milestones: Array<Readonly<{ stage: string; elapsedMs: number }>> = [];
+  const mark = (stage: string) => { milestones.push({ stage, elapsedMs: Math.round(performance.now() - startedAt) }); };
+  try {
+    const { assertWorkspaceImplicitMovePreparationOnConnection } = await import('./workspace-implicit-move-phase');
+    const { getWorkspaceImplicitMoveSelectionBatchIdentity } = await import('./workspace-implicit-move-selection');
+    const frame = await assertWorkspaceImplicitMovePreparationOnConnection(database, handle);
+    if (!frame.operation) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+    const original = captureNativePathBindingFacts(frame.operation.binding), selected = getWorkspaceImplicitMoveSelectionBatchIdentity(frame.selection);
+    if (original.kind !== 'move' || original.plan.version !== 3 || original.plan.planIdentityVersion !== 4
+      || original.authorization.mode !== 'direct' || original.authorization.actorType !== 'user'
+      || original.authorization.actorId !== frame.access.userId || original.authorization.actorUserId !== frame.access.userId
+      || original.authorization.actorSessionId !== undefined || original.authorization.requestHash !== selected.requestHash
+      || original.binding.batchId !== selected.batchId || !equal(original.plan, frame.nativePlan)
+      || !equal(original.scope, frame.selection.scope) || !workspaceOperationJobScopeMatches(original.scope, frame.access.workspace)
+      || original.binding.source.schemaName !== frame.identity.schemaName
+      || original.binding.source.schemaOid !== frame.identity.schemaOid
+      || original.binding.source.databaseOid !== frame.identity.databaseOid
+      || original.binding.source.searchPath !== frame.identity.searchPath) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+    const source = Object.freeze({ schemaName: frame.identity.schemaName, schemaOid: frame.identity.schemaOid,
+      databaseOid: frame.identity.databaseOid });
+    mark('binding-captured');
+    const storage = await bindWorkspaceOperationOriginalMoveStorageOnConnection(database, source);
+    mark('storage-bound');
+    const prepared = await prepareNativePathRequest(database, original, 'prepare', frame.access);
+    mark('native-request-prepared');
+    if (!prepared || prepared.legacy || !prepared.requiresHeader) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+    await storage.assertCurrent();
+    const context = nativePathMoveContext(original);
+    const saved = await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+      { schema: source.schemaName, context, readOnly: true });
+    mark('preparation-read');
+    if (!saved || saved.preparation.version !== 3
+      || !equal(captureCollaborationAdmissionRequest(saved.request), captureCollaborationAdmissionRequest(prepared.request))) {
+      throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+    }
+    if (!equal(await assertWorkspaceImplicitMovePreparationOnConnection(database, handle), frame)) {
+      throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
+    }
+    return Object.freeze({ request: captureCollaborationAdmissionRequest(saved.request).request,
+      preparationDigest: saved.preparationDigest });
+  } finally {
+    try { console.info('[File action preparation] Admission phase timings.', JSON.stringify({
+      version: 1, elapsedMs: Math.round(performance.now() - startedAt), milestones })); }
+    catch { /* Preserve the original operation result. */ }
+  }
+}
