@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
 type LoadFn = (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 
@@ -23,8 +23,8 @@ type TestConfig = {
   updatedAt: string;
 };
 
-let config: TestConfig = {
-  version: 1,
+const config: TestConfig = {
+  version: 2,
   activeProvider: 'google',
   providers: {
     google: {
@@ -43,6 +43,9 @@ let config: TestConfig = {
   updatedAt: '2026-07-12T00:00:00.000Z',
 };
 const auditEvents: unknown[] = [];
+let adminAllowed = true;
+let browserBlocked = false;
+let toolWriteCount = 0;
 
 function matches(request: string, suffix: string): boolean {
   return request === `@/app/lib/${suffix}` || request.endsWith(`/app/lib/${suffix}`);
@@ -51,7 +54,11 @@ function matches(request: string, suffix: string): boolean {
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
   if (matches(request, 'admin-auth')) {
-    return { requireInstanceAdmin: async () => ({ ok: true, session: adminSession }) };
+    return {
+      requireInstanceAdmin: async () => adminAllowed
+        ? { ok: true, session: adminSession }
+        : { ok: false, response: NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 }) },
+    };
   }
   if (matches(request, 'auth')) {
     return { auth: { api: { getSession: async () => adminSession } } };
@@ -86,8 +93,9 @@ moduleInternals._load = (request, parent, isMain) => {
     return {
       DEFAULT_MANAGED_AGENT_ID: 'canvas-agent',
       readPiRuntimeConfig: async () => structuredClone(config),
-      writePiRuntimeConfig: async (next: typeof config) => {
-        config = structuredClone(next);
+      writePiRuntimeToolSelection: async (enabledTools: string[]) => {
+        toolWriteCount += 1;
+        config.providers[config.activeProvider].enabledTools = [...enabledTools];
         return structuredClone(config);
       },
     };
@@ -103,7 +111,11 @@ moduleInternals._load = (request, parent, isMain) => {
     };
   }
   if (matches(request, 'pi/browser/settings-service')) {
-    return { assertBrowserToolCanBeEnabled: async () => undefined };
+    return {
+      assertBrowserToolCanBeEnabled: async () => {
+        if (browserBlocked) throw new Error('Browser tool cannot be enabled: test-runtime-disabled');
+      },
+    };
   }
   if (matches(request, 'pi/tool-registry')) {
     return {
@@ -178,6 +190,38 @@ async function main() {
       },
     ));
     assert.equal(invalidAgentResponse.status, 400);
+
+    assert.equal(toolWriteCount, 1);
+    assert.equal(auditEvents.length, 1);
+    const beforeDeniedWrites = structuredClone(config);
+    browserBlocked = true;
+    const browserDeniedResponse = await route.PATCH(new NextRequest(
+      'http://localhost:3000/api/agents/tools',
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabledTools: ['tool-a'] }),
+      },
+    ));
+    assert.equal(browserDeniedResponse.status, 409);
+    assert.deepEqual(config, beforeDeniedWrites);
+    assert.equal(toolWriteCount, 1);
+    assert.equal(auditEvents.length, 1);
+    browserBlocked = false;
+
+    adminAllowed = false;
+    const adminDeniedResponse = await route.PATCH(new NextRequest(
+      'http://localhost:3000/api/agents/tools',
+      {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabledTools: ['tool-a'] }),
+      },
+    ));
+    assert.equal(adminDeniedResponse.status, 403);
+    assert.deepEqual(config, beforeDeniedWrites);
+    assert.equal(toolWriteCount, 1);
+    assert.equal(auditEvents.length, 1);
 
     console.log('agent-tools-route-test: ok');
   } finally {

@@ -9,7 +9,7 @@ import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import {
   DEFAULT_MANAGED_AGENT_ID,
   readPiRuntimeConfig,
-  writePiRuntimeConfig,
+  writePiRuntimeToolSelection,
 } from '@/app/lib/agents/storage';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
@@ -126,16 +126,7 @@ export async function PATCH(request: NextRequest) {
       previousEnabledTools: activeProviderConfig.enabledTools,
       nextEnabledTools: enabledTools,
     });
-    await writePiRuntimeConfig({
-      ...currentConfig,
-      providers: {
-        ...currentConfig.providers,
-        [currentConfig.activeProvider]: {
-          ...activeProviderConfig,
-          enabledTools,
-        },
-      },
-    });
+    await writePiRuntimeToolSelection(enabledTools);
     const effectiveConfig = await resolveAgentRuntimeSettings(agentId);
     await recordAuditEvent({
       userId: admin.session.user.id,

@@ -623,6 +623,64 @@ export async function readPiRuntimeConfig(): Promise<PiRuntimeConfig> {
 }
 
 /**
+ * Updates tool selection without requiring a legacy provider model to be set.
+ * Provider/model setup remains the responsibility of the full config writer.
+ */
+export async function writePiRuntimeToolSelection(enabledTools: string[]): Promise<PiRuntimeConfig> {
+  if (
+    !Array.isArray(enabledTools)
+    || enabledTools.length > 500
+    || enabledTools.some((toolName) => typeof toolName !== 'string' || toolName.length > 200)
+  ) {
+    throw new AgentConfigValidationError('enabledTools must be a string array.');
+  }
+
+  // The regular reader tolerates damaged files for runtime fallback. A mutation
+  // must preserve their bytes rather than persisting those fallback defaults.
+  const { content: rawContent } = await readSettingsTextFileIfExists(PI_RUNTIME_CONFIG_FILE);
+  if (rawContent !== null) {
+    let storedConfig: unknown;
+    try {
+      storedConfig = JSON.parse(rawContent);
+    } catch {
+      throw new AgentConfigValidationError('PI runtime configuration contains invalid JSON.');
+    }
+    if (
+      !isRecord(storedConfig)
+      || Array.isArray(storedConfig)
+      || storedConfig.version !== 2
+      || typeof storedConfig.activeProvider !== 'string'
+      || !storedConfig.activeProvider.trim()
+      || !isRecord(storedConfig.providers)
+      || Array.isArray(storedConfig.providers)
+      || !isRecord(storedConfig.providers[storedConfig.activeProvider])
+      || Object.values(storedConfig.providers).some((provider) => !isRecord(provider) || Array.isArray(provider))
+    ) {
+      throw new AgentConfigValidationError('PI runtime configuration has an invalid provider structure.');
+    }
+  }
+
+  const currentConfig = await readPiRuntimeConfig();
+  const activeProviderConfig = currentConfig.providers[currentConfig.activeProvider];
+  if (!activeProviderConfig) {
+    throw new AgentConfigValidationError('The legacy tool profile is not initialized.');
+  }
+  const payload: PiRuntimeConfig = {
+    ...currentConfig,
+    providers: {
+      ...currentConfig.providers,
+      [currentConfig.activeProvider]: {
+        ...activeProviderConfig,
+        enabledTools: [...enabledTools],
+      },
+    },
+    updatedAt: new Date().toISOString(),
+  };
+  await writeSettingsJsonFileAtomic(PI_RUNTIME_CONFIG_FILE, payload);
+  return payload;
+}
+
+/**
  * Writes PI runtime configuration.
  */
 export async function writePiRuntimeConfig(config: PiRuntimeConfig): Promise<PiRuntimeConfig> {
