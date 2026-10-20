@@ -289,3 +289,42 @@ Unabhängige direkte Deltaprüfung findet keine P1/P2; GitNexus löst die neue T
 Originalfixture `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-authority-hutdNf`. Rote Originale bleiben erhalten: Runtime-Terminal `0ce881c4fe81201194f30ef1ecce52ac83699031278ce6e817f172d91a37d6a3`, Postbericht `0a1e132e5a1de61df0d606c77dc7de50e07004baeabd3ad238baf888ac6bd106`, Queue-Terminal `b6680ce0010ae1848c685b95c03eaad72b8237b1fd5f973a780594dab4e7bd33`, gesamtes Launch-Terminal `bab620e0798f8b5ea609c6b6b2e7f4fb76cd96a50ae608496b7b6a5732a58523`. Weitere 19 Fälle sind nicht gestartet. Die frühere echte 27er-Teilabnahme bleibt auf ihrem damaligen Quellenstand erhalten; die neue vollständige 29er-Abnahme und aktuelle CI/Review sind weiterhin offen. Keine Main-/Produktionsfreigabe, Undo und Review Center bleiben aus, sieben Roadmap-Pakete weiter offen.
 
 Die tatsächliche anschließende RR-/READ-ONLY-/NoXID-Gegenprobe bestätigt den bereits vor der Fehlerassertion korrekt veröffentlichten Stand: Delete-Incoming Sequenz/Checkpoint/Projection jeweils 1, finalized 1, keine Projektionsfehler und degraded 0. FD-SHA entspricht State- und Projection-Serializedhash. Mutation 06:53:52,370 UTC, Datei-mtime 06:54:07,271, Checkpoint 07,299, Finalisierung 07,336, Reload-Screenshot 09,873 und erst dann alte Bufferassertion 10,158. Das Target fehlt. Die Leseverbindung ist geschlossen. Originaler Metabeleg `/private/tmp/canvas-m3-nr4-projection-readonly-metadata-20261020.json`, SHA-256 `cfc60972664e15bf2d83c682f2f65bd6314ccc24808d849eb672a50aac59659d`. Die korrekte Dateipublikation ist damit tatsächlich belegt; das Original-RED wird nicht umgeschrieben. Gezielte Spec-Typprüfung mit Projekttypen und Scoped-ESLint bestehen, ebenso die enge unabhängige Deltaprüfung.
+
+
+## Finale gemeinsame M3-Abnahme auf Root 98956a6bd – 29/29 tatsächlich bestanden
+
+Gebundene tatsächlich getestete Quellen: Root `98956a6bd1407ff92a7c14626c0124da25e59be7`, QA `6537fbbe8a6ae7ef53154b10d801a268da09192d`, CP `27c8ce37da082244f006ca376068cde6b98845d5`. Quellenbericht SHA-256 `50d66199e4ba39582a2bce0879d9da1af9a871758408611d432d1cc64138d071`. Der tatsächliche vollständige Originalproduktionsbuild endet mit **Exit 0 nach 163,020 Sekunden**. Der anschließende vollständige unabhängige Artefaktabgleich hat Exit 0; Artefaktbericht SHA-256 `2361015383ed84f85079ac938c204d85218e7e2b8a6c857a5ee7bf5ed41f00a8`. Buildfingerprint `e6e5bb24cf42c553383ad386382179988f7365e44bb9d3c842db2d2a7bd8283e`, QA-Quellenfingerprint `ddfdfd2af09670acefe913156cad8460c7fef7a79f94aac9de5f1d3cf60081f1`. Originalcontroller `/private/tmp/canvas-m3-nextrequest-controller-inputs-20261020-Nr5`; Buildroot `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-build-I96np8`.
+
+| Serielle Originalruntime | Tatsächlich bestanden / deklariert | Originalexit | Unabhängige Abschlussprüfungen | Tatsächliche Hostneustarts |
+|---|---:|---:|---:|---:|
+| MCP/API/Dateiaktionen | 10 / 10 | 0 | 14 / 14 | 0 |
+| Manuelles Create/Paste/Markdownimport und Create-Recovery | 17 / 17 | 0 | 14 / 14 | 0 |
+| Graceful-/Crash-Neustart | 2 / 2 | 0 | 14 / 14 | 2 |
+
+Alle 29 deklarierten Fälle sind tatsächlich bestanden, ohne Fehler, Skips, Timeouts oder Unterbrechungen; sämtliche Original-, Baseline-, Postcheck- und Queue-Exits sind 0. Das originale `launch-terminal.json` endet mit **Exit 0 / passed: true**. Dieselben eingefrorenen Quellen und derselbe neue Build gelten für alle drei seriellen Runtimes. Die drei Abschlussberichte bestätigen jeweils unveränderte Quellenbindungen und vollständigen Ressourcenabschluss vor dem nächsten Lauf. Das Gesamtterminal bindet genau dieselben drei ursprünglichen Queueterminals und den unveränderten Artefakthash.
+
+Die Folge deckt native API-/MCP-Neuanlage, kontrollierten Markdownimport, versionsgebundenen ID-Read und Edit, tatsächlichen OAuth-/PKCE-Anschluss des frisch installierten Python-Wheels, unterstützte Copy-/Move-/Delete-Aktionen und zentrale Linkpflege sowie vollständigen nativen Inhalt und sichtbaren Editor/Reload ab. Die manuelle Folge umfasst Desktop-/Mobile-Web-Neuanlage, echte Paste-/Importwege, frischen Browser und verlorene Create-Antworten mit gebundener Wiederaufnahme. Die zwei Neustartfälle prüfen gespeicherten Inhalt, stabile IDs, vollständig neue Browser ohne alten IndexedDB-Zustand, normalen UI-Close, genaue Owner-/Scope-/Release-/Versionsbelege und abschließendes Löschen. Die vollständigen Originalergebnisse bestätigen diese Fallabdeckung; die beiden Neustarts sind zusätzlich im ursprünglichen erfolgreichen Abschlussreceipt mit restartCount: 2 gebunden.
+
+| Neues Original unter Nr5 | SHA-256 |
+|---|---|
+| `mcp10/source-report.json` | `50d66199e4ba39582a2bce0879d9da1af9a871758408611d432d1cc64138d071` |
+| `mcp10/build-terminal.json` | `47399006e270134db23dafd5125638e5e509a22721270f5e6714cc99fdc0f7ec` |
+| `mcp10/artifact-report.json` | `2361015383ed84f85079ac938c204d85218e7e2b8a6c857a5ee7bf5ed41f00a8` |
+| `mcp10/runtime-terminal.json` | `b5550008a769e0fd9144f826d0491d8059aeb35f7f57261fb46568434a96e8f6` |
+| `mcp10/postruntime-report.json` | `365febbeb30c39e73d8edbef3772d13e0b1e92d996e091972988e6992e865e46` |
+| `mcp10/queue-terminal.json` | `d75b8353f6bd366cf6bba0cfd4896014c2bc8433e3d78d4479017ea5ffb97106` |
+| `manual17/runtime-terminal.json` | `c7189f32c4a78ca3b7d0b653d159f8bfc60955fd20220ca878a50657491f6bd9` |
+| `manual17/postruntime-report.json` | `a4963de3d0251dc11b9729be25d222911252af7d1c0b1d9e2f11bd9fd349fe56` |
+| `manual17/queue-terminal.json` | `39915497808900974c2a4000a107c631179a315bdaced6f54ebf7b33c123b6dc` |
+| `restart2/runtime-terminal.json` | `4f0275828454bbb06fd73486b1a566068d78ed73827823abd9e457557180906e` |
+| `restart2/postruntime-report.json` | `7cec26fe42cd4b00e803819c1b7b22866628a1992663f80150fb6e10b82042c3` |
+| `restart2/queue-terminal.json` | `e7d265a045c027cbe851be3dea604297b3d0fd543c4db8462c67ca1ed77ed74c` |
+| `mcp10/launch-terminal.json` | `2b86d402703422a9fd2587b47ee091215572eda320164b5076887963961ee408` |
+
+Die früheren Fehlversuche, korrigierten Testorakel und roten Originalberichte bleiben unverändert. Diese frische Abnahme schreibt kein früheres Ergebnis um; gesonderte exakte Ressourcenbereinigungen bleiben getrennte Nachweise.
+
+**CI und Review getrennt vom Laufnachweis:** Auf dem tatsächlich getesteten Root `98956a6bd1407ff92a7c14626c0124da25e59be7` wurden am 20. Oktober 2026 um 07:30 UTC alle sieben CI-Checks abgeschlossen und erfolgreich gelesen. Der erneute GitHub-Abgleich am 20. Oktober 2026 um 07:30:25 UTC bestätigt unverändert den getesteten PR-Head, sieben abgeschlossene erfolgreiche Checks, zwei vollständig aufgelöste Reviewthreads, eine COMMENTED-Botreview, keine allgemeinen Kommentare und keine neuen menschlichen oder offenen automatischen Findings. Sämtliche Seiten wurden vollständig gelesen. Main bleibt `1506927038b80036749266a56fb769dcb6e6d18c`; PR #176 ist weiterhin Draft, mergeable und CLEAN. Die hier ergänzte Abschlussdokumentation wird anschließend als eigener reiner Dokumentationscommit veröffentlicht. Dessen erst dann bekannte SHA sowie aktuelle CI-/Reviewergebnisse werden vor Merge im PR gebunden und geprüft; ein grüner geprüfter Lauf auf `98956a6bd` wird keinem späteren Head zugerechnet. Dieser Dokumentationstext behauptet keinen bereits erfolgreichen Main-Merge oder Produktionsrollout.
+
+Der vollständige Standard-Typecheck wird nicht als grün bezeichnet: 69 Diagnoseblöcke sind getrennt bytegleich auf Main reproduziert; der Release-Typecheck und scoped ESLint bestehen auf den dokumentierten Quellen. Lokale M3-Abnahme, tatsächlicher Main-Merge und Produktionsauslieferung sind getrennte Schritte. Keine Main-/Produktionsveröffentlichung wird aus diesem Bericht abgeleitet. Beim späteren gesonderten Rollout sind alte Writer/Serverräume zu drainen, bevor neue Owner übernehmen; ausgelieferte Version und aktive Fähigkeiten sind danach tatsächlich zu prüfen. Dateiaktions-Undo und Review Center bleiben aus. Alle sieben Roadmap-Pakete bleiben offen, insbesondere voller veröffentlichter SDK-Lifecycle, Runtimeadapter, PDF-Parseranschluss, breitere Suche und Standard-Skill.
+
+Unabhängige vollständige Schlussprüfung einschließlich redundantem Queue-Abgleich: `/private/tmp/canvas-m3-nr5-final-readonly-review-20261020.json`, SHA-256 `babeb4930aa6627710039c2117724d3907efb11f0080f22b98ab9da2ea189536`. Keine P1/P2 für die gebundene MVP-Abnahme; die vollständige Roadmap bleibt davon getrennt.
