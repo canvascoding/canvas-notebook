@@ -175,6 +175,28 @@ export function decodeWorkspaceOperationOriginalMovePreparation(preparationText:
   return prepared;
 }
 
+function originalMovePreparationStoredCreatedAt(captured: PreparationRow): number {
+  const createdAt = typeof captured.createdAt === 'string' && /^(?:0|[1-9][0-9]{0,15})$/u.test(captured.createdAt)
+    ? Number(captured.createdAt) : captured.createdAt;
+  if (typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt) || Object.is(createdAt, -0)
+    || createdAt < 0 || createdAt > Number.MAX_SAFE_INTEGER - 1) originalMovePreparationFailure();
+  return createdAt;
+}
+
+/** Private data reuse only: prepared was strictly decoded in this same insert.
+ * Actual SQL rows still require bounded own-data capture and exact byte/identity
+ * equality. A different RETURNING row retains the historical strict decoder. */
+function originalMovePreparationStoredMatchingPrepared(row: unknown,
+  prepared: WorkspaceOperationOriginalMovePrepared): WorkspaceOperationOriginalMoveStoredPreparation | null {
+  const captured = captureOriginalMovePreparationJson(row, 2 * preparationLimit) as PreparationRow;
+  if (!captured || Array.isArray(captured) || typeof captured !== 'object' || Object.keys(captured).length !== 9) originalMovePreparationFailure();
+  const expected = prepared.preparation;
+  if (captured.preparationText !== prepared.preparationText || captured.preparationDigest !== prepared.preparationDigest
+    || captured.batchId !== expected.batchId || captured.planId !== expected.planId || captured.workspaceId !== expected.workspaceId
+    || captured.requestHash !== expected.requestHash || captured.requestId !== expected.requestId || captured.requestDigest !== expected.requestDigest) return null;
+  return Object.freeze({ ...prepared, createdAt: originalMovePreparationStoredCreatedAt(captured) });
+}
+
 function originalMovePreparationStoredRow(row: unknown, context: WorkspaceOperationOriginalMoveContext,
   nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null): WorkspaceOperationOriginalMoveStoredPreparation {
   // SQL returns an exact bounded row; own-data capture rejects surprising adapters.
@@ -185,11 +207,7 @@ function originalMovePreparationStoredRow(row: unknown, context: WorkspaceOperat
   if (captured.batchId !== expected.batchId || captured.planId !== expected.planId || captured.workspaceId !== expected.workspaceId
     || captured.requestHash !== expected.requestHash || captured.requestId !== expected.requestId || captured.requestDigest !== expected.requestDigest
     || captured.preparationDigest !== prepared.preparationDigest) originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
-  const createdAt = typeof captured.createdAt === 'string' && /^(?:0|[1-9][0-9]{0,15})$/u.test(captured.createdAt)
-    ? Number(captured.createdAt) : captured.createdAt;
-  if (typeof createdAt !== 'number' || !Number.isSafeInteger(createdAt) || Object.is(createdAt, -0)
-    || createdAt < 0 || createdAt > Number.MAX_SAFE_INTEGER - 1) originalMovePreparationFailure();
-  return Object.freeze({ ...prepared, createdAt });
+  return Object.freeze({ ...prepared, createdAt: originalMovePreparationStoredCreatedAt(captured) });
 }
 
 /** Caller-owned snapshot/transaction only. A row is usable only with its exact
@@ -297,7 +315,12 @@ export async function insertWorkspaceOperationOriginalMovePreparationOnConnectio
     || currentData.preparationText !== prepared.preparationText || currentData.preparationDigest !== prepared.preparationDigest
     || currentData.batchId !== p.batchId || currentData.planId !== p.planId || currentData.workspaceId !== p.workspaceId
     || currentData.requestHash !== p.requestHash || currentData.requestId !== p.requestId || currentData.requestDigest !== p.requestDigest) return Object.freeze({ kind: 'conflict' });
-  const row = originalMovePreparationStoredRow(currentData, context, prepared.nativeBundleData);
-  if (inserted && originalMovePreparationStoredRow(inserted, context, prepared.nativeBundleData).createdAt !== row.createdAt) return Object.freeze({ kind: 'conflict' });
+  const row = originalMovePreparationStoredMatchingPrepared(currentData, prepared)
+    ?? originalMovePreparationStoredRow(currentData, context, prepared.nativeBundleData);
+  if (inserted) {
+    const returned = originalMovePreparationStoredMatchingPrepared(inserted, prepared)
+      ?? originalMovePreparationStoredRow(inserted, context, prepared.nativeBundleData);
+    if (returned.createdAt !== row.createdAt) return Object.freeze({ kind: 'conflict' });
+  }
   return Object.freeze({ kind: inserted ? 'created' : 'existing', row });
 }

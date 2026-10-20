@@ -581,3 +581,122 @@ test('shared strict native-required null rejects while the original public histo
   const prepared = createP0(selected, {currentWitness:witness,nativeBundleData:null});
   assert.deepEqual(captureCollaborationAdmissionRequest(prepared.request), expected); assert.equal(prepared.preparation.nativeBundle, null);
 });
+
+
+// P0 RETURNING optimization regression only. The existing insertP0 API below
+// receives a DECLARED borrowed-SQL spy, not a database, transaction or authority.
+// The unchanged full decoder remains the oracle for a different valid row.
+test('DECLARED P0 insert RETURNING parity retains full current-row validation and caller ownership; no DB/COMMIT claim', async () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  const p = prepared.preparation;
+  const row: Row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId, requestHash: p.requestHash,
+    requestId: p.requestId, requestDigest: p.requestDigest, preparationText: prepared.preparationText,
+    preparationDigest: prepared.preparationDigest, createdAt: '100' };
+  const expected = { ...prepared, createdAt: 100 };
+  const invalid = (error: unknown) => error instanceof Error
+    && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_INVALID';
+  const changed = (error: unknown) => error instanceof Error
+    && Object.getOwnPropertyDescriptor(error, 'code')?.value === 'ORIGINAL_MOVE_PREPARATION_CHANGED';
+  let getters = 0, traps = 0, transportThenReads = 0;
+  const insert = async (returning: unknown, current: unknown) => {
+    const calls: Array<{ sql: string; params: unknown[] }> = []; let otherMethods = 0;
+    const borrowedSqlSpy = { get: async (sql: string, params: unknown[] = []) => {
+      calls.push({ sql, params }); assert(sql.includes('"p0_returning_mechanical".'));
+      if (calls.length === 1) {
+        assert.match(sql, /^SELECT batch_id FROM .*workspace_file_operation_batches WHERE batch_id=\$1 FOR UPDATE NOWAIT$/u);
+        assert.deepEqual(params, [p.batchId]); return { batch_id: p.batchId };
+      }
+      if (calls.length === 2) {
+        assert.match(sql, /^INSERT INTO /u); assert(sql.includes('workspace_file_operation_move_preparations'));
+        assert(sql.includes('ON CONFLICT(batch_id) DO NOTHING RETURNING'));
+        assert.match(sql, /CASE WHEN octet_length\(preparation_text\) BETWEEN 1 AND 16777216 THEN preparation_text ELSE NULL/u);
+        assert.deepEqual(params, [p.batchId, p.planId, p.workspaceId, p.requestHash, p.requestId, p.requestDigest, prepared.preparationText, prepared.preparationDigest]);
+        return returning;
+      }
+      assert.equal(calls.length, 3, 'Exactly the existing current-row read is allowed after INSERT.');
+      assert.match(sql, /^SELECT /u); assert(sql.includes('workspace_file_operation_move_preparations WHERE batch_id=$1'));
+      assert.match(sql, / FOR SHARE NOWAIT$/u); assert.deepEqual(params, [p.batchId]); return current;
+    }, all: async () => { otherMethods++; assert.fail('The borrowed insert must not call all.'); },
+    run: async () => { otherMethods++; assert.fail('The borrowed insert must not acquire or finalize a transaction.'); },
+    close: async () => { otherMethods++; assert.fail('The caller retains its connection.'); } };
+    try { return await insertP0(borrowedSqlSpy, { schema: 'p0_returning_mechanical', context: value.context, prepared }); }
+    finally {
+      assert.equal(calls.length, 3, 'RETURNING never substitutes for the actual current-row read.'); assert.equal(otherMethods, 0);
+      assert(calls.every(call => !/\b(?:BEGIN|COMMIT|ROLLBACK)\b/u.test(call.sql)));
+      assert(calls.every(call => !call.sql.includes('collaboration_native_file_operation_intents') && !call.sql.includes('collaboration_admission_')));
+      assert.equal(getters, 0); assert.equal(traps, 0);
+    }
+  };
+
+  for (const returning of [row, { ...row }]) {
+    const result = await insert(returning, row); assert.equal(result.kind, 'created');
+    assert(result.kind === 'created'); assert.deepEqual(result.row, expected); assert(Object.isFrozen(result.row));
+  }
+  const existing = await insert(undefined, row); assert.equal(existing.kind, 'existing');
+  assert(existing.kind === 'existing'); assert.deepEqual(existing.row, expected);
+  // Both canonical bigint text and safe JS integer are valid original adapters.
+  for (const returningCreatedAt of [100, '100']) {
+    const result = await insert({ ...row, createdAt: returningCreatedAt }, { ...row, createdAt: 100 });
+    assert.equal(result.kind, 'created'); assert(result.kind === 'created'); assert.deepEqual(result.row, expected);
+  }
+  assert.deepEqual(await insert({ ...row, createdAt: '101' }, row), { kind: 'conflict' });
+
+  // Preserve the existing FULL-DECODER fallback: a different but valid saved
+  // witness/text with the same normalized createdAt is accepted by the old API.
+  // This is not a new requirement that RETURNING bytes equal the current row.
+  const alternativeObservation = checkpoint(value.original, false);
+  const alternativeWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(value.plan, alternativeObservation, jobScope);
+  assert.equal(alternativeWitness.semanticProof, value.currentWitness.semanticProof);
+  assert.notEqual(alternativeWitness.evidenceProof, value.currentWitness.evidenceProof);
+  assert.deepEqual(alternativeWitness.nativeBindings, value.currentWitness.nativeBindings);
+  assert.deepEqual(alternativeWitness.stage.sources, value.currentWitness.stage.sources);
+  // Only the replaceable projection observation differs. Reuse the immutable
+  // original bundle; preparing another Yjs update would create a new artifact.
+  assert.equal(alternativeWitness.stage.namespace.find(entry => entry.path === 'a.md')!.filesystemIdentity, null);
+  assert.equal(value.currentWitness.stage.namespace.find(entry => entry.path === 'a.md')!.filesystemIdentity, '1:2:3:100:100');
+  const alternative = createP0(value.context, { currentWitness: alternativeWitness, nativeBundleData: prepared.nativeBundleData });
+  assert.notEqual(alternative.preparationText, prepared.preparationText);
+  assert.deepEqual(alternative.preparation.nativeBundle, prepared.preparation.nativeBundle);
+  assert.equal(alternative.preparation.requestDigest, p.requestDigest);
+  assert.deepEqual(decodeP0(alternative.preparationText, value.context, prepared.nativeBundleData), alternative);
+  const a = alternative.preparation, alternativeRow: Row = { batchId: a.batchId, planId: a.planId, workspaceId: a.workspaceId,
+    requestHash: a.requestHash, requestId: a.requestId, requestDigest: a.requestDigest, preparationText: alternative.preparationText,
+    preparationDigest: alternative.preparationDigest, createdAt: '100' };
+  const fallback = await insert(alternativeRow, row); assert.equal(fallback.kind, 'created');
+  assert(fallback.kind === 'created'); assert.deepEqual(fallback.row, expected);
+  assert.deepEqual(await insert({ ...alternativeRow, createdAt: '101' }, row), { kind: 'conflict' });
+
+  for (const header of ['batchId', 'planId', 'workspaceId', 'requestHash', 'requestId', 'requestDigest', 'preparationDigest']) {
+    await assert.rejects(insert({ ...row, [header]: 'incoherent-returning-header' }, row), changed);
+  }
+  await assert.rejects(insert({ ...row, preparationText: '{', preparationDigest: hash('{') }, row), invalid);
+  const nonCanonical = `${prepared.preparationText}\n`;
+  await assert.rejects(insert({ ...row, preparationText: nonCanonical, preparationDigest: hash(nonCanonical) }, row), changed);
+  for (const createdAt of [-1, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER,
+    '-1', '01', '1e2', '', null, undefined, BigInt(100)]) {
+    await assert.rejects(insert({ ...row, createdAt }, row), invalid);
+  }
+  const createdAtGetter = Object.defineProperty({ ...row }, 'createdAt', { enumerable: true, get() { getters++; return '100'; } });
+  const extraGetter = Object.defineProperty({ ...row }, 'extra', { enumerable: true, get() { getters++; return true; } });
+  // The declared async SQL transport must resolve its returned value before
+  // insertP0 can inspect it. Only Promise's then-assimilation probe is allowed;
+  // every product-visible property/descriptor/prototype trap still fails.
+  const proxy = new Proxy(row, { get(_target, key) {
+    if (key === 'then') { transportThenReads++; return undefined; }
+    traps++; throw Error('trap');
+  }, ownKeys() { traps++; throw Error('trap'); },
+  getPrototypeOf() { traps++; throw Error('trap'); }, getOwnPropertyDescriptor() { traps++; throw Error('trap'); } });
+  for (const returning of [createdAtGetter, extraGetter, proxy, { ...row, extra: true }]) await assert.rejects(insert(returning, row), invalid);
+
+  // A valid known INSERT result cannot suppress missing/stale/invalid current
+  // state or turn caller-owned transaction control into an internal operation.
+  assert.deepEqual(await insert(row, undefined), { kind: 'conflict' });
+  assert.deepEqual(await insert(row, { ...row, requestHash: 'stale-current-header' }), { kind: 'conflict' });
+  assert.deepEqual(await insert(row, alternativeRow), { kind: 'conflict' });
+  for (const current of [{ ...row, createdAt: -1 }, { ...row, extra: true }, createdAtGetter, extraGetter, proxy]) {
+    await assert.rejects(insert(row, current), invalid);
+  }
+  assert.equal(getters, 0); assert.equal(traps, 0);
+  assert.equal(transportThenReads, 2, 'Each of the two declared async proxy row returns performs only its Promise transport probe.');
+  assert.deepEqual(prepared, createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle }));
+});
