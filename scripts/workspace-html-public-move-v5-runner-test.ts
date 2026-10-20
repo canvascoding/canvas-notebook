@@ -5,11 +5,13 @@ import { workspaceOperationOriginalMoveHtmlPreparationTest } from './workspace-o
 import { workspaceOperationOriginalMoveHtmlSourcesTest } from './workspace-operation-original-move-html-sources-test';
 import { workspacePathHtmlWebPreviewTest } from './workspace-path-html-web-preview-test';
 import { mcpServerWorkspaceHtmlPathContractTest } from './mcp-server-workspace-html-path-contract-test';
+import { workspaceOperationOriginalMovePristineSourcesTest } from './workspace-operation-original-move-pristine-sources-test';
 
 workspaceNativeLinkMutationsV4Test();
 workspaceMixedHtmlPublicCoreV5Test();
 workspacePathHtmlNoImportPreparationTest();
 workspaceOperationOriginalMoveHtmlPreparationTest();
 workspaceOperationOriginalMoveHtmlSourcesTest();
+workspaceOperationOriginalMovePristineSourcesTest();
 workspacePathHtmlWebPreviewTest();
 await mcpServerWorkspaceHtmlPathContractTest();

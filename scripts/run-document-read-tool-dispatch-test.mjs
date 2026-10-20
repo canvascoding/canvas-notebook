@@ -12,6 +12,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-operation-original-move-namespace-public-test.ts': [entryPoint,
+    'app/lib/files/workspace-operation-original-move-namespace-effects.ts',
+    'app/lib/files/workspace-operation-original-move.ts'],
   'scripts/workspace-html-public-move-regression-runner-test.ts': [entryPoint,
     'scripts/workspace-native-mixed-batch-test.ts',
     'scripts/workspace-native-mixed-read-batch-v3-test.ts',
@@ -22,6 +25,8 @@ const criticalInputsByEntryPoint = {
     'app/lib/markdown/workspace-native-link-graph.ts',
     'app/lib/files/workspace-operation-native-move-plan.ts'],
   'scripts/workspace-html-public-move-v5-runner-test.ts': [entryPoint,
+    'scripts/workspace-operation-original-move-pristine-sources-test.ts',
+    'app/lib/files/workspace-operation-original-move-namespace-effects.ts',
     'scripts/mcp-server-workspace-html-path-contract-test.ts',
     'app/lib/files/workspace-operation-mcp-path-service.ts',
     'app/lib/mcp/server/workspace-path-tool-contract.ts',

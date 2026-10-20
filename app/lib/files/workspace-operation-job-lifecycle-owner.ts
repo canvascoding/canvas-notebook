@@ -99,7 +99,8 @@ type Phase = { active: boolean; accepting: boolean; transaction: string; pending
   relation: string | null };
 type MovePrepared = Readonly<{ stepKey: string; cap: PreparedWorkspacePathMove; receipt?: PreparedWorkspacePathMoveReceipt }>;
 type MoveCapture = { context: WorkspaceOperationOriginalMoveContext; preparedSteps: readonly MovePrepared[]; guards: readonly string[];
-  nativePhase?: Phase; nativeReceipts?: readonly import('../markdown/native-file-operation-handoff').NativeFileOperationReceipt[] };
+  nativePhase?: Phase; nativeReceipts?: readonly import('../markdown/native-file-operation-handoff').NativeFileOperationReceipt[];
+  namespaceReceipt?: WorkspaceOperationOriginalMoveCompletionData['namespaceEffects'] };
 type Capture = {
   move?: MoveCapture;
   nativePaths?: Readonly<{ guards: readonly string[]; documentIds: readonly string[] }>;
@@ -859,7 +860,8 @@ export async function readWorkspaceOperationOriginalMoveSourcesContext(database:
   await assertCurrent();
   return Object.freeze({context:rows.context,intent:rows.intent,parentRows:rows.parentRows,pathRows:rows.pathRows,
     preparedSteps:Object.freeze(preparedSteps.map(item => Object.freeze({stepKey:item.stepKey,cap:item.cap,receipt:item.receipt!}))),
-    nativeReceipts:captured.move.nativePhase === phase ? captured.move.nativeReceipts ?? Object.freeze([]) : Object.freeze([]),assertCurrent});
+    nativeReceipts:captured.move.nativePhase === phase ? captured.move.nativeReceipts ?? Object.freeze([]) : Object.freeze([]),
+    namespaceReceipt:captured.move.nativePhase === phase ? captured.move.namespaceReceipt ?? null : null,assertCurrent});
 }
 export function readOriginalNativeMoveSources(owner: WorkspaceOperationNativeMoveJobOwner, mode:'original'|'final') {
   try {
@@ -891,7 +893,9 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
       ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
     if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
     if (preparation && !equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
-    const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context});
+    const namespaceState = await captureWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{
+      schema:captured.binding.source.schemaName,workspace:access.workspace,context:captured.move!.context,
+      observation,...(currentWitness ? {currentWitness} : {})});
     // A legitimate null bundle is also final P0 data. Do not use ?? here:
     // it would silently prepare new deltas for that original null arm.
     const nativeBundle = preparation ? preparation.nativeBundleData
@@ -1032,7 +1036,7 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
     if (!intent || !rows.intentRow || rows.completion || rows.pathRows.length !== intent.steps.length) fail('JOB_LIFECYCLE_CHANGED');
     const source = await readWorkspaceOperationOriginalMoveSourcesContext(database); await source.assertCurrent(); await check();
     const request = moveRequest(captured,intent), bundle = readWorkspaceOperationOriginalMoveNativeBundle(intent);
-    captured.move!.nativePhase = captured.phase; captured.move!.nativeReceipts = Object.freeze([]);
+    captured.move!.nativePhase = captured.phase; captured.move!.nativeReceipts = Object.freeze([]); captured.move!.namespaceReceipt = null;
     let native: WorkspaceOperationOriginalMoveCompletionData['native'] = null;
     let namespaceEffects: WorkspaceOperationOriginalMoveCompletionData['namespaceEffects'] = null;
     const { readWorkspaceOperationOriginalMoveSourcesOnConnection } = await import('./workspace-operation-original-move-sources');
@@ -1079,11 +1083,12 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
             receipts,sideEffectReceiptDigest};
         }
         namespaceEffects = await applyWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{workspace:access.workspace,context:captured.move!.context,intent});
+        captured.move!.namespaceReceipt = namespaceEffects;
         await source.assertCurrent(); await check();
         await readWorkspaceOperationOriginalMoveSourcesOnConnection(database,access.workspace,'final');
         await check();
         return result;
-      }});
+      }}).finally(() => { captured.move!.namespaceReceipt = null; });
     await check(); await source.assertCurrent();
     const completion: WorkspaceOperationOriginalMoveCompletionData = {version:1,batchId:intent.batchId,intentDigest:rows.intentRow.intentDigest,
       planId:intent.planId,compilerPlanProof:intent.compilerPlanProof,finalGraphProof:intent.finalGraphProof,

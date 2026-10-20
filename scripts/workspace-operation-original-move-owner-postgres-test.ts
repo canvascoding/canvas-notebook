@@ -6,6 +6,8 @@ import path from 'node:path';
 import { types } from 'node:util';
 import { parse } from 'dotenv';
 import { Client, type Pool, type PoolClient } from 'pg';
+import { NextRequest } from 'next/server';
+import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../app/lib/db';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
@@ -24,6 +26,105 @@ function describeFailure(error: unknown, depth=0):unknown {
   return {name:error.name,code:code(error),source:error.stack?.split('\n').flatMap(line=>{const match=/\/(app\/.*|scripts\/.*):(\d+):(\d+)\)?$/u.exec(line);return match?[`${match[1]}:${match[2]}:${match[3]}`]:[];}).slice(0,5),
     ...(error instanceof AggregateError?{errors:error.errors.slice(0,4).map(child=>describeFailure(child,depth+1))}:{}),
     ...(error.cause instanceof Error?{cause:describeFailure(error.cause,depth+1)}:{})};
+}
+
+// Diagnostics observe genuine Promise queries and return the exact original
+// result. Callback/Query-object modes remain untouched and are counted as
+// unobserved, rather than changing callback or EventEmitter error semantics.
+function installOwnedMoveQueryProfile(pool:Pool) {
+  type Metric={shape:string;operation:string;tables:string[];count:number;settled:number;unobserved:number;errors:number;sumMs:number;maxMs:number};
+  type Span={startedAt:number;lastAt:number;count:number;settled:number;unobserved:number;errors:number;sumMs:number;maxMs:number;shapes:Map<string,Metric>};
+  type Transaction=Span&{backendPid:number;ordinal:number;status:'open'|'committed'|'rolled_back'|'error';errorCode?:string};
+  type Case=Span&{label:string;transactions:Transaction[];omittedTransactions:number};
+  const observed=new Map<PoolClient,PropertyDescriptor|undefined>();
+  const activeTransactions=new Map<PoolClient,Transaction>();
+  const ordinals=new Map<PoolClient,number>();
+  const shapeCache=new Map<string,{shape:string;operation:string;tables:string[]}>();
+  const safeTables=new Set(['pg_locks','pg_stat_activity','pg_namespace','pg_roles','canvas_workspaces','canvas_organization_settings',
+    'organization_user_permissions','team_memberships','team_membership_sync_state','agents','agent_members','agent_grants','pi_sessions',
+    'collaboration_documents','collaboration_yjs_states','collaboration_file_projections','file_collaboration_lineages','file_revisions',
+    'collaboration_admission_requests','collaboration_admission_targets','workspace_file_metadata','workspace_file_user_states',
+    'workspace_file_operation_batches','workspace_file_operation_move_preparations','workspace_file_operation_move_intents',
+    'workspace_file_operation_move_path_receipts','workspace_file_operation_move_receipts','workspace_file_operation_native_mutations']);
+  const createSpan=():Span=>({startedAt:performance.now(),lastAt:performance.now(),count:0,settled:0,unobserved:0,errors:0,sumMs:0,maxMs:0,shapes:new Map()});
+  let current:Case|undefined;
+  const shapeFor=(args:unknown[])=>{
+    const first=args[0];let sql:string|undefined;
+    if(typeof first==='string')sql=first;
+    else if(first&&typeof first==='object'&&!types.isProxy(first)){
+      const descriptor=Object.getOwnPropertyDescriptor(first,'text');if(descriptor&&'value' in descriptor&&typeof descriptor.value==='string')sql=descriptor.value;
+    }
+    if(sql===undefined)return{shape:'unknown',operation:'OTHER',tables:[] as string[]};
+    const cached=shapeCache.get(sql);if(cached)return cached;
+    const canonical=sql.replace(/\/\*[\s\S]*?\*\//gu,' ').replace(/--[^\r\n]*/gu,' ')
+      .replace(/'(?:''|[^'])*'/gu,'?').replace(/\b\d+\b/gu,'?').replace(/\s+/gu,' ').trim();
+    const operation=/^(SELECT|INSERT|UPDATE|DELETE|BEGIN|COMMIT|ROLLBACK|SET|WITH|SAVEPOINT|RELEASE)\b/iu.exec(canonical)?.[1].toUpperCase()??'OTHER';
+    const tables=[...new Set([...canonical.matchAll(/\b(?:FROM|JOIN|UPDATE|INTO)\s+"?([a-z_][a-z0-9_]*)"?/giu)]
+      .map(match=>match[1].toLowerCase()).filter(table=>safeTables.has(table)))].slice(0,8).sort();
+    const shape={shape:sha(canonical).slice(0,16),operation,tables};if(shapeCache.size<256)shapeCache.set(sql,shape);return shape;
+  };
+  const metricFor=(span:Span,shape:ReturnType<typeof shapeFor>)=>{
+    const key=span.shapes.has(shape.shape)||span.shapes.size<128?shape.shape:'overflow';let metric=span.shapes.get(key);
+    if(!metric){metric={...(key==='overflow'?{shape:'overflow',operation:'OTHER',tables:[]}:shape),count:0,settled:0,unobserved:0,errors:0,sumMs:0,maxMs:0};span.shapes.set(key,metric);}
+    return metric;
+  };
+  const onClient=(client:PoolClient)=>{
+    if(observed.has(client))return;
+    observed.set(client,Object.getOwnPropertyDescriptor(client,'query'));const original=client.query;
+    Object.defineProperty(client,'query',{configurable:true,writable:true,value:(...args:unknown[])=>{
+      const sample=current;if(!sample)return Reflect.apply(original,client,args);
+      const shape=shapeFor(args),startedAt=performance.now();let transaction=activeTransactions.get(client);
+      if(shape.operation==='BEGIN'){
+        const ordinal=(ordinals.get(client)??0)+1;ordinals.set(client,ordinal);
+        if(sample.transactions.length<64){
+          transaction={...createSpan(),startedAt,lastAt:startedAt,backendPid:Number(Reflect.get(client,'processID')),ordinal,status:'open'};
+          sample.transactions.push(transaction);activeTransactions.set(client,transaction);
+        }else{sample.omittedTransactions++;transaction=undefined;activeTransactions.delete(client);}
+      }
+      const targets=[sample,...(transaction?[transaction]:[])].map(span=>({span,metric:metricFor(span,shape)}));
+      for(const {span,metric} of targets){span.count++;metric.count++;}
+      let recorded=false;
+      const finish=(error?:unknown,unobserved=false)=>{
+        if(recorded)return;recorded=true;const now=performance.now(),elapsed=now-startedAt;
+        for(const {span,metric} of targets){span.lastAt=now;if(unobserved){span.unobserved++;metric.unobserved++;continue;}
+          span.settled++;metric.settled++;span.sumMs+=elapsed;metric.sumMs+=elapsed;span.maxMs=Math.max(span.maxMs,elapsed);metric.maxMs=Math.max(metric.maxMs,elapsed);
+          if(error!==undefined){span.errors++;metric.errors++;}}
+        if(transaction&&error!==undefined){transaction.status='error';const failureCode=code(error);if(typeof failureCode==='string'&&/^[A-Za-z0-9_]{1,40}$/u.test(failureCode))transaction.errorCode=failureCode;}
+        if(transaction&&['COMMIT','ROLLBACK'].includes(shape.operation)){
+          if(error===undefined)transaction.status=shape.operation==='COMMIT'?'committed':'rolled_back';activeTransactions.delete(client);
+        }
+      };
+      try{
+        const result=Reflect.apply(original,client,args);
+        if(result instanceof Promise){void result.then(()=>finish(),error=>finish(error));}else finish(undefined,true);
+        return result;
+      }catch(error){finish(error);throw error;}
+    }});
+  };
+  const round=(value:number)=>Math.round(value*100)/100;
+  const summarize=(span:Span)=>{
+    const metrics=[...span.shapes.values()].map(metric=>({...metric,sumMs:round(metric.sumMs),maxMs:round(metric.maxMs)}));
+    const wallMs=span.lastAt-span.startedAt;
+    return{queries:span.count,settled:span.settled,unobserved:span.unobserved,errors:span.errors,wallMs:round(wallMs),queryMs:round(span.sumMs),
+      nonQueryWallMs:round(Math.max(0,wallMs-span.sumMs)),maxQueryMs:round(span.maxMs),
+      topCount:metrics.toSorted((a,b)=>b.count-a.count||b.sumMs-a.sumMs).slice(0,8),topTime:metrics.toSorted((a,b)=>b.sumMs-a.sumMs||b.count-a.count).slice(0,8)};
+  };
+  pool.on('connect',onClient);pool.on('acquire',onClient);
+  return{
+    beginCase(label:string){assert.equal(current,undefined);current={...createSpan(),label,transactions:[],omittedTransactions:0};},
+    endCase(failed:boolean){
+      const sample=current;if(!sample)return;sample.lastAt=performance.now();current=undefined;
+      console.log('Original Move actual query profile:',JSON.stringify({label:sample.label,failed,...summarize(sample),
+        transactionCount:sample.transactions.length,omittedTransactions:sample.omittedTransactions,
+        transactions:sample.transactions.toSorted((a,b)=>(b.lastAt-b.startedAt)-(a.lastAt-a.startedAt)).slice(0,12).map(transaction=>({
+          backendPid:transaction.backendPid,ordinal:transaction.ordinal,startedAfterMs:round(transaction.startedAt-sample.startedAt),
+          status:transaction.status,...(transaction.errorCode?{errorCode:transaction.errorCode}:{}),...summarize(transaction)}))}));
+      for(const [client,transaction] of activeTransactions)if(sample.transactions.includes(transaction))activeTransactions.delete(client);
+    },
+    close(){pool.off('connect',onClient);pool.off('acquire',onClient);
+      for(const [client,descriptor] of observed){if(descriptor)Object.defineProperty(client,'query',descriptor);else Reflect.deleteProperty(client,'query');}
+      observed.clear();activeTransactions.clear();ordinals.clear();shapeCache.clear();}
+  };
 }
 async function main(): Promise<void> {
   const pinned = await sourceHash();
@@ -49,6 +150,7 @@ async function main(): Promise<void> {
   const failures: unknown[] = [];
   let connected = false, created = false, schemaOid = 0, schemaRemoved = false, dataRemoved = false;
   let pool: { end: () => Promise<void> } | undefined, fetches = 0, passed = 0, stage = 'prepare owned schema';
+  let queryProfile:ReturnType<typeof installOwnedMoveQueryProfile>|undefined;
   const ownClient = async () => {
     const client = new Client({ connectionString, connectionTimeoutMillis: 5000,
       options: `-c search_path=${schema},pg_catalog -c statement_timeout=15000 -c lock_timeout=100 -c application_name=owned-job-principal-fixture` });
@@ -103,6 +205,7 @@ async function main(): Promise<void> {
     const database = await import('../app/lib/db');
     const runtime = database.getPostgresRuntimeQueryable(); assert(runtime); pool = runtime as typeof pool;
     assert.equal((await runtime.query('SELECT current_schema() AS schema')).rows[0].schema, schema);
+    queryProfile=installOwnedMoveQueryProfile(runtime as unknown as Pool);
     const { getLicenseStatus } = await import('../app/lib/license');
     const { verifyLicenseJwtDetailed } = await import('../app/lib/license/jwt');
     assert.equal((await verifyLicenseJwtDetailed(process.env.CANVAS_LICENSE_CERT!, process.env.CANVAS_INSTANCE_ID!)).ok, true);
@@ -171,7 +274,11 @@ async function main(): Promise<void> {
       'app/lib/files/workspace-operation-html-link-assessment.ts','app/lib/files/workspace-operation-path-source-parser.ts',
       'app/lib/markdown/workspace-native-file-operation-planner.ts','app/lib/markdown/workspace-native-mixed-batch-compiler.ts',
       'app/lib/markdown/workspace-native-link-graph.ts','app/lib/markdown/workspace-link-contract-v5.ts',
-      'app/lib/markdown/workspace-native-link-mutations.ts','app/lib/markdown/native-link-mutation-persistence.ts'];
+      'app/lib/markdown/workspace-native-link-mutations.ts','app/lib/markdown/native-link-mutation-persistence.ts',
+      'app/api/files/upload/route.ts','app/lib/files/workspace-upload-flow.ts','app/lib/filesystem/workspace-files.ts',
+      'app/lib/files/collaboration-policy.ts','app/lib/files/collaboration-repository/document-repository.ts',
+      'app/lib/files/collaboration-repository/lineage-revision-repository.ts','app/lib/file-version-center/history-service.ts',
+      'app/lib/collaboration/workspace-document-catalogue.ts','app/lib/collaboration/markdown-file-import-persistence.ts'];
     const sourcePins = await Promise.all(pins.map(async filename => [filename,sha(await readFile(filename))] as const));
     console.log('Original Move pinned sources:',JSON.stringify(sourcePins));
     const seedNative = async (filename:string,content:string,physical=false) => {
@@ -245,7 +352,11 @@ async function main(): Promise<void> {
       await store.enqueue({batchId:job.claimed.batchId,planId:job.claimed.planId,userId:'member',displayName:'Actual original actor',action:'resume'});
       const claimed=await store.claim(crypto.randomUUID());assert(claimed);assert.equal(claimed.batchId,job.claimed.batchId);return {...job,claimed};
     };
-    const check=async(label:string,operation:()=>Promise<void>)=>{stage=label;await own();await operation();await own();passed++;console.log('Original Move owner case passed:',label);};
+    const check=async(label:string,operation:()=>Promise<void>)=>{
+      stage=label;queryProfile!.beginCase(label);let failed=true;
+      try{await own();await operation();await own();passed++;failed=false;console.log('Original Move owner case passed:',label);}
+      finally{queryProfile!.endCase(failed);}
+    };
     await check('native-only target, incoming native link and native metadata commit on real B',async()=>{
       const name=`native-${crypto.randomUUID()}.md`,destination=`virtual/${name}`;
       const target=await seedNative(name,'# Native original\n'),peer=await seedNative(`incoming-${crypto.randomUUID()}.md`,`[Original](${name})\n`);
@@ -655,6 +766,117 @@ async function main(): Promise<void> {
       if(closureFailures.length)throw new AggregateError([...(failed?[primary]:[]),...closureFailures],'Contended Move fixture closure failed.');
       if(failed)throw primary;
     });
+    const {POST:uploadPost}=await import('../app/api/files/upload/route');
+    const {persistPristineOriginalWorkspaceFileForWrite}=await import('../app/lib/collaboration/markdown-file-import-persistence');
+    const {readWorkspaceDocumentCatalogue}=await import('../app/lib/collaboration/workspace-document-catalogue');
+    const uploadHeaders=async()=>new Headers({'x-canvas-workspace-id':workspaceId,
+      cookie:(await serializeSignedCookie('better-auth.session_token',sessionToken,process.env.BETTER_AUTH_SECRET!)).split(';')[0]});
+    const uploadTxt=async(filename:string,bytes:Buffer)=>{
+      const form=new FormData();form.set('path',path.posix.dirname(filename));
+      form.append('files',new File([Uint8Array.from(bytes)],path.posix.basename(filename),{type:'text/plain'}));
+      const response=await uploadPost(new NextRequest('http://localhost/api/files/upload',{
+        method:'POST',headers:await uploadHeaders(),body:form}));
+      const result=await response.json();
+      assert.equal(response.status,200,JSON.stringify({status:response.status,code:result.code}));assert.equal(result.success,true);assert.equal(result.count,1);
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,filename)),bytes);
+      const rows=(await admin.query(`SELECT id,lineage_id,provider,status,state_version,yjs_state_lifecycle,path
+        FROM collaboration_documents WHERE workspace_id=$1 AND path=$2 AND status='active'`,[workspaceId,filename])).rows;
+      assert.equal(rows.length,1);const row=rows[0];assert.equal(row.provider,'yjs');assert.equal(row.status,'active');
+      assert.equal(Number(row.state_version),0);assert.equal(row.yjs_state_lifecycle,'never_initialized');
+      assert.equal(typeof row.id,'string');assert.equal(typeof row.lineage_id,'string');
+      assert((await admin.query('SELECT count(*)::integer AS n FROM file_revisions WHERE workspace_id=$1 AND lineage_id=$2',[workspaceId,row.lineage_id])).rows[0].n>0);
+      return {documentId:row.id as string,lineageId:row.lineage_id as string,filename,bytes};
+    };
+    const assertPristine=async(identity:Awaited<ReturnType<typeof uploadTxt>>,filename:string)=>{
+      const rows=(await admin.query(`SELECT id,lineage_id,workspace_id,workspace_type,organization_id,path,provider,status,state_version,yjs_state_lifecycle
+        FROM collaboration_documents WHERE id=$1`,[identity.documentId])).rows;
+      assert.equal(rows.length,1);const row=rows[0];assert.equal(row.id,identity.documentId);assert.equal(row.lineage_id,identity.lineageId);
+      assert.equal(row.workspace_id,workspaceId);assert.equal(row.workspace_type,workspace.workspaceType);assert.equal(row.organization_id,organizationId);
+      assert.equal(row.path,filename);assert.equal(row.provider,'yjs');assert.equal(row.status,'active');assert.equal(Number(row.state_version),0);
+      assert.equal(row.yjs_state_lifecycle,'never_initialized');
+      const lineages=(await admin.query('SELECT id,workspace_id,organization_id,path,status,archived_at,trash_entry_id FROM file_collaboration_lineages WHERE id=$1',[identity.lineageId])).rows;
+      assert.deepEqual(lineages,[{id:identity.lineageId,workspace_id:workspaceId,organization_id:organizationId,path:filename,status:'active',archived_at:null,trash_entry_id:null}]);
+      for(const table of ['collaboration_yjs_states','collaboration_yjs_state_backups','collaboration_agent_operations','collaboration_file_projections']){
+        assert.equal((await admin.query(`SELECT count(*)::integer AS n FROM "${table}" WHERE document_id=$1`,[identity.documentId])).rows[0].n,0);
+      }
+      const connection=await database.openDb();try{
+        const catalogue=await readWorkspaceDocumentCatalogue(connection,await currentWorkspace(),{paths:[filename]});
+        assert.equal(catalogue.length,1);assert.equal(catalogue[0].id,identity.documentId);assert.equal(catalogue[0].lineage_id,identity.lineageId);
+        assert.equal(catalogue[0].authority,'pristine');assert.equal(catalogue[0].has_persisted_state,false);assert.equal(catalogue[0].has_state_history,false);
+      }finally{await connection.close();}
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,filename)),identity.bytes);
+    };
+    const uploadDomainFacts=async()=>{
+      const rows:Record<string,string[]>={};
+      for(const table of ['file_revisions','file_revision_contents','file_version_blobs','collaboration_yjs_state_backups',
+        'collaboration_agent_operations','collaboration_markdown_file_import_receipts']){
+        rows[table]=(await admin.query(`SELECT to_jsonb(t)::text AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows.map(row=>row.row);
+      }
+      return {original:await originalDataFacts(),upload:rows};
+    };
+    await check('genuine uploaded pristine TXT keeps its identity through folder Move recovery and later historical D2',async()=>{
+      const folder=`uploaded-folder-${crypto.randomUUID()}`,destination=`uploaded-folder-dest-${crypto.randomUUID()}`;
+      const txtPath=`${folder}/original.txt`,txtBytes=Buffer.from('\uFEFFOriginal uploaded TXT\r\nSecond line\r\n');
+      const txt=await uploadTxt(txtPath,txtBytes);await assertPristine(txt,txtPath);
+      const before=await physicalFacts(txtPath),inside=await seedNative(`${folder}/note.md`,'# Native inside uploaded folder\n');
+      const peer=await seedNative(`uploaded-folder-peer-${crypto.randomUUID()}.md`,`[TXT](${txtPath})\n[Note](${inside.filename})\n`);
+      await seedMetadata(txtPath);await seedMetadata(inside.filename);
+      const revisions=(await admin.query('SELECT id FROM file_revisions WHERE lineage_id=$1 ORDER BY id',[txt.lineageId])).rows;
+      const job=await freshJob([{sourcePath:folder,destinationPath:destination}]);let reached=false;
+      await assert.rejects(invoke(job,async()=>{reached=true;throw Object.assign(new Error('Owned pristine folder after-FS interruption'),{code:'FIXTURE_PRISTINE_FOLDER_AFTER_PATH'});}),
+        error=>{const actual=code(error);if(actual!=='FIXTURE_PRISTINE_FOLDER_AFTER_PATH')console.log('Pristine folder actual pre-fix failure:',JSON.stringify({code:actual,reached}));return actual==='FIXTURE_PRISTINE_FOLDER_AFTER_PATH';});
+      assert(reached);assert(await absent(path.join(workspace.rootPath,folder)));assert.deepEqual(await readFile(path.join(workspace.rootPath,destination,'original.txt')),txtBytes);
+      const intents=(await admin.query('SELECT intent_digest FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows;
+      assert.equal(intents.length,1);assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
+      const resumed=await resume(job);assert.equal(resumed.claimed.batchId,job.claimed.batchId);assert.equal(resumed.claimed.planId,job.claimed.planId);
+      let historyChecked=false;
+      const completion=await invoke(resumed,undefined,async(claim,first)=>{
+        await assertPristine(txt,`${destination}/original.txt`);
+        assert.equal(await nativePath(inside.documentId),`${destination}/note.md`);assert.equal(await nativeContent(inside.documentId),inside.content);
+        assert.equal(await nativeContent(peer.documentId),`[TXT](${destination}/original.txt)\n[Note](${destination}/note.md)\n`);
+        const after=await physicalFacts(`${destination}/original.txt`);
+        assert.equal(after.device,before.device);assert.equal(after.inode,before.inode);assert.equal(after.hash,before.hash);assert.equal(after.mode,before.mode);
+        assert.deepEqual((await admin.query('SELECT id FROM file_revisions WHERE lineage_id=$1 ORDER BY id',[txt.lineageId])).rows,revisions);
+        const selected=(await admin.query('SELECT id,lineage_id,path FROM collaboration_documents WHERE workspace_id=$1 AND path=ANY($2::text[]) AND status=\'active\' ORDER BY path',
+          [workspaceId,[txtPath,`${destination}/original.txt`]])).rows;
+        assert.deepEqual(selected,[{id:txt.documentId,lineage_id:txt.lineageId,path:`${destination}/original.txt`}]);
+        const d2=await uploadTxt(txtPath,Buffer.from('Later independently uploaded D2\r\n'));assert.notEqual(d2.documentId,txt.documentId);assert.notEqual(d2.lineageId,txt.lineageId);
+        await assertPristine(d2,txtPath);const originalRows=await uploadDomainFacts(),originalFs=await workspacePhysicalFacts();
+        assert.deepEqual(await execute({claim,workspace:resumed.workspace}),first);
+        const {readWorkspaceOperationNativeMoveBatchStatus}=await import('../app/lib/files/workspace-operation-native-move-status');
+        const current=await currentWorkspace(),status=await readWorkspaceOperationNativeMoveBatchStatus({batchId:job.claimed.batchId,scope:{workspace:current,fileOptions:{workspace:current}}});
+        assert(status);assert.equal(status.observation.apply,'complete');assert.deepEqual(status.observation.completion,first);
+        assert.deepEqual(await uploadDomainFacts(),originalRows);assert.deepEqual(await workspacePhysicalFacts(),originalFs);historyChecked=true;
+      });
+      assert(historyChecked);assert(completion.native);assert.equal(completion.pathReceipts.length,1);
+      assert.deepEqual((await admin.query('SELECT intent_digest FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows,intents);
+      for(const table of ['workspace_file_operation_move_intents','workspace_file_operation_move_path_receipts','workspace_file_operation_move_receipts']){
+        assert.equal((await admin.query(`SELECT count(*)::integer AS n FROM "${table}" WHERE batch_id=$1`,[job.claimed.batchId])).rows[0].n,1);
+      }
+    });
+    await check('genuine pristine TXT initialization after planning conflicts before folder Move effects',async()=>{
+      const folder=`pristine-race-${crypto.randomUUID()}`,destination=`pristine-race-dest-${crypto.randomUUID()}`,filename=`${folder}/race.txt`;
+      const txt=await uploadTxt(filename,Buffer.from('Pristine TXT awaiting real initialization\r\n'));await assertPristine(txt,filename);
+      const inside=await seedNative(`${folder}/note.md`,'# Independent native folder note\n');
+      const peer=await seedNative(`pristine-race-peer-${crypto.randomUUID()}.md`,`[TXT](${filename})\n[Note](${inside.filename})\n`);
+      const job=await freshJob([{sourcePath:folder,destinationPath:destination}]);
+      const result=await persistPristineOriginalWorkspaceFileForWrite(new NextRequest('http://localhost/api/collaboration/session',{headers:await uploadHeaders()}),
+        {workspaceId,path:filename,operationId:crypto.randomUUID(),requestId:crypto.randomUUID(),initialRepresentation:'plain_text',
+          expectedTarget:{kind:'pristine',documentId:txt.documentId}});
+      assert.equal(result.receipt.target.documentId,txt.documentId);assert.equal(result.receipt.target.lineageId,txt.lineageId);
+      const initialized=(await admin.query('SELECT id,lineage_id,path,yjs_state_lifecycle FROM collaboration_documents WHERE id=$1',[txt.documentId])).rows;
+      assert.deepEqual(initialized,[{id:txt.documentId,lineage_id:txt.lineageId,path:filename,yjs_state_lifecycle:'initialized'}]);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_yjs_states WHERE document_id=$1',[txt.documentId])).rows[0].n,1);
+      const beforeRows=await uploadDomainFacts(),beforeFs=await workspacePhysicalFacts();
+      await assert.rejects(invoke(job),error=>code(error)==='NATIVE_MOVE_PLAN_CHANGED');
+      assert.deepEqual(await uploadDomainFacts(),beforeRows);assert.deepEqual(await workspacePhysicalFacts(),beforeFs);
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,filename)),txt.bytes);assert(await absent(path.join(workspace.rootPath,destination)));
+      assert.equal(await nativePath(inside.documentId),inside.filename);assert.equal(await nativeContent(peer.documentId),`[TXT](${filename})\n[Note](${inside.filename})\n`);
+      for(const table of ['workspace_file_operation_move_intents','workspace_file_operation_move_path_receipts','workspace_file_operation_move_receipts']){
+        assert.equal((await admin.query(`SELECT count(*)::integer AS n FROM "${table}" WHERE batch_id=$1`,[job.claimed.batchId])).rows[0].n,0);
+      }
+      await abort(job);
+    });
     const stableName=`html-stable-${crypto.randomUUID()}.bin`,stableBytes=Buffer.from('owned unrelated HTML target\n');
     await writeFile(path.join(workspace.rootPath,stableName),stableBytes,{flag:'wx',mode:0o600});
     await check('identity4 actual owner rewrites native backlinks while preserving native HTML and unrelated physical sources',async()=>{
@@ -741,13 +963,14 @@ async function main(): Promise<void> {
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
       await abort(job);
     });
-    assert.equal(passed,19);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
+    assert.equal(passed,21);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
     for(const [filename,hash] of sourcePins)assert.equal(sha(await readFile(filename)),hash,`Source changed during original Move fixture: ${filename}`);
     console.log('Original Move genuine owner assertions finished:',JSON.stringify({passed,sourcePins,fetches}));
   } catch(error) {failures.push(error);}
   finally {
     const cleanup=async(operation:()=>Promise<unknown>)=>{try{await operation();}catch(error){failures.push(error);}};
     for(const connection of checkouts)await cleanup(async()=>{checkouts.delete(connection);await connection.close(new Error('Discarding original Move fixture checkout.'));});
+    if(queryProfile)await cleanup(async()=>{queryProfile!.close();});
     if(pool)await cleanup(()=>pool!.end());for(const client of clients)await cleanup(()=>endClient(client));
     if(connected)await cleanup(async()=>{const remaining=(await control.query('SELECT pid FROM pg_stat_activity WHERE application_name=$1',[`owned-move-owner-${nonce}`])).rows;assert.deepEqual(remaining,[]);});
     if(created&&clients.size===0)await cleanup(async()=>{

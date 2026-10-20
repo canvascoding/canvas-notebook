@@ -423,7 +423,7 @@ function checkIntent(value: unknown, selected: WorkspaceOperationOriginalMoveCon
   if(valueTyped.namespaceEffects.length) {
     const stage=exact(valueTyped.namespaceState,['stageText','stageDigest']);
     if(digest(stage.stageDigest)!==sha(rawText(stage.stageText,1024**2)))changed();
-    const decoded=decodeWorkspaceOperationOriginalMoveNamespaceStage(stage.stageText as string,selected);
+    const decoded=decodeWorkspaceOperationOriginalMoveNamespaceStage(stage.stageText as string,selected,sourceEvidence);
     if(decoded.effectsProof!==nativeLinkJsonProof(valueTyped.namespaceEffects))changed();
   } else if(valueTyped.namespaceState!==null)changed();
   decodeNative(valueTyped.nativeBundle,selected,sourceEvidence);
@@ -610,7 +610,8 @@ export function decodeWorkspaceOperationOriginalMoveCompletion(row: WorkspaceOpe
   }
   if(intent.namespaceEffects.length){const effect=exact(data.namespaceEffects,['effectsProof','receiptDigest','receiptText']);
     if(effect.effectsProof!==nativeLinkJsonProof(intent.namespaceEffects)||digest(effect.receiptDigest)!==sha(rawText(effect.receiptText,16*1024)))changed();
-    decodeWorkspaceOperationOriginalMoveNamespaceReceipt(effect.receiptText as string,originalContext(intent),intent.namespaceState!);
+    decodeWorkspaceOperationOriginalMoveNamespaceReceipt(effect.receiptText as string,originalContext(intent),intent.namespaceState!,
+      intent.version===1?undefined:intent.currentWitness);
   }else if(data.namespaceEffects!==null)changed();
   return freeze(data as WorkspaceOperationOriginalMoveCompletionData);
 }
