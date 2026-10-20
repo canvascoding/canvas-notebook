@@ -120,6 +120,55 @@ print('python script completed')
     assert.equal(await fs.readFile(foreign, 'utf8'), 'private-sentinel');
     assert.equal((await probeSkillScriptRuntime({ runtime: { kind: 'node', minimumVersion: '999.0.0' } })).code, 'SCRIPT_RUNTIME_UNAVAILABLE');
 
+    // Node's absolute SDK import must also work from an actual immutable skill
+    // package outside this application repository, with its own package scope.
+    // Keep the first two probes and their six-request counters unchanged.
+    const externalFixture = await fs.mkdtemp(path.join((await import('node:os')).tmpdir(), 'canvas-skill-external-package-'));
+    try {
+      const externalPackage = path.join(externalFixture, 'skill'), externalScratch = path.join(externalFixture, 'scratch');
+      await fs.mkdir(externalPackage); await fs.mkdir(externalScratch);
+      const externalManifest = path.join(externalPackage, 'package.json'), privateParentManifest = path.join(externalFixture, 'package.json');
+      const manifest = JSON.stringify({ name: 'canvas-external-skill-fixture', private: true, type: 'commonjs' });
+      const parentManifest = JSON.stringify({ name: 'private-parent-manifest-sentinel', private: true });
+      await fs.writeFile(externalManifest, manifest); await fs.writeFile(privateParentManifest, parentManifest);
+      const externalSource = networkNode.replace(
+        "assert.throws(()=>fs.readdirSync(require('node:path').dirname(args.foreign)));",
+        "assert.throws(()=>fs.readdirSync(require('node:path').dirname(args.foreign)));" +
+        "assert.equal(JSON.parse(fs.readFileSync(args.packageManifest,'utf8')).type,'commonjs');" +
+        "assert.throws(()=>fs.writeFileSync(args.packageManifest,'tamper'));assert.throws(()=>fs.chmodSync(args.packageManifest,0));" +
+        "assert.throws(()=>fs.readFileSync(args.privateParentManifest));" +
+        "assert.throws(()=>fs.readdirSync(require('node:path').dirname(args.privateParentManifest)));",
+      );
+      assert.notEqual(externalSource, networkNode);
+      const externalEntry = path.join(externalPackage, 'main.cjs'); await fs.writeFile(externalEntry, externalSource);
+      const relativeToApp = path.relative(await fs.realpath(process.cwd()), await fs.realpath(externalPackage));
+      assert(relativeToApp === '..' || relativeToApp.startsWith(`..${path.sep}`) || path.isAbsolute(relativeToApp));
+      const entryMode = (await fs.stat(externalEntry)).mode, manifestMode = (await fs.stat(externalManifest)).mode;
+      let externalRequests = 0, externalValidated = 0;
+      const externalResult = await executeSkillScriptProcess({ declaration: declaration('node', 'main.cjs'), packageRoot: externalPackage,
+        entryPath: externalEntry, scratchParent: externalScratch,
+        arguments: { ...baseArgs, packageManifest: externalManifest, privateParentManifest },
+        revalidate: async () => { externalValidated++; }, onRequest: async raw => {
+          const request = raw as { id: number; action: string; schemaHandle?: string; arguments?: unknown };
+          externalRequests++; assert.equal(request.id, externalRequests);
+          if (request.action === 'call') assert.equal(request.schemaHandle, 'fixture-schema');
+          return { version: 1, id: request.id, ok: true,
+            data: request.action === 'describe' ? { schemaHandle: 'fixture-schema' } : request.arguments };
+        } });
+      assert.equal(externalResult.exitCode, 0, externalResult.stderr); assert.equal(externalResult.terminated, false);
+      assert.deepEqual(JSON.parse(await fs.readFile(path.join(externalResult.scratchDirectory, 'result.txt'), 'utf8')),
+        { args: true, bridge: true, networkBlocked: true });
+      assert.equal(path.dirname(externalResult.scratchDirectory), await fs.realpath(externalScratch));
+      assert.equal(externalRequests, 3); assert.equal(externalValidated >= 6, true);
+      assert.equal(connections, 0); assert.equal(datagrams, 0);
+      assert.equal(await fs.readFile(foreign, 'utf8'), 'private-sentinel');
+      assert.equal(await fs.readFile(sibling, 'utf8'), 'sibling-sentinel');
+      assert.equal(await fs.readFile(externalEntry, 'utf8'), externalSource); assert.equal((await fs.stat(externalEntry)).mode, entryMode);
+      assert.equal(await fs.readFile(externalManifest, 'utf8'), manifest); assert.equal((await fs.stat(externalManifest)).mode, manifestMode);
+      assert.equal(await fs.readFile(privateParentManifest, 'utf8'), parentManifest);
+      await fs.rm(externalResult.scratchDirectory, { recursive: true }); assert.deepEqual(await fs.readdir(externalScratch), []);
+    } finally { await fs.rm(externalFixture, { recursive: true, force: true }); }
+
     const options = { declaration: declaration('node', 'main.cjs'), packageRoot, entryPath: path.join(packageRoot, 'main.cjs'), scratchParent,
       arguments: {}, revalidate, onRequest };
     await fs.writeFile(options.entryPath, "const sdk=require(process.env.CANVAS_SKILL_BRIDGE_MODULE);sdk.describe('ready').then(()=>setInterval(()=>{},1000));");
