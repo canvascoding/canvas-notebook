@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { constants as fsConstants } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import net from 'node:net';
@@ -192,11 +193,68 @@ async function createRealUsers(origin: string, env: NodeJS.ProcessEnv): Promise<
   assert.equal(settings.value.data.documentReviewEnabled, false, 'Review must be disabled before the first acceptance file operation.');
 }
 
+type OwnedHttpIntegrationInputs = Readonly<{ packageSha256: string; scriptSha256: string }>;
+type OwnedHttpIntegrationOutcome = {
+  version: 1; kind: 'http-script'; command: readonly ['npm', 'run', 'test:integration']; script: 'scripts/integration-test.mjs';
+  head: string; controlPlaneHead: string; sourceFingerprint: string; buildFingerprint: string; buildId: string;
+  packageSha256: string; scriptSha256: string; nonce: string; fixtureRoot: string;
+  parentPid: number; parentStart: string; databaseName: string; databaseOid: string | null;
+  deadlineMs: number; scriptCount: 1; completedScripts: 0 | 1; status: 'not-started' | 'running' | 'passed' | 'failed';
+  childPid: number | null; childStart: string | null; exitCode: number | null; signal: string | null;
+  startedAt: string | null; finishedAt: string | null; elapsedMs: number | null;
+  cancelled: boolean; deadlineExceeded: boolean; childClosed: boolean; cleanupConfirmed: boolean; logSha256: string | null;
+};
+
+/** Fixed source inputs, never a caller-supplied command or script path. */
+async function captureOwnedIntegrationInputs(repo: string): Promise<OwnedHttpIntegrationInputs> {
+  const captured: Buffer[] = [];
+  for (const [relative, maximum] of [['package.json', 1024 * 1024], ['scripts/integration-test.mjs', 128 * 1024]] as const) {
+    const filename = path.join(repo, relative);
+    const handle = await fs.open(filename, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
+    try {
+      const before = await handle.stat();
+      assert(before.isFile() && before.size > 0 && before.size <= maximum);
+      assert.equal(await fs.realpath(filename), filename);
+      const bytes = Buffer.alloc(maximum + 1); let length = 0;
+      while (length < bytes.length) {
+        const result = await handle.read(bytes, length, bytes.length - length, length);
+        if (!result.bytesRead) break;
+        length += result.bytesRead;
+      }
+      assert.equal(length, before.size); assert(length <= maximum);
+      const held = await handle.stat(), current = await fs.lstat(filename);
+      assert.equal(await fs.realpath(filename), filename);
+      for (const key of ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeMs', 'ctimeMs'] as const) {
+        assert.equal(held[key], before[key]); assert.equal(current[key], before[key]);
+      }
+      captured.push(bytes.subarray(0, length));
+    } finally { await handle.close(); }
+  }
+  assert.equal(JSON.parse(captured[0].toString('utf8')).scripts?.['test:integration'], 'node scripts/integration-test.mjs',
+    'The integration mode permits only the fixed HTTP integration script.');
+  return { packageSha256: createHash('sha256').update(captured[0]).digest('hex'),
+    scriptSha256: createHash('sha256').update(captured[1]).digest('hex') };
+}
+
 export async function runOwnedYjsAcceptance(repo: string, specs: string[], expectedCpHead: string,
   expectedNotebookHead: string, expectedSourceFingerprint: string): Promise<void> {
+  await runOwnedAcceptanceLifecycle('browser', repo, specs, expectedCpHead, expectedNotebookHead, expectedSourceFingerprint);
+}
+
+/** Genuine isolated HTTP integration only; this does not execute test:all. */
+export async function runOwnedYjsIntegrationAcceptance(repo: string, expectedCpHead: string,
+  expectedNotebookHead: string, expectedSourceFingerprint: string): Promise<void> {
+  await runOwnedAcceptanceLifecycle('integration', repo, [], expectedCpHead, expectedNotebookHead, expectedSourceFingerprint);
+}
+
+async function runOwnedAcceptanceLifecycle(purpose: 'browser' | 'integration', repo: string, specs: string[], expectedCpHead: string,
+  expectedNotebookHead: string, expectedSourceFingerprint: string): Promise<void> {
+  assert(purpose === 'browser' || purpose === 'integration');
+  assert(purpose !== 'integration' || specs.length === 0, 'The HTTP integration mode accepts no browser specs.');
   assert.equal(process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START, '1', 'Root must explicitly coordinate the integrated runtime start.');
   assert.match(expectedCpHead, /^[a-f0-9]{40}$/u);
   assert.match(expectedNotebookHead, /^[a-f0-9]{40}$/u); assert.match(expectedSourceFingerprint, /^[a-f0-9]{64}$/u);
+  const integrationInputs = purpose === 'integration' ? await captureOwnedIntegrationInputs(repo) : undefined;
   const nativeMcpSpec = 'tests/direct-mcp-native-create-import.spec.ts';
   const nativeMcpAcceptance = specs.includes(nativeMcpSpec);
   if (nativeMcpAcceptance) assert.deepEqual(specs, [nativeMcpSpec], 'The MCP settings/shadow fixture must run as its sole selected spec.');
@@ -256,7 +314,18 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     issuerDatabaseOid: null, issuerDatabaseOwner: null, issuerDatabaseMarker: null, restartCount: 0, port,
     databaseDropped: false, dataRemoved: false, controlPlaneRoot: cpRoot, controlPlaneHead: expectedCpHead, passed: false,
     selectedSpecs: [...specs], completedSpecs: [], activeSpec: null, failurePhase: null };
+  const integrationOutcome: OwnedHttpIntegrationOutcome | undefined = integrationInputs ? {
+    version: 1, kind: 'http-script', command: ['npm', 'run', 'test:integration'], script: 'scripts/integration-test.mjs',
+    head: proof.head, controlPlaneHead: expectedCpHead, sourceFingerprint: proof.sourceFingerprint,
+    buildFingerprint: proof.buildFingerprint, buildId: proof.buildId, ...integrationInputs, nonce, fixtureRoot: root,
+    parentPid: receipt.parentPid, parentStart: receipt.parentStart, databaseName: receipt.databaseName, databaseOid: null,
+    deadlineMs: 120_000, scriptCount: 1, completedScripts: 0, status: 'not-started', childPid: null, childStart: null,
+    exitCode: null, signal: null, startedAt: null, finishedAt: null, elapsedMs: null, cancelled: false,
+    deadlineExceeded: false, childClosed: false, cleanupConfirmed: false, logSha256: null } : undefined;
+  if (integrationOutcome) Object.assign(receipt, { acceptanceKind: 'http-integration', httpIntegration: integrationOutcome });
   await writePrivateJson(receiptPath, receipt, true);
+  const integrationOutcomePath = path.join(results, 'integration-outcome.json');
+  if (integrationOutcome) await writePrivateJson(integrationOutcomePath, integrationOutcome, true);
   const runtimeUrl = new URL(maintenance); runtimeUrl.pathname = `/${receipt.databaseName}`;
   const origin = `http://127.0.0.1:${port}`;
   const env: NodeJS.ProcessEnv = { ...allowedEnv(), NODE_ENV: 'production', __NEXT_PROCESSED_ENV: 'true', NEXT_TELEMETRY_DISABLED: '1',
@@ -275,6 +344,12 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     CANVAS_AGENT_WORKFLOW_MULTIUSER_BROWSER_RUN: '1', AGENT_SETTINGS_TOOLS_BROWSER_FIXTURE: receiptPath,
     CANVAS_CONTROL_PLANE_TEST_ROOT: cpRoot, CANVAS_ISSUER_MAINTENANCE_DATABASE_URL: maintenance.href,
     CANVAS_POSTGRES_VECTOR_ENABLED: 'true', CANVAS_VECTOR_PROVIDER: 'pgvector', NODE_OPTIONS: '--max-old-space-size=4096' };
+  if (purpose === 'integration') {
+    // Keep the existing issuer's own legacy input flags, but never advertise a
+    // browser-acceptance target or a restart capability for this HTTP run.
+    env.CANVAS_YJS_AUTHORITY_E2E = '0'; env.COLLABORATION_E2E = '0';
+    env.TEST_WORKSPACE_NAME = 'Shared Test Workspace';
+  }
   await writeEnv(envPath, env);
   await fs.mkdir(lock, { mode: 0o700 }); // Existing/uncertain owners are preserved, never adopted.
   const lockStat = await fs.lstat(lock);
@@ -287,6 +362,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
   }
   const administration = new Pool({ connectionString: maintenance.href, max: 1, connectionTimeoutMillis: 5_000, query_timeout: 30_000 });
   let database: Pool | undefined, server: OwnedChild | undefined, issuer: OwnedChild | undefined, browser: OwnedChild | undefined;
+  let integration: OwnedChild | undefined;
   let control: http.Server | undefined, stopRequested = false, applicationLoaded = false;
   let finishRestart: (() => void) | undefined, activeRestart: Promise<void> = Promise.resolve();
   const cancellation = new AbortController();
@@ -333,7 +409,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
       } catch { /* Readiness is bounded; no occupied foreign listener is replaced. */ }
       await delay(500);
     }
-    assert(healthy); await assertOwnServer(); receipt.phase = 'browser'; await persist();
+    assert(healthy); await assertOwnServer(); receipt.phase = purpose === 'browser' ? 'browser' : 'http_integration'; await persist();
   };
   try {
     if (pythonSdkBinding) {
@@ -370,6 +446,41 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     assert(ready && !issuer.ended && !stopRequested); await assertIssuerDatabase(true);
     await activateOwnedYjsTeam(ready, env); await writeEnv(envPath, env);
     await startServer(); await createRealUsers(origin, env);
+    if (integrationOutcome) {
+      assert(!stopRequested && !receipt.uncertain); await assertOwnServer();
+      assert.equal(receipt.phase, 'http_integration');
+      assert.deepEqual(await assertBuildProof(repo), proof);
+      assert.deepEqual(await captureOwnedIntegrationInputs(repo), integrationInputs);
+      assert.equal(receipt.selectedSpecs.length, 0); assert.equal(receipt.completedSpecs.length, 0); assert.equal(receipt.activeSpec, null);
+      integrationOutcome.databaseOid = receipt.databaseOid;
+      integrationOutcome.status = 'running'; integrationOutcome.startedAt = new Date().toISOString();
+      const started = performance.now();
+      try {
+        cancellation.signal.throwIfAborted();
+        integration = await child(repo, 'npm', ['run', 'test:integration'], env, path.join(root, 'integration.log'));
+        assert(integration.started, 'The integration child start identity was not captured.');
+        integrationOutcome.childPid = integration.pid; integrationOutcome.childStart = integration.started;
+        await persist(); await writePrivateJson(integrationOutcomePath, integrationOutcome);
+        await waitChild(integration, integrationOutcome.deadlineMs, cancellation.signal);
+        cancellation.signal.throwIfAborted();
+        integrationOutcome.completedScripts = 1; integrationOutcome.exitCode = integration.process.exitCode;
+        integrationOutcome.signal = integration.process.signalCode;
+        assert.equal(integration.process.exitCode, 0, 'The real HTTP integration script failed; private fixture preserved.');
+        assert.equal(integration.process.signalCode, null);
+        assert(integration.ended && ownedGroupEmpty(integration), 'Integration descendants remain; preserve the fixture and lock.');
+        await assertOwnServer(); assert.deepEqual(await assertBuildProof(repo), proof);
+        assert.deepEqual(await captureOwnedIntegrationInputs(repo), integrationInputs);
+        cancellation.signal.throwIfAborted(); integrationOutcome.status = 'passed';
+      } catch (error) {
+        integrationOutcome.status = 'failed'; integrationOutcome.cancelled = cancellation.signal.aborted;
+        integrationOutcome.deadlineExceeded = !integrationOutcome.cancelled && !integration?.ended
+          && performance.now() - started >= integrationOutcome.deadlineMs;
+        throw error;
+      } finally {
+        integrationOutcome.finishedAt = new Date().toISOString(); integrationOutcome.elapsedMs = Math.ceil(performance.now() - started);
+        await persist();
+      }
+    } else {
     const restartToken = randomBytes(48).toString('base64url'); let restarting = false;
     control = http.createServer(async (request, response) => {
       const expected = Buffer.from(`Bearer ${restartToken}`), provided = Buffer.from(request.headers.authorization ?? '');
@@ -408,6 +519,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
       assert(ownedGroupEmpty(browser), 'Browser descendants remain; preserve the fixture and lock.');
       receipt.completedSpecs.push(spec); receipt.activeSpec = null; await persist();
     }
+    }
     assert(!stopRequested && !receipt.uncertain); await assertOwnServer(); receipt.passed = true;
   } catch {
     receipt.uncertain = true; receipt.failurePhase = receipt.phase;
@@ -418,7 +530,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
       await new Promise<void>(resolve => control!.close(() => resolve()));
     }
     await activeRestart;
-    for (const entry of [browser, server]) if (entry) {
+    for (const entry of [browser, integration, server]) if (entry) {
       try { await signalOwnChild(entry); } catch { receipt.uncertain = true; }
     }
     if (issuer) {
@@ -439,7 +551,7 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     if (database) try { await database.end(); } catch { receipt.uncertain = true; }
     try {
       await assertOwnedRoot(receipt);
-      if (receipt.passed && !receipt.uncertain && receipt.createAcknowledged && [server, issuer, browser].every(entry => !entry || entry.ended && ownedGroupEmpty(entry))) {
+      if (receipt.passed && !receipt.uncertain && receipt.createAcknowledged && [server, issuer, browser, integration].every(entry => !entry || entry.ended && ownedGroupEmpty(entry))) {
         await assertLiveDatabase();
         assert.equal((await administration.query('SELECT COUNT(*)::integer AS count FROM pg_stat_activity WHERE datname=$1', [receipt.databaseName])).rows[0].count, 0);
         await administration.query(`DROP DATABASE "${receipt.databaseName}"`); receipt.databaseDropped = true;
@@ -453,9 +565,19 @@ export async function runOwnedYjsAcceptance(repo: string, specs: string[], expec
     try {
       const current = await fs.lstat(lock), owner = JSON.parse((await privateBytes(path.join(lock, 'owner.json'))).toString());
       assert.equal(current.dev, lockStat.dev); assert.equal(current.ino, lockStat.ino); assert.equal(owner.nonce, nonce); assert.equal(owner.parentPid, process.pid);
-      assert([server, issuer, browser].every(entry => !entry || entry.ended && ownedGroupEmpty(entry))); await fs.unlink(path.join(lock, 'owner.json')); await fs.rmdir(lock);
+      assert([server, issuer, browser, integration].every(entry => !entry || entry.ended && ownedGroupEmpty(entry))); await fs.unlink(path.join(lock, 'owner.json')); await fs.rmdir(lock);
     } catch { receipt.uncertain = true; await persist(); }
     process.removeListener('SIGTERM', stop); process.removeListener('SIGINT', stop);
+    if (integrationOutcome) {
+      integrationOutcome.exitCode = integration?.process.exitCode ?? null; integrationOutcome.signal = integration?.process.signalCode ?? null;
+      integrationOutcome.cancelled = cancellation.signal.aborted;
+      integrationOutcome.childClosed = Boolean(integration?.ended && ownedGroupEmpty(integration));
+      integrationOutcome.cleanupConfirmed = receipt.passed && !receipt.uncertain && receipt.databaseDropped && receipt.dataRemoved;
+      try {
+        if (integration?.ended) integrationOutcome.logSha256 = createHash('sha256').update(await privateBytes(integration.logPath, 2 * 1024 * 1024)).digest('hex');
+        await writePrivateJson(integrationOutcomePath, integrationOutcome); await persist();
+      } catch { receipt.uncertain = true; await persist(); }
+    }
   }
   console.log(`[yjs-qa] ${receipt.passed && !receipt.uncertain ? 'passed' : 'failed/preserved'}; receipt ${receiptPath}`);
   assert(receipt.passed && !receipt.uncertain && receipt.databaseDropped && receipt.dataRemoved, 'Owned acceptance remains unconfirmed; inspect its private receipt.');
@@ -466,16 +588,20 @@ async function main(): Promise<void> {
   assert(process.execArgv.some(value => value === '--conditions=react-server'), 'Use node --conditions=react-server --import tsx.');
   const [mode, ...args] = process.argv.slice(2);
   if (mode === 'build') { assert.equal(args.length, 0); await buildOwnedYjsArtifact(repo); return; }
-  assert.equal(mode, 'run');
+  assert(mode === 'run' || mode === 'integration', 'Use build, run or integration.');
+  assert.equal(args.length % 2, 0, 'Every mode option requires exactly one value.');
   const specs: string[] = []; let cpHead = '', notebookHead = '', fingerprint = '';
   for (let index = 0; index < args.length; index += 2) {
     assert(args[index + 1]);
-    if (args[index] === '--spec') specs.push(args[index + 1]);
+    if (args[index] === '--spec') { assert.equal(mode, 'run', 'Integration accepts no --spec option.'); specs.push(args[index + 1]); }
     else if (args[index] === '--control-plane-head') { assert.equal(cpHead, ''); cpHead = args[index + 1]; }
     else if (args[index] === '--notebook-head') { assert.equal(notebookHead, ''); notebookHead = args[index + 1]; }
     else { assert.equal(args[index], '--source-fingerprint'); assert.equal(fingerprint, ''); fingerprint = args[index + 1]; }
   }
   assert.equal(new Set(specs).size, specs.length);
+  if (mode === 'integration') {
+    await runOwnedYjsIntegrationAcceptance(repo, cpHead, notebookHead, fingerprint); return;
+  }
   await runOwnedYjsAcceptance(repo, specs.length ? specs : defaults, cpHead, notebookHead, fingerprint);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve('scripts/run-yjs-authority-e2e.ts')) {

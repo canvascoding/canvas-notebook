@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import { assertBuildProof, assertCompletedYjsBrowserGate, assertDatabaseOwnershi
   buildProofName, privateBytes, redactBoundedOutput, sourceFingerprint, writePrivateJson, type OwnedYjsReceipt } from './lib/owned-yjs-authority-qa';
 
 async function main() {
-  const { runOwnedYjsAcceptance, child, signalOwnChild, ownedGroupEmpty } = await import('./run-yjs-authority-e2e');
+  const { runOwnedYjsAcceptance, runOwnedYjsIntegrationAcceptance, child, signalOwnChild, ownedGroupEmpty } = await import('./run-yjs-authority-e2e');
   const priorOptIn = process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START;
   delete process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START;
   try {
@@ -18,6 +19,7 @@ async function main() {
       assert.throws(() => assertCompletedYjsBrowserGate({ ...complete, ...patch }));
     }
     await assert.rejects(runOwnedYjsAcceptance('/does-not-exist', [], 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(64)), /explicitly coordinate/u);
+    await assert.rejects(runOwnedYjsIntegrationAcceptance('/does-not-exist', 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(64)), /explicitly coordinate/u);
   } finally {
     if (priorOptIn === undefined) delete process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START;
     else process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START = priorOptIn;
@@ -25,6 +27,82 @@ async function main() {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-yjs-guard-contract-')));
   await fs.chmod(root, 0o700);
   try {
+    // Genuine fixed API, valid opt-in/bindings, and exclusively own source files.
+    // Missing .next deliberately prevents any later build/CP/DB bootstrap even
+    // if an input rejection regresses; exact errors still distinguish that bug.
+    const httpRepo = path.join(root, 'http-input-repo'); await fs.mkdir(httpRepo, { mode: 0o700 });
+    await fs.mkdir(path.join(httpRepo, 'scripts'), { mode: 0o700 });
+    const httpPackage = path.join(httpRepo, 'package.json'), httpScript = path.join(httpRepo, 'scripts/integration-test.mjs');
+    const validHttpPackage = JSON.stringify({ scripts: { 'test:integration': 'node scripts/integration-test.mjs' } });
+    const validHttpScript = "throw new Error('This guard fixture script must never execute.');\n";
+    await fs.writeFile(httpPackage, validHttpPackage, { mode: 0o600, flag: 'wx' });
+    await fs.writeFile(httpScript, validHttpScript, { mode: 0o600, flag: 'wx' });
+    const httpPriorOptIn = process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START;
+    process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START = '1';
+    try {
+      await fs.writeFile(httpPackage, JSON.stringify({ scripts: { 'test:integration': 'node another-script.mjs' } }));
+      await assert.rejects(runOwnedYjsIntegrationAcceptance(httpRepo, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(64)),
+        /permits only the fixed HTTP integration script/u);
+      await fs.writeFile(httpPackage, validHttpPackage);
+      const linkedHttpTarget = path.join(httpRepo, 'owned-script-target.mjs');
+      await fs.writeFile(linkedHttpTarget, validHttpScript, { mode: 0o600, flag: 'wx' });
+      await fs.unlink(httpScript); await fs.symlink(linkedHttpTarget, httpScript);
+      await assert.rejects(runOwnedYjsIntegrationAcceptance(httpRepo, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(64)),
+        error => (error as NodeJS.ErrnoException).code === 'ELOOP');
+      await fs.unlink(httpScript); await fs.writeFile(httpScript, Buffer.alloc(128 * 1024 + 1, 0x20), { mode: 0o600, flag: 'wx' });
+      await assert.rejects(runOwnedYjsIntegrationAcceptance(httpRepo, 'a'.repeat(40), 'b'.repeat(40), 'c'.repeat(64)),
+        error => error instanceof assert.AssertionError);
+      await fs.writeFile(httpScript, validHttpScript);
+      await assert.rejects(fs.lstat(path.join(httpRepo, '.next')), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
+    } finally {
+      if (httpPriorOptIn === undefined) delete process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START;
+      else process.env.CANVAS_YJS_AUTHORITY_RUNTIME_START = httpPriorOptIn;
+    }
+    // Main intentionally redacts errors. Observe only attempts to open its two
+    // concrete own input paths, not module-loader reads or application APIs.
+    const projectRepo = await fs.realpath(process.cwd());
+    const cliEntry = path.join(httpRepo, 'scripts/run-yjs-authority-e2e.ts');
+    await fs.symlink(path.join(projectRepo, 'scripts/run-yjs-authority-e2e.ts'), cliEntry);
+    const cliPreload = path.join(root, 'http-cli-input-observer.mjs');
+    await fs.writeFile(cliPreload, `import fs from 'node:fs/promises';
+import path from 'node:path';
+const files = new Set(['package.json', 'scripts/integration-test.mjs'].map(value => path.join(process.env.OWNED_HTTP_GUARD_REPO, value)));
+const original = fs.open;
+fs.open = async function(filename, ...args) {
+  if (typeof filename === 'string' && files.has(filename)) {
+    process.stdout.write('OWNED_HTTP_CAPTURE_REACHED\\n');
+    throw Object.assign(new Error('Own guard input boundary reached.'), { code: 'OWNED_HTTP_GUARD_INPUT' });
+  }
+  return original.call(this, filename, ...args);
+};
+`, { mode: 0o600, flag: 'wx' });
+    const tsxLoader = createRequire(path.join(projectRepo, 'package.json')).resolve('tsx');
+    const cliBindings = ['--control-plane-head', 'a'.repeat(40), '--notebook-head', 'b'.repeat(40), '--source-fingerprint', 'c'.repeat(64)];
+    const cliCases = [
+      { name: 'valid arguments reach the actual input capture', args: cliBindings, captureExpected: true },
+      { name: 'integration forbids a browser spec', args: [...cliBindings, '--spec', 'tests/never-run.spec.ts'], captureExpected: false },
+      { name: 'unknown option', args: [...cliBindings, '--unknown-integration-option', 'value'], captureExpected: false },
+      { name: 'duplicate CP binding', args: [...cliBindings, '--control-plane-head', 'd'.repeat(40)], captureExpected: false },
+      { name: 'duplicate Notebook binding', args: [...cliBindings, '--notebook-head', 'd'.repeat(40)], captureExpected: false },
+      { name: 'duplicate source binding', args: [...cliBindings, '--source-fingerprint', 'd'.repeat(64)], captureExpected: false },
+      { name: 'missing option value', args: [...cliBindings, '--notebook-head'], captureExpected: false },
+    ];
+    for (const fixture of cliCases) {
+      assert.throws(() => execFileSync(process.execPath, ['--conditions=react-server', '--import', tsxLoader,
+        '--import', cliPreload, cliEntry, 'integration', ...fixture.args], { cwd: httpRepo,
+        env: { PATH: process.env.PATH, HOME: httpRepo, TMPDIR: httpRepo, NODE_ENV: 'test',
+          CANVAS_YJS_AUTHORITY_RUNTIME_START: '1', OWNED_HTTP_GUARD_REPO: httpRepo },
+        stdio: ['ignore', 'pipe', 'pipe'], timeout: 15_000, maxBuffer: 64 * 1024 }), error => {
+        const outcome = error as { status: number | null; signal: string | null; stdout: Buffer; stderr: Buffer };
+        assert.equal(outcome.status, 1, fixture.name); assert.equal(outcome.signal, null, fixture.name);
+        assert.equal(outcome.stdout.toString('utf8').includes('OWNED_HTTP_CAPTURE_REACHED'), fixture.captureExpected, fixture.name);
+        assert.match(outcome.stderr.toString('utf8'), /Owned Yjs QA did not complete/u, fixture.name);
+        return true;
+      });
+    }
+    assert.equal(await fs.readFile(httpPackage, 'utf8'), validHttpPackage);
+    assert.equal(await fs.readFile(httpScript, 'utf8'), validHttpScript);
+    await assert.rejects(fs.lstat(path.join(httpRepo, '.next')), error => (error as NodeJS.ErrnoException).code === 'ENOENT');
     const dataRoot = path.join(root, 'data'); await fs.mkdir(dataRoot, { mode: 0o700 });
     const nonce = randomBytes(16).toString('hex'), marker = randomBytes(24).toString('hex');
     await fs.writeFile(path.join(root, '.fixture-owner'), marker, { mode: 0o600, flag: 'wx' });
