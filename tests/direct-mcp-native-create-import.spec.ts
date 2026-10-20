@@ -346,6 +346,108 @@ function assertRecordedEdit(rows: Row, edited: DocumentEditOperationResultV1, or
   assert(Array.isArray(rows.payloads)); assert(rows.payloads.some(entry => object(object(entry).value).operation_id === edited.operationId));
 }
 
+// Fixture-only legacy bytes: no registry, native state, API grant or production
+// seed endpoint is manufactured. Every action after this seed uses real HTTP.
+async function seedOwnedRawMarkdownPair(selected: Workspace, kind: 'move' | 'delete') {
+  await requireOwnedYjsQaTarget(); await assertOwnedRoot(owned);
+  const parts = selected.rootRelativePath.split('/');
+  assert(parts.length > 0 && parts.every(part => part && part !== '.' && part !== '..' && !/[\\\u0000]/u.test(part)));
+  const root = path.join(owned.dataRoot, ...parts); assert(root.startsWith(`${owned.dataRoot}${path.sep}`));
+  const parents: Array<{ path: string; dev: number; ino: number; uid: number }> = [];
+  for (let index = 0; index <= parts.length; index++) {
+    const parent = path.join(owned.dataRoot, ...parts.slice(0, index)), held = await fs.lstat(parent);
+    assert(held.isDirectory() && !held.isSymbolicLink() && held.uid === process.getuid?.() && !(held.mode & 0o022));
+    assert.equal(await fs.realpath(parent), parent); parents.push({ path: parent, dev: held.dev, ino: held.ino, uid: held.uid });
+  }
+  const targetPath = `raw-web-${kind}-target.md`, incomingPath = `raw-web-${kind}-incoming.md`;
+  const destinationDirectory = 'raw-web-destination', destinationPath = `${destinationDirectory}/${targetPath}`;
+  if (kind === 'move') {
+    const directory = path.join(root, destinationDirectory); await fs.mkdir(directory, { mode: 0o700 });
+    const info = await fs.lstat(directory); assert(info.isDirectory() && !info.isSymbolicLink() && info.uid === process.getuid?.());
+    assert.equal(await fs.realpath(directory), directory);
+  }
+  const { serializeRichMarkdownBody } = await import('../app/lib/markdown/rich-markdown-codec');
+  const keptHref = 'https://example.com/raw-web-kept';
+  const targetMarkdown = serializeRichMarkdownBody(`# Raw Web ${kind}\n\nNative ${kind} fixture 🧪.\n\nStable target tail.\n`);
+  const incomingMarkdown = serializeRichMarkdownBody(`# Raw incoming ${kind}\n\nKeep **rich** [Target](${targetPath}) and [Other](${keptHref}).\n\nStable incoming tail.\n`);
+  const targetBytes = Buffer.from(targetMarkdown), incomingBytes = Buffer.from(incomingMarkdown);
+  for (const [relative, bytes] of [[targetPath, targetBytes], [incomingPath, incomingBytes]] as const) {
+    assert(bytes.length > 0 && bytes.length <= 16384);
+    const filename = path.join(root, relative), handle = await fs.open(filename,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try {
+      const held = await handle.stat(); assert(held.isFile() && held.nlink === 1 && held.uid === process.getuid?.() && (held.mode & 0o777) === 0o600);
+      await handle.writeFile(bytes); await handle.sync();
+      const finished = await handle.stat(), named = await fs.lstat(filename);
+      assert.equal(await fs.realpath(filename), filename); assert.equal(finished.size, bytes.length);
+      for (const observed of [finished, named]) {
+        assert(observed.isFile() && !observed.isSymbolicLink());
+        for (const key of ['dev', 'ino', 'uid', 'mode', 'nlink'] as const) assert.equal(observed[key], held[key]);
+      }
+    } finally { await handle.close(); }
+  }
+  for (const parent of parents) {
+    const observed = await fs.lstat(parent.path); assert(observed.isDirectory() && !observed.isSymbolicLink());
+    for (const key of ['dev', 'ino', 'uid'] as const) assert.equal(observed[key], parent[key]);
+    assert.equal(await fs.realpath(parent.path), parent.path);
+  }
+  await assertOwnedRoot(owned);
+  return { kind, targetPath, incomingPath, destinationDirectory, destinationPath, targetMarkdown, incomingMarkdown,
+    targetBytes, incomingBytes, keptHref };
+}
+
+async function snapshotRawMarkdownPair(selected: Workspace, physicalPaths: readonly string[]) {
+  await requireOwnedYjsQaTarget(); await assertOwnedRoot(owned);
+  assert(physicalPaths.length > 0 && physicalPaths.length <= 4);
+  const root = path.join(owned.dataRoot, selected.rootRelativePath);
+  assert(root.startsWith(`${owned.dataRoot}${path.sep}`)); assert.equal(await fs.realpath(root), root);
+  const physical: Array<{ path: string; missing: true } | { path: string; missing: false; bytes: Buffer; sha256: string; identity: Row }> = [];
+  for (const relative of physicalPaths) {
+    assert(relative && !path.isAbsolute(relative) && !relative.includes('\\') && relative.split('/').every(part => part && part !== '.' && part !== '..'));
+    const filename = path.join(root, relative);
+    try {
+      const file = await ownedFile(filename, 16384); physical.push({ path: relative, missing: false,
+        bytes: file.bytes, sha256: sha(file.bytes), identity: file.identity });
+    } catch (error) {
+      if (!(error instanceof Error) || Reflect.get(error, 'code') !== 'ENOENT') throw error;
+      physical.push({ path: relative, missing: true });
+    }
+  }
+  const database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
+    options: '-c default_transaction_read_only=on -c statement_timeout=10000 -c application_name=raw-web-document-observation' });
+  let ended = false, asynchronous: Error | undefined, failure: unknown, failed = false, backendPid = 0;
+  const rows: Record<string, Row[]> = {};
+  database.once('end', () => { ended = true; }); database.on('error', error => { asynchronous ??= error; });
+  try {
+    await database.connect(); await database.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const actual = (await database.query<Row>(`SELECT current_database() AS name,d.oid::text,pg_get_userbyid(d.datdba) AS owner,
+      current_user AS role,shobj_description(d.oid,'pg_database') AS marker,pg_backend_pid() AS pid,current_schema() AS schema,
+      current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation,
+      pg_current_xact_id_if_assigned() IS NULL AS unassigned FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+    assert(actual); assertDatabaseOwnership(owned, actual as unknown as DatabaseIdentity);
+    assert.equal(actual.read_only, 'on'); assert.equal(actual.isolation, 'repeatable read'); assert.equal(actual.unassigned, true);
+    assert(typeof actual.pid === 'number'); backendPid = actual.pid; assert(typeof actual.schema === 'string' && actual.schema);
+    const prefix = `"${actual.schema.replaceAll('"', '""')}"`;
+    for (const table of ['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states',
+      'collaboration_markdown_file_import_receipts', 'workspace_path_import_preparations', 'workspace_file_operation_batches', 'workspace_trash_entries']) {
+      const found = (await database.query<Row>(`SELECT to_jsonb(t)::text AS body,t.xmin::text AS xmin FROM ${prefix}."${table}" t
+        WHERE workspace_id=$1 ORDER BY to_jsonb(t)::text LIMIT 65`, [selected.id])).rows;
+      assert(found.length <= 64); for (const row of found) assert(typeof row.body === 'string' && Buffer.byteLength(row.body) <= 2 * 1024 * 1024);
+      rows[table] = found;
+    }
+    rows.collaboration_file_projections = (await database.query<Row>(`SELECT to_jsonb(p)::text AS body,p.xmin::text AS xmin
+      FROM ${prefix}.collaboration_file_projections p JOIN ${prefix}.collaboration_documents d ON d.id=p.document_id
+      WHERE d.workspace_id=$1 ORDER BY p.document_id LIMIT 65`, [selected.id])).rows;
+    assert(rows.collaboration_file_projections.length <= 64);
+    assert.equal((await database.query<Row>('SELECT pg_current_xact_id_if_assigned() IS NULL AS unassigned')).rows[0].unassigned, true);
+    await database.query('COMMIT');
+  } catch (error) { failure = error; failed = true; }
+  let closing: unknown; try { await database.end(); assert(ended); } catch (error) { closing = error; }
+  if (failed || closing || asynchronous) throw new AggregateError([...(failed ? [failure] : []), ...(closing ? [closing] : []),
+    ...(asynchronous ? [asynchronous] : [])], 'Own Raw-Web read-only observation failed or did not close.');
+  return { rows, physical, probe: { backendPid, readOnly: true as const, xidUnassigned: true as const, closed: true as const } };
+}
+
 test.describe.serial('Owned compiled native MCP create/import and renewed OAuth', () => {
   test.beforeAll(async () => {
     owned = await requireOwnedYjsQaTarget(); assert.equal(owned.activeSpec, spec);
@@ -1398,4 +1500,220 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       operationIds: retained.map(value => value.operationId), batchIds: retained.map(value => value.batchId), immutableOriginalSnapshotSha256: immutableHash,
       readOnlyProbes: probes });
   });
+  test('10: real Web Move and Delete import raw Markdown only at Apply and update complete native documents and visible links',
+    async function rawMarkdownWebFileActions({ browser: _browser }, info) {
+      test.setTimeout(180000);
+      assert(contextB && identityB); const active = contextB, actor = identityB;
+      await reviewOff(active);
+      const pages: Awaited<ReturnType<BrowserContext['newPage']>>[] = [], errors: unknown[] = [], proofs: Row[] = [];
+      let rawWorkspace: Workspace | undefined;
+      try {
+        const response = await active.request.post('/api/workspaces', { data: { type: 'personal', name: `Raw Web paths ${randomUUID()}` } });
+        const created = await ok(response, 'Create only own Raw-Web workspace'); assert.equal(response.status(), 201);
+        const value = object(created.workspace); assert(typeof value.id === 'string' && typeof value.name === 'string' && typeof value.rootRelativePath === 'string');
+        const selected: Workspace = { id: value.id, name: value.name, rootRelativePath: value.rootRelativePath }; rawWorkspace = selected;
+        assert.equal(object(created.starterDocumentInitialization).status, 'completed');
+        const pairs = [await seedOwnedRawMarkdownPair(selected, 'move'), await seedOwnedRawMarkdownPair(selected, 'delete')];
+        const files = await active.newPage(); pages.push(files);
+        await files.addInitScript(({ id, host }) => { if (location.origin === host) localStorage.setItem('canvas.activeWorkspaceId', id); }, { id: selected.id, host: origin });
+        await files.goto(`/en/files?workspaceId=${encodeURIComponent(selected.id)}`, { waitUntil: 'domcontentloaded' });
+        const { createRichMarkdownManager, serializeRichMarkdownBody } = await import('../app/lib/markdown/rich-markdown-codec');
+        const manager = createRichMarkdownManager(), schema = getSchema(richMarkdownCodecExtensions());
+        for (const pair of pairs) {
+          await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
+          const sourceRow = files.locator(`[data-file-path="${pair.targetPath}"]`).filter({ visible: true });
+          await expect(sourceRow.first()).toBeVisible();
+          await expect(files.locator(`[data-file-path="${pair.incomingPath}"]`).filter({ visible: true }).first()).toBeVisible();
+          const before = await snapshotRawMarkdownPair(selected, [pair.targetPath, pair.incomingPath]);
+          for (const table of ['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states']) {
+            assert.equal(before.rows[table].filter(row => [pair.targetPath, pair.incomingPath].includes(String(object(JSON.parse(String(row.body))).path))).length, 0);
+          }
+          assert.equal(before.rows.collaboration_markdown_file_import_receipts.filter(row => [pair.targetPath, pair.incomingPath]
+            .includes(String(object(object(object(JSON.parse(String(row.body))).private_result).target).path))).length, 0);
+          for (const [filePath, expected] of [[pair.targetPath, pair.targetBytes], [pair.incomingPath, pair.incomingBytes]] as const) {
+            const physical = before.physical.find(file => file.path === filePath); assert(physical && !physical.missing); assert.deepEqual(physical.bytes, expected);
+          }
+          const endpoint = pair.kind === 'move' ? '/api/files/rename' : '/api/files/delete';
+          // Observe actual browser traffic; no route interception, fake response,
+          // imported client/store method or direct API Apply is used.
+          const previewObserver = Promise.allSettled([files.waitForResponse(candidate => {
+            if (new URL(candidate.url()).pathname !== endpoint || !['POST', 'DELETE'].includes(candidate.request().method())) return false;
+            const body = object(candidate.request().postDataJSON()); return body.dryRun === true
+              && (pair.kind === 'move' ? body.oldPath === pair.targetPath : Array.isArray(body.path) && body.path.includes(pair.targetPath));
+          })]);
+          await sourceRow.first().getByRole('button', { name: /^More actions for /u }).click();
+          await files.getByRole('menuitem', { name: pair.kind === 'move' ? 'Move' : 'Delete', exact: true }).click();
+          const dialog = pair.kind === 'move' ? files.getByRole('dialog', { name: `Move "${pair.targetPath}"`, exact: true })
+            : files.getByRole('alertdialog', { name: `Delete "${pair.targetPath}"?`, exact: true });
+          await expect(dialog).toBeVisible();
+          if (pair.kind === 'move') {
+            await dialog.locator('#moveTarget').fill(pair.destinationDirectory);
+            await dialog.getByRole('button', { name: 'Check again', exact: true }).click();
+          }
+          const observedPreview = (await previewObserver)[0]; if (observedPreview.status === 'rejected') throw observedPreview.reason;
+          assert.equal(observedPreview.value.status(), 200); const previewBody = object(await observedPreview.value.json());
+          assert.equal(previewBody.dryRun, true); assert.equal(previewBody.requiresRevalidation, true);
+          const preview = object(previewBody.plan); assert.equal(preview.kind, 'native-path-import-preparation');
+          assert.equal(preview.version, 1); assert.equal(preview.workspaceId, selected.id); assert.equal(preview.executionReady, false);
+          assert.equal(preview.readiness, 'requires-import-rebinding'); assert.match(String(preview.planId), /^[a-f0-9]{64}$/u);
+          assert(Array.isArray(preview.imports) && preview.imports.length === 2);
+          for (const [filePath, reason] of [[pair.targetPath, 'selected'], [pair.incomingPath, 'link-change']]) {
+            const found: Row[] = preview.imports.map(item => object(item)).filter(item => item.path === filePath);
+            assert.equal(found.length, 1); assert.deepEqual(found[0].reasons, [reason]);
+          }
+          assert(Array.isArray(preview.physicalLinkChanges) && preview.physicalLinkChanges.length === 1);
+          const change = object(preview.physicalLinkChanges[0]); assert.equal(change.sourcePathBefore, pair.incomingPath);
+          assert.equal(change.sourcePathAfter, pair.incomingPath); assert.equal(change.action, pair.kind === 'move' ? 'rewrite' : 'unlink');
+          assert.equal(change.targetPathAfter, pair.kind === 'move' ? pair.destinationPath : null);
+          assert(String(change.previousTargetLiteral).includes(pair.targetPath)); assert.deepEqual(preview.linkEdits, []); assert.deepEqual(preview.issues, []);
+          for (const key of ['sourceEvidence', 'physicalSourceProof', 'nativeRefs', 'yjsState']) assert.equal(Object.hasOwn(preview, key), false);
+          await expect(dialog).toContainText('2 existing Markdown file(s) will be taken over as notes as part of this action.');
+          await expect(dialog).toContainText(pair.targetPath); await expect(dialog).toContainText(pair.incomingPath);
+          await expect(dialog).toContainText('1 link(s) in those files need updating.');
+          const afterPreview = await snapshotRawMarkdownPair(selected, [pair.targetPath, pair.incomingPath]);
+          assert.deepEqual(afterPreview.rows, before.rows); assert.deepEqual(afterPreview.physical, before.physical);
+          const applyObserver = Promise.allSettled([files.waitForResponse(candidate => {
+            if (new URL(candidate.url()).pathname !== endpoint || !['POST', 'DELETE'].includes(candidate.request().method())) return false;
+            const body = object(candidate.request().postDataJSON()); return body.dryRun !== true
+              && (pair.kind === 'move' ? body.oldPath === pair.targetPath : Array.isArray(body.path) && body.path.includes(pair.targetPath));
+          })]);
+          await dialog.getByRole('button', { name: pair.kind === 'move' ? 'Move' : 'Delete', exact: true }).click();
+          const observedApply = (await applyObserver)[0]; if (observedApply.status === 'rejected') throw observedApply.reason;
+          assert([200, 202].includes(observedApply.value.status()));
+          const submitted = object(observedApply.value.request().postDataJSON()); assert.equal(submitted.planId, preview.planId);
+          assert(typeof submitted.idempotencyKey === 'string' && submitted.idempotencyKey.length > 0 && submitted.idempotencyKey.length <= 512);
+          if (pair.kind === 'move') { assert.equal(submitted.oldPath, pair.targetPath); assert.equal(submitted.newPath, pair.destinationPath); }
+          else assert.deepEqual(submitted.path, [pair.targetPath]);
+          const applied = object(await observedApply.value.json()), firstOperation = object(applied.operation);
+          assert.equal(firstOperation.workspaceId, selected.id); assert.match(String(firstOperation.batchId), /^[a-f0-9]{64}$/u);
+          assert.deepEqual(firstOperation.preparation, { previewPlanId: preview.planId }); assert.notEqual(firstOperation.planId, preview.planId);
+          let completed: Row | undefined;
+          await expect.poll(async () => {
+            completed = await ok(await active.request.get(`/api/files/operations/batches/${encodeURIComponent(String(firstOperation.batchId))}`), 'Read own real Web file operation');
+            return object(completed.operation).status;
+          }, { timeout: 45000 }).toBe('applied');
+          assert(completed); const operation = object(completed.operation);
+          assert.equal(operation.batchId, firstOperation.batchId); assert.equal(operation.planId, firstOperation.planId);
+          assert.equal(operation.completedActions, operation.totalActions); assert.equal(completed.linkStatus, 'complete');
+          assert.equal(object(completed.linkUpdates).updatedLinks, 1); assert.deepEqual(object(completed.linkUpdates).updatedFiles, [pair.incomingPath]);
+          await expect(dialog).toHaveCount(0); await expect(sourceRow).toHaveCount(0);
+          if (pair.kind === 'move') {
+            const folder = files.locator(`[data-file-path="${pair.destinationDirectory}"]`).filter({ visible: true }).first(); await expect(folder).toBeVisible();
+            await folder.dblclick(); await expect(files.locator(`[data-file-path="${pair.destinationPath}"]`).filter({ visible: true }).first()).toBeVisible();
+            await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
+          }
+          await expect(files.locator(`[data-file-path="${pair.incomingPath}"]`).filter({ visible: true }).first()).toBeVisible();
+          const after = await snapshotRawMarkdownPair(selected, [pair.targetPath, pair.incomingPath, ...(pair.kind === 'move' ? [pair.destinationPath] : [])]);
+          for (const table of ['collaboration_documents', 'file_collaboration_lineages', 'collaboration_yjs_states', 'collaboration_markdown_file_import_receipts']) {
+            assert.equal(after.rows[table].length, before.rows[table].length + 2);
+          }
+          for (const table of ['workspace_path_import_preparations', 'workspace_file_operation_batches']) assert.equal(after.rows[table].length, before.rows[table].length + 1);
+          const preparations = after.rows.workspace_path_import_preparations.map(row => object(JSON.parse(String(row.body))));
+          const stored = preparations.filter(row => row.operation_id === submitted.idempotencyKey); assert.equal(stored.length, 1);
+          assert.equal(stored[0].preview_plan_id, preview.planId); assert.equal(stored[0].native_plan_id, firstOperation.planId); assert.equal(stored[0].batch_id, firstOperation.batchId);
+          const original = object(JSON.parse(String(stored[0].record_text))), actualOrigin = object(original.origin);
+          assert.equal(actualOrigin.kind, 'request'); assert.equal(actualOrigin.userId, actor.userId); assert.equal(actualOrigin.sessionId, actor.sessionId);
+          assert(Array.isArray(original.imports) && original.imports.length === 2);
+          const imports = original.imports.map(item => object(object(item).receipt));
+          const identities = imports.map(receipt => object(receipt.target));
+          assert.equal(new Set(identities.map(identity => identity.documentId)).size, 2); assert.equal(new Set(identities.map(identity => identity.lineageId)).size, 2);
+          const expectedIncoming = serializeRichMarkdownBody(pair.kind === 'move'
+            ? pair.incomingMarkdown.replace(`](${pair.targetPath})`, `](${pair.destinationPath})`)
+            : pair.incomingMarkdown.replace(`[Target](${pair.targetPath})`, 'Target'));
+          for (const identity of identities) {
+            assert(identity.path === pair.targetPath || identity.path === pair.incomingPath); assert.equal(identity.workspaceId, selected.id);
+            assert(typeof identity.documentId === 'string' && typeof identity.lineageId === 'string');
+            const registry = after.rows.collaboration_documents.map(row => object(JSON.parse(String(row.body)))).filter(row => row.id === identity.documentId);
+            assert.equal(registry.length, 1); assert.equal(registry[0].lineage_id, identity.lineageId);
+            const isTarget = identity.path === pair.targetPath;
+            if (pair.kind === 'delete' && isTarget) {
+              assert.equal(registry[0].status, 'archived');
+              const archived = await active.request.post('/api/documents/read', { data: { apiVersion: 1, workspaceId: selected.id, documentId: identity.documentId, format: 'native' } });
+              assert.equal(archived.status(), 404); assert.equal((await archived.json()).code, 'DOCUMENT_NOT_FOUND'); continue;
+            }
+            const currentPath = isTarget ? pair.destinationPath : pair.incomingPath;
+            assert.equal(registry[0].status, 'active'); assert.equal(registry[0].path, currentPath);
+            const nativeResponse = await active.request.post('/api/documents/read', { data: { apiVersion: 1, workspaceId: selected.id,
+              documentId: identity.documentId, format: 'native', maxBytes: 262144 } });
+            assert.equal(nativeResponse.status(), 200); assert.equal(nativeResponse.headers()['cache-control'], 'no-store');
+            const native = await ok(nativeResponse, 'Read complete imported document by its actual native ID') as unknown as DocumentReadPageV1;
+            assert.equal(native.document.documentId, identity.documentId); assert.equal(native.document.lineageId, identity.lineageId);
+            assert.equal(native.document.workspaceId, selected.id); assert.equal(native.document.path, currentPath);
+            assert.equal(native.document.representation, 'tiptap_blocks'); assert.equal(native.document.lifecycleGeneration, 1); assert.equal(native.document.schemaVersion, 1);
+            assert.equal(native.format, 'native'); assert.equal(native.encoding, 'utf-8'); assert.equal(native.byteOffset, 0);
+            assert.equal(native.byteLength, Buffer.byteLength(native.fragment)); assert.equal(native.totalBytes, native.byteLength);
+            assert.equal(native.complete, true); assert.equal(native.nextCursor, null); assert.equal(native.currency.source, 'persisted_yjs');
+            assert.equal(native.currency.observedDurable, true); assert.equal(native.currency.observedVersion, native.document.version); assert.equal(native.currency.durableVersion, native.document.version);
+            const expectedMarkdown = isTarget ? pair.targetMarkdown : expectedIncoming;
+            const expected = object(schema.nodeFromJSON(manager.parse(expectedMarkdown)).toJSON()), actualDocument = nativeJson(native);
+            // Bind only server-generated stable identity attributes into the
+            // independently parsed authored expectation. Never normalize the
+            // actual body or copy actual content/marks/other attributes.
+            const queue: Array<[Row, Row]> = [[expected, actualDocument]], ids = new Set<string>();
+            while (queue.length) {
+              const [wanted, actual] = queue.shift()!; assert.equal(actual.type, wanted.type);
+              if (wanted.type !== 'doc' && wanted.type !== 'text') {
+                const attrs = object(wanted.attrs), id = object(actual.attrs).id; assert.equal(attrs.id, null);
+                assert(typeof id === 'string' && id.length > 0 && id.length <= 256 && !/[\u0000-\u001f\u007f]/u.test(id) && !ids.has(id)); ids.add(id); attrs.id = id;
+              }
+              const wantedChildren = wanted.content ?? [], actualChildren = actual.content ?? [];
+              assert(Array.isArray(wantedChildren) && Array.isArray(actualChildren)); assert.equal(actualChildren.length, wantedChildren.length);
+              for (let index = 0; index < wantedChildren.length; index++) queue.push([object(wantedChildren[index]), object(actualChildren[index])]);
+            }
+            assert.deepEqual(object(JSON.parse(native.fragment)).content, { kind: 'rich_text', document: expected, frontmatter: '', bodyFinalLineEnding: '\n' });
+            const markdown = await ok(await active.request.post('/api/documents/read', { data: { apiVersion: 1, workspaceId: selected.id,
+              documentId: identity.documentId, format: 'markdown', expectedVersion: native.document.version, maxBytes: 262144 } }), 'Read version-bound complete Markdown after actual Web action');
+            assert.equal(markdown.complete, true); assert.equal(markdown.fragment, expectedMarkdown);
+            const editorPage = await active.newPage(); pages.push(editorPage);
+            await editorPage.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id);
+              localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: selected.id, host: origin });
+            for (const reload of [false, true]) {
+              const sessions = Promise.allSettled([editorPage.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/files/collaboration/session'
+                && candidate.request().method() === 'POST' && candidate.request().headers()['x-canvas-workspace-id'] === selected.id
+                && object(candidate.request().postDataJSON()).path === currentPath)]);
+              const navigations = await Promise.allSettled([reload ? editorPage.reload({ waitUntil: 'domcontentloaded' })
+                : editorPage.goto(`/en/notebook?workspaceId=${encodeURIComponent(selected.id)}&path=${encodeURIComponent(currentPath)}`, { waitUntil: 'domcontentloaded' })]);
+              const observedSessions = await sessions; if (navigations[0].status === 'rejected') throw navigations[0].reason;
+              if (observedSessions[0].status === 'rejected') throw observedSessions[0].reason;
+              const sessionResponse = observedSessions[0].value; assert.equal(sessionResponse.status(), 200); const session = object(await sessionResponse.json());
+              assert.equal(session.documentId, identity.documentId); assert.equal(session.provider, 'yjs'); assert.equal(session.representation, 'tiptap_blocks'); assert.equal(session.degraded, false);
+              const editor = editorPage.locator(editorSelector); await expect(editor).toBeVisible(); await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 45000 });
+              await expect.poll(async () => (await readNativeRichCandidate(editorPage, editorSelector)).document, { timeout: 30000 }).toEqual(actualDocument);
+              if (!isTarget) { await expect(editor.locator(`a[href="${pair.keptHref}"]`)).toHaveText('Other');
+                if (pair.kind === 'move') await expect(editor.locator(`a[href="${pair.destinationPath}"]`)).toHaveText('Target');
+                else { await expect(editor.locator(`a[href="${pair.targetPath}"]`)).toHaveCount(0); await expect(editor).toContainText('Target'); }
+              }
+              await expect(editorPage.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0); await expect(editorPage.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+            }
+            await editorPage.locator(editorSelector).screenshot({ path: info.outputPath(`raw-web-${pair.kind}-${isTarget ? 'target' : 'incoming'}-reloaded.png`), animations: 'disabled' });
+            await editorPage.close();
+          }
+          const old = after.physical.find(file => file.path === pair.targetPath); assert(old && old.missing);
+          const incomingFile = after.physical.find(file => file.path === pair.incomingPath); assert(incomingFile && !incomingFile.missing); assert.equal(incomingFile.bytes.toString('utf8'), expectedIncoming);
+          if (pair.kind === 'move') { const moved = after.physical.find(file => file.path === pair.destinationPath); assert(moved && !moved.missing); assert.deepEqual(moved.bytes, pair.targetBytes); }
+          proofs.push({ kind: pair.kind, originalPreviewPlanId: preview.planId, nativePlanId: firstOperation.planId, batchId: firstOperation.batchId,
+            operationId: submitted.idempotencyKey, importedIdentities: identities, beforePreviewHash: sha(JSON.stringify(before.rows)),
+            afterPreviewHash: sha(JSON.stringify(afterPreview.rows)), fullPreviewDocumentAndFileNoWrite: true,
+            completeNativeBodyAndExpectedLinkDelta: true, actualVisibleEditorAndReload: true,
+            probes: [before.probe, afterPreview.probe, after.probe] });
+          await files.reload({ waitUntil: 'domcontentloaded' });
+          await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
+          await expect(files.locator(`[data-file-path="${pair.targetPath}"]`).filter({ visible: true })).toHaveCount(0);
+          await expect(files.locator(`[data-file-path="${pair.incomingPath}"]`).filter({ visible: true }).first()).toBeVisible();
+        }
+        assert.equal(proofs.length, 2); await reviewOff(active);
+      } catch (error) { errors.push(error); }
+      finally {
+        for (const page of pages) if (!page.isClosed()) try { await page.close(); } catch { errors.push(new Error('Own Raw-Web page did not close.')); }
+        if (rawWorkspace) try { await ok(await active.request.delete(`/api/workspaces/${encodeURIComponent(rawWorkspace.id)}`), 'Delete only own Raw-Web fixture workspace'); }
+        catch { errors.push(new Error('Own Raw-Web workspace cleanup remained unconfirmed.')); }
+      }
+      if (errors.length) throw new AggregateError(errors, 'Actual Raw-Web Move/Delete or own fixture cleanup failed.');
+      await evidence(info, { scope: 'actual compiled Web Move/Delete from two disjoint legacy Raw pairs, no MCP/SDK dispatch claim',
+        fixtureSeed: 'exclusive no-follow owned-workspace Markdown only; no registry/state or product seed endpoint',
+        preservedOriginalNineCases: true, noRawEditorBeforePreview: true, previewDoesNotImport: true,
+        sameOriginalPreviewIdAndActualClientOperationKey: true, freshNativePlanMappingVerified: true,
+        actualMoveDialogAndDeleteConfirmDialog: true, actualWebRequestPrincipalAttribution: true,
+        completeNativeIdReadsAndEditorReload: true, centralRewriteAndUnlink: true, reviewAndUndoEnabled: false, operations: proofs });
+    });
 });
