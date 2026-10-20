@@ -12,6 +12,8 @@ Die konkreten Produktbefunde sind fehlender Quelltextzugang nach blockierter Ric
 
 Nächster enger Schritt: Produktkorrekturen reviewen und auf dem frischen Build 29 MVP-Fälle plus Fokus und 23 betroffene normale Regressionen tatsächlich ausführen. Fokussiertes Grün würde den roten Gesamtlauf nicht ersetzen. Eine Nutzer-Ausnahme vom Produktionsgate liegt weiterhin nicht vor.
 
+Der anschließende frische Build auf Root/QA `18845697c` und alle sieben CI-Prüfungen bestehen. Die erste zusätzliche echte Browserfolge endet nach zwei bestandenen Fällen an einem veralteten Source-Button im Rich-Blocks-Test; weitere 20 Fälle sind noch nicht ausgeführt. Die enge Testkorrektur verwendet zentrale Markdownausgabe und echten Reload, ohne Serialisierungsassertionen zu entfernen. Originale und vollständiger Ressourcenabschluss sind im [aktuellen Abnahmebericht](./yjs-mvp-tool-and-restore-acceptance.md#neuer-build-und-erster-zusätzlicher-browserlauf) gebunden. Dieser neue RED ersetzt oder erklärt nicht pauschal die 218 Fehler des ursprünglichen Gesamtlaufs.
+
 ## Verbindliches Produktionsgate
 
 [AGENTS.md](../AGENTS.md) verlangt: „Run `npm run test:all` before production deploys.“ Das Gesamtkommando wurde inzwischen tatsächlich ausgeführt, ist aber noch nicht vollständig bestanden. Eine Ausnahme von dieser Vorgabe benötigt eine direkte Nutzerentscheidung; bis dahin gilt das ursprüngliche Gate weiter. Main-Merge, Release und Produktionsprüfung bleiben eigenständige Schritte.
