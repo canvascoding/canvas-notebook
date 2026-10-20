@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import {
   createReadStream as createNodeReadStream,
   promises as fs,
@@ -35,6 +36,39 @@ class DownloadPlanError extends Error {
     super(message);
     this.name = 'DownloadPlanError';
   }
+}
+
+type DownloadOwner = { userId: string; sessionId: string; workspaceId: string };
+type PreparedArchive = { archivePath: string; tempDirectory: string; fileName: string };
+const preparedDownloads = new Map<string, PreparedArchive & DownloadOwner & {
+  expiresAt: number; expiration: ReturnType<typeof setTimeout>;
+}>();
+
+function storePreparedArchive(archive: PreparedArchive, owner: DownloadOwner): string {
+  const token = randomUUID();
+  const expiration = setTimeout(() => {
+    preparedDownloads.delete(token);
+    void fs.rm(archive.tempDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }, DOWNLOAD_ARCHIVE_TTL_MS);
+  expiration.unref?.();
+  preparedDownloads.set(token, { ...archive, ...owner, expiration, expiresAt: Date.now() + DOWNLOAD_ARCHIVE_TTL_MS });
+  return token;
+}
+
+function claimPreparedArchive(token: string, owner: DownloadOwner): PreparedArchive {
+  const archive = preparedDownloads.get(token);
+  if (!archive || archive.expiresAt <= Date.now()) {
+    if (archive) {
+      clearTimeout(archive.expiration); preparedDownloads.delete(token);
+      void fs.rm(archive.tempDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw new DownloadPlanError('This prepared download expired. Prepare the export again.', 410, 'DOWNLOAD_EXPIRED');
+  }
+  if (archive.userId !== owner.userId || archive.sessionId !== owner.sessionId || archive.workspaceId !== owner.workspaceId) {
+    throw new DownloadPlanError('This download belongs to another session or workspace.', 403, 'DOWNLOAD_OWNER_MISMATCH');
+  }
+  clearTimeout(archive.expiration); preparedDownloads.delete(token);
+  return archive;
 }
 
 function resolveDownloadName(filePath: string): string {
@@ -77,8 +111,7 @@ function normalizeSelectionPaths(paths: string[]): string[] {
   return compactWorkspaceSelection(normalizedPaths);
 }
 
-async function createArchiveResponse(artifact: WorkspaceDownloadArchive, fileName: string): Promise<NextResponse> {
-  const { archivePath, tempDirectory } = artifact;
+async function streamPreparedArchive({ archivePath, tempDirectory, fileName }: PreparedArchive): Promise<NextResponse> {
   try {
     const stats = await fs.stat(archivePath);
     const stream = createNodeReadStream(archivePath);
@@ -106,6 +139,16 @@ async function createArchiveResponse(artifact: WorkspaceDownloadArchive, fileNam
     await fs.rm(tempDirectory, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function createArchiveResponse(artifact: WorkspaceDownloadArchive, fileName: string, owner?: DownloadOwner): Promise<NextResponse> {
+  const archive = { ...artifact, fileName };
+  if (!owner) return streamPreparedArchive(archive);
+  const token = storePreparedArchive(archive, owner);
+  const query = new URLSearchParams({ scope: 'workspace', workspaceId: owner.workspaceId, ticket: token });
+  return NextResponse.json({ success: true, downloadUrl: `/api/files/download?${query}` }, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -159,6 +202,17 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   const isWorkspaceArchive = scope === 'personal' || scope === 'workspace';
+  const owner = { workspaceId: workspace.workspaceId, userId: session.user.id, sessionId: session.session.id };
+  const ticket = searchParams.get('ticket');
+  if (ticket) {
+    try {
+      if (!isWorkspaceArchive) throw new DownloadPlanError('A prepared workspace download requires a workspace scope.');
+      return await streamPreparedArchive(claimPreparedArchive(ticket, owner));
+    } catch (error) {
+      if (error instanceof DownloadPlanError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+      throw error;
+    }
+  }
   let selectedPaths: string[];
   try {
     selectedPaths = isWorkspaceArchive ? ['.'] : normalizeSelectionPaths(searchParams.getAll('path'));
@@ -189,7 +243,8 @@ export async function GET(request: NextRequest) {
       const archiveResponse = async () => {
         const artifact = await materializeWorkspaceDownloadArchive(workspace, selectedPaths);
         const fileName = isMultipleSelection ? 'notebook-selection.zip' : `${resolveDownloadName(effectiveFilePath)}.zip`;
-        return createArchiveResponse(artifact, fileName);
+        return createArchiveResponse(artifact, fileName,
+          isWorkspaceArchive && searchParams.get('prepare') === '1' ? owner : undefined);
       };
       if (isMultipleSelection || effectiveFilePath === '.') return archiveResponse;
       let stats: Awaited<ReturnType<typeof getFileStats>>;

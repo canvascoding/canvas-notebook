@@ -1,8 +1,5 @@
 import 'server-only';
 
-import { execFile } from 'child_process';
-import { promisify } from 'util';
-
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
 import {
   MIGRATION_BUNDLE_SCHEMA_VERSION,
@@ -30,13 +27,14 @@ import {
 } from '@/app/lib/organization/config';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { openDb } from '@/app/lib/db';
-
-const execFileAsync = promisify(execFile);
-
-async function unzipText(args: string[], maxBuffer = 100 * 1024 * 1024): Promise<string> {
-  const { stdout } = await execFileAsync('unzip', args, { encoding: 'utf8', maxBuffer });
-  return stdout;
-}
+import { MigrationArchiveError, openMigrationArchive, readMigrationEntry } from './archive';
+import { mapMigrationWorkspaces, parseMigrationWorkspaces } from './mappings';
+import type { MigrationMappingChoices, MigrationWorkspaceDescriptor } from './types';
+import { buildRestoreFilePlan } from './restore-plan';
+import { getMigrationDataRoot } from './paths';
+import { DATABASE_ARTIFACT } from './database-schema';
+import { inspectPortableDatabase } from './database-inspect';
+import { mapDatabaseUsers, mapDatabaseWorkspaces } from './database-mappings';
 
 function hasUnsafeZipEntry(entryName: string): boolean {
   if (!entryName || entryName.includes('\0')) return true;
@@ -47,8 +45,7 @@ function hasUnsafeZipEntry(entryName: string): boolean {
 }
 
 async function listArchiveEntries(archivePath: string): Promise<string[]> {
-  const output = await unzipText(['-Z1', archivePath]);
-  return output.split('\n').map((line) => line.trim()).filter(Boolean);
+  return (await openMigrationArchive(archivePath)).map(entry => entry.path);
 }
 
 async function validatePostgresDatabaseArtifact(params: {
@@ -63,8 +60,9 @@ async function validatePostgresDatabaseArtifact(params: {
   const sourceProvider = params.manifest.database?.provider ?? params.manifest.source?.databaseProvider;
   if (sourceProvider !== 'postgres') return blockers;
   const backupKind = params.manifest.database?.backupKind ?? 'none';
-  if (backupKind !== 'postgres_dump' && backupKind !== 'none') blockers.push('PostgreSQL migration archive has an unsupported database backup kind.');
+  if (backupKind !== 'postgres_rows') blockers.push('PostgreSQL migration requires a current portable row snapshot; metadata-only and SQL dump archives cannot be applied.');
   const artifactPath = params.manifest.database?.artifactPath;
+  if (artifactPath !== DATABASE_ARTIFACT) blockers.push('Portable PostgreSQL artifact path is missing or unsupported.');
   if (artifactPath && !params.entries.includes(artifactPath)) blockers.push(`Migration archive is missing ${artifactPath}.`);
 
   return blockers;
@@ -148,7 +146,7 @@ function parseExportDatabase(value: unknown): MigrationExportDatabase | undefine
   const provider = database.provider === 'postgres' || database.provider === 'unknown'
     ? database.provider
     : 'unknown';
-  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'none'
+  const backupKind = database.backupKind === 'postgres_dump' || database.backupKind === 'postgres_rows' || database.backupKind === 'none'
     ? database.backupKind
     : 'none';
   return {
@@ -237,6 +235,10 @@ function parseManifest(raw: string): CanvasMigrationManifest | null {
           typeof file.modifiedAt === 'string';
       })
       : [],
+    directories: Array.isArray(record.directories) ? record.directories.filter((v): v is string => typeof v === 'string') : [],
+    workspaces: parseMigrationWorkspaces(record.workspaces),
+    users: Array.isArray(record.users) ? record.users.filter((u): u is { id: string; email: string | null } => Boolean(u
+      && typeof u === 'object' && typeof u.id === 'string' && (typeof u.email === 'string' || u.email === null))) : [],
   };
 }
 
@@ -245,14 +247,7 @@ type LocalUser = {
   email: string | null;
 };
 
-type LocalWorkspace = {
-  id: string;
-  organizationId: string;
-  type: string;
-  ownerUserId: string | null;
-  rootRelativePath: string;
-  displayName: string;
-};
+type LocalWorkspace = MigrationWorkspaceDescriptor;
 
 type LocalImportContext = {
   databaseProvider: string;
@@ -374,6 +369,7 @@ function buildUserMappings(params: {
   manifest: CanvasMigrationManifest;
   archivePaths: string[];
   target: LocalImportContext;
+  choices?: MigrationMappingChoices;
 }): MigrationImportUserMapping[] {
   type UserCandidate = { userId: string | null; email: string | null; required: boolean; reason: string };
   const candidates = new Map<string, UserCandidate>();
@@ -415,17 +411,32 @@ function buildUserMappings(params: {
   });
 
   for (const archivePath of params.archivePaths) {
-    const personalMatch = /^data\/workspaces\/personal\/([^/]+)\/files(?:\/|$)/u.exec(archivePath);
+    const personalMatch = /^data\/workspaces\/personal\/([^/]+)(?:\/|$)/u.exec(archivePath);
     if (!personalMatch?.[1]) continue;
     addCandidate({
       userId: personalMatch[1],
-      email: null,
+      email: params.manifest.users?.find(user => user.id === personalMatch[1])?.email ?? null,
       required: true,
       reason: 'Personal workspace files require an explicit target user mapping.',
     });
   }
 
+  for (const workspace of params.manifest.workspaces ?? []) {
+    if (workspace.type !== 'personal' || !workspace.ownerUserId) continue;
+    addCandidate({ userId: workspace.ownerUserId,
+      email: params.manifest.users?.find(user => user.id === workspace.ownerUserId)?.email ?? null,
+      required: true, reason: 'Personal workspace ownership must map to an existing target user.' });
+  }
+
   return [...candidates.values()].map((candidate) => {
+    const chosenId = candidate.userId ? params.choices?.users[candidate.userId] : undefined;
+    if (chosenId) {
+      const chosen = params.target.users.find(user => user.id === chosenId);
+      if (!chosen) throw new Error('The selected target user is unavailable.');
+      return { sourceUserId: candidate.userId, sourceEmail: candidate.email, targetUserId: chosen.id,
+        targetEmail: chosen.email, status: 'mapped' as const, required: candidate.required,
+        reason: 'Target user explicitly selected by the administrator for file ownership mapping.' };
+    }
     const byId = candidate.userId ? params.target.users.find((user) => user.id === candidate.userId) : null;
     const byEmail = !byId && candidate.email
       ? params.target.users.find((user) => user.email?.toLowerCase() === candidate.email?.toLowerCase())
@@ -465,112 +476,13 @@ function buildUserMappings(params: {
 }
 
 function buildWorkspaceMappings(params: {
+  manifest: CanvasMigrationManifest;
   archivePaths: string[];
   target: LocalImportContext;
   users: MigrationImportUserMapping[];
+  choices?: MigrationMappingChoices;
 }): MigrationImportWorkspaceMapping[] {
-  const roots = new Map<string, MigrationImportWorkspaceMapping>();
-  const teamWorkspace = params.target.workspaces.find(
-    (workspace) =>
-      (workspace.type === 'organization' || workspace.type === 'team') &&
-      workspace.organizationId === params.target.organizationId,
-  ) || null;
-
-  for (const archivePath of params.archivePaths) {
-    if (archivePath.startsWith('data/workspace/')) {
-      roots.set('legacy:data/workspace', {
-        kind: 'legacy',
-        sourcePath: 'data/workspace',
-        sourceWorkspaceId: null,
-        sourceOrganizationId: null,
-        sourceOwnerUserId: null,
-        targetWorkspaceId: null,
-        targetPath: 'data/workspace',
-        status: 'mapped',
-        required: false,
-        reason: 'Legacy workspace paths are restored without ID mapping.',
-      });
-    }
-
-    const scopedMatch = /^data\/workspaces\/(team|personal|project)\/([^/]+)\/files(?:\/|$)/u.exec(archivePath);
-    if (!scopedMatch?.[1] || !scopedMatch[2]) continue;
-    const [, kind, id] = scopedMatch;
-    const key = `${kind}:${id}`;
-    if (roots.has(key)) continue;
-
-    if (kind === 'team') {
-      const sourcePath = `data/workspaces/team/${id}/files`;
-      if (teamWorkspace && params.target.organizationId === id) {
-        roots.set(key, {
-          kind: 'team',
-          sourcePath,
-          sourceWorkspaceId: null,
-          sourceOrganizationId: id,
-          sourceOwnerUserId: null,
-          targetWorkspaceId: teamWorkspace.id,
-          targetPath: `data/${teamWorkspace.rootRelativePath}`,
-          status: 'mapped',
-          required: true,
-          reason: 'Team workspace organization ID matches the target organization.',
-        });
-      } else {
-        roots.set(key, {
-          kind: 'team',
-          sourcePath,
-          sourceWorkspaceId: null,
-          sourceOrganizationId: id,
-          sourceOwnerUserId: null,
-          targetWorkspaceId: teamWorkspace?.id ?? null,
-          targetPath: teamWorkspace ? `data/${teamWorkspace.rootRelativePath}` : null,
-          status: teamWorkspace ? 'proposed' : 'unresolved',
-          required: true,
-          reason: teamWorkspace
-            ? 'Team workspace requires organization remapping before this restore engine can apply it safely.'
-            : 'Target instance has no active team workspace for this bundle.',
-        });
-      }
-    }
-
-    if (kind === 'personal') {
-      const sourcePath = `data/workspaces/personal/${id}/files`;
-      const userMapping = params.users.find((mapping) => mapping.sourceUserId === id);
-      const personalWorkspace = userMapping?.targetUserId
-        ? params.target.workspaces.find((workspace) => workspace.type === 'personal' && workspace.ownerUserId === userMapping.targetUserId)
-        : null;
-      const mapsWithoutRewrite = userMapping?.status === 'mapped' && userMapping.targetUserId === id && personalWorkspace?.rootRelativePath === `workspaces/personal/${id}/files`;
-      roots.set(key, {
-        kind: 'personal',
-        sourcePath,
-        sourceWorkspaceId: null,
-        sourceOrganizationId: null,
-        sourceOwnerUserId: id,
-        targetWorkspaceId: personalWorkspace?.id ?? null,
-        targetPath: personalWorkspace ? `data/${personalWorkspace.rootRelativePath}` : null,
-        status: mapsWithoutRewrite ? 'mapped' : userMapping?.targetUserId ? 'proposed' : 'unresolved',
-        required: true,
-        reason: mapsWithoutRewrite
-          ? 'Personal workspace owner matches an existing target user and path.'
-          : 'Personal workspace requires explicit user/path remapping before restore.',
-      });
-    }
-
-    if (kind === 'project') {
-      roots.set(key, {
-        kind: 'project',
-        sourcePath: `data/workspaces/project/${id}/files`,
-        sourceWorkspaceId: id,
-        sourceOrganizationId: null,
-        sourceOwnerUserId: null,
-        targetWorkspaceId: null,
-        targetPath: null,
-        status: 'unresolved',
-        required: true,
-        reason: 'Project workspace remapping is not implemented in the V1 restore engine.',
-      });
-    }
-  }
-
-  return [...roots.values()].sort((a, b) => a.sourcePath.localeCompare(b.sourcePath));
+  return mapMigrationWorkspaces({ ...params, targets: params.target.workspaces });
 }
 
 async function buildDryRun(params: {
@@ -578,11 +490,15 @@ async function buildDryRun(params: {
   entries: string[];
   reconnect: MigrationImportReconnectRequirement[];
   warnings: string[];
+  choices?: MigrationMappingChoices;
 }): Promise<MigrationImportDryRun> {
   const target = await readLocalImportContext(params.warnings);
   const archivePaths = sourceArchivePaths(params.manifest, params.entries);
-  const users = buildUserMappings({ manifest: params.manifest, archivePaths, target });
-  const workspaces = buildWorkspaceMappings({ archivePaths, target, users });
+  const databaseSnapshot = params.manifest.components.database && params.manifest.database?.backupKind === 'postgres_rows';
+  const users = databaseSnapshot ? mapDatabaseUsers(params.manifest.users ?? [], target.users)
+    : buildUserMappings({ manifest: params.manifest, archivePaths, target, choices: params.choices });
+  const workspaces = databaseSnapshot ? mapDatabaseWorkspaces(params.manifest, archivePaths, users)
+    : buildWorkspaceMappings({ manifest: params.manifest, archivePaths, target, users, choices: params.choices });
   const blockers: string[] = [];
 
   if (params.manifest.components.database) {
@@ -591,7 +507,8 @@ async function buildDryRun(params: {
       if (target.databaseProvider !== 'postgres') {
         blockers.push('This export requires a Postgres target before database restore can be staged.');
       }
-      blockers.push('Postgres database restore is not supported by the migration restore engine; use Full Backup restore or a dedicated provider migration.');
+      if (!databaseSnapshot) blockers.push('Postgres database restore requires a current portable row snapshot.');
+      if (params.manifest.source?.organizationId !== target.organizationId) blockers.push('Source and target database organizations must match; target license and Team Seat identity are preserved.');
     } else {
       blockers.push(`Source database provider ${sourceProvider ?? 'unknown'} is not supported by the PostgreSQL-only restore engine.`);
     }
@@ -615,14 +532,14 @@ async function buildDryRun(params: {
     if (mapping.required && mapping.status !== 'mapped') {
       const label = mapping.sourceEmail || mapping.sourceUserId || 'unknown user';
       blockers.push(mapping.status === 'proposed'
-        ? `User mapping proposed but cannot be auto-applied by the V1 restore engine: ${label}.`
+        ? `Select an explicit user mapping: ${label}.`
         : `User mapping unresolved: ${label}.`);
     }
   }
   for (const mapping of workspaces) {
     if (mapping.required && mapping.status !== 'mapped') {
       blockers.push(mapping.status === 'proposed'
-        ? `Workspace mapping proposed but cannot be auto-applied by the V1 restore engine: ${mapping.sourcePath}.`
+        ? `Select an explicit workspace mapping: ${mapping.sourcePath}.`
         : `Workspace mapping unresolved: ${mapping.sourcePath}.`);
     }
   }
@@ -649,6 +566,8 @@ async function buildDryRun(params: {
     },
     users,
     workspaces,
+    availableWorkspaces: target.workspaces,
+    availableUsers: target.users,
     reconnect: params.reconnect,
     stats: {
       userMappings: users.length,
@@ -665,7 +584,7 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
   }
 
   const risks = [
-    'Full restore replaces selected data areas on the target VM.',
+    'Selected files are written to approved target paths; matching files are replaced.',
     'All active sessions are invalidated; users must log in again.',
     'Automations are paused during restore and must be reviewed before reactivation.',
     'OAuth-based integrations are cleared where possible and may need re-authentication.',
@@ -684,8 +603,8 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
   if (!manifest.components.secrets) {
     risks.push('Secrets are not included. API keys and local integration credentials must be configured again.');
   }
-  if (manifest.database?.provider === 'postgres') {
-    risks.push('Postgres database data cannot be restored by the V1 migration restore script; use Full Backup restore or a dedicated provider migration.');
+  if (manifest.components.database) {
+    risks.push('Application database tables are replaced. Target organization, Team Seat and license records are retained. Existing accounts with the same email must have matching IDs; use file migration mapping to reassign data between different accounts.');
   }
   if (manifest.restore?.requiresReindex) {
     risks.push('Knowledge or embedding indexes require reindexing after restore.');
@@ -697,8 +616,16 @@ function buildRisks(manifest: CanvasMigrationManifest | null): string[] {
 export async function inspectMigrationArchive(params: {
   uploadId: string;
   archivePath: string;
+  mappings?: MigrationMappingChoices;
 }): Promise<MigrationInspection> {
-  const entries = await listArchiveEntries(params.archivePath);
+  let entries: string[];
+  try { entries = await listArchiveEntries(params.archivePath); }
+  catch (error) {
+    if (!(error instanceof MigrationArchiveError)) throw error;
+    return { uploadId: params.uploadId, archivePath: params.archivePath, currentAppVersion: getCurrentAppVersion(),
+      exportAppVersion: null, compatibility: 'unsupported_bundle_schema', canRestore: false, manifest: null,
+      warnings: [error.message], risks: ['The archive was rejected before restore.'] };
+  }
   const unsafeEntry = entries.find(hasUnsafeZipEntry);
   if (unsafeEntry) {
     return {
@@ -716,7 +643,9 @@ export async function inspectMigrationArchive(params: {
 
   let manifest: CanvasMigrationManifest | null = null;
   try {
-    const rawManifest = await unzipText(['-p', params.archivePath, 'manifest.json'], 20 * 1024 * 1024);
+    const manifestEntry = (await openMigrationArchive(params.archivePath)).find(entry => entry.path === 'manifest.json');
+    if (!manifestEntry) throw new Error('Missing migration manifest.');
+    const rawManifest = await readMigrationEntry(manifestEntry);
     manifest = parseManifest(rawManifest);
   } catch {
     manifest = null;
@@ -740,15 +669,15 @@ export async function inspectMigrationArchive(params: {
   }
   let reconnect: MigrationImportReconnectRequirement[] = [];
   if (!unsupportedSQLiteSource && (manifest?.components.secrets || manifest?.security?.secretsMode === 'reconnect_manifest')) {
-    const rawReconnect = await unzipText(['-p', params.archivePath, 'data/reconnect-manifest.json'], 20 * 1024 * 1024)
-      .catch(() => null);
+    const reconnectEntry = (await openMigrationArchive(params.archivePath)).find(entry => entry.path === 'data/reconnect-manifest.json');
+    const rawReconnect = reconnectEntry ? await readMigrationEntry(reconnectEntry).catch(() => null) : null;
     reconnect = parseReconnectManifest(rawReconnect);
     if (manifest.components.secrets && reconnect.length === 0) {
       warnings.push('Secrets were selected in the source export, but no reconnect manifest was found.');
     }
   }
   const dryRun = manifest && !unsupportedSQLiteSource
-    ? await buildDryRun({ manifest, entries, reconnect, warnings })
+    ? await buildDryRun({ manifest, entries, reconnect, warnings, choices: params.mappings })
     : undefined;
 
   if (dryRun && manifest) {
@@ -756,11 +685,27 @@ export async function inspectMigrationArchive(params: {
       manifest,
       entries,
     });
+    if (manifest.components.database && !databaseBlockers.length) {
+      try {
+        const entry = (await openMigrationArchive(params.archivePath)).find(file => file.path === DATABASE_ARTIFACT);
+        if (!entry) throw new Error('Missing portable database snapshot.');
+        await inspectPortableDatabase(entry, manifest);
+      } catch (error) { databaseBlockers.push(error instanceof Error ? error.message : 'Invalid portable database snapshot.'); }
+    }
     if (databaseBlockers.length > 0) {
       dryRun.blockers.push(...databaseBlockers);
       dryRun.canApply = false;
       dryRun.status = 'blocked';
       dryRun.stats.blockers = dryRun.blockers.length;
+    }
+    if (dryRun.canApply) {
+      try {
+        buildRestoreFilePlan({ dataRoot: getMigrationDataRoot(), manifest,
+          entries: await openMigrationArchive(params.archivePath), mappings: dryRun.workspaces });
+      } catch (error) {
+        dryRun.blockers.push(error instanceof Error ? error.message : 'Invalid migration file plan.');
+        dryRun.canApply = false; dryRun.status = 'blocked'; dryRun.stats.blockers = dryRun.blockers.length;
+      }
     }
   }
 

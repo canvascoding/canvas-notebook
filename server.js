@@ -88,6 +88,10 @@ Module._load = function loadWithServerOnlyMarker(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
+// Apply approved restores in a one-shot process before importing runtime modules,
+// so auth caches, schedulers and HTTP cannot observe partly restored state.
+require('./server/apply-pending-migration').runPendingMigrationBeforeBoot(process.cwd());
+
 const http = require('http');
 const { guardHttpRequestLifecycle } = require('./server/http-request-lifecycle');
 const fs = require('fs');

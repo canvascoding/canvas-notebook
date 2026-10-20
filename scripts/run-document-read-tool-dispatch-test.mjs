@@ -12,6 +12,15 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/native-file-download-route-test.ts': [entryPoint,
+    'app/lib/collaboration/workspace-native-file-read.ts',
+    'app/lib/collaboration/markdown-state.ts',
+    'app/lib/collaboration/document-snapshot.ts'],
+  'scripts/native-workspace-download-archive-test.ts': [entryPoint,
+    'app/lib/files/workspace-download-archive.ts',
+    'app/lib/collaboration/workspace-native-file-read.ts',
+    'app/lib/collaboration/markdown-state.ts',
+    'app/lib/collaboration/document-snapshot.ts'],
   'scripts/workspace-operation-batch-executor-test.ts': [entryPoint,
     'app/lib/files/workspace-operation-batch-executor.ts',
     'app/lib/files/workspace-file-undo-policy.ts',

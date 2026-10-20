@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.10.17.2",
-  "lockfileSha256": "9f92da667e79a04fed8fffdd2d59cdfcea2977f6b0292da5f2cebcee7f5d497a",
+  "lockfileSha256": "b6cad98bb1ddf2de408cf0f3f2f98084c92dda94e8ba82fcd15fcfb71b72aef1",
   "summary": {
-    "totalComponents": 1965,
-    "npmComponents": 1939,
+    "totalComponents": 1966,
+    "npmComponents": 1940,
     "nonNpmComponents": 26,
-    "runtimeComponents": 1444,
-    "developmentOnlyComponents": 521,
-    "allowed": 1929,
+    "runtimeComponents": 1453,
+    "developmentOnlyComponents": 513,
+    "allowed": 1930,
     "reviewRequired": 36,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -2470,6 +2470,25 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@types/unzipper",
+      "versionOrCommit": "0.10.11",
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "packagePathOrArtifact": "node_modules/@types/unzipper",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@types/unzipper/LICENSE",
+      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@types/ws",
       "versionOrCommit": "8.18.1",
       "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
@@ -3683,26 +3702,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "bluebird",
-      "versionOrCommit": "3.7.2",
-      "sourceUrl": "https://github.com/petkaantonov/bluebird",
-      "packagePathOrArtifact": "node_modules/unzipper/node_modules/bluebird",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/unzipper/node_modules/bluebird/LICENSE",
-      "licenseTextSha256": "87092fe7ffd1e92eba5d1dd39b73a73fdb4fdd4df3474beacc3d9f6b08ece82c",
-      "copyrightNotices": [
-        "Copyright (c) 2013-2018 Petka Antonov"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from unzipper."
-    },
-    {
       "name": "boolean",
       "versionOrCommit": "3.2.0",
       "sourceUrl": "https://github.com/thenativeweb/boolean/tree/919d80f7c987e809270671bbfa99e14da8bdc477",
@@ -4492,25 +4491,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "Inherited development-only classification from dotenv-expand."
-    },
-    {
-      "name": "duplexer2",
-      "versionOrCommit": "0.1.4",
-      "sourceUrl": "deoxxa/duplexer2",
-      "packagePathOrArtifact": "node_modules/duplexer2",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "BSD-3-Clause",
-      "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/duplexer2/LICENSE.md",
-      "licenseTextSha256": "a7b5251a0ebd370e5b47efcea548b8b2612ad71090469bc0392115b1f6279882",
-      "copyrightNotices": [
-        "Copyright (c) 2013, Deoxxa Development"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
     },
     {
       "name": "ejs",
@@ -5443,26 +5423,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "fs-extra",
-      "versionOrCommit": "11.3.1",
-      "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
-      "packagePathOrArtifact": "node_modules/unzipper/node_modules/fs-extra",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/unzipper/node_modules/fs-extra/LICENSE",
-      "licenseTextSha256": "c6a7de1428955aa5a692f4d3a3d3ede658d959616944713337cda296736442e1",
-      "copyrightNotices": [
-        "Copyright (c) 2011-2024 JP Richardson"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from unzipper."
     },
     {
       "name": "fs-extra",
@@ -6758,27 +6718,6 @@
     },
     {
       "name": "isarray",
-      "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/juliangruber/isarray/tree/2a23a281f369e9ae06394c0fb4d2381355a6ba33",
-      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/isarray",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/duplexer2/node_modules/isarray@1.0.0",
-      "licenseTextSha256": "2fddaa39f078491374494ab2140bfe9168e288bb88df411a5d69bdc4b7e365c1",
-      "copyrightNotices": [
-        "Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;",
-        "Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from duplexer2. License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License Published source revision: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 The complete license text is embedded in the exact npm tarball README license section."
-    },
-    {
-      "name": "isarray",
       "versionOrCommit": "2.0.5",
       "sourceUrl": "https://github.com/juliangruber/isarray",
       "packagePathOrArtifact": "node_modules/isarray",
@@ -7915,25 +7854,6 @@
       "policyDecision": "allowed"
     },
     {
-      "name": "node-int64",
-      "versionOrCommit": "0.4.0",
-      "sourceUrl": "https://github.com/broofa/node-int64",
-      "packagePathOrArtifact": "node_modules/node-int64",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/node-int64/LICENSE",
-      "licenseTextSha256": "8f85aab053e268546014761da47630a09886626afbd0d8d440cb2c69611bb8d3",
-      "copyrightNotices": [
-        "Copyright (c) 2014 Robert Kieffer"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "nopt",
       "versionOrCommit": "9.0.0",
       "sourceUrl": "https://github.com/npm/nopt",
@@ -8549,27 +8469,6 @@
       "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
-      "name": "readable-stream",
-      "versionOrCommit": "2.3.8",
-      "sourceUrl": "https://github.com/nodejs/readable-stream",
-      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/readable-stream",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/duplexer2/node_modules/readable-stream/LICENSE",
-      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
-      "copyrightNotices": [
-        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
-        "Copyright Node.js contributors. All rights reserved."
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from duplexer2."
-    },
-    {
       "name": "reflect.getprototypeof",
       "versionOrCommit": "1.0.10",
       "sourceUrl": "https://github.com/es-shims/Reflect.getPrototypeOf",
@@ -8856,26 +8755,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "safe-buffer",
-      "versionOrCommit": "5.1.2",
-      "sourceUrl": "https://github.com/feross/safe-buffer",
-      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/safe-buffer",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/duplexer2/node_modules/safe-buffer/LICENSE",
-      "licenseTextSha256": "c7cc929b57080f4b9d0c6cf57669f0463fc5b39906344dfc8d3bc43426b30eac",
-      "copyrightNotices": [
-        "Copyright (c) Feross Aboukhadijeh"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from duplexer2."
     },
     {
       "name": "safe-push-apply",
@@ -9281,27 +9160,6 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
-    },
-    {
-      "name": "string_decoder",
-      "versionOrCommit": "1.1.1",
-      "sourceUrl": "https://github.com/nodejs/string_decoder",
-      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/string_decoder",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/duplexer2/node_modules/string_decoder/LICENSE",
-      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
-      "copyrightNotices": [
-        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
-        "Copyright Node.js contributors. All rights reserved."
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from duplexer2."
     },
     {
       "name": "string-width",
@@ -10048,26 +9906,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "License text source: https://raw.githubusercontent.com/unrs/unrs-resolver/ccb26d205e2938b16069c64a28996b48ee97ff94/LICENSE Published source revision: ccb26d205e2938b16069c64a28996b48ee97ff94"
-    },
-    {
-      "name": "unzipper",
-      "versionOrCommit": "0.12.5",
-      "sourceUrl": "https://github.com/ZJONSSON/node-unzipper",
-      "packagePathOrArtifact": "node_modules/unzipper",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/unzipper/LICENSE",
-      "licenseTextSha256": "9dbe3e40f619223d2f1c9d6e09657e3182f616c9258b02081012c7d19f76601e",
-      "copyrightNotices": [
-        "Commits in this fork are (c) Ziggy Jonsson (ziggy.jonsson.nyc@gmail.com)",
-        "Copyright (c) 2012 - 2013 Near Infinity Corporation"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
     },
     {
       "name": "uri-js",
@@ -25312,6 +25150,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "bluebird",
+      "versionOrCommit": "3.7.2",
+      "sourceUrl": "https://github.com/petkaantonov/bluebird",
+      "packagePathOrArtifact": "node_modules/unzipper/node_modules/bluebird",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/unzipper/node_modules/bluebird/LICENSE",
+      "licenseTextSha256": "87092fe7ffd1e92eba5d1dd39b73a73fdb4fdd4df3474beacc3d9f6b08ece82c",
+      "copyrightNotices": [
+        "Copyright (c) 2013-2018 Petka Antonov"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "body-parser",
       "versionOrCommit": "2.3.0",
       "sourceUrl": "expressjs/body-parser",
@@ -28463,6 +28323,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "duplexer2",
+      "versionOrCommit": "0.1.4",
+      "sourceUrl": "deoxxa/duplexer2",
+      "packagePathOrArtifact": "node_modules/duplexer2",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "BSD-3-Clause",
+      "verifiedLicense": "BSD-3-Clause",
+      "licenseTextRef": "node_modules/duplexer2/LICENSE.md",
+      "licenseTextSha256": "a7b5251a0ebd370e5b47efcea548b8b2612ad71090469bc0392115b1f6279882",
+      "copyrightNotices": [
+        "Copyright (c) 2013, Deoxxa Development"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "ecdsa-sig-formatter",
       "versionOrCommit": "1.0.11",
       "sourceUrl": "ssh://git@github.com/Brightspace/node-ecdsa-sig-formatter",
@@ -29788,6 +29670,28 @@
       "licenseTextSha256": "1e76029602ae9b21cc4e612db2496d92febed882ba13ba745f8b3309e85f9d39",
       "copyrightNotices": [
         "Copyright (c) 2011-2017 JP Richardson"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "fs-extra",
+      "versionOrCommit": "11.3.1",
+      "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
+      "packagePathOrArtifact": "node_modules/unzipper/node_modules/fs-extra",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/unzipper/node_modules/fs-extra/LICENSE",
+      "licenseTextSha256": "c6a7de1428955aa5a692f4d3a3d3ede658d959616944713337cda296736442e1",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2024 JP Richardson"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -31905,6 +31809,30 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
+    },
+    {
+      "name": "isarray",
+      "versionOrCommit": "1.0.0",
+      "sourceUrl": "https://github.com/juliangruber/isarray/tree/2a23a281f369e9ae06394c0fb4d2381355a6ba33",
+      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/isarray",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/duplexer2/node_modules/isarray@1.0.0",
+      "licenseTextSha256": "2fddaa39f078491374494ab2140bfe9168e288bb88df411a5d69bdc4b7e365c1",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;",
+        "Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License Published source revision: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "isarray",
@@ -35546,6 +35474,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "node-int64",
+      "versionOrCommit": "0.4.0",
+      "sourceUrl": "https://github.com/broofa/node-int64",
+      "packagePathOrArtifact": "node_modules/node-int64",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/node-int64/LICENSE",
+      "licenseTextSha256": "8f85aab053e268546014761da47630a09886626afbd0d8d440cb2c69611bb8d3",
+      "copyrightNotices": [
+        "Copyright (c) 2014 Robert Kieffer"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "node-pty",
       "versionOrCommit": "1.1.0",
       "sourceUrl": "https://github.com/microsoft/node-pty",
@@ -38319,6 +38269,29 @@
       "name": "readable-stream",
       "versionOrCommit": "2.3.8",
       "sourceUrl": "https://github.com/nodejs/readable-stream",
+      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/readable-stream",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/duplexer2/node_modules/readable-stream/LICENSE",
+      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
+      "copyrightNotices": [
+        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
+        "Copyright Node.js contributors. All rights reserved."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "readable-stream",
+      "versionOrCommit": "2.3.8",
+      "sourceUrl": "https://github.com/nodejs/readable-stream",
       "packagePathOrArtifact": "node_modules/jszip/node_modules/readable-stream",
       "usage": "runtime",
       "distributedIn": [
@@ -39069,6 +39042,28 @@
       "licenseTextSha256": "e273680c43c2ab5bb3b50af28de6a08000b333396834db7bf6129cd6f130c9cd",
       "copyrightNotices": [
         "Copyright (c) 2014-2016, Michael Bostock"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "safe-buffer",
+      "versionOrCommit": "5.1.2",
+      "sourceUrl": "https://github.com/feross/safe-buffer",
+      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/safe-buffer",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/duplexer2/node_modules/safe-buffer/LICENSE",
+      "licenseTextSha256": "c7cc929b57080f4b9d0c6cf57669f0463fc5b39906344dfc8d3bc43426b30eac",
+      "copyrightNotices": [
+        "Copyright (c) Feross Aboukhadijeh"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -40173,6 +40168,29 @@
       "licenseTextSha256": "41a2aa55a9ebad3df900cf37fded512714a127f4300ef54b978f834a11ec4d48",
       "copyrightNotices": [
         "Copyright (c) 2019 Mathias Buus"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "string_decoder",
+      "versionOrCommit": "1.1.1",
+      "sourceUrl": "https://github.com/nodejs/string_decoder",
+      "packagePathOrArtifact": "node_modules/duplexer2/node_modules/string_decoder",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/duplexer2/node_modules/string_decoder/LICENSE",
+      "licenseTextSha256": "ec62dc96da0099b87f4511736c87309335527fb7031639493e06c95728dc8c54",
+      "copyrightNotices": [
+        "Copyright Joyent, Inc. and other Node contributors. All rights reserved.",
+        "Copyright Node.js contributors. All rights reserved."
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41674,6 +41692,29 @@
       "licenseTextSha256": "1a526fbe8d8577f5a4b1c2821842b55b7c0e18862531c62ae4ce69c9b19b74b6",
       "copyrightNotices": [
         "Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "unzipper",
+      "versionOrCommit": "0.12.5",
+      "sourceUrl": "https://github.com/ZJONSSON/node-unzipper",
+      "packagePathOrArtifact": "node_modules/unzipper",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/unzipper/LICENSE",
+      "licenseTextSha256": "9dbe3e40f619223d2f1c9d6e09657e3182f616c9258b02081012c7d19f76601e",
+      "copyrightNotices": [
+        "Commits in this fork are (c) Ziggy Jonsson (ziggy.jonsson.nyc@gmail.com)",
+        "Copyright (c) 2012 - 2013 Near Infinity Corporation"
       ],
       "modified": false,
       "policyDecision": "allowed"

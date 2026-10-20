@@ -706,7 +706,7 @@
     "test:files:read-busy": "tsx scripts/file-read-busy-client-test.ts && NODE_ENV=test tsx scripts/file-read-busy-ui-test.tsx",
     "test:files:read-busy:postgres": "NODE_ENV=test CANVAS_DATABASE_PROVIDER=postgres CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test tsx --conditions react-server scripts/collaboration-room-owner-server-test.ts --native-read-busy-postgres",
     "test:collaboration:native-file-read:postgres": "NODE_ENV=test CANVAS_DATABASE_PROVIDER=postgres CANVAS_MCP_DIRECT_ENABLED=false tsx --conditions react-server scripts/workspace-native-file-read-postgres-test.ts",
-    "test:files:native-download": "tsx --conditions react-server scripts/native-file-download-route-test.ts && tsx --conditions react-server scripts/native-workspace-download-archive-test.ts",
+    "test:files:native-download": "NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test node scripts/run-document-read-tool-dispatch-test.mjs scripts/native-file-download-route-test.ts && NODE_ENV=test CANVAS_MCP_DIRECT_ENABLED=false BETTER_AUTH_BASE_URL=https://canvas.test node scripts/run-document-read-tool-dispatch-test.mjs scripts/native-workspace-download-archive-test.ts",
     "test:collaboration:native-recovery": "tsx --conditions react-server scripts/collaboration-native-recovery-test.ts",
     "test:collaboration:native-schema": "tsx --conditions react-server scripts/collaboration-native-schema-test.ts",
     "test:collaboration:markdown-file-import": "tsx --conditions react-server scripts/markdown-file-import-test.ts",
@@ -1014,6 +1014,7 @@
   "dependencies": {
     "@better-auth/expo": "1.7.1",
     "@better-auth/oauth-provider": "1.7.1",
+    "@canvas/decision-models": "file:packages/decision-models",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -1168,6 +1169,7 @@
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
     "typebox": "^1.3.7",
+    "unzipper": "0.12.5",
     "ws": "^8.20.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "y-codemirror.next": "^0.3.5",
@@ -1176,8 +1178,7 @@
     "y-protocols": "^1.0.6",
     "yaml": "^2.9.0",
     "yjs": "13.6.31",
-    "zustand": "^5.0.9",
-    "@canvas/decision-models": "file:packages/decision-models"
+    "zustand": "^5.0.9"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.4",
@@ -1192,6 +1193,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/turndown": "^5.0.6",
+    "@types/unzipper": "0.10.11",
     "@types/ws": "^8.18.1",
     "electron": "^42.11.10",
     "electron-builder": "^26.8.1",

@@ -20,6 +20,7 @@ function isWorkspaceStudioOutputPath(relativePath: string): boolean {
 const COMPONENT_PATH_MAPPINGS: MigrationComponentPathMapping[] = [
   { component: 'workspace', dataPath: ['workspace'], archiveRoot: 'data/workspace' },
   { component: 'workspace', dataPath: ['workspaces', 'team'], archiveRoot: 'data/workspaces/team' },
+  { component: 'workspace', dataPath: ['workspaces', 'organization'], archiveRoot: 'data/workspaces/organization' },
   { component: 'workspace', dataPath: ['workspaces', 'project'], archiveRoot: 'data/workspaces/project' },
   { component: 'workspace', dataPath: ['workspaces', 'personal'], archiveRoot: 'data/workspaces/personal' },
   { component: 'studioAssets', dataPath: ['studio', 'assets'], archiveRoot: 'data/studio/assets' },

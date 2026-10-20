@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.10.17.2
-- Lockfile SHA-256: `9f92da667e79a04fed8fffdd2d59cdfcea2977f6b0292da5f2cebcee7f5d497a`
-- Distributed components: 1444
+- Lockfile SHA-256: `b6cad98bb1ddf2de408cf0f3f2f98084c92dda94e8ba82fcd15fcfb71b72aef1`
+- Distributed components: 1453
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -664,6 +664,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | bignumber.js | 9.3.1 | runtime | MIT | allowed |
 | binary-extensions | 2.3.0 | runtime | MIT | allowed |
 | bluebird | 3.4.7 | runtime | MIT | allowed |
+| bluebird | 3.7.2 | runtime | MIT | allowed |
 | body-parser | 2.3.0 | runtime | MIT | allowed |
 | bowser | 2.14.1 | runtime | MIT | allowed |
 | brace-expansion | 5.0.12 | runtime | MIT | allowed |
@@ -805,6 +806,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | drizzle-orm | 0.45.2 | runtime | Apache-2.0 | allowed |
 | duck | 0.1.12 | runtime | BSD | allowed |
 | dunder-proto | 1.0.1 | runtime | MIT | allowed |
+| duplexer2 | 0.1.4 | runtime | BSD-3-Clause | allowed |
 | ecdsa-sig-formatter | 1.0.11 | runtime | Apache-2.0 | allowed |
 | ee-first | 1.1.1 | runtime | MIT | allowed |
 | electron-to-chromium | 1.5.420 | runtime | ISC | allowed |
@@ -865,6 +867,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fractional-indexing | 3.2.0 | runtime | CC0-1.0 | allowed |
 | fresh | 2.0.0 | runtime | MIT | allowed |
 | fs-extra | 10.1.0 | runtime | MIT | allowed |
+| fs-extra | 11.3.1 | runtime | MIT | allowed |
 | fsevents | 2.3.2 | runtime | MIT | allowed |
 | fsevents | 2.3.3 | runtime | MIT | allowed |
 | function-bind | 1.1.2 | runtime | MIT | allowed |
@@ -960,6 +963,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | is-promise | 4.0.0 | runtime | MIT | allowed |
 | is-reference | 1.2.1 | runtime | MIT | allowed |
 | is-stream | 4.0.1 | runtime | MIT | allowed |
+| isarray | 1.0.0 | runtime | MIT | allowed |
 | isarray | 1.0.0 | runtime | MIT | allowed |
 | isarray | 1.0.0 | runtime | MIT | allowed |
 | isexe | 2.0.0 | runtime | ISC | allowed |
@@ -1123,6 +1127,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
 | node-fetch | 2.7.0 | runtime | MIT | allowed |
 | node-fetch | 3.3.2 | runtime | MIT | allowed |
+| node-int64 | 0.4.0 | runtime | MIT | allowed |
 | node-pty | 1.1.0 | runtime | MIT | allowed |
 | node-releases | 2.0.54 | runtime | MIT | allowed |
 | nodemailer | 10.0.13 | runtime | MIT-0 | allowed |
@@ -1249,6 +1254,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | react | 19.2.7 | runtime | MIT | allowed |
 | readable-stream | 2.3.8 | runtime | MIT | allowed |
 | readable-stream | 2.3.8 | runtime | MIT | allowed |
+| readable-stream | 2.3.8 | runtime | MIT | allowed |
 | readable-stream | 4.7.0 | runtime | MIT | allowed |
 | readdir-glob | 3.0.0 | runtime | Apache-2.0 | allowed |
 | readdirp | 3.6.0 | runtime | MIT | allowed |
@@ -1280,6 +1286,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | roughjs | 4.6.6 | runtime | MIT | allowed |
 | router | 2.2.0 | runtime | MIT | allowed |
 | rw | 1.3.3 | runtime | BSD-3-Clause | allowed |
+| safe-buffer | 5.1.2 | runtime | MIT | allowed |
 | safe-buffer | 5.1.2 | runtime | MIT | allowed |
 | safe-buffer | 5.1.2 | runtime | MIT | allowed |
 | safe-buffer | 5.2.1 | runtime | MIT | allowed |
@@ -1328,6 +1335,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | statuses | 1.5.0 | runtime | MIT | allowed |
 | statuses | 2.0.2 | runtime | MIT | allowed |
 | streamx | 2.28.0 | runtime | MIT | allowed |
+| string_decoder | 1.1.1 | runtime | MIT | allowed |
 | string_decoder | 1.1.1 | runtime | MIT | allowed |
 | string_decoder | 1.1.1 | runtime | MIT | allowed |
 | string_decoder | 1.3.0 | runtime | MIT | allowed |
@@ -1396,6 +1404,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | unist-util-visit | 5.1.0 | runtime | MIT | allowed |
 | universalify | 2.0.1 | runtime | MIT | allowed |
 | unpipe | 1.0.0 | runtime | MIT | allowed |
+| unzipper | 0.12.5 | runtime | MIT | allowed |
 | update-browserslist-db | 1.3.2 | runtime | MIT | allowed |
 | use-callback-ref | 1.3.3 | runtime | MIT | allowed |
 | use-intl | 4.13.2 | runtime | MIT | allowed |
@@ -6595,7 +6604,7 @@ SOFTWARE.
 
 ### License text 2fddaa39f078
 
-Applies to isarray@1.0.0, isarray@1.0.0.
+Applies to isarray@1.0.0, isarray@1.0.0, isarray@1.0.0.
 
 Copyright notices:
 
@@ -15476,6 +15485,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 87092fe7ffd1
+
+Applies to bluebird@3.7.2.
+
+Copyright notices:
+
+- Copyright (c) 2013-2018 Petka Antonov
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2013-2018 Petka Antonov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 ### License text 872f31f366ab
 
 Applies to @schummar/icu-type-parser@1.21.5.
@@ -16373,6 +16414,36 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### License text 8f85aab053e2
+
+Applies to node-int64@0.4.0.
+
+Copyright notices:
+
+- Copyright (c) 2014 Robert Kieffer
+
+```text
+Copyright (c) 2014 Robert Kieffer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### License text 90021adfb24b
@@ -18853,6 +18924,43 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 9dbe3e40f619
+
+Applies to unzipper@0.12.5.
+
+Copyright notices:
+
+- Commits in this fork are (c) Ziggy Jonsson (ziggy.jonsson.nyc@gmail.com)
+- Copyright (c) 2012 - 2013 Near Infinity Corporation
+
+```text
+Copyright (c) 2012 - 2013 Near Infinity Corporation
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
+Commits in this fork are (c) Ziggy Jonsson (ziggy.jonsson.nyc@gmail.com)
+and fall under same licence structure as the original repo (MIT)
+```
+
 ### License text 9df3bb69929a
 
 Applies to ajv-formats@3.0.1.
@@ -20506,6 +20614,43 @@ IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
 CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License text a7b5251a0ebd
+
+Applies to duplexer2@0.1.4.
+
+Copyright notices:
+
+- Copyright (c) 2013, Deoxxa Development
+
+```text
+Copyright (c) 2013, Deoxxa Development
+======================================
+All rights reserved.
+--------------------
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of Deoxxa Development nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY DEOXXA DEVELOPMENT ''AS IS'' AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL DEOXXA DEVELOPMENT BE LIABLE FOR ANY
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text a7e7ce843788
@@ -23952,6 +24097,32 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License text c6a7de142895
+
+Applies to fs-extra@11.3.1.
+
+Copyright notices:
+
+- Copyright (c) 2011-2024 JP Richardson
+
+```text
+(The MIT License)
+
+Copyright (c) 2011-2024 JP Richardson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+(the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify,
+ merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text c71d239df917
 
 Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.11.20, browser-fs-access@0.29.1, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, standardwebhooks@1.1.1, text-decoder@1.2.7.
@@ -24205,7 +24376,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text c7cc929b5708
 
-Applies to safe-buffer@5.1.2, safe-buffer@5.1.2, safe-buffer@5.2.1.
+Applies to safe-buffer@5.1.2, safe-buffer@5.1.2, safe-buffer@5.1.2, safe-buffer@5.2.1.
 
 Copyright notices:
 
@@ -28611,7 +28782,7 @@ SOFTWARE.
 
 ### License text ec62dc96da00
 
-Applies to readable-stream@2.3.8, readable-stream@2.3.8, readable-stream@4.7.0, string_decoder@1.1.1, string_decoder@1.1.1, string_decoder@1.3.0.
+Applies to readable-stream@2.3.8, readable-stream@2.3.8, readable-stream@2.3.8, readable-stream@4.7.0, string_decoder@1.1.1, string_decoder@1.1.1, string_decoder@1.1.1, string_decoder@1.3.0.
 
 Copyright notices:
 

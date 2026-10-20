@@ -53,6 +53,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[Migration Export] Failed to create export job:', error);
     const message = error instanceof Error ? error.message : 'Failed to create migration export.';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error && typeof error === 'object' && 'status' in error && error.status === 400 ? 400 : 500 });
   }
 }
