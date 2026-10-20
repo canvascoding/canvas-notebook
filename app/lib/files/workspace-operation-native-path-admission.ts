@@ -210,35 +210,61 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
     const open = fields.openConnection?.value === undefined ? openDb : fields.openConnection.value;
     if (typeof open !== 'function') throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'A real connection factory is required.');
     return withWorkspaceMutationLock(original.binding.workspaceId, () => withNativePathClaimPhase(claim, original, mcp, open, async (database, access) => {
-      const existing = await readWorkspaceOperationNativePathAdmissionOnConnection(database, claim);
-      const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
-      const active = await database.all(`SELECT DISTINCT CASE WHEN octet_length(r.request_id)=36 THEN r.request_id END AS request_id
+      const startedAt = performance.now();
+      type Stage = 'admission-read' | 'active-census' | 'request-prepare' | 'reserve' | 'targets' | 'ready';
+      let stage: Stage = 'admission-read', finishedCallback = false;
+      const milestones: Array<Readonly<{ stage: Stage; elapsedMs: number }>> = [];
+      const mark = (completed: Stage) => {
+        if (milestones.length < 6) milestones.push({ stage: completed, elapsedMs: Math.round(performance.now() - startedAt) });
+      };
+      try {
+        const existing = await readWorkspaceOperationNativePathAdmissionOnConnection(database, claim);
+        mark('admission-read'); stage = 'active-census';
+        const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
+        const active = await database.all(`SELECT DISTINCT CASE WHEN octet_length(r.request_id)=36 THEN r.request_id END AS request_id
         FROM ${prefix}.collaboration_admission_scopes s JOIN ${prefix}.collaboration_admission_requests r USING(request_id)
         WHERE s.workspace_id=$1 AND r.status NOT IN('committed','cancelled') LIMIT 3`, [original.binding.workspaceId]) as Row[];
-      if (active.length > 1 || active.some(row => !existing || row.request_id !== existing.request.requestId)) throw new WorkspaceFileLifecycleBusyError();
-      if (existing?.outcome) {
-        if (existing.outcome.version === 2) throw original.kind === 'move'
-          ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
-        return Object.freeze({ status: 'ready', requestId: existing.request.requestId });
+        mark('active-census');
+        if (active.length > 1 || active.some(row => !existing || row.request_id !== existing.request.requestId)) throw new WorkspaceFileLifecycleBusyError();
+        if (existing?.outcome) {
+          if (existing.outcome.version === 2) throw original.kind === 'move'
+            ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
+          stage = 'ready'; mark('ready'); finishedCallback = true;
+          return Object.freeze({ status: 'ready', requestId: existing.request.requestId });
+        }
+        if (existing && !['reserved', 'draining'].includes(existing.status)) {
+          if (existing.status === 'cancelled') throw original.kind === 'move'
+            ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
+          throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+        }
+        stage = 'request-prepare';
+        const selected = existing ? { request: existing.request, requiresHeader: true, legacy: false }
+          : await prepareNativePathRequest(database, original, 'prepare', access);
+        mark('request-prepare');
+        if (!selected) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+        if (selected.legacy) {
+          stage = 'ready'; mark('ready'); finishedCallback = true;
+          return Object.freeze({ status: 'ready', requestId: selected.request.requestId });
+        }
+        stage = 'reserve';
+        let reserved: CollaborationAdmissionResult;
+        try { reserved = await reserveCollaborationAdmissionOnConnection(database, selected.request); }
+        catch (error) {
+          if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') throw new WorkspaceFileLifecycleBusyError();
+          throw error;
+        }
+        mark('reserve');
+        if (!['reserved', 'draining'].includes(reserved.status)) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+        stage = 'targets';
+        const pending = await advanceNativePathTargets(database, original, selected.request, reserved, access);
+        mark('targets'); stage = 'ready'; mark('ready'); finishedCallback = true;
+        return Object.freeze({ status: pending ? 'pending' : 'ready', requestId: selected.request.requestId });
+      } finally {
+        // Fixed diagnostics only: callback completion is not a COMMIT claim.
+        try { console.info('[Native path admission] Callback timings.', JSON.stringify({ version: 1, stage,
+          elapsedMs: Math.round(performance.now() - startedAt), finishedCallback, milestones })); }
+        catch { /* Preserve the original result or error. */ }
       }
-      if (existing && !['reserved', 'draining'].includes(existing.status)) {
-        if (existing.status === 'cancelled') throw original.kind === 'move'
-          ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
-        throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
-      }
-      const selected = existing ? { request: existing.request, requiresHeader: true, legacy: false }
-        : await prepareNativePathRequest(database, original, 'prepare', access);
-      if (!selected) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
-      if (selected.legacy) return Object.freeze({ status: 'ready', requestId: selected.request.requestId });
-      let reserved: CollaborationAdmissionResult;
-      try { reserved = await reserveCollaborationAdmissionOnConnection(database, selected.request); }
-      catch (error) {
-        if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') throw new WorkspaceFileLifecycleBusyError();
-        throw error;
-      }
-      if (!['reserved', 'draining'].includes(reserved.status)) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-      const pending = await advanceNativePathTargets(database, original, selected.request, reserved, access);
-      return Object.freeze({ status: pending ? 'pending' : 'ready', requestId: selected.request.requestId });
     }));
   } catch (error) { return Promise.reject(error); }
 }
@@ -444,31 +470,47 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
 
 async function advanceNativePathTargets(database: SqlConnection, original: NativePathBinding, request: CollaborationAdmissionRequest,
   reserved: CollaborationAdmissionResult, access: WorkspaceOperationJobPolicyAccess): Promise<boolean> {
-  const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
-  const rows = await database.all(`SELECT document_id,status,active FROM ${prefix}.collaboration_admission_targets
+  const startedAt = performance.now(), total = request.expectedDocuments.length;
+  let stage: 'rows' | 'target-check' | 'drain' | 'prove' | 'current-check' | 'done' = 'rows';
+  let completed = 0, ordinal: number | null = null, finishedTargets = false;
+  try {
+    const prefix = `"${original.binding.source.schemaName.replaceAll('"', '""')}"`;
+    const rows = await database.all(`SELECT document_id,status,active FROM ${prefix}.collaboration_admission_targets
     WHERE request_id=$1 ORDER BY document_id COLLATE "C" LIMIT $2 FOR UPDATE`, [request.requestId, request.expectedDocuments.length + 1]) as Row[];
-  const byId = new Map(rows.map(row => [row.document_id, row]));
-  if (rows.length !== request.expectedDocuments.length || reserved.targets.length !== request.expectedDocuments.length
-    || byId.size !== rows.length || rows.some(row => row.active !== true
-      || !['reserved', 'draining', 'released'].includes(row.status as string))
-    || request.expectedDocuments.some(document => !byId.has(document.documentId))) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
-  let pending = false;
-  for (const document of request.expectedDocuments) {
-    const target = reserved.targets.find(item => item.document.documentId === document.documentId);
-    if (!target || !equal(target.document, document)) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
-    if (target.ownerToken !== null && byId.get(document.documentId)!.status !== 'released') {
-      await startCollaborationAdmissionDrainOnConnection(database, request, document.documentId);
+    const byId = new Map(rows.map(row => [row.document_id, row]));
+    if (rows.length !== request.expectedDocuments.length || reserved.targets.length !== request.expectedDocuments.length
+      || byId.size !== rows.length || rows.some(row => row.active !== true
+        || !['reserved', 'draining', 'released'].includes(row.status as string))
+      || request.expectedDocuments.some(document => !byId.has(document.documentId))) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+    let pending = false;
+    for (const document of request.expectedDocuments) {
+      ordinal = completed; stage = 'target-check';
+      const target = reserved.targets.find(item => item.document.documentId === document.documentId);
+      if (!target || !equal(target.document, document)) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
+      if (target.ownerToken !== null && byId.get(document.documentId)!.status !== 'released') {
+        stage = 'drain';
+        await startCollaborationAdmissionDrainOnConnection(database, request, document.documentId);
+      }
+      stage = 'prove';
+      try { await proveCollaborationAdmissionQuiescenceOnConnection(database, request, document.documentId, { lockTimeout: '50ms' }); }
+      catch (error) {
+        // pg_try_advisory_xact_lock returns false without aborting B. Only that
+        // genuine room contention is pending; SQL errors must roll back outside.
+        if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') pending = true;
+        else throw error;
+      }
+      stage = 'current-check';
+      await access.assertCurrent();
+      completed++;
     }
-    try { await proveCollaborationAdmissionQuiescenceOnConnection(database, request, document.documentId, { lockTimeout: '50ms' }); }
-    catch (error) {
-      // pg_try_advisory_xact_lock returns false without aborting B. Only that
-      // genuine room contention is pending; SQL errors must roll back outside.
-      if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') pending = true;
-      else throw error;
-    }
-    await access.assertCurrent();
+    stage = 'done'; finishedTargets = true;
+    return pending;
+  } finally {
+    // Ordinal is zero-based; no document identity or request bytes are logged.
+    try { console.info('[Native path admission] Target timings.', JSON.stringify({ version: 1, stage,
+      elapsedMs: Math.round(performance.now() - startedAt), total, completed, ordinal, finishedTargets })); }
+    catch { /* Preserve the original result or error. */ }
   }
-  return pending;
 }
 
 
