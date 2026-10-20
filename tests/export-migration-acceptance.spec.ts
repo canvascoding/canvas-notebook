@@ -342,18 +342,26 @@ test.describe('source export and migration acceptance', () => {
     } finally { await page.close(); }
   });
 
-  test('MAP: an actual full-workspace UI export cannot silently remap project data', async () => {
+  test('MAP: an actual full-workspace UI export recognizes exact registered workspace roots', async () => {
     const page = await admin.newPage();
     try {
       await settings(page, 'data-migration');
       const completed = page.waitForResponse(r => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(r.url()));
       await page.locator('input[type=file]').setInputFiles(path.join(artifacts, 'all-workspaces.zip'));
-      const payload = await (await completed).json(); expect(payload.inspection.canRestore).toBe(false);
-      expect(payload.inspection.dryRun.blockers.join(' ')).toContain('Workspace mapping unresolved');
-      await expect(page.getByRole('button', { name: 'Full Restore starten', exact: true })).toBeDisabled();
-      await page.getByText('Dry Run blockiert', { exact: true }).scrollIntoViewIfNeeded();
-      await page.screenshot({ path: path.join(artifacts, '09-actual-bundle-mapping-blocked.png') });
+      const payload = await (await completed).json(); expect(payload.inspection.canRestore).toBe(true);
+      expect(payload.inspection.dryRun.workspaces.every((mapping: { status: string }) => mapping.status === 'mapped')).toBe(true);
+      await expect(page.getByRole('button', { name: 'Full Restore starten', exact: true })).toBeEnabled();
+      await page.getByText('Dry Run bestanden', { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(artifacts, '09-actual-bundle-mapping-ready.png') });
     } finally { await page.close(); }
+  });
+
+  test('MAP LOCKED: copied disabled/recovery-locked workspace roots cannot silently become active imports', async () => {
+    const archive = path.join(path.dirname(artifacts), 'baseline-2026-10-20-blocked/all-workspaces.zip');
+    const result = await uploadArchive(admin.request, archive);
+    expect(result.response.status()).toBe(200);
+    expect(result.payload.inspection.canRestore).toBe(false);
+    expect(result.payload.inspection.dryRun.blockers.join(' ')).toContain('Workspace mapping unresolved');
   });
 
   test('UP2 MAP: corrupt/version/schema/path/chunk and differing user/project mappings are blocked', async () => {
@@ -495,7 +503,92 @@ test.describe('isolated target restore acceptance', () => {
         expect.soft(evidence.previousSessionStillValid, 'The promised session invalidation must be applied.').toBe(false);
         expect.soft(evidence.oauthMarkerStillPresent, 'The promised OAuth reset must be applied.').toBe(false);
         expect.soft(evidence.automationStatus, 'The promised automation pause must be applied.').toBe('paused');
+        const receipt = await fresh.newPage();
+        await settings(receipt, 'data-migration');
+        await expect(receipt.getByTestId('migration-restore-receipt')).toContainText('Migration abgeschlossen');
+        await receipt.setViewportSize({ width: 390, height: 844 });
+        await receipt.getByTestId('migration-restore-receipt').scrollIntoViewIfNeeded();
+        await receipt.screenshot({ path: path.join(artifacts, '11-restore-completed-mobile.png') });
+        expect(await receipt.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+        await receipt.close();
       } finally { await fresh.close(); }
     } finally { await page.close(); }
   });
+  test('TRANSFER: actual all-workspace archive applies with explicit different target roots and remains visible after restart', async ({ browser }) => {
+    const filename = path.join(artifacts, 'all-workspaces.zip');
+    const manifest = JSON.parse(zipRead(filename, 'manifest.json').toString()) as CanvasMigrationManifest;
+    let context = await login(browser);
+    let page = await context.newPage();
+    try {
+      const existing = (await json<{ workspaces: Array<{ id: string; name: string; type: string }> }>(await context.request.get('/api/workspaces'))).workspaces;
+      const targets = new Map<string, string>();
+      for (const source of manifest.workspaces || []) {
+        const exact = existing.find(target => target.id === source.id);
+        if (exact) { targets.set(source.id, exact.id); continue; }
+        const name = 'Migration target 99b4 ' + source.id;
+        let target = existing.find(workspace => workspace.name === name);
+        if (!target) {
+          let projectId: string | undefined;
+          if (source.type === 'project') projectId = (await json<{ project: { id: string } }>(await context.request.post('/api/projects', { data: { name } }))).project.id;
+          target = (await json<{ workspace: typeof existing[number] }>(await context.request.post('/api/workspaces', {
+            data: { type: source.type, name, ...(projectId ? { projectId } : {}) },
+          }))).workspace;
+        }
+        targets.set(source.id, target.id);
+      }
+      await settings(page, 'data-migration');
+      const completed = page.waitForResponse(response => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(response.url()));
+      await page.locator('input[type=file]').setInputFiles(filename);
+      let inspection = (await (await completed).json()).inspection;
+      expect(inspection.dryRun.workspaces.some((mapping: { status: string }) => mapping.status !== 'mapped')).toBe(true);
+      for (const mapping of inspection.dryRun.workspaces as Array<{ sourcePath: string; sourceWorkspaceId: string; status: string }>) {
+        if (mapping.status === 'mapped') continue;
+        const target = targets.get(mapping.sourceWorkspaceId);
+        expect(target, mapping.sourcePath).toBeTruthy();
+        const updated = page.waitForResponse(response => response.request().method() === 'PATCH' && response.url().includes('/api/migration/uploads/'));
+        await page.getByLabel('Ziel-Workspace für ' + mapping.sourcePath, { exact: true }).selectOption(target!);
+        const response = await updated;
+        expect(response.status()).toBe(200);
+        inspection = (await response.json()).upload.inspection;
+      }
+      expect(inspection.canRestore).toBe(true);
+      await page.setViewportSize({ width: 390, height: 844 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      const mappedRow = inspection.dryRun.workspaces.find((mapping: { kind: string }) => mapping.kind !== 'legacy');
+      await page.getByLabel('Ziel-Workspace für ' + mappedRow.sourcePath, { exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: path.join(artifacts, '12-explicit-workspace-mapping-mobile.png') });
+      page.once('dialog', dialog => dialog.accept('FULL_RESTORE'));
+      const staged = page.waitForResponse(response => response.request().method() === 'POST' && response.url().endsWith('/api/migration/restore'));
+      await page.getByRole('button', { name: 'Full Restore starten', exact: true }).click();
+      expect((await staged).status()).toBe(200);
+      await page.close(); await context.close();
+      await stopRuntime(); await startRuntime('target');
+      context = await login(browser); page = await context.newPage();
+      const targetEnv = await runtimeEnv('target');
+      let checked = 0;
+      for (const file of manifest.files) {
+        const mapping = [...inspection.dryRun.workspaces].sort((a, b) => b.sourcePath.length - a.sourcePath.length)
+          .find(mapping => file.archivePath.startsWith(mapping.sourcePath + '/'));
+        expect(mapping, file.archivePath).toBeTruthy();
+        const destination = mapping.targetPath.slice(5) + file.archivePath.slice(mapping.sourcePath.length);
+        expect(digest(await fs.readFile(path.join(targetEnv.DATA, destination))), destination).toBe(digest(zipRead(filename, file.archivePath)));
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(5);
+      const source = manifest.workspaces!.find(workspace => workspace.displayName === 'Export E2E Personal 99b4')!;
+      const importedDocument = manifest.files.find(file => file.archivePath.startsWith('data/' + source.rootRelativePath + '/export-99b4/current-') && file.archivePath.endsWith('.md'))!;
+      const relative = importedDocument.archivePath.slice(('data/' + source.rootRelativePath + '/').length);
+      const id = targets.get(source.id)!;
+      const content = zipRead(filename, importedDocument.archivePath).toString();
+      await page.addInitScript(workspaceId => localStorage.setItem('canvas.activeWorkspaceId', workspaceId), id);
+      await page.goto('/de/notebook?' + new URLSearchParams({ workspaceId: id, path: relative }), { waitUntil: 'domcontentloaded' });
+      const panel = page.getByRole('tabpanel', { name: path.posix.basename(relative), exact: true });
+      // Native Markdown is rendered: serialization escapes are absent from the
+      // visible text. Exact archive/file bytes were checked above for every file.
+      await expect(panel).toContainText(content.trim().replace(/\\/g, ''));
+      await page.screenshot({ path: path.join(artifacts, '13-migrated-native-markdown.png') });
+      await fs.writeFile(path.join(artifacts, 'actual-file-transfer-result.json'), JSON.stringify({ checked, differentTargetRoots: true, nativeDocumentVisible: true }, null, 2), { mode: 0o600 });
+    } finally { await page.close(); await context.close(); }
+  });
+
 });

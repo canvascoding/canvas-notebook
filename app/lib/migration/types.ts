@@ -48,6 +48,21 @@ export interface MigrationFileEntry {
   archivePath: string;
   size: number;
   modifiedAt: string;
+  sha256?: string;
+}
+
+export interface MigrationWorkspaceDescriptor {
+  id: string;
+  type: 'personal' | 'organization' | 'team' | 'project';
+  rootRelativePath: string;
+  displayName: string;
+  organizationId: string | null;
+  ownerUserId: string | null;
+}
+
+export interface MigrationMappingChoices {
+  users: Record<string, string>;
+  workspaces: Record<string, string>;
 }
 
 export interface CanvasMigrationManifest {
@@ -70,6 +85,8 @@ export interface CanvasMigrationManifest {
   warnings: string[];
   files: MigrationFileEntry[];
   directories?: string[];
+  workspaces?: MigrationWorkspaceDescriptor[];
+  users?: Array<{ id: string; email: string | null }>;
 }
 
 export interface MigrationExportSelection {
@@ -212,7 +229,7 @@ export interface MigrationImportUserMapping {
 }
 
 export interface MigrationImportWorkspaceMapping {
-  kind: 'legacy' | 'team' | 'personal' | 'project' | 'unknown';
+  kind: 'legacy' | 'organization' | 'team' | 'personal' | 'project' | 'unknown';
   sourcePath: string;
   sourceWorkspaceId: string | null;
   sourceOrganizationId: string | null;
@@ -253,6 +270,8 @@ export interface MigrationImportDryRun {
   };
   users: MigrationImportUserMapping[];
   workspaces: MigrationImportWorkspaceMapping[];
+  availableWorkspaces?: MigrationWorkspaceDescriptor[];
+  availableUsers?: Array<{ id: string; email: string | null }>;
   reconnect: MigrationImportReconnectRequirement[];
   stats: {
     userMappings: number;
@@ -276,4 +295,16 @@ export interface PendingMigrationRestore {
   pauseAutomations: boolean;
   clearOAuthTokens: boolean;
   preserveTargetInstanceAndLicense: boolean;
+  archiveSha256?: string;
+  targetFingerprint?: string;
+  mappings?: MigrationMappingChoices;
+}
+
+export interface MigrationRestoreResult {
+  id: string;
+  status: 'completed' | 'failed';
+  completedAt: string;
+  filesApplied: number;
+  rollbackComplete: boolean;
+  error?: string;
 }

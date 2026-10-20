@@ -6,7 +6,7 @@ Die Arbeitsschritte werden nacheinander implementiert, geprüft und committed.
 
 - [x] Exporte: Organisationspfad, leere Verzeichnisse und aktuelle native Text-Checkpoints für Einzel- und Gesamtexport; Benutzerordner namens `cache` bewahren.
 - [x] Fehlerbehandlung: sichtbare Downloadfehler und vollständig behandelte Output-Stream-Ablehnungen.
-- [ ] Dateimigration: sichere Zuordnung, tatsächliche Anwendung vor Serverstart, Rücknahme bei Fehlern und zugesagte Nacharbeiten.
+- [x] Dateimigration: sichere Zuordnung, tatsächliche Anwendung vor Serverstart, Rücknahme bei Fehlern und zugesagte Nacharbeiten.
 - [ ] PostgreSQL: echter Datenbanktransfer unter Erhalt der Zielinstanz und Lizenz.
 - [ ] Gesamtabnahme: tatsächlicher Export auf isoliertem Ziel, Neustart und Prüfung über API und Browser.
 
@@ -31,3 +31,17 @@ Private Testdaten, ZIPs und Traces liegen weiterhin unter `~/.local/state/canvas
 - Vorbereitete Downloads sind an Benutzer, Sitzung und Workspace gebunden, einmalig nutzbar und nach fünf Minuten abgelaufen. Der Browser puffert das Archiv nicht im RAM.
 - Vier Browserfälle bestanden: erfolgreiche Workspace-ZIPs, bestehende Zugriffsgrenzen, Nichtübertragbarkeit/Wiederverwendung vorbereiteter ZIPs und sichtbare Fehlermeldung bei abgewiesenem Download.
 - Der Test-Login respektiert HTTP 429 mit einem begrenzten erneuten Versuch nach `Retry-After`; das Anmeldelimit wird nicht verändert.
+
+## Dateimigration
+
+- Der Upload wird anhand sicherer ZIP-Einträge, CRC, Größen, vollständigem Manifest und optionalen Datei-SHA256 geprüft. Die Freigabe bindet den unveränderten Upload an Ziel-Datenbank, DATA, Instanz und konfigurierte Secrets-Pfade.
+- Das Mapping verwendet vollständige registrierte Workspace-Wurzeln. Persönliche Daten brauchen ein passendes Zielkonto; Vorschläge werden ausdrücklich bestätigt. Deaktivierte und gesperrte Ziel-Workspaces werden nicht automatisch freigegeben.
+- Der tatsächliche Import läuft als eigener Prozess vor Auth, Scheduler und HTTP-Start. Ein dauerhaftes Journal, private Sicherungskopien und wiederholbare Rücknahme schützen unterbrochene Dateiaustausche. Bestehende native Dokumentzustände werden über den vorhandenen Lifecycle archiviert und bei Rücknahme wiederhergestellt.
+- Dateiimporte schreiben die ausgewählten Dateien an die bestätigten Ziele. Gleichnamige Zieldateien werden ersetzt; andere vorhandene Dateien bleiben bestehen.
+- Alte Sitzungen werden ungültig, aktive Automationen pausiert und OAuth-Zugänge über ihre zentralen Speicheradapter zurückgesetzt. API-Schlüssel bleiben erhalten. Zielinstanz und Lizenz werden nicht importiert.
+- Unit-Prüfungen für gefährliche Pfade, Links, Checksummen, Owner-Zuordnung, abgebrochenen Austausch, wiederholte Rücknahme und OAuth/API-Key-Trennung bestanden.
+- Ein zusätzlich erzwungener Fehler mit echten PostgreSQL-/Yjs-Dokumenten stellte ursprüngliche Datei, Dokumentidentität, aktiven Zustand und State-Version wieder her; Wiederholung derselben Rücknahme bestanden.
+
+Die geerbte Testquelle enthält 660 registrierte Workspaces, davon 618 deaktiviert und 23 gesperrt. Das unveränderte erste Archiv wird korrekt blockiert. 632 vorhandene Dateiwurzeln dieser alten deaktivierten/gesperrten QA-Workspaces wurden außerhalb der aktiven Quell-Datenkopie privat gesichert; ihre Datenbankstatus bleiben unverändert. Die positive Dateiabnahme verwendet 19 vorhandene aktive Workspace-Wurzeln und 224 Dateien. Das ursprüngliche Archiv bleibt als Negativprüfung erhalten. Dieses Vorgehen ist eine Bereinigung der isolierten Testquelle, keine automatische Wiederherstellung gesperrter Produktdaten.
+
+Die sechs Browserfälle auf der bereinigten Quelle bestanden (Gesamtexporte, Komponenten/Secrets, mehrteiliger Upload, exakte Wurzeln, gesperrte Altbestände und ungültige Archive/Zuordnungen). Zwei Ziel-Browserfälle bestanden nach dem letzten Produktionsbuild: tatsächliche Wiederherstellung nach Neustart samt zugesagten Nacharbeiten sowie vollständiger Export von 224 Dateien in andere bestätigte Workspace-Wurzeln mit anschließendem Öffnen eines nativen Markdown-Dokuments. Desktop- und 390-px-Ansichten wurden geprüft; kein horizontaler Überlauf. Gezieltes TypeScript und ESLint bestanden.

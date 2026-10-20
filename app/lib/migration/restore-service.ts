@@ -4,16 +4,22 @@ import crypto from 'crypto';
 import path from 'path';
 import { promises as fs } from 'fs';
 
-import { getPendingRestorePath, ensureMigrationDir } from '@/app/lib/migration/paths';
+import { getPendingRestorePath, getMigrationUploadsRoot } from '@/app/lib/migration/paths';
+import { withFileMutationLock } from '@/app/lib/secrets/file-mutation-lock';
+import { migrationFileSha256 } from './archive';
+import { migrationTargetFingerprint, readMigrationJson, writeMigrationJson } from './restore-storage';
 import type {
   MigrationInspection,
   MigrationUploadStatus,
   PendingMigrationRestore,
+  MigrationMappingChoices,
 } from '@/app/lib/migration/types';
 
 export async function writePendingMigrationRestore(params: {
   upload: MigrationUploadStatus;
   inspection: MigrationInspection;
+  mappings?: MigrationMappingChoices;
+  beforePublish?: (pending: PendingMigrationRestore) => Promise<void>;
   requestedBy: {
     userId: string;
     email: string;
@@ -28,11 +34,18 @@ export async function writePendingMigrationRestore(params: {
   if (params.inspection.dryRun && !params.inspection.dryRun.canApply) {
     throw new Error('Migration dry run has unresolved blockers and cannot be restored.');
   }
+  const archive = await fs.realpath(params.upload.archivePath);
+  const uploadsRoot = await fs.realpath(getMigrationUploadsRoot());
+  if (!archive.startsWith(uploadsRoot + path.sep) || !params.upload.archiveSha256
+    || await migrationFileSha256(archive) !== params.upload.archiveSha256) throw new Error('The finalized migration archive changed. Upload and inspect it again.');
 
   const pending: PendingMigrationRestore = {
     id: crypto.randomUUID(),
     uploadId: params.upload.id,
-    archivePath: params.upload.archivePath,
+    archivePath: archive,
+    archiveSha256: params.upload.archiveSha256,
+    targetFingerprint: await migrationTargetFingerprint(),
+    mappings: params.mappings,
     requestedAt: new Date().toISOString(),
     requestedBy: params.requestedBy,
     components: params.inspection.manifest.components,
@@ -43,13 +56,12 @@ export async function writePendingMigrationRestore(params: {
   };
 
   const pendingPath = getPendingRestorePath();
-  await ensureMigrationDir(path.dirname(pendingPath));
-  await fs.writeFile(pendingPath, `${JSON.stringify(pending, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
+  return withFileMutationLock(pendingPath, async () => {
+    if (await readMigrationJson(pendingPath)) throw Object.assign(new Error('A migration restore is already pending. Restart the application before staging another restore.'), { status: 409 });
+    await params.beforePublish?.(pending);
+    await writeMigrationJson(pendingPath, pending);
+    return pending;
   });
-  await fs.chmod(pendingPath, 0o600).catch(() => undefined);
-  return pending;
 }
 
 export function scheduleMigrationRestartIfSupported(): boolean {

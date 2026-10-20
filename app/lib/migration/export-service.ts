@@ -41,6 +41,9 @@ import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { isPortableCredentialPath, isPortableRuntimeConfigPath, redactPortableRuntimeConfig } from '@/app/lib/migration/secret-export-policy';
 import { parseEnvDocument } from '@/app/lib/secrets/env-document';
 import { ensurePortableTextCheckpointsCurrent } from '@/app/lib/exports/text-checkpoints';
+import { migrationFileSha256 } from '@/app/lib/migration/archive';
+import { openDb } from '@/app/lib/db';
+import type { MigrationWorkspaceDescriptor } from '@/app/lib/migration/types';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const EXPORT_WRITE_THROTTLE_MS = 750;
@@ -466,6 +469,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
   const exportDir = getExportDir(job.id);
   const archivePath = path.join(exportDir, job.fileName);
   let lastStatusWrite = 0;
+  let abortArchive: (error: Error) => Promise<void> = async () => {};
 
   const persist = async (force = false) => {
     const now = Date.now();
@@ -528,6 +532,17 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       virtualFileContents.set(reconnectManifest.entry.archivePath, reconnectManifest.content);
     }
 
+    for (const entry of files) {
+      const virtual = virtualFileContents.get(entry.archivePath);
+      if (virtual !== undefined) entry.sha256 = crypto.createHash('sha256').update(virtual).digest('hex');
+      else {
+        const filename = path.join(dataRoot, entry.archivePath.slice('data/'.length));
+        entry.sha256 = await migrationFileSha256(filename);
+        const current = await fs.stat(filename);
+        if (current.size !== entry.size || current.mtime.toISOString() !== entry.modifiedAt) throw new Error('A source file changed while preparing the migration archive. Retry the export.');
+      }
+    }
+
     const database = buildDatabaseManifest({ source: job.source, postgresDump });
     const features = buildFeatures(job.source);
     const runtime = buildRuntimeManifest({ source: job.source, database, features });
@@ -546,6 +561,20 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     });
     job.manifest = manifest;
     manifest.directories = [...directories].sort();
+    if (job.components.workspace) {
+      const database = await openDb();
+      try {
+        const workspaces = await database.all(`SELECT id, type, root_relative_path AS "rootRelativePath",
+          display_name AS "displayName", organization_id AS "organizationId", owner_user_id AS "ownerUserId"
+          FROM canvas_workspaces ORDER BY id`) as MigrationWorkspaceDescriptor[];
+        manifest.workspaces = workspaces.filter(w => (directories.has(`data/${w.rootRelativePath}/`)
+          || files.some(file => file.archivePath.startsWith(`data/${w.rootRelativePath}/`))) && componentRoots.some(root => root.component === 'workspace'
+          && (w.rootRelativePath === path.relative(dataRoot, root.sourcePath).split(path.sep).join('/')
+            || w.rootRelativePath.startsWith(path.relative(dataRoot, root.sourcePath).split(path.sep).join('/') + '/'))));
+        const owners = [...new Set(manifest.workspaces.map(w => w.ownerUserId).filter((id): id is string => Boolean(id)))];
+        manifest.users = owners.length ? await database.all('SELECT id, email FROM "user" WHERE id = ANY($1::text[])', [owners]) as Array<{ id: string; email: string | null }> : [];
+      } finally { await database.close(); }
+    }
     job.progress.fileCount = manifest.fileCount;
     job.progress.totalBytes = manifest.totalBytes;
     job.phase = 'Writing archive';
@@ -560,6 +589,11 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       output.on('error', reject);
       archive.on('error', reject);
     });
+    void outputFinished.catch(() => undefined);
+    abortArchive = async error => {
+      archive.destroy(error); output.destroy();
+      await outputFinished.catch(() => undefined);
+    };
 
     await addZipEntry(archive, `${JSON.stringify(manifest, null, 2)}\n`, {
       name: 'manifest.json',
@@ -585,7 +619,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
 
     for (const entry of files) {
       const virtualContent = virtualFileContents.get(entry.archivePath);
-      if (virtualContent) {
+      if (virtualContent !== undefined) {
         await addZipEntry(archive, virtualContent, { name: entry.archivePath });
         job.progress.bytesProcessed += Buffer.byteLength(virtualContent);
         job.progress.filesProcessed++;
@@ -597,9 +631,12 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       const stats = await fs.stat(sourcePath);
       const stream = createCountingStream(sourcePath, (bytes) => {
         job.progress.bytesProcessed += bytes;
-        void persist();
+        void persist().catch(() => undefined);
       });
+      const writtenHash = crypto.createHash('sha256');
+      stream.on('data', chunk => writtenHash.update(chunk));
       await addZipEntry(archive, stream, { name: entry.archivePath, stats });
+      if (writtenHash.digest('hex') !== entry.sha256) throw new Error('A source file changed while writing the migration archive. Retry the export.');
       job.progress.filesProcessed++;
       await persist();
     }
@@ -615,6 +652,8 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     job.progress.filesProcessed = job.progress.fileCount;
     await persist(true);
   } catch (error) {
+    await abortArchive(error instanceof Error ? error : new Error('Migration archive failed.'));
+    await fs.rm(archivePath, { force: true }).catch(() => undefined);
     job.status = 'failed';
     job.phase = 'Failed';
     job.error = error instanceof Error ? error.message : 'Export failed';
