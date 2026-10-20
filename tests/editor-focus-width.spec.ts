@@ -55,7 +55,8 @@ test('header focus and width retain the editable document, panels, undo and nati
     await expect(explorer).toBeVisible(); await expect(chat).toBeVisible();
     if (terminalEnabled) await expect(terminal).toBeVisible();
     else await expect(terminal).toHaveCount(0);
-    const draft = chat.getByTestId('chat-input');
+    const draft = chat.getByTestId('chat-inline-editor').getByRole('textbox');
+    await expect(draft).toHaveAttribute('contenteditable', 'true');
     await draft.fill('Unsent focus test');
     const panels = await page.evaluate(() => localStorage.getItem('canvas.notebookLayout.v2'));
     const node = await editor.elementHandle();
@@ -91,7 +92,7 @@ test('header focus and width retain the editable document, panels, undo and nati
       await expect(terminal).toBeVisible();
       expect(await terminal.evaluate((current, before) => current === before, terminalNode)).toBe(true);
     } else await expect(terminal).toHaveCount(0);
-    await expect(draft).toHaveValue('Unsent focus test');
+    await expect(draft).toHaveText('Unsent focus test');
     await draft.fill('');
     expect(await page.evaluate(() => localStorage.getItem('canvas.notebookLayout.v2'))).toBe(panels);
     expect(sessions.filter((url) => url.includes('collaboration'))).toEqual([]);
