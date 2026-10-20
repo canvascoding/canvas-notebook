@@ -30,7 +30,8 @@ function describeFailure(error: unknown, depth = 0): unknown {
   const code = Object.getOwnPropertyDescriptor(error, 'code')?.value;
   const cause = Object.getOwnPropertyDescriptor(error, 'cause')?.value;
   const children = Object.getOwnPropertyDescriptor(error, 'errors')?.value;
-  const stack = Object.getOwnPropertyDescriptor(error, 'stack')?.value;
+  const stack = Object.getOwnPropertyDescriptor(error, 'stack')?.value
+    ?? (error instanceof assert.AssertionError ? error.stack : undefined);
   const frames = typeof stack === 'string' ? stack.split('\n').flatMap(line => {
     const match = /\/(app\/lib\/[A-Za-z0-9_./-]+|scripts\/[A-Za-z0-9_./-]+):(\d+):(\d+)\)?$/u.exec(line);
     return match ? [`${match[1]}:${match[2]}:${match[3]}`] : [];
@@ -180,8 +181,8 @@ async function main(): Promise<void> {
     const store = new WorkspaceOperationBatchStore();
     type NativeDocument = { path: string; fullPath: string; documentId: string; lineageId: string;
       state: PersistedCollaborationState };
-    type Intent = Extract<OriginalIntent, { version: 3 }>;
-    type Finished = Completion & { version: 3; nativeLinks: OriginalDeleteNativeLinkReceipt[] };
+    type Intent = Extract<OriginalIntent, { version: 4 }>;
+    type Finished = Completion & { version: 4; nativeLinks: OriginalDeleteNativeLinkReceipt[] };
     type Job = { claimed: NonNullable<Awaited<ReturnType<typeof store.claim>>>; workspace: WorkspaceContext;
       plan: WorkspaceOperationNativeDeleteBatchPlan; target: NativeDocument; sources: NativeDocument[]; keep: NativeDocument };
     const nativeState = async (documentId: string): Promise<PersistedCollaborationState> => {
@@ -282,6 +283,8 @@ async function main(): Promise<void> {
       const plan = await buildWorkspaceOperationBatchPlan({ scope: { workspace: access.workspace, fileOptions: { workspace: access.workspace } },
         actions: [{ reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath: target.path }] }] });
       if (plan.version !== 2) assert.fail('A genuine native V2 plan is required.');
+      assert(plan.planIdentityVersion === 2);
+      assert(plan.sourceEvidence.evidenceVersion === 2);
       assert.equal(plan.readiness, 'ready'); assert.deepEqual(plan.issues, []); assert.equal(plan.pathSteps.length, 1);
       assert.equal(plan.nativeTarget.documentId, target.documentId);
       if (selectedGroup === 'success') {
@@ -312,9 +315,25 @@ async function main(): Promise<void> {
       WHERE document_id=ANY($1::text[]) ORDER BY document_id`, [job.sources.map(source => source.documentId)])).rows;
     const readIntent = async (job: Job) => {
       const row = await intentRow(job); assert(row); assert.equal(digest(Buffer.from(row.intent_text)), row.intent_digest);
-      const value = JSON.parse(row.intent_text) as Intent; assert.equal(value.version, 3); assert.equal(value.batchId, job.claimed.batchId);
+      const value = JSON.parse(row.intent_text) as Intent; assert.equal(value.version, 4); assert.equal(value.batchId, job.claimed.batchId);
       assert.equal(job.plan.planIdentityVersion, 2); assert.equal(value.currentWitness.evidenceVersion, 2);
       assertOriginalDeleteIntentPlan(value, job.plan);
+      const authorization = job.claimed.authorization; assert(authorization.mode === 'direct'); assert(authorization.jobScope);
+      const admissionRows = (await admin.query(`SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests
+        WHERE request_id=$1`, [value.admission.requestId])).rows; assert.equal(admissionRows.length, 1);
+      const admission = admissionRows[0];
+      assert.equal(admission.request_id, value.admission.requestId); assert.equal(admission.request_digest, value.admission.requestDigest);
+      assert.equal(typeof admission.intent_text, 'string');
+      assert.equal(digest(Buffer.from('canvas.collaboration.admission-request.v1\0' + admission.intent_text)), value.admission.requestDigest);
+      const admissionRequest = JSON.parse(admission.intent_text);
+      assert.equal(admissionRequest.requestId, value.admission.requestId); assert.equal(admissionRequest.actorId, 'owner');
+      assert.equal(admissionRequest.action, 'archive');
+      assert.deepEqual(admissionRequest.scopes, [{ workspaceId: job.workspace.workspaceId,
+        organizationId: job.workspace.organizationId ?? null, path: '', kind: 'subtree' }]);
+      assert.deepEqual(JSON.parse(admissionRequest.actionPayloadText), { version: 1, batchId: job.claimed.batchId,
+        planId: job.plan.planId, requestHash: authorization.requestHash,
+        originalActor: { userId: authorization.actorUserId, actorId: authorization.actorId, actorType: authorization.actorType,
+          actorSessionId: authorization.actorSessionId ?? null }, jobScope: authorization.jobScope });
       assert.equal(value.planId, job.plan.planId); assert(value.native); assert.equal(value.native.documentId, job.target.documentId);
       assert.equal(value.nativeLinks.length, job.sources.length);
       for (const item of value.nativeLinks) {
@@ -348,7 +367,7 @@ async function main(): Promise<void> {
       const fail = (code: string): never => { throw Object.assign(new Error(code), { code }); };
       return { observation, open: async (): Promise<SqlConnection> => {
         const raw = await openDb(); observation.opens++; checkouts.add(raw);
-        let forwardedQueries = 0, diagnosticQueries = 0;
+        let forwardedQueries = 0, diagnosticQueries = 0, closeCount = 0;
         type PhaseOutcome = 'committed' | 'rolled-back' | 'begin-error' | 'commit-error' | 'rollback-error' | 'superseded' | 'close-requested';
         const phases: Array<{ index: number; beginKind: 'plain' | 'read-committed-read-write' | 'other'; milliseconds: number;
           forwardedQueries: number; outcome: PhaseOutcome }> = [];
@@ -408,10 +427,10 @@ async function main(): Promise<void> {
               }
             }
             return result;
-          }, close: async error => { observation.closes++; assert.equal(observation.closes, 1); observation.discarded = !!error;
-            checkouts.delete(raw); finishPhase('close-requested');
+          }, close: async error => { closeCount++; assert.equal(closeCount, 1); observation.discarded = !!error;
+            finishPhase('close-requested');
             let closeReturned = false;
-            try { await raw.close(error); closeReturned = true; }
+            try { await raw.close(error); closeReturned = true; observation.closes++; checkouts.delete(raw); }
             finally {
               console.log('Native Delete links private Owner-B metrics:', JSON.stringify({ group: selectedGroup,
                 workspaceType: job.workspace.workspaceType, fault, forwardedQueries, diagnosticQueries, phases,
@@ -420,12 +439,13 @@ async function main(): Promise<void> {
       } };
     };
     const invoke = async (job: Job, adapter = tracked(job)) => {
+      let primaryFailure: { error: unknown } | undefined;
       try {
         stage = `${selectedGroup}/${job.workspace.workspaceType}: withClaim`;
         return await store.withClaim(job.claimed, async claim => {
           stage = `${selectedGroup}/${job.workspace.workspaceType}: execute`;
           const result = await execute(claim, adapter.open);
-          assert.equal(result.version, 3); assert(result.nativeLinks); assert.equal(result.nativeLinks.length, job.sources.length);
+          assert.equal(result.version, 4); assert(result.nativeLinks); assert.equal(result.nativeLinks.length, job.sources.length);
           const completedActions = 1 + result.nativeLinks.length;
           stage = `${selectedGroup}/${job.workspace.workspaceType}: finishClaim`;
           const completed = await store.finishClaim(job.claimed, { status: 'applied', phase: 'complete', completedActions,
@@ -433,7 +453,17 @@ async function main(): Promise<void> {
           assert(completed); assert.equal(completed.status, 'applied');
           assert.equal(completed.completedActions, completedActions); assert.equal(completed.totalActions, completedActions); return result;
         });
-      } finally { assert.equal(adapter.observation.opens, 1); assert.equal(adapter.observation.closes, 1); }
+      } catch (error) { primaryFailure = { error }; throw error; }
+      finally {
+        try {
+          assert(adapter.observation.opens > 0, 'The native Delete invocation must open a genuine connection.');
+          assert.equal(adapter.observation.closes, adapter.observation.opens, 'Every opened native Delete connection must actually finish closing.');
+        } catch (error) {
+          if (primaryFailure) throw new AggregateError([primaryFailure.error, error],
+            'Native Delete operation and connection cleanup assertion both failed.');
+          throw error;
+        }
+      }
     };
     const markRecovery = async (job: Job) => {
       const changed = await store.finishClaim(job.claimed, { status: 'needs_recovery', phase: 'recovery', errorCode: 'FIXTURE_EXPECTED_FAILURE' });
@@ -461,7 +491,7 @@ async function main(): Promise<void> {
       assert.equal(captured.row.intent_digest, adapter.observation.intentDigest);
       const complete = await receiptRow(job); assert(complete); assert.equal(digest(Buffer.from(complete.receipt_text)), complete.receipt_digest);
       assert.equal(result.receiptDigest, complete.receipt_digest); assert.equal(complete.intent_digest, captured.row.intent_digest);
-      const value = JSON.parse(complete.receipt_text) as Finished; assert.equal(value.version, 3); assert.equal(value.version, captured.value.version);
+      const value = JSON.parse(complete.receipt_text) as Finished; assert.equal(value.version, 4); assert.equal(value.version, captured.value.version);
       assert.equal(value.nativeLinks.length, job.sources.length);
       assert.deepEqual(result.nativeLinks, value.nativeLinks);
       assert.equal(value.trashEntryId, captured.value.physical.trashEntryId); assert.equal(result.trashEntryId, value.trashEntryId);

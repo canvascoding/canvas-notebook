@@ -442,6 +442,45 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal(probe, undefined); probe = observe;
       try { return await operation(); } finally { probe = undefined; }
     };
+    // Inspect every actual private-schema table, including original native,
+    // link, import, Scene, asset, admission and journal data. Hash full JSONB
+    // row bytes on PG18, retaining each tuple's xmin and physical table OID;
+    // no document bytes or credentials are emitted in the test output.
+    const databaseSnapshot = async () => {
+      const tables = (await admin.query(`SELECT c.relname,c.oid::text AS oid FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname=$1 AND c.relkind IN ('r','p') ORDER BY c.relname COLLATE "C"`, [schema])).rows;
+      assert(tables.length > 0 && tables.length <= 1024);
+      const result: Array<{ name: string; oid: string; rows: Array<{ row_hash: string; xmin: string }> }> = [];
+      for (const table of tables) {
+        assert.equal(typeof table.relname, 'string'); assert.match(table.oid, /^[1-9][0-9]*$/u);
+        const quoted = `"${schema.replaceAll('"', '""')}"."${table.relname.replaceAll('"', '""')}"`;
+        const rows = (await admin.query(`SELECT row_hash,xmin FROM (SELECT
+          pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text,'UTF8')),'hex') AS row_hash,
+          t.xmin::text AS xmin FROM ${quoted} t) observed ORDER BY row_hash COLLATE "C",xmin COLLATE "C"`)).rows;
+        for (const row of rows) { assert.match(row.row_hash, /^[a-f0-9]{64}$/u); assert.match(row.xmin, /^[0-9]+$/u); }
+        result.push({ name: table.relname, oid: table.oid, rows });
+      }
+      return result;
+    };
+    const filesystemSnapshot = async () => {
+      const result: Array<Record<string, string>> = [];
+      const visit = async (filename: string, relative: string): Promise<void> => {
+        const info = await lstat(filename, { bigint: true });
+        const entry: Record<string, string> = { path: relative, dev: String(info.dev), ino: String(info.ino),
+          mode: String(info.mode), uid: String(info.uid), gid: String(info.gid), size: String(info.size),
+          nlink: String(info.nlink), mtimeNs: String(info.mtimeNs), ctimeNs: String(info.ctimeNs) };
+        if (info.isFile()) entry.sha256 = crypto.createHash('sha256').update(await readFile(filename)).digest('hex');
+        else if (info.isSymbolicLink()) entry.target = io.readlinkSync(filename);
+        else assert(info.isDirectory(), 'Only the owned fixture regular files, directories and symlinks are inspected.');
+        result.push(entry);
+        if (info.isDirectory()) for (const name of (await readdir(filename)).sort()) {
+          await visit(path.join(filename, name), relative ? `${relative}/${name}` : name);
+        }
+      };
+      // Access time is excluded: the snapshot's own reads can update it.
+      await visit(dataRoot, ''); return result;
+    };
     const put = async (selected: WorkspaceContext, filename: string, content: string | Buffer) => {
       const target = path.join(selected.rootPath, filename); await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       await writeFile(target, content, { flag: 'wx', mode: 0o600 }); return target;
@@ -557,6 +596,7 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       console.log(JSON.stringify(diagnostic));
       const plan = await preview({ origin, ...(actualRequest ? { request: actualRequest } : {}), selections: selected,
         ...(options.renameOnCollision ? { renameOnCollision: true } : {}) });
+      assert(plan.version === 3, 'These original native Owner cases retain their Plan3/Stage4 contract.');
       if (isolatedPlan && !options.renameOnCollision) assert.equal(plan.planId, isolatedPlan.planId, 'The genuine owner preview agrees with the independently read original C1 plan.');
       assert.equal(plan.kind, 'native-copy'); assert.equal(plan.executionReady, false);
       assert.equal(plan.sourceScope.workspaceId, a.workspaceId); assert.equal(plan.destinationScope.workspaceId, b.workspaceId);
@@ -824,22 +864,69 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       }
       return { root, target, note, empty };
     };
-    await group('actual raw workspace DAL requires original starter initialization before native Copy and cannot silently import physical Markdown', async () => {
+    await group('actual raw workspace DAL previews a destination import without initializing the original starter or writing', async () => {
       const selected = await workspace(destination.workspaceId, 'owner'), actual = await request(false, 'owner', selected);
       const origin = captureWorkspaceOperationCopyOrigin({ actor: { type: 'user', userId: 'owner', actorId: 'owner', sessionId: 'session-owner' },
         sourceWorkspace: selected, destinationWorkspace: selected });
       const { WORKSPACE_STARTER_DOCUMENT_NAME } = await import('../app/lib/workspaces/starter-document');
       const bytes = await readFile(path.join(selected.rootPath, WORKSPACE_STARTER_DOCUMENT_NAME));
-      const initial = await readWorkspaceLinkSourceAuthorityOnConnection(rawConnection(admin), selected);
+      const initial = await readWorkspaceLinkSourceAuthorityOnConnection(rawConnection(admin), selected, { physicalParserVersion: 3 });
       assert.equal(initial.stage.readiness, 'requires-import-and-rebinding'); assert.equal(initial.stage.coverage.complete, true);
       const starter = initial.stage.sources.find(value => value.kind === 'physical' && value.inventory.path === WORKSPACE_STARTER_DOCUMENT_NAME);
       assert(starter && starter.kind === 'physical'); assert.equal(starter.inventory.authority.kind, 'unregistered');
       const privateStageRoot = path.join(dataRoot, 'workspace-operation-staging'), stagesBefore = io.existsSync(privateStageRoot) ? await readdir(privateStageRoot) : null;
-      const writesBefore = writeWitnesses.length;
-      await assert.rejects(preview({ origin, request: actual,
-        selections: [{ sourcePath: WORKSPACE_STARTER_DOCUMENT_NAME, destinationPath: 'copied-starter.md' }] }),
-      error => error instanceof Error && Reflect.get(error, 'code') === 'MANAGED_COPY_PLAN_IMPORT_REQUIRED');
-      assert.equal(writeWitnesses.length, writesBefore, 'Preview rejection performs no clone, link, Journal or physical staging mutation.');
+      const { prepareMarkdownFileImport } = await import('../app/lib/collaboration/markdown-file-import');
+      const prepared = prepareMarkdownFileImport(bytes, { representation: 'auto' });
+      // Complete genuine session refresh and JWT key creation before the read-only window.
+      const authenticated = await auth.api.getSession({ headers: actual.headers });
+      assert(authenticated); assert.equal(authenticated.user.id, 'owner');
+      assert.equal(authenticated.session.id, 'session-owner');
+      // Establish the genuine permanent lock inode before the read-only window.
+      const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
+      await withWorkspaceMutationLock(selected.workspaceId, async () => undefined);
+      const databaseBefore = await databaseSnapshot(), filesBefore = await filesystemSnapshot();
+      const writesBefore = writeWitnesses.length; let queries = 0, writes = 0;
+      const plan = await withProbe(async event => {
+        queries++;
+        if (['INSERT', 'UPDATE', 'DELETE', 'MERGE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE', 'NOTIFY'].includes(event.result.command)
+          || /\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX)|NOTIFY)\b/iu.test(event.text)
+          || /\bpg_notify\s*\(/iu.test(event.text)) writes++;
+      }, () => preview({ origin, request: actual,
+        selections: [{ sourcePath: WORKSPACE_STARTER_DOCUMENT_NAME, destinationPath: 'copied-starter.md' }] }));
+      assert(plan.version === 5); assert.equal(plan.kind, 'native-copy'); assert.equal(plan.executionReady, false);
+      assert.equal(plan.readiness, 'requires-provider-publication'); assert.equal(plan.nativePathPlan.readiness, 'ready');
+      assert.equal(plan.compilation.readiness, 'requires-import-rebinding'); assert.deepEqual(plan.compilation.issues, []);
+      assert.equal(plan.sourceScope.workspaceId, selected.workspaceId); assert.equal(plan.sourceScope.rootPath, selected.rootPath);
+      assert.deepEqual(plan.destinationScope, plan.sourceScope);
+      assert.deepEqual(plan.selections, [{ sourcePath: WORKSPACE_STARTER_DOCUMENT_NAME, destinationPath: 'copied-starter.md' }]);
+      assert.equal(plan.cloneRequirements.length, 0); assert.equal(plan.rawImportRequirements.length, 1);
+      assert.equal(plan.sourceEvidence.nativeBindings.length, 0);
+      const requirement = plan.rawImportRequirements[0];
+      assert.equal(requirement.sourceWorkspaceId, selected.workspaceId); assert.equal(requirement.destinationWorkspaceId, selected.workspaceId);
+      assert.equal(requirement.sourcePath, WORKSPACE_STARTER_DOCUMENT_NAME); assert.equal(requirement.destinationPath, 'copied-starter.md');
+      assert.equal(requirement.physicalSourceProof, starter.inventory.physicalSourceProof);
+      assert.deepEqual(requirement.physical, starter.inventory.physical);
+      assert.equal(requirement.physical.byteHash, crypto.createHash('sha256').update(bytes).digest('hex'));
+      assert.equal(requirement.physical.byteLength, bytes.byteLength);
+      assert.deepEqual(requirement.importPolicy, { version: 1, initialRepresentation: 'auto', parserVersion: 3 });
+      assert.deepEqual(requirement.preparation, { version: 1, representation: prepared.representation,
+        newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom, sourceHash: prepared.sourceHash,
+        sourceBytes: prepared.sourceBytes, canonicalHash: crypto.createHash('sha256').update(prepared.canonical, 'utf8').digest('hex') });
+      assert.equal(plan.compilation.finalNamespace.find(value => value.entityKey === requirement.entityKey)?.binding.kind, 'unbound-import');
+      assert(queries > 0, 'The successful Preview observes the genuine current Owner SQL path.'); assert.equal(writes, 0);
+      assert.equal(writeWitnesses.length, writesBefore, 'Preview performs no clone, link, Journal or physical staging mutation.');
+      const databaseAfter = await databaseSnapshot();
+      const tableChanges: Array<{ name: string; beforeRows: number; afterRows: number; beforeXmins: string[]; afterXmins: string[] }> = [];
+      for (const after of databaseAfter) {
+        const before = databaseBefore.find(value => value.name === after.name);
+        if (JSON.stringify(before) !== JSON.stringify(after)) tableChanges.push({ name: after.name,
+          beforeRows: before?.rows.length ?? 0, afterRows: after.rows.length,
+          beforeXmins: [...new Set(before?.rows.map(value => value.xmin) ?? [])].slice(0, 16),
+          afterXmins: [...new Set(after.rows.map(value => value.xmin))].slice(0, 16) });
+      }
+      if (tableChanges.length) console.log(JSON.stringify({ diagnostic: 'raw-copy-preview-table-changes', tableChanges: tableChanges.slice(0, 12) }));
+      assert.deepEqual(databaseAfter, databaseBefore, 'Preview preserves every owned schema row, xmin and table identity.');
+      assert.deepEqual(await filesystemSnapshot(), filesBefore, 'Preview preserves all owned DATA bytes, identities, metadata and stage paths.');
       assert.deepEqual(io.existsSync(privateStageRoot) ? await readdir(privateStageRoot) : null, stagesBefore);
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_native_copy_receipts')).rows[0].n, 0);
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_native_link_mutation_receipts')).rows[0].n, 0);
@@ -1406,45 +1493,6 @@ async function runWorkspaceNativeCopyOwnerPostgresFixture(): Promise<void> {
       assert.equal(mcpOrigin.version, 2); assert.equal(mcpOrigin.transport, 'direct-mcp');
       const denied = (error: unknown) => error instanceof NativeCopyOwnerError
         && error.code === 'NATIVE_COPY_INVALID_REQUEST' && error.status === 409;
-      // Inspect every actual private-schema table, including original native,
-      // link, import, Scene, asset, admission and journal data. Hash full JSONB
-      // row bytes on PG18, retaining each tuple's xmin and physical table OID;
-      // no document bytes or credentials are emitted in the test output.
-      const databaseSnapshot = async () => {
-        const tables = (await admin.query(`SELECT c.relname,c.oid::text AS oid FROM pg_catalog.pg_class c
-          JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-          WHERE n.nspname=$1 AND c.relkind IN ('r','p') ORDER BY c.relname COLLATE "C"`, [schema])).rows;
-        assert(tables.length > 0 && tables.length <= 1024);
-        const result: Array<{ name: string; oid: string; rows: Array<{ row_hash: string; xmin: string }> }> = [];
-        for (const table of tables) {
-          assert.equal(typeof table.relname, 'string'); assert.match(table.oid, /^[1-9][0-9]*$/u);
-          const quoted = `"${schema.replaceAll('"', '""')}"."${table.relname.replaceAll('"', '""')}"`;
-          const rows = (await admin.query(`SELECT row_hash,xmin FROM (SELECT
-            pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pg_catalog.to_jsonb(t)::text,'UTF8')),'hex') AS row_hash,
-            t.xmin::text AS xmin FROM ${quoted} t) observed ORDER BY row_hash COLLATE "C",xmin COLLATE "C"`)).rows;
-          for (const row of rows) { assert.match(row.row_hash, /^[a-f0-9]{64}$/u); assert.match(row.xmin, /^[0-9]+$/u); }
-          result.push({ name: table.relname, oid: table.oid, rows });
-        }
-        return result;
-      };
-      const filesystemSnapshot = async () => {
-        const result: Array<Record<string, string>> = [];
-        const visit = async (filename: string, relative: string): Promise<void> => {
-          const info = await lstat(filename, { bigint: true });
-          const entry: Record<string, string> = { path: relative, dev: String(info.dev), ino: String(info.ino),
-            mode: String(info.mode), uid: String(info.uid), gid: String(info.gid), size: String(info.size),
-            nlink: String(info.nlink), mtimeNs: String(info.mtimeNs), ctimeNs: String(info.ctimeNs) };
-          if (info.isFile()) entry.sha256 = crypto.createHash('sha256').update(await readFile(filename)).digest('hex');
-          else if (info.isSymbolicLink()) entry.target = io.readlinkSync(filename);
-          else assert(info.isDirectory(), 'Only the owned fixture regular files, directories and symlinks are inspected.');
-          result.push(entry);
-          if (info.isDirectory()) for (const name of (await readdir(filename)).sort()) {
-            await visit(path.join(filename, name), relative ? `${relative}/${name}` : name);
-          }
-        };
-        // Access time is excluded: the snapshot's own reads can update it.
-        await visit(dataRoot, ''); return result;
-      };
       const databaseBefore = await databaseSnapshot(), filesBefore = await filesystemSnapshot();
       const writesBefore = writeWitnesses.length, transactionsBefore = measurementSequence;
       const attempts: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [

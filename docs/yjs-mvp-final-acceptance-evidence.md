@@ -106,3 +106,41 @@ Die vollständige gezielte Typprüfung aller acht bearbeiteten Skripte besteht d
 Das siebte angesetzte Programm, Native-Delete-Links `--success`, endet nach 11,806 s mit Exit 1 und sauberem eigenem Cleanup. Der anschließende Source-Review zeigt veraltete V3-only-Intent-/Completion-Erwartungen gegenüber dem heutigen Evidence-V2-Pfad mit V4 und Admissionbindung. Dessen enge Testkorrektur und sämtliche vier Delete-Gruppen bleiben noch tatsächlich zu prüfen. Der vollständige Copy-Owner26 bleibt nach dem separat erhaltenen äußeren Timeout ebenfalls offen. Der geplante erneute breite Standard-Typcheck wurde nach dem Delete-RED nicht ausgeführt; weiterhin keine Behauptung eines grünen Gesamttypchecks oder einer bereits bestätigten Reduktion auf 69 Diagnosen.
 
 Originalfolge: `/private/tmp/canvas-m3-file-test-reconciliation-20261020/verification-remaining-v1`, Bericht `terminal.json`, tatsächliche Einzelergebnisse/Loghashes und vollständige unveränderte Testquellenpins darin. Die eigentlichen Build-/29-Browser-/CI-/Review-Gates bleiben bestehen.
+
+## Aktueller Abschluss der Dateiaktionsregressionen und Main-Typvergleich
+
+Die vorherigen RED-Abschnitte bleiben mit ihrem damaligen Quellen- und Laufstand erhalten. Der folgende Abschluss gilt für die tatsächlich beendeten neuen Originale auf Root `0db0ab9c215485fd6a35cb8c0fdf109933a9f97b` / QA `f761b9b388c69187b8d45e7bd275063c891a8f5a`. Die vollständigen Quellfingerprints jedes Checkouts bleiben vor/nach identisch: Root `220521272423c53df3f6911d34fe7bfc4650132e4573d9860ae2be1a8f8cff67`, QA `7c90ce3b5c4448d3c15db94477ce0edfbb0fa776e7b09ced72c93d84d3f5b41c`.
+
+Die erneute gezielte Typprüfung aller acht bearbeiteten Skripte endet mit Exit 0 / 19,312 s, ESLint mit Exit 0 / 2,339 s. Alle vier tatsächlichen Native-Delete-Link-Folgen bestehen mit jeweils zwei Personal-/Team-/Cookie-/Bearer-Familien. Der Test prüft jetzt exakt V4 samt echtem gespeichertem Admissionheader. Sein Connection-Orakel erfasst jeden tatsächlichen History-/Admission-/Owner-Checkout statt einer veralteten globalen Ein-Verbindungs-Annahme; ein Close zählt erst nach abgeschlossenem tatsächlichem Close. Gleichzeitig auftretende Primär- und Cleanupfehler bleiben erhalten. Link-, Inhalt-, Actor-, Recovery-, Fault-/COMMIT- und vollständige Cleanuporakel bleiben bestehen; kein Produktkern wurde dafür geändert.
+
+| Tatsächlicher neuer Originalprozess | Umfang | Exit | Dauer |
+|---|---:|---:|---:|
+| Native-Delete-Links `--success` | 2/2 Familien | 0 | 29,898 s |
+| Native-Delete-Links `--drift` | 2/2 Familien | 0 | 17,177 s |
+| Native-Delete-Links `--rollback` | 2/2 Familien | 0 | 33,281 s |
+| Native-Delete-Links `--ack` | 2/2 Familien | 0 | 25,488 s |
+| Vollständiger Native-Copy-Owner | 26/26 Gruppen | 0 | 617,534 s |
+
+Alle fünf Prozesse enden ohne Signal oder Timeout. Die vier Deleteprogramme bestehen ihre vorhandenen eigenen Cleanup-Assertions. Für den Copy-Owner bestätigt ein zusätzlicher unabhängiger lesender Nachcheck exakt eigenes Schema/OID/Marker und Sessions, ursprüngliche Runner-/Fixture-PIDs, DATA und Bundle als entfernt beziehungsweise beendet. Dessen Originalresultat bestätigt `fetches=0`, `opened=closed=1`. Dieser unabhängige Nachcheck wird ausdrücklich nicht als unabhängiger Delete-Ressourcenabschluss ausgegeben. Die sechs oben bereits abgeschlossenen Programme werden auf ihren unveränderten eigenen Test- und Produktquellen weiterverwendet; daraus entsteht kein neuer gemeinsamer Wiederlauf aller sechs.
+
+Der anschließend im ersten Abschlusscontroller gestartete breite Default-Typcheck endet nach 40,111 s mit Heap-OOM, Exit -6 / SIGABRT. Er belegt weder null Diagnosen noch einen grünen Typcheck. Ein eigenständiger tatsächlich beendeter Wiederlauf mit 8 GiB Node-Heap endet nach 80,622 s mit Exit 2 und **69 Diagnosen**. Gegenüber dem ursprünglichen 90er-Lauf sind die 21 MVP-Diagnosen geschlossen; die übrigen vollständigen Diagnoseblöcke bleiben unverändert.
+
+Der separate tatsächliche Main-Lauf auf `1506927038b80036749266a56fb769dcb6e6d18c` generiert seine Next-Typen erfolgreich und endet beim Default-Typcheck ebenfalls mit Exit 2 / 65,420 s. Ein unabhängiger Vergleich bindet Originaljournale, vollständige Logtexte einschließlich Folgezeilen und Häufigkeiten: **Alle 69 Root-Diagnoseblöcke werden auf frischem Main bytegleich reproduziert; Root-only 0.** Das Main-Log enthält insgesamt 75 Blöcke. Seine sechs zusätzlichen Blöcke sind zwei `NODE_ENV`-Widening-Diagnosen im Shell-Test und vier Mobile-Testdiagnosen bei fehlendem Control-Plane-Sibling im isolierten Export; im Root stehen dort begrenzte lokale Strukturtypen. Daraus werden keine vier eigenständigen Main-Produktfehler oder 75 unabhängigen Produktfehler abgeleitet. Beide breiten Typchecks bleiben rot. Dieser Vergleich ist eine Diagnosezuordnung, kein Produktions-, Runtime-, Browser- oder allgemeiner Regressionspass.
+
+Originale liegen unter `/private/tmp/canvas-m3-file-test-reconciliation-20261020` in `final-two-verification-v2`, `separate-types-8g` und `separate-native-owner26`. Der tatsächliche Main-Compilerlauf liegt unter `/private/tmp/canvas-m3-main-type-baseline-05ehipv5`, der unabhängige Vergleich unter `/private/tmp/canvas-m3-types-ro-comparison-20261020-ocVf2bxK`.
+
+| Original | SHA-256 |
+|---|---|
+| `final-two-verification-v2/terminal.json` | `055d633bf1958ead236c691776a8cf3e9123614e8d1734bfecc559ac5725f6e5` |
+| `native-delete-links-success.log` | `76b1cd69d44d80095225b6e0a5a0927aee764920570013c5bfbe7f49ec3a356e` |
+| `native-delete-links-drift.log` | `8d1503d525646c434e116a570e2949d59eda94dd22b079f664e5bae30a702213` |
+| `native-delete-links-rollback.log` | `a072ce305697f8a055201eb1fbf1ae02eab86cbd614e1f7a5349037521f31826` |
+| `native-delete-links-ack.log` | `9d9cdff6ed38033531ce64bf0a7f783ed4c4362879be4df638ea788d9e700c3c` |
+| `separate-native-owner26/terminal.json` | `4be4e54908ff44dc996e2ffbb7396520de00bf1cb25e739e5818bd45b77b7a96` |
+| `separate-native-owner26/independent-closure.json` | `1458e72a8160177d761cada1646b447366ddcebded789dc74e0e4716c37f783a` |
+| `separate-types-8g/terminal.json` | `07895a462670fefb63f739c54cca9fbb45c2d5da6516eb022ee006fbee7da389` |
+| `separate-types-8g/original.log` | `f87d64a219dd9317c7a22890a2687240cbf81b79851e829dd8117faa2ea561e3` |
+| Main `terminal.json` | `4f2977b602ba852a60006cb772eb87985fba2c442f7d0eab7952eccb3a72cef4` |
+| Unabhängiger Main-Vergleich `comparison.json` | `8ad4b5fe3a3b1bd6be37035080fdb5853cb4ce1a9b17ce2206310facfebb7cbb` |
+
+**Weiter offen:** akzeptierter vollständiger Kaltbuild mit unveränderten Schutzlimits und unabhängiger Quellen-/Artefaktbindung, anschließend alle 29 Browser-/API-/MCP-Fälle in drei seriellen eigenen Runtimes, danach aktuelle CI und vollständiges Review. Noch keine Main-/Launchfreigabe und keine Produktionsauslieferung. Die sieben nachgelagerten Roadmap-Pakete bleiben unverändert offen.
