@@ -6045,7 +6045,8 @@ export function MarkdownEditor({
     {!readOnly && collaborationDocument && needsRichUpgrade && collaborationDocument.session && filePath
       ? <div hidden={mode === 'read'}><MarkdownRichMigration key={`${filePath}:${collaborationDocument.session.lifecycleGeneration}`}
         collaboration={collaborationDocument} filePath={filePath} autoStart={mode === 'rich'}
-        onStart={() => setMode('rich')} onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
+        onStart={() => setMode('rich')} onSourceResume={switchToSourceMode}
+        onBusyChange={setMigrationInProgress} onReady={collaborationSession.retry} /></div> : null}
     <MarkdownSaveState collaboration={collaborationDocument} content={displayedValue} available={projectionAvailable} isSourceLossless={liveMarkdown.isLossless} filePath={filePath} onReload={collaborationSession.retry}
       placement={collaborationDocument?.ready && collaborationDocument.durability === 'degraded' ? 'inline' : 'overlay'} />
     <div className={cn('markdown-editor-content min-h-0 flex-1 overflow-hidden',

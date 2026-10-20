@@ -115,9 +115,9 @@ export function MarkdownModeBar({ mode, onChange, sourceAvailable = true, richAv
   </div>;
 }
 
-export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onBusyChange, autoStart = false }: {
+export function MarkdownRichMigration({ collaboration, filePath, onReady, onStart, onSourceResume, onBusyChange, autoStart = false }: {
   collaboration: CollaborationDocument; filePath: string; onReady: () => void;
-  onStart?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
+  onStart?: () => void; onSourceResume?: () => void; onBusyChange?: (busy: boolean) => void; autoStart?: boolean;
 }) {
   const t = useTranslations('notebook.editorModes');
   const common = useTranslations('common');
@@ -163,6 +163,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
           && outcome.lifecycleGeneration === migration.current.expectedLifecycleGeneration) {
           safeToResume = true;
           migration.current = null;
+          if (mounted.current) onSourceResume?.();
           break;
         }
       }
@@ -177,7 +178,7 @@ export function MarkdownRichMigration({ collaboration, filePath, onReady, onStar
       onBusyChange?.(unresolved);
       if (mounted.current) { setBusy(false); setPending(unresolved); }
     }
-  }, [canStart, collaboration, filePath, onReady, onBusyChange]);
+  }, [canStart, collaboration, filePath, onReady, onSourceResume, onBusyChange]);
   useEffect(() => {
     if (!autoStart || !canStart || autoAttempted.current) return;
     autoAttempted.current = true;

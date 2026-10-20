@@ -28,6 +28,12 @@ test.beforeAll(async () => {
 test.beforeEach(async ({ page }) => {
   browserErrors = [];
   page.on('pageerror', (error) => browserErrors.push(error.message));
+  await page.route('**/*', (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin === 'http://localhost:43122') return route.fallback();
+    browserErrors.push(`Unexpected fixture request: ${url.origin}${url.pathname}`);
+    return route.abort();
+  });
   await page.route('http://localhost:43122/**', (route) => route.fulfill({
     contentType: 'text/html', body: '<style>body{font:16px system-ui;margin:24px}button{padding:8px;margin:4px}#root{height:650px}textarea{width:90%;height:200px}</style><div id="root"></div>',
   }));
@@ -218,7 +224,95 @@ test('an unknown response keeps the old provider paused and cancellation uses th
   await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'true');
   expect(requests).toHaveLength(3);
   expect(new Set(requests.map(body => body.migration.requestId)).size).toBe(1);
+  await expect(page.locator('.tiptap[contenteditable="true"]')).toHaveCount(0);
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
   expect(requests[3].migration).toEqual(requests[0].migration);
+  expect(requests).toHaveLength(4);
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeEditable();
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue('1. First item\n\n2. Second item\n');
+  await expect(page.locator('body')).toHaveAttribute('data-checkpoints', '1');
+  await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
 });
+
+test('a confirmed unsupported preparation returns to the exact editable Source', async ({ page }) => {
+  let requests = 0;
+  await page.route('**/api/files/collaboration/session', (route) => {
+    requests += 1;
+    const { migration } = route.request().postDataJSON();
+    return route.fulfill({ json: { success: true, migration: { requestId: migration.requestId,
+      status: 'unsupported', reason: 'unsupported_markdown', documentId: 'migration-copy', lifecycleGeneration: 1 } } });
+  });
+  await page.goto('http://localhost:43122/');
+  await page.addScriptTag({ content: bundle });
+  await page.getByRole('button', { name: 'Prepare formatted editing', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toBeEditable();
+  await expect(page.getByRole('textbox', { name: 'Markdown source' })).toHaveValue('1. First item\n\n2. Second item\n');
+  await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
+  await expect(page.getByRole('status').filter({ hasText: 'Other editors or pending changes' })).toBeVisible();
+  expect(requests).toBe(1);
+});
+
+test('a confirmed blocked preparation cannot restore a revoked parent write permission', async ({ page }) => {
+  let requests = 0;
+  let finish!: () => void;
+  const response = new Promise<void>((resolve) => { finish = resolve; });
+  await page.route('**/api/files/collaboration/session', async (route) => {
+    requests += 1;
+    await response;
+    return route.fulfill({ json: { success: true, migration: { requestId: route.request().postDataJSON().migration.requestId,
+      status: 'blocked', reason: 'room_active', documentId: 'migration-copy', lifecycleGeneration: 1 } } });
+  });
+  await page.goto('http://localhost:43122/?canonical&revocable');
+  await page.addScriptTag({ content: bundle });
+  await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'true');
+  await page.getByRole('button', { name: 'Revoke fixture write permission', exact: true }).click();
+  const source = page.getByRole('textbox', { name: 'Markdown source' });
+  await expect(source).not.toBeEditable();
+  finish();
+  await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'false');
+  await expect(source).toBeVisible();
+  await expect(source).not.toBeEditable();
+  await expect(source).toHaveValue('# Canonical document\n\nUnchanged paragraph.\n');
+  await expect(page.locator('#saved-value')).toHaveJSProperty('textContent', '# Canonical document\n\nUnchanged paragraph.\n');
+  await expect(page.locator('.tiptap[contenteditable="true"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Prepare formatted editing', exact: true })).toHaveCount(0);
+  expect(requests).toBe(1);
+});
+
+for (const boundary of ['request', 'document', 'generation', 'pending', 'http', 'success'] as const) {
+  test(`an unconfirmed ${boundary} outcome cannot resume Source or release cancellation`, async ({ page }) => {
+    const requests: Array<{ migration: RichMigrationRequest; migrationAction?: 'cancel' }> = [];
+    await page.route('**/api/files/collaboration/session', (route) => {
+      const body = route.request().postDataJSON();
+      requests.push(body);
+      return route.fulfill({ status: boundary === 'http' ? 503 : 200, json: {
+        success: boundary !== 'success', migration: {
+          requestId: boundary === 'request' ? 'another-request' : body.migration.requestId,
+          documentId: boundary === 'document' ? 'another-document' : 'migration-copy',
+          lifecycleGeneration: boundary === 'generation' ? 2 : 1,
+          status: boundary === 'pending' ? 'pending' : 'blocked', reason: 'cancelled',
+        },
+      } });
+    });
+    await page.goto('http://localhost:43122/?canonical');
+    await page.addScriptTag({ content: bundle });
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+    await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'true');
+    expect(requests).toHaveLength(3);
+    await page.getByRole('button', { name: 'Source', exact: true }).click();
+    const source = page.getByRole('textbox', { name: 'Markdown source' });
+    await expect(source).toBeVisible();
+    await expect(source).not.toBeEditable();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toBeEnabled();
+    await expect(page.locator('body')).toHaveAttribute('data-disconnected', 'true');
+    await expect(source).not.toBeEditable();
+    await expect(source).toHaveValue('# Canonical document\n\nUnchanged paragraph.\n');
+    await expect(page.locator('body')).toHaveAttribute('data-checkpoints', '1');
+    expect(requests).toHaveLength(6);
+    expect(new Set(requests.map(body => body.migration.requestId)).size).toBe(1);
+    expect(requests.slice(3).every(body => body.migrationAction === 'cancel')).toBe(true);
+    await expect(page.locator('.tiptap[contenteditable="true"]')).toHaveCount(0);
+  });
+}
