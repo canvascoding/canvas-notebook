@@ -192,7 +192,9 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
     type Job = Awaited<ReturnType<typeof seed>>;
     const invoke = async (job: Job, token = tokenA) => capture(authInfo(token), selection, async mcpPrincipal => {
       const origin = await callerOrigin(mcpPrincipal); job.original ??= origin;
-      job.plan ??= await preview({ origin, mcpPrincipal, selections: job.selections });
+      const plan = job.plan ?? await preview({ origin, mcpPrincipal, selections: job.selections });
+      assert(plan.version === 3);
+      job.plan = plan;
       assert.equal(job.plan.version, 3);
       const result = await execute({ origin, mcpPrincipal, operationId: job.operationId, expectedPlanId: job.plan.planId, selections: job.selections });
       return { result, current: origin };
@@ -516,7 +518,9 @@ export async function directMcpNativeCopyOwnerPostgresTest(): Promise<void> {
       const absent = await seed();
       await capture(authInfo(tokenA), selection, async mcpPrincipal => {
         absent.original = await callerOrigin(mcpPrincipal);
-        absent.plan = await preview({ origin: absent.original, mcpPrincipal, selections: absent.selections });
+        const plan = await preview({ origin: absent.original, mcpPrincipal, selections: absent.selections });
+        assert(plan.version === 3);
+        absent.plan = plan;
       });
       const absentOrigin = absent.original; assert(absentOrigin && absentOrigin.version === 2); assert(absent.plan);
       const before = await domainSnapshot(), filesBefore = await filesystem();

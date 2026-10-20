@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { SqlConnection } from '../app/lib/db';
+import type { WorkspaceOperationManagedCopyStageInput } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 // Actual PG18, Scene/Yjs writers, source READ, destination WRITE and prepared
@@ -39,7 +40,7 @@ async function managedCopyStagePostgresTest(): Promise<void> {
     const { serializePortableExcalidrawSceneFromReadonlyAssets: portable } = await import('../app/lib/excalidraw-collaboration/portable-serialization');
     const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
     const { readPostgresWorkspaceForActorOnConnection } = await import('../app/lib/workspaces/postgres-runtime');
-    type Input = Parameters<typeof prepare>[0];
+    type Input = WorkspaceOperationManagedCopyStageInput;
     const sourceOwner = await readPostgresWorkspaceForActorOnConnection(h.connection,
       resolveWorkspaceActor({ id: 'owner', role: 'admin', email: 'owner@principal.test' }), h.source.workspaceId); assert(sourceOwner);
     assert(h.source.permissions.canRead && !h.source.permissions.canWrite); assert(h.destination.permissions.canWrite);

@@ -69,6 +69,7 @@ async function runNativeCopyMetadataOwnerPostgresTest(): Promise<void> {
     const group = async (name: string, action: () => Promise<void>) => { currentCase = name; await action(); groups++; console.log(`PASS native-copy-metadata-owner ${groups}: ${name}`); };
     const newJob = async (sourcePath: string, destinationPath = `copy-${crypto.randomUUID()}.md`): Promise<Job> => {
       const selections = [{ sourcePath, destinationPath }], plan = await preview({ origin, request: await h.request(), selections });
+      assert(plan.version === 3);
       return { operationId: crypto.randomUUID(), origin, selections, expectedPlanId: plan.planId, plan };
     };
     const run = async (job: Job) => execute({ ...job, request: await h.request(undefined, 'member', true) });

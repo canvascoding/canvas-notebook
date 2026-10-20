@@ -60,7 +60,7 @@ Turbopack meldet genau einen zusätzlichen Whole-Project-Tracing-Einstieg gegen�
 
 Vorher SHA-256 `4ebfcfc96d2630ffd2f882b31f8cedd288f0a78db2d26ef98f530c31ec006297`, danach `35a72928cae583fad017b238f9b1503341d7f59aa6f08b299c42f6281a7c7afd`. Entfernen exakt dieses Kommentars stellt die Originalbytes wieder her. Tatsächlicher TypeScript-Transpilevergleich ohne Kommentare liefert byteidentisches JavaScript, Exit 0 / 0,250 s. Gezielte Typprüfung des Produktpfads einschließlich Imports Exit 0 / 18.887 s, Scoped-Lint Exit 0 / 1.759 s. Beide GitNexus-Impacts vor Änderung: HIGH, acht Symbole, zwei direkte Aufrufer, null indizierte Prozesse; vorab gemeldet. Unabhängiger Quellenreview ohne konkreten P1/P2. Kein Build- oder Performance-Erfolg wird daraus abgeleitet.
 
-Der zusätzlich ausgeführte Standard-Typcheck mit allen Skripten endet separat mit Exit 2 nach 80,942 s: 90 Diagnosen ausschließlich unter `scripts/`, keine im geänderten Runtimepfad. Dieser breite Lauf ist nicht grün und wird nicht durch das gezielte Ergebnis ersetzt. Eine Einordnung als ausschließlich von Main geerbt ist damit nicht belegt. Der tatsächliche Release-Typcheck nach erfolgreicher Kompilierung bleibt erforderlich.
+Der zusätzlich ausgeführte Standard-Typcheck mit allen Skripten endet separat mit Exit 2 nach 80,942 s: 90 Diagnosen ausschließlich unter `scripts/`, keine im geänderten Runtimepfad. Dieser breite Lauf ist nicht grün und wird nicht durch das gezielte Ergebnis ersetzt. Eine Einordnung als ausschließlich von Main geerbt ist damit nicht belegt. Der tatsächliche Release-Typcheck besteht inzwischen im folgenden dritten Originalbuild. Der breite Standard-Typcheck wird dadurch nicht als grün bezeichnet.
 
 Private Originale: erster Controller `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-m3-launch-controller10-ogtssyem`, zweiter Controller `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-m3-launch-controller10-retry-n_8vzwur`, Korrektur und tatsächliche statische Läufe `/private/tmp/canvas-m3-tracing-fix-20261020`.
 
@@ -73,3 +73,36 @@ Private Originale: erster Controller `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l
 | Gezielter Typ-/Lintterminal | `9b07d96d900e064b66e3b1e5bece55650dfb8ddf41b794b70fa0fc3f40142358` |
 | Breiter Standard-Typterminal | `63ce670a4d48349bdd4c57600a5194190da535c8bc66388d81e5c546bd0acfa4` |
 | Beendete benannte Buildressourcen | `bf3e71e12c79f5288dae59d452dbd0e5065601a025e60a877ad8c166d66fc32b` |
+
+## Dritter Build: Releasephasen bestanden, Artefaktprüfung blockiert
+
+Eingefrorene Heads Root `b830fde99f8ef0b28e296e6f1b801177545c0c6d`, QA `967734e646ef2a499357d46fe47fdd1f3dfb9ed9`, CP weiterhin `27c8ce37da082244f006ca376068cde6b98845d5`. Der originale Owned-Build endet tatsächlich mit **Exit 1 nach 482,583 s**, ohne freiwillige Unterbrechung. Compile endet nach 404 s mit Exit 0, Release-Typecheck und Generate bestehen, anschließend besteht der Produktionsmodultest. Beim vollständigen kompilierten Artefaktfingerprint scheitert der unveränderte Supervisor jedoch mit `Compiled artifact visit limit exceeded.` an seiner 100.000-Einträge-Grenze. Die unabhängige reine Strukturinventur zählt 102.642 Einträge (100.898 Dateien, 1.726 Verzeichnisse, 18 Symlinks). Sie ersetzt keinen akzeptierten bytegebundenen Fingerprint.
+
+Die Queue endet korrekt vor Runtime 1 mit `results: []`; kein aktueller Browserfall wurde gestartet. Alle direkten Serverchunk-Dateien tragen Zeiten aus diesem Build. Ob vorhandener Turbopack-Cache den großen Output beeinflusst, ist damit ungeklärt. Deshalb wurde nach Ende der ursprünglichen Gruppen das gesamte vorige QA-`.next` inklusive Cache durch Rename unter Erhaltung seiner Verzeichnisidentität außerhalb des Projekt-/Tracingroots gesichert. Das neue QA-`.next` ist leer. Ein tatsächlicher vollständiger Kaltbuild mit unveränderten Limits steht aus; keine Kapazitätsgrenze wurde erhöht oder Artefaktkategorie übersprungen.
+
+Originalcontroller: `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-m3-launch-controller10-tracing-jmv5qn40`; Originalbuildroot `canvas-yjs-build-RMh626` im selben privaten Temp-Verzeichnis. Originalbuildlog SHA-256 `067a41da351c9dffad151d69c62246e9937fed75284315cf8a5887280c449a1b`; Produktionslog `9772b943e52dc5ec528f89c02d64cbbdd9a63f16a18a5d192711da56325c38fd`. Read-only-Fehlerreproduktion und Inventare: `/private/tmp/canvas-m3-tracing-fix-20261020`; reversible Cachevorbereitung: `/private/tmp/canvas-m3-file-test-reconciliation-20261020/cold-build-preparation.json`.
+
+## Laufende Anpassung bestehender Dateiaktionstests
+
+Acht ältere Skripte enthalten 21 der 90 Diagnosen des breiten Standard-Typchecks. Explizite echte Versionsassertionen, passende Plan-/Stage-Eingabetypen und erhaltene Compilerunions schließen ihre veralteten Typannahmen. Im vollständigen Copy-Owner hatte das erste Raw-Starter-Orakel noch eine Importablehnung erwartet; der aktuelle zentrale Plan 5 sieht bereits einen nicht ausführenden Zielimport vor. Der tatsächliche unveränderte Vorlauf bestätigt den alten Erwartungsfehler mit Exit 1. Der neue Test prüft Plan, Originalbytes, Parser, Namespace sowie vollständige Datenbank- und DATA-Unverändertheit.
+
+Der erste echte Authabruf erzeugt JWT-Schlüssel und erneuert die künstlich kurzlebige Fixturesitzung. Die echte zentrale Workspace-Sperre erzeugt beim ersten Erwerb ihre dauerhafte private Lockdatei. Deshalb werden dieselbe echte Sitzung mit geprüften Benutzer-/Sitzungs-IDs und derselbe echte Kernel-Lock vor den vollständigen Snapshots vorbereitet. Kein Preview wird vorgewärmt, keine Tabelle oder DATA-Datei ausgenommen. Der aktuelle Raw-Previewfall besteht. Die vollständige 26er-Folge ist noch nicht bestanden: Ein zu kurzer äußerer Ad-hoc-Watchdog brach sie nach 180 Sekunden und zwölf bestandenen Gruppen ab; der frühere vollständige Lauf dauerte tatsächlich 630,002 Sekunden. Original-RED bleibt erhalten, exakt zugeordnete eigene Ressourcen wurden anhand Schema/OID/Marker und Dateiidentitäten entfernt. Ein vollständiger Wiederlauf mit passendem äußerem Testbudget sowie sieben weitere bestehende Programme bleiben erforderlich. Produktfristen, Buildlimits und Schutzorakel sind unverändert. Private Originale: `/private/tmp/canvas-m3-file-test-reconciliation-20261020`.
+
+## Sechs bestehende Programme aktuell bestanden; Copy-/Delete-Abschluss offen
+
+Die anschließende tatsächliche serielle Folge auf demselben unveränderten Produktkern besteht für sechs der sieben zunächst angesetzten Programme. Quellenpins bleiben vor/nach jedem Lauf identisch. Alle folgenden Originalprozesse enden mit Exit 0, ohne Signal oder Timeout; ihre vorhandenen eigenen Cleanup-Assertions bestehen. Die unabhängige gemeinsame Browser-/Runtimeabnahme wird daraus nicht abgeleitet.
+
+| Tatsächliches Programm | Umfang | Dauer |
+|---|---:|---:|
+| Direkter MCP-Copy-Owner | 10 Gruppen | 144,365 s |
+| Managed-Copy-Stage | 7 Gruppen | 28,332 s |
+| Native-Copy-Metadaten | 15 Gruppen | 97,580 s |
+| Native-Copy-Compiler | 29 Node-Tests, null Skips | 9,102 s |
+| Direkter MCP-Move/Delete-Owner mit echten Live-Rooms | 16 Gruppen | 338,422 s |
+| Gemischter Move | 6 Gruppen | 40,914 s |
+
+Die vollständige gezielte Typprüfung aller acht bearbeiteten Skripte besteht davor mit Exit 0 / 19,639 s, ESLint mit Exit 0 / 2,351 s. Diese sechs abgeschlossenen Skriptkorrekturen enthalten echte enge Versionsassertionen beziehungsweise passende Plan-/Stage-/Compiler-Eingabetypen; kein Produktkern wurde dafür geändert.
+
+Das siebte angesetzte Programm, Native-Delete-Links `--success`, endet nach 11,806 s mit Exit 1 und sauberem eigenem Cleanup. Der anschließende Source-Review zeigt veraltete V3-only-Intent-/Completion-Erwartungen gegenüber dem heutigen Evidence-V2-Pfad mit V4 und Admissionbindung. Dessen enge Testkorrektur und sämtliche vier Delete-Gruppen bleiben noch tatsächlich zu prüfen. Der vollständige Copy-Owner26 bleibt nach dem separat erhaltenen äußeren Timeout ebenfalls offen. Der geplante erneute breite Standard-Typcheck wurde nach dem Delete-RED nicht ausgeführt; weiterhin keine Behauptung eines grünen Gesamttypchecks oder einer bereits bestätigten Reduktion auf 69 Diagnosen.
+
+Originalfolge: `/private/tmp/canvas-m3-file-test-reconciliation-20261020/verification-remaining-v1`, Bericht `terminal.json`, tatsächliche Einzelergebnisse/Loghashes und vollständige unveränderte Testquellenpins darin. Die eigentlichen Build-/29-Browser-/CI-/Review-Gates bleiben bestehen.

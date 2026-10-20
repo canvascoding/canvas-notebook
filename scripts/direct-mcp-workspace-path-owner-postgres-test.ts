@@ -1093,6 +1093,8 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           job.scope = await freshScope(live); const actual = await buildWorkspaceOperationBatchPlan({ scope: job.scope, actions: job.plan.actions });
           assert(actual.version === 2); job.plan = actual;
         });
+        assert(job.plan.planIdentityVersion === 2);
+        assert(job.plan.sourceEvidence.evidenceVersion === 2);
         const actionPayloadText = JSON.stringify({ version: 1, fixtureForeignOperation: crypto.randomUUID() });
         const foreign = { requestId: crypto.randomUUID(), actorId: 'fixture-foreign-reservation', action: 'archive' as const,
           actionPayloadText, actionDigest: collaborationAdmissionActionDigest('archive', actionPayloadText),

@@ -14,7 +14,6 @@ import { prepareNativeCopyStage, decodeNativeCopyStage, type WorkspaceOperationN
 import type { WorkspaceOperationOwnedCopyStage } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import { captureNativeCopyPhaseStage, NativeCopyPhaseError, nativeCopyPhaseCompiler,
   nativeCopyPhaseSha, withNativeCopyPhaseCompilation, withCapturedNativeCopyPhaseStage } from '../app/lib/files/workspace-operation-native-copy-phase-contract';
-import type { NativeMixedBatchPlan } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
 
 // Actual Yjs/C1/Stage codecs and compiler. Catalogue/physical root facts are
 // declared pure data, never evidence of current SQL/ACL/FD authority or COMMIT.
@@ -128,7 +127,7 @@ test('end-of-callback pin detects drift without another compiler call before suc
 });
 
 test('detached async context after success is explicitly rejected, outside calls still derive freshly', async () => {
-  const stage = nativeCopyPhaseFixture(); let release!: () => void, detached!: Promise<NativeMixedBatchPlan>, held!: NativeMixedBatchPlan;
+  const stage = nativeCopyPhaseFixture(); let release!: () => void, detached!: Promise<ReturnType<typeof nativeCopyPhaseCompiler>>, held!: ReturnType<typeof nativeCopyPhaseCompiler>;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await withNativeCopyPhaseCompilation(stage, () => {
     held = nativeCopyPhaseCompiler(stage); detached = (async () => { await gate; return nativeCopyPhaseCompiler(stage); })();
@@ -139,7 +138,7 @@ test('detached async context after success is explicitly rejected, outside calls
 
 test('callback failure deactivates detached context and preserves the original exception', async () => {
   const stage = nativeCopyPhaseFixture(), primary = new Error('original callback failure');
-  let release!: () => void, detached!: Promise<NativeMixedBatchPlan>, held!: NativeMixedBatchPlan;
+  let release!: () => void, detached!: Promise<ReturnType<typeof nativeCopyPhaseCompiler>>, held!: ReturnType<typeof nativeCopyPhaseCompiler>;
   const gate = new Promise<void>(resolve => { release = resolve; });
   await assert.rejects(withNativeCopyPhaseCompilation(stage, () => {
     held = nativeCopyPhaseCompiler(stage); detached = (async () => { await gate; return nativeCopyPhaseCompiler(stage); })(); throw primary;

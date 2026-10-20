@@ -69,6 +69,8 @@ export async function workspaceOperationMixedMovePostgresTest(): Promise<void> {
         || /\bpg_notify\s*\(/iu.test(event.text)) writes++;
     }, () => run({ action: 'preview', selections }));
     assert.equal(writes, 0); assert(preview.action === 'preview');
+    assert(preview.preview.kind === 'move');
+    assert.equal(preview.preview.readiness, 'ready');
     assert.equal(preview.preview.linkChanges.rewrites, 1); assert.equal(preview.preview.coverage.complete, true);
     const originalObservation = await stageWorkspaceLinkSourceAuthorityObservation(h.source);
     const originalGraph = buildWorkspaceMixedReadLinkGraphV3(workspaceOperationMixedSourceSnapshot(
