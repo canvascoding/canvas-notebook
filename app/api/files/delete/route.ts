@@ -20,8 +20,10 @@ import { prepareWorkspacePathImportOperation } from '@/app/lib/files/workspace-p
 import { WorkspaceOperationBatchError } from '@/app/lib/files/workspace-operation-batch-store';
 
 export async function DELETE(request: NextRequest): Promise<Response> {
+  // Native services require the local NextRequest constructor, also in compiled routes.
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
   const permissions = ['canRead', 'canWrite', 'canDelete'] as const;
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: [...permissions] });
+  const workspaceResult = await requireRequestWorkspace(original, { permissions: [...permissions] });
   if (workspaceResult.response) return workspaceResult.response;
   let operation: ReturnType<typeof workspacePathOperationMetadata> | undefined;
   let preparation: { previewPlanId: string } | undefined;
@@ -65,7 +67,7 @@ export async function DELETE(request: NextRequest): Promise<Response> {
       return invalid('Protected app output folders cannot be deleted', 403, 'BATCH_PROTECTED_PATH');
     }
     const result = await withWorkspaceMutationLock(workspaceResult.workspace.workspaceId, async () => {
-      const fresh = await requireRequestWorkspace(request, { permissions: [...permissions] });
+      const fresh = await requireRequestWorkspace(original, { permissions: [...permissions] });
       if (fresh.response) return { mode: 'response' as const, response: fresh.response };
       if (fresh.workspace.workspaceId !== workspaceResult.workspace.workspaceId
         || fresh.workspace.rootPath !== workspaceResult.workspace.rootPath
@@ -79,7 +81,7 @@ export async function DELETE(request: NextRequest): Promise<Response> {
         actorUserId: fresh.session.user.id, actorId: fresh.session.user.id,
         actorDisplayName: fresh.session.user.name || 'Workspace user', actorType: 'user' as const };
       if (authenticatedNativeTextSessionEnabled() && !fresh.workspace.legacy) {
-        const prepared = await withWorkspaceRequestPrincipal(request,
+        const prepared = await withWorkspaceRequestPrincipal(original,
           { permission: 'canWrite', workspaceId: fresh.workspace.workspaceId }, async principal => {
             const selected = { kind: 'request' as const, principal };
             preparationReadOnly = true;

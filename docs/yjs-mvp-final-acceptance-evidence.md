@@ -178,3 +178,26 @@ Originalcontroller: `/private/tmp/canvas-m3-fresh-controller-inputs-20261020-RO2
 | `cold-inventory-indexed-roots.json` | `c7c77eb6f70c1f0eb485229de5dd331594e58bf928de62131c6aa34d926f1352` |
 
 Ein akzeptierter neuer Produktionsbuild mit unabhängigem vollständigem Quellen-/Artefaktabgleich, danach alle 29 Fälle in drei seriellen eigenen Runtimes, aktuelle CI und vollständiges Review bleiben offen. Keine Main-/Launchfreigabe und keine Produktionsauslieferung. Die historischen Statusmarker und nachgelagerten Roadmap-Pakete bleiben unverändert.
+
+
+## Fünfter Originalbuild bestanden; Web-Request-Grenze im zehnten Browserfall
+
+Gebundene Quellen sind Root `aa8476835d7e9d8f1c32d74129f7bcf5527ec756`, QA `118d8cfa8d6af551fbae1d15fc36af8524521aee`, CP unverändert `27c8ce37da082244f006ca376068cde6b98845d5`. Der tatsächliche vollständige Produktionsbuild endet mit **Exit 0 nach 178,921 s**. Der anschließende unabhängige Artefaktabgleich besteht einschließlich Quellenbindung, vollständigem Fingerprint und nativer Identität. Build-ID `build-TfctsWXpff2fKS`, Artefaktfingerprint `30012e84728bbd1e5e0fbd0a7d7ec22221bd2badaa871412cc7403bf5cffa6fd`. Dieser Nachweis gilt ausschließlich für diese Quellen; die nachfolgende Produktkorrektur erfordert einen neuen Build.
+
+Die echte OAuth-/API-/MCP-/Browserfolge endet mit **Exit 1: zehn deklariert, neun bestanden, ein Fehler, keine Skips, Timeouts oder Unterbrechungen**. Die bestandenen Fälle schließen sichtbare Bearbeitung und Reload, das installierte Python-Wheel mit echtem PKCE, Suche/Read/Create/Edit sowie native Copy-/Move-/Delete-Aktionen über MCP und zentrale Linkänderungen ein. Fall 10 scheitert beim ersten Raw-Web-Move-Preview: erwartet HTTP 200, tatsächlich HTTP 500. Die weiteren 17 manuellen Editorfälle und zwei Neustartfälle werden nicht gestartet; die Queue bleibt bei `results: []`, weil sie nur vollständig erfolgreich abgeschlossene Runtimes aufnimmt.
+
+Der Hoststack endet am Eingangscheck von `withRequestPrincipal` mit `PRINCIPAL_INVALID`, vor Authauflösung oder Principal-/WeakMap-Erstellung. Die originalen kompilierten Module bestätigen zwei unterschiedliche `NextRequest`-Klassen: Frameworkadapter `487718` erzeugt `e6`, die Principal-Factory importiert die Klasse `l` aus Modul `929666`. Der bisherige direkte Web-PG-Test konstruiert seinen Request im selben ESM-Graphen und durchläuft diese Frameworkgrenze nicht. Rename und Delete übernehmen deshalb das bereits in Create/Upload vorhandene lokale Request-Snapshotmuster. URL, Methode und Header werden vor dem ersten await kopiert; Body und Rate-Limit verwenden weiter den eingehenden Request. Auth-/Principal-Guards, Rechteprüfungen, Originalimporte und zentrale Mutationsverträge werden nicht gelockert. Der unabhängige Quellreview findet keine P1/P2; der erneute reale Browsernachweis bleibt offen.
+
+Originalcontroller: `/private/tmp/canvas-m3-capacity-v2-controller-inputs-20261020-Cv2/mcp10`; Buildroot: `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-build-GlKEFX`; Browserfixture: `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-authority-Yfnm0u`.
+
+| Original | SHA-256 |
+|---|---|
+| `build-terminal.json` | `7a5e4dac7871ad1a005495c9f70277e2f0f291ad6a0037368fca524733017b74` |
+| `artifact-report.json` | `706d79337d5d4ac6c0175ab97663a95e332e223540c1dcf39b82a98e32344874` |
+| `runtime-terminal.json` | `b7de10c75da28ed9fde7f7294c780ce0b26e59f086370678d54e73f9a722187b` |
+| `postruntime-report.json` | `ead2fa0160d56955b11fa18d90d91c61598ccfbc6de71e218d13d4fc4b66c4fe` |
+| `queue-terminal.json` | `b6680ce0010ae1848c685b95c03eaad72b8237b1fd5f973a780594dab4e7bd33` |
+
+Der ursprüngliche unabhängige Abschlussbericht ist ausdrücklich rot: Prozesse/Ports/Lock/DB-Backends sind beendet beziehungsweise frei und die vier verwalteten Dienste unverändert gesund, aber beide eigenen Datenbanken und DATA/TMP bleiben zur Fehlerdiagnose erhalten. Eine spätere gezielte Bereinigung ist ein eigener Nachweis und ändert diesen Originalbericht nicht. Noch keine M3-, Main- oder Launchfreigabe; keine Produktionsauslieferung. Die sieben Roadmap-Pakete bleiben offen.
+
+Auf der anschließenden Zwei-Handler-Korrektur bestehen der vollständige Release-Typecheck (`tsconfig.release.json`), Scoped-ESLint und die unveränderte echte Web-PG-Folge **7/7 mit Exit 0 nach 39,986 s**. Der Originaltest bestätigt entferntes eigenes Schema, geschlossene Pools/Clients, entferntes DATA und null Fetches; der echte ESM-Runner bestätigt sein entferntes Bundle. Originale unter `/private/tmp/canvas-m3-web-request-boundary-20261020`, Web-PG-Log SHA-256 `ea63279fc76fe4940e4d1b6d9df4c074df5fb520c5c8c9c03d0b6f9ad816a5fb`. Dies ist keine kompilierte Browserabnahme und kein grüner Standard-Gesamttypcheck.
