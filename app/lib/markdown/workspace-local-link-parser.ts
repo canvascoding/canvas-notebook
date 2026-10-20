@@ -4,7 +4,7 @@ import type { Nodes } from 'mdast';
 import { createObsidianSyntaxMask, parseObsidianWikiLinks } from './obsidian-flavored-markdown';
 import { getCanvasNotebookMarkdownLinkTarget, getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
-import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
+import { assertWorkspaceHtmlInspectionSourceBound, evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks } from './workspace-html-link-safety';
 import type { WorkspaceLinkSyntaxV1, WorkspaceLinkResolveStatusV1 } from './workspace-link-contract-v1';
 
 export type ParsedWorkspaceLocalLink = {
@@ -159,6 +159,44 @@ type ParsedWorkspaceLocalLinks = {
   unevaluated: WorkspaceLinkUnevaluated[];
 };
 
+export type WorkspaceMarkdownHtmlOccurrence = {
+  sourcePath: string;
+  start: number;
+  end: number;
+  raw: string;
+  fullyInspected: boolean;
+  explicitLocalTargets: string[];
+};
+
+export type WorkspaceMarkdownHtmlInspectionV4 = {
+  parserVersion: 4;
+  occurrences: WorkspaceMarkdownHtmlOccurrence[];
+};
+
+/** All actual Markdown HTML AST occurrences, including opaque and external-only
+ * nodes. Ranges are original UTF-16 units; this grants no mutation authority.
+ * Optional limits can only tighten the fixed per-call caps for a shared budget. */
+export function inspectWorkspaceMarkdownHtmlV4(markdown: string, sourcePath: string,
+  limits?: { maximumOccurrences?: number; maximumTargets?: number }): WorkspaceMarkdownHtmlInspectionV4 {
+  if (limits !== undefined && (limits === null || typeof limits !== 'object' || Array.isArray(limits))) {
+    throw new RangeError('Invalid Markdown HTML inspection limits');
+  }
+  const { maximumOccurrences = 20_000, maximumTargets = 20_000 } = limits ?? {};
+  if (![maximumOccurrences, maximumTargets].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 20_000)) {
+    throw new RangeError('Invalid Markdown HTML inspection budget');
+  }
+  assertWorkspaceHtmlInspectionSourceBound(markdown);
+  const occurrences: WorkspaceMarkdownHtmlOccurrence[] = [];
+  let targetCount = 0;
+  parseWorkspaceLocalLinksWithOffsetPolicy(markdown, sourcePath, undefined, true, occurrence => {
+    if (occurrences.length >= maximumOccurrences) throw new RangeError('Markdown HTML inspection exceeds its occurrence limit');
+    const { fullyInspected, explicitLocalTargets } = inspectWorkspaceStaticHtmlLinks(occurrence.raw, maximumTargets - targetCount);
+    targetCount += explicitLocalTargets.length;
+    occurrences.push({ ...occurrence, fullyInspected, explicitLocalTargets });
+  });
+  return { parserVersion: 4, occurrences };
+}
+
 /** Historical parser-2 semantics, including its original BOM treatment. */
 export function parseWorkspaceLocalLinks(markdown: string, sourcePath: string,
   options?: { notebookPaths: 'exact' }): ParsedWorkspaceLocalLinks {
@@ -174,7 +212,8 @@ export function parseWorkspaceLocalLinksV3(markdown: string, sourcePath: string,
 }
 
 function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: string,
-  options: { notebookPaths: 'exact' } | undefined, originalBomOffsets: boolean): ParsedWorkspaceLocalLinks {
+  options: { notebookPaths: 'exact' } | undefined, originalBomOffsets: boolean,
+  collectHtml?: (occurrence: Pick<WorkspaceMarkdownHtmlOccurrence, 'sourcePath' | 'start' | 'end' | 'raw'>) => void): ParsedWorkspaceLocalLinks {
   const links: ParsedWorkspaceLocalLink[] = [];
   const unevaluated: WorkspaceLinkUnevaluated[] = [];
   const document = parseCanvasMarkdownDocument(markdown);
@@ -185,6 +224,11 @@ function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: 
   const bomOffset = originalBomOffsets && visibleMarkdown.charCodeAt(0) === 0xfeff ? 1 : 0;
   const syntaxMarkdown = visibleMarkdown.slice(bomOffset);
   const mask = visibleMarkdown.slice(0, bomOffset) + createObsidianSyntaxMask(syntaxMarkdown);
+  // Wiki targets and aliases are literal syntax, even when mdast sees an HTML
+  // node inside them. This exclusion belongs only to the new occurrence API.
+  const htmlWikiRanges = collectHtml ? parseObsidianWikiLinks(syntaxMarkdown).map(link => ({
+    start: link.start + bomOffset, end: link.end + bomOffset,
+  })) : [];
   const definitions = new Map<string, { node: Nodes; uses: Array<'link' | 'image'> }>();
   const textRanges: Array<{ start: number; end: number }> = [];
 
@@ -253,9 +297,21 @@ function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: 
     ) return;
     if (node.type === 'html') {
       const raw = markdown.slice(start, end);
+      if (collectHtml) {
+        if (!htmlWikiRanges.some(range => range.start <= start && range.end >= end)) {
+          collectHtml({ sourcePath, start, end, raw });
+        }
+        return;
+      }
       const evaluation = evaluateWorkspaceHtmlLinks(raw);
       if (evaluation.unevaluated) unevaluated.push({ sourcePath, raw, reason: 'html', start,
         ...(evaluation.explicitLocalTargets ? { htmlTargets: evaluation.explicitLocalTargets } : {}) });
+      return;
+    }
+    if (collectHtml) {
+      // HTML can occur inside a Markdown link/reference label. The new HTML-only
+      // traversal must visit those AST children before legacy link handling returns.
+      if ('children' in node) node.children.forEach(visit);
       return;
     }
     if (node.type === 'link' || node.type === 'image') {
@@ -273,6 +329,7 @@ function parseWorkspaceLocalLinksWithOffsetPolicy(markdown: string, sourcePath: 
     if ('children' in node) node.children.forEach(visit);
   };
   visit(root);
+  if (collectHtml) return { links, unevaluated };
 
   for (const { node, uses } of definitions.values()) {
     const start = node.position?.start.offset;

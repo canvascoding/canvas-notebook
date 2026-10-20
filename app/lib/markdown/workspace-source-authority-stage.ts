@@ -381,7 +381,10 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     coverage: { complete: !gaps.length, gaps }, readiness: gaps.length ? 'blocked'
       : sources.some((source) => source.kind === 'physical') ? 'requires-import-and-rebinding' : 'native-coordinator-required', executionReady: false };
   return Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
-    ...(!gaps.length && privateCatalogue ? { privateCatalogue } : {}),
+    // Coherent catalogue facts remain private read evidence even when a source
+    // has a coverage gap. Each versioned consumer still validates its own
+    // coverage contract; retaining this witness grants no execution authority.
+    ...(privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
 }
 

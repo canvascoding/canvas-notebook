@@ -11,6 +11,8 @@ import { isCollaborationStateProof } from '../collaboration/state-proof';
 import { COLLABORATION_SCHEMA_VERSION } from '../collaboration/types';
 import type { NativeDocumentLinkInventory, NativeDocumentLink } from '../markdown/workspace-link-contract-v2';
 import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
+import { evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks } from '../markdown/workspace-html-link-safety';
+import { inspectWorkspaceMarkdownHtmlV4 } from '../markdown/workspace-local-link-parser';
 import { workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
@@ -40,6 +42,15 @@ export type WorkspaceOperationNativeSourceEvidenceV2 = Readonly<Omit<WorkspaceOp
   semanticCatalogueProof: string;
 }>;
 export type WorkspaceOperationNativeSourceEvidence = WorkspaceOperationNativeSourceEvidenceV1 | WorkspaceOperationNativeSourceEvidenceV2;
+/** Separate facts-only component for the HTML-aware operation arm. Historical
+ * V1/V2 decoders never accept this discriminant. Coverage gaps remain intact;
+ * neither these facts nor a successful decode grant execution authority. */
+export type WorkspaceOperationNativeHtmlSourceEvidenceV4 = Readonly<Omit<WorkspaceOperationNativeSourceEvidenceV2, 'evidenceVersion'> & {
+  evidenceVersion: 4;
+  htmlSources: readonly Readonly<{ documentId: string; path: string; inventoryProof: string;
+    inspection: ReturnType<typeof inspectWorkspaceMarkdownHtmlV4> }>[];
+}>;
+type NativeEvidenceFacts = WorkspaceOperationNativeSourceEvidence | WorkspaceOperationNativeHtmlSourceEvidenceV4;
 export class WorkspaceOperationNativeSourceEvidenceError extends Error {
   readonly status = 409;
   constructor(readonly code: 'NATIVE_SOURCE_EVIDENCE_INVALID' | 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE'
@@ -170,6 +181,10 @@ function semanticBodyV2(value: Pick<WorkspaceOperationNativeSourceEvidenceV2,
       expected: { ...binding.expected, registryStateVersion: 0 },
       registry: { ...binding.registry, stateVersion: 0 } })) };
 }
+function semanticHtmlBodyV4(value: Pick<WorkspaceOperationNativeHtmlSourceEvidenceV4,
+  'workspaceScope' | 'stage' | 'nativeBindings' | 'semanticCatalogueProof' | 'htmlSources'>): unknown {
+  return { ...semanticBodyV2(value) as Record<string, unknown>, semanticVersion: 4, htmlSources: value.htmlSources };
+}
 function vector(value: unknown, maximum = MAX_VECTOR_BYTES): Uint8Array {
   if (typeof value !== 'string' || !value.length || value.length > Math.ceil(maximum / 3) * 4
     || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u.test(value)) fail();
@@ -189,11 +204,22 @@ function complete(value: unknown): void {
   const row = record(value, ['complete', 'gaps']);
   if (row.complete !== true || list(row.gaps, 0).length) fail();
 }
-function inspectInventory(inventory: NativeDocumentLinkInventory): void {
+function inspectHtmlInventoryCoverage(inventory: NativeDocumentLinkInventory): void {
+  const coverage = record(inventory.coverage, ['complete', 'gaps']);
+  const gaps = list(coverage.gaps, MAX_LINKS);
+  if (coverage.complete !== (gaps.length === 0)) fail();
+  for (const value of gaps) {
+    const gap = record(value, ['code', 'path', 'raw'], ['htmlTargets']);
+    if (gap.code !== 'uninspected-html' || gap.path !== inventory.document.path || !text(gap.raw, MAX_EVIDENCE_BYTES) || !gap.raw) fail();
+    const actual = evaluateWorkspaceHtmlLinks(gap.raw);
+    if (!actual.unevaluated || nativeLinkJsonProof(gap.htmlTargets ?? null) !== nativeLinkJsonProof(actual.explicitLocalTargets ?? null)) fail();
+  }
+}
+function inspectInventory(inventory: NativeDocumentLinkInventory, html = false): void {
   record(inventory, ['contractVersion', 'document', 'version', 'parserVersion', 'metadata', 'links', 'coverage']);
   record(inventory.document, ['documentId', 'workspaceId', 'organizationId', 'path', 'lifecycleGeneration', 'representation', 'schemaVersion']);
   record(inventory.version, ['stateVector', 'stateProof', 'documentSequence', 'persistedAt']);
-  complete(inventory.coverage);
+  if (html) inspectHtmlInventoryCoverage(inventory); else complete(inventory.coverage);
   const metadata = record(inventory.metadata, ['aliases', 'blockIds', 'headings', 'hasExplicitTitle', 'path', 'tags', 'title']);
   if (metadata.path !== inventory.document.path || typeof metadata.hasExplicitTitle !== 'boolean' || !text(metadata.title)) fail();
   for (const name of ['aliases', 'blockIds', 'tags']) if (list(metadata[name], MAX_LINKS).some(value => !text(value))) fail();
@@ -251,28 +277,77 @@ function inspectInventory(inventory: NativeDocumentLinkInventory): void {
     ordinals.set(key, ordinal + 1); seen.add(link.id);
   }
 }
-function inspect(value: WorkspaceOperationNativeSourceEvidence, verifyProofs = true): void {
+/** Historical positions are bounded facts, not a claim that these offsets were
+ * read from a current document. Fresh capture below repeats the complete AST
+ * inspection from actual verified native bytes before a current comparison. */
+function inspectHtmlSources(value: WorkspaceOperationNativeHtmlSourceEvidenceV4): void {
+  const rows = list(value.htmlSources, MAX_PATHS);
+  if (rows.length !== value.nativeBindings.length) fail();
+  let remaining = MAX_LINKS, remainingTargets = MAX_LINKS;
+  const seen = new Set<string>();
+  const sources = new Map(value.stage.sources.map(source => [source.inventory.document.documentId, source.inventory]));
+  const bindings = new Map(value.nativeBindings.map(binding => [binding.expected.documentId, binding]));
+  for (const raw of rows) {
+    const row = record(raw, ['documentId', 'path', 'inventoryProof', 'inspection']);
+    if (!id(row.documentId) || seen.has(row.documentId) || !canonicalPath(row.path) || !digest(row.inventoryProof)) fail();
+    seen.add(row.documentId);
+    const source = sources.get(row.documentId);
+    const binding = bindings.get(row.documentId);
+    if (!source || !binding || row.path !== binding.expected.path || row.inventoryProof !== binding.inventoryProof) fail();
+    const inspection = record(row.inspection, ['parserVersion', 'occurrences']);
+    if (inspection.parserVersion !== 4) fail();
+    const occurrences = list(inspection.occurrences, MAX_LINKS);
+    remaining -= occurrences.length; if (remaining < 0) fail('NATIVE_SOURCE_EVIDENCE_TOO_LARGE');
+    if (source.document.representation !== 'plain_text' && occurrences.length) fail();
+    let previousEnd = 0;
+    for (const input of occurrences) {
+      const occurrence = record(input, ['sourcePath', 'start', 'end', 'raw', 'fullyInspected', 'explicitLocalTargets']);
+      if (occurrence.sourcePath !== row.path || !integer(occurrence.start) || !integer(occurrence.end)
+        || occurrence.start < previousEnd || occurrence.end > MAX_BINARY_BYTES || !text(occurrence.raw, MAX_EVIDENCE_BYTES) || !occurrence.raw
+        || occurrence.end - occurrence.start !== occurrence.raw.length || typeof occurrence.fullyInspected !== 'boolean') fail();
+      previousEnd = occurrence.end;
+      const targets = list(occurrence.explicitLocalTargets, MAX_LINKS);
+      if (targets.some(target => !text(target))) fail();
+      remainingTargets -= targets.length;
+      if (remainingTargets < 0) fail('NATIVE_SOURCE_EVIDENCE_TOO_LARGE');
+      const actual = inspectWorkspaceStaticHtmlLinks(occurrence.raw, targets.length);
+      if (actual.fullyInspected !== occurrence.fullyInspected
+        || nativeLinkJsonProof(actual.explicitLocalTargets) !== nativeLinkJsonProof(targets)) fail();
+    }
+    // Parser 2 inventories retain historical BOM offsets and Wiki handling;
+    // parser 4 intentionally inspects the current visible grammar. These are
+    // separately bound facts. Only fresh capture can establish that BOTH were
+    // derived from the same actual native binary; this decoder cannot do so.
+  }
+}
+function inspect(value: NativeEvidenceFacts, verifyProofs = true, html = false): void {
   record(value, ['evidenceVersion', 'workspaceScope', 'stage', 'nativeBindings', 'semanticProof', 'evidenceProof',
-    ...(value.evidenceVersion === 2 ? ['semanticCatalogueProof'] : [])]);
+    ...(value.evidenceVersion === 2 || html ? ['semanticCatalogueProof'] : []), ...(html ? ['htmlSources'] : [])]);
   const { workspaceScope: scope, stage, nativeBindings: bindings } = value;
   parseWorkspaceOperationJobScope(scope);
   record(stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace', 'sources', 'scope', 'coverage', 'readiness', 'executionReady', 'stageProof']);
-  record(stage.scope, ['kind', 'excludedPaths']); complete(stage.coverage);
-  if (value.evidenceVersion !== 1 && value.evidenceVersion !== 2
-    || value.evidenceVersion === 2 && !digest(value.semanticCatalogueProof)
+  record(stage.scope, ['kind', 'excludedPaths']);
+  if (html) {
+    const coverage = record(stage.coverage, ['complete', 'gaps']);
+    const actual = stage.sources.flatMap(source => source.inventory.coverage.gaps.map(gap => ({ code: gap.code, path: gap.path })));
+    if (coverage.complete !== (actual.length === 0) || nativeLinkJsonProof(coverage.gaps) !== nativeLinkJsonProof(actual)) fail();
+  } else complete(stage.coverage);
+  if ((html ? value.evidenceVersion !== 4 : value.evidenceVersion !== 1 && value.evidenceVersion !== 2)
+    || (value.evidenceVersion === 2 || value.evidenceVersion === 4) && !digest(value.semanticCatalogueProof)
     || scope.legacy !== false || !canonicalPath(scope.rootRelativePath)
     || !id(scope.workspaceId) || ![scope.organizationId, scope.customerId, scope.projectId, scope.ownerUserId].every(nullableId)
     || stage.stageVersion !== 1 || stage.workspaceId !== scope.workspaceId || stage.organizationId !== scope.organizationId
-    || !digest(stage.catalogueProof) || stage.executionReady !== false || !stage.coverage?.complete || stage.coverage.gaps.length
+    || !digest(stage.catalogueProof) || stage.executionReady !== false || !html && (!stage.coverage?.complete || stage.coverage.gaps.length)
     || stage.scope.kind !== 'visible-workspace' || !digest(value.semanticProof) || !digest(value.evidenceProof)
     || list(stage.sources, MAX_PATHS).length !== list(bindings, MAX_PATHS).length) fail();
   const exclusions = list(stage.scope.excludedPaths, MAX_PATHS);
   if (exclusions.some(value => !canonicalPath(value)) || new Set(exclusions).size !== exclusions.length) fail();
   for (const source of stage.sources) {
     record(source, ['kind', 'inventory']);
-    if (source.kind !== 'native') fail('NATIVE_SOURCE_IMPORT_REQUIRED'); inspectInventory(source.inventory);
+    if (source.kind !== 'native') fail('NATIVE_SOURCE_IMPORT_REQUIRED'); inspectInventory(source.inventory, html);
   }
-  if (stage.readiness !== 'native-coordinator-required' || workspaceSourceAuthorityStageProof(stage) !== stage.stageProof) fail();
+  if (stage.readiness !== (html && stage.coverage.gaps.length ? 'blocked' : 'native-coordinator-required')
+    || workspaceSourceAuthorityStageProof(stage) !== stage.stageProof) fail();
   const sources = new Map(stage.sources.map(source => [source.inventory.document.documentId, source.inventory]));
   const paths = new Set<string>(), ids = new Set<string>(), lineages = new Set<string>();
   if (sources.size !== stage.sources.length) fail();
@@ -293,7 +368,7 @@ function inspect(value: WorkspaceOperationNativeSourceEvidence, verifyProofs = t
       || !integer(expected.lifecycleGeneration, 1) || !integer(expected.registryStateVersion) || !integer(expected.documentSequence)
       || expected.registryStateVersion > expected.documentSequence || !integer(expected.persistedAt)
       || !isCollaborationStateProof(expected.stateProof) || !digest(expected.binaryHash) || !digest(expected.vectorHash)
-      || inventory.contractVersion !== 2 || inventory.parserVersion !== 2 || !inventory.coverage.complete || inventory.coverage.gaps.length
+      || inventory.contractVersion !== 2 || inventory.parserVersion !== 2 || !html && (!inventory.coverage.complete || inventory.coverage.gaps.length)
       || nativeLinkJsonProof(inventory) !== binding.inventoryProof
       || inventory.document.documentId !== expected.documentId || inventory.document.path !== expected.path
       || inventory.document.workspaceId !== scope.workspaceId || inventory.document.organizationId !== scope.organizationId
@@ -347,8 +422,10 @@ function inspect(value: WorkspaceOperationNativeSourceEvidence, verifyProofs = t
     const entry = byPath.get(binding.expected.path);
     if (entry?.documentId !== binding.expected.documentId || entry.kind !== 'file') fail();
   }
+  if (html) inspectHtmlSources(value as WorkspaceOperationNativeHtmlSourceEvidenceV4);
   if (!verifyProofs) return;
-  if (nativeLinkJsonProof(value.evidenceVersion === 2 ? semanticBodyV2(value) : semanticBody(value)) !== value.semanticProof) fail();
+  if (nativeLinkJsonProof(value.evidenceVersion === 4 ? semanticHtmlBodyV4(value)
+    : value.evidenceVersion === 2 ? semanticBodyV2(value) : semanticBody(value)) !== value.semanticProof) fail();
   const { evidenceProof, ...body } = value;
   if (nativeLinkJsonProof(body) !== evidenceProof) fail();
 }
@@ -400,6 +477,34 @@ function captureState(input: unknown, budget: { remaining: number }, jsonBudget:
   } else if (Object.hasOwn(data, 'projectionError')) fail();
   return { ...data, yjsState, stateVector };
 }
+/** Same binary, identity, schema and inventory validation for both explicit
+ * fact contracts. No caller can substitute projected Markdown for these bytes. */
+function captureAndAssertNativeEvidenceStates(evidence: NativeEvidenceFacts, supplied: unknown): Map<string, PersistedCollaborationState> {
+  const boundScope = evidence.workspaceScope;
+  const rawStates = list(supplied, MAX_PATHS);
+  if (rawStates.length !== evidence.nativeBindings.length) fail();
+  const budget = { remaining: MAX_PRIVATE_BYTES }, jsonBudget = { remaining: MAX_EVIDENCE_BYTES, nodes: 200_000 };
+  const states = new Map<string, PersistedCollaborationState>();
+  for (const raw of rawStates) {
+    const state = captureState(raw, budget, jsonBudget);
+    if (states.has(state.documentId)) fail(); states.set(state.documentId, state);
+  }
+  for (const binding of evidence.nativeBindings) {
+    const state = states.get(binding.expected.documentId);
+    if (!state || state.workspaceId !== boundScope.workspaceId || state.organizationId !== boundScope.organizationId
+      || state.path !== binding.expected.path || state.lifecycleGeneration !== binding.expected.lifecycleGeneration
+      || state.representation !== binding.expected.representation || state.schemaVersion !== binding.expected.schemaVersion
+      || state.documentSequence !== binding.expected.documentSequence || state.persistedAt !== binding.expected.persistedAt
+      || state.status !== 'active' || state.newlineStyle !== binding.byteProfile.newlineStyle || state.hasBom !== binding.byteProfile.hasBom
+      || sha(state.yjsState) !== binding.expected.binaryHash || sha(state.stateVector) !== binding.expected.vectorHash) fail();
+    const inventory = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
+      assertNativeDocumentSchema(doc, state.representation, getNativeInspectionSchema());
+      return inspectNativeDocumentLinks(doc, snapshot);
+    });
+    if (nativeLinkJsonProof(inventory) !== binding.inventoryProof) fail();
+  }
+  return states;
+}
 export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOperationJobScope,
   observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeSourceEvidenceV1 {
   try {
@@ -425,29 +530,7 @@ export function captureWorkspaceOperationNativeSourceEvidence(scope: WorkspaceOp
     const body = { ...preliminary, semanticProof: nativeLinkJsonProof(semanticBody(facts)) };
     const { evidenceProof: _placeholder, ...withoutProof } = body;
     const evidence = decodeWorkspaceOperationNativeSourceEvidence({ ...withoutProof, evidenceProof: nativeLinkJsonProof(withoutProof) });
-    const boundScope = evidence.workspaceScope;
-    const rawStates = list(observationData.privateNativeStates, MAX_PATHS);
-    if (rawStates.length !== evidence.nativeBindings.length) fail();
-    const budget = { remaining: MAX_PRIVATE_BYTES }, jsonBudget = { remaining: MAX_EVIDENCE_BYTES, nodes: 200_000 };
-    const states = new Map<string, PersistedCollaborationState>();
-    for (const raw of rawStates) {
-      const state = captureState(raw, budget, jsonBudget);
-      if (states.has(state.documentId)) fail(); states.set(state.documentId, state);
-    }
-    for (const binding of evidence.nativeBindings) {
-      const state = states.get(binding.expected.documentId);
-      if (!state || state.workspaceId !== boundScope.workspaceId || state.organizationId !== boundScope.organizationId
-        || state.path !== binding.expected.path || state.lifecycleGeneration !== binding.expected.lifecycleGeneration
-        || state.representation !== binding.expected.representation || state.schemaVersion !== binding.expected.schemaVersion
-        || state.documentSequence !== binding.expected.documentSequence || state.persistedAt !== binding.expected.persistedAt
-        || state.status !== 'active' || state.newlineStyle !== binding.byteProfile.newlineStyle || state.hasBom !== binding.byteProfile.hasBom
-        || sha(state.yjsState) !== binding.expected.binaryHash || sha(state.stateVector) !== binding.expected.vectorHash) fail();
-      const inventory = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
-        assertNativeDocumentSchema(doc, state.representation, getNativeInspectionSchema());
-        return inspectNativeDocumentLinks(doc, snapshot);
-      });
-      if (nativeLinkJsonProof(inventory) !== binding.inventoryProof) fail();
-    }
+    captureAndAssertNativeEvidenceStates(evidence, observationData.privateNativeStates);
     return evidence;
   } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
 }
@@ -468,6 +551,66 @@ export function captureWorkspaceOperationNativeSourceEvidenceV2(scope: Workspace
     const body = { ...facts, semanticProof: nativeLinkJsonProof(semanticBodyV2(facts)) };
     return decodeWorkspaceOperationNativeSourceEvidence({ ...body, evidenceProof: nativeLinkJsonProof(body) });
   } catch (error) { if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error; return fail(); }
+}
+
+/** HTML facts are a separate, deliberately non-executable component. Its
+ * original inventory gaps remain false/incomplete and no V1/V2 plan accepts it. */
+export function decodeWorkspaceOperationNativeHtmlSourceEvidenceV4(input: unknown): WorkspaceOperationNativeHtmlSourceEvidenceV4 {
+  try {
+    const value = plainJson(input) as WorkspaceOperationNativeHtmlSourceEvidenceV4;
+    inspect(value, true, true); return freeze(value);
+  } catch (error) {
+    if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error;
+    return fail(error instanceof RangeError ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID');
+  }
+}
+
+/** Every native state and the complete private catalogue are actually verified.
+ * The inspection uses Plain Y.Text content only, never a Rich serialization. */
+export function captureWorkspaceOperationNativeHtmlSourceEvidenceV4(scope: WorkspaceOperationJobScope,
+  observation: WorkspaceLinkSourceAuthorityObservation): WorkspaceOperationNativeHtmlSourceEvidenceV4 {
+  try {
+    const raw = record(observation, ['stage', 'nativeBindings', 'privateNativeStates', 'privateCatalogue']);
+    const stage = record(raw.stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace',
+      'sources', 'scope', 'coverage', 'readiness', 'executionReady', 'stageProof']);
+    for (const source of list(stage.sources, MAX_PATHS)) {
+      if (record(source, ['kind', 'inventory']).kind !== 'native') fail('NATIVE_SOURCE_IMPORT_REQUIRED');
+    }
+    const facts = plainJson({ workspaceScope: scope, stage: raw.stage, nativeBindings: raw.nativeBindings }) as
+      Pick<WorkspaceOperationNativeSourceEvidence, 'workspaceScope' | 'stage' | 'nativeBindings'>;
+    const preliminary: WorkspaceOperationNativeHtmlSourceEvidenceV4 = { evidenceVersion: 4, ...facts,
+      semanticCatalogueProof: '0'.repeat(64), semanticProof: '0'.repeat(64), evidenceProof: '0'.repeat(64), htmlSources: [] };
+    const states = captureAndAssertNativeEvidenceStates(preliminary, raw.privateNativeStates);
+    const htmlSources: WorkspaceOperationNativeHtmlSourceEvidenceV4['htmlSources'][number][] = [];
+    let maximumOccurrences = MAX_LINKS, maximumTargets = MAX_LINKS;
+    for (const binding of facts.nativeBindings) {
+      const state = states.get(binding.expected.documentId)!;
+      const inspection = inspectPersistedNativeCollaborationSnapshot(state, (_doc, snapshot) => snapshot.content.kind === 'plain_text'
+        ? inspectWorkspaceMarkdownHtmlV4(snapshot.content.text, state.path, { maximumOccurrences, maximumTargets })
+        : { parserVersion: 4 as const, occurrences: [] });
+      maximumOccurrences -= inspection.occurrences.length;
+      maximumTargets -= inspection.occurrences.reduce((count, occurrence) => count + occurrence.explicitLocalTargets.length, 0);
+      htmlSources.push({ documentId: state.documentId, path: state.path, inventoryProof: binding.inventoryProof, inspection });
+    }
+    inspect({ ...preliminary, htmlSources }, false, true);
+    const witness = captureWorkspaceOperationNativeCatalogueWitness(raw.privateCatalogue, facts.workspaceScope,
+      facts.stage.catalogueProof!, facts.nativeBindings, reason => fail(reason === 'too-large'
+        ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID'));
+    const bodyFacts = { evidenceVersion: 4 as const, ...facts, htmlSources, semanticCatalogueProof: witness.semanticCatalogueProof };
+    const body = { ...bodyFacts, semanticProof: nativeLinkJsonProof(semanticHtmlBodyV4(bodyFacts)) };
+    return decodeWorkspaceOperationNativeHtmlSourceEvidenceV4({ ...body, evidenceProof: nativeLinkJsonProof(body) });
+  } catch (error) {
+    if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error;
+    return fail(error instanceof RangeError ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID');
+  }
+}
+
+/** No witnessless or V1 compatibility fallback exists for HTML-aware facts. */
+export function assertWorkspaceOperationNativeHtmlSourceEvidenceV4Current(expected: WorkspaceOperationNativeHtmlSourceEvidenceV4,
+  observation: WorkspaceLinkSourceAuthorityObservation, scope: WorkspaceOperationJobScope): void {
+  const original = decodeWorkspaceOperationNativeHtmlSourceEvidenceV4(expected);
+  const current = captureWorkspaceOperationNativeHtmlSourceEvidenceV4(scope, observation);
+  if (original.semanticProof !== current.semanticProof) fail('NATIVE_SOURCE_EVIDENCE_CHANGED');
 }
 export function assertWorkspaceOperationNativeSourceEvidenceCurrent(expected: WorkspaceOperationNativeSourceEvidence,
   observation: WorkspaceLinkSourceAuthorityObservation, scope: WorkspaceOperationJobScope): void {

@@ -93,6 +93,23 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(trace.filter(entry => entry.sql.includes('has_state_history')).length, 3);
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id') || entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
     });
+    await fixture('coherent incomplete HTML keeps the private catalogue without certifying coverage', async () => {
+      const native = await seed('native-html.md', 'plain_text', { text: '<img src="unrelated.png">\n' });
+      await fs.writeFile(path.join(root, 'physical.html'), '<a href="other.md">Other</a>\n');
+      const observed = await read();
+      assert.equal(observed.stage.coverage.complete, false);
+      assert.equal(observed.stage.readiness, 'blocked');
+      assert.equal(observed.stage.executionReady, false);
+      assert.equal(observed.stage.coverage.gaps.length, 2);
+      assert(observed.stage.coverage.gaps.every(gap => gap.code === 'uninspected-html'));
+      assert.equal(observed.privateCatalogue?.length, 1);
+      assert.equal(observed.privateCatalogue?.[0].id, native.documentId);
+      assert.equal(nativeLinkJsonProof(observed.privateCatalogue), observed.stage.catalogueProof);
+      assert.equal(observed.privateNativeStates.length, 1);
+      assert.equal(digest(observed.privateNativeStates[0].yjsState), digest(native.binary));
+      assert.equal(Object.hasOwn(observed.stage, 'privateCatalogue'), false);
+      assert.equal(observed.stage.sources.length, 2);
+    });
     await fixture('N5 uses two actual header and binary collection passes without losing any native source', async () => {
       const targets = [];
       for (let index = 0; index < 5; index++) targets.push(await seed(`source-${index}.md`, ['plain_text', 'tiptap_xml', 'tiptap_blocks'][index%3] as 'plain_text' | 'tiptap_xml' | 'tiptap_blocks'));
@@ -117,6 +134,7 @@ test('strict source authority collector with caller-owned embedded SQL and genui
       assert.equal(observed.stage.coverage.complete, false); assert.equal(observed.stage.sources.length, 0);
       assert.equal(observed.nativeBindings.length, 0); assert.equal(observed.privateNativeStates.length, 0);
       assert(observed.stage.coverage.gaps.some(gap => gap.code === 'source-byte-limit'));
+      assert.equal(observed.privateCatalogue, undefined, 'An incoherent collection retains no catalogue witness.');
       assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 1);
       assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 0);
     });
