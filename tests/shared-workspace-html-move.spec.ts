@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type Browser, type BrowserContext, type Page, type Response } from '@playwright/test';
 import type { WorkspacePathOperationPublic, WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
 import { COLLABORATION_CLIENT_CAPABILITIES, type CollaborationSessionResponse } from '../app/lib/collaboration/types';
 import {
@@ -171,9 +171,7 @@ async function openOriginal(page: Page, workspaceId: string, filePath: string): 
   observeSessionPaths(page);
   await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(workspaceId)}&path=${encodeURIComponent(filePath)}&collaborationDebug=1`,
     { waitUntil: 'domcontentloaded' });
-  await page.getByRole('group', { name: 'Document view', exact: true })
-    .getByRole('button', { name: 'Edit', exact: true }).click();
-  const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+  const editor = page.locator('.tiptap-editor-shell .ProseMirror[contenteditable="true"], .markdown-source-shell .cm-content[contenteditable="true"]');
   await expect(editor).toBeVisible({ timeout: 60_000 });
   await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
   await expect(editor).toContainText('Originaler Inhalt: Größe, Wärme und Rücklauf bleiben erhalten.');
@@ -306,7 +304,7 @@ async function assertSameOpenDocuments(fixture: SharedFixture, filePath: string,
       await expect(editor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
     } else {
       await expect(page.getByRole('group', { name: 'Document view', exact: true })
-        .getByRole('button', { name: 'Edit', exact: true })).toBeDisabled();
+        .getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
       await expect(page.locator('.tiptap-editor-shell [contenteditable="true"], .cm-content[contenteditable="true"]')).toHaveCount(0);
     }
     sessions.push(current);
@@ -321,8 +319,6 @@ async function openSharedDocument(page: Page, fixture: SharedFixture, filePath: 
   observeSessionPaths(page);
   await page.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(filePath)}&collaborationDebug=1`,
     { waitUntil: 'domcontentloaded' });
-  if (kind === 'rich') await page.getByRole('group', { name: 'Document view', exact: true })
-    .getByRole('button', { name: 'Edit', exact: true }).click();
   const content = page.locator(kind === 'rich' ? '.tiptap-editor-shell .ProseMirror'
     : kind === 'code' ? '.cm-content' : '.markdown-editor-content');
   await expect(content).toBeVisible({ timeout: 60_000 });
@@ -332,11 +328,17 @@ async function openSharedDocument(page: Page, fixture: SharedFixture, filePath: 
   if (await sidebarToggle.isVisible()) await sidebarToggle.click();
 }
 
+function isRenameApply(response: Response, oldPath: string, newPath: string): boolean {
+  if (new URL(response.url()).pathname !== '/api/files/rename' || response.request().method() !== 'POST') return false;
+  const body = response.request().postDataJSON() as { oldPath?: unknown; newPath?: unknown; dryRun?: unknown };
+  return body.dryRun !== true && body.oldPath === oldPath && body.newPath === newPath;
+}
+
 async function moveUsingDialog(fixture: SharedFixture, filePath: string): Promise<WorkspacePathOperationPublic> {
   const dialog = await moveDialog(fixture.adminPage, filePath);
+  const destination = `Ziel/${filePath.split('/').at(-1)}`;
   const [response] = await Promise.all([
-    fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-      && candidate.request().method() === 'POST'),
+    fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, filePath, destination)),
     dialog.getByRole('button', { name: 'Move', exact: true }).click(),
   ]);
   expect(response.ok(), `Move the exact owned fixture ${filePath}`).toBe(true);
@@ -345,6 +347,21 @@ async function moveUsingDialog(fixture: SharedFixture, filePath: string): Promis
   await waitApplied(fixture, result.operation);
   await expect(dialog).toBeHidden({ timeout: 90_000 });
   return result.operation;
+}
+
+async function assertUndoDisabled(fixture: SharedFixture, operation: WorkspacePathOperationPublic): Promise<void> {
+  const url = `/api/files/operations/batches/${encodeURIComponent(operation.batchId)}`;
+  const before = await fixture.admin.request.get(url, { headers: fixture.headers });
+  expect(before.status()).toBe(200);
+  const beforeBody = await before.json();
+  const undo = await fixture.admin.request.post(url,
+    { headers: fixture.headers, data: { action: 'undo', planId: operation.planId } });
+  expect(undo.status(), 'File-action Undo remains explicitly disabled').toBe(409);
+  expect(await undo.json()).toMatchObject({ success: false, code: 'FILE_OPERATION_UNDO_DISABLED' });
+  const after = await fixture.admin.request.get(url, { headers: fixture.headers });
+  expect(after.status()).toBe(200);
+  expect(await after.json(), 'Rejected Undo preserves the exact completed operation').toEqual(beforeBody);
+  await waitApplied(fixture, operation);
 }
 
 async function richText(page: Page): Promise<string> {
@@ -375,7 +392,7 @@ test.describe('shared workspace HTML move safety', () => {
   test.setTimeout(240_000);
 
   for (const viewport of ['desktop', 'iphone'] as const) {
-    test(`unrelated local HTML permits the reported nested move and Undo on ${viewport}`, async ({ browser }, info) => {
+    test(`unrelated local HTML permits the reported nested move and rejects disabled Undo on ${viewport}`, async ({ browser }, info) => {
       await withSharedFixture(browser, async (fixture) => {
         const source = 'ek-fuchs-transkript.md';
         const destinationFolder = 'Koenenstrasse_8/WEG/Waermepumpe/Notizen';
@@ -416,8 +433,7 @@ test.describe('shared workspace HTML move safety', () => {
         }
         await fixture.adminPage.screenshot({ path: info.outputPath(`unrelated-local-html-ready-${viewport}.png`), animations: 'disabled' });
         const [response] = await Promise.all([
-          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+          fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, destination)),
           moveButton.click(),
         ]);
         expect(response.ok(), 'The reported move succeeds while the HTML source remains unchanged').toBe(true);
@@ -437,24 +453,18 @@ test.describe('shared workspace HTML move safety', () => {
         }
         const after = await assertSameOpenDocuments(fixture, destination, before, origins);
         await fixture.adminPage.screenshot({ path: info.outputPath(`unrelated-local-html-moved-${viewport}.png`), animations: 'disabled' });
-        const undo = await fixture.admin.request.post(`/api/files/operations/batches/${encodeURIComponent(result.operation.batchId)}`,
-          { headers: fixture.headers, data: { action: 'undo', planId: result.operation.planId } });
-        expect(undo.status(), 'Undo the exact reported move through the public operation API').toBe(202);
-        const undone = (await undo.json() as WorkspacePathOperationResponse).operation;
-        expect(undone).toMatchObject({ batchId: result.operation.batchId, planId: result.operation.planId,
-          workspaceId: fixture.workspaceId });
-        await waitApplied(fixture, undone, 'undone');
-        await assertAbsent(fixture, destination);
-        await assertOriginal(fixture, source);
-        await assertSameOpenDocuments(fixture, source, before, origins);
+        await assertUndoDisabled(fixture, result.operation);
+        await assertAbsent(fixture, source);
+        await assertOriginal(fixture, destination);
+        await assertSameOpenDocuments(fixture, destination, before, origins);
         for (const context of [fixture.admin, fixture.peer]) {
-          expect((await fixture.read(context.request, 'Verweise.md')).content).toBe(backlinks);
+          expect((await fixture.read(context.request, 'Verweise.md')).content).toBe(`[Transkript](${destination})\n`);
           expect((await fixture.read(context.request, localHtmlPath)).content).toBe(localHtmlContent);
         }
         await info.attach(`unrelated-local-html-${viewport}-evidence`, { contentType: 'application/json',
           body: Buffer.from(JSON.stringify({ before, after, source, destination, batchId: result.operation.batchId,
             sha256: originalHash, htmlSha256: createHash('sha256').update(localHtmlContent).digest('hex'),
-            viewport, undo: 'undone', reloaded: false }, null, 2)) });
+            viewport, undo: 'disabled', undoCode: 'FILE_OPERATION_UNDO_DISABLED', reloaded: false }, null, 2)) });
       });
     });
   }
@@ -468,8 +478,7 @@ test.describe('shared workspace HTML move safety', () => {
       for (const source of [localImagePath, localHtmlPath]) {
         const dialog = await moveDialog(fixture.adminPage, source);
         const [response] = await Promise.all([
-          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+          fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, `Ziel/${source}`)),
           dialog.getByRole('button', { name: 'Move', exact: true }).click(),
         ]);
         expect(response.status(), `Moving ${source} changes the HTML link and remains protected`).toBe(409);
@@ -504,12 +513,8 @@ test.describe('shared workspace HTML move safety', () => {
         .toEqual({ width: 1440, height: 1000 });
       await fixture.peerPage.goto(`/en/notebook?workspaceId=${encodeURIComponent(fixture.workspaceId)}&path=${encodeURIComponent(localHtmlPath)}`,
         { waitUntil: 'domcontentloaded' });
-      const sourceButton = fixture.peerPage.getByRole('group', { name: 'Document view', exact: true })
-        .getByRole('button', { name: 'Source', exact: true });
-      await expect(sourceButton).toBeVisible({ timeout: 45_000 });
-      await expect(sourceButton).toBeEnabled({ timeout: 45_000 });
-      await sourceButton.click({ timeout: 45_000 });
       const sourceEditor = fixture.peerPage.locator('.cm-content');
+      await expect(sourceEditor).toBeVisible({ timeout: 45_000 });
       await expect(sourceEditor).toHaveAttribute('contenteditable', 'true', { timeout: 30_000 });
       await expect(sourceEditor).toContainText(localImagePath);
       const dialog = await moveDialog(fixture.adminPage, source);
@@ -530,8 +535,7 @@ test.describe('shared workspace HTML move safety', () => {
       await expect.poll(async () => (await fixture.read(fixture.peer.request, localHtmlPath)).content,
         { timeout: 45_000, intervals: [500, 1000] }).toBe(changedHtml);
       const [rejected] = await Promise.all([
-        fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-          && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+        fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, `Ziel/${source}`)),
         dialog.getByRole('button', { name: 'Move', exact: true }).click(),
       ]);
       expect(rejected.request().postDataJSON()).toMatchObject({ oldPath: source, newPath: `Ziel/${source}`, planId: checked.plan.planId });
@@ -571,8 +575,7 @@ test.describe('shared workspace HTML move safety', () => {
       const origins = await Promise.all([fixture.adminPage, fixture.peerPage].map((page) => page.evaluate(() => performance.timeOrigin)));
       const dialog = await moveDialog(fixture.adminPage, 'transkript.md');
       const [response] = await Promise.all([
-        fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-          && candidate.request().method() === 'POST'),
+        fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, 'transkript.md', 'Ziel/transkript.md')),
         dialog.getByRole('button', { name: 'Move', exact: true }).click(),
       ]);
       expect(response.ok(), 'Unrelated external HTML must not block the move').toBe(true);
@@ -659,7 +662,7 @@ test.describe('shared workspace HTML move safety', () => {
     });
   });
 
-  test('directory move and public Undo keep both open rich editors usable and restore backlinks', async ({ browser }, info) => {
+  test('directory move keeps both open rich editors usable and disabled Undo preserves backlinks', async ({ browser }, info) => {
     await withSharedFixture(browser, async (fixture) => {
       const directory = await fixture.admin.request.post('/api/files/create', { headers: fixture.headers,
         data: { path: 'Quelle', type: 'directory' } });
@@ -683,21 +686,17 @@ test.describe('shared workspace HTML move safety', () => {
         expect((await fixture.read(context.request, 'Verzeichnis-Verweise.md')).content).toBe('[Notiz](Ziel/Quelle/notiz.md)\n');
         expect((await fixture.read(context.request, 'Ziel/Quelle/details.txt')).content).toBe('Unbeteiligte Unterdatei\n');
       }
-      const undo = await fixture.admin.request.post(`/api/files/operations/batches/${encodeURIComponent(operation.batchId)}`,
-        { headers: fixture.headers, data: { action: 'undo', planId: operation.planId } });
-      expect(undo.status(), 'Undo the exact owned tracked directory move').toBe(202);
-      const undone = (await undo.json() as WorkspacePathOperationResponse).operation;
-      expect(undone).toMatchObject({ batchId: operation.batchId, planId: operation.planId, workspaceId: fixture.workspaceId });
-      await waitApplied(fixture, undone, 'undone');
-      await assertAbsent(fixture, destination);
-      await assertOriginal(fixture, source);
-      const restored = await assertSameOpenDocuments(fixture, source, before, origins);
+      await assertUndoDisabled(fixture, operation);
+      await assertAbsent(fixture, source);
+      await assertOriginal(fixture, destination);
+      const afterRejectedUndo = await assertSameOpenDocuments(fixture, destination, before, origins);
       for (const context of [fixture.admin, fixture.peer]) {
-        expect((await fixture.read(context.request, 'Verzeichnis-Verweise.md')).content).toBe(backlinks);
-        expect((await fixture.read(context.request, 'Quelle/details.txt')).content).toBe('Unbeteiligte Unterdatei\n');
+        expect((await fixture.read(context.request, 'Verzeichnis-Verweise.md')).content).toBe('[Notiz](Ziel/Quelle/notiz.md)\n');
+        expect((await fixture.read(context.request, 'Ziel/Quelle/details.txt')).content).toBe('Unbeteiligte Unterdatei\n');
       }
       await info.attach('directory-move-undo-evidence', { contentType: 'application/json',
-        body: Buffer.from(JSON.stringify({ before, restored, batchId: operation.batchId, sha256: originalHash, reloaded: false }, null, 2)) });
+        body: Buffer.from(JSON.stringify({ before, afterRejectedUndo, batchId: operation.batchId,
+          sha256: originalHash, undo: 'disabled', undoCode: 'FILE_OPERATION_UNDO_DISABLED', reloaded: false }, null, 2)) });
     });
   });
 
@@ -786,8 +785,7 @@ test.describe('shared workspace HTML move safety', () => {
         });
         const dialog = await moveDialog(fixture.adminPage, source);
         const [blocked] = await Promise.all([
-          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
-            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun !== true),
+          fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, `Ziel/${source}`)),
           dialog.getByRole('button', { name: 'Move', exact: true }).click(),
         ]);
         expect(blocked.status(), 'Local HTML remains protected').toBe(409);
