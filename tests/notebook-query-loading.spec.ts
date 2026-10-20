@@ -21,8 +21,10 @@ test('cold document entry with a hidden chat makes no chat queries', async ({ br
       if (/\/api\/(?:sessions|agent-runtime)(?:\/|\?|$)/.test(new URL(request.url()).pathname)) chatReads.push(request.url());
     });
     await page.goto(`/de/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(filePath)}`);
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByTestId('chat-input')).toHaveCount(0);
+    const editor = page.getByRole('tabpanel', { name: filePath, exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+    await expect(editor).toBeVisible({ timeout: 20_000 });
+    await expect(editor).toHaveAttribute('contenteditable', 'true');
+    await expect(page.getByTestId('chat-inline-editor')).toHaveCount(0);
     await expect(page.getByText('Independent document surface.', { exact: true })).toBeVisible();
     expect(chatReads).toEqual([]);
     await page.screenshot({ path: info.outputPath('document-without-chat.png') });

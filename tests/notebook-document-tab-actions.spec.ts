@@ -20,7 +20,9 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await page.goto(`/de/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(paths[0])}`);
     const firstTab = page.getByRole('tab', { name: paths[0], exact: true });
     await expect(firstTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    const firstEditor = page.getByRole('tabpanel', { name: paths[0], exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+    await expect(firstEditor).toBeVisible();
+    await expect(firstEditor).toHaveAttribute('contenteditable', 'true');
     await firstTab.click({ button: 'right' });
     const menu = page.getByRole('menu');
     await expect(menu.getByRole('menuitem', { name: 'Pfad kopieren', exact: true })).toBeVisible();
@@ -34,7 +36,9 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await page.goto(`/de/notebook?workspaceId=${workspace.id}&path=${encodeURIComponent(paths[1])}`);
     const secondTab = page.getByRole('tab', { name: paths[1], exact: true });
     await expect(secondTab).toHaveAttribute('aria-selected', 'true', { timeout: 30_000 });
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    const secondEditor = page.getByRole('tabpanel', { name: paths[1], exact: true }).locator('.tiptap-editor-shell .ProseMirror');
+    await expect(secondEditor).toBeVisible();
+    await expect(secondEditor).toHaveAttribute('contenteditable', 'true');
     await firstTab.click({ button: 'right' });
     await expect(secondTab).toHaveAttribute('aria-selected', 'true');
     await menu.getByRole('menuitem', { name: 'Umbenennen', exact: true }).click();
@@ -44,7 +48,8 @@ test('document tabs expose file actions for the clicked file with the explorer h
     await firstTab.click({ button: 'right' });
     await menu.getByRole('menuitem', { name: 'Im Dateibrowser anzeigen', exact: true }).click();
     await expect(firstTab).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('button', { name: 'Bearbeiten', exact: true })).toBeVisible();
+    await expect(firstEditor).toBeVisible();
+    await expect(firstEditor).toHaveAttribute('contenteditable', 'true');
     await expect(page.getByRole('button', { name: 'Sidebar ausblenden', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
     await page.setViewportSize({ width: 900, height: 700 });

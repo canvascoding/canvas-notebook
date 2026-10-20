@@ -373,7 +373,9 @@ export async function createCompletedWorkspaceMarkdownFile(input: {
 }
 
 export async function enterMarkdownEditMode(page: Page): Promise<void> {
-  const editButton = page.getByRole('button', { name: /^(?:Edit|Bearbeiten)$/i }).first();
-  await editButton.waitFor({ state: 'visible' });
-  await editButton.click();
+  // Writers enter an editable surface directly. Keep normalization explicit in
+  // the calling test when the original Markdown requires that separate action.
+  await page.locator(
+    '.tiptap-editor-shell .ProseMirror[contenteditable="true"], .markdown-source-shell .cm-content[contenteditable="true"]',
+  ).waitFor({ state: 'visible' });
 }
