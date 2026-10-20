@@ -12,6 +12,14 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const requireFromRoot = createRequire(path.join(root, 'package.json'));
 const entryPoint = process.argv[2] ?? 'scripts/document-read-tool-dispatch-postgres-test.ts';
 const criticalInputsByEntryPoint = {
+  'scripts/workspace-operation-batch-executor-test.ts': [entryPoint,
+    'app/lib/files/workspace-operation-batch-executor.ts',
+    'app/lib/files/workspace-file-undo-policy.ts',
+    'app/lib/files/workspace-operation-batch-plan.ts',
+    'app/lib/markdown/workspace-file-operation-preview.ts',
+    'app/lib/markdown/workspace-link-write-groups.ts',
+    'app/lib/files/workspace-mutation-lock.ts'],
+  'scripts/workspace-file-undo-disabled-test.ts': [entryPoint],
   'scripts/agent-runtime-temp-test.ts': [entryPoint,
     'app/lib/pi/agent-runtime-temp.ts', 'app/lib/pi/agent-execution-context.ts',
     'app/lib/pi/agent-file-operations.ts', 'app/lib/workspaces/request-principal.ts',

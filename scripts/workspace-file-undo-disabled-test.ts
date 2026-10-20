@@ -156,9 +156,12 @@ async function main(): Promise<void> {
     const scheduling = await sourceModule<typeof import('../app/lib/files/workspace-operation-job-phase-scheduling')>(
       'app/lib/files/workspace-operation-job-phase-scheduling.ts', { './workspace-operation-batch-store': stores });
     const failure = await sourceModule<typeof import('../app/lib/files/workspace-operation-batch-failure')>('app/lib/files/workspace-operation-batch-failure.ts');
+    const renewals = await sourceModule<typeof import('../app/lib/files/workspace-operation-claim-renewals')>(
+      'app/lib/files/workspace-operation-claim-renewals.ts');
     const workers = await sourceModule<typeof import('../app/lib/files/workspace-operation-batch-worker')>('app/lib/files/workspace-operation-batch-worker.ts', {
       ...policyDependency, './workspace-operation-batch-store': stores, './workspace-operation-job-scope': jobScope,
       './workspace-operation-job-phase-scheduling': scheduling, './workspace-operation-batch-failure': failure,
+      './workspace-operation-claim-renewals': renewals,
     });
     await check('actual SQL queued Undo claim is retired as explicit recovery with no scope or executor access', async () => {
       await pg.query("UPDATE workspace_file_operation_batches SET status='queued',action_mode='undo',phase='recovery' WHERE batch_id=$1", [selected!.batchId]);
