@@ -182,7 +182,7 @@ for (const viewport of [
       const assistant = page.getByTestId('chat-message-assistant');
       await expect(assistant).toHaveCount(1, { timeout: 30_000 });
       await checkCodeBlockCopy(page, assistant.getByTestId('chat-code-block-copy'));
-      await assistant.hover();
+      await assistant.getByTestId('chat-code-block-copy').hover();
       const messageCopy = page.getByTestId('chat-message-actions-assistant').getByRole('button', { name: 'Copy formatted', exact: true });
       await messageCopy.click();
       await expect(page.getByTestId('chat-message-actions-assistant').getByRole('button', { name: 'Copied', exact: true })).toBeVisible();
