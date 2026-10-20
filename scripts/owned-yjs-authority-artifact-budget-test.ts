@@ -18,6 +18,7 @@ async function main(): Promise<void> {
   const aliases: Array<{ name: string; packageName: string; link: string }> = [];
   const virtual = new Map<string, { names: string[]; members: Set<string> }>();
   const mutated = new Set<string>();
+  const virtualDirectories = new Set<string>(), unhashedCompiledNames = new Set<string>();
   let opened = 0, closed = 0, active = 0, highWater = 0;
   const names = (count: number, extension: string) => Array.from({ length: count }, (_, index) => `${String(index).padStart(6, '0')}.${extension}`);
   const setEntries = (directory: string, entries: string[]) => virtual.set(directory, { names: entries, members: new Set(entries) });
@@ -36,7 +37,9 @@ async function main(): Promise<void> {
       }
       file(`${relative}/package.json`, JSON.stringify({ name: alias.packageName }));
     }
-    for (const name of virtual.get(chunks)!.names) file(`z-chunks/${name}`, mutated.has(path.join(chunks, name)) ? changed : bytes);
+    for (const name of virtual.get(chunks)!.names) {
+      if (!unhashedCompiledNames.has(name)) file(`z-chunks/${name}`, mutated.has(path.join(chunks, name)) ? changed : bytes);
+    }
     return { buildId, fingerprint: digest.digest('hex') };
   };
   const addAlias = async (packageName: string, suffix: string) => {
@@ -64,13 +67,13 @@ async function main(): Promise<void> {
       setEntries(path.join(target, 'files'), []);
     }
     await addAlias('a', '0123456789abcdef');
-    const metadata = await original.lstat(payload);
+    const metadata = await original.lstat(payload), directoryMetadata = await original.lstat(chunks);
     fs.readdir = (async (...args: Parameters<typeof fs.readdir>) => {
       const entries = virtual.get(String(args[0]));
       return entries ? [...entries.names] : Reflect.apply(original.readdir, fs, args);
     }) as typeof fs.readdir;
     fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => isVirtual(args[0])
-      ? metadata : Reflect.apply(original.lstat, fs, args)) as typeof fs.lstat;
+      ? virtualDirectories.has(args[0]) ? directoryMetadata : metadata : Reflect.apply(original.lstat, fs, args)) as typeof fs.lstat;
     fs.open = (async (...args: Parameters<typeof fs.open>) => {
       if (!isVirtual(args[0])) return Reflect.apply(original.open, fs, args);
       const handle = await Reflect.apply(original.open, fs, [mutated.has(args[0]) ? changedPayload : payload, ...args.slice(1)]);
@@ -107,11 +110,32 @@ async function main(): Promise<void> {
     setEntries(firstPackage, names(50_000, 'bin'));
     await assert.rejects(buildFingerprint(repo), /External package artifact visit limit/u); await assertClosed();
 
-    // The original compiled-tree cap still includes unselected regular entries.
+    // Capacity v2 keeps all structural entries in its compiled budget. Fixed
+    // overhead is BUILD_ID, node_modules, its one alias and z-chunks itself.
     await fs.unlink(path.join(build, 'node_modules', aliases.pop()!.name));
-    setEntries(firstPackage, []); setEntries(chunks, names(100_000, 'txt'));
-    await assert.rejects(buildFingerprint(repo), /Compiled artifact visit limit/u); await assertClosed();
-    console.log('Artifact budgets passed: complete mixed-origin digest, late-byte changes, aggregate package and repeated-alias limits, compiled limit and bounded handle cleanup.');
+    setEntries(firstPackage, []);
+    const compiledLimitV2 = 110_000, fixedCompiledEntries = 4;
+    const directoryName = 'z-directory', ignoredName = 'z-ignored.txt', lateName = 'z-selected.js';
+    const boundaryNames = [...names(compiledLimitV2 - 1 - fixedCompiledEntries - 3, 'js'), directoryName, ignoredName, lateName];
+    virtualDirectories.add(path.join(chunks, directoryName)); setEntries(path.join(chunks, directoryName), []);
+    unhashedCompiledNames.add(directoryName); unhashedCompiledNames.add(ignoredName);
+    setEntries(chunks, boundaryNames);
+    assert.equal(fixedCompiledEntries + boundaryNames.length, compiledLimitV2 - 1);
+    const boundary = await buildFingerprint(repo);
+    assert.deepEqual(boundary, expected()); await assertClosed();
+    const lateFile = path.join(chunks, lateName); mutated.add(lateFile);
+    const lateChanged = await buildFingerprint(repo);
+    assert.notEqual(lateChanged.fingerprint, boundary.fingerprint); assert.deepEqual(lateChanged, expected());
+    mutated.delete(lateFile); await assertClosed();
+    for (const kind of ['file', 'directory'] as const) {
+      const overflowName = kind === 'file' ? 'zz-ignored.txt' : 'zz-directory', overflow = path.join(chunks, overflowName);
+      unhashedCompiledNames.add(overflowName);
+      if (kind === 'directory') { virtualDirectories.add(overflow); setEntries(overflow, []); }
+      setEntries(chunks, [...boundaryNames, overflowName]);
+      assert.equal(fixedCompiledEntries + virtual.get(chunks)!.names.length, compiledLimitV2);
+      await assert.rejects(buildFingerprint(repo), /Compiled artifact visit limit/u); await assertClosed();
+    }
+    console.log('Artifact budgets passed: complete mixed-origin digest, late-byte changes beyond 100,000 entries, aggregate package and repeated-alias limits, exact capacity-v2 compiled boundary including ignored files and directories, and bounded handle cleanup.');
   } finally {
     fs.readdir = original.readdir; fs.lstat = original.lstat; fs.open = original.open;
     assert.equal(active, 0); assert.equal(opened, closed);

@@ -447,12 +447,17 @@ async function visitLimitCase(root: string): Promise<void> {
   await put(path.join(repo, '.next/BUILD_ID'), 'synthetic-limit'); await fs.mkdir(directory);
   const physical = path.join(root, 'synthetic-ignored-entry.txt'); await fs.writeFile(physical, 'not compiled');
   const stat = await fs.lstat(physical), originalReaddir = fs.readdir, originalLstat = fs.lstat;
-  // Bound the fixture to one real directory and one real entry; exercise the unchanged 100,000-visit guard.
+  // Preserve the frozen v1 100,000-visit rejection independently of capacity v2.
+  // Ignored entries still count, but this complete 100,002-entry tree now fits.
   const names = Array.from({ length: 100_000 }, (_, index) => `${String(index).padStart(6, '0')}.txt`);
   fs.readdir = (async (...args: Parameters<typeof fs.readdir>) => args[0] === directory ? names : Reflect.apply(originalReaddir, fs, args)) as typeof fs.readdir;
   fs.lstat = (async (...args: Parameters<typeof fs.lstat>) => typeof args[0] === 'string' && args[0].startsWith(`${directory}${path.sep}`)
     ? stat : Reflect.apply(originalLstat, fs, args)) as typeof fs.lstat;
-  try { await rejectsBoth(repo, serialBuildFingerprint, buildFingerprint, 'compiled visit limit'); }
+  try {
+    await assert.rejects(serialBuildFingerprint(repo), { name: 'AssertionError', code: 'ERR_ASSERTION' }, 'Frozen v1 visit limit must still reject.');
+    assert.deepEqual(await buildFingerprint(repo), { buildId: 'synthetic-limit',
+      fingerprint: createHash('sha256').update('BUILD_ID\0synthetic-limit\0').digest('hex') });
+  }
   finally { fs.readdir = originalReaddir; fs.lstat = originalLstat; }
 }
 

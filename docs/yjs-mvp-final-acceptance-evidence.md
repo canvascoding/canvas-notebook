@@ -144,3 +144,37 @@ Originale liegen unter `/private/tmp/canvas-m3-file-test-reconciliation-20261020
 | Unabhängiger Main-Vergleich `comparison.json` | `8ad4b5fe3a3b1bd6be37035080fdb5853cb4ce1a9b17ce2206310facfebb7cbb` |
 
 **Weiter offen:** akzeptierter vollständiger Kaltbuild mit unveränderten Schutzlimits und unabhängiger Quellen-/Artefaktbindung, anschließend alle 29 Browser-/API-/MCP-Fälle in drei seriellen eigenen Runtimes, danach aktuelle CI und vollständiges Review. Noch keine Main-/Launchfreigabe und keine Produktionsauslieferung. Die sieben nachgelagerten Roadmap-Pakete bleiben unverändert offen.
+
+## Vierter Originalbuild: kalter Cache, unveränderte Artefaktgrenze
+
+Der vorherige warme Stand bleibt vollständig erhalten. Der neue tatsächliche Build beginnt mit leerem QA-`.next`; das gesamte vorige Verzeichnis einschließlich Cache bleibt reversibel außerhalb des Projekt-/Tracingroots gesichert. Gebundene Heads sind Root `f7a554742ea2ce08acb1deeb62ac99b987dd6e0c`, QA `e248e8e758a33f6141c0d75299a417e8e2e308ef`, CP unverändert `27c8ce37da082244f006ca376068cde6b98845d5`. Build-/Browserfristen und die bisherigen fünf Helper-/Supervisor-/Nativepins bleiben in diesem Original unverändert.
+
+Der originale Owned-Prozess endet mit **Exit 1 nach 344,904 s**. Compile besteht mit Exit 0 nach 264 s; Release-Typecheck besteht, Generate endet mit Exit 0 nach 13 s und der echte Produktionsmodultest bestätigt gemeinsame Yjs-Identität sowie XML-/Block-/Reload-Erhaltung. Die Queue endet ebenfalls fehlgeschlagen vor Runtime 1 mit `results: []`. Keine der 29 aktuellen Browserprüfungen startet. Eine anschließende ausschließlich lesende Reproduktion mit dem unveränderten Originalhelper `62a43d597f3e251cd3a7c793fe559194d187740e66951544203571ea6d6096cb` verweigert den Fingerprint mit `Compiled artifact visit limit exceeded.`; Quellenfingerprint vorher/nachher gleich, kein Artefakt akzeptiert.
+
+Das abgeschlossene kalte Inventar trennt **102.642 kompilierte** und **10.213 externe** Einträge. Die kompilierte Anzahl ist exakt gleich der warmen Inventur; daraus folgt keine Bytegleichheit. Alle 18 untersuchten Paketaliasformen sind strukturell kanonisch. Der vollständige Source-Map-Pfad-Audit liest 48.266 Maps einschließlich rekursiver indizierter `sections[].map` und `sourceRoot`-Präfixbehandlung: 148.091 Referenzen, 17.589 eindeutige Quellangaben, keine Parsefehler, keine nichtleeren `sourceRoot`-Felder und keine verschachtelten Buildpfade in diesen Quellangaben. Das ist ein Struktur-/Quellpfadaudit, **kein vollständiger Byte-Fingerprint, Reachability-, nativer Validierungs- oder Buildnachweis**. Der Kaltvergleich liefert damit keinen Hinweis, dass allein der vorherige warme Cache die Anzahl erklärt.
+
+**Kapazitätsvertrag v2 ist inzwischen umgesetzt und gezielt geprüft:** 110.000 ausschließlich für kompilierte Einträge, die getrennte externe Grenze bleibt 100.000. Unter den ursprünglichen fünf Helper-/Supervisor-/Nativepins ändert ausschließlich `scripts/lib/owned-yjs-authority-qa.ts` seinen SHA auf `f2a2f00d18dd37859290188b4cbaaf235160fef24feb5db512260e6cbed99b5a`; die vier anderen Originalpins sind auf Root und QA bytegleich erhalten. Vorab wurde der HIGH-Impact mit 53 betroffenen Symbolen und acht direkten Aufrufern gemeldet. Grenztests und tatsächliche Programme prüfen den geänderten Vertrag, ersetzen aber weder den fehlgeschlagenen alten Build noch einen vollständigen neuen Produktionsartefaktnachweis. Die neuen privaten Controllerinputs bleiben `ready: false`, bis Root nach Commit saubere aktuelle Heads und den geprüften Helper-Pin frisch bindet; keine alten Quellen-/Artefaktbelege werden übernommen.
+
+**Aktuelle Kapazitäts-v2-Prüfung tatsächlich abgeschlossen:** Alle sechs Originalergebnisse sind Exit 0, ohne Signal oder Timeout; `failure: null`, `sourcesUnchanged: true`. Dazu gehören gezielte Typen/Lint und die vier tatsächlichen Programme unten. Die vollständigen Quellenfingerprints bleiben je Checkout vor/nach gleich: Root `a4196f9e31e4404c3feccbd25449bd1ef74491ce7c1678f086ad6a651b444ed9`, QA `fa375ca60a89e4844226fe1c4f86d798ad7097cab1612d6410680ada82cbf3cc`. Originale: `/private/tmp/canvas-m3-capacity-v2-verification-20261020`; `terminal.json` SHA-256 `657f3f196f8ad414f2d1b9a5899dd70a7d8dea8236bc287800d8efe085f85ecc`. Die tatsächlichen Logfooter bestätigen Fingerprint-/Byteänderungs-/Kapazitäts-/Alias-/Guard-/Handle-Abschlussprüfungen. Es werden keine zusätzlichen Testfallzahlen abgeleitet. Kein neuer Produktionsbuild, keine rückwirkende Annahme des alten Artefakts, keine Browser- oder Launchfreigabe.
+
+| Tatsächlicher Originalprozess | Exit | Dauer | Original-Log SHA-256 |
+|---|---:|---:|---|
+| `targeted-types` | 0 | 2,508 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `targeted-lint` | 0 | 1,767 s | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `fingerprint` | 0 | 3,743 s | `2f6217a99d2963f4535959937da7b06cb72accabe0bba7db9d2579e13b191db5` |
+| `artifact-budget` | 0 | 59,15 s | `0d3f154aacb421dc6ded6cf66cd2beca16a5c2e2ee29937230c706d56a721570` |
+| `qa-guards` | 0 | 1,324 s | `d5ab9159ac7fe0f8f68896a59789f45f7e69b3c89a8009ba6f1efc3a7480bdae` |
+| `native-artifact` | 0 | 4,477 s | `e93edbb29940638ad37544a55c18ac372fdcb7ba9cc9bc1f8a40b2e51494b388` |
+
+Originalcontroller: `/private/tmp/canvas-m3-fresh-controller-inputs-20261020-RO2L5GQl/mcp10`; Originalbuildroot: `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-build-R9zDAG`; ausschließlich lesende Diagnose und vollständiger indizierter Inventarabschluss: `/private/tmp/canvas-m3-cold-artifact-diagnosis-20261020`.
+
+| Original | SHA-256 |
+|---|---|
+| `build-terminal.json` | `51f5532287ef2d8c5bdb2d02997707202b6c603a6aded435815935459bc15380` |
+| `launch-terminal.json` | `128af26d9d0fa6a2c4607e9ba787f1212085b0772e7309022b8b27f448ee85ae` |
+| Originalcontroller `build.original.log` | `8c6d53c3df947d5b10ce9e686b455dec5d2c2f1347295a4cb6d145c23a40743b` |
+| Originalbuild `build.log` | `ac97d65fdf37a24ffa6280e41e403b5dedd8f6ef4694e7bb8c50f4fad31259a5` |
+| `diagnostic.json` | `9cb94c80c89184a3eeaf14daf546914bbf124e11db5bd512559cc84bed31699e` |
+| `cold-inventory-indexed-roots.json` | `c7c77eb6f70c1f0eb485229de5dd331594e58bf928de62131c6aa34d926f1352` |
+
+Ein akzeptierter neuer Produktionsbuild mit unabhängigem vollständigem Quellen-/Artefaktabgleich, danach alle 29 Fälle in drei seriellen eigenen Runtimes, aktuelle CI und vollständiges Review bleiben offen. Keine Main-/Launchfreigabe und keine Produktionsauslieferung. Die historischen Statusmarker und nachgelagerten Roadmap-Pakete bleiben unverändert.

@@ -299,9 +299,9 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
   const root = path.join(repo, '.next'), digest = createHash('sha256');
   const stat = await fs.lstat(root); assert(stat.isDirectory() && !stat.isSymbolicLink());
   const buildId = (await fs.readFile(path.join(root, 'BUILD_ID'), 'utf8')).trim(); assert(buildId && buildId.length < 256);
-  // Bound the compiled tree and all external package contents separately. A
-  // legitimate build may approach the compiled cap before external bytes are
-  // included; packages share one budget, including repeated logical aliases.
+  // Capacity contract v2: compiled entries have an exclusive 110,000 limit;
+  // external packages retain their shared exclusive 100,000 limit, including
+  // repeated logical aliases. Every selected artifact byte remains bound.
   const visited = { compiled: 0, external: 0 };
   async function* visit(directory: string, logical = '', linkedPackage = false): AsyncGenerator<FingerprintEntry> {
     const names = (await fs.readdir(directory)).sort().filter(name => {
@@ -312,7 +312,7 @@ export async function buildFingerprint(repo: string): Promise<{ buildId: string;
     });
     for await (const { name, filename: file, stat: current } of orderedFingerprintStats(directory, names, () => {
       if (linkedPackage) assert(++visited.external < 100_000, 'External package artifact visit limit exceeded.');
-      else assert(++visited.compiled < 100_000, 'Compiled artifact visit limit exceeded.');
+      else assert(++visited.compiled < 110_000, 'Compiled artifact visit limit exceeded.');
     })) {
       const relative = path.posix.join(logical, name);
       if (current.isSymbolicLink()) {
