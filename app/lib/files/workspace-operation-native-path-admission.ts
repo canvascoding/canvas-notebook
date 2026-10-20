@@ -337,12 +337,12 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
     const context = nativePathMoveContext(original);
     const row = await readWorkspaceOperationOriginalMoveIntentOnConnection(database, { schema: binding.source.schemaName, batchId: binding.batchId, readOnly: true });
     const intent = row ? parseWorkspaceOperationOriginalMoveIntent(row, context) : null;
-    const prepared = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
+    const prepared = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4
       ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database, { schema: binding.source.schemaName, context, readOnly: true }) : null;
-    if (plan.planIdentityVersion === 3 && intent && !prepared) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
+    if ((plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) && intent && !prepared) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
     if (intent || prepared) {
       const request = intent ? createWorkspaceOperationOriginalMoveAdmissionRequest(context, intent) : prepared!.request;
-      if (intent && prepared && (intent.version !== (plan.planIdentityVersion === 3 ? 3 : 2) || !equal(intent.currentWitness, prepared.preparation.currentWitness)
+      if (intent && prepared && (intent.version !== (plan.planIdentityVersion === 4 ? 4 : plan.planIdentityVersion === 3 ? 3 : 2) || !equal(intent.currentWitness, prepared.preparation.currentWitness)
         || !equal(intent.nativeBundle, prepared.nativeBundleData)
         || !equal(captureCollaborationAdmissionRequest(request), captureCollaborationAdmissionRequest(prepared.request)))) {
         throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
@@ -351,7 +351,7 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
       // its original path. A new durable P0, in contrast, requires its header.
       return Object.freeze({ request, requiresHeader: prepared !== null, legacy: mode === 'prepare' && prepared === null });
     }
-    if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3) return Object.freeze({ request: createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context, null), requiresHeader: false, legacy: true });
+    if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3 && plan.planIdentityVersion !== 4) return Object.freeze({ request: createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context, null), requiresHeader: false, legacy: true });
     if (mode === 'read') {
       const native = getWorkspaceOperationOriginalMoveNativeIds(context), fallback = createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context, null);
       const orphan = await database.get(`SELECT 1 AS present FROM ${prefix}.collaboration_admission_requests WHERE request_id=ANY($1::text[]) LIMIT 1`,
@@ -420,7 +420,7 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
     assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observation, original.scope);
     return Object.freeze({ request: createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), requiresHeader: true, legacy: false });
   }
-  if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
+  if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3 && plan.planIdentityVersion !== 4) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
   const context = nativePathMoveContext(original), currentWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, original.scope);
   const nativeBundleData = prepareWorkspaceOperationOriginalMoveNativeBundleData(context, observation, currentWitness);
   const prepared = createWorkspaceOperationOriginalMovePreparation(context, { currentWitness, nativeBundleData });

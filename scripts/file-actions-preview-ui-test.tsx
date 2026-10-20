@@ -299,6 +299,23 @@ test('mounted file actions show rename and copy plans, warnings, and clear a sta
     assert.match(blockers?.textContent ?? '', /Correct its target or create the missing file/u);
     assert.equal(document.querySelector<HTMLDetailsElement>('[data-testid="file-operation-link-coverage"]')?.open, false);
 
+    const htmlPreview: WorkspaceFileOperationDryRun = { dryRun: true, requiresRevalidation: true, plan: {
+      version: 2, kind: 'native-path-import-preparation', executionReady: false,
+      workspaceId, planId: 'c'.repeat(64), readiness: 'blocked',
+      pathMappings: [{ sourcePath: file.path, destinationPath: 'Docs/renamed.txt' }], linkEdits: [],
+      coverage: { complete: false, omittedSources: [], unresolvedLinks: [] }, imports: [], physicalLinkChanges: [],
+      issues: [{ code: 'affected-html-link', path: 'Docs/index.md' }],
+      linkAssessment: { version: 1, complete: false, warnings: [], blockers: [{ sourcePath: 'Docs/index.md',
+        targetLiteral: 'Docs/report.txt', status: 'not-evaluated', reason: 'affected-html-link', line: 3 }] },
+    } };
+    resolveRename = async () => htmlPreview;
+    await act(async () => dialogButton(translate('fileOperationPreview'))?.click());
+    assert.match(document.querySelector('[data-testid="file-operation-link-blockers"]')?.textContent ?? '',
+      /Docs\/index\.md → Docs\/report\.txt/u, 'HTML preview2 keeps its bound source and target visible');
+    assert.equal(document.querySelector('[data-testid="file-operation-import-preview"]'), null,
+      'HTML safety diagnostics are displayed even when no Markdown import is required');
+    assert.equal(renameApplyCalls.length, 0, 'an HTML blocker never starts a rename');
+
     await act(async () => fireEvent.change(document.querySelector('#newName')!, { target: { value: 'again.txt' } }));
     assert.equal(status(), null, 'editing the name clears the old plan and warning');
     assert.deepEqual(mutations, [], 'preview does not apply the rename');

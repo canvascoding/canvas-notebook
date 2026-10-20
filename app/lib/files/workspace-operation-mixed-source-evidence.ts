@@ -8,11 +8,15 @@ import type { WorkspaceOperationJobScope } from './workspace-operation-batch-con
 import { captureWorkspaceOperationNativePlanData, workspaceOperationNativePlanSnapshot } from './workspace-operation-native-plan-data';
 import { assertWorkspaceOperationNativeSourceEvidenceCurrent, decodeWorkspaceOperationNativeSourceEvidence,
   WorkspaceOperationNativeSourceEvidenceError, type WorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationNativeHtmlSourceEvidenceV4 } from './workspace-operation-native-source-evidence';
+import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { assertWorkspaceOperationNativeSourceEvidenceV3Current, decodeWorkspaceOperationNativeSourceEvidenceV3,
   type WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 
 /** Explicit data union. It does not broaden the historical V1/V2 decoder. */
 export type WorkspaceOperationMixedSourceEvidence = WorkspaceOperationNativeSourceEvidence | WorkspaceOperationNativeSourceEvidenceV3;
+/** The explicit HTML arm is not accepted by the historical decoder above. */
+export type WorkspaceOperationAnyMixedSourceEvidence = WorkspaceOperationMixedSourceEvidence | WorkspaceOperationMixedSourceEvidenceV5;
 
 export function decodeWorkspaceOperationMixedSourceEvidence(input: unknown): WorkspaceOperationMixedSourceEvidence {
   const captured = captureWorkspaceOperationNativePlanData(input, reason => {
@@ -26,13 +30,19 @@ export function decodeWorkspaceOperationMixedSourceEvidence(input: unknown): Wor
 
 /** Accessors for already decoded facts. The component is only the native
  * provider inventory; full namespace and visible scope use separate accessors. */
-export function workspaceOperationSourceNativeEvidence(evidence: WorkspaceOperationMixedSourceEvidence): WorkspaceOperationNativeSourceEvidence {
+export function workspaceOperationSourceNativeEvidence(evidence: WorkspaceOperationMixedSourceEvidence): WorkspaceOperationNativeSourceEvidence;
+export function workspaceOperationSourceNativeEvidence(evidence: WorkspaceOperationMixedSourceEvidenceV5): WorkspaceOperationNativeHtmlSourceEvidenceV4;
+export function workspaceOperationSourceNativeEvidence(evidence: WorkspaceOperationAnyMixedSourceEvidence): WorkspaceOperationNativeSourceEvidence | WorkspaceOperationNativeHtmlSourceEvidenceV4;
+export function workspaceOperationSourceNativeEvidence(evidence: WorkspaceOperationAnyMixedSourceEvidence): WorkspaceOperationNativeSourceEvidence | WorkspaceOperationNativeHtmlSourceEvidenceV4 {
+  if (evidence.evidenceVersion === 5) return evidence.nativeComponent;
   return evidence.evidenceVersion === 3 ? evidence.nativeComponent : evidence;
 }
-export function workspaceOperationSourceNamespace(evidence: WorkspaceOperationMixedSourceEvidence) {
+export function workspaceOperationSourceNamespace(evidence: WorkspaceOperationAnyMixedSourceEvidence) {
+  if (evidence.evidenceVersion === 5) return evidence.namespace;
   return evidence.evidenceVersion === 3 ? evidence.namespace : evidence.stage.namespace;
 }
-export function workspaceOperationSourceScope(evidence: WorkspaceOperationMixedSourceEvidence) {
+export function workspaceOperationSourceScope(evidence: WorkspaceOperationAnyMixedSourceEvidence) {
+  if (evidence.evidenceVersion === 5) return evidence.scope;
   return evidence.evidenceVersion === 3 ? evidence.scope : evidence.stage.scope;
 }
 

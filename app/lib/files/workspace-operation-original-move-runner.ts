@@ -50,7 +50,7 @@ export async function executeWorkspaceOperationOriginalMove(input: {
     if (rows.intent) originals = rows.intent.steps.map(step=>({stepKey:step.stepKey,original:step.physical}));
     else {
       originals = [];
-      const sourceEvidence = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
+      const sourceEvidence = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4
         ? await readWorkspaceOperationOriginalMovePreparation(owner) : plan.sourceEvidence;
       for (const [index,selection] of plan.actions[0].selections.entries()) {
         const source = workspaceOperationSourceNamespace(sourceEvidence).find(entry=>entry.path===selection.sourcePath);

@@ -8,11 +8,16 @@ import { parseObsidianWikiTarget } from './obsidian-flavored-markdown';
 import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
 import { resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
 import { resolveExactWorkspaceLink } from './workspace-local-link-parser';
-import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
-import { prepareNativeLinkInverse, prepareNativeLinkMutations, type NativeLinkInverseRecipe } from './workspace-native-link-mutations';
+import { inspectPersistedDocumentLinks, inspectPersistedDocumentLinksV4, nativeLinkJsonProof } from './workspace-native-link-inventory';
+import { prepareNativeLinkInverse, prepareNativeLinkMutations, prepareNativeLinkInverseV4, prepareNativeLinkMutationsV4, type NativeLinkInverseRecipe } from './workspace-native-link-mutations';
 import type { NativeDocumentLink, NativeDocumentLinkInventory, NativeLinkMutationRecipe, NativeNamespaceEntry,
   NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
 import type { PhysicalReadLinkInventory, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
+import { createWorkspaceMixedHtmlFileOperationPlanV5 } from './workspace-native-file-operation-planner';
+import { workspaceMixedHtmlBlockingCoverageV5 } from './workspace-native-link-graph';
+import { decodeWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedSourceSnapshotV5, type WorkspaceOperationMixedSourceEvidenceV5, type PhysicalMarkdownSourceEvidenceV5 } from '../files/workspace-operation-mixed-source-evidence-v5';
+import type { NativeDocumentLinkInventoryV4 } from './workspace-native-link-inventory';
+import type { FilePlanV5, WorkspaceMixedHtmlAssessmentBindingV5, WorkspaceMixedHtmlLinkSnapshotV5 } from './workspace-link-contract-v5';
 
 export type NativeMixedBatchRequest = {
   kind: NativeWorkspaceFileOperationPlan['kind'];
@@ -97,6 +102,11 @@ export type NativeMixedBatchPlan = {
 };
 
 export type NativeMixedReadBatchPlanV3 = Omit<NativeMixedBatchPlan, 'contractVersion'> & { contractVersion: 3 };
+export type NativeMixedHtmlBatchPlanV5 = Omit<NativeMixedBatchPlan, 'contractVersion' | 'documentEvidence'> & {
+  contractVersion: 5; documentEvidence: Array<{ evidenceKey: string; inventory: NativeDocumentLinkInventoryV4 }>;
+} & WorkspaceMixedHtmlAssessmentBindingV5;
+type AnyCompilerInventory = NativeDocumentLinkInventory | NativeDocumentLinkInventoryV4;
+type AnyCompilerPhysical = PhysicalReadLinkInventory | PhysicalMarkdownSourceEvidenceV5;
 
 /** Logical imports contain physical evidence only. No native source identity,
  * Yjs reference, target ID or persistence confirmation exists at planning time. */
@@ -131,8 +141,8 @@ type Entity = Omit<NativeMixedBatchVirtualEntity, 'metadata' | 'binding'> & {
   binding: NativeMixedBatchVirtualEntity['binding'] | ImportVirtualEntityV4['binding'];
   baseState: PersistedCollaborationState | null;
   doc: InstanceType<typeof Y.Doc> | null;
-  inventory: NativeDocumentLinkInventory | null;
-  physical: PhysicalReadLinkInventory | null;
+  inventory: AnyCompilerInventory | null;
+  physical: AnyCompilerPhysical | null;
   physicalLinkValues?: Map<string, { literal: string; targetPathText: string }>;
   links: LogicalLink[];
 };
@@ -296,15 +306,40 @@ export function compileWorkspaceMixedImportCopyBatchV4(input: {
   return compileMixedBatch(input, 4) as NativeMixedImportCopyBatchPlanV4;
 }
 
-function compileMixedBatch(input: {
-  snapshots: readonly (NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3)[];
+/** One actual operation per public HTML-aware plan. The same E5 facts drive
+ * ordinary planning, exact HTML assessment and native4 rehearsal. The durable
+ * owner still has to re-observe bytes, principals and admission before apply. */
+export function compileWorkspaceMixedHtmlBatchV5(input: {
+  sourceEvidence: WorkspaceOperationMixedSourceEvidenceV5;
+  destinationEvidence?: WorkspaceOperationMixedSourceEvidenceV5;
   states: readonly PersistedCollaborationState[];
   requests: readonly NativeMixedBatchRequest[];
-}, contractVersion: 2 | 3 | 4): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 {
+}): NativeMixedHtmlBatchPlanV5 {
+  if (input.requests.length !== 1) throw new Error('HTML_MIXED_BATCH_SINGLE_REQUEST_REQUIRED');
+  const source = decodeWorkspaceOperationMixedSourceEvidenceV5(input.sourceEvidence);
+  const destination = input.destinationEvidence === undefined ? source : decodeWorkspaceOperationMixedSourceEvidenceV5(input.destinationEvidence);
+  const request = input.requests[0];
+  const plan = createWorkspaceMixedHtmlFileOperationPlanV5({ ...request, sourceEvidence: source,
+    ...(input.destinationEvidence === undefined ? {} : { destinationEvidence: destination }) });
+  const evidence = request.sourceWorkspaceId === request.destinationWorkspaceId ? [source] : [source, destination];
+  const snapshots = evidence.map(workspaceOperationMixedSourceSnapshotV5);
+  return compileMixedBatch({ snapshots, states: input.states, requests: input.requests }, 5, plan) as NativeMixedHtmlBatchPlanV5;
+}
+
+function compileMixedBatch(input: {
+  snapshots: readonly (NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | WorkspaceMixedHtmlLinkSnapshotV5)[];
+  states: readonly PersistedCollaborationState[];
+  requests: readonly NativeMixedBatchRequest[];
+}, contractVersion: 2 | 3 | 4 | 5, htmlPlan?: FilePlanV5): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 {
   const issues: NativeMixedBatchPlan['issues'] = [];
   const issue = (code: string, requestIndex: number | null, workspaceId: string, pathValue: string, linkId?: string) =>
     issues.push({ code, requestIndex, workspaceId, path: pathValue, ...(linkId ? { linkId } : {}) });
-  const entities: Entity[] = []; const allEntities: Entity[] = []; const evidence: NativeMixedBatchPlan['documentEvidence'] = [];
+  const entities: Entity[] = []; const allEntities: Entity[] = []; const evidence: Array<{ evidenceKey: string; inventory: AnyCompilerInventory }> = [];
+  if (contractVersion === 5) {
+    if (!htmlPlan || htmlPlan.contractVersion !== 5) throw new Error('HTML_MIXED_BATCH_PLAN_REQUIRED');
+    for (const value of htmlPlan.issues) issue(value.code, null, value.workspaceId, value.path, value.linkId);
+    if (!htmlPlan.htmlAssessment.complete && !htmlPlan.issues.length) issue('incomplete-html-assessment', null, htmlPlan.sourceWorkspaceId, '');
+  }
   const steps: NativeMixedBatchPlan['steps'] = []; const clones: NativeMixedBatchPlan['cloneRequirements'] = [];
   const imports: NativeMixedRawImportRequirementV4[] = [];
   const undo: UndoCheck[] = []; const workspaceIds = new Set<string>(); const documentIds = new Set<string>();
@@ -321,17 +356,20 @@ function compileMixedBatch(input: {
       workspaceIds.add(snapshot.workspaceId);
       const { snapshotProof, ...body } = snapshot;
       if (snapshot.contractVersion !== (contractVersion === 4 ? 3 : contractVersion) || proof(body) !== snapshotProof) issue('snapshot-proof-mismatch', null, snapshot.workspaceId, '');
-      if (!snapshot.coverage.complete || snapshot.coverage.gaps.length) issue('incomplete-coverage', null, snapshot.workspaceId, '');
-      for (const gap of snapshot.coverage.gaps) issue(gap.code, null, snapshot.workspaceId, gap.path);
-      const paths = new Set<string>(); const identities = new Set<string>(); const inventories = new Map<string, NativeDocumentLinkInventory>();
-      const physical = new Map<string, PhysicalReadLinkInventory>();
-      if (contractVersion >= 3 && snapshot.contractVersion === 3) for (const source of snapshot.physicalSources) {
+      const blockingGaps = contractVersion === 5 && snapshot.contractVersion === 5
+        ? workspaceMixedHtmlBlockingCoverageV5(snapshot) : snapshot.coverage.gaps;
+      if (blockingGaps.length || !snapshot.coverage.complete && !snapshot.coverage.gaps.length) issue('incomplete-coverage', null, snapshot.workspaceId, '');
+      for (const gap of blockingGaps) issue(gap.code, null, snapshot.workspaceId, gap.path);
+      const paths = new Set<string>(); const identities = new Set<string>(); const inventories = new Map<string, AnyCompilerInventory>();
+      const physical = new Map<string, AnyCompilerPhysical>();
+      if (contractVersion >= 3 && snapshot.contractVersion === 3 || contractVersion === 5 && snapshot.contractVersion === 5) for (const source of snapshot.physicalSources) {
         const { physicalSourceProof, ...physicalBody } = source;
         if (physical.has(source.path) || source.workspaceId !== snapshot.workspaceId
-          || source.parserVersion !== undefined && source.parserVersion !== 2 && source.parserVersion !== 3
+          || (contractVersion === 5 ? source.parserVersion !== 4 : source.parserVersion !== undefined && source.parserVersion !== 2 && source.parserVersion !== 3)
           || source.physicalSourceVersion !== 1 || source.source !== 'original-physical-bytes' || source.encoding !== 'utf8'
           || !/\.(?:md|markdown)$/iu.test(source.path) || source.metadata.path !== source.path
-          || !source.coverage.complete || source.coverage.gaps.length || source.executionReady !== false
+          || (contractVersion === 5 ? source.coverage.gaps.some(gap => gap.code !== 'uninspected-html')
+            || !source.coverage.complete && !source.coverage.gaps.length : !source.coverage.complete || source.coverage.gaps.length) || source.executionReady !== false
           || source.applicability !== 'requires-import-and-rebinding'
           || !/^[a-f0-9]{64}$/u.test(source.physical.byteHash) || !Number.isSafeInteger(source.physical.byteLength) || source.physical.byteLength < 0
           || proof({ ...physicalBody, observedOriginalByteHash: source.physical.byteHash }) !== physicalSourceProof) {
@@ -353,7 +391,8 @@ function compileMixedBatch(input: {
           || entry.kind === 'directory' && (entry.documentId !== null || entry.lifecycleGeneration !== null)) issue('identity-conflict', null, snapshot.workspaceId, entry.path);
         paths.add(entry.path); identities.add(entry.identity);
         if (entry.kind === 'file' && /\.mdx$/iu.test(entry.path)) issue('unsupported-source', null, snapshot.workspaceId, entry.path);
-        if (entry.kind === 'file' && /\.html?$/iu.test(entry.path) && !inventory) issue('uninspected-html', null, snapshot.workspaceId, entry.path);
+        if (entry.kind === 'file' && /\.html?$/iu.test(entry.path) && !inventory
+          && !(contractVersion === 5 && snapshot.contractVersion === 5 && snapshot.physicalHtmlSources.some(source => source.path === entry.path))) issue('uninspected-html', null, snapshot.workspaceId, entry.path);
         if (entry.kind === 'file' && (entry.documentId !== null || /\.(?:md|markdown)$/iu.test(entry.path)) && !inventory && !physicalSource) {
           issue('uninspected-source', null, snapshot.workspaceId, entry.path);
         }
@@ -369,12 +408,14 @@ function compileMixedBatch(input: {
         if (!inventory) continue;
         const key = stateKey(inventory.document); const state = states.get(key); usedStates.add(key);
         if (entry.kind !== 'file' || entry.documentId !== inventory.document.documentId || entry.lifecycleGeneration !== inventory.document.lifecycleGeneration
-          || inventory.document.workspaceId !== snapshot.workspaceId || !inventory.coverage.complete || inventory.coverage.gaps.length) {
+          || inventory.document.workspaceId !== snapshot.workspaceId || (contractVersion === 5
+            ? inventory.coverage.gaps.some(gap => gap.code !== 'uninspected-html') || !inventory.coverage.complete && !inventory.coverage.gaps.length
+            : !inventory.coverage.complete || inventory.coverage.gaps.length)) {
           issue('identity-conflict', null, snapshot.workspaceId, entry.path); continue;
         }
         if (!state) { issue('missing-native-state', null, snapshot.workspaceId, entry.path); continue; }
         try {
-          const actual = inspectPersistedDocumentLinks(state);
+          const actual = contractVersion === 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state);
           if (proof(actual) !== proof(inventory) || new Set(actual.links.map((link) => link.id)).size !== actual.links.length) {
             issue('native-state-mismatch', null, snapshot.workspaceId, entry.path); continue;
           }
@@ -448,7 +489,7 @@ function compileMixedBatch(input: {
             if (!/\.(?:md|markdown)$/iu.test(copy.path)) issue('unsupported-import-destination', requestIndex, destinationWorkspaceId, copy.path);
             imports.push({ entityKey, sourceEntityKey: source.entityKey, requestIndex, sourceWorkspaceId, sourcePath: source.path,
               destinationWorkspaceId, destinationPath: copy.path, physicalSourceProof: source.physical.physicalSourceProof,
-              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: source.physical.parserVersion ?? 2 },
+              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: (source.physical.parserVersion as 2 | 3 | undefined) ?? 2 },
               linkBindings: source.physical.links.map(link => ({ physicalLinkId: link.physicalLinkId,
                 sourceVirtualLinkKey: proof({ entityKey: source.entityKey, physicalLinkId: link.physicalLinkId }),
                 virtualLinkKey: proof({ entityKey, physicalLinkId: link.physicalLinkId }) })),
@@ -529,14 +570,15 @@ function compileMixedBatch(input: {
       for (const [entityKey, values] of grouped) {
         const entity = entities.find((candidate) => candidate.entityKey === entityKey)!;
         try {
-          const state = scratchState(entity); const inventory = inspectPersistedDocumentLinks(state); const beforeContentProof = contentProof(state);
+          const state = scratchState(entity); const inventory = contractVersion === 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state); const beforeContentProof = contentProof(state);
           const recipes: NativeLinkMutationRecipe[] = values.map(({ logical, intent }) => ({ linkId: logical.current.id,
             source: inventory.document, sourceVersion: inventory.version, reference: logical.current.ref,
             destinationWorkspaceId: inventory.document.workspaceId, sourcePathAfter: inventory.document.path, cloneSelection: null,
             action: intent.action, nextValue: intent.nextValue, expectedTargetIdentity: intent.expectedTargetEntityKey }));
-          const prepared = prepareNativeLinkMutations({ state, recipes, operationId: `mixed-batch-rehearsal:${requestIndex}:${entityKey}` });
+          const mutationInput = { state, recipes, operationId: `mixed-batch-rehearsal:${requestIndex}:${entityKey}` };
+          const prepared = contractVersion === 5 ? prepareNativeLinkMutationsV4(mutationInput) : prepareNativeLinkMutations(mutationInput);
           Y.applyUpdate(entity.doc!, prepared.update);
-          const afterState = scratchState(entity); const after = inspectPersistedDocumentLinks(afterState);
+          const afterState = scratchState(entity); const after = contractVersion === 5 ? inspectPersistedDocumentLinksV4(afterState) : inspectPersistedDocumentLinks(afterState);
           const retained = entity.links.filter((link) => !values.some((value) => value.logical.key === link.key && value.intent.action === 'unlink'));
           if (retained.length !== after.links.length) throw new Error('link-shape-changed');
           for (const [ordinal, link] of retained.entries()) {
@@ -548,7 +590,8 @@ function compileMixedBatch(input: {
           }
           entity.links = retained; entity.inventory = after; entity.contentBasisProof = contentProof(afterState);
           // Rehearse the targeted inverse now and the whole ordered chain below.
-          const inverse = prepareNativeLinkInverse({ state: afterState, inverseRecipes: prepared.inverseRecipes, operationId: `mixed-batch-inverse:${requestIndex}:${entityKey}` });
+          const inverseInput = { state: afterState, inverseRecipes: prepared.inverseRecipes, operationId: `mixed-batch-inverse:${requestIndex}:${entityKey}` };
+          const inverse = contractVersion === 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
           const check = new Y.Doc();
           try {
             Y.applyUpdate(check, afterState.yjsState); Y.applyUpdate(check, inverse.update);
@@ -588,13 +631,16 @@ function compileMixedBatch(input: {
     if (!issues.length) { finalEdges = graph(entities); finalGraphProof = graphProof(entities, finalEdges); }
     if (!issues.length) for (const check of [...undo].reverse()) {
       try {
-        const inverse = prepareNativeLinkInverse({ state: scratchState(check.entity), inverseRecipes: check.recipes,
-          operationId: `mixed-batch-chain-inverse:${check.requestIndex}:${check.entity.entityKey}` });
+        const inverseInput = { state: scratchState(check.entity), inverseRecipes: check.recipes,
+          operationId: `mixed-batch-chain-inverse:${check.requestIndex}:${check.entity.entityKey}` };
+        const inverse = contractVersion === 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
         Y.applyUpdate(check.entity.doc!, inverse.update);
         if (contentProof(scratchState(check.entity)) !== check.beforeContentProof) throw new Error('inverse-effect-changed');
       } catch { issue('batch-inverse-unavailable', check.requestIndex, check.entity.workspaceId, check.entity.path); break; }
     }
     const body = { contractVersion, compilerVersion: 1 as const,
+      ...(contractVersion === 5 ? { htmlAssessment: htmlPlan!.htmlAssessment, htmlAssessmentProof: htmlPlan!.htmlAssessmentProof,
+        sourceCoverage: htmlPlan!.sourceCoverage } : {}),
       readiness: issues.length ? 'blocked' as const : imports.length ? 'requires-import-rebinding' as const : clones.length ? 'requires-clone-rebinding' as const : 'ready' as const, executionReady: false as const,
       requests: structuredClone([...input.requests]),
       snapshotProofs: input.snapshots.map((snapshot) => ({ workspaceId: snapshot.workspaceId, proof: snapshot.snapshotProof })).sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
@@ -605,6 +651,6 @@ function compileMixedBatch(input: {
       requiredCoordinatorBindings: ['actor-session-request-review-and-current-authority', 'complete-current-namespace-and-native-graph',
         'kernel-lifecycle-fence-and-exact-registry-path-receipts', 'fresh-durable-native-states-and-targeted-inverse-receipts',
         'fresh-copy-identities-block-id-map-and-link-rebinding'] as const };
-    return { ...body, planId: proof(body) } as NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4;
+    return { ...body, planId: proof(body) } as NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5;
   } finally { for (const entity of allEntities) entity.doc?.destroy(); }
 }

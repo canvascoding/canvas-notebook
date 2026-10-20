@@ -140,7 +140,7 @@ export async function mcpServerWorkspacePathContractTest(): Promise<void> {
       }
       assert.throws(() => encode({ ...preview(), preview: { ...preview().preview, kind: { toString: 'not callable' } } }), error('PATH_UNAVAILABLE', 503));
       assert.equal(moveSchema.oneOf.length, 4); assert.equal(deleteSchema.oneOf.length, 4);
-      assert.equal(moveOutput.oneOf.length, 6); assert.equal(deleteOutput.oneOf.length, 6);
+      assert.equal(moveOutput.oneOf.length, 7); assert.equal(deleteOutput.oneOf.length, 6);
     });
     check('original-import previews are explicit and expose only bounded public facts', () => {
       for (const kind of ['move', 'delete'] as const) {

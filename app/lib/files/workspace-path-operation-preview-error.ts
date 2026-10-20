@@ -15,7 +15,7 @@ export type WorkspacePathOperationBlockedPreview = Readonly<{
   binding: WorkspacePathOperationPreviewBinding; dryRun: true; requiresRevalidation: true;
   plan: Diagnostics & ({ kind: 'rename'; linkAssessment?: Assessment }
     | { kind: 'native-path-import-preparation'; imports: ImportPlan['imports'];
-      physicalLinkChanges: ImportPlan['physicalLinkChanges']; linkAssessment?: undefined });
+      physicalLinkChanges: ImportPlan['physicalLinkChanges']; linkAssessment?: Assessment });
 }>;
 
 function previewRecord(value: unknown): Record<string, unknown> {
@@ -103,9 +103,35 @@ export function readWorkspacePathOperationBlockedPreview(value: unknown,
       return { code, path: previewPath(issue.path, budget, true) };
     });
     const common: Diagnostics = { planId: plan.planId, readiness: 'blocked', coverage, issues };
+    const readAssessment = (value: unknown): Assessment | undefined => {
+      if (value === undefined) return undefined;
+      const assessment = previewRecord(value);
+      if (assessment.version !== 1 || typeof assessment.complete !== 'boolean') throw new Error('Invalid link assessment');
+      const entry = (value: unknown) => {
+        const item = previewRecord(value);
+        if (item.workspaceId !== undefined) workspace(item.workspaceId);
+        if (item.line !== undefined && (!Number.isSafeInteger(item.line) || Number(item.line) <= 0)) throw new Error('Invalid issue line');
+        return { sourcePath: previewPath(item.sourcePath, budget), targetLiteral: previewText(item.targetLiteral, budget, 131104),
+          ...(item.line === undefined ? {} : { line: Number(item.line) }) };
+      };
+      return { version: 1, complete: assessment.complete,
+        blockers: previewList(assessment.blockers).map(value => {
+          const item = previewRecord(value), reason = item.reason;
+          if (reason !== 'affected-unresolved-link' && reason !== 'uninspected-source' && reason !== 'unevaluated-link'
+            && reason !== 'affected-html-link' && reason !== 'resolution-changed') throw new Error('Invalid link blocker');
+          return { ...entry(value), status: resolveStatus(item.status, true), reason };
+        }),
+        warnings: previewList(assessment.warnings).map(value => {
+          const item = previewRecord(value), reason = item.reason, status = resolveStatus(item.status);
+          if (reason !== 'unaffected-existing-link' && reason !== 'unaffected-explicit-html-link' || status === 'resolved') {
+            throw new Error('Invalid link warning');
+          }
+          return { ...entry(value), status, reason };
+        }) };
+    };
     if (plan.kind === 'native-path-import-preparation') {
-      if (plan.version !== 1 || plan.executionReady !== false || previewList(plan.linkEdits).length
-        || plan.linkAssessment !== undefined) throw new Error('Invalid import preview');
+      if (plan.version !== 1 && plan.version !== 2 || plan.executionReady !== false || previewList(plan.linkEdits).length
+        || (plan.version === 1 ? plan.linkAssessment !== undefined : plan.linkAssessment === undefined)) throw new Error('Invalid import preview');
       workspace(plan.workspaceId);
       for (const value of previewList(plan.pathMappings)) {
         const item = previewRecord(value), sourcePath = previewPath(item.sourcePath, budget);
@@ -129,8 +155,11 @@ export function readWorkspacePathOperationBlockedPreview(value: unknown,
           previousTargetLiteral: previewText(item.previousTargetLiteral, budget, 131104),
           targetPathAfter: item.targetPathAfter === null ? null : previewPath(item.targetPathAfter, budget), action };
       });
+      if (plan.version === 2 && physicalLinkChanges.length) throw new Error('Invalid no-import preview');
+      const linkAssessment = readAssessment(plan.linkAssessment);
       return { binding: scope, dryRun: true, requiresRevalidation: true,
-        plan: { ...common, kind: 'native-path-import-preparation', imports, physicalLinkChanges } };
+        plan: { ...common, kind: 'native-path-import-preparation', imports, physicalLinkChanges,
+          ...(linkAssessment ? { linkAssessment } : {}) } };
     }
     if (plan.contractVersion !== 1 || plan.kind !== 'rename' || plan.status !== 'planned') throw new Error('Invalid rename preview');
     for (const value of previewList(plan.pathMappings)) {
@@ -141,32 +170,7 @@ export function readWorkspacePathOperationBlockedPreview(value: unknown,
         throw new Error('Foreign preview selection');
       }
     }
-    let linkAssessment: Assessment | undefined;
-    if (plan.linkAssessment !== undefined) {
-      const assessment = previewRecord(plan.linkAssessment);
-      if (assessment.version !== 1 || typeof assessment.complete !== 'boolean') throw new Error('Invalid link assessment');
-      const entry = (value: unknown) => {
-        const item = previewRecord(value);
-        if (item.workspaceId !== undefined) workspace(item.workspaceId);
-        if (item.line !== undefined && (!Number.isSafeInteger(item.line) || Number(item.line) <= 0)) throw new Error('Invalid issue line');
-        return { sourcePath: previewPath(item.sourcePath, budget), targetLiteral: previewText(item.targetLiteral, budget, 131104),
-          ...(item.line === undefined ? {} : { line: Number(item.line) }) };
-      };
-      linkAssessment = { version: 1, complete: assessment.complete,
-        blockers: previewList(assessment.blockers).map(value => {
-          const item = previewRecord(value), reason = item.reason;
-          if (reason !== 'affected-unresolved-link' && reason !== 'uninspected-source' && reason !== 'unevaluated-link'
-            && reason !== 'affected-html-link' && reason !== 'resolution-changed') throw new Error('Invalid link blocker');
-          return { ...entry(value), status: resolveStatus(item.status, true), reason };
-        }),
-        warnings: previewList(assessment.warnings).map(value => {
-          const item = previewRecord(value), reason = item.reason, status = resolveStatus(item.status);
-          if (reason !== 'unaffected-existing-link' && reason !== 'unaffected-explicit-html-link' || status === 'resolved') {
-            throw new Error('Invalid link warning');
-          }
-          return { ...entry(value), status, reason };
-        }) };
-    }
+    const linkAssessment = readAssessment(plan.linkAssessment);
     if (!workspaceBound) throw new Error('Unbound preview workspace');
     return { binding: scope, dryRun: true, requiresRevalidation: true,
       plan: { ...common, kind: 'rename', ...(linkAssessment ? { linkAssessment } : {}) } };

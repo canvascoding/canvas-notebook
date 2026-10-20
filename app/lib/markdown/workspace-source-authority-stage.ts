@@ -345,8 +345,13 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
         totalBytes += bytes.length;
         const authority = document ? { kind: 'registered-never-initialized' as const, catalogueProof,
           registeredDocumentId: document.id, lineageId: document.lineage_id } : { kind: 'unregistered' as const, catalogueProof };
+        // The private Move frame may restore an exact receipt-bound source
+        // spelling/fingerprint only after the actual FD bytes and ancestry have
+        // passed the reader above. It never changes the observed/rechecked path.
+        const physicalSource = originalMove?.physicalSource(item.relativePath, item.identity, bytes)
+          ?? { path: item.relativePath, filesystemIdentity: item.identity };
         const inventory = (physicalParserVersion === 3 ? inspectOriginalPhysicalLinksV3 : inspectOriginalPhysicalLinks)({ workspaceId: workspace.workspaceId, organizationId: workspace.organizationId ?? null,
-          path: item.relativePath, authority, bytes, filesystemIdentity: item.identity, maxLinks: limits.maxLinks - totalLinks });
+          path: physicalSource.path, authority, bytes, filesystemIdentity: physicalSource.filesystemIdentity, maxLinks: limits.maxLinks - totalLinks });
         totalLinks += inventory.links.length;
         if (totalLinks > limits.maxLinks) fail('source-link-limit', item.relativePath);
         sources.push({ kind: 'physical', inventory }); gaps.push(...inventory.coverage.gaps);
@@ -390,7 +395,8 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
 
 /** Original standalone API. Its own short read TX/shared fence is retained;
  * never invoke this wrapper beneath an exclusive owner on another backend. */
-export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: WorkspaceContext, dependencies: Dependencies = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
+export async function stageWorkspaceLinkSourceAuthorityObservation(workspace: WorkspaceContext,
+  dependencies: Dependencies & WorkspacePhysicalSourceReadOptions = {}): Promise<WorkspaceLinkSourceAuthorityObservation> {
   let connection: SqlConnection | undefined, transaction = false, discard: Error | undefined;
   let stage: WorkspaceSourceAuthorityStage | undefined, observation: WorkspaceLinkSourceAuthorityObservation | undefined;
   const unavailable = () => {

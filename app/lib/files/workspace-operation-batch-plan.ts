@@ -21,7 +21,8 @@ import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperat
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { computeWorkspaceOperationNativeMoveBatchPlanId, createWorkspaceOperationNativeMoveBatchPlan,
   createWorkspaceOperationNativeMoveBatchPlanV3,
-  WorkspaceOperationNativeMovePlanError, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
+  createWorkspaceOperationNativeMoveBatchPlanV4,
+  type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 
 const sha = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const within = (child: string, parent: string) => child === parent || child.startsWith(`${parent}/`);
@@ -308,10 +309,10 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   // classifies actual registry authority before any Markdown/disk planner.
   if (!dependencies.buildSnapshot) {
     const observation = await readWorkspaceFileLifecycleSourceAuthority(input.scope.workspace)
-      ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace);
+      ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace, { physicalParserVersion: 3 });
     if (!observation.stage.coverage.complete) {
       if (input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
-        throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_UNSUPPORTED');
+        return createWorkspaceOperationNativeMoveBatchPlanV4({ ...input, observation });
       }
       throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
     }

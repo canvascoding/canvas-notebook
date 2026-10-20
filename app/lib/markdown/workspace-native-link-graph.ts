@@ -3,10 +3,12 @@ import { resolveExactWorkspaceLink } from './workspace-local-link-parser';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLink, NativeResolvedLink, NativeWorkspaceLinkGraph, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
 import type { MixedReadResolvedLinkV3, PhysicalReadLinkInventory, WorkspaceMixedReadLinkGraphV3, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
+import type { WorkspaceMixedHtmlLinkGraphV5, WorkspaceMixedHtmlLinkSnapshotV5 } from './workspace-link-contract-v5';
+import type { PhysicalMarkdownSourceEvidenceV5 } from '../files/workspace-operation-mixed-source-evidence-v5';
 import type { WorkspaceMixedImportFinalLinkGraphV4, WorkspaceMixedImportFinalLinkSnapshotV4 } from './workspace-link-final-contract-v4';
 
-function createWorkspaceLinkResolutionContext(snapshot: NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | WorkspaceMixedImportFinalLinkSnapshotV4,
-  physicalSources: PhysicalReadLinkInventory[] = []) {
+function createWorkspaceLinkResolutionContext(snapshot: NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | WorkspaceMixedImportFinalLinkSnapshotV4 | WorkspaceMixedHtmlLinkSnapshotV5,
+  physicalSources: readonly (PhysicalReadLinkInventory | PhysicalMarkdownSourceEvidenceV5)[] = []) {
   const entries = new Map(snapshot.namespace.filter((entry) => entry.kind === 'file').map((entry) => [entry.path, entry]));
   const paths = new Set(entries.keys());
   const metadata = [...snapshot.documents.map(inventory => inventory.metadata),
@@ -96,6 +98,49 @@ export function buildWorkspaceMixedImportFinalLinkGraphV4(snapshot: WorkspaceMix
       organizationId: inventory.organizationId, path: inventory.path, physicalSourceIdentity: inventory.physical },
     physicalSourceProof: inventory.physicalSourceProof,
     resolution: resolveWorkspaceLinkGraphTarget(value, inventory.path, context) });
+  }
+  return { ...snapshot, snapshotProof: nativeLinkJsonProof({ base: snapshot.snapshotProof, edges, coverage }), edges, coverage };
+}
+
+/** Original gaps stay on the E5-derived snapshot and graph. A historical
+ * HTML gap can describe literal Wiki display text under the actual parser4
+ * grammar. A complete native4/physical4 source positively proves that boundary
+ * even when it contains no rendered HTML occurrences. Actual HTML occurrences
+ * still require the separate operation assessment; opaque HTML cannot become
+ * safe merely because the ordinary source was inspected. Every other gap and
+ * every HTML gap without a corresponding inspected source continues to block. */
+export function workspaceMixedHtmlBlockingCoverageV5(snapshot: WorkspaceMixedHtmlLinkSnapshotV5): Array<{ code: string; path: string }> {
+  const inspected = new Set(snapshot.htmlOccurrences.map(occurrence => occurrence.sourcePath));
+  for (const inventory of snapshot.documents) {
+    if (inventory.parserVersion === 4 && inventory.coverage.complete && inventory.coverage.gaps.length === 0) inspected.add(inventory.document.path);
+  }
+  for (const inventory of snapshot.physicalSources) {
+    if (inventory.parserVersion === 4 && inventory.htmlInspection.parserVersion === 4
+      && inventory.coverage.complete && inventory.coverage.gaps.length === 0
+      && inventory.htmlInspection.occurrences.length === 0) inspected.add(inventory.path);
+  }
+  return snapshot.coverage.gaps.filter(gap => gap.code !== 'uninspected-html' || !inspected.has(gap.path));
+}
+
+/** Facts-only resolution of actual native4 anchors and physical4 spans. It is
+ * not operation admission; coverage remains incomplete where HTML exists. */
+export function buildWorkspaceMixedHtmlLinkGraphV5(snapshot: WorkspaceMixedHtmlLinkSnapshotV5): WorkspaceMixedHtmlLinkGraphV5 {
+  const stale = [...snapshot.documents.filter(inventory => inventory.parserVersion !== 4)
+    .map(inventory => ({ code: 'unsupported-source', path: inventory.document.path })),
+  ...snapshot.physicalSources.filter(inventory => inventory.parserVersion !== 4)
+    .map(inventory => ({ code: 'unsupported-source', path: inventory.path }))];
+  const coverage = { complete: snapshot.coverage.complete && !stale.length, gaps: [...snapshot.coverage.gaps, ...stale] };
+  const context = createWorkspaceLinkResolutionContext(snapshot, snapshot.physicalSources), edges: MixedReadResolvedLinkV3[] = [];
+  for (const inventory of snapshot.documents) for (const link of inventory.links) {
+    edges.push({ ...link, sourceKind: 'native', source: inventory.document,
+      resolution: resolveWorkspaceLinkGraphTarget(link, inventory.document.path, context) });
+  }
+  for (const inventory of snapshot.physicalSources) for (const link of inventory.links) {
+    const value = { id: link.physicalLinkId, kind: link.kind, syntax: link.syntax, literal: link.targetLiteral,
+      targetPathText: link.targetPathText, fragment: link.fragment, alias: link.alias, embed: link.embed, classification: 'local' as const };
+    edges.push({ ...value, sourceKind: 'physical-read', source: { workspaceId: inventory.workspaceId,
+      organizationId: inventory.organizationId, path: inventory.path, physicalSourceIdentity: inventory.physical },
+      physicalSourceProof: inventory.physicalSourceProof, resolution: resolveWorkspaceLinkGraphTarget(value, inventory.path, context) });
   }
   return { ...snapshot, snapshotProof: nativeLinkJsonProof({ base: snapshot.snapshotProof, edges, coverage }), edges, coverage };
 }

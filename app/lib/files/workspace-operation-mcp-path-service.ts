@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, types } from 'node:util';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import { openDb } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
@@ -11,7 +11,7 @@ import { withDirectMcpWorkspaceMovePrincipal, withDirectMcpWorkspaceDeletePrinci
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { encodeDirectMcpWorkspacePathResultV1, WorkspacePathToolError,
   type DecodedDirectMcpWorkspaceMoveRequestV1, type DecodedDirectMcpWorkspaceDeleteRequestV1,
-  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1,
+  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1, type DirectMcpWorkspacePathHtmlPreviewV2,
   WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES } from '../mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
@@ -24,7 +24,7 @@ import { WorkspaceOperationBatchStore, type WorkspaceOperationBatchRecord,
   type WorkspaceOperationMcpClaimResult } from './workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationBatchExecutionResult,
   WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
-import type { WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
+import { decodeWorkspaceOperationNativeMoveBatchPlan, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
 import { readWorkspaceOperationNativeMoveBatchStatus,
   type WorkspaceOperationNativeMoveBatchStatus } from './workspace-operation-native-move-status';
 import { readWorkspaceOperationNativeDeleteBatchStatus,
@@ -44,6 +44,7 @@ import { readWorkspacePathImportOperationHistory } from './workspace-path-import
 import { readWorkspacePathImportPreparationPlan } from './workspace-path-import-operation-preview';
 import { prepareWorkspacePathImportOperation } from './workspace-path-import-operation';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
+import { decodeWorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
@@ -104,11 +105,16 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
   if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2)) {
     throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
   }
-  if (plan.version === 1 || !plan.coverage.complete
+  const html = plan.version === 3 && plan.planIdentityVersion === 4 ? decodeWorkspaceOperationNativeMoveBatchPlan(plan) : null;
+  if (html && (html.planIdentityVersion !== 4 || html.sourceEvidence.evidenceVersion !== 5 || !html.linkAssessment.complete
+    || html.linkAssessment.blockers.length || html.issues.length || html.coverage.complete !== html.sourceEvidence.coverage.complete)) {
+    throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
+  }
+  if (plan.version === 1 || !plan.coverage.complete && !html
     || !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(initial.scope.workspace))) {
     throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
   }
-  return plan;
+  return html ?? plan;
 }
 
 async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
@@ -210,6 +216,7 @@ function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
 }
 
 function pathPreview(plan: NativePlan) {
+  if (plan.version === 3 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlPreviewV2(plan);
   const effects = plan.version === 3 ? workspaceOperationNativeMoveEffects(plan) : workspaceOperationNativeDeleteEffects(plan);
   const links = effects.reduce((count, effect) => count + effect.updatedLinks, 0);
   return { kind: plan.version === 3 ? 'move' as const : 'delete' as const,
@@ -218,6 +225,52 @@ function pathPreview(plan: NativePlan) {
       ...(selection.destinationPath === undefined ? {} : { destinationPath: selection.destinationPath }) })),
     linkChanges: { rewrites: plan.version === 3 ? links : 0, unlinks: plan.version === 2 ? links : 0,
       affectedDocuments: effects.length }, coverage: { complete: true as const } };
+}
+
+/** Whitelisted display projection of strictly decoded new facts. No raw HTML,
+ * native IDs/proofs, relative positions, binary payloads or actors escape.
+ * A successful projection never grants authority to apply a request. */
+export function workspaceOperationMcpHtmlPreviewV2(input: unknown): DirectMcpWorkspacePathHtmlPreviewV2 {
+  if (!input || typeof input !== 'object' || types.isProxy(input)) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  const version = Object.getOwnPropertyDescriptor(input, 'version');
+  if (!version?.enumerable || !Object.hasOwn(version, 'value')) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  const early = version.value === 2 ? decodeWorkspacePathHtmlNoImportPreparationPlanV2(input) : null;
+  const decodedNative = early ? null : decodeWorkspaceOperationNativeMoveBatchPlan(input);
+  const native = decodedNative?.planIdentityVersion === 4 ? decodedNative : null;
+  if (early ? early.request.kind !== 'move' || early.readiness !== 'blocked'
+    : !native || native.actions[0].kind !== 'move'
+      || native.sourceEvidence.evidenceVersion !== 5 || !native.linkAssessment.complete || native.linkAssessment.blockers.length) {
+    throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED');
+  }
+  const selections = early ? early.request.selections : native!.actions[0].selections;
+  const assessment = early ? early.linkAssessment : native!.linkAssessment;
+  const issues = early ? early.issues : native!.issues;
+  const imports = early ? early.requiredRawImports : [];
+  if (selections.length > 1000 || assessment.warnings.length > 10000 || assessment.blockers.length > 10000
+    || issues.length > 10000 || imports.length > 10000) throw new WorkspacePathToolError('PATH_OUTPUT_TOO_LARGE');
+  const diagnostics = (items: typeof assessment.warnings | typeof assessment.blockers) => items.map(item => ({
+    code: item.reason, path: item.sourcePath, ...('line' in item && item.line !== undefined ? { line: item.line } : {}),
+    targets: [...(item.htmlTargets ?? [])],
+  }));
+  const effects = native ? workspaceOperationNativeMoveEffects(native) : [];
+  const projection = { version: 2 as const, kind: 'native-path-html-assessment' as const, operationKind: 'move' as const,
+    executionReady: false as const, readiness: early ? 'blocked' as const : 'ready' as const,
+    workspaceId: early ? early.scope.workspaceId : native!.workspaceId, planId: early ? early.planId : native!.planId,
+    paths: selections.map(selection => {
+      if (typeof selection.destinationPath !== 'string') throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+      return { sourcePath: selection.sourcePath, destinationPath: selection.destinationPath };
+    }),
+    linkChanges: { rewrites: effects.reduce((count, effect) => count + effect.updatedLinks, 0), unlinks: 0,
+      affectedDocuments: effects.length }, coverage: { complete: early ? early.coverage.complete : native!.sourceEvidence.coverage.complete },
+    linkAssessment: { complete: assessment.complete, warnings: diagnostics(assessment.warnings), blockers: diagnostics(assessment.blockers) },
+    issues: [...new Map(issues.map(item => {
+      const issue = { code: /^[a-z][a-z0-9-]{0,99}$/u.test(item.code) ? item.code : 'unknown', path: item.path };
+      return [JSON.stringify(issue), issue] as const;
+    })).values()], imports: imports.map(item => ({ path: item.path, reasons: [...item.reasons] })),
+  };
+  const encoded = encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: projection });
+  if (encoded.action !== 'preview' || encoded.preview.kind !== 'native-path-html-assessment') throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  return encoded.preview;
 }
 
 /** Actual Store claims and existing native executor only. The shared renewal
@@ -290,7 +343,7 @@ async function runDirectMcpWorkspacePathService(input: Request,
     const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
     await capturePathAuthority(live, undefined, initial);
     if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
-      preview: pathImportPreparationPreview(preparation) });
+      preview: preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
     const plan = await buildPathPlan(live, input, initial);
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathPreview(plan) });
   }

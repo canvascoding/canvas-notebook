@@ -119,7 +119,7 @@ function FileOperationLinkAssessment({ plan, showIssues = false, onOpenIssueFile
 }) {
   const t = useTranslations('notebook');
   const tStatus = useTranslations('workspacePathOperationStatus');
-  if (plan.kind === 'native-path-import-preparation') return <section className="my-2 space-y-2" data-testid="file-operation-import-preview">
+  if (plan.kind === 'native-path-import-preparation' && plan.linkAssessment === undefined) return <section className="my-2 space-y-2" data-testid="file-operation-import-preview">
     {showIssues && <FileOperationPreviewIssues issues={plan.issues} onOpenIssueFile={onOpenIssueFile} />}
     <p>{t('fileOperationImportSummary', { count: plan.imports.length })}</p>
     <ul className="max-h-40 space-y-1 overflow-auto font-mono">

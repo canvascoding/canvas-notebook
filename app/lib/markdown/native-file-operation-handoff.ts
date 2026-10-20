@@ -18,7 +18,8 @@ import { readCollaborationAdmissionOutcome, readHistoricalCollaborationAdmission
 import { inspectCollaborationAdmissionQuiescence } from '../collaboration/room-admission-quiescence';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeLinkDocumentIdentity } from './workspace-link-contract-v2';
-import type { PreparedNativeLinkUpdate } from './workspace-native-link-mutations';
+import { assertPreparedNativeLinkInspectionProfile, verifyPreparedNativeLinkMutationV4,
+  type AnyPreparedNativeLinkUpdate } from './workspace-native-link-mutations';
 
 type Action = 'move' | 'rename' | 'archive';
 type Actor = { actorUserId: string; actorId: string; actorType: 'user' | 'agent' | 'automation' | 'system'; actorSessionId: string | null };
@@ -32,7 +33,7 @@ export type NativeFileOperationMutationIntent = {
   before: Clock;
   destinationPath: string | null;
   trashEntryId: string | null;
-  prepared: PreparedNativeLinkUpdate | null;
+  prepared: AnyPreparedNativeLinkUpdate | null;
 };
 export type NativeFileOperationBundle = {
   version: 1; operationId: string; requestId: string; action: Action;
@@ -46,7 +47,7 @@ export type NativeFileOperationReceipt = {
   before: Clock; beforeRegistryStateVersion: number;
   after: { identity: NativeLinkDocumentIdentity; status: 'active' | 'archived'; clock: Clock; registryStateVersion: number };
   projection: { status: 'pending'; path: string; filesystemComplete: false };
-  inverseRecipes: PreparedNativeLinkUpdate['inverseRecipes'];
+  inverseRecipes: AnyPreparedNativeLinkUpdate['inverseRecipes'];
 };
 type Row = Record<string, unknown>;
 export class NativeFileOperationHandoffError extends Error {
@@ -146,7 +147,11 @@ export function captureNativeFileOperationBundle(input: NativeFileOperationBundl
       || mutation.kind === 'link' && mutation.prepared === null) return fail('NATIVE_FILE_INVALID_INTENT');
     decodeVector(mutation.before.stateVector);
     const prepared = mutation.prepared;
-    if (prepared && (prepared.contractVersion !== 2 || prepared.operationId !== mutation.mutationId
+    if (prepared) {
+      try { assertPreparedNativeLinkInspectionProfile(prepared); }
+      catch { return fail('NATIVE_FILE_INVALID_INTENT'); }
+    }
+    if (prepared && (prepared.operationId !== mutation.mutationId
       || nativeLinkJsonProof(prepared.source) !== nativeLinkJsonProof(source)
       || nativeLinkJsonProof(prepared.before) !== nativeLinkJsonProof({ documentSequence: mutation.before.documentSequence,
         stateProof: mutation.before.stateProof, stateVector: mutation.before.stateVector })
@@ -276,8 +281,14 @@ function candidateState(state: PersistedCollaborationState, mutation: NativeFile
       const stateVector = mutation.prepared ? Y.encodeStateVector(doc) : state.stateVector;
       const next = { ...state, yjsState, stateVector };
       const checked = authoritativeNativeCollaborationSnapshot(next);
-      if (mutation.prepared && (checked.version.stateProof !== mutation.prepared.after.stateProof
-        || checked.version.stateVector !== mutation.prepared.after.stateVector || !inspectPersistedDocumentLinks(next).coverage.complete)) return fail('NATIVE_FILE_INVALID_INTENT');
+      if (mutation.prepared) {
+        if (checked.version.stateProof !== mutation.prepared.after.stateProof
+          || checked.version.stateVector !== mutation.prepared.after.stateVector) return fail('NATIVE_FILE_INVALID_INTENT');
+        if (mutation.prepared.contractVersion === 4) {
+          try { verifyPreparedNativeLinkMutationV4({ before: state, after: next, prepared: mutation.prepared }); }
+          catch { return fail('NATIVE_FILE_INVALID_INTENT'); }
+        } else if (!inspectPersistedDocumentLinks(next).coverage.complete) return fail('NATIVE_FILE_INVALID_INTENT');
+      }
       const afterStateSnapshot = captureAgentStateSnapshot(doc, Y);
       if (!afterStateSnapshot || afterStateSnapshot.length > 4 * 1024 * 1024) return fail('NATIVE_FILE_INVALID_INTENT');
       return { yjsState, stateVector, stateProof: checked.version.stateProof, afterStateSnapshot };

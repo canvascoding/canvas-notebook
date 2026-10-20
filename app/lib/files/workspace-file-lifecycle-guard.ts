@@ -128,7 +128,7 @@ async function collectLifecycleSource(captured: SourceCapture, workspace: Worksp
     await sourceFence(captured, phase.virtual);
     const { readWorkspaceLinkSourceAuthorityOnConnection } = await import('@/app/lib/markdown/workspace-source-authority-stage');
     currentSource(captured);
-    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(captured.database, workspace);
+    const observation = await readWorkspaceLinkSourceAuthorityOnConnection(captured.database, workspace, { physicalParserVersion: 3 });
     await sourceFence(captured, phase.virtual);
     // Incomplete facts grant no readiness, just as in the standalone stage.
     try { await captured.database.run(observation.stage.coverage.complete ? 'COMMIT' : 'ROLLBACK'); transaction = false; }

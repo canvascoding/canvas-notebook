@@ -8,17 +8,22 @@ import type { SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import type { PreparedWorkspacePathMoveOriginal, PreparedWorkspacePathMoveReceipt,
-  PreparedWorkspacePathMoveParentReceipt } from '../filesystem/prepared-workspace-path-move-contract';
+  PreparedWorkspacePathMoveParentReceipt, PreparedPathMoveIdentity } from '../filesystem/prepared-workspace-path-move-contract';
 import type { NativeNamespaceEntry, NativeResolvedLink, NativeWorkspaceLinkSnapshot } from '../markdown/workspace-link-contract-v2';
-import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3, NativeMixedHtmlBatchPlanV5 } from '../markdown/workspace-native-mixed-batch-compiler';
 import type { NativeFileOperationReceipt } from '../markdown/native-file-operation-handoff';
 import type { WorkspaceLinkSourceAuthorityObservation, WorkspaceNativeSourceBinding } from '../markdown/workspace-source-authority-stage';
-import { buildWorkspaceNativeLinkGraph, buildWorkspaceMixedReadLinkGraphV3 } from '../markdown/workspace-native-link-graph';
+import { buildWorkspaceNativeLinkGraph, buildWorkspaceMixedReadLinkGraphV3, buildWorkspaceMixedHtmlLinkGraphV5,
+  workspaceMixedHtmlBlockingCoverageV5 } from '../markdown/workspace-native-link-graph';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
+import { inspectOriginalPhysicalLinksV4, inspectOriginalPhysicalHtmlV4,
+  type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
+import { captureWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedSourceSnapshotV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { assertWorkspaceOperationNativeMoveBatchPlanCurrent } from './workspace-operation-native-move-plan';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
+import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { workspaceOperationMixedSourceSnapshot, workspaceOperationSourceNamespace,
   workspaceOperationSourceNativeEvidence, workspaceOperationSourceScope } from './workspace-operation-mixed-source-evidence';
 import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
@@ -43,7 +48,9 @@ const parentOf = (filePath: string) => path.posix.dirname(filePath);
 
 export type OriginalMoveSourceNamespaceFacts = Readonly<{
   /** Exact physical membership only. No prefix substitutions or authority. */
-  moved: readonly Readonly<{ originalPath: string; currentPath: string; entry: NativeNamespaceEntry }>[];
+  moved: readonly Readonly<{ originalPath: string; currentPath: string; entry: NativeNamespaceEntry;
+    /** Only the explicit HTML-aware arm carries a bound regular-file read. */
+    physicalRead?: Readonly<{ currentIdentity: PreparedPathMoveIdentity; byteHash: string }> }>[];
   bornParents: readonly PreparedWorkspacePathMoveParentReceipt[];
 }>;
 /** Pure facts, not a collector context or import/mutation permission. Its only
@@ -62,8 +69,9 @@ export function deriveOriginalMoveSourceNamespaceFacts(context: WorkspaceOperati
       continue;
     }
     if (receipt.observation.kind !== 'moved') fail();
+    const currentSource = receipt.observation.kind === 'moved' ? receipt.observation.source : fail();
     const entries = original.source.kind === 'directory' ? original.source.entries
-      : [{ relativePath: '', kind: 'regular_file' as const, identity: original.source.identity }];
+      : [{ relativePath: '', kind: 'regular_file' as const, identity: original.source.identity, sha256: original.source.sha256 }];
     for (const physical of entries) {
       const originalPath = physical.relativePath ? `${original.sourcePath}/${physical.relativePath}` : original.sourcePath;
       const currentPath = physical.relativePath ? `${original.destinationPath}/${physical.relativePath}` : original.destinationPath;
@@ -71,15 +79,68 @@ export function deriveOriginalMoveSourceNamespaceFacts(context: WorkspaceOperati
       if (!entry || entry.kind !== (physical.kind === 'directory' ? 'directory' : 'file')
         || sources.has(originalPath) || destinations.has(currentPath)) fail();
       sources.add(originalPath); destinations.add(currentPath);
-      moved.push(Object.freeze({ originalPath, currentPath, entry: entry! }));
+      let physicalRead: OriginalMoveSourceNamespaceFacts['moved'][number]['physicalRead'];
+      if (context.plan.planIdentityVersion === 4 && physical.kind === 'regular_file') {
+        const current = currentSource.kind === 'directory'
+          ? currentSource.entries.find(item => item.relativePath === physical.relativePath)
+          : currentSource.kind === 'regular_file' && physical.relativePath === '' ? currentSource : undefined;
+        if (!current) return fail();
+        if (current.kind !== 'regular_file') return fail();
+        if (!('sha256' in physical) || current.sha256 !== physical.sha256) return fail();
+        physicalRead = Object.freeze({ currentIdentity: current.identity, byteHash: current.sha256 });
+      }
+      moved.push(Object.freeze({ originalPath, currentPath, entry: entry!, ...(physicalRead ? { physicalRead } : {}) }));
     }
   }
   return Object.freeze({ moved: Object.freeze(moved), bornParents: Object.freeze([...bornParents]) });
 }
 
+/** Pure comparison only. Restore the saved observation order with the exact
+ * FRESH gap objects, preserving duplicates and every field. This grants no
+ * collector frame, Current proof, missing-source exception or mutation right. */
+export function restoreOriginalMoveSourceCoverageOrder(original: WorkspaceSourceAuthorityStage['coverage'],
+  current: WorkspaceSourceAuthorityStage['coverage']): WorkspaceSourceAuthorityStage['coverage'] {
+  const capture = (coverage: WorkspaceSourceAuthorityStage['coverage']) => {
+    const value = captureWorkspaceOperationNativePlanData(coverage, () => fail(), 8 * 1024 * 1024) as WorkspaceSourceAuthorityStage['coverage'];
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 2
+      || !Object.hasOwn(value, 'complete') || !Object.hasOwn(value, 'gaps')
+      || typeof value.complete !== 'boolean' || !Array.isArray(value.gaps) || value.gaps.length > 20_000
+      || value.complete !== (value.gaps.length === 0)) return fail();
+    for (const gap of value.gaps) {
+      if (!gap || typeof gap !== 'object' || Array.isArray(gap)
+        || Object.keys(gap).some(key => !['code', 'path', 'startUtf16', 'htmlTargets'].includes(key))
+        || typeof gap.code !== 'string' || !gap.code || typeof gap.path !== 'string'
+        || gap.startUtf16 !== undefined && (!Number.isSafeInteger(gap.startUtf16) || gap.startUtf16 < 0)
+        || gap.htmlTargets !== undefined && (!Array.isArray(gap.htmlTargets) || gap.htmlTargets.length > 20_000
+          || gap.htmlTargets.some(target => typeof target !== 'string'))) return fail();
+    }
+    return value;
+  };
+  const expected = capture(original), actual = capture(current);
+  if (expected.complete !== actual.complete || expected.gaps.length !== actual.gaps.length) return fail();
+  const byProof = new Map<string, { indexes: number[]; next: number }>();
+  for (const [index, gap] of actual.gaps.entries()) {
+    const proof = nativeLinkJsonProof(gap), bucket = byProof.get(proof);
+    if (bucket) bucket.indexes.push(index); else byProof.set(proof, { indexes: [index], next: 0 });
+  }
+  const gaps = expected.gaps.map(gap => {
+    const bucket = byProof.get(nativeLinkJsonProof(gap));
+    if (!bucket || bucket.next >= bucket.indexes.length) return fail();
+    const index = bucket.indexes[bucket.next++];
+    if (!equal(gap, actual.gaps[index])) return fail();
+    // Capture rejected getters, proxies, sparse arrays and oversized payloads.
+    // Return the actual freshly observed object, never its historical twin.
+    return Object.getOwnPropertyDescriptor(current.gaps, String(index))!.value as typeof gap;
+  });
+  if ([...byProof.values()].some(bucket => bucket.next !== bucket.indexes.length)) return fail();
+  return { complete: actual.complete, gaps };
+}
+
 type Overlay = Readonly<{
   physicalEntry: (entry: NativeNamespaceEntry) => NativeNamespaceEntry | null;
   logicalPath: (actualPath: string) => string;
+  /** Invoked only AFTER the real bounded FD read and all physical rechecks. */
+  physicalSource: (actualPath: string, actualIdentity: string, bytes: Uint8Array) => { path: string; filesystemIdentity: string };
 }>;
 type Frame = { database: SqlConnection; workspace: WorkspaceContext; mode: 'original' | 'final';
   facts: OriginalMoveSourceNamespaceFacts; active: boolean; claimed: boolean; failed: boolean };
@@ -102,6 +163,18 @@ export function readOriginalMoveCollectorOverlay(database: SqlConnection, worksp
   const born = new Map(frame.facts.bornParents.map(item => [item.relativePath, item]));
   return Object.freeze({
     logicalPath: actualPath => { active(frame); return frame.mode === 'original' ? exact.get(actualPath)?.originalPath ?? actualPath : actualPath; },
+    physicalSource: (actualPath, actualIdentity, bytes) => {
+      active(frame); const item = exact.get(actualPath);
+      // Historical profiles and files outside exact receipt membership retain
+      // their actual physical read identity without a path substitution.
+      if (!item?.physicalRead) return { path: actualPath, filesystemIdentity: actualIdentity };
+      const expected = item.physicalRead.currentIdentity, identity = actualIdentity.split(':');
+      if (item.entry.kind !== 'file' || !item.entry.filesystemIdentity
+        || identity[0] !== expected.device || identity[1] !== expected.inode || identity[2] !== expected.size
+        || hash(bytes) !== item.physicalRead.byteHash) { frame.failed = true; fail(); }
+      return { path: frame.mode === 'original' ? item.originalPath : item.currentPath,
+        filesystemIdentity: item.entry.filesystemIdentity! };
+    },
     physicalEntry: entry => {
       active(frame); const item = exact.get(entry.path), birth = born.get(entry.path);
       if (item) {
@@ -125,7 +198,7 @@ export function readOriginalMoveCollectorOverlay(database: SqlConnection, worksp
   });
 }
 
-type CompiledMove = NativeMixedBatchPlan | NativeMixedReadBatchPlanV3;
+type CompiledMove = NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedHtmlBatchPlanV5;
 type Cache = { transaction: string; journalProof: string; context: WorkspaceOperationOriginalMoveContext;
   compiled: CompiledMove; facts: OriginalMoveSourceNamespaceFacts };
 const preparedGraphs = new WeakMap<SqlConnection, Cache>();
@@ -158,11 +231,15 @@ export function assertOriginalMoveFinalSourceGraph(input: {
   // A V3 final graph needs a genuine full catalogue and fresh original bytes,
   // even for a source which no mutation selected. Native receipts alone cannot
   // prove that an unchanged physical backlink or alias still resolves safely.
-  const currentMixed = context.plan.planIdentityVersion === 3
-    ? captureWorkspaceOperationNativeSourceEvidenceV3(context.plan.sourceEvidence.workspaceScope, observation) : null;
+  const currentMixed = context.plan.planIdentityVersion === 4
+    ? captureWorkspaceOperationMixedSourceEvidenceV5(context.plan.sourceEvidence.workspaceScope, observation)
+    : context.plan.planIdentityVersion === 3
+      ? captureWorkspaceOperationNativeSourceEvidenceV3(context.plan.sourceEvidence.workspaceScope, observation) : null;
+  const htmlSnapshot = currentMixed?.evidenceVersion === 5 ? workspaceOperationMixedSourceSnapshotV5(currentMixed) : null;
   if (compiled.planId !== context.plan.compilerPlanProof || compiled.finalGraphProof !== context.plan.finalGraphProof
-    || compiled.contractVersion !== (context.plan.planIdentityVersion === 3 ? 3 : 2)
-    || !observation.stage.coverage.complete || observation.stage.coverage.gaps.length
+    || compiled.contractVersion !== (context.plan.planIdentityVersion === 4 ? 5 : context.plan.planIdentityVersion === 3 ? 3 : 2)
+    || (htmlSnapshot ? workspaceMixedHtmlBlockingCoverageV5(htmlSnapshot).length !== 0
+      : !observation.stage.coverage.complete || observation.stage.coverage.gaps.length !== 0)
     || !currentMixed && observation.stage.sources.some(source => source.kind !== 'native')
     || !equal(observation.stage.scope, workspaceOperationSourceScope(context.plan.sourceEvidence))) bad();
   const expected = expectedFinalNamespace({ context, compiled, facts, transaction: '', journalProof: '' });
@@ -225,7 +302,9 @@ export function assertOriginalMoveFinalSourceGraph(input: {
       const state = observation.privateNativeStates.find(item => item.documentId === entry.documentId);
       if (!binding || !original || !inventory || !state
         || nativeLinkJsonProof(authoritativeNativeCollaborationSnapshot(state).content) !== entity.contentBasisProof
-        || !equal(inventory.metadata, entity.metadata)) bad();
+        || !equal(currentMixed?.evidenceVersion === 5
+          ? currentMixed.nativeOrdinarySources4.find(source => source.documentId === entry.documentId)?.inventory.metadata
+          : inventory.metadata, entity.metadata)) bad();
       const receipt = receipts.get(entry.documentId);
       if (!receipt) {
         if (!equal(binding, original)) bad();
@@ -246,7 +325,7 @@ export function assertOriginalMoveFinalSourceGraph(input: {
     }
   }
   for (const entity of expected.values()) if (!actualPaths.has(entity.path)) bad();
-  if (currentMixed && intent.version === 3) {
+  if (currentMixed && (intent.version === 3 || intent.version === 4)) {
     const catalogue = captureWorkspaceOperationNativeCatalogueWitness(observation.privateCatalogue,
       currentMixed.workspaceScope, currentMixed.nativeComponent.stage.catalogueProof!,
       currentMixed.nativeComponent.nativeBindings, bad);
@@ -269,16 +348,19 @@ export function assertOriginalMoveFinalSourceGraph(input: {
   }
   const snapshotBody = { contractVersion: 2 as const, workspaceId: observation.stage.workspaceId,
     namespace: observation.stage.namespace, documents: inventories, coverage: { complete: true, gaps: [] } };
-  const graph = currentMixed ? buildWorkspaceMixedReadLinkGraphV3(workspaceOperationMixedSourceSnapshot(currentMixed))
-    : buildWorkspaceNativeLinkGraph({ ...snapshotBody, snapshotProof: nativeLinkJsonProof(snapshotBody) } as NativeWorkspaceLinkSnapshot);
-  if (!graph.coverage.complete || graph.edges.length !== compiled.finalEdges.length) bad();
-  const nativeEdges = graph.contractVersion === 3
+  const graph = htmlSnapshot ? buildWorkspaceMixedHtmlLinkGraphV5(htmlSnapshot)
+    : currentMixed?.evidenceVersion === 3 ? buildWorkspaceMixedReadLinkGraphV3(workspaceOperationMixedSourceSnapshot(currentMixed))
+      : buildWorkspaceNativeLinkGraph({ ...snapshotBody, snapshotProof: nativeLinkJsonProof(snapshotBody) } as NativeWorkspaceLinkSnapshot);
+  if (graph.contractVersion !== 5 && !graph.coverage.complete || graph.edges.length !== compiled.finalEdges.length) bad();
+  const nativeEdges = graph.contractVersion === 3 || graph.contractVersion === 5
     ? graph.edges.filter((edge): edge is NativeResolvedLink & { sourceKind: 'native' } => edge.sourceKind === 'native') : graph.edges;
   for (const entity of expected.values()) {
     if (entity.binding.kind !== 'existing' || entity.binding.namespaceEvidence.documentId === null) continue;
     const documentId = entity.binding.namespaceEvidence.documentId;
-    const original = workspaceOperationSourceNativeEvidence(context.plan.sourceEvidence).stage.sources
-      .find(source => source.inventory.document.documentId === documentId);
+    const original = context.plan.planIdentityVersion === 4
+      ? context.plan.sourceEvidence.nativeOrdinarySources4.find(source => source.documentId === documentId)
+      : workspaceOperationSourceNativeEvidence(context.plan.sourceEvidence).stage.sources
+        .find(source => source.inventory.document.documentId === documentId);
     if (!original) bad();
     const actual = nativeEdges.filter(edge => edge.source.documentId === documentId);
     if (actual.length !== original!.inventory.links.length) bad();
@@ -291,7 +373,7 @@ export function assertOriginalMoveFinalSourceGraph(input: {
     }
   }
   if (context.plan.planIdentityVersion === 3) {
-    if (!currentMixed || graph.contractVersion !== 3) return bad();
+    if (currentMixed?.evidenceVersion !== 3 || graph.contractVersion !== 3) return bad();
     // Native path/clock commits legitimately change the catalogue proof, hence
     // physical derived IDs. Compare every physical fact before dropping just
     // those derived values, then bind final edges to ORIGINAL compiler IDs.
@@ -315,6 +397,59 @@ export function assertOriginalMoveFinalSourceGraph(input: {
         if (!desired || desired.literal !== edge.literal || desired.targetPathText !== edge.targetPathText
           || !equal(desired.resolution, resolution)) bad();
       }
+    }
+  }
+  if (context.plan.planIdentityVersion === 4) {
+    if (currentMixed?.evidenceVersion !== 5 || graph.contractVersion !== 5 || compiled.contractVersion !== 5
+      || !compiled.htmlAssessment.complete || compiled.htmlAssessment.blockers.length) return bad();
+    const original = context.plan.sourceEvidence;
+    const finalPath = (sourcePath: string) => facts.moved.find(item => item.originalPath === sourcePath)?.currentPath ?? sourcePath;
+    // Actual native content was already compared with the final compiler basis
+    // above. Independently preserve every HTML syntax occurrence while allowing
+    // its source path and ordinary-link-induced UTF-16 offsets to change.
+    const htmlMeaning = (source: typeof original.nativeComponent.htmlSources[number]) => source.inspection.occurrences.map(item => ({
+      raw: item.raw, fullyInspected: item.fullyInspected, explicitLocalTargets: item.explicitLocalTargets,
+    }));
+    if (currentMixed.nativeComponent.htmlSources.length !== original.nativeComponent.htmlSources.length) bad();
+    for (const source of original.nativeComponent.htmlSources) {
+      const actual = currentMixed.nativeComponent.htmlSources.find(item => item.documentId === source.documentId);
+      const mutation = mutations.find(item => item.source.documentId === source.documentId);
+      if (!actual || actual.path !== (mutation?.destinationPath ?? source.path) || !equal(htmlMeaning(actual), htmlMeaning(source))) bad();
+    }
+    const physical = observation.stage.sources.flatMap(source => source.kind === 'physical' ? [source.inventory] : []);
+    if (currentMixed.physicalSources4.length !== original.physicalSources4.length
+      || currentMixed.physicalHtmlSources4.length !== original.physicalHtmlSources4.length
+      || physical.length !== original.physicalSources4.length + original.physicalHtmlSources4.length) bad();
+    // Re-inspect FRESH actually-read bytes at the saved original spelling and
+    // compare the complete saved proof. Neither directory relocation nor a
+    // catalogue clock may mask changed bytes, metadata, syntax or HTML facts.
+    for (const source of original.physicalSources4) {
+      const path = finalPath(source.path), actual = physical.find(item => item.path === path);
+      const current = currentMixed.physicalSources4.find(item => item.path === path), entity = expected.get(path);
+      if (!actual || !current || !entity?.physicalReadSource
+        || !equal(actual.physical, source.physical)) return bad();
+      const replay = inspectOriginalPhysicalLinksV4({ workspaceId: source.workspaceId, organizationId: source.organizationId,
+        path: source.path, authority: source.authority, bytes: actual.originalBytes, filesystemIdentity: actual.physical.filesystemIdentity });
+      if (replay.physicalSourceProof !== source.physicalSourceProof || !equal(current.metadata, entity.metadata)) bad();
+      const actualEdges = graph.edges.filter(edge => edge.sourceKind === 'physical-read' && edge.source.path === path);
+      if (actualEdges.length !== source.links.length) bad();
+      for (const [index, link] of source.links.entries()) {
+        const edge = actualEdges[index], desired = compiled.finalEdges.find(item => item.sourceEntityKey === entity!.entityKey
+          && item.originEvidenceLinkId === link.physicalLinkId && item.physicalReadSource === true);
+        const key = (target: NativeNamespaceEntry) => expected.get(target.path)?.entityKey ?? bad();
+        const resolution = { status: edge.resolution.status, targetEntityKey: edge.resolution.target ? key(edge.resolution.target) : null,
+          candidateEntityKeys: edge.resolution.candidates.map(key).sort() };
+        if (!desired || desired.literal !== edge.literal || desired.targetPathText !== edge.targetPathText
+          || !equal(desired.resolution, resolution)) bad();
+      }
+    }
+    for (const source of original.physicalHtmlSources4) {
+      const path = finalPath(source.path), actual = physical.find(item => item.path === path);
+      const current = currentMixed.physicalHtmlSources4.find(item => item.path === path);
+      if (!actual || !current || !equal(actual.physical, source.physical)) return bad();
+      const replay = inspectOriginalPhysicalHtmlV4({ workspaceId: source.workspaceId, organizationId: source.organizationId,
+        path: source.path, authority: source.authority, bytes: actual.originalBytes, filesystemIdentity: actual.physical.filesystemIdentity });
+      if (replay.htmlSourceProof !== source.htmlSourceProof || !equal(current.htmlInspection, source.htmlInspection)) bad();
     }
   }
 }
@@ -362,6 +497,13 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
         if (prior && !observation.stage.namespace.some(entry => entry.path === prior.path)) observation.stage.namespace.push(prior);
       }
       observation.stage.namespace.sort((a, b) => a.path.localeCompare(b.path));
+      if (owner.context.plan.planIdentityVersion === 4) {
+        // A rename can change FS traversal order while all actual original
+        // paths/bytes/gaps remain equal. Only this genuine post-read frame may
+        // restore their original order; Evidence5's saved hash policy stays exact.
+        observation.stage.coverage = restoreOriginalMoveSourceCoverageOrder(owner.context.plan.sourceEvidence.coverage,
+          observation.stage.coverage);
+      }
       const { workspaceSourceAuthorityStageProof } = await import('../markdown/workspace-physical-link-inventory');
       observation.stage.stageProof = workspaceSourceAuthorityStageProof(observation.stage);
       const compiled = assertWorkspaceOperationNativeMoveBatchPlanCurrent(owner.context.plan, observation, owner.intent.jobScope);
@@ -370,7 +512,7 @@ export async function readWorkspaceOperationOriginalMoveSourcesOnConnection(data
       // The catalogue reader sorts by the actual registry path/id columns.
       // Reproduce that order in this same B after projecting native paths back,
       // rather than assuming a JavaScript or host collation matches PostgreSQL.
-      const catalogueOriginalOrder = owner.context.plan.planIdentityVersion === 3
+      const catalogueOriginalOrder = owner.context.plan.planIdentityVersion === 3 || owner.context.plan.planIdentityVersion === 4
         ? (await database.all(`SELECT d.id FROM collaboration_documents d
           LEFT JOIN jsonb_to_recordset($2::jsonb) basis(document_id text,original_path text) ON basis.document_id=d.id
           WHERE d.workspace_id=$1 AND d.provider='yjs' AND d.status='active'

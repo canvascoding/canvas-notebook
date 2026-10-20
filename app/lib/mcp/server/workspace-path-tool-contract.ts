@@ -43,7 +43,20 @@ export type DirectMcpWorkspacePathImportPreviewV1 = Readonly<{ version: 1; kind:
   readiness: 'requires-import-rebinding' | 'blocked'; paths: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[];
   imports: readonly Readonly<{ path: string; reasons: readonly ('selected' | 'link-change')[] }>[];
   issues: readonly Readonly<{ code: string; path: string }>[]; coverage: Readonly<{ complete: true }> }>;
-export type DirectMcpWorkspacePathPreviewV1 = DirectMcpWorkspacePathNativePreviewV1 | DirectMcpWorkspacePathImportPreviewV1;
+export type DirectMcpWorkspacePathHtmlDiagnosticV2 = Readonly<{ code: string; path: string; line?: number; targets: readonly string[] }>;
+/** Original coverage and operation-specific HTML safety are separate facts.
+ * This bounded summary contains no source bytes, native references or rights. */
+export type DirectMcpWorkspacePathHtmlPreviewV2 = Readonly<{ version: 2; kind: 'native-path-html-assessment';
+  operationKind: 'move'; executionReady: false; readiness: 'ready' | 'blocked'; workspaceId: string; planId: string;
+  paths: readonly Readonly<{ sourcePath: string; destinationPath: string }>[];
+  linkChanges: Readonly<{ rewrites: number; unlinks: number; affectedDocuments: number }>;
+  coverage: Readonly<{ complete: boolean }>;
+  linkAssessment: Readonly<{ complete: boolean; warnings: readonly DirectMcpWorkspacePathHtmlDiagnosticV2[];
+    blockers: readonly DirectMcpWorkspacePathHtmlDiagnosticV2[] }>;
+  issues: readonly Readonly<{ code: string; path: string }>[];
+  imports: readonly Readonly<{ path: string; reasons: readonly ('selected' | 'link-change')[] }>[] }>;
+export type DirectMcpWorkspacePathPreviewV1 = DirectMcpWorkspacePathNativePreviewV1 | DirectMcpWorkspacePathImportPreviewV1
+  | DirectMcpWorkspacePathHtmlPreviewV2;
 export type DirectMcpWorkspacePathExecutionV1 = Readonly<{ receiptStatus: 'available' | 'not_started' | 'unavailable';
   finalization: 'pending' | 'complete'; steps: readonly Readonly<{ key: string; phase: 'path' | 'link';
     kind: 'move' | 'rename' | 'delete' | 'link_update'; path: string; destinationPath?: string;
@@ -173,7 +186,63 @@ export function normalizePublicWorkspacePathErrorCode(value: unknown): PublicWor
   };
   return Object.hasOwn(mapping, value) ? mapping[value] : 'PATH_UNAVAILABLE';
 }
+function htmlPreviewV2(value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathHtmlPreviewV2 {
+  const row = record(value, ['version', 'kind', 'operationKind', 'executionReady', 'readiness', 'workspaceId', 'planId',
+    'paths', 'linkChanges', 'coverage', 'linkAssessment', 'issues', 'imports'], [], invalid);
+  if (row.version !== 2 || row.kind !== 'native-path-html-assessment' || row.operationKind !== 'move'
+    || row.executionReady !== false || row.readiness !== 'ready' && row.readiness !== 'blocked') return invalid();
+  workspace(row.workspaceId, invalid); planId(row.planId, invalid);
+  const paths = list(row.paths, MAX_SELECTIONS, invalid), sourcePaths = new Set<string>(), destinationPaths = new Set<string>();
+  if (!paths.length) return invalid();
+  for (const item of paths) {
+    const path = record(item, ['sourcePath', 'destinationPath'], [], invalid);
+    const source = pathname(path.sourcePath, invalid), destination = pathname(path.destinationPath, invalid);
+    if (source === destination || sourcePaths.has(source) || destinationPaths.has(destination)) return invalid();
+    sourcePaths.add(source); destinationPaths.add(destination);
+  }
+  const links = record(row.linkChanges, ['rewrites', 'unlinks', 'affectedDocuments'], [], invalid);
+  for (const key of Object.keys(links)) integer(links[key], 100_000, invalid);
+  if (links.unlinks !== 0) return invalid();
+  const coverage = record(row.coverage, ['complete'], [], invalid);
+  if (typeof coverage.complete !== 'boolean') return invalid();
+  const assessment = record(row.linkAssessment, ['complete', 'warnings', 'blockers'], [], invalid);
+  if (typeof assessment.complete !== 'boolean') return invalid();
+  const warnings = list(assessment.warnings, MAX_STEPS, invalid), blockers = list(assessment.blockers, MAX_STEPS, invalid);
+  for (const [items, warning] of [[warnings, true], [blockers, false]] as const) for (const item of items) {
+    const diagnostic = record(item, ['code', 'path', 'targets'], ['line'], invalid);
+    if (warning ? diagnostic.code !== 'unaffected-explicit-html-link'
+      : diagnostic.code !== 'affected-html-link' && diagnostic.code !== 'unevaluated-link') return invalid();
+    pathname(diagnostic.path, invalid);
+    if (Object.hasOwn(diagnostic, 'line') && integer(diagnostic.line, Number.MAX_SAFE_INTEGER, invalid) < 1) return invalid();
+    const targets = list(diagnostic.targets, MAX_STEPS, invalid);
+    if ((warning || diagnostic.code === 'affected-html-link') && !targets.length) return invalid();
+    const uniqueTargets = new Set<string>();
+    for (const target of targets) {
+      const literal = text(target, 4096, invalid); if (uniqueTargets.has(literal)) return invalid(); uniqueTargets.add(literal);
+    }
+  }
+  if (assessment.complete && blockers.length) return invalid();
+  const imports = list(row.imports, MAX_STEPS, invalid), importedPaths = new Set<string>();
+  for (const item of imports) {
+    const imported = record(item, ['path', 'reasons'], [], invalid), file = pathname(imported.path, invalid);
+    if (!/\.(?:md|markdown)$/iu.test(file) || importedPaths.has(file)) return invalid(); importedPaths.add(file);
+    const reasons = list(imported.reasons, 2, invalid);
+    if (!reasons.length || reasons.some(reason => reason !== 'selected' && reason !== 'link-change')
+      || JSON.stringify(reasons) !== JSON.stringify(['selected', 'link-change'].filter(reason => reasons.includes(reason)))) return invalid();
+  }
+  const issues = list(row.issues, MAX_STEPS, invalid);
+  for (const item of issues) {
+    const issue = record(item, ['code', 'path'], [], invalid);
+    if (typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)) return invalid();
+    if (issue.path !== '') pathname(issue.path, invalid);
+  }
+  if (row.readiness === 'ready' ? !assessment.complete || blockers.length || issues.length || imports.length
+    : assessment.complete && !blockers.length && !issues.length && !imports.length) return invalid();
+  if (row.readiness === 'blocked' && (links.rewrites !== 0 || links.affectedDocuments !== 0)) return invalid();
+  return row as unknown as DirectMcpWorkspacePathHtmlPreviewV2;
+}
 const preview = (value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathPreviewV1 => {
+  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-html-assessment') return htmlPreviewV2(value, invalid);
   if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-import-preparation') {
     const row = record(value, ['version', 'kind', 'operationKind', 'workspaceId', 'planId', 'executionReady', 'readiness', 'paths', 'imports', 'issues', 'coverage'], [], invalid);
     if (row.version !== 1 || row.executionReady !== false || typeof row.operationKind !== 'string' || !['move', 'delete'].includes(row.operationKind)
@@ -352,6 +421,45 @@ const operationResultSchema = objectSchema({ operationId: operationSchema, batch
   completion: { type: 'object', oneOf: [objectSchema({ status: { const: 'confirmed', type: 'string' }, historical: { const: true, type: 'boolean' } }),
     objectSchema({ status: { const: 'not_confirmed', type: 'string' } })] } },
   ['operationId', 'batchId', 'planId', 'workspaceId', 'journal', 'execution', 'completion']);
+const htmlDiagnosticSchemaV2 = (warning: boolean) => ({
+  ...objectSchema({ code: { type: 'string', enum: warning ? ['unaffected-explicit-html-link'] : ['affected-html-link', 'unevaluated-link'] },
+    path: pathSchema, line: { ...integerSchema, minimum: 1 }, targets: { ...arraySchema({ type: 'string', minLength: 1, maxLength: 4096,
+      pattern: '^[^\\u0000-\\u001f\\u007f]+$' }), uniqueItems: true, ...(warning ? { minItems: 1 } : {}) } }, ['code', 'path', 'targets']),
+  ...(!warning ? { allOf: [{ if: { properties: { code: { const: 'affected-html-link' } } },
+    then: { properties: { targets: { minItems: 1 } } } }] } : {}),
+});
+const htmlPreviewSchemaV2 = {
+  ...objectSchema({ version: { const: 2, type: 'integer' }, kind: { const: 'native-path-html-assessment', type: 'string' },
+    operationKind: { const: 'move', type: 'string' }, executionReady: { const: false, type: 'boolean' },
+    readiness: { type: 'string', enum: ['ready', 'blocked'] }, workspaceId: workspaceSchema, planId: planSchema,
+    paths: { ...arraySchema(objectSchema({ sourcePath: pathSchema, destinationPath: pathSchema }), MAX_SELECTIONS), minItems: 1 },
+    linkChanges: objectSchema({ rewrites: { ...integerSchema, maximum: 100_000 }, unlinks: { const: 0, type: 'integer' },
+      affectedDocuments: { ...integerSchema, maximum: 100_000 } }), coverage: objectSchema({ complete: booleanSchema }),
+    linkAssessment: objectSchema({ complete: booleanSchema, warnings: arraySchema(htmlDiagnosticSchemaV2(true)),
+      blockers: arraySchema(htmlDiagnosticSchemaV2(false)) }),
+    issues: arraySchema(objectSchema({ code: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,99}$' },
+      path: { anyOf: [pathSchema, { const: '', type: 'string' }] } })),
+    imports: arraySchema(objectSchema({ path: { ...pathSchema, pattern: `${pathSchema.pattern.slice(0, -1)}\\.(?:[mM][dD]|[mM][aA][rR][kK][dD][oO][wW][nN])$` },
+      reasons: { type: 'array', items: { type: 'string', enum: ['selected', 'link-change'] }, minItems: 1, maxItems: 2, uniqueItems: true } })),
+  }),
+  allOf: [
+    { if: { properties: { readiness: { const: 'ready' } } }, then: { properties: {
+      linkAssessment: { properties: { complete: { const: true }, blockers: { maxItems: 0 } } },
+      issues: { maxItems: 0 }, imports: { maxItems: 0 },
+    } } },
+    { if: { properties: { readiness: { const: 'blocked' } } }, then: { properties: {
+      linkChanges: { properties: { rewrites: { const: 0 }, affectedDocuments: { const: 0 } } },
+    }, anyOf: [
+      { properties: { issues: { minItems: 1 } } }, { properties: { imports: { minItems: 1 } } },
+      { properties: { linkAssessment: { properties: { complete: { const: false } } } } },
+      { properties: { linkAssessment: { properties: { blockers: { minItems: 1 } } } } },
+    ] } },
+    { if: { properties: { linkAssessment: { properties: { complete: { const: true } } } } },
+      then: { properties: { linkAssessment: { properties: { blockers: { maxItems: 0 } } } } } },
+  ],
+};
+export const DIRECT_MCP_WORKSPACE_MOVE_HTML_PREVIEW_SCHEMA_V2 = frozen(htmlPreviewSchemaV2);
+
 const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf: [
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({ kind: { const: kind, type: 'string' },
     workspaceId: workspaceSchema, planId: planSchema, readiness: { const: 'ready', type: 'string' },
@@ -370,6 +478,8 @@ const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf
   ...(['apply', 'recover', 'status'] as const).map(action => objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: action, type: 'string' },
     operation: operationResultSchema, ...(action === 'status' ? {} : { alreadyKnown: booleanSchema }) })),
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, success: { const: false, type: 'boolean' }, code: codeSchema, operationId: operationSchema }, ['apiVersion', 'success', 'code']),
+  ...(kind === 'move' ? [objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' },
+    preview: htmlPreviewSchemaV2 })] : []),
 ] });
 export const DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1 = outputSchema('move');
 export const DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1 = outputSchema('delete');

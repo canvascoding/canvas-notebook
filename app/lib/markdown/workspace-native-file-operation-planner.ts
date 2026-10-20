@@ -1,8 +1,14 @@
 import path from 'node:path';
 import { parseObsidianWikiTarget } from './obsidian-flavored-markdown';
 import { getCanvasNotebookExactLinkTarget } from './obsidian-link-resolver';
-import { buildWorkspaceMixedReadLinkGraphV3, buildWorkspaceNativeLinkGraph } from './workspace-native-link-graph';
+import { buildWorkspaceMixedReadLinkGraphV3, buildWorkspaceNativeLinkGraph, buildWorkspaceMixedHtmlLinkGraphV5, workspaceMixedHtmlBlockingCoverageV5 } from './workspace-native-link-graph';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
+import { assessWorkspaceOperationHtmlLinksV1 } from '../files/workspace-operation-html-link-assessment';
+import { decodeWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedSourceSnapshotV5 } from '../files/workspace-operation-mixed-source-evidence-v5';
+import type { PhysicalMarkdownSourceEvidenceV5 } from '../files/workspace-operation-mixed-source-evidence-v5';
+import type { NativeDocumentLinkInventoryV4 } from './workspace-native-link-inventory';
+import type { FilePlanV5, WorkspaceMixedHtmlFileOperationRequestV5, WorkspaceMixedHtmlLinkSnapshotV5 } from './workspace-link-contract-v5';
+import type { NativeNamespaceEntry } from './workspace-link-contract-v2';
 import type { NativeLinkMutationRecipe,
   NativeResolvedLink, NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
 import type { FilePlanV3, MixedReadResolvedLinkV3, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
@@ -70,7 +76,15 @@ export type WorkspaceMixedReadFileOperationRequestV3 = Omit<NativeWorkspaceFileO
   snapshots: WorkspaceMixedReadLinkSnapshotV3[];
 };
 
-function mixedReadGraph(snapshot: NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3, version: 2 | 3) {
+type HtmlPlannerSnapshotV5 = Omit<WorkspaceMixedHtmlLinkSnapshotV5, 'namespace' | 'documents' | 'physicalSources'> & {
+  namespace: NativeNamespaceEntry[]; documents: NativeDocumentLinkInventoryV4[]; physicalSources: PhysicalMarkdownSourceEvidenceV5[];
+};
+type PlannerSnapshot = NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | HtmlPlannerSnapshotV5;
+type HtmlPlannerRequestV5 = Omit<NativeWorkspaceFileOperationRequest, 'snapshots'> & { snapshots: HtmlPlannerSnapshotV5[] };
+type HtmlOrdinaryPlanV5 = Omit<NativeWorkspaceFileOperationPlan, 'contractVersion'> & { contractVersion: 5 };
+
+function mixedReadGraph(snapshot: PlannerSnapshot, version: 2 | 3 | 5) {
+  if (version === 5 && snapshot.contractVersion === 5) return buildWorkspaceMixedHtmlLinkGraphV5(snapshot);
   return version === 3 && snapshot.contractVersion === 3 ? buildWorkspaceMixedReadLinkGraphV3(snapshot)
     // The V2 API keeps its historical graph even for a malformed version;
     // the core separately records that version mismatch as a blocking issue.
@@ -116,20 +130,71 @@ export function createWorkspaceMixedReadFileOperationPlanV3(request: WorkspaceMi
   return createWorkspaceFileOperationPlanCore(request, 3);
 }
 
+/** Explicit new public planning arm. HTML safety is calculated from the same
+ * decoded source evidence and the exact ordinary path mappings. Old parsers,
+ * gaps and proof bodies remain historical facts rather than being relabelled. */
+export function createWorkspaceMixedHtmlFileOperationPlanV5(request: WorkspaceMixedHtmlFileOperationRequestV5): FilePlanV5 {
+  const source = decodeWorkspaceOperationMixedSourceEvidenceV5(request.sourceEvidence);
+  const destination = request.destinationEvidence === undefined ? source : decodeWorkspaceOperationMixedSourceEvidenceV5(request.destinationEvidence);
+  if (source.workspaceScope.workspaceId !== request.sourceWorkspaceId || destination.workspaceScope.workspaceId !== request.destinationWorkspaceId
+    || request.sourceWorkspaceId === request.destinationWorkspaceId && source.evidenceProof !== destination.evidenceProof) throw new Error('HTML_FILE_PLAN_EVIDENCE_INVALID');
+  const evidence = request.sourceWorkspaceId === request.destinationWorkspaceId ? [source] : [source, destination];
+  const snapshots = evidence.map(value => {
+    const snapshot = workspaceOperationMixedSourceSnapshotV5(value);
+    return { ...snapshot, namespace: [...snapshot.namespace], documents: [...snapshot.documents], physicalSources: [...snapshot.physicalSources] };
+  });
+  const ordinaryRequest = { kind: request.kind, sourceWorkspaceId: request.sourceWorkspaceId,
+    destinationWorkspaceId: request.destinationWorkspaceId, selections: request.selections, snapshots };
+  const ordinary = createWorkspaceFileOperationPlanCore(ordinaryRequest, 5);
+  const operation = { kind: request.kind, sourceWorkspaceId: request.sourceWorkspaceId, destinationWorkspaceId: request.destinationWorkspaceId,
+    selections: request.selections.map(selection => ({ sourcePath: selection.sourcePath, destinationPath: selection.destinationPath ?? '' })) };
+  let htmlAssessment: FilePlanV5['htmlAssessment'];
+  const issues = [...ordinary.issues];
+  try {
+    htmlAssessment = assessWorkspaceOperationHtmlLinksV1({ request: operation,
+      pathMappings: request.kind === 'delete' ? [] : ordinary.pathMappings.map(mapping => ({ sourceWorkspaceId: mapping.source.workspaceId,
+        sourcePath: mapping.source.path, destinationWorkspaceId: mapping.destinationWorkspaceId, destinationPath: mapping.destinationPath,
+        sourceIdentity: mapping.source.identity })), sourceEvidence: source,
+      ...(request.sourceWorkspaceId === request.destinationWorkspaceId ? {} : { destinationEvidence: destination }) });
+    for (const blocker of htmlAssessment.blockers) {
+      // The shared historical DTO allows omitted workspace IDs. This explicit
+      // E5 assessor must bind every blocker to one of the observed workspaces;
+      // missing or foreign scope is an invalid assessment, never a guessed ID.
+      if (typeof blocker.workspaceId !== 'string' || !evidence.some(value => value.workspaceScope.workspaceId === blocker.workspaceId)) {
+        throw new Error('HTML_FILE_PLAN_ASSESSMENT_SCOPE_INVALID');
+      }
+      issues.push({ code: blocker.reason, workspaceId: blocker.workspaceId, path: blocker.sourcePath });
+    }
+  } catch {
+    htmlAssessment = { version: 1, complete: false, warnings: [], blockers: [] };
+    issues.push({ code: 'invalid-html-operation', workspaceId: request.sourceWorkspaceId, path: '' });
+  }
+  const { planId: _ordinaryPlanId, ...ordinaryBody } = ordinary;
+  const htmlAssessmentProof = nativeLinkJsonProof({ assessmentVersion: 5, request: operation, pathMappings: ordinary.pathMappings,
+    evidenceProofs: evidence.map(value => value.evidenceProof), htmlAssessment });
+  const body = { ...ordinaryBody, htmlAssessment, htmlAssessmentProof,
+    sourceCoverage: snapshots.map(snapshot => ({ workspaceId: snapshot.workspaceId, coverage: snapshot.coverage })),
+    readiness: issues.length ? 'blocked' as const : 'ready' as const, issues };
+  return { ...body, planId: nativeLinkJsonProof(body) };
+}
+
 function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperationRequest, version: 2): NativeWorkspaceFileOperationPlan;
 function createWorkspaceFileOperationPlanCore(request: WorkspaceMixedReadFileOperationRequestV3, version: 3): FilePlanV3;
-function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperationRequest | WorkspaceMixedReadFileOperationRequestV3,
-  version: 2 | 3): NativeWorkspaceFileOperationPlan | FilePlanV3 {
+function createWorkspaceFileOperationPlanCore(request: HtmlPlannerRequestV5, version: 5): HtmlOrdinaryPlanV5;
+function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperationRequest | WorkspaceMixedReadFileOperationRequestV3 | HtmlPlannerRequestV5,
+  version: 2 | 3 | 5): NativeWorkspaceFileOperationPlan | FilePlanV3 | HtmlOrdinaryPlanV5 {
   const issues: NativeWorkspaceFileOperationPlan['issues'] = [];
   const issue = (code: string, workspaceId: string, pathValue: string, linkId?: string) =>
     issues.push({ code, workspaceId, path: pathValue, ...(linkId ? { linkId } : {}) });
-  const snapshots = new Map<string, NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3>(request.snapshots.map((snapshot) => [snapshot.workspaceId, snapshot]));
+  const snapshots = new Map<string, PlannerSnapshot>(request.snapshots.map((snapshot) => [snapshot.workspaceId, snapshot]));
   for (const snapshot of request.snapshots) {
     const { snapshotProof: _proof, ...body } = snapshot;
     if (snapshot.contractVersion !== version || nativeLinkJsonProof(body) !== snapshot.snapshotProof) issue('snapshot-proof-mismatch', snapshot.workspaceId, '');
-    if (!snapshot.coverage.complete || snapshot.coverage.gaps.length) {
+    const blockingGaps = version === 5 && snapshot.contractVersion === 5
+      ? workspaceMixedHtmlBlockingCoverageV5(snapshot) : snapshot.coverage.gaps;
+    if (blockingGaps.length || !snapshot.coverage.complete && !snapshot.coverage.gaps.length) {
       issue('incomplete-coverage', snapshot.workspaceId, '');
-      for (const gap of snapshot.coverage.gaps) issue(gap.code, snapshot.workspaceId, gap.path);
+      for (const gap of blockingGaps) issue(gap.code, snapshot.workspaceId, gap.path);
     }
     const paths = new Set<string>(); const identities = new Set<string>();
     for (const entry of snapshot.namespace) {
@@ -139,17 +204,18 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
       if (entry.kind === 'file' && /\.mdx$/iu.test(entry.path)) issue('unsupported-source', snapshot.workspaceId, entry.path);
       if (entry.kind === 'file' && /\.(?:md|markdown)$/iu.test(entry.path)
         && !snapshot.documents.some((inventory) => inventory.document.path === entry.path)
-        && !(version === 3 && snapshot.contractVersion === 3 && snapshot.physicalSources.some(inventory => inventory.path === entry.path))) issue('uninspected-source', snapshot.workspaceId, entry.path);
+        && !((version === 3 && snapshot.contractVersion === 3 || version === 5 && snapshot.contractVersion === 5) && snapshot.physicalSources.some(inventory => inventory.path === entry.path))) issue('uninspected-source', snapshot.workspaceId, entry.path);
     }
     for (const inventory of snapshot.documents) {
-      if (inventory.parserVersion !== 2) issue('stale-source-parser', snapshot.workspaceId, inventory.document.path);
+      if (inventory.parserVersion !== (version === 5 ? 4 : 2)) issue('stale-source-parser', snapshot.workspaceId, inventory.document.path);
       const registered = snapshot.namespace.find((entry) => entry.path === inventory.document.path);
       if (!registered || registered.documentId !== inventory.document.documentId
         || registered.lifecycleGeneration !== inventory.document.lifecycleGeneration
-        || inventory.document.workspaceId !== snapshot.workspaceId || !inventory.coverage.complete
-        || inventory.coverage.gaps.length) issue('identity-conflict', snapshot.workspaceId, inventory.document.path);
+        || inventory.document.workspaceId !== snapshot.workspaceId || (version === 5
+          ? inventory.coverage.gaps.some(gap => gap.code !== 'uninspected-html') || !inventory.coverage.complete && !inventory.coverage.gaps.length
+          : !inventory.coverage.complete || inventory.coverage.gaps.length)) issue('identity-conflict', snapshot.workspaceId, inventory.document.path);
     }
-    if (version === 3 && snapshot.contractVersion === 3) {
+    if (version === 3 && snapshot.contractVersion === 3 || version === 5 && snapshot.contractVersion === 5) {
       const physicalPaths = new Set<string>();
       for (const inventory of snapshot.physicalSources) {
         const registered = snapshot.namespace.find(entry => entry.path === inventory.path);
@@ -160,10 +226,11 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
           || registered.filesystemIdentity !== inventory.physical.filesystemIdentity || registered.identity !== inventory.physical.filesystemIdentity
           || inventory.workspaceId !== snapshot.workspaceId || inventory.metadata.path !== inventory.path
           || inventory.physicalSourceVersion !== 1
-          || inventory.parserVersion !== undefined && inventory.parserVersion !== 2 && inventory.parserVersion !== 3
+          || (version === 5 ? inventory.parserVersion !== 4 : inventory.parserVersion !== undefined && inventory.parserVersion !== 2 && inventory.parserVersion !== 3)
           || inventory.source !== 'original-physical-bytes'
           || inventory.encoding !== 'utf8' || inventory.executionReady !== false || inventory.applicability !== 'requires-import-and-rebinding'
-          || !inventory.coverage.complete || inventory.coverage.gaps.length
+          || (version === 5 ? inventory.coverage.gaps.some(gap => gap.code !== 'uninspected-html')
+            || !inventory.coverage.complete && !inventory.coverage.gaps.length : !inventory.coverage.complete || inventory.coverage.gaps.length)
           || !/\.(?:md|markdown)$/iu.test(inventory.path)
           || !/^[a-f0-9]{64}$/u.test(inventory.physical.byteHash) || !Number.isSafeInteger(inventory.physical.byteLength) || inventory.physical.byteLength < 0
           || nativeLinkJsonProof({ ...physicalBody, observedOriginalByteHash: inventory.physical.byteHash }) !== physicalSourceProof) {
@@ -195,7 +262,7 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
       mapped.set(entry.path, { source: entry, destinationPath: request.kind === 'delete' ? ''
         : `${selection.destinationPath}${entry.path.slice(selection.sourcePath.length)}`, destinationWorkspaceId: request.destinationWorkspaceId });
       selectionForPath.set(entry.path, selection.sourcePath);
-      if (version === 3 && source?.contractVersion === 3 && source.physicalSources.some(inventory => inventory.path === entry.path)) {
+      if ((version === 3 && source?.contractVersion === 3 || version === 5 && source?.contractVersion === 5) && source.physicalSources.some(inventory => inventory.path === entry.path)) {
         issue('physical-source-import-required', request.sourceWorkspaceId, entry.path);
       }
     }
@@ -215,7 +282,7 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
   const mutations: NativeLinkMutationRecipe[] = [];
   const sourceGraph = source && mixedReadGraph(source, version);
   for (const candidate of sourceGraph?.edges ?? []) {
-    if (version === 3 && 'sourceKind' in candidate && candidate.sourceKind === 'physical-read') continue;
+    if ((version === 3 || version === 5) && 'sourceKind' in candidate && candidate.sourceKind === 'physical-read') continue;
     // V2 retains its historical treatment of extra inventory properties. The
     // V3 discriminator above removes every actual physical READ edge.
     const edge = candidate as NativeResolvedLink;
@@ -248,25 +315,26 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
 
   // Resolve the full virtual namespace, including untouched sources in both
   // workspaces. Never let a copied/moved basename silently capture a link.
-  const virtual = new Map<string, NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3>();
+  const virtual = new Map<string, PlannerSnapshot>();
   for (const snapshot of snapshots.values()) {
     const namespace = snapshot.namespace.filter((entry) => !(snapshot.workspaceId === request.sourceWorkspaceId && request.kind !== 'copy' && mapped.has(entry.path)));
     const documents = snapshot.documents.filter((entry) => !(snapshot.workspaceId === request.sourceWorkspaceId && request.kind !== 'copy' && mapped.has(entry.document.path)));
-    if (version === 3 && snapshot.contractVersion === 3) {
+    if (version === 3 && snapshot.contractVersion === 3 || version === 5 && snapshot.contractVersion === 5) {
       const physicalSources = snapshot.physicalSources.filter(entry => !(snapshot.workspaceId === request.sourceWorkspaceId && request.kind !== 'copy' && mapped.has(entry.path)));
-      virtual.set(snapshot.workspaceId, { ...snapshot, namespace: [...namespace], documents: [...documents], physicalSources: [...physicalSources] });
-    } else virtual.set(snapshot.workspaceId, { ...snapshot, namespace: [...namespace], documents: [...documents] });
+      virtual.set(snapshot.workspaceId, { ...snapshot, namespace: [...namespace], documents: [...documents], physicalSources: [...physicalSources] } as PlannerSnapshot);
+    } else virtual.set(snapshot.workspaceId, { ...snapshot, namespace: [...namespace], documents: [...documents] } as PlannerSnapshot);
   }
   for (const mapping of mapped.values()) if (request.kind !== 'delete' && destination) {
     const next = virtual.get(request.destinationWorkspaceId)!;
     const identity = request.kind === 'copy' ? `clone:${mapping.source.identity}:${mapping.destinationPath}` : mapping.source.identity;
     next.namespace.push({ ...mapping.source, workspaceId: request.destinationWorkspaceId, path: mapping.destinationPath, identity });
     const inventory = source?.documents.find((entry) => entry.document.path === mapping.source.path);
-    if (inventory) next.documents.push({ ...inventory, document: { ...inventory.document, workspaceId: request.destinationWorkspaceId, path: mapping.destinationPath },
+    if (inventory) (next.documents as Array<typeof inventory>).push({ ...inventory, document: { ...inventory.document, workspaceId: request.destinationWorkspaceId, path: mapping.destinationPath },
       metadata: { ...inventory.metadata, path: mapping.destinationPath }, links: [...inventory.links] });
-    if (version === 3 && source?.contractVersion === 3 && next.contractVersion === 3) {
+    if (version === 3 && source?.contractVersion === 3 && next.contractVersion === 3
+      || version === 5 && source?.contractVersion === 5 && next.contractVersion === 5) {
       const physical = source.physicalSources.find(entry => entry.path === mapping.source.path);
-      if (physical) next.physicalSources.push({ ...physical, workspaceId: request.destinationWorkspaceId, path: mapping.destinationPath,
+      if (physical) (next.physicalSources as Array<typeof physical>).push({ ...physical, workspaceId: request.destinationWorkspaceId, path: mapping.destinationPath,
         metadata: { ...physical.metadata, path: mapping.destinationPath }, links: [...physical.links] });
     }
   }
@@ -281,7 +349,7 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
       const hash = old.indexOf('#');
       return [{ ...link, literal: parsed?.target ?? old, targetPathText: parsed?.path ?? decodeURIComponent(hash < 0 ? old : old.slice(0, hash)) }];
     }),
-  }));
+  })) as typeof snapshot.documents;
   for (const snapshot of snapshots.values()) {
     const before = mixedReadGraph(snapshot, version);
     for (const edge of before.edges) {
@@ -295,7 +363,7 @@ function createWorkspaceFileOperationPlanCore(request: NativeWorkspaceFileOperat
         // Physical aliases that still resolve to the same identity need no
         // rewrite. A real incoming rewrite/unlink remains import-only, and its
         // changed full resolution is still reported rather than ignored.
-        if (version === 3 && 'sourceKind' in edge && edge.sourceKind === 'physical-read' && edge.resolution.status === 'resolved'
+        if ((version === 3 || version === 5) && 'sourceKind' in edge && edge.sourceKind === 'physical-read' && edge.resolution.status === 'resolved'
           && edge.resolution.target && snapshot.workspaceId === request.sourceWorkspaceId && request.kind !== 'copy'
           && mapped.has(edge.resolution.target.path)) issue('physical-source-import-required', snapshot.workspaceId, edge.source.path, edge.id);
         issue('resolution-changed', snapshot.workspaceId, edge.source.path, edge.id);

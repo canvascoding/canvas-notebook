@@ -7,6 +7,8 @@ import { decodeWorkspaceOperationNativeSourceEvidence,
 import { decodeWorkspaceOperationNativeSourceEvidenceV3,
   type WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import { decodeWorkspaceOperationMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
+import { decodeWorkspaceOperationMixedSourceEvidenceV5,
+  type WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 
 /** Historical data validation only. The fixed owner must capture this evidence
  * from actual native bytes and the complete catalogue on its own connection.
@@ -31,10 +33,20 @@ export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: Wor
   input: unknown): WorkspaceOperationNativeSourceEvidenceV2;
 export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationNativeSourceEvidenceV3,
   input: unknown): WorkspaceOperationNativeSourceEvidenceV3;
-export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3,
-  input: unknown): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3;
-export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3,
-  input: unknown): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 {
+export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationMixedSourceEvidenceV5,
+  input: unknown): WorkspaceOperationMixedSourceEvidenceV5;
+export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 | WorkspaceOperationMixedSourceEvidenceV5,
+  input: unknown): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 | WorkspaceOperationMixedSourceEvidenceV5;
+export function decodeWorkspaceOperationMixedOriginalSourceWitness(expected: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 | WorkspaceOperationMixedSourceEvidenceV5,
+  input: unknown): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 | WorkspaceOperationMixedSourceEvidenceV5 {
+  if (expected?.evidenceVersion === 5) {
+    const original = decodeWorkspaceOperationMixedSourceEvidenceV5(expected);
+    const witness = decodeWorkspaceOperationMixedSourceEvidenceV5(input);
+    if (!isDeepStrictEqual(witness.workspaceScope, original.workspaceScope) || witness.semanticProof !== original.semanticProof) {
+      throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_CHANGED');
+    }
+    return witness;
+  }
   const original = decodeWorkspaceOperationMixedSourceEvidence(expected);
   if (original.evidenceVersion === 2) return decodeWorkspaceOperationNativeOriginalSourceWitness(original, input);
   if (original.evidenceVersion !== 3) throw new WorkspaceOperationNativeSourceEvidenceError('NATIVE_SOURCE_EVIDENCE_INVALID');

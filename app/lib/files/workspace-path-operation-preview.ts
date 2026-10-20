@@ -6,6 +6,7 @@ import { WorkspaceOperationBatchError } from './workspace-operation-batch-store'
 import { workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
+import type { WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 
 /** Native preview text is a display summary. No Markdown offsets, document
  * IDs, relative positions or native evidence are exposed or fabricated. */
@@ -19,7 +20,7 @@ export type WorkspaceOperationNativeMovePreviewPublic = {
 };
 export type WorkspacePathOperationPreviewPublic = Omit<WorkspaceFileOperationPreview, 'previewContents'>
   | WorkspaceOperationNativeMovePreviewPublic | WorkspaceOperationNativeCopyPreviewPublic
-  | WorkspacePathImportPreparationPreviewPublic | WorkspaceOperationNativeDeletePreviewPublic;
+  | WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic | WorkspaceOperationNativeDeletePreviewPublic;
 
 export type WorkspaceOperationNativeDeletePreviewPublic = Omit<WorkspaceOperationNativeMovePreviewPublic,
   'version' | 'kind' | 'readiness'> & { version: 2; kind: 'native-original-delete'; readiness: 'ready' | 'blocked' };
@@ -35,12 +36,23 @@ export type WorkspacePathImportPreparationPreviewPublic = {
   physicalLinkChanges: Array<{ sourcePathBefore: string; sourcePathAfter: string;
     previousTargetLiteral: string; targetPathAfter: string | null; action: 'rewrite' | 'unlink' }>;
 };
+export type WorkspacePathHtmlNoImportPreviewPublic = Omit<WorkspacePathImportPreparationPreviewPublic,
+  'version' | 'readiness' | 'linkAssessment'> & {
+  version: 2; readiness: 'blocked';
+  linkAssessment: WorkspaceFileOperationPreview['linkAssessment'];
+};
 
 /** Display only: final native references and spellings do not exist before import. */
-export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
-): WorkspacePathImportPreparationPreviewPublic {
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
+): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic {
   if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
     'This file action uses its ordinary preview.');
+  if (plan.version === 2) return { version: 2, kind: plan.kind, executionReady: false,
+    workspaceId: plan.scope.workspaceId, planId: plan.planId, readiness: 'blocked',
+    pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
+    linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },
+    linkAssessment: structuredClone(plan.linkAssessment), issues: plan.issues.map(({ code, path }) => ({ code, path })),
+    imports: plan.requiredRawImports.map(({ path, reasons }) => ({ path, reasons: [...reasons] })), physicalLinkChanges: [] };
   return { version: 1, kind: plan.kind, executionReady: false, workspaceId: plan.scope.workspaceId,
     planId: plan.planId, readiness: plan.readiness,
     pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),

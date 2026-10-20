@@ -51,7 +51,7 @@ import { decodeWorkspaceOperationNativeMoveBatchPlan, assertWorkspaceOperationNa
 import { captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
-import { workspaceOperationSourceNativeEvidence, type WorkspaceOperationMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
+import { workspaceOperationSourceNativeEvidence, type WorkspaceOperationAnyMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
 import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
 import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './workspace-operation-original-move-handoff-storage';
@@ -617,7 +617,7 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
     await check();
     let conflict = false;
     try {
-      if (plan.version === 3 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3)) {
+      if (plan.version === 3 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4)) {
         const prepared = await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
           { schema: binding.source.schemaName, context: captured.move!.context });
         if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
@@ -754,7 +754,8 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
     if (admission && !['reserved','draining'].includes(admission.status)
       && !(captured.move && intent && admission.status === 'committed' && admission.outcome?.version === 1)) fail('JOB_LIFECYCLE_CHANGED');
     if ((captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
-      && (captured.binding.plan.planIdentityVersion === 2 || captured.binding.plan.planIdentityVersion === 3) && !admission && !intent) {
+      && (captured.binding.plan.planIdentityVersion === 2 || captured.binding.plan.planIdentityVersion === 3
+        || captured.binding.plan.version === 3 && captured.binding.plan.planIdentityVersion === 4) && !admission && !intent) {
       const historical = !captured.move && await database.get(`SELECT 1 AS present FROM ${prefix}.workspace_file_operation_delete_intents WHERE batch_id=$1`,[captured.binding.batchId]);
       if (!historical) fail('JOB_LIFECYCLE_CHANGED');
     }
@@ -807,7 +808,7 @@ export function readWorkspaceOperationOriginalMovePreparation(owner: WorkspaceOp
     const captured = moveOwner(owner);
     return movePhase(owner, async (access, database) => {
       const plan = captured.move!.context.plan;
-      if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3) return plan.sourceEvidence;
+      if (plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3 && plan.planIdentityVersion !== 4) return plan.sourceEvidence;
       const rows = await readMoveRows(captured, database);
       if (rows.intent || rows.completion) fail('JOB_LIFECYCLE_CHANGED');
       const preparation = await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
@@ -869,12 +870,12 @@ export function stageWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperation
     for (const item of prepared) { await assertPreparedWorkspacePathMoveCurrent(item.cap); await check(); }
     const plan = captured.move!.context.plan;
     const existing = await readMoveRows(captured,database);
-    const preparation = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
+    const preparation = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4 ? await readWorkspaceOperationOriginalMovePreparationOnConnection(database,
       {schema:captured.binding.source.schemaName,context:captured.move!.context,readOnly:true}) : null;
-    if ((plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3) && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
+    if ((plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) && !preparation && !existing.intent) fail('JOB_LIFECYCLE_CHANGED');
     const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database,access.workspace,
       { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
-    const currentWitness = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3
+    const currentWitness = plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4
       ? captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan,observation,plan.sourceEvidence.workspaceScope) : null;
     if (!currentWitness) assertWorkspaceOperationNativeMoveBatchPlanCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
     if (preparation && !equal(currentWitness,preparation.preparation.currentWitness)) throw new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED');
@@ -1222,7 +1223,7 @@ function rejectMoveBoundary(owner: WorkspaceOperationNativeMoveJobOwner, error: 
 }
 
 function buildMoveNativeBundle(selected: WorkspaceOperationOriginalMoveContext, observation: WorkspaceLinkSourceAuthorityObservation,
-  sourceEvidence: WorkspaceOperationMixedSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
+  sourceEvidence: WorkspaceOperationAnyMixedSourceEvidence = selected.plan.sourceEvidence): WorkspaceOperationOriginalMoveNativeBundleData|null {
   try { return prepareWorkspaceOperationOriginalMoveNativeBundleData(selected, observation, sourceEvidence); }
   catch (error) {
     // Preserve this existing owner's failure contract after extracting its

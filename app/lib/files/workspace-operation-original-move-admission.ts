@@ -6,7 +6,7 @@ import { captureCollaborationAdmissionRequest, collaborationAdmissionActionDiges
 import { decodeWorkspaceOperationOriginalMoveNativeBundleData, readWorkspaceOperationOriginalMoveNativeBundle,
   type WorkspaceOperationOriginalMoveContext, type WorkspaceOperationOriginalMoveIntentData,
   type WorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
-import { workspaceOperationSourceNativeEvidence, type WorkspaceOperationMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
+import { workspaceOperationSourceNativeEvidence, type WorkspaceOperationAnyMixedSourceEvidence } from './workspace-operation-mixed-source-evidence';
 
 /** Deterministic protocol data only. Neither these fields nor their hashes
  * grant a claim, principal, lease, SQL session or mutation capability. */
@@ -23,7 +23,7 @@ export function createWorkspaceOperationOriginalMoveAdmissionRequest(context: Wo
  * durably staged bundle; this neither prepares new bytes nor reserves work. */
 export function createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(context: WorkspaceOperationOriginalMoveContext,
   data: WorkspaceOperationOriginalMoveNativeBundleData | null,
-  sourceEvidence?: WorkspaceOperationMixedSourceEvidence): CollaborationAdmissionRequest {
+  sourceEvidence?: WorkspaceOperationAnyMixedSourceEvidence): CollaborationAdmissionRequest {
   const plan = context.plan, bundle = data === null ? null
     : decodeWorkspaceOperationOriginalMoveNativeBundleData(data, context, sourceEvidence);
   const hex = createHash('sha256').update(`canvas.original-move.admission.v1\0${context.batchId}\0${context.requestHash}\0${plan.planId}`).digest('hex');

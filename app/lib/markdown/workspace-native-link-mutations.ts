@@ -8,7 +8,10 @@ import { getNativeInspectionSchema } from '../collaboration/native-inspection-sc
 import type { PersistedCollaborationState } from '../collaboration/persistence';
 import { Y } from '../collaboration/server-runtime';
 import { getObsidianWikiDisplayLabel, parseObsidianWikiTarget } from './obsidian-flavored-markdown';
-import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
+import { inspectPersistedDocumentLinks, inspectPersistedDocumentLinksV4, nativeLinkJsonProof,
+  type NativeDocumentLinkInventoryV4 } from './workspace-native-link-inventory';
+import { inspectWorkspaceMarkdownHtmlV4 } from './workspace-local-link-parser';
+import { inspectWorkspaceStaticHtmlLinks } from './workspace-html-link-safety';
 import type { NativeLinkDocumentIdentity, NativeLinkMutationRecipe, NativeLinkReference, NativeLinkTextReference } from './workspace-link-contract-v2';
 
 type NativeInverseCommand =
@@ -39,6 +42,17 @@ export type PreparedNativeLinkUpdate = {
   update: Uint8Array;
   inverseRecipes: NativeLinkInverseRecipe[];
 };
+
+/** Separate durable inspection profile. The historical contract-2 prepared
+ * record and its serialized proof remain unchanged. This is not an HTML
+ * operation authorization: the caller must bind the operation assessment. */
+export type PreparedNativeLinkUpdateV4 = Omit<PreparedNativeLinkUpdate, 'contractVersion'> & {
+  contractVersion: 4;
+  parserVersion: 4;
+  /** Ordered actual HTML syntax and decoded targets, excluding movable offsets. */
+  htmlSourceProof: string;
+};
+export type AnyPreparedNativeLinkUpdate = PreparedNativeLinkUpdate | PreparedNativeLinkUpdateV4;
 
 export class NativeLinkMutationConflict extends Error {
   constructor(readonly code: 'source-changed' | 'target-changed' | 'incomplete-coverage' | 'unsupported-unlink' | 'invalid-recipe') {
@@ -234,16 +248,79 @@ function assertIdentity(state: PersistedCollaborationState, source: NativeLinkDo
     || state.representation !== source.representation || state.schemaVersion !== source.schemaVersion) conflict('source-changed');
 }
 
+/** Finite profile decoder shared by both mechanical persistence paths. A
+ * contract-4 record cannot be relabelled as a historical contract-2 record. */
+export function assertPreparedNativeLinkInspectionProfile(prepared: AnyPreparedNativeLinkUpdate): void {
+  if (prepared.contractVersion === 2) {
+    if (Object.hasOwn(prepared, 'parserVersion') || Object.hasOwn(prepared, 'htmlSourceProof')) return conflict('invalid-recipe');
+    return;
+  }
+  if (prepared.contractVersion !== 4 || prepared.parserVersion !== 4
+    || typeof prepared.htmlSourceProof !== 'string' || !/^[a-f0-9]{64}$/u.test(prepared.htmlSourceProof)
+    || Object.keys(prepared).some(key => !['contractVersion', 'parserVersion', 'htmlSourceProof', 'operationId',
+      'source', 'before', 'after', 'update', 'inverseRecipes'].includes(key))) return conflict('invalid-recipe');
+}
+
+function inspectNativeMutationStateV4(state: PersistedCollaborationState): {
+  inventory: NativeDocumentLinkInventoryV4; htmlSourceProof: string;
+} {
+  const inventory = inspectPersistedDocumentLinksV4(state);
+  for (const gap of inventory.coverage.gaps) {
+    if (gap.code !== 'uninspected-html' || typeof gap.raw !== 'string'
+      || !inspectWorkspaceStaticHtmlLinks(gap.raw).fullyInspected) return conflict('incomplete-coverage');
+  }
+  const html = inspectPersistedNativeCollaborationSnapshot(state, (_doc, snapshot) => snapshot.content.kind === 'plain_text'
+    ? inspectWorkspaceMarkdownHtmlV4(snapshot.content.text, state.path).occurrences : []);
+  if (html.some(occurrence => !occurrence.fullyInspected)) return conflict('incomplete-coverage');
+  return { inventory, htmlSourceProof: nativeLinkJsonProof({ parserVersion: 4, occurrences: html.map(occurrence => ({
+    raw: occurrence.raw, fullyInspected: occurrence.fullyInspected, explicitLocalTargets: occurrence.explicitLocalTargets,
+  })) }) };
+}
+
+/** Re-inspects actual before/after binaries. Offset shifts caused by an ordinary
+ * target rewrite are allowed; changing, hiding or introducing HTML is not.
+ * This verifies the prepared mechanism only, never the operation's authority. */
+export function verifyPreparedNativeLinkMutationV4(input: {
+  before: PersistedCollaborationState; after: PersistedCollaborationState; prepared: PreparedNativeLinkUpdateV4;
+}): void {
+  const { before, after, prepared } = input;
+  assertPreparedNativeLinkInspectionProfile(prepared);
+  assertIdentity(before, prepared.source); assertIdentity(after, prepared.source);
+  const original = inspectNativeMutationStateV4(before); const proposed = inspectNativeMutationStateV4(after);
+  if (original.inventory.version.stateProof !== prepared.before.stateProof
+    || original.inventory.version.stateVector !== prepared.before.stateVector
+    || original.inventory.version.documentSequence !== prepared.before.documentSequence
+    || proposed.inventory.version.stateProof !== prepared.after.stateProof
+    || proposed.inventory.version.stateVector !== prepared.after.stateVector
+    || original.htmlSourceProof !== prepared.htmlSourceProof
+    || proposed.htmlSourceProof !== prepared.htmlSourceProof) return conflict('target-changed');
+}
+
+type ForwardMutationInput = { state: PersistedCollaborationState; recipes: readonly NativeLinkMutationRecipe[]; operationId: string };
+
 /** Returns a proposed delta only. Admission/actor/Review binding, namespace graph
  * effect comparison and durable journal receipts belong to the operation service. */
 export function prepareNativeLinkMutations(input: {
   state: PersistedCollaborationState; recipes: readonly NativeLinkMutationRecipe[]; operationId: string;
 }): PreparedNativeLinkUpdate {
+  return prepareNativeLinkMutationsForParser(input, 2);
+}
+
+/** Only the HTML-aware operation arm may select this explicit profile, after
+ * assessing all HTML targets against the exact before/after namespace. */
+export function prepareNativeLinkMutationsV4(input: ForwardMutationInput): PreparedNativeLinkUpdateV4 {
+  return prepareNativeLinkMutationsForParser(input, 4);
+}
+
+function prepareNativeLinkMutationsForParser(input: ForwardMutationInput, parserVersion: 2): PreparedNativeLinkUpdate;
+function prepareNativeLinkMutationsForParser(input: ForwardMutationInput, parserVersion: 4): PreparedNativeLinkUpdateV4;
+function prepareNativeLinkMutationsForParser(input: ForwardMutationInput, parserVersion: 2 | 4): AnyPreparedNativeLinkUpdate {
   const { state, recipes, operationId } = input;
   if (!operationId || !recipes.length) return conflict('invalid-recipe');
   return inspectPersistedNativeCollaborationSnapshot(state, (verified, snapshot) => {
-    const inventory = inspectPersistedDocumentLinks(state);
-    if (!inventory.coverage.complete) return conflict('incomplete-coverage');
+    const originalV4 = parserVersion === 4 ? inspectNativeMutationStateV4(state) : null;
+    const inventory = originalV4?.inventory ?? inspectPersistedDocumentLinks(state);
+    if (parserVersion === 2 && !inventory.coverage.complete) return conflict('incomplete-coverage');
     const ids = new Set<string>();
     for (const recipe of recipes) {
       assertIdentity(state, recipe.source);
@@ -269,13 +346,18 @@ export function prepareNativeLinkMutations(input: {
             expectedScopeProof: '', authorizedForwardRecipeProof: nativeLinkJsonProof(recipe) });
         }
       }, operationId);
-      const afterInventory = inspectPersistedDocumentLinks(proposedState(state, candidate));
-      if (!afterInventory.coverage.complete) return conflict('incomplete-coverage');
+      const next = proposedState(state, candidate);
+      const afterV4 = parserVersion === 4 ? inspectNativeMutationStateV4(next) : null;
+      const afterInventory = afterV4?.inventory ?? inspectPersistedDocumentLinks(next);
+      if (parserVersion === 2 && !afterInventory.coverage.complete
+        || originalV4 && afterV4?.htmlSourceProof !== originalV4.htmlSourceProof) return conflict('incomplete-coverage');
       for (const inverse of inverseRecipes) inverse.expectedScopeProof = nativeLinkJsonProof(inverseScope(candidate, inverse));
-      return { contractVersion: 2, operationId, source: inventory.document,
+      const common = { operationId, source: inventory.document,
         before: { stateProof: snapshot.version.stateProof, stateVector: snapshot.version.stateVector, documentSequence: snapshot.version.documentSequence },
         after: { stateProof: afterInventory.version.stateProof, stateVector: afterInventory.version.stateVector },
         update: Y.encodeStateAsUpdate(candidate, Y.encodeStateVector(verified)), inverseRecipes };
+      return originalV4 ? { contractVersion: 4, ...common, parserVersion: 4, htmlSourceProof: originalV4.htmlSourceProof }
+        : { contractVersion: 2, ...common };
     } finally { candidate.destroy(); }
   });
 }
@@ -314,11 +396,27 @@ function applyInverse(doc: YTypes.Doc, inverse: NativeLinkInverseRecipe, operati
 export function prepareNativeLinkInverse(input: {
   state: PersistedCollaborationState; inverseRecipes: readonly NativeLinkInverseRecipe[]; operationId: string;
 }): Omit<PreparedNativeLinkUpdate, 'inverseRecipes'> {
+  return prepareNativeLinkInverseForParser(input, 2);
+}
+
+type InverseMutationInput = { state: PersistedCollaborationState; inverseRecipes: readonly NativeLinkInverseRecipe[]; operationId: string };
+
+/** Required for the forward adapter's inverse consistency proof. Exporting this
+ * mechanical helper does not enable the disabled public file-action Undo. */
+export function prepareNativeLinkInverseV4(input: InverseMutationInput): Omit<PreparedNativeLinkUpdateV4, 'inverseRecipes'> {
+  return prepareNativeLinkInverseForParser(input, 4);
+}
+
+function prepareNativeLinkInverseForParser(input: InverseMutationInput, parserVersion: 2): Omit<PreparedNativeLinkUpdate, 'inverseRecipes'>;
+function prepareNativeLinkInverseForParser(input: InverseMutationInput, parserVersion: 4): Omit<PreparedNativeLinkUpdateV4, 'inverseRecipes'>;
+function prepareNativeLinkInverseForParser(input: InverseMutationInput, parserVersion: 2 | 4):
+  Omit<PreparedNativeLinkUpdate, 'inverseRecipes'> | Omit<PreparedNativeLinkUpdateV4, 'inverseRecipes'> {
   const { state, inverseRecipes, operationId } = input;
   if (!operationId || !inverseRecipes.length) return conflict('invalid-recipe');
   return inspectPersistedNativeCollaborationSnapshot(state, (verified, snapshot) => {
-    const inventory = inspectPersistedDocumentLinks(state);
-    if (!inventory.coverage.complete) return conflict('incomplete-coverage');
+    const originalV4 = parserVersion === 4 ? inspectNativeMutationStateV4(state) : null;
+    const inventory = originalV4?.inventory ?? inspectPersistedDocumentLinks(state);
+    if (parserVersion === 2 && !inventory.coverage.complete) return conflict('incomplete-coverage');
     for (const inverse of inverseRecipes) {
       assertIdentity(state, inverse.source);
       if (inverse.contractVersion !== 2 || !inverse.authorizedForwardRecipeProof
@@ -329,12 +427,17 @@ export function prepareNativeLinkInverse(input: {
       Y.applyUpdate(candidate, Y.encodeStateAsUpdate(verified));
       hydrateCandidate(candidate, state);
       candidate.transact(() => { for (const inverse of [...inverseRecipes].reverse()) applyInverse(candidate, inverse, operationId); }, operationId);
-      const after = inspectPersistedDocumentLinks(proposedState(state, candidate));
-      if (!after.coverage.complete) return conflict('incomplete-coverage');
-      return { contractVersion: 2, operationId, source: inventory.document,
+      const next = proposedState(state, candidate);
+      const afterV4 = parserVersion === 4 ? inspectNativeMutationStateV4(next) : null;
+      const after = afterV4?.inventory ?? inspectPersistedDocumentLinks(next);
+      if (parserVersion === 2 && !after.coverage.complete
+        || originalV4 && afterV4?.htmlSourceProof !== originalV4.htmlSourceProof) return conflict('incomplete-coverage');
+      const common = { operationId, source: inventory.document,
         before: { stateProof: snapshot.version.stateProof, stateVector: snapshot.version.stateVector, documentSequence: snapshot.version.documentSequence },
         after: { stateProof: after.version.stateProof, stateVector: after.version.stateVector },
         update: Y.encodeStateAsUpdate(candidate, Y.encodeStateVector(verified)) };
+      return originalV4 ? { contractVersion: 4, ...common, parserVersion: 4, htmlSourceProof: originalV4.htmlSourceProof }
+        : { contractVersion: 2, ...common };
     } finally { candidate.destroy(); }
   });
 }

@@ -12,11 +12,14 @@ import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspace
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { createWorkspacePathImportPreparationPlanV1,
   type WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
+import { createWorkspacePathHtmlNoImportPreparationPlanV2,
+  type WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 import type { WorkspacePathImportPreparationPrincipal } from './workspace-path-import-preparation-phase';
 
 type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind: 'move' | 'rename' | 'delete';
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
+export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2;
 export class WorkspacePathImportPreviewError extends Error {
   readonly status: 403 | 409 | 422 | 503;
   constructor(readonly code: 'PATH_IMPORT_PREVIEW_INVALID' | 'PATH_IMPORT_PREVIEW_BUSY' | 'PATH_IMPORT_PREVIEW_UNAVAILABLE'
@@ -67,7 +70,7 @@ function captureWorkspacePathImportPreviewInput(supplied: Input): Input {
  * ordinary shared admission fence used by source staging. Live editors remain
  * readable. This never acquires an import/claim capability or migrates a file;
  * the actual B0 owner must reobserve and compare the complete plan before use. */
-export async function readWorkspacePathImportPreparationPlan(supplied: Input): Promise<WorkspacePathImportPreparationPlanV1> {
+export async function readWorkspacePathImportPreparationPlan(supplied: Input): Promise<WorkspacePathImportPreparationPreviewPlan> {
   const captured = captureWorkspacePathImportPreviewInput(supplied);
   if (!authenticatedNativeTextSessionEnabled()) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_INVALID');
   return executeLifecycleTransaction({
@@ -83,7 +86,7 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
       // The genuine OnConnection principal requires RC/RW. This fixed entry
       // executes SELECTs only and grants no writable connection to its caller.
       await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
-      const read = async (access: Access): Promise<WorkspacePathImportPreparationPlanV1> => {
+      const read = async (access: Access): Promise<WorkspacePathImportPreparationPreviewPlan> => {
         await access.assertCurrent(); const workspace = access.workspace;
         if (workspace.legacy || workspace.status !== 'active' || !workspace.permissions.canRead
           || !workspace.permissions.canWrite || !workspace.permissions.canDelete) {
@@ -93,8 +96,12 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           [collaborationAdmissionLockKey(workspace.workspaceId)]) as { locked?: unknown } | undefined;
         if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
         const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
-        const plan = createWorkspacePathImportPreparationPlanV1({ scope: captureWorkspaceOperationJobScope(workspace),
-          kind: captured.kind, selections: captured.selections.map(value => ({ ...value })), observation });
+        const scope = captureWorkspaceOperationJobScope(workspace);
+        const plan = captured.kind !== 'delete' && !observation.stage.coverage.complete
+          ? createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,
+            selections: captured.selections.map(value => ({ sourcePath: value.sourcePath, destinationPath: value.destinationPath! })), observation })
+          : createWorkspacePathImportPreparationPlanV1({ scope, kind: captured.kind,
+            selections: captured.selections.map(value => ({ ...value })), observation });
         await access.assertCurrent(); return plan;
       };
       return captured.principal.kind === 'request'

@@ -15,7 +15,8 @@ import { isCollaborationStateProof } from '@/app/lib/collaboration/state-proof';
 import { Y } from '@/app/lib/collaboration/server-runtime';
 import { inspectPersistedDocumentLinks, nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeLinkDocumentIdentity } from './workspace-link-contract-v2';
-import type { NativeLinkInverseRecipe, PreparedNativeLinkUpdate } from './workspace-native-link-mutations';
+import { assertPreparedNativeLinkInspectionProfile, verifyPreparedNativeLinkMutationV4,
+  type NativeLinkInverseRecipe, type PreparedNativeLinkUpdate, type AnyPreparedNativeLinkUpdate } from './workspace-native-link-mutations';
 
 export type NativeLinkMutationBinding = {
   actorUserId: string;
@@ -66,10 +67,11 @@ const validHash = (value: unknown): value is string => typeof value === 'string'
 
 /** Persist/reuse this proof with the private intent before mutation. Re-preparing
  * a candidate with new Yjs client identities is a different prepared intent. */
-export function nativeLinkPreparedIntentProof(prepared: PreparedNativeLinkUpdate): string {
+export function nativeLinkPreparedIntentProof(prepared: AnyPreparedNativeLinkUpdate): string {
   return nativeLinkJsonProof({ contractVersion: prepared.contractVersion, operationId: prepared.operationId,
     source: prepared.source, before: prepared.before, after: prepared.after,
-    updateHash: digest(prepared.update), inverseRecipes: prepared.inverseRecipes });
+    updateHash: digest(prepared.update), inverseRecipes: prepared.inverseRecipes,
+    ...(prepared.contractVersion === 4 ? { parserVersion: prepared.parserVersion, htmlSourceProof: prepared.htmlSourceProof } : {}) });
 }
 
 function bytes(value: unknown): Buffer {
@@ -82,7 +84,7 @@ function vector(value: string): Buffer {
   if (decoded.toString('base64') !== value) return fail('NATIVE_LINK_INVALID_PREPARED');
   return decoded;
 }
-function capture(input: { workspace: WorkspaceContext; prepared: PreparedNativeLinkUpdate; binding: NativeLinkMutationBinding }) {
+function capture(input: { workspace: WorkspaceContext; prepared: AnyPreparedNativeLinkUpdate; binding: NativeLinkMutationBinding }) {
   let value: typeof input;
   try { value = structuredClone(input); } catch { return fail('NATIVE_LINK_INVALID_PREPARED'); }
   const { workspace, prepared, binding } = value;
@@ -90,7 +92,9 @@ function capture(input: { workspace: WorkspaceContext; prepared: PreparedNativeL
     || workspace.status !== undefined && workspace.status !== 'active') {
     throw Object.assign(new Error('Current workspace mutation permission is required.'), { status: 403 });
   }
-  if (prepared.contractVersion !== 2 || !validId(prepared.operationId)
+  try { assertPreparedNativeLinkInspectionProfile(prepared); }
+  catch { return fail('NATIVE_LINK_INVALID_PREPARED'); }
+  if (!validId(prepared.operationId)
     || !validId(prepared.source.documentId) || prepared.source.workspaceId !== workspace.workspaceId
     || prepared.source.organizationId !== (workspace.organizationId ?? null)
     || !Number.isSafeInteger(prepared.before.documentSequence) || prepared.before.documentSequence < 0
@@ -146,7 +150,7 @@ function receiptFrom(row: ReceiptRow): NativeLinkMutationReceipt {
   return receipt;
 }
 
-async function existingReceipt(database: SqlConnection, prepared: PreparedNativeLinkUpdate, binding: NativeLinkMutationBinding) {
+async function existingReceipt(database: SqlConnection, prepared: AnyPreparedNativeLinkUpdate, binding: NativeLinkMutationBinding) {
   const rows = await database.all(`SELECT * FROM collaboration_native_link_mutation_receipts
     WHERE operation_id=$1 OR (document_id=$2 AND actor_user_id=$3 AND actor_id=$4 AND actor_type=$5
       AND actor_session_id IS NOT DISTINCT FROM $6 AND request_id=$7)`,
@@ -168,7 +172,7 @@ function observeReceipt(state: PersistedCollaborationState, receipt: NativeLinkM
   return observed;
 }
 
-function applyPrepared(state: PersistedCollaborationState, prepared: PreparedNativeLinkUpdate) {
+function applyPrepared(state: PersistedCollaborationState, prepared: AnyPreparedNativeLinkUpdate) {
   return inspectPersistedNativeCollaborationSnapshot(state, (before, snapshot) => {
     if (snapshot.version.stateProof !== prepared.before.stateProof || snapshot.version.stateVector !== prepared.before.stateVector
       || snapshot.version.documentSequence !== prepared.before.documentSequence) return fail('NATIVE_LINK_SOURCE_CHANGED');
@@ -178,9 +182,14 @@ function applyPrepared(state: PersistedCollaborationState, prepared: PreparedNat
       const decoder = decoding.createDecoder(prepared.update); Y.readUpdate(decoder, candidate);
       if (decoding.hasContent(decoder)) return fail('NATIVE_LINK_INVALID_PREPARED');
       const next = { ...state, yjsState: Y.encodeStateAsUpdate(candidate), stateVector: Y.encodeStateVector(candidate) };
-      const inventory = inspectPersistedDocumentLinks(next);
-      if (!inventory.coverage.complete || inventory.version.stateProof !== prepared.after.stateProof
-        || inventory.version.stateVector !== prepared.after.stateVector) return fail('NATIVE_LINK_INVALID_PREPARED');
+      if (prepared.contractVersion === 4) {
+        try { verifyPreparedNativeLinkMutationV4({ before: state, after: next, prepared }); }
+        catch { return fail('NATIVE_LINK_INVALID_PREPARED'); }
+      } else {
+        const inventory = inspectPersistedDocumentLinks(next);
+        if (!inventory.coverage.complete || inventory.version.stateProof !== prepared.after.stateProof
+          || inventory.version.stateVector !== prepared.after.stateVector) return fail('NATIVE_LINK_INVALID_PREPARED');
+      }
       const afterStateSnapshot = captureAgentStateSnapshot(candidate, Y);
       if (!afterStateSnapshot) return fail('NATIVE_LINK_INVALID_PREPARED');
       return { update: next.yjsState, stateVector: next.stateVector, afterStateSnapshot };
@@ -188,7 +197,7 @@ function applyPrepared(state: PersistedCollaborationState, prepared: PreparedNat
   });
 }
 
-async function confirmedRetry(database: SqlConnection, prepared: PreparedNativeLinkUpdate, binding: NativeLinkMutationBinding) {
+async function confirmedRetry(database: SqlConnection, prepared: AnyPreparedNativeLinkUpdate, binding: NativeLinkMutationBinding) {
   const receipt = await existingReceipt(database, prepared, binding);
   if (!receipt) return null;
   return { receipt, currentObservation: observeReceipt(await currentState(database, prepared.source), receipt) };
@@ -202,7 +211,7 @@ async function confirmedRetry(database: SqlConnection, prepared: PreparedNativeL
  * confirms its own COMMIT. */
 export async function persistPreparedNativeLinkMutationOnConnection(database: SqlConnection, input: {
   workspace: WorkspaceContext;
-  prepared: PreparedNativeLinkUpdate;
+  prepared: AnyPreparedNativeLinkUpdate;
   binding: NativeLinkMutationBinding;
   validateAuthority: () => Promise<void>;
 }): Promise<NativeLinkMutationOnConnectionResult> {
@@ -249,7 +258,7 @@ export async function persistPreparedNativeLinkMutationOnConnection(database: Sq
  */
 export async function persistPreparedNativeLinkMutation(input: {
   workspace: WorkspaceContext;
-  prepared: PreparedNativeLinkUpdate;
+  prepared: AnyPreparedNativeLinkUpdate;
   binding: NativeLinkMutationBinding;
   /** Required current actor/Review authority recheck under the real mutation fence. */
   validateAuthority: () => Promise<void>;

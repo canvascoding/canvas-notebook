@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { parse } from 'dotenv';
@@ -152,9 +152,10 @@ async function main(): Promise<void> {
     };
     const workspace = await currentWorkspace(); await mkdir(workspace.rootPath, { recursive: true });
     const { readWorkspaceLinkSourceAuthorityOnConnection } = await import('../app/lib/markdown/workspace-source-authority-stage');
-    const { createWorkspaceOperationNativeMoveBatchPlan } = await import('../app/lib/files/workspace-operation-native-move-plan');
+    const { createWorkspaceOperationNativeMoveBatchPlan, createWorkspaceOperationNativeMoveBatchPlanV4 } = await import('../app/lib/files/workspace-operation-native-move-plan');
     const { executeWorkspaceOperationOriginalMove: execute } = await import('../app/lib/files/workspace-operation-original-move-runner');
     const ownerApi = await import('../app/lib/files/workspace-operation-job-lifecycle-owner');
+    const { waitForWorkspaceOperationNativePathAdmission } = await import('../app/lib/files/workspace-operation-native-path-admission');
     const pins = ['app/lib/files/workspace-operation-job-lifecycle-owner.ts','app/lib/files/workspace-operation-original-move-storage.ts',
       'app/lib/files/workspace-operation-original-move-handoff-storage.ts','app/lib/files/workspace-operation-original-move-runner.ts',
       'app/lib/files/workspace-operation-original-move.ts','app/lib/files/workspace-operation-original-move-sources.ts',
@@ -164,7 +165,12 @@ async function main(): Promise<void> {
       'app/lib/collaboration/room-admission-outcome.ts','app/lib/files/workspace-operation-original-move-admission.ts',
       'app/lib/files/workspace-operation-native-move-status.ts','app/lib/files/workspace-operation-native-read-context.ts',
       'app/lib/files/workspace-operation-batch-executor.ts','app/lib/files/workspace-operation-native-move-execution-public.ts',
-      'app/lib/files/workspace-path-operation-response.ts'];
+      'app/lib/files/workspace-path-operation-response.ts',
+      'app/lib/files/workspace-operation-native-move-plan.ts','app/lib/files/workspace-operation-mixed-source-evidence-v5.ts',
+      'app/lib/files/workspace-operation-html-link-assessment.ts','app/lib/files/workspace-operation-path-source-parser.ts',
+      'app/lib/markdown/workspace-native-file-operation-planner.ts','app/lib/markdown/workspace-native-mixed-batch-compiler.ts',
+      'app/lib/markdown/workspace-native-link-graph.ts','app/lib/markdown/workspace-link-contract-v5.ts',
+      'app/lib/markdown/workspace-native-link-mutations.ts','app/lib/markdown/native-link-mutation-persistence.ts'];
     const sourcePins = await Promise.all(pins.map(async filename => [filename,sha(await readFile(filename))] as const));
     console.log('Original Move pinned sources:',JSON.stringify(sourcePins));
     const seedNative = async (filename:string,content:string,physical=false) => {
@@ -208,7 +214,27 @@ async function main(): Promise<void> {
       const claimed=await store.claim(crypto.randomUUID());assert(claimed);assert.equal(claimed.batchId,created.batchId);
       return {claimed,plan,workspace:current};
     };
-    type Job=Awaited<ReturnType<typeof freshJob>>;
+    // New cases explicitly choose collector3 + saved identity4/E5. Historical
+    // factories and the thirteen original owner assertions retain their profile.
+    const readHtmlPlanInput=async(selections:Array<{sourcePath:string;destinationPath:string}>)=>{
+      const current=await currentWorkspace(),connection=await database.openDb();let observation;
+      try{observation=await readWorkspaceLinkSourceAuthorityOnConnection(connection,current,{physicalParserVersion:3});}
+      finally{await connection.close();}
+      return {scope:{workspace:current,fileOptions:{workspace:current}},
+        actions:[{reviewId:crypto.randomUUID(),kind:'move' as const,selections}],observation};
+    };
+    const freshHtmlJob=async(selections:Array<{sourcePath:string;destinationPath:string}>)=>{
+      const input=await readHtmlPlanInput(selections),plan=createWorkspaceOperationNativeMoveBatchPlanV4(input);
+      assert.equal(plan.version,3);assert.equal(plan.planIdentityVersion,4);assert.equal(plan.sourceEvidence.evidenceVersion,5);
+      assert.equal(plan.nativePathPlan.contractVersion,5);assert.equal(plan.readiness,'ready');assert.equal(plan.executionReady,false);
+      assert.equal(plan.nativePathPlan.htmlAssessment.complete,true);assert.equal(plan.sourceEvidence.coverage.complete,false);
+      assert.deepEqual(plan.nativePathPlan.sourceCoverage[0].coverage.gaps.slice(0,plan.sourceEvidence.coverage.gaps.length),plan.sourceEvidence.coverage.gaps);
+      const created=await store.createDirect({batchId:crypto.randomUUID(),plan,authorization:{mode:'direct',actorUserId:'member',actorId:'member',actorType:'user',
+        actorDisplayName:'Actual HTML Move fixture actor',requestHash:sha(crypto.randomUUID()),jobScope:captureWorkspaceOperationJobScope(input.scope.workspace)}});
+      const claimed=await store.claim(crypto.randomUUID());assert(claimed);assert.equal(claimed.batchId,created.batchId);
+      return {claimed,plan,workspace:input.scope.workspace};
+    };
+    type Job=Awaited<ReturnType<typeof freshJob>>|Awaited<ReturnType<typeof freshHtmlJob>>;
     const invoke=async(job:Job,onPathCommitted?:(count:number)=>Promise<void>,afterCompleted?:(claim:Parameters<typeof execute>[0]['claim'],completion:Awaited<ReturnType<typeof execute>>)=>Promise<void>)=>store.withClaim(job.claimed,async claim=>{
       const result=await execute({claim,workspace:job.workspace,onPathCommitted});await afterCompleted?.(claim,result);
       assert(await store.finishClaim(job.claimed,{status:'applied',completedActions:job.claimed.totalActions,phase:'complete'}));return result;});
@@ -294,7 +320,15 @@ async function main(): Promise<void> {
         expectedDocuments:job.plan.sourceEvidence.nativeBindings.map(binding=>({documentId:binding.expected.documentId,workspaceId,organizationId,path:binding.expected.path,
           representation:binding.expected.representation,lifecycleGeneration:binding.expected.lifecycleGeneration,schemaVersion:binding.expected.schemaVersion,status:'active'}))});await connection.run('COMMIT');}
       catch(error){await connection.run('ROLLBACK');throw error;}finally{await connection.close();}
-      try {await assert.rejects(invoke(job),error=>code(error)==='JOB_LIFECYCLE_CHANGED');assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'foreign-guard');
+      const dataBefore=await originalDataFacts(),physicalBefore=await workspacePhysicalFacts();
+      const foreignBefore=(await admin.query('SELECT to_jsonb(r)::text AS row FROM collaboration_admission_requests r WHERE request_id=$1',[requestId])).rows;
+      // The existing P0 gate rejects a different live reservation before any
+      // original Owner work. Preserve that precise Busy contract and prove it
+      // neither adopts the foreign request nor mutates document/physical data.
+      try {await assert.rejects(invoke(job),error=>code(error)==='COLLABORATION_FILE_LIFECYCLE_BUSY');
+        assert.deepEqual(await originalDataFacts(),dataBefore);assert.deepEqual(await workspacePhysicalFacts(),physicalBefore);
+        assert.deepEqual((await admin.query('SELECT to_jsonb(r)::text AS row FROM collaboration_admission_requests r WHERE request_id=$1',[requestId])).rows,foreignBefore);
+        assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'foreign-guard');assert(await absent(path.join(workspace.rootPath,destination)));
         assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
       }finally{await admin.query("UPDATE collaboration_admission_targets SET active=false,status='cancelled' WHERE request_id=$1",[requestId]);
         await admin.query("UPDATE collaboration_admission_requests SET status='cancelled' WHERE request_id=$1",[requestId]);}
@@ -303,19 +337,31 @@ async function main(): Promise<void> {
     await check('caught forged capability poisons the actual enclosing owner and closes B',async()=>{
       const name=`poison-${crypto.randomUUID()}.pdf`,destination=`poison-dest/${name}`;await writeFile(path.join(workspace.rootPath,name),'must-stay',{mode:0o600});
       const job=await freshJob([{sourcePath:name,destinationPath:destination}]);
-      await assert.rejects(store.withClaim(job.claimed,claim=>ownerApi.withWorkspaceOperationNativeMoveJobOwner(claim,async owner=>{
+      let reached=false;
+      await assert.rejects(store.withClaim(job.claimed,async claim=>{
+        await waitForWorkspaceOperationNativePathAdmission(claim);
+        return ownerApi.withWorkspaceOperationNativeMoveJobOwner(claim,async owner=>{
+        reached=true;
         await assert.rejects(ownerApi.readWorkspaceOperationOriginalMoveJobReceipts({} as typeof owner),error=>code(error)==='JOB_LIFECYCLE_REQUIRED');
         await ownerApi.readWorkspaceOperationOriginalMoveJobReceipts(owner);
-      })),error=>code(error)==='JOB_LIFECYCLE_REQUIRED');
-      assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'must-stay');assert(await absent(path.join(workspace.rootPath,destination)));await abort(job);
+      });}),error=>code(error)==='JOB_LIFECYCLE_REQUIRED');assert(reached,'The genuine reserved owner must reach the forged-capability probe');
+      assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'must-stay');assert(await absent(path.join(workspace.rootPath,destination)));
+      const recovered=await resume(job);await invoke(recovered);
+      assert.equal(await readFile(path.join(workspace.rootPath,destination),'utf8'),'must-stay');
     });
     await check('detached fixed operation poisons, drains and closes the actual owner',async()=>{
       const name=`detached-${crypto.randomUUID()}.pdf`,destination=`detached-dest/${name}`;await writeFile(path.join(workspace.rootPath,name),'must-drain',{mode:0o600});
       const job=await freshJob([{sourcePath:name,destinationPath:destination}]);
-      await assert.rejects(store.withClaim(job.claimed,claim=>ownerApi.withWorkspaceOperationNativeMoveJobOwner(claim,async owner=>{
+      let reached=false;
+      await assert.rejects(store.withClaim(job.claimed,async claim=>{
+        await waitForWorkspaceOperationNativePathAdmission(claim);
+        return ownerApi.withWorkspaceOperationNativeMoveJobOwner(claim,async owner=>{
+        reached=true;
         void ownerApi.readWorkspaceOperationOriginalMoveJobReceipts(owner).catch(()=>undefined);
-      })),error=>code(error)==='JOB_LIFECYCLE_DETACHED');
-      assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'must-drain');assert(await absent(path.join(workspace.rootPath,destination)));await abort(job);
+      });}),error=>code(error)==='JOB_LIFECYCLE_DETACHED');assert(reached,'The genuine reserved owner must reach the detached-operation probe');
+      assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'must-drain');assert(await absent(path.join(workspace.rootPath,destination)));
+      const recovered=await resume(job);await invoke(recovered);
+      assert.equal(await readFile(path.join(workspace.rootPath,destination),'utf8'),'must-drain');
     });
     await check('lost actual owner backend after FS cannot commit B2 and genuine own recovery succeeds',async()=>{
       const name=`lost-b-${crypto.randomUUID()}.pdf`,destination=`lost-b-dest/${name}`;await writeFile(path.join(workspace.rootPath,name),'lost-real-B',{mode:0o600});
@@ -418,7 +464,123 @@ async function main(): Promise<void> {
         }
       }
     });
-    assert.equal(passed,13);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
+    // These are real FS and SQL observations under this fixture's owned schema,
+    // not injected catalogue facts or substitutes for the production owner.
+    const physicalFacts=async(filename:string)=>{
+      const absolute=path.join(workspace.rootPath,filename),identity=await stat(absolute);
+      assert(identity.isFile());
+      return {device:String(identity.dev),inode:String(identity.ino),mode:identity.mode,size:identity.size,
+        mtimeMs:identity.mtimeMs,ctimeMs:identity.ctimeMs,hash:sha(await readFile(absolute))};
+    };
+    async function workspacePhysicalFacts(){
+      const rows:Array<{path:string;kind:'file'|'directory';device:string;inode:string;mode:number;size:number;mtimeMs:number;ctimeMs:number;hash?:string}>=[];
+      const visit=async(relative:string):Promise<void>=>{
+        const absolute=path.join(workspace.rootPath,relative),identity=await stat(absolute);
+        assert(identity.isDirectory()||identity.isFile());assert(rows.length<10000);
+        rows.push({path:relative,kind:identity.isDirectory()?'directory':'file',device:String(identity.dev),inode:String(identity.ino),
+          mode:identity.mode,size:identity.size,mtimeMs:identity.mtimeMs,ctimeMs:identity.ctimeMs,
+          ...(identity.isFile()?{hash:sha(await readFile(absolute))}:{})});
+        if(identity.isDirectory())for(const entry of (await readdir(absolute)).sort())await visit(relative?`${relative}/${entry}`:entry);
+      };
+      await visit('');return rows;
+    }
+    async function originalDataFacts(){
+      const tables=['collaboration_documents','file_collaboration_lineages','collaboration_yjs_states','collaboration_file_projections',
+        'workspace_file_metadata','workspace_file_user_states','workspace_file_operation_move_intents','workspace_file_operation_move_parent_receipts',
+        'workspace_file_operation_move_path_receipts','workspace_file_operation_move_receipts','collaboration_native_file_operation_intents',
+        'collaboration_native_file_operation_receipts','collaboration_native_file_operation_side_effect_stages',
+        'collaboration_native_file_operation_side_effect_receipts','collaboration_native_link_mutation_receipts'] as const;
+      const rows:Record<string,string[]>={};
+      for(const table of tables)rows[table]=(await admin.query(`SELECT to_jsonb(t)::text AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows.map(row=>row.row);
+      return rows;
+    }
+    const stableName=`html-stable-${crypto.randomUUID()}.bin`,stableBytes=Buffer.from('owned unrelated HTML target\n');
+    await writeFile(path.join(workspace.rootPath,stableName),stableBytes,{flag:'wx',mode:0o600});
+    await check('identity4 actual owner rewrites native backlinks while preserving native HTML and unrelated physical sources',async()=>{
+      const name=`html-native-${crypto.randomUUID()}.md`,destination=`html-native-dest/${name}`;
+      const target=await seedNative(name,'# Original native HTML target\n');
+      const peerName=`html-native-peer-${crypto.randomUUID()}.md`,peerText=`[Target](${name})\n\n<img src="/${stableName}">\n`;
+      const peer=await seedNative(peerName,peerText),htmlName=`unrelated-${crypto.randomUUID()}.html`,rawName=`unrelated-${crypto.randomUUID()}.md`;
+      const htmlBytes=Buffer.from(`<p><a href="/${stableName}">Stable</a></p>\n`),rawBytes=Buffer.from(`# Raw read source\n\n[Stable](/${stableName})\n`);
+      await writeFile(path.join(workspace.rootPath,htmlName),htmlBytes,{flag:'wx',mode:0o600});
+      await writeFile(path.join(workspace.rootPath,rawName),rawBytes,{flag:'wx',mode:0o600});
+      const before=await Promise.all([physicalFacts(htmlName),physicalFacts(rawName),physicalFacts(stableName)]);
+      assert(await absent(path.join(workspace.rootPath,name)));assert(await absent(path.join(workspace.rootPath,peerName)));
+      await seedMetadata(name);const job=await freshHtmlJob([{sourcePath:name,destinationPath:destination}]);
+      assert(job.plan.nativePathPlan.htmlAssessment.warnings.some(row=>row.sourcePath===peerName));
+      assert(job.plan.nativePathPlan.htmlAssessment.warnings.some(row=>row.sourcePath===htmlName));
+      const receipt=await invoke(job);assert(receipt.native);assert.equal(receipt.native.receipts.length,2);
+      assert.equal(await nativePath(target.documentId),destination);assert.equal(await nativeContent(target.documentId),target.content);
+      assert.equal(await nativeContent(peer.documentId),`[Target](${destination})\n\n<img src="/${stableName}">\n`);
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,htmlName)),htmlBytes);assert.deepEqual(await readFile(path.join(workspace.rootPath,rawName)),rawBytes);
+      assert.deepEqual(await Promise.all([physicalFacts(htmlName),physicalFacts(rawName),physicalFacts(stableName)]),before);
+      assert(await absent(path.join(workspace.rootPath,name)));assert(await absent(path.join(workspace.rootPath,destination)));assert(await absent(path.join(workspace.rootPath,peerName)));
+      assert.deepEqual(await metadata(name),[]);assert.deepEqual(await metadata(destination),[{path:destination,title:'Preserved title'}]);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=ANY($2::text[])',[workspaceId,[rawName,htmlName]])).rows[0].n,0);
+    });
+    await check('identity4 moves original whole HTML bytes without manufacturing a notebook identity',async()=>{
+      const name=`physical-html-${crypto.randomUUID()}.html`,destination=`html-files/${name}`;
+      const bytes=Buffer.from('<!doctype html>\r\n<p>External <a href="https://example.test/">link</a></p>\r\n');
+      await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});
+      const identity=await physicalFacts(name),peer=await seedNative(`whole-html-peer-${crypto.randomUUID()}.md`,`[Page](${name})\n`);
+      await seedMetadata(name);const job=await freshHtmlJob([{sourcePath:name,destinationPath:destination}]),receipt=await invoke(job);
+      assert.equal(receipt.pathReceipts.length,1);assert(await absent(path.join(workspace.rootPath,name)));
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);const after=await physicalFacts(destination);
+      assert.equal(after.device,identity.device);assert.equal(after.inode,identity.inode);assert.equal(after.hash,identity.hash);assert.equal(after.mode,identity.mode);
+      assert.equal(await nativeContent(peer.documentId),`[Page](${destination})\n`);
+      assert.deepEqual(await metadata(name),[]);assert.equal((await metadata(destination)).length,1);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=ANY($2::text[])',[workspaceId,[name,destination]])).rows[0].n,0);
+    });
+    await check('identity4 own after-FS recovery reuses its journal and historical completion ignores later D2',async()=>{
+      const name=`html-resume-${crypto.randomUUID()}.pdf`,destination=`html-recovered/${name}`,bytes=Buffer.from('%PDF-1.7\nowned HTML profile recovery\n');
+      await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});
+      const peer=await seedNative(`html-resume-peer-${crypto.randomUUID()}.md`,`[PDF](${name})\n`),job=await freshHtmlJob([{sourcePath:name,destinationPath:destination}]);
+      let reached=false;
+      await assert.rejects(invoke(job,async()=>{reached=true;throw Object.assign(new Error('Owned HTML Move interruption'),{code:'FIXTURE_HTML_MOVE_AFTER_PATH'});}),
+        error=>code(error)==='FIXTURE_HTML_MOVE_AFTER_PATH');assert(reached);
+      const intents=(await admin.query('SELECT intent_digest FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows;assert.equal(intents.length,1);
+      assert(await absent(path.join(workspace.rootPath,name)));assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
+      const resumed=await resume(job);let historical=false;
+      const completion=await invoke(resumed,undefined,async(claim,first)=>{
+        await writeFile(path.join(workspace.rootPath,name),'Later independent D2\n',{flag:'wx',mode:0o600});
+        const originalRows=await originalDataFacts(),originalFs=await workspacePhysicalFacts();
+        assert.deepEqual(await execute({claim,workspace:resumed.workspace}),first);historical=true;
+        assert.deepEqual(await originalDataFacts(),originalRows);assert.deepEqual(await workspacePhysicalFacts(),originalFs);
+      });
+      assert(historical);assert(completion.native);assert.equal(await nativeContent(peer.documentId),`[PDF](${destination})\n`);
+      assert.deepEqual((await admin.query('SELECT intent_digest FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows,intents);
+      const {readWorkspaceOperationNativeMoveBatchStatus}=await import('../app/lib/files/workspace-operation-native-move-status');
+      const status=await readWorkspaceOperationNativeMoveBatchStatus({batchId:job.claimed.batchId,scope:{workspace:await currentWorkspace(),fileOptions:{workspace:await currentWorkspace()}}});
+      assert(status);assert.equal(status.plan.planIdentityVersion,4);assert.equal(status.observation.apply,'complete');assert.deepEqual(status.observation.completion,completion);
+      assert.equal(await readFile(path.join(workspace.rootPath,name),'utf8'),'Later independent D2\n');assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);
+    });
+    await check('affected current HTML rejects fresh planning and the old claimed plan before original data effects',async()=>{
+      const name=`affected-html-${crypto.randomUUID()}.pdf`,destination=`affected-html-dest/${name}`,bytes=Buffer.from('%PDF-1.7\nMust remain original\n');
+      await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});await seedMetadata(name);
+      const peer=await seedNative(`affected-html-peer-${crypto.randomUUID()}.md`,`<img src="/${stableName}">\n`);
+      const job=await freshHtmlJob([{sourcePath:name,destinationPath:destination}]);
+      const {loadCollaborationState,persistCollaborationYDoc}=await import('../app/lib/collaboration/persistence');
+      const state=await loadCollaborationState(peer.documentId);assert(state);const doc=new Y.Doc();
+      try{Y.applyUpdate(doc,state.yjsState);const text=doc.getText('content');text.delete(0,text.length);text.insert(0,`<img src="/${name}">\n`);
+        assert.equal((await persistCollaborationYDoc(peer.documentId,state.lifecycleGeneration,doc,{workspaceId,organizationId,path:peer.filename,representation:'plain_text',schemaVersion:1})).persistenceDisposition,'advanced');
+      }finally{doc.destroy();}
+      const before=await originalDataFacts(),physicalBefore=await workspacePhysicalFacts();
+      const changed=await readHtmlPlanInput([{sourcePath:name,destinationPath:destination}]);
+      assert.throws(()=>createWorkspaceOperationNativeMoveBatchPlanV4(changed),error=>code(error)==='NATIVE_MOVE_PLAN_UNSUPPORTED');
+      assert.deepEqual(await originalDataFacts(),before);assert.deepEqual(await workspacePhysicalFacts(),physicalBefore);
+      await assert.rejects(invoke(job),error=>code(error)==='NATIVE_MOVE_PLAN_CHANGED');
+      // Coordination abort records may be written; original document data,
+      // byte identities and every original/native mutation journal stay intact.
+      assert.deepEqual(await originalDataFacts(),before);assert.deepEqual(await workspacePhysicalFacts(),physicalBefore);
+      assert.equal(await nativeContent(peer.documentId),`<img src="/${name}">\n`);
+      assert.deepEqual(await readFile(path.join(workspace.rootPath,name)),bytes);assert(await absent(path.join(workspace.rootPath,destination)));
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_intents WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_path_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
+      assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
+      await abort(job);
+    });
+    assert.equal(passed,17);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
     for(const [filename,hash] of sourcePins)assert.equal(sha(await readFile(filename)),hash,`Source changed during original Move fixture: ${filename}`);
     console.log('Original Move genuine owner assertions finished:',JSON.stringify({passed,sourcePins,fetches}));
   } catch(error) {failures.push(error);}
