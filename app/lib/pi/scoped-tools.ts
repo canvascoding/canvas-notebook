@@ -3,15 +3,20 @@ import { Type } from 'typebox';
 import { z } from 'zod';
 import { CapabilityResourceError, type CapabilityResourceActor } from '@/app/lib/capabilities/resources/contracts';
 import { CapabilityPackageError, isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
+import { capabilityPackageValidationErrorReport } from '@/app/lib/capabilities/packages/validation-contracts';
 import { toPublicCapabilityPackageMetadata } from '@/app/lib/capabilities/packages/public-metadata';
 import { capabilityPackageReferenceSchema, capabilityPackageDraftReferenceSchema, capabilityPackageDraftCreationSchema,
   capabilityPackagePublishSchema, capabilityPackageFileWriteSchema, capabilityPackageFileDeleteSchema,
   capabilityPackageFileReadSchema, capabilityPackageDiscardSchema, capabilityPackagePublishedTreeSchema,
-  capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema } from '@/app/lib/capabilities/packages/schemas';
+  capabilityPackagePublishedFileSchema, capabilityPackageActivationSchema, capabilityPackageOwnedDraftListQuerySchema,
+  capabilityPackageOperationQuerySchema, capabilityPackageSkillCompositionSchema, capabilityPackageWorkspaceDraftQuerySchema,
+  capabilityPackageWorkspaceDraftImportSchema } from '@/app/lib/capabilities/packages/schemas';
 import { capabilityPackageStoreListSchema, capabilityPackageStoreInstallSchema,
   capabilityPackageStoreUpdateReviewSchema, capabilityPackageStoreUpdateSchema } from '@/app/lib/capabilities/packages/store-contracts';
 import { capabilityPackageStoreOfferingPresentationSchema } from '@/app/lib/capabilities/packages/presentation-contracts';
 import { capabilityPackageStoreInstallOptionsSchema } from '@/app/lib/capabilities/packages/store-install-options-contracts';
+import { capabilityPackageRequirementInputSchema } from '@/app/lib/capabilities/packages/authoring-catalog-contracts';
+import { capabilityPackageProvisioningQuerySchema, capabilityPackageProvisioningRequestSchema } from '@/app/lib/capabilities/packages/provisioning-contracts';
 import {
   addMemory,
   deleteMemory,
@@ -860,7 +865,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_skill_draft',
       label: 'Creating Canvas skill draft',
-      description: 'Creates a complete managed workspace package under the hidden .canvas-skill-drafts path and returns its packagePath; managed drafts do not appear in file browser/search. For a new skill, provide skillName, description, and optional version. To edit an editable personal skill, use the same skillName and provide sourceSkillName and sourceScope. To copy a read-only or managed skill, use a different skillName and provide sourceSkillName and sourceScope; install the resulting personal fork.',
+      description: 'Legacy personal workspace skill draft; returns draftId and packagePath, never a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft. Existing workspace drafts use inspect_canvas_package_workspace_draft then import_canvas_package_workspace_draft. Creates a complete package under hidden .canvas-skill-drafts; managed workspace drafts do not appear in file browser/search. For an editable personal skill, use the same skillName with sourceSkillName and sourceScope. A read-only source requires a differently named personal fork.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Target skill name for the draft folder. For normal edits, use the same name as sourceSkillName.' }),
         description: Type.Optional(Type.String({ description: 'Description for a new skill draft.' })),
@@ -939,7 +944,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'install_canvas_skill_from_workspace',
       label: 'Installing Canvas skill from workspace',
-      description: 'Installs a new personal Canvas skill or a differently named personal fork from a workspace folder containing one complete package. The package must include SKILL.md and a version in SKILL.md metadata.version or agents/canvas.yaml skill.version; agents/canvas.yaml is optional when SKILL.md declares a version, and versions must match if both declare one. Managed drafts under .canvas-skill-drafts are deleted after successful install by default; failed validation leaves them available for recovery. cleanupDraft=false deliberately retains a managed draft.',
+      description: 'Legacy personal workspace skill installation using packagePath as draftPath, not a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft; import an existing workspace draft with import_canvas_package_workspace_draft. Installs one complete personal skill or differently named personal fork. Requires SKILL.md and a matching version in metadata.version or optional agents/canvas.yaml skill.version. Managed .canvas-skill-drafts are deleted after success by default; validation failure or cleanupDraft=false retains them.',
       parameters: Type.Object({
         draftPath: Type.String({ description: 'Workspace-relative path to the skill package folder.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the skill after install. Defaults to true.' })),
@@ -1184,7 +1189,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_plugin_draft',
       label: 'Creating Canvas plugin draft',
-      description: 'Creates a managed plugin package draft under .canvas-plugin-drafts with a valid manifest and one editable starter skill. Edit this package, then install_canvas_plugin_from_workspace using the returned packagePath.',
+      description: 'Legacy personal workspace plugin draft; returns draftId and packagePath, never a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft. Existing workspace drafts use inspect_canvas_package_workspace_draft then import_canvas_package_workspace_draft. Creates .canvas-plugin-drafts content with a valid manifest and one starter skill for the personal workspace installer.',
       parameters: Type.Object({
         pluginName: Type.String({ description: 'New plugin name in lowercase kebab-case.' }),
         description: Type.Optional(Type.String({ description: 'Short plugin description.' })),
@@ -1239,7 +1244,7 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
     {
       name: 'install_canvas_plugin_from_workspace',
       label: 'Installing Canvas plugin from workspace',
-      description: 'Installs a new Canvas plugin package from a workspace directory. Create or edit the package with the create-plugin skill first; the directory must contain .canvas-plugin/plugin.json and valid skill content.',
+      description: 'Legacy personal workspace plugin installation using packagePath as workspacePath, not a managed draftRef. For a new organization plugin or skill use create_canvas_package_draft; import an existing workspace draft with import_canvas_package_workspace_draft. The directory must contain .canvas-plugin/plugin.json and valid skill content. This installer does not publish a managed organization package.',
       parameters: Type.Object({
         workspacePath: Type.String({ description: 'Workspace-relative plugin package directory.' }),
         enable: Type.Optional(Type.Boolean({ description: 'Enable the plugin after install. Defaults to true.' })),
@@ -1335,10 +1340,13 @@ function createAgentPluginTools(userId?: string): AgentTool[] {
 export const CAPABILITY_PACKAGE_TOOL_NAMES = [
   'list_canvas_package_store', 'inspect_canvas_package_store_update', 'install_canvas_package_from_store', 'update_canvas_package_from_store',
   'inspect_canvas_package_presentation', 'inspect_canvas_package_store_offering', 'inspect_canvas_package_store_install_options',
-  'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'inspect_canvas_package_draft',
+  'inspect_canvas_package', 'list_canvas_package_scopes', 'create_canvas_package_draft', 'list_canvas_package_drafts',
+  'inspect_canvas_package_draft_status', 'inspect_canvas_package_operation', 'inspect_canvas_package_draft',
+  'compose_canvas_package_skills', 'inspect_canvas_package_workspace_draft', 'import_canvas_package_workspace_draft',
   'list_canvas_package_draft_files', 'read_canvas_package_draft_file', 'write_canvas_package_draft_file',
   'delete_canvas_package_draft_file', 'validate_canvas_package_draft', 'publish_canvas_package_draft',
-  'discard_canvas_package_draft', 'list_canvas_package_files', 'read_canvas_package_file', 'set_canvas_package_activation',
+  'discard_canvas_package_draft', 'list_canvas_package_versions', 'list_canvas_package_files', 'read_canvas_package_file', 'set_canvas_package_activation',
+  'inspect_canvas_package_authoring_source', 'add_canvas_package_requirement', 'inspect_canvas_package_provisioning', 'provision_canvas_package',
 ] as const;
 
 export function createCapabilityPackageTools(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
@@ -1367,6 +1375,7 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
         const known = isCapabilityPackageError(error) || error instanceof CapabilityResourceError, invalid = error instanceof z.ZodError;
         const message = known ? error.message : invalid ? 'Invalid package tool arguments.' : 'Package management is currently unavailable.';
         return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message,
+          ...(capabilityPackageValidationErrorReport(error) ? { validation: capabilityPackageValidationErrorReport(error) } : {}),
           code: known ? error.code : invalid ? 'PACKAGE_REQUEST_INVALID' : 'PACKAGE_SNAPSHOT_UNAVAILABLE' } };
       }
     },
@@ -1387,14 +1396,30 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).installCapabilityPackageFromStoreAction(actor, params)),
     tool('update_canvas_package_from_store', 'Publishes a verified selected Store version to one exact resourceRef under fresh manage AND edit rights. Requires all review metadata, grant, package-head and local-checksum revisions, plus explicit replaceLocalChanges choice. Use only when the user requested this reviewed update. Preserves ownership, grants, responsible person, activation, previous versions and workflow pins; source conflicts never silently overwrite.', capabilityPackageStoreUpdateSchema.extend(reference.shape).strict(),
       async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/store-actions')).updateCapabilityPackageFromStoreAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
-    tool('inspect_canvas_package', 'Inspects one readable installed full package and returns current content, metadata and grant revisions. Discover resourceRef with inspect_canvas_resource; inspect before drafting or publishing. Core and plugin-contained skills require a distinct fork or editing the containing plugin.', reference,
+    tool('inspect_canvas_package', 'Inspects one readable installed full package and returns its current immutable publication, exact source checksum, metadata and grant revisions. Discover currently readable skill/plugin resourceRefs with inspect_canvas_resource; inspect before drafting or composing. A plugin child sourceStamp identifies its containing parent, current parent revision and relativeRoot; inspect that parent for its checksum before composition. list_canvas_package_versions exposes older exact parent revisions. Core and plugin-contained skills require composition, a distinct fork or editing the containing plugin.', reference,
       (actions, actor, params) => actions.inspectCapabilityPackage(actor, params.resourceRef as string)),
     tool('list_canvas_package_scopes', 'Lists personal, organization and actual team targets this actor may create a new package in. This cannot grant access or change ownership of an existing package.', z.object({}).strict(),
       (actions, actor) => actions.listCapabilityPackageCreationScopes(actor)),
-    tool('create_canvas_package_draft', 'Creates an actor-private complete package draft. Editing requires current canEdit and inspected metadata/grants/content revisions. Forking or promoting creates a distinct named resource in an authorized target scope; preserves source, copies no grants or credentials, and starts disabled. No workspace paths are accepted.', capabilityPackageDraftCreationSchema,
+    tool('create_canvas_package_draft', 'Create a new organization plugin or skill package; returns its actor-private draftRef. Use operation=create, kind=plugin or skill, targetName and one UUID requestId. This is the managed Creator route, not a legacy workspace draftId/packagePath. The server selects the current organization and checks creation rights. Reuse that requestId after an uncertain result and inspect its operation status first. Editing requires current canEdit and inspected metadata/grants/content revisions. Legacy forks retain their authorized target and source checks. New resources are created only at publication, with no inherited grants and disabled activation. No workspace paths, organization IDs or credentials are accepted.', capabilityPackageDraftCreationSchema,
       (actions, actor, params) => actions.createCapabilityPackageDraftAction(actor, params)),
-    tool('inspect_canvas_package_draft', 'Inspects this actor’s private draft and its current revision and target metadata/grant revisions. The reference grants no authority without current source and target rights.', draft,
+    tool('list_canvas_package_drafts', 'Lists only this actor’s private draft recovery metadata with bounded pagination. Reopen an issued draftRef in another chat; no source lookup or package bytes are returned. The list grants no source, file, edit or publication authority, and an active actor/workspace is still required.', capabilityPackageOwnedDraftListQuerySchema,
+      (actions, actor, params) => actions.listCapabilityPackageOwnedDraftStatusesAction(actor, params)),
+    tool('inspect_canvas_package_draft_status', 'Reads only this actor’s existing private draft recovery metadata, including its latest revision. This remains separate from reading draft bytes and grants no source or target authority. After an uncertain create, publish or discard, use inspect_canvas_package_operation to distinguish a committed result from an active draft.', draft,
+      (actions, actor, params) => actions.readCapabilityPackageOwnedDraftStatusAction(actor, params.draftRef as string)),
+    tool('inspect_canvas_package_operation', 'Reads this actor’s durable package operation receipt by exactly one requestId or draftRef. Use after an uncertain create, publish or discard before retrying; distinguishes an active draft, a published exact revision and a discarded draft even after the draft was removed. Returns recovery metadata only; current access must be checked separately before reading or using package bytes. Never grants file, source, edit, publish or runtime authority.', capabilityPackageOperationQuerySchema,
+      (actions, actor, params) => actions.readCapabilityPackageOperationAction(actor, params)),
+    tool('inspect_canvas_package_draft', 'Inspects this actor’s private draft and its current revision and target metadata/grant revisions. The reference grants no authority without current target rights and source rights where a source exists.', draft,
       (actions, actor, params) => actions.readCapabilityPackageDraftAction(actor, params.draftRef as string)),
+    tool('compose_canvas_package_skills', 'Atomically copies a batch of at most 32 complete currently readable source skills into one actor-private plugin draft using expectedDraftRevision. Discover exact sources with inspect_canvas_resource, inspect_canvas_package and list_canvas_package_versions; select an older child through its parent resourceRef, revisionRef and verified childRelativeRoot. expectedChecksum pins the selected resource package: parent checksum for a parent reference, skill checksum for a skill reference. A direct plugin-child reference additionally requires expectedParentChecksum from inspecting its parent. Includes required parent assets and declarations, hoists standalone MCP connectors and reports changed references/versions; conflicting content fails the complete batch. No source modification, account binding, activation or publication occurs. After an uncertain result, inspect the draft revision before retrying.', capabilityPackageSkillCompositionSchema.extend(draft.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/composition')).composeCapabilityPackageSkillsAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('inspect_canvas_package_authoring_source', 'Resolves a currently readable catalog resource and optional chosen immutable revision into exact complete copy sources. Returns verified package checksum, revision and actual bundled child roots; Read permission suffices and does not grant runtime Use. Search search_canvas_extensions with purpose authoring first, then choose explicit returned source entries for compose_canvas_package_skills. Never guesses paths, materializes seed references, installs or binds an account.', capabilityPackagePublishedTreeSchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/authoring-catalog')).inspectCapabilityPackageAuthoringSourceAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('add_canvas_package_requirement', 'Adds one portable Composio toolkit or explicitly named MCP requirement to an actor-private plugin draft using its current revision and a fresh authoring catalogId. The metadata-only catalog is rechecked under current Read authority. The package receives only the exact toolkit slug or your explicit portable connectorName and required flag, never the selected private definition/account/connection ID. Existing different declarations conflict; matching declarations are preserved. No provider execution, credentials, account selection, grants, activation or publication occurs.', capabilityPackageRequirementInputSchema.extend(draft.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/authoring-catalog')).addCapabilityPackageDraftRequirementAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('inspect_canvas_package_workspace_draft', 'Inspects one explicitly selected legacy managed skill or plugin draft in the actor’s current authorized workspace, using kind, workspaceDraftId and packageName rather than a filesystem path. Returns only exact package checksum, name/version, file count and total bytes for a subsequent explicit import; no package bytes, credentials, absolute paths, installation or mutation. Historical safe draft IDs are supported. The result grants no rights and does not prove provider readiness.', capabilityPackageWorkspaceDraftQuerySchema,
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/composition')).inspectCapabilityPackageWorkspaceDraftAction(actor, params)),
+    tool('import_canvas_package_workspace_draft', 'Explicitly imports one inspected legacy managed workspace draft into an empty actor-private package draft of the same kind, using expectedDraftRevision and the exact expectedChecksum from inspect_canvas_package_workspace_draft. The server derives the current authorized workspace and managed draft location from the selected identity; no free server path is accepted. Copies the complete checked package in one revision and returns its import result. Never installs, publishes or deletes the old workspace draft. After an uncertain result, inspect the target draft before retrying.', capabilityPackageWorkspaceDraftImportSchema.extend(draft.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/composition')).importCapabilityPackageWorkspaceDraftAction(actor, params.draftRef as string, without(params, 'draftRef'))),
     tool('list_canvas_package_draft_files', 'Lists all bounded relative draft paths, including scripts and assets, under current rights. No absolute filesystem paths are returned.', draft,
       (actions, actor, params) => actions.listCapabilityPackageDraftFilesAction(actor, params.draftRef as string)),
     tool('read_canvas_package_draft_file', 'Reads a bounded range of one private draft file as base64; default maxBytes is 64 KiB. Request explicit chunks for large assets. Use the draft file operations for package edits rather than generic workspace tools.', capabilityPackageFileReadSchema.extend(draft.shape).strict(),
@@ -1405,16 +1430,22 @@ export function createCapabilityPackageTools(userId?: string, agentId?: string |
       (actions, actor, params) => actions.deleteCapabilityPackageDraftFileAction(actor, params.draftRef as string, without(params, 'draftRef'))),
     tool('validate_canvas_package_draft', 'Validates the complete draft, including manifests, child skills, scripts, assets and checksum. Validation never publishes and does not waive fresh permission or revision checks.', draft,
       (actions, actor, params) => actions.validateCapabilityPackageDraftAction(actor, params.draftRef as string)),
-    tool('publish_canvas_package_draft', 'Publishes a validated immutable full package revision under fresh edit/target authority and all inspected draft/content/metadata/grant revisions. Previous published versions remain intact. Use only when the user requested publication; fork targets have separate identity and no inherited grants.', capabilityPackagePublishSchema,
+    tool('publish_canvas_package_draft', 'Publishes a validated immutable full package revision under fresh edit/target authority and all inspected draft/content/metadata/grant revisions. Previous published versions remain intact. Use only when the user requested publication; new organization packages and legacy fork targets have separate identity and no inherited grants. Supply one UUID requestId for correlated recovery, and inspect_canvas_package_operation after an uncertain result instead of creating another draft or publishing again.', capabilityPackagePublishSchema,
       (actions, actor, params) => actions.publishCapabilityPackageDraftAction(actor, params)),
     tool('discard_canvas_package_draft', 'Discards only the actual actor’s private draft with expectedDraftRevision, including after edit access was revoked. Published packages and source resources remain unchanged.', capabilityPackageDiscardSchema.extend(draft.shape).strict(),
       (actions, actor, params) => actions.discardCapabilityPackageDraftAction(actor, params.draftRef as string, without(params, 'draftRef'))),
+    tool('list_canvas_package_versions', 'Lists immutable versions of one currently readable exact package resource, with server-issued revisionRefs and checksums. Discover resourceRef with inspect_canvas_resource and inspect_canvas_package first. For a historical plugin child, list the containing parent’s versions and select its verified childRelativeRoot. Current Read rights still apply; a revision or checksum grants no file or runtime authority.', reference,
+      (actions, actor, params) => actions.listCapabilityPackageVersionsAction(actor, params.resourceRef as string)),
     tool('list_canvas_package_files', 'Lists one readable installed package or an explicitly selected immutable revision. Current resource ACL applies even to older published versions.', capabilityPackagePublishedTreeSchema.extend(reference.shape).strict(),
       (actions, actor, params) => actions.listCapabilityPackageFilesAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
     tool('read_canvas_package_file', 'Reads one relative package file as base64 from the current or explicitly selected immutable version; default maxBytes is 64 KiB. Request explicit chunks for large assets. Use current resourceRef and an issued revisionRef; never accepts a storage path.', capabilityPackagePublishedFileSchema.extend(reference.shape).strict(),
       (actions, actor, params) => actions.readCapabilityPackageFileAction(actor, params.resourceRef as string, { ...without(params, 'resourceRef'), maxBytes: params.maxBytes ?? 64 * 1024 })),
     tool('set_canvas_package_activation', 'Changes the default activation of one managed published package under current canManage permission and inspected content, metadata, grant and default revisions. It does not change package bytes or grant use or edit access. Requires explicit user intent.', capabilityPackageActivationSchema.extend(reference.shape).strict(),
       async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/activation')).setCapabilityPackageDefaultActivationAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('inspect_canvas_package_provisioning', 'Inspects one exact saved organization package pin after publication. Reports its requested Use audience, current activation and policy, permitted organization user targets, current head/CAS and whether the chosen immutable revision still matches the head. Management is distinct from Use and provider readiness. Use this after uncertain sharing/activation; do not publish again. Current management permission is required.', capabilityPackageProvisioningQuerySchema.extend(reference.shape).strict(),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/provisioning')).inspectCapabilityPackageProvisioningAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
+    tool('provision_canvas_package', 'Completes one explicitly requested post-publication step against the exact inspected saved pin and fresh CAS: set_use_audience selects explicit users or all organization members and changes only Use, preserving Edit/Manage; activate allows package activation under current policy; enable_for_me opts only the current actor in using the inspected personal preference revision and current Use rights. Empty users grants no Use. These remain separate actions and do not select provider accounts, change organization policy, grant Edit/Manage, execute tools, or republish. After failure or an uncertain reply, inspect_canvas_package_provisioning and retry only the missing step. A newer package head conflicts instead of switching versions.', z.discriminatedUnion('operation', [capabilityPackageProvisioningRequestSchema.options[0].extend(reference.shape).strict(), capabilityPackageProvisioningRequestSchema.options[1].extend(reference.shape).strict(), capabilityPackageProvisioningRequestSchema.options[2].extend(reference.shape).strict()]),
+      async (_actions, actor, params) => (await import('@/app/lib/capabilities/packages/provisioning')).provisionCapabilityPackageAction(actor, params.resourceRef as string, without(params, 'resourceRef'))),
   ];
 }
 
@@ -1422,9 +1453,13 @@ export function createUserScopedTools(
   userId?: string,
   agentId?: string | null,
   sessionId?: string | null,
-  options: { accountLocale?: UserLocale } = {},
+  options: { accountLocale?: UserLocale; registrationKind?: 'main' | 'special' } = {},
 ): AgentTool[] {
-  const sourceAgentId = normalizeManagedAgentId(agentId);
+  const registrationKind = options.registrationKind ?? (normalizeManagedAgentId(agentId) === DEFAULT_AGENT_ID ? 'main' : 'special');
+  if (agentId && registrationKind !== (normalizeManagedAgentId(agentId) === DEFAULT_AGENT_ID ? 'main' : 'special')) {
+    throw new Error('Tool registration kind does not match the actual agent.');
+  }
+  const sourceAgentId = agentId ? normalizeManagedAgentId(agentId) : registrationKind === 'main' ? DEFAULT_AGENT_ID : undefined;
   const tools: AgentTool[] = [
     createMcpProxyTool(userId),
     createMemoryTool(userId, agentId, options.accountLocale),
@@ -1437,7 +1472,7 @@ export function createUserScopedTools(
     ...createCapabilityPackageTools(userId, agentId, sessionId),
   ];
 
-  if (sourceAgentId === DEFAULT_AGENT_ID) {
+  if (registrationKind === 'main' && sourceAgentId === DEFAULT_AGENT_ID) {
     tools.push(createDelegateTaskTool({ userId, sourceAgentId, sourceSessionId: sessionId }));
   }
 

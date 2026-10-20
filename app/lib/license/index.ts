@@ -1,4 +1,5 @@
 import 'server-only';
+import type { SqlConnection } from '@/app/lib/db';
 
 import { getControlPlaneLicenseBaseUrl, getLicenseInstanceId } from './instance';
 import {
@@ -16,6 +17,7 @@ import {
   loadCommunityLicenseRefreshState,
   loadStoredLicenseCert,
   saveLicenseCert,
+  assertLicenseCertificateNotRollbackOnConnection,
 } from './storage';
 import {
   normalizeLicenseProductClaims,
@@ -221,9 +223,11 @@ function storageFailure(
 
 async function publicKeyUnavailableError(
   payload?: LicenseCert,
+  database?: Pick<SqlConnection, 'get' | 'all'>,
 ): Promise<LicenseStatus['error'] | undefined> {
   const resolution = await resolveLicensePublicKeys({
     keyset: payload?.licenseClass === 'test' ? 'test' : 'production',
+    ...(database ? { database } : {}),
   });
   if (resolution.keys.length > 0) return undefined;
   if (resolution.error === 'untrusted_key') return 'untrusted_public_key';
@@ -343,21 +347,21 @@ async function getManagedLicenseStatus(instanceId: string): Promise<{
   return { status };
 }
 
-async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> {
+async function resolveLicenseStatus(instanceId: string, database?: Pick<SqlConnection, 'get' | 'all'>): Promise<LicenseStatus> {
   let lastFailure: LicenseResolutionFailure | undefined;
   let stored: string | null | undefined;
   let storedVerification: LicenseVerificationResult | undefined;
 
   const envCert = process.env.CANVAS_LICENSE_CERT?.trim();
   if (envCert) {
-    const verification = await verifyLicenseJwtDetailed(envCert, instanceId);
+    const verification = await verifyLicenseJwtDetailed(envCert, instanceId, database ? { database } : {});
     if (verification.ok) {
       const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'env');
       if (status) {
-        stored = await loadStoredLicenseCert(instanceId);
+        stored = await loadStoredLicenseCert(instanceId, database);
         if (stored) {
-          storedVerification = await verifyLicenseJwtDetailed(stored, instanceId);
+          storedVerification = await verifyLicenseJwtDetailed(stored, instanceId, database ? { database } : {});
           if (storedVerification.ok && compareLicenseCertificatePayloads(payload, storedVerification.payload) <= 0) {
             const storedStatus = statusFromPayload(storedVerification.payload, instanceId, 'stored');
             if (storedStatus) {
@@ -371,6 +375,13 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
           }
         }
         try {
+          // Same monotonic-head check as saveLicenseCertLocked, including an
+          // expired/invalid newer stored head. A still-valid old ENV certificate
+          // must not reactivate entitlements that the ordinary resolver rejects.
+          if (database) {
+            await assertLicenseCertificateNotRollbackOnConnection(database, envCert, payload);
+            return withRefreshRuntimeState(status);
+          }
           await saveLicenseCert(envCert, payload);
           logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
             instanceId,
@@ -414,9 +425,9 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
     }
   }
 
-  if (stored === undefined) stored = await loadStoredLicenseCert(instanceId);
+  if (stored === undefined) stored = await loadStoredLicenseCert(instanceId, database);
   if (stored) {
-    const verification = storedVerification ?? await verifyLicenseJwtDetailed(stored, instanceId);
+    const verification = storedVerification ?? await verifyLicenseJwtDetailed(stored, instanceId, database ? { database } : {});
     if (verification.ok) {
       const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'stored');
@@ -449,11 +460,11 @@ async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> 
     }
   }
 
-  const managed = await getManagedLicenseStatus(instanceId);
+  const managed = database ? { status: null, failure: undefined } : await getManagedLicenseStatus(instanceId);
   if (managed.status) return withRefreshRuntimeState(managed.status);
   if (managed.failure) lastFailure = managed.failure;
   const keyError = lastFailure?.code === 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE'
-    ? await publicKeyUnavailableError(lastFailure.payload)
+    ? await publicKeyUnavailableError(lastFailure.payload, database)
     : undefined;
   const status = unresolvedStatus(instanceId, lastFailure, keyError);
 
@@ -481,6 +492,20 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
       instanceId,
       managedConfigured: isManagedLicenseConfigured(),
       controlPlaneHost: getControlPlaneHost(),
+    }, error);
+    return unresolvedStatus(instanceId, undefined, 'license_status_unavailable');
+  }
+}
+
+/** Current signed certificate/expiry/antirollback verification on an existing lease; never refreshes or writes. */
+export async function getLicenseStatusOnConnection(database: Pick<SqlConnection, 'get' | 'all'>): Promise<LicenseStatus> {
+  let instanceId = process.env.CANVAS_INSTANCE_ID?.trim() || 'license-status-unavailable';
+  try {
+    instanceId = getLicenseInstanceId();
+    return await resolveLicenseStatus(instanceId, database);
+  } catch (error) {
+    logLicenseError(LOG_PREFIX, 'license status resolution failed', {
+      instanceId, managedConfigured: isManagedLicenseConfigured(), controlPlaneHost: getControlPlaneHost(),
     }, error);
     return unresolvedStatus(instanceId, undefined, 'license_status_unavailable');
   }

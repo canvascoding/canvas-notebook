@@ -8,6 +8,7 @@ import {
   type PluginWorkspaceCatalogScope, type PluginWorkspaceCatalogScopeContext,
 } from './plugin-workspace-catalog-contracts';
 import { resolvePluginWorkspaceCatalogScopeContext, selectPluginWorkspaceItems } from './plugin-workspace-selection';
+import { installedPluginExtensionIcon } from './plugin-extension-icons';
 
 function invalidQuery(): never {
   throw new CapabilityResourceError('PLUGIN_CATALOG_QUERY_INVALID', 'The catalog query does not match the supported fields.', 400);
@@ -62,7 +63,7 @@ function publicOwnership(owner: CapabilityResourceOwnerScope): CapabilityResourc
   throw new CapabilityResourceError('PLUGIN_CATALOG_UNAVAILABLE', 'Installed resource metadata is currently unavailable.', 503);
 }
 
-function publicItem(resource: CapabilityResourceDescriptor, parents: ReadonlyMap<string, string | null>): PluginWorkspaceCatalogItem {
+function publicItem(resource: CapabilityResourceDescriptor, parents: ReadonlyMap<string, string | null>, workspaceId?: string | null): PluginWorkspaceCatalogItem {
   const name = identity(resource.artifact.name);
   if (!['plugin', 'skill'].includes(resource.artifact.resourceType) || !Number.isSafeInteger(resource.artifact.revision) || resource.artifact.revision < 0) {
     throw new CapabilityResourceError('PLUGIN_CATALOG_UNAVAILABLE', 'Installed resource metadata is currently unavailable.', 503);
@@ -70,6 +71,9 @@ function publicItem(resource: CapabilityResourceDescriptor, parents: ReadonlyMap
   const item: PluginWorkspaceCatalogItem = { resourceRef: identity(resource.metadata.resourceRef, 2048), legacyResourceId: identity(resource.artifact.resourceId, 2048),
     kind: resource.artifact.resourceType, name, displayName: label(resource.metadata.displayName) ?? label(name) ?? name,
     description: label(resource.metadata.description ?? resource.description, 4096) ?? '', version: identity(resource.artifact.version, 200), revision: resource.artifact.revision,
+    ...(resource.artifact.hasDeclaredIcon === false ? {} : {
+      icon: installedPluginExtensionIcon(resource.metadata.resourceRef, resource.artifact.revision, workspaceId),
+    }),
     ownership: publicOwnership(resource.metadata.ownership), access: { canRead: resource.access.canRead === true, canUse: resource.access.canUse === true,
       canEdit: resource.access.canEdit === true, canManage: resource.access.canManage === true } };
   const ownershipLabel = label(resource.ownershipLabel);
@@ -110,7 +114,7 @@ function catalogSelection(resources: readonly CapabilityResourceDescriptor[], co
   }
   const exactItems = new Map<string, PluginWorkspaceCatalogItem>();
   for (const resource of readable) {
-    const item = publicItem(resource, parents), existing = exactItems.get(item.resourceRef);
+    const item = publicItem(resource, parents, context.workspaceId), existing = exactItems.get(item.resourceRef);
     if (existing && JSON.stringify(existing) !== JSON.stringify(item)) {
       throw new CapabilityResourceError('PLUGIN_CATALOG_UNAVAILABLE', 'Installed resource metadata is currently unavailable.', 503);
     }

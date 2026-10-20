@@ -6,7 +6,7 @@ import { ChevronDown, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 import { useHomeNotificationSummary } from './useHomeNotificationSummary';
-import { PromptHero, type HomePromptMode } from './PromptHero';
+import { PromptHero, type HomePromptMode, type HomePlainTextPromptRequest } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
 import { HomeAttentionPanel } from './HomeAttentionPanel';
@@ -22,6 +22,7 @@ export function HomeWorkspaceView({
   const t = useTranslations('home');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
   const [promptMode, setPromptMode] = useState<HomePromptMode>('notebook');
+  const [plainTextRequest, setPlainTextRequest] = useState<HomePlainTextPromptRequest | null>(null);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const workspace = useWorkspaceStore((state) => state.workspaces.find((item) => item.id === state.activeWorkspaceId));
@@ -33,16 +34,8 @@ export function HomeWorkspaceView({
   };
 
   const handlePromptSelect = (prompt: string) => {
-    const textarea = document.querySelector<HTMLTextAreaElement>('[data-prompt-hero-textarea]');
-    if (!textarea) return;
-    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-      window.HTMLTextAreaElement.prototype,
-      'value',
-    )?.set;
-    nativeInputValueSetter?.call(textarea, prompt);
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    textarea.focus();
-    textarea.setSelectionRange(prompt.length, prompt.length);
+    if (!activeWorkspaceId || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId) return;
+    setPlainTextRequest({ id: crypto.randomUUID(), workspaceId: activeWorkspaceId, text: prompt });
   };
 
   if (!active) return null;
@@ -57,7 +50,7 @@ export function HomeWorkspaceView({
         <div className="lg:col-start-2 lg:row-span-2 lg:row-start-1"><HomeAttentionPanel summary={summary} isLoading={isLoadingSummary} /></div>
         <section className="min-w-0 space-y-3 border-t border-border pt-5 lg:col-start-1 lg:row-start-2" aria-labelledby="home-workspace-prompt">
           <h2 id="home-workspace-prompt" className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="h-4 w-4 text-muted-foreground" />{t('start.aiTitle')}</h2>
-          <PromptHero key={activeWorkspaceId} onModeChange={setPromptMode} compact />
+          <PromptHero key={activeWorkspaceId} onModeChange={setPromptMode} compact plainTextRequest={plainTextRequest} />
           {promptMode === 'notebook' ? <div>
             <button type="button" aria-expanded={showSuggestions} aria-controls="home-suggestions" onClick={() => setShowSuggestions((value) => !value)} className="inline-flex min-h-9 items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"><ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSuggestions ? 'rotate-180' : ''}`} />{t('start.suggestions')}</button>
             {showSuggestions ? <div id="home-suggestions" className="space-y-3 pt-2">

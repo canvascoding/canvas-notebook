@@ -10,6 +10,7 @@ import type { CanvasSkillStoreRegistry } from '@/app/lib/skills/canvas-skill-sto
 import { capabilityStoreComparison, installedStoreResourceObservation, type PrivateInstalledStoreResource } from '@/app/lib/plugins/store-installed-resource';
 import { projectCapabilityPackageStoreVersions } from './store-offerings';
 import type { CapabilityPackageStoreListRequest, CapabilityPackageStoreListResponse } from './store-contracts';
+import { installedPluginExtensionIcon, publicPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 
 export type CapabilityPackageStoreSources = { plugin: CanvasPluginStoreRegistry | null; skill: CanvasSkillStoreRegistry | null };
 
@@ -78,7 +79,9 @@ export function projectScopedCapabilityPackageStore(resources: readonly Capabili
     const pageSize = input.limit ?? 12, totalItems = 'pagination' in enriched ? enriched.pagination!.totalItems : filtered.length;
     const totalPages = Math.max(1, Math.ceil(totalItems / pageSize)), page = Math.min(input.page ?? 1, totalPages);
     const offerings = kind === 'plugin' ? allOfferings : filtered.slice((page - 1) * pageSize, page * pageSize);
-    const kindResources = (enriched.installedResources ?? []).sort((left, right) => selectedOrder.get(left.metadata.resourceRef)! - selectedOrder.get(right.metadata.resourceRef)!);
+    const kindResources = (enriched.installedResources ?? []).map(resource => ({...resource,
+      icon: installedPluginExtensionIcon(resource.metadata.resourceRef, resource.artifact.revision, context.workspaceId)}))
+      .sort((left, right) => selectedOrder.get(left.metadata.resourceRef)! - selectedOrder.get(right.metadata.resourceRef)!);
     installedResources.push(...kindResources);
     stores.push({ kind, registry: { id: enriched.registry.id, name: safeText(enriched.registry.name, 200) ?? '', updatedAt: safeText(enriched.registry.updatedAt, 200) ?? '' },
       availability: enriched.availability ?? 'available', pagination: { page, pageSize, totalItems, totalPages, hasNextPage: page < totalPages, hasPreviousPage: page > 1 },
@@ -86,8 +89,10 @@ export function projectScopedCapabilityPackageStore(resources: readonly Capabili
       offerings: offerings.map(offering => {
         const refs = offering.installed.resources?.filter(resource => resource.storeState?.origin === 'verified').map(resource => resource.metadata.resourceRef) ?? [];
         const publisherName = safeText(offering.publisher?.name, 200);
+        const icon = publicPluginExtensionIcon(offering.iconUrl, `store:${kind}:${enriched.registry.id}:${offering.name}:${offering.latestVersion}`);
         return { kind, registryId: enriched.registry.id, entryKey: offering.name, displayName: safeText(offering.displayName, 200) ?? offering.name,
           description: safeText(offering.description, 4096) ?? '', latestVersion: offering.latestVersion,
+          ...(icon ? {icon} : {}),
           ...(publisherName ? { publisher: { name: publisherName } } : {}),
           versions: projectCapabilityPackageStoreVersions(offering.versions, offering.latestVersion).map(version => {
             const metadata = offering.versions[version.version];

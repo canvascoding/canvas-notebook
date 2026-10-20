@@ -57,6 +57,7 @@ import {
 } from '@/app/lib/pi/session-exclusive-execution';
 import { createPiSystemPromptSnapshot, loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { requiresCapabilityPackageBoundPrompt } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { appendEffectiveExtensionContextPrompt } from '@/app/lib/capabilities/extensions/runtime-prompt';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import {
   appendEffectiveToolCapabilitiesPrompt,
@@ -562,7 +563,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         automationBrandContext,
       );
       const effectiveBaseSystemPrompt = appendEffectiveToolCapabilitiesPrompt(
-        baseSystemPrompt,
+        appendEffectiveExtensionContextPrompt(baseSystemPrompt, executionContext, tools, promptText),
         buildEffectiveToolManifest(tools),
       );
       const hasWorkspaceReadCapability = ['ls', 'read', 'rg', 'grep', 'glob', 'inspect_document_relations']

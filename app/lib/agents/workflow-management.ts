@@ -1,15 +1,11 @@
 import 'server-only';
 
-import path from 'node:path';
 import { openDb } from '@/app/lib/db';
 import { listCapabilityResources } from '@/app/lib/capabilities/resources/actions';
 import { findCapabilityResourceRecord, withAuthorizedCapabilityPackageResource } from '@/app/lib/capabilities/resources/store';
 import { CapabilityResourceError, type CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
-import { withPublishedPackage } from '@/app/lib/capabilities/packages/actions';
-import { validateCompleteCapabilityPackage } from '@/app/lib/capabilities/packages/artifacts';
 import { getCapabilityPackagePublishedRevision, listCapabilityPackagePublishedRevisions } from '@/app/lib/capabilities/packages/store';
 import { isCapabilityPackageError } from '@/app/lib/capabilities/packages/contracts';
-import { parsePluginSkillsFromManifest } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isComposioIntegrationApplicationVisible } from '@/app/lib/integration-tools/adapters/composio';
 import { authorizeIntegrationConnectionBindingsOnConnection, lockIntegrationConnectionBindingsOnConnection,
   type IntegrationConnectionBindingAuthorization } from '@/app/lib/integration-tools/connections/store';
@@ -24,6 +20,7 @@ import type { AgentManagementActor } from './management-actions';
 import { readManagedAgentWorkflow, readManagedAgentWorkflowOnConnection, holdAgentGrantAuthority } from './workflow-configuration';
 import { getAgentAccessOnConnection } from './access';
 import { EMAIL_MANAGED_AGENT_ID } from './storage';
+import { readAgentExtensionPackageVersion } from './extension-package-options';
 import { createRetainedAgentWorkflowTarget, type AgentWorkflowBindingSlot } from './workflow-binding-retention';
 import { enumerateOwnAgentWorkflowProviders } from './workflow-personal-options';
 import { AgentWorkflowError, parseAgentWorkflowConfiguration, type AgentWorkflowInternalSnapshot, type AgentWorkflowTarget,
@@ -99,24 +96,13 @@ async function verifyPin(current: Manager, reference: string, published: string,
   return selected;
 }
 async function packageVersion(current: Manager, request: { resourceRef: string; publishedRevisionRef: string }): Promise<AgentWorkflowManagementPackageVersion> {
-  await verifyPin(current, request.resourceRef, request.publishedRevisionRef);
-  const result = await withPublishedPackage({ userId: current.actor.userId, workspaceId: current.actor.workspaceId }, request.resourceRef, request.publishedRevisionRef,
-    async (location, authorization) => {
-      if (!authorization.access.canUse || !('revisionRef' in location) || location.revisionRef !== request.publishedRevisionRef) {
-        fail('AGENT_WORKFLOW_PACKAGE_DENIED', 'The selected package version is unavailable for this agent.', 403);
-      }
-      const validated = await validateCompleteCapabilityPackage(location.kind, location.rootPath, { name: location.name, version: location.version });
-      if (validated.checksum !== location.checksum) fail('AGENT_WORKFLOW_PACKAGE_CHANGED', 'The selected published package version changed.');
-      const skillRoots = validated.manifest
-        ? (await parsePluginSkillsFromManifest(validated.manifest, location.rootPath, path.join(location.rootPath, validated.manifest.skills || 'skills'))).skills
-          .map(skill => ({ name: skill.name, relativeRoot: path.relative(location.rootPath, skill.directory).split(path.sep).join('/') }))
-        : [{ name: validated.name, relativeRoot: '' }];
-      return { ...header(current), view: 'package-version' as const, resourceRef: request.resourceRef, publishedRevisionRef: location.revisionRef,
-        checksum: validated.checksum, kind: location.kind, name: validated.name, version: validated.version, skillRoots,
-        declarations: structuredClone(validated.workflowDeclarations ?? []) };
-    });
-  await verifyPin(current, result.resourceRef, result.publishedRevisionRef, result.checksum);
-  return result;
+  await packageDescriptor(current, request.resourceRef);
+  const { metadata } = await readAgentExtensionPackageVersion({ userId: current.actor.userId, workspaceId: current.actor.workspaceId },
+    { resourceRef: request.resourceRef, publishedRevisionRef: request.publishedRevisionRef },
+    { allowPersonalPackages: current.snapshot.agent.scopeType !== 'organization' });
+  return { ...header(current), view: 'package-version', resourceRef: metadata.resourceRef, publishedRevisionRef: metadata.publishedRevisionRef,
+    checksum: metadata.checksum, kind: metadata.kind, name: metadata.name, version: metadata.version,
+    skillRoots: metadata.skillRoots.map(({ name, relativeRoot }) => ({ name, relativeRoot })), declarations: metadata.declarations };
 }
 async function declaredAlternative(current: Manager, request: SlotRequest) {
   const pkg = await packageVersion(current, request);
@@ -373,7 +359,7 @@ async function management(current: Manager): Promise<AgentWorkflowManagementOpti
       agentId: fresh.snapshot.agent.agentId, name: label(fresh.snapshot.agent.name, 'Agent'), iconId: fresh.snapshot.agent.iconId,
       scopeType: fresh.snapshot.agent.scopeType, enabledTools: fresh.snapshot.agent.enabledTools && [...fresh.snapshot.agent.enabledTools] },
       workflowVersion: fresh.snapshot.workflowVersion, configurationState: fresh.snapshot.workflowVersion === null ? 'legacy' : blocked ? 'blocked' : 'available',
-      configuration: fresh.snapshot.workflowVersion === 1 && !blocked ? parseAgentWorkflowConfiguration({ version: 1, packages }) : null,
+      configuration: fresh.snapshot.workflowVersion !== null && !blocked ? parseAgentWorkflowConfiguration({ version: 1, packages }) : null,
       unavailablePackageCount, unavailableConnectionCount, bindingSummaries };
   });
 }

@@ -1,4 +1,6 @@
 import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
+import type { ChatBodyV1 } from './chat-body-contracts';
+import type { Attachment } from './types';
 
 export type RuntimeContextMeasurement = {
   scope?: 'live' | 'stored';
@@ -12,8 +14,15 @@ export type RuntimeQueueItem = {
   id: string;
   text: string;
   attachmentCount: number;
+  clientMessageId?: string;
+  body?: ChatBodyV1;
+  attachments?: Attachment[];
   messageTimestamp?: number;
   signature?: string;
+  /** Stored execution revision; required for an explicit recovery action. */
+  executionRevision?: number;
+  /** Null means a valid old payload with no established queue position. */
+  queue?: { lane: 'prompt' | 'follow_up' | 'steer'; ordinal: number; disposition: 'ready' | 'suspended' } | null;
 };
 
 export type RuntimeCompactionStatus = {

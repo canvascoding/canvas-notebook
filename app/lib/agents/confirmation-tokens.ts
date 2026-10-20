@@ -7,6 +7,7 @@ const CONFIRMATION_TTL_MS = 10 * 60_000;
 type ConfirmationPayload = {
   operation: 'delete_agent';
   agentId: string;
+  agentProfileId: number;
   actorUserId: string;
   revision: number;
   expiresAt: number;
@@ -51,6 +52,9 @@ export function verifyAgentDeleteConfirmationToken(
   if (
     payload.operation !== 'delete_agent'
     || payload.agentId !== expected.agentId
+    || !Number.isSafeInteger(payload.agentProfileId)
+    || payload.agentProfileId <= 0
+    || payload.agentProfileId !== expected.agentProfileId
     || payload.actorUserId !== expected.actorUserId
     || payload.revision !== expected.revision
     || !Number.isSafeInteger(payload.expiresAt)

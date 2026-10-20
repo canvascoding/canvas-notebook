@@ -33,6 +33,8 @@ export function clearWorkspaceScopedNavigationParams(search: string): string {
   params.delete('workspaceId');
   params.delete('session');
   params.delete('path');
+  params.delete('documentId');
+  params.delete('lineageId');
   return params.toString();
 }
 

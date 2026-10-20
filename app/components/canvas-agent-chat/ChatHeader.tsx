@@ -67,6 +67,7 @@ type ChatHeaderProps = {
   onCompact: (focusTopic?: string) => void;
   onDeleteSession: () => void;
   onSelectAgent: (agentId: string) => void;
+  onAgentCreated: (agent: AgentProfile) => boolean;
   onReloadAgents: () => Promise<void>;
   onOpenLiveBrowser?: () => void;
   onSetShowHistory: (value: boolean) => void;
@@ -95,6 +96,7 @@ export function ChatHeader({
   onCompact,
   onDeleteSession,
   onSelectAgent,
+  onAgentCreated,
   onReloadAgents,
   onOpenLiveBrowser,
   onSetShowHistory,
@@ -223,12 +225,14 @@ export function ChatHeader({
           </div>
 
           <ChatAgentSelector
+            context={{ workspaceId: workspaceId ?? null }}
             variant={isMobile ? 'mobile' : 'compact'}
             activeAgentId={activeSessionAgentId}
             activeAgentName={activeAgentDisplayName}
             activeAgentIconId={activeAgentIconId}
             agents={chatAgentOptions}
             onSelectAgent={onSelectAgent}
+            onAgentCreated={onAgentCreated}
             onReloadAgents={onReloadAgents}
             iconOnly={isMobile}
             className="border-transparent bg-transparent px-1.5 hover:border-border/60 hover:bg-accent"

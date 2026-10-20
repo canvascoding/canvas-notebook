@@ -1,8 +1,11 @@
 import 'server-only';
 
+import { ToolKitListResponseSchema, type ToolKitItem } from '@composio/core';
+
 import { getComposio } from './composio-client';
 import { getConnectedAccounts } from './composio-auth';
 import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
+import { classifyComposioFailure, ComposioProviderError } from './composio-provider-error';
 import { resolveComposioToolkitAccess } from './composio-toolkit-access';
 
 export interface ToolkitInfo {
@@ -25,6 +28,9 @@ export interface ToolkitToolInfo {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const TOOLKIT_PAGE_LIMIT = 1000;
+const MAX_TOOLKIT_PAGES = 20;
+const MAX_TOOLKIT_CURSOR_LENGTH = 8192;
 
 const HIDDEN_TOOLKIT_SLUGS = new Set([
   'gemini',
@@ -76,18 +82,64 @@ export async function getAvailableToolkitsRaw(context: ResolvedComposioContext):
   const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  const invalidCatalogue = () => new ComposioProviderError('The Composio toolkit catalogue response is incomplete.', { code: 'COMPOSIO_BAD_RESPONSE', retryable: false });
   try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15_000);
-    const response = await composio.toolkits.get({}, { signal: controller.signal }).finally(() => clearTimeout(timer));
-    const rawItems = 'items' in response ? (response as { items: unknown[] }).items : Array.isArray(response) ? response : [];
-    console.log(`[Composio] Fetched ${rawItems.length} raw toolkits`);
-    rawToolkitCache.set(cacheKey, { data: rawItems, expires: now + CACHE_TTL_MS });
-    return rawItems;
+    const items = new Map<string, ToolKitItem>();
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let expectedItems = 0;
+    for (let page = 0; page < MAX_TOOLKIT_PAGES; page += 1) {
+      controller.signal.throwIfAborted();
+      // core.toolkits.get() transforms to an array and discards next_cursor.
+      // The existing SDK client retains the same project credentials and pagination.
+      const response = await composio.getClient().toolkits.list({ limit: TOOLKIT_PAGE_LIMIT, ...(cursor ? { cursor } : {}) }, { signal: controller.signal, maxRetries: 0 });
+      controller.signal.throwIfAborted();
+      if (!response || !Array.isArray(response.items) || response.items.length > TOOLKIT_PAGE_LIMIT) throw invalidCatalogue();
+      if (response.total_items !== undefined) {
+        if (!Number.isSafeInteger(response.total_items) || response.total_items < 0) throw invalidCatalogue();
+        expectedItems = Math.max(expectedItems, response.total_items);
+      }
+      let normalized: ToolKitItem[];
+      try {
+        // Preserve the public core SDK's camelCase metadata/auth contract while
+        // retaining the low-level cursor outside its array-only transformation.
+        normalized = ToolKitListResponseSchema.parse(response.items.map(item => ({
+          name: item.name, slug: item.slug, isLocalToolkit: item.is_local_toolkit,
+          authSchemes: item.auth_schemes, composioManagedAuthSchemes: item.composio_managed_auth_schemes, noAuth: item.no_auth,
+          meta: { ...item.meta, categories: item.meta.categories?.map(category => ({ slug: category.id, name: category.name })),
+            createdAt: item.meta.created_at, updatedAt: item.meta.updated_at, description: item.meta.description, logo: item.meta.logo,
+            toolsCount: item.meta.tools_count, triggersCount: item.meta.triggers_count, appUrl: item.meta.app_url ?? undefined },
+        })));
+      } catch { throw invalidCatalogue(); }
+      for (const item of normalized) {
+        if (!item.slug.trim()) throw invalidCatalogue();
+        items.set(item.slug, item);
+      }
+      const next = response.next_cursor;
+      if (next === undefined || next === null || next === '') {
+        if (response.total_pages !== undefined && (!Number.isSafeInteger(response.total_pages) || response.total_pages < 0 || response.total_pages > page + 1)) throw invalidCatalogue();
+        if (expectedItems > items.size) throw invalidCatalogue();
+        const rawItems = [...items.values()];
+        console.log(`[Composio] Fetched ${rawItems.length} raw toolkits`);
+        rawToolkitCache.set(cacheKey, { data: rawItems, expires: now + CACHE_TTL_MS });
+        return rawItems;
+      }
+      if (typeof next !== 'string' || !next.trim() || next.length > MAX_TOOLKIT_CURSOR_LENGTH || /[\p{Cc}\p{Cf}]/u.test(next) || seen.has(next)) throw invalidCatalogue();
+      seen.add(next); cursor = next;
+    }
+    throw invalidCatalogue();
   } catch (error) {
-    console.error('[Composio] Failed to fetch raw toolkits', { operation: 'toolkits.get', errorType: error instanceof Error ? error.name : typeof error });
-    return [];
-  }
+    console.error('[Composio] Failed to fetch raw toolkits', { operation: 'toolkits.list', errorType: error instanceof Error ? error.name : typeof error });
+    const failure = error instanceof ComposioProviderError ? error : classifyComposioFailure({ error, timeout: controller.signal.aborted });
+    // Never return/cache a successful empty catalogue on a failed later page,
+    // and never expose an upstream response body through API error logging.
+    throw new ComposioProviderError('The Composio toolkit catalogue could not be fully loaded.', { code: failure.code, retryable: failure.retryable,
+      ...(failure.upstreamStatus !== undefined ? { upstreamStatus: failure.upstreamStatus } : {}),
+      ...(failure.retryAfterMs !== undefined ? { retryAfterMs: failure.retryAfterMs } : {}) });
+  } finally { clearTimeout(timer); }
+
 }
 
 export async function getAvailableToolkits(context: ResolvedComposioContext): Promise<ToolkitInfo[]> {
@@ -155,7 +207,10 @@ export async function getAvailableToolkits(context: ResolvedComposioContext): Pr
     return toolkits;
   } catch (error) {
     console.error('[Composio] Failed to fetch toolkits', { operation: 'toolkits.list', errorType: error instanceof Error ? error.name : typeof error });
-    return [];
+    const failure = error instanceof ComposioProviderError ? error : classifyComposioFailure({ error });
+    throw new ComposioProviderError('The Composio toolkit catalogue could not be fully loaded.', { code: failure.code, retryable: failure.retryable,
+      ...(failure.upstreamStatus !== undefined ? { upstreamStatus: failure.upstreamStatus } : {}),
+      ...(failure.retryAfterMs !== undefined ? { retryAfterMs: failure.retryAfterMs } : {}) });
   }
 }
 

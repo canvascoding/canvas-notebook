@@ -1,4 +1,5 @@
 import 'server-only';
+import { readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
 
 import type { AuthInfo, CallToolResult } from '@modelcontextprotocol/server';
 import { ExcalidrawApiInputError, excalidrawOperationFeedback, parseExcalidrawCreateInput,
@@ -85,7 +86,12 @@ export async function executeDirectMcpExcalidrawTool(id: DirectMcpExcalidrawTool
       result = excalidrawOperationFeedback(await applyExcalidrawChanges({ ...parseExcalidrawEditInput(raw),
         workspace: authority.workspace, actor: authority.actor, beforeApply }));
     }
-    return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result };
+    const targetUrl = new URL(result.documentUrl, 'https://canvas.invalid');
+    const targetPath = targetUrl.searchParams.get('path');
+    if (!targetPath) throw new Error('The Excalidraw result is missing its file target.');
+    const link = (await readDirectMcpFileLinks(authority.workspace.workspaceId, [targetPath])).get(targetPath)!;
+    const linked = { ...result, ...link, documentUrl: link.document_url };
+    return { content: [{ type: 'text', text: JSON.stringify(linked) }], structuredContent: linked };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) return directMcpToolAuthorizationError(error, scope);
     const response = excalidrawRouteError(error);

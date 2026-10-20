@@ -1,5 +1,6 @@
 import type { Bot, Context } from 'grammy';
 import path from 'node:path';
+import { telegramInboundClientMessageId } from './message-identity';
 import { saveUploadBuffer } from '@/app/lib/filesystem/upload-handler';
 import { getUserUploadsRoot } from '@/app/lib/runtime-data-paths';
 import { getBinding } from './link-token';
@@ -44,6 +45,7 @@ type TelegramInboundDelivery = {
   userMessage: string;
   messageId?: number;
   messageIds?: number[];
+  mediaGroupId?: string;
   uploads: SavedTelegramUpload[];
   transcriptions: TelegramTranscription[];
 };
@@ -211,6 +213,7 @@ async function deliverTelegramInbound({
   userMessage,
   messageId,
   messageIds,
+  mediaGroupId,
   uploads,
   transcriptions,
 }: TelegramInboundDelivery): Promise<void> {
@@ -226,6 +229,7 @@ async function deliverTelegramInbound({
     channelId: TELEGRAM_CHANNEL_ID,
     channelSessionKey: telegramChannelSessionKey(chatId),
     userId,
+    clientMessageId: telegramInboundClientMessageId(String(bot.botInfo.id), chatId, messageId, mediaGroupId),
     text: messageText,
     ...(uploads.some((upload) => upload.image) ? { images: uploads.flatMap((upload) => upload.image ? [upload.image] : []) } : {}),
     metadata: {
@@ -505,6 +509,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
         userMessage,
         messageId: ctx.message.message_id,
         messageIds: [ctx.message.message_id],
+        mediaGroupId,
         uploads,
         transcriptions,
       };

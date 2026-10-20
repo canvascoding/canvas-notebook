@@ -13,7 +13,7 @@ export async function GET(request: Request, context: { params: Promise<{ connect
 }
 export async function POST(request: Request, context: { params: Promise<{ connectionRef: string }> }) {
   try {
-    const input = z.object({ ...sharedMcpRevisionSchema, returnLocale: z.enum(['de', 'en']).optional(), desktop: z.boolean().optional() })
+    const input = z.object({ ...sharedMcpRevisionSchema, returnLocale: z.enum(['de', 'en']).optional(), catalogReturnPath: z.string().min(1).max(4096).optional(), desktop: z.boolean().optional() })
       .strict().parse(await sharedMcpRequestJson(request));
     if (input.desktop === true) {
       const initiator = await sharedMcpRequestDesktopInitiator(request); if (initiator instanceof NextResponse) return initiator;
@@ -28,7 +28,7 @@ export async function POST(request: Request, context: { params: Promise<{ connec
     }
     const actor = await sharedMcpRequestActor(request); if (actor instanceof NextResponse) return actor;
     return sharedMcpResponse(await startSharedMcpOAuth(actor, (await context.params).connectionRef, sharedMcpRevisions(input), new URL(request.url).origin,
-      { returnLocale: input.returnLocale }));
+      { returnLocale: input.returnLocale, catalogReturnPath: input.catalogReturnPath }));
   } catch (error) {
     const response = sharedMcpResponseError(error); response.headers.set('Cache-Control', 'no-store'); return response;
   }

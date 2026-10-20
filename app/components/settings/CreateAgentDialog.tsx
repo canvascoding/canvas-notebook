@@ -1,24 +1,23 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench } from 'lucide-react';
+import { Brain, ChevronDown, FileText, Loader2, Menu, Sparkles, Wrench } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentFormSection } from '@/app/components/agents/AgentFormSection';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
+import { AgentExtensionEditor, clearAgentExtensionEditorDraft, type AgentExtensionEditorContext } from '@/app/components/agents/AgentExtensionEditor';
+import { readAgentFormDraft, writeAgentFormDraft, clearAgentFormDraft,
+  type AgentFormDraftFields } from '@/app/components/agents/agent-form-draft-storage';
+import { resolveAgentFormToolDraft, toggleAgentFormToolDraft, toggleAgentFormToolsDraft } from '@/app/components/agents/agent-profile-edit-client';
+import type { AgentExtensionConfigurationInput } from '@/app/lib/capabilities/extensions/contracts';
 import {
   fetchAgentFormJson,
   getExplicitEnabledToolsFromConfig,
 } from '@/app/components/agents/agent-form-client';
 import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
-import {
-  AgentConnectionsPicker,
-  AgentPluginsPicker,
-  AgentRelevantSkillsPicker,
-  type AgentPluginSelection,
-} from './AgentCapabilityPickers';
 import {
   AgentCatalogModelOverrideEditor,
   initialAgentCatalogSelection,
@@ -28,15 +27,8 @@ import {
 import { readAdminRuntimeCatalog } from './ai-runtime/catalog-client';
 import { AgentToolsEditor, type ToolMetadata } from './AgentToolsCard';
 import type { AiAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/types';
-import { type AgentIconId } from '@/app/lib/agents/icons';
+import { normalizeAgentIconId, type AgentIconId } from '@/app/lib/agents/icons';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import {
-  disableToolInConfig,
-  enableToolInConfig,
-  getDefaultEnabledToolNames,
-  isDefaultToolsConfig,
-  resolveEnabledToolNames,
-} from '@/app/lib/pi/enabled-tools';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Button } from '@/components/ui/button';
 import {
@@ -59,7 +51,7 @@ type CreateAgentTemplate = {
   id: CreateAgentTemplateId;
   iconId: AgentIconId;
   files: Partial<Record<ManagedFileName, string>>;
-  relevantSkills: string[];
+  suggestedSkillNames: string[];
 };
 
 const EMPTY_FILE_DRAFTS: Record<ManagedFileName, string> = {
@@ -74,7 +66,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'custom',
     iconId: 'bot',
-    relevantSkills: [],
+    suggestedSkillNames: [],
     files: {
       'AGENTS.md': 'You are a focused Canvas Notebook agent. Clarify the goal, work step by step, and keep outputs practical.',
       'MEMORY.md': 'No agent-specific memory yet.',
@@ -85,7 +77,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'research',
     iconId: 'search',
-    relevantSkills: ['youtube-transcript'],
+    suggestedSkillNames: ['youtube-transcript'],
     files: {
       'AGENTS.md': 'You are a research agent. Gather reliable context, compare sources, and return concise findings with clear next steps.',
       'MEMORY.md': 'Track durable research preferences, source choices, and recurring topics here.',
@@ -96,7 +88,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'coding',
     iconId: 'code',
-    relevantSkills: ['context7-mcp', 'code-structure'],
+    suggestedSkillNames: ['context7-mcp', 'code-structure'],
     files: {
       'AGENTS.md': 'You are a coding agent. Read the relevant code first, make scoped changes, and verify with focused tests.',
       'MEMORY.md': 'Remember repo conventions, architectural decisions, and recurring implementation preferences.',
@@ -107,7 +99,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'marketing',
     iconId: 'briefcase',
-    relevantSkills: ['frontend-design'],
+    suggestedSkillNames: ['frontend-design'],
     files: {
       'AGENTS.md': 'You are a marketing agent. Turn messy goals into concrete campaign, positioning, and content outputs.',
       'MEMORY.md': 'Keep brand, audience, offer, and channel preferences here.',
@@ -118,7 +110,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'studio',
     iconId: 'palette',
-    relevantSkills: ['imagegen'],
+    suggestedSkillNames: ['imagegen'],
     files: {
       'AGENTS.md': 'You are a studio agent. Help create, refine, and organize visual production work.',
       'MEMORY.md': 'Track visual style, product details, recurring prompts, and output preferences.',
@@ -129,7 +121,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'automation',
     iconId: 'calendar',
-    relevantSkills: [],
+    suggestedSkillNames: [],
     files: {
       'AGENTS.md': 'You are an automation agent. Convert repeated work into reliable scheduled or triggered workflows.',
       'MEMORY.md': 'Remember recurring schedules, delivery preferences, and automation constraints.',
@@ -140,7 +132,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
   {
     id: 'support',
     iconId: 'messages',
-    relevantSkills: [],
+    suggestedSkillNames: [],
     files: {
       'AGENTS.md': 'You are a support agent. Diagnose issues from user context, ask only necessary questions, and provide actionable fixes.',
       'MEMORY.md': 'Remember product context, repeated incidents, and escalation preferences.',
@@ -161,9 +153,7 @@ export type CreateAgentInput = {
   expectedCatalogRevision?: number;
   files: Partial<Record<ManagedFileName, string>>;
   enabledTools: string[] | null;
-  relevantSkills: string[] | null;
-  relevantConnections: string[] | null;
-  capabilities: Array<{ resourceType: 'plugin'; resourceId: string; name: string }> | null;
+  extensions: AgentExtensionConfigurationInput;
 };
 
 export type CreatedAgent = {
@@ -178,6 +168,7 @@ type CreateAgentDialogProps = {
   creating: boolean;
   error: string | null;
   canManageAgentDefaults: boolean;
+  context?: AgentExtensionEditorContext;
   onOpenChange: (open: boolean) => void;
   onCreate: (input: CreateAgentInput) => Promise<CreatedAgent | null>;
 };
@@ -225,52 +216,109 @@ function TemplateList({ selectedTemplate, onSelectTemplate, compact = false }: T
   );
 }
 
-export function CreateAgentDialog({
+/** Changing the actor or workspace starts an independent, empty creation draft. */
+export function CreateAgentDialog(props: CreateAgentDialogProps) {
+  const key = JSON.stringify([props.context?.actorId ?? null, props.context?.workspaceId ?? null,
+    props.context?.organizationId ?? null, props.context?.projectId ?? null, props.open]);
+  return <CreateAgentDialogSession key={key} {...props} />;
+}
+
+function emptyExtensionConfiguration(): AgentExtensionConfigurationInput {
+  return { version: 1, origin: 'agent_configuration', mode: 'fixed', selections: [], workflow: null, standalone: [] };
+}
+
+function readCreateFormDraft(context: AgentExtensionEditorContext, canManageAgentDefaults: boolean):
+  { scopeType: 'user' | 'organization'; fields: AgentFormDraftFields } | null {
+  const scopes: Array<'user' | 'organization'> = canManageAgentDefaults ? ['user', 'organization'] : ['user'];
+  const available = scopes.flatMap(scopeType => {
+    const draft = readAgentFormDraft({ ...context, target: { kind: 'prospective', scopeType } });
+    return draft.state === 'ready' ? [{ scopeType, fields: draft.fields, savedAt: draft.savedAt }] : [];
+  }).sort((left, right) => right.savedAt - left.savedAt);
+  return available[0] ?? null;
+}
+
+function CreateAgentDialogSession({
   open,
   creating,
   error,
   canManageAgentDefaults,
+  context,
   onOpenChange,
   onCreate,
 }: CreateAgentDialogProps) {
   const t = useTranslations('settings.agentPanel.createDialog');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<CreateAgentTemplateId>('custom');
-  const [name, setName] = useState('');
-  const [iconId, setIconId] = useState<AgentIconId>('bot');
-  const [scopeType, setScopeType] = useState<'user' | 'organization'>('user');
+  const editorContext = useMemo<AgentExtensionEditorContext>(() => ({ workspaceId: context?.workspaceId ?? null,
+    actorId: context?.actorId ?? null, organizationId: context?.organizationId ?? null, projectId: context?.projectId ?? null }),
+  [context?.actorId, context?.organizationId, context?.projectId, context?.workspaceId]);
+  const [initialFormDraft] = useState(() => readCreateFormDraft(editorContext, canManageAgentDefaults));
+  const [selectedTemplateId, setSelectedTemplateId] = useState<CreateAgentTemplateId>(() =>
+    AGENT_TEMPLATES.find(template => template.id === initialFormDraft?.fields.selectedTemplateId)?.id ?? 'custom');
+  const [name, setName] = useState(initialFormDraft?.fields.name ?? '');
+  const [iconId, setIconId] = useState<AgentIconId>(() => normalizeAgentIconId(initialFormDraft?.fields.iconId));
+  const [scopeType, setScopeType] = useState<'user' | 'organization'>(initialFormDraft?.scopeType ?? 'user');
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
-  const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>(() => mergeFileDrafts(AGENT_TEMPLATES[0]));
+  const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>(() => ({
+    ...mergeFileDrafts(AGENT_TEMPLATES.find(template => template.id === initialFormDraft?.fields.selectedTemplateId) ?? AGENT_TEMPLATES[0]),
+    ...initialFormDraft?.fields.fileDrafts,
+  }));
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [skillsOverrideEnabled, setSkillsOverrideEnabled] = useState(false);
-  const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
-  const [selectedPlugins, setSelectedPlugins] = useState<AgentPluginSelection[]>([]);
-  const [pluginsOverrideEnabled, setPluginsOverrideEnabled] = useState(false);
-  const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
-  const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
-  const [modelOpen, setModelOpen] = useState(true);
+  const [extensionDraft, setExtensionDraft] = useState<{ intent: 'keep' | 'replace'; configuration: AgentExtensionConfigurationInput | null }>(
+    () => ({ intent: 'replace', configuration: emptyExtensionConfiguration() }));
+  const [extensionValidation, setExtensionValidation] = useState<{ key: string; pending: boolean; blocked: boolean } | null>(null);
+  const [modelOverrideEnabled, setModelOverrideEnabled] = useState(initialFormDraft?.fields.modelOverrideEnabled ?? false);
+  const [modelOpen, setModelOpen] = useState(initialFormDraft?.fields.modelOverrideEnabled ?? false);
   const [modelCatalog, setModelCatalog] = useState<AiAppRuntimeCatalog | null>(null);
-  const [modelDraft, setModelDraft] = useState<AgentCatalogModelSelection | null>(null);
+  const [modelDraft, setModelDraft] = useState<AgentCatalogModelSelection | null>(initialFormDraft?.fields.modelDraft ?? null);
   const [modelLoading, setModelLoading] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
+  const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(initialFormDraft?.fields.toolsOverrideEnabled ?? false);
+  const [toolsOpen, setToolsOpen] = useState(initialFormDraft?.fields.toolsOverrideEnabled ?? false);
   const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
   const [inheritedEnabledTools, setInheritedEnabledTools] = useState<string[] | null>(null);
-  const [customEnabledTools, setCustomEnabledTools] = useState<string[] | null>(null);
+  const [customEnabledTools, setCustomEnabledTools] = useState<string[] | null>(initialFormDraft?.fields.customEnabledTools ?? null);
   const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  const [filesOpen, setFilesOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [createdAgent, setCreatedAgent] = useState<CreatedAgent | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const submissionRef = useRef(false);
+  const draftSettledRef = useRef(false);
+  const mountedRef = useRef(true);
+  const modelRequestRef = useRef(0);
+  const toolsRequestRef = useRef(0);
   const modelLoadRequestedRef = useRef(false);
   const toolsLoadRequestedRef = useRef(false);
+  const formDraftScope = useMemo(() => ({ ...editorContext, target: { kind: 'prospective' as const, scopeType } }), [editorContext, scopeType]);
+  const usesModelOverride = canManageAgentDefaults && modelOverrideEnabled;
+  const previewModel = useMemo(() => ({
+    defaultProviderInstallationId: usesModelOverride ? modelDraft?.providerInstallationId ?? null : null,
+    defaultProvider: usesModelOverride ? modelDraft?.providerId ?? null : null,
+    defaultModel: usesModelOverride ? modelDraft?.modelId ?? null : null,
+    defaultThinking: usesModelOverride ? modelDraft?.thinkingLevel ?? null : null,
+    ...(usesModelOverride ? { expectedCatalogRevision: modelCatalog?.revision } : {}),
+  }), [modelCatalog?.revision, modelDraft, usesModelOverride]);
+  const extensionTools = toolsOverrideEnabled ? customEnabledTools ?? [] : null;
+  const validationKey = JSON.stringify([scopeType, extensionDraft, extensionTools, previewModel]);
+  const handleExtensionValidation = useCallback((validation: { pending: boolean; blocked: boolean }) => {
+    if (mountedRef.current) setExtensionValidation({ key: validationKey, pending: validation.pending, blocked: validation.blocked });
+  }, [validationKey]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; modelRequestRef.current += 1; toolsRequestRef.current += 1; };
+  }, []);
+
+  useEffect(() => {
+    if (!open || createdAgent || draftSettledRef.current) return;
+    writeAgentFormDraft(formDraftScope, { name, iconId, selectedTemplateId, fileDrafts,
+      modelOverrideEnabled, modelDraft, toolsOverrideEnabled, customEnabledTools });
+  }, [createdAgent, customEnabledTools, fileDrafts, formDraftScope, iconId, modelDraft, modelOverrideEnabled,
+    name, open, selectedTemplateId, toolsOverrideEnabled]);
 
   const selectedTemplate = useMemo(
     () => AGENT_TEMPLATES.find((template) => template.id === selectedTemplateId) || AGENT_TEMPLATES[0],
@@ -300,37 +348,47 @@ export function CreateAgentDialog({
   }, [activeToolGroups, availableTools, toolSearchQuery]);
 
   const loadToolOptions = useCallback(async () => {
+    const request = ++toolsRequestRef.current;
+    const isCurrent = () => mountedRef.current && toolsRequestRef.current === request;
     setToolsLoading(true);
     setToolsError(null);
     try {
+      const query = new URLSearchParams({ agentId: DEFAULT_AGENT_ID });
+      for (const [key, value] of [['workspaceId', editorContext.workspaceId], ['organizationId', editorContext.organizationId], ['projectId', editorContext.projectId]] as const) {
+        if (value) query.set(key, value);
+      }
       const toolsPayload = await fetchAgentFormJson<{
         tools: ToolMetadata[];
         config: { enabledTools: string[] };
-      }>(`/api/agents/tools?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`);
+      }>(`/api/agents/tools?${query}`);
+      if (!isCurrent()) return;
       const nextTools = toolsPayload.tools || [];
       const nextEnabledTools = toolsPayload.config?.enabledTools ?? [];
       setAvailableTools(nextTools);
       setInheritedEnabledTools(nextEnabledTools);
       setCustomEnabledTools((current) => current ?? getExplicitEnabledToolsFromConfig(nextTools, nextEnabledTools));
     } catch (loadError) {
-      setToolsError(loadError instanceof Error ? loadError.message : t('tools.loadError'));
+      if (isCurrent()) setToolsError(loadError instanceof Error ? loadError.message : t('tools.loadError'));
     } finally {
-      setToolsLoading(false);
+      if (isCurrent()) setToolsLoading(false);
     }
-  }, [t]);
+  }, [editorContext, t]);
 
   const loadModelOptions = useCallback(async () => {
     if (!canManageAgentDefaults) return;
+    const request = ++modelRequestRef.current;
+    const isCurrent = () => mountedRef.current && modelRequestRef.current === request;
     setModelLoading(true);
     setModelError(null);
     try {
       const payload = await readAdminRuntimeCatalog();
+      if (!isCurrent()) return;
       setModelCatalog(payload.catalog);
       setModelDraft((current) => initialAgentCatalogSelection(payload.catalog, current));
     } catch (loadError) {
-      setModelError(loadError instanceof Error ? loadError.message : t('model.loadError'));
+      if (isCurrent()) setModelError(loadError instanceof Error ? loadError.message : t('model.loadError'));
     } finally {
-      setModelLoading(false);
+      if (isCurrent()) setModelLoading(false);
     }
   }, [canManageAgentDefaults, t]);
 
@@ -358,20 +416,9 @@ export function CreateAgentDialog({
     };
   }, [availableTools, customEnabledTools, inheritedEnabledTools, toolsOverrideEnabled]);
 
-  useEffect(() => {
-    if (scopeType !== 'organization') return;
-    queueMicrotask(() => {
-      setSelectedPlugins((current) => current.filter((plugin) => plugin.scopeType !== 'user'));
-    });
-  }, [scopeType]);
-
   const isCreateToolEnabled = useCallback((toolName: string): boolean => {
     const allNames = availableTools.map((tool) => tool.name);
-    const enabledTools = customEnabledTools ?? [];
-    if (isDefaultToolsConfig(enabledTools)) {
-      return getDefaultEnabledToolNames(allNames).has(toolName);
-    }
-    return resolveEnabledToolNames(allNames, enabledTools).has(toolName);
+    return resolveAgentFormToolDraft(allNames, customEnabledTools).has(toolName);
   }, [availableTools, customEnabledTools]);
 
   const saveCreateToolsConfig = useCallback((nextEnabledTools: string[]) => {
@@ -381,30 +428,18 @@ export function CreateAgentDialog({
   const handleToolToggle = useCallback((toolName: string, enabled: boolean) => {
     const currentEnabled = customEnabledTools ?? [];
     const allNames = availableTools.map((tool) => tool.name);
-    saveCreateToolsConfig(
-      enabled
-        ? enableToolInConfig(toolName, currentEnabled, allNames)
-        : disableToolInConfig(toolName, currentEnabled, allNames),
-    );
+    saveCreateToolsConfig(toggleAgentFormToolDraft(toolName, enabled, currentEnabled, allNames));
   }, [availableTools, customEnabledTools, saveCreateToolsConfig]);
 
   const handleEnableAllTools = useCallback(() => {
     const allNames = availableTools.map((tool) => tool.name);
-    let newEnabledTools = customEnabledTools ?? [];
-    for (const tool of filteredTools) {
-      if (tool.availability?.available === false) continue;
-      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    saveCreateToolsConfig(newEnabledTools);
+    saveCreateToolsConfig(toggleAgentFormToolsDraft(filteredTools.filter(tool => tool.availability?.available !== false)
+      .map(tool => tool.name), true, customEnabledTools ?? [], allNames));
   }, [availableTools, customEnabledTools, filteredTools, saveCreateToolsConfig]);
 
   const handleDisableAllTools = useCallback(() => {
     const allNames = availableTools.map((tool) => tool.name);
-    let newEnabledTools = customEnabledTools ?? [];
-    for (const tool of filteredTools) {
-      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    saveCreateToolsConfig(newEnabledTools);
+    saveCreateToolsConfig(toggleAgentFormToolsDraft(filteredTools.map(tool => tool.name), false, customEnabledTools ?? [], allNames));
   }, [availableTools, customEnabledTools, filteredTools, saveCreateToolsConfig]);
 
   const toggleToolGroup = useCallback((group: string) => {
@@ -422,23 +457,16 @@ export function CreateAgentDialog({
     setIconId(template.iconId);
     setFileDrafts(mergeFileDrafts(template));
     setActiveFile('AGENTS.md');
-    setSelectedSkills(template.relevantSkills);
-    setSkillsOverrideEnabled(template.relevantSkills.length > 0);
-    setSkillsOpen(template.relevantSkills.length > 0);
     setTemplatePickerOpen(false);
   }, [t]);
 
   const resetDialog = useCallback(() => {
     applyTemplate(AGENT_TEMPLATES[0]);
-    setSelectedConnections([]);
-    setSelectedPlugins([]);
-    setPluginsOverrideEnabled(false);
-    setPluginsOpen(false);
+    setExtensionDraft({ intent: 'replace', configuration: emptyExtensionConfiguration() });
+    setExtensionValidation(null);
     setScopeType('user');
-    setConnectionsOverrideEnabled(false);
-    setConnectionsOpen(false);
     setModelOverrideEnabled(false);
-    setModelOpen(true);
+    setModelOpen(false);
     setModelCatalog(null);
     setModelDraft(null);
     setModelError(null);
@@ -448,23 +476,40 @@ export function CreateAgentDialog({
     setOpenToolRows({});
     setToolSearchQuery('');
     setActiveToolGroups(new Set());
-    setSkillsOpen(false);
-    setFilesOpen(true);
+    setFilesOpen(false);
     setCreatedAgent(null);
+    setSubmitError(null);
     modelLoadRequestedRef.current = false;
     toolsLoadRequestedRef.current = false;
   }, [applyTemplate]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
-    if (!nextOpen) {
-      resetDialog();
-    }
+    if (creating || submissionRef.current) return;
     onOpenChange(nextOpen);
-  }, [onOpenChange, resetDialog]);
+  }, [creating, onOpenChange]);
 
-  const usesModelOverride = canManageAgentDefaults && modelOverrideEnabled;
+  const discardDraft = () => {
+    if (creating || submissionRef.current) return;
+    draftSettledRef.current = true;
+    clearAgentFormDraft(formDraftScope);
+    clearAgentExtensionEditorDraft(editorContext, formDraftScope.target);
+    resetDialog();
+    onOpenChange(false);
+  };
+
+  const changeScope = (next: 'user' | 'organization') => {
+    if (creating || submissionRef.current || next === scopeType || next === 'organization' && !canManageAgentDefaults) return;
+    clearAgentFormDraft(formDraftScope);
+    clearAgentExtensionEditorDraft(editorContext, formDraftScope.target);
+    setScopeType(next);
+    setExtensionDraft({ intent: 'replace', configuration: emptyExtensionConfiguration() });
+    setExtensionValidation(null);
+  };
   const canCreate = name.trim().length > 0
     && !creating
+    && !submitting
+    && extensionDraft.intent === 'replace' && extensionDraft.configuration !== null
+    && extensionValidation?.key === validationKey && !extensionValidation.pending && !extensionValidation.blocked
     && !(usesModelOverride && (
       modelLoading
       || Boolean(modelError)
@@ -473,8 +518,12 @@ export function CreateAgentDialog({
     && !(toolsOverrideEnabled && (toolsLoading || customEnabledTools === null));
 
   async function submit() {
-    if (!canCreate) return;
-    const agent = await onCreate({
+    if (!canCreate || submissionRef.current || extensionDraft.configuration === null) return;
+    submissionRef.current = true;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const agent = await onCreate({
       name: name.trim(),
       iconId,
       scopeType,
@@ -487,13 +536,20 @@ export function CreateAgentDialog({
         CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, fileDrafts[fileName] || '']),
       ) as Partial<Record<ManagedFileName, string>>,
       enabledTools: toolsOverrideEnabled ? customEnabledTools ?? [] : null,
-      relevantSkills: skillsOverrideEnabled ? selectedSkills : null,
-      relevantConnections: connectionsOverrideEnabled ? selectedConnections : null,
-      capabilities: pluginsOverrideEnabled
-        ? selectedPlugins.map(({ resourceType, resourceId, name }) => ({ resourceType, resourceId, name }))
-        : null,
+      extensions: structuredClone(extensionDraft.configuration),
     });
-    if (agent) setCreatedAgent(agent);
+      if (agent) {
+        draftSettledRef.current = true;
+        clearAgentFormDraft(formDraftScope);
+        clearAgentExtensionEditorDraft(editorContext, formDraftScope.target);
+        if (mountedRef.current) setCreatedAgent(agent);
+      }
+    } catch (failure) {
+      if (mountedRef.current) setSubmitError(failure instanceof Error ? failure.message : t('description'));
+    } finally {
+      submissionRef.current = false;
+      if (mountedRef.current) setSubmitting(false);
+    }
   }
 
   return (
@@ -605,7 +661,8 @@ export function CreateAgentDialog({
                           <div className="grid gap-2 sm:grid-cols-2">
                             <button
                               type="button"
-                              onClick={() => setScopeType('user')}
+                              onClick={() => changeScope('user')}
+                              disabled={creating || submitting}
                               aria-pressed={scopeType === 'user'}
                               className={cn(
                                 'rounded-md border px-3 py-2 text-left text-sm transition-colors',
@@ -617,9 +674,9 @@ export function CreateAgentDialog({
                             </button>
                             <button
                               type="button"
-                              onClick={() => canManageAgentDefaults && setScopeType('organization')}
+                              onClick={() => changeScope('organization')}
                               aria-pressed={scopeType === 'organization'}
-                              disabled={!canManageAgentDefaults}
+                              disabled={!canManageAgentDefaults || creating || submitting}
                               className={cn(
                                 'rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                                 scopeType === 'organization' ? 'border-primary bg-primary/5' : 'hover:bg-muted/40',
@@ -636,6 +693,23 @@ export function CreateAgentDialog({
                     </div>
                   </section>
 
+                  <AgentExtensionEditor
+                    key={scopeType}
+                    context={editorContext}
+                    target={{ kind: 'prospective', scopeType }}
+                    value={extensionDraft}
+                    onChange={setExtensionDraft}
+                    enabledTools={extensionTools}
+                    model={previewModel}
+                    disabled={creating || submitting}
+                    onValidationChange={handleExtensionValidation}
+                    suggestedSkillNames={selectedTemplate.suggestedSkillNames}
+                  />
+
+                  <details className="min-w-0 rounded-md border bg-muted/10" data-testid="create-agent-advanced"
+                    open={Boolean(initialFormDraft?.fields.modelOverrideEnabled || initialFormDraft?.fields.toolsOverrideEnabled)}>
+                    <summary className="cursor-pointer px-3 py-3 text-sm font-medium sm:px-4">{t('advanced')}</summary>
+                    <div className="min-w-0 space-y-4 border-t p-3 sm:p-4">
                   {canManageAgentDefaults ? (
                     <AgentFormSection
                       title={t('model.title')}
@@ -708,56 +782,6 @@ export function CreateAgentDialog({
                   </AgentFormSection>
 
                   <AgentFormSection
-                    title={t('connections.title')}
-                    description={t('connections.description')}
-                    icon={Plug}
-                    open={connectionsOpen}
-                    onOpenChange={setConnectionsOpen}
-                    enabled={connectionsOverrideEnabled}
-                    onEnabledChange={setConnectionsOverrideEnabled}
-                  >
-                    <AgentConnectionsPicker
-                      enabled={connectionsOverrideEnabled}
-                      selectedConnectionIds={selectedConnections}
-                      onSelectedConnectionIdsChange={setSelectedConnections}
-                      pageSize={6}
-                    />
-                  </AgentFormSection>
-
-                  <AgentFormSection
-                    title={t('plugins.title')}
-                    description={t('plugins.description')}
-                    icon={Sparkles}
-                    open={pluginsOpen}
-                    onOpenChange={setPluginsOpen}
-                    enabled={pluginsOverrideEnabled}
-                    onEnabledChange={setPluginsOverrideEnabled}
-                  >
-                    <AgentPluginsPicker
-                      enabled={pluginsOverrideEnabled}
-                      organizationOnly={scopeType === 'organization'}
-                      selectedPlugins={selectedPlugins}
-                      onSelectedPluginsChange={setSelectedPlugins}
-                    />
-                  </AgentFormSection>
-
-                  <AgentFormSection
-                    title={t('skills.title')}
-                    description={t('skills.description')}
-                    icon={Search}
-                    open={skillsOpen}
-                    onOpenChange={setSkillsOpen}
-                    enabled={skillsOverrideEnabled}
-                    onEnabledChange={setSkillsOverrideEnabled}
-                  >
-                    <AgentRelevantSkillsPicker
-                      enabled={skillsOverrideEnabled}
-                      selectedSkillNames={selectedSkills}
-                      onSelectedSkillNamesChange={setSelectedSkills}
-                    />
-                  </AgentFormSection>
-
-                  <AgentFormSection
                     title={t('files.title')}
                     description={t('files.description')}
                     icon={FileText}
@@ -779,19 +803,24 @@ export function CreateAgentDialog({
                       />
                     </div>
                   </AgentFormSection>
+                    </div>
+                  </details>
 
-                  {error && <p className="text-sm text-destructive">{error}</p>}
+                  {(error || submitError) && <p role="alert" className="text-sm text-destructive">{error || submitError}</p>}
                 </div>
               </ScrollArea>
             </div>
 
             <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={creating} className="w-full sm:w-auto">
+              <Button type="button" variant="ghost" onClick={discardDraft} disabled={creating || submitting} className="w-full sm:mr-auto sm:w-auto">
+                {t('discardDraft')}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={creating || submitting} className="w-full sm:w-auto">
                 {t('cancel')}
               </Button>
               <Button type="button" onClick={() => void submit()} disabled={!canCreate} className="w-full sm:w-auto">
-                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
-                {creating ? t('creating') : t('create')}
+                {creating || submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                {creating || submitting ? t('creating') : t('create')}
               </Button>
             </DialogFooter>
           </div>

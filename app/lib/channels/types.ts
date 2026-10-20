@@ -1,3 +1,5 @@
+import type { ChatMessageSubmissionOptions } from '@/app/lib/chat/message-submission';
+
 export type ChannelId = 'app' | 'telegram' | string;
 
 export interface ChannelPlugin {
@@ -29,7 +31,7 @@ export interface ChannelStartContext {
   onInboundMessage: (message: InboundMessage) => Promise<void>;
 }
 
-export interface InboundMessage {
+export interface InboundMessage extends ChatMessageSubmissionOptions {
   channelId: ChannelId;
   channelSessionKey: string;
   channelThreadKey?: string;
@@ -41,7 +43,7 @@ export interface InboundMessage {
   userId: string;
   text: string;
   images?: Array<{ data: string; mimeType: string }>;
-  contentParts?: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }>;
+  contentParts?: Array<{ type: 'text'; text: string; textSignature?: string } | { type: 'image'; data: string; mimeType: string }>;
   replyToMessageId?: string;
   metadata?: Record<string, unknown>;
 }

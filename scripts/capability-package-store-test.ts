@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, lstat, chmod, readdir } from '
 import os from 'node:os';
 import path from 'node:path';
 import type { CapabilityResourceActor, CapabilityResourceStorageBinding } from '../app/lib/capabilities/resources/contracts';
-import type { AuthorizedCapabilityPackageSource, CapabilityPackageDraft, CapabilityPackageDraftCreation, CapabilityPackageValidation } from '../app/lib/capabilities/packages/contracts';
+import type { AuthorizedCapabilityPackageSource, CapabilityPackageDraft, CapabilityPackageSourceDraftCreation, CapabilityPackageValidation } from '../app/lib/capabilities/packages/contracts';
 import { createPiTestDatabase } from './helpers/pi-test-database';
 
 async function main() {
@@ -49,7 +49,7 @@ async function main() {
       return {authorization,storage:binding,sourceStamp:{resourceId:binding.resourceId,kind:'skill',name:binding.name,version:'1.0.0',artifactRevision:1,registryChecksum:'legacy-registry',checksum:inventory.checksum,sourcePluginId:null},
         location:{rootPath:packageRoot,resourceRef:ref,owner,kind:'skill',name:binding.name},readOnly:false};
     };
-    const edit = (resourceRef=ref):CapabilityPackageDraftCreation => ({operation:'edit',resourceRef,expectedMetadataRevision:1,expectedGrantsRevision:1,expectedPackageRevision:0,expectedPublishedRevisionRef:null});
+    const edit = (resourceRef=ref):Extract<CapabilityPackageSourceDraftCreation,{operation:'edit'}> => ({operation:'edit',resourceRef,expectedMetadataRevision:1,expectedGrantsRevision:1,expectedPackageRevision:0,expectedPublishedRevisionRef:null});
     const location = (draft:CapabilityPackageDraft) => io.resolveCapabilityPackageDraftLocation({draftRef:draft.draftRef,resourceRef:draft.resourceRef,
       kind:draft.kind,name:draft.name,actorUserId:draft.actorUserId,draftRevision:draft.draftRevision,owner});
     const capturedSource=await source(editor);
@@ -80,6 +80,7 @@ async function main() {
         if(failure) throw new Error('fixture-registry-failure');
       });
       successfulSnapshotPath=snapshot.location.rootPath;
+      assert(draft.baseSourceStamp, 'An edit retains its captured source observation.');
       return {snapshot,sourceStamp:{...draft.baseSourceStamp,version:validation.version!,artifactRevision:2,registryChecksum:inventory.checksum,checksum:inventory.checksum}};
     });
     await assert.rejects(()=>publish(true),/fixture-registry-failure/u);
@@ -111,7 +112,7 @@ async function main() {
     const target=await resources.authorizeCapabilityPackageTarget(manager,targetBinding,targetOwnership);
     assert.equal(await resources.findCapabilityResourceRecord(targetBinding.resourceId),null,'A target receipt never exposes an uninstalled resource.');
     const ownerSource=await source(actor); ownerSource.sourceStamp=result.state.currentSourceStamp;
-    const forkCreation:CapabilityPackageDraftCreation={operation:'fork',resourceRef:ref,targetName:targetBinding.name,ownership:{type:'team',workspaceId:'team'},expectedSourceMetadataRevision:1,expectedSourceGrantsRevision:2,expectedSourcePackageRevision:1,expectedSourcePublishedRevisionRef:result.published.revisionRef};
+    const forkCreation:CapabilityPackageSourceDraftCreation={operation:'fork',resourceRef:ref,targetName:targetBinding.name,ownership:{type:'team',workspaceId:'team'},expectedSourceMetadataRevision:1,expectedSourceGrantsRevision:2,expectedSourcePackageRevision:1,expectedSourcePublishedRevisionRef:result.published.revisionRef};
     // Manager needs source read separately; target management never grants foreign source access.
     await assert.rejects(()=>store.beginCapabilityPackageDraft(manager,forkCreation,{source:ownerSource,target},async()=>undefined),{code:'PACKAGE_ACCESS_DENIED'});
     await resources.mutateCapabilityResource(actor,ref,{expectedMetadataRevision:1,expectedGrantsRevision:2,grants:[{targetType:'user',targetId:'manager',canUse:true,canEdit:false,canManage:false}]});

@@ -37,6 +37,19 @@ async function main() {
     await assert.rejects(() => waitForMcpAuthorization(normal, new AbortController().signal, () => undefined), { code: 'authorization_cancelled' });
     assert.equal(readPendingMcpAuthorizations().length, 0, 'an old token cannot make a cancelled new login succeed');
 
+    popup.closed = false;
+    const exactId = 'server-connection-7', exactState = 'i'.repeat(32);
+    setFetch((_url, _body) => ({ success: true, data: { server: 'duplicate-label (account 2)', state: exactState, authorizationUrl } }));
+    const exact = await startMcpAuthorization(exactId);
+    assert.equal(requests.at(-1)?.body.server, exactId, 'authorize submits the selected actual connection ID');
+    assert.equal(exact.server, 'duplicate-label (account 2)', 'polling uses the server identity confirmed by the authorized backend');
+    setFetch(() => ({ success: true, data: { oauth: [
+      { serverName: 'duplicate-label', authorized: true, lastCompletedState: exactState },
+      { serverName: 'duplicate-label (account 2)', authorized: true, lastCompletedState: exactState },
+    ] } }));
+    await waitForMcpAuthorization(exact, new AbortController().signal, () => undefined);
+    assert.equal(readPendingMcpAuthorizations().length, 0, 'the exact selected connection completes rather than polling its opaque ID indefinitely');
+
     globals.window = { open, canvasDesktop: {} };
     const previousOpens = opens;
     await assert.rejects(() => startMcpAuthorization('remote'), { code: 'desktop_update_required' });

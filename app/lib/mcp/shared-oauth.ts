@@ -28,12 +28,13 @@ function backendId(record: IntegrationConnectionRecord): string {
 
 export async function startSharedMcpOAuth(actor: IntegrationConnectionActor, connectionRef: string,
   expected: IntegrationConnectionRevisions, origin: string,
-  options: { returnLocale?: 'de' | 'en'; desktop?: { authSessionId: string };
+  options: { returnLocale?: 'de' | 'en'; catalogReturnPath?: string; desktop?: { authSessionId: string };
     onCreated?: (created: Awaited<ReturnType<typeof startMcpOAuth>>) => Promise<void> } = {}): Promise<Awaited<ReturnType<typeof startMcpOAuth>>> {
+  if (options.catalogReturnPath !== undefined && (options.returnLocale === undefined || options.desktop)) throw new IntegrationConnectionError('CONNECTION_OAUTH_RETURN_INVALID', 'A catalog return requires a browser locale.', 400);
   if (options.onCreated && !options.desktop) throw new IntegrationConnectionError('CONNECTION_REQUEST_INVALID', 'A native locator requires its original session.', 400);
   return withAuthorizedIntegrationConnection(actor, connectionRef, 'manage', structuredClone(expected), async (authorization, database) => {
     const returnContext = options.returnLocale === undefined ? undefined
-      : createSharedConnectionOAuthReturn(authorization.resource, authorization.actor, options.returnLocale);
+      : createSharedConnectionOAuthReturn(authorization.resource, authorization.actor, options.returnLocale, options.catalogReturnPath);
     const initiator = options.desktop ? { actor: authorization.actor, authSessionId: options.desktop.authSessionId } : undefined;
     if (initiator) await assertSharedMcpDesktopOAuthSession(database, initiator);
     const result = await startMcpOAuth(backendId(authorization), origin, sharedMcpScope(authorization), initiator ? {

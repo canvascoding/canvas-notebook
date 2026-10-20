@@ -1,6 +1,8 @@
 import 'server-only';
 
 import path from 'node:path';
+import { readDirectMcpFileLinks } from '@/app/lib/mcp/server/file-links';
+import { formatWorkspaceTreePage, readWorkspaceTreePage, WorkspaceTreeError } from '@/app/lib/files/workspace-tree';
 
 import {
   ProtocolError,
@@ -82,7 +84,6 @@ import {
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
 import {
-  buildDirectMcpDocumentUrl,
   buildDirectMcpReviewUrl,
   createDirectMcpEditIdentity,
   parseDirectMcpEditIdempotencyKey,
@@ -265,14 +266,6 @@ function toIsoDate(value: number | undefined): string | null {
     : null;
 }
 
-function toTreeEntry(node: FileNode): WorkspaceTreeEntry {
-  return {
-    path: node.path,
-    type: node.type,
-    size: typeof node.size === 'number' ? node.size : null,
-    modified_at: toIsoDate(node.modified),
-  };
-}
 
 function securitySchemes(scope: DirectMcpResourceScope) {
   return [{ type: 'oauth2' as const, scopes: [scope] }];
@@ -351,14 +344,15 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
     return {
       name: tool,
       title: 'Browse workspace files',
-      description: 'Lists visible files and folders in an accessible workspace. Hidden paths are never returned.',
+      description: 'Returns a bounded workspace tree preview as text and structured entries. Use path to expand a child folder at any depth; max_depth is relative to path (0 lists direct children). Use next_cursor with the same workspace_id, path and max_depth to fetch later entries. Directory children_state distinguishes complete, pending, depth_limited and unavailable; unloaded folders are never empty. Hidden paths are never returned.',
       inputSchema: {
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string', description: 'Workspace ID from list_workspaces.' },
           path: { type: 'string', description: 'Optional workspace-relative starting path. Defaults to the workspace root.' },
-          max_depth: { type: 'integer', minimum: 0, maximum: MAX_TREE_DEPTH, description: 'Maximum folder depth. Defaults to 2.' },
+          max_depth: { type: 'integer', minimum: 0, maximum: MAX_TREE_DEPTH, description: 'Relative folder expansion depth: 0 lists direct children. Defaults to 2.' },
           max_entries: { type: 'integer', minimum: 1, maximum: MAX_TREE_ENTRIES, description: 'Maximum returned files and folders. Defaults to 200.' },
+          cursor: { type: 'string', maxLength: 20000, description: 'Opaque next_cursor from the previous page. Keep workspace_id, path and max_depth unchanged.' },
         },
         required: ['workspace_id'],
         additionalProperties: false,
@@ -368,6 +362,13 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         properties: {
           entries: { type: 'array', items: { type: 'object' } },
           truncated: { type: 'boolean' },
+          workspace_id: { type: 'string' },
+          path: { type: 'string' },
+          max_depth: { type: 'integer' },
+          directories: { type: 'array', items: { type: 'object' } },
+          truncated_by_depth: { type: 'boolean' },
+          has_more: { type: 'boolean' },
+          next_cursor: { type: ['string', 'null'] },
         },
         required: ['entries', 'truncated'],
         additionalProperties: false,
@@ -456,6 +457,8 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
           proposal_lifecycle: { type: ['string', 'null'] },
           review_url: { type: ['string', 'null'] },
           document_url: { type: 'string' },
+          document_id: { type: ['string', 'null'] },
+          lineage_id: { type: ['string', 'null'] },
           idempotency_key: { type: 'string' },
           message: { type: 'string' },
           size: { type: 'integer' },
@@ -464,7 +467,7 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         required: ['workspace_id', 'path', 'changed', 'status', 'review_required', 'authoritative_updated',
           'requires_user_action', 'before_sha256', 'after_sha256', 'current_sha256', 'proposed_sha256',
           'operation_id', 'proposal_id', 'proposal_lifecycle', 'review_url', 'document_url', 'idempotency_key',
-          'message', 'size', 'modified_at'],
+          'message', 'size', 'modified_at', 'document_id', 'lineage_id'],
         additionalProperties: false,
       },
       annotations: {
@@ -501,6 +504,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         type: 'object' as const,
         properties: {
           workspace_id: { type: 'string' },
+          document_url: { type: 'string' },
+          document_id: { type: ['string', 'null'] },
+          lineage_id: { type: ['string', 'null'] },
           path: { type: 'string' },
           type: { type: 'string', enum: ['image', 'pdf'] },
           mime_type: { type: 'string' },
@@ -558,6 +564,9 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
         properties: {
           operation: { type: 'string', enum: ['begin', 'chunk', 'complete', 'abort'] },
           workspace_id: { type: 'string' },
+          document_url: { type: 'string' },
+          document_id: { type: ['string', 'null'] },
+          lineage_id: { type: ['string', 'null'] },
           path: { type: 'string' },
           upload_id: { type: 'string' },
           next_offset: { type: 'integer' },
@@ -604,6 +613,12 @@ export function getDirectMcpWorkspaceToolDescriptor(tool: WorkspaceToolName): Di
       type: 'object' as const,
       properties: {
         path: { type: 'string' },
+        workspace_id: { type: 'string' },
+        document_url: { type: 'string' },
+        document_id: { type: ['string', 'null'] },
+        lineage_id: { type: ['string', 'null'] },
+        size: { type: 'integer' },
+        modified_at: { type: ['string', 'null'] },
         content: { type: 'string' },
         sha256: { type: 'string' },
         source: { type: 'string' },
@@ -729,41 +744,10 @@ async function listBoundedWorkspaceTree(input: {
   maxDepth: number;
   maxEntries: number;
 }): Promise<{ entries: WorkspaceTreeEntry[]; truncated: boolean }> {
-  const entries: WorkspaceTreeEntry[] = [];
-  const pending = [{ path: input.path, depth: 0 }];
-  let truncated = false;
-
-  while (pending.length > 0) {
-    const current = pending.shift();
-    if (!current) break;
-    const children = await listDirectory(current.path, {
-      workspace: input.workspace,
-      includeMetadata: true,
-      includeSymlinks: false,
-    });
-    const visibleChildren = children
-      .filter(isVisibleWorkspaceNode)
-      .sort((left, right) => (
-        left.type === right.type
-          ? left.name.localeCompare(right.name)
-          : left.type === 'directory' ? -1 : 1
-      ));
-
-    for (const child of visibleChildren) {
-      if (entries.length >= input.maxEntries) {
-        truncated = true;
-        break;
-      }
-      entries.push(toTreeEntry(child));
-      if (child.type === 'directory' && current.depth < input.maxDepth) {
-        pending.push({ path: child.path, depth: current.depth + 1 });
-      }
-    }
-    if (truncated) break;
-  }
-
-  if (pending.length > 0) truncated = true;
-  return { entries, truncated };
+  return readWorkspaceTreePage({
+    workspaceId: input.workspace.workspaceId, rootPath: input.workspace.rootPath,
+    path: input.path, maxDepth: input.maxDepth, maxEntries: input.maxEntries,
+  });
 }
 
 function isLikelyBinary(pathValue: string, content?: Buffer): boolean {
@@ -789,7 +773,8 @@ function matchingExcerpt(content: string, query: string): string | null {
 
 function result(content: Record<string, unknown>, text: string): CallToolResult {
   return {
-    content: [{ type: 'text', text }],
+    content: [{ type: 'text', text: typeof content.document_url === 'string'
+      ? `${text}\nOpen file: ${content.document_url}` : text }],
     structuredContent: content,
   };
 }
@@ -805,7 +790,8 @@ function assetResult(
   structuredContent: Record<string, unknown>,
   content: CallToolResult['content'],
 ): CallToolResult {
-  return { content, structuredContent };
+  return { content: typeof structuredContent.document_url === 'string'
+    ? [...content, { type: 'text', text: `Open file: ${structuredContent.document_url}` }] : content, structuredContent };
 }
 
 async function auditWorkspaceToolCall(input: {
@@ -939,22 +925,25 @@ async function executeListKnowledgeTree(
   assertVisibleWorkspacePath(startPath);
   const maxDepth = optionalInteger(parsed, 'max_depth', DEFAULT_TREE_DEPTH, 0, MAX_TREE_DEPTH);
   const maxEntries = optionalInteger(parsed, 'max_entries', DEFAULT_TREE_ENTRIES, 1, MAX_TREE_ENTRIES);
+  const cursor = optionalString(parsed, 'cursor', '', 20000) || null;
   const authorization = await authenticateForTool(authInfo, 'knowledge:tree');
   if ('result' in authorization) return authorization.result;
 
   try {
     const workspace = await readableWorkspace(authorization.principal, workspaceId);
-    const tree = await listBoundedWorkspaceTree({
-      workspace,
+    const tree = await readWorkspaceTreePage({
+      workspaceId: workspace.workspaceId, rootPath: workspace.rootPath,
       path: startPath,
       maxDepth,
       maxEntries,
+      cursor,
     });
+    const links = await readDirectMcpFileLinks(workspace.workspaceId, tree.entries.filter(entry => entry.type === 'file').map(entry => entry.path));
+    const entries = tree.entries.map(entry => ({ ...entry, ...links.get(entry.path) }));
     const structuredContent = {
       workspace_id: workspace.workspaceId,
-      path: startPath,
-      entries: tree.entries,
-      truncated: tree.truncated,
+      ...tree,
+      entries,
     };
     await auditWorkspaceToolCall({
       principal: authorization.principal,
@@ -962,8 +951,11 @@ async function executeListKnowledgeTree(
       workspace,
       resultCount: tree.entries.length,
     });
-    return result(structuredContent, `${tree.entries.length} workspace file(s) and folder(s) found.`);
-  } catch {
+    return result(structuredContent, [formatWorkspaceTreePage(tree), ...[...links].map(([path, link]) => `${JSON.stringify(path)}: ${link.document_url}`)].join('\n'));
+  } catch (error) {
+    if (error instanceof WorkspaceTreeError) return { isError: true,
+      content: [{ type: 'text', text: `${error.code}: ${error.message}` }],
+      structuredContent: { code: error.code, message: error.message } };
     return errorResult('Could not browse the Canvas workspace.');
   }
 }
@@ -1016,10 +1008,12 @@ async function executeSearchKnowledge(
       });
     }
 
+    const links = await readDirectMcpFileLinks(workspace.workspaceId, results.map(entry => entry.path));
+    const linkedResults = results.map(entry => ({ ...entry, ...links.get(entry.path) }));
     const structuredContent = {
       workspace_id: workspace.workspaceId,
       query,
-      results,
+      results: linkedResults,
       truncated,
     };
     await auditWorkspaceToolCall({
@@ -1028,7 +1022,7 @@ async function executeSearchKnowledge(
       workspace,
       resultCount: results.length,
     });
-    return result(structuredContent, `${results.length} matching workspace document(s) found.`);
+    return result(structuredContent, [`${results.length} matching workspace document(s) found.`, ...linkedResults.map(entry => `${JSON.stringify(entry.path)}: ${entry.document_url}`)].join('\n'));
   } catch {
     return errorResult('Could not search the Canvas workspace.');
   }
@@ -1075,7 +1069,9 @@ async function executeReadKnowledgeSource(
     }
     const content = text.content.slice(offset, offset + maxCharacters);
     const nextOffset = offset + content.length < text.content.length ? offset + content.length : null;
+    const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [filePath])).get(filePath)!;
     const structuredContent = {
+      ...fileLink,
       workspace_id: workspace.workspaceId,
       path: filePath,
       content,
@@ -1169,7 +1165,9 @@ async function executeReadKnowledgeAsset(
       },
     });
     const sha256 = sha256Buffer(buffer);
+    const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [filePath])).get(filePath)!;
     const structuredContent = {
+      ...fileLink,
       workspace_id: workspace.workspaceId,
       path: filePath,
       type: asset.kind.type,
@@ -1320,7 +1318,9 @@ async function executeUploadKnowledgeAsset(
         workspace,
         uploadId,
       });
+      const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [upload.path])).get(upload.path)!;
       const structuredContent = {
+        ...fileLink,
         operation: uploadOperation,
         workspace_id: workspace.workspaceId,
         path: upload.path,
@@ -1432,7 +1432,6 @@ async function executeEditKnowledgeSource(
       userId: authorization.principal.userId,
       idempotencyKey: suppliedIdempotencyKey,
     });
-    const documentUrl = buildDirectMcpDocumentUrl({ workspaceId: workspace.workspaceId });
     const stats = await getFileStats(filePath, { workspace });
     if (!stats.isFile) return errorResult('The requested path is a folder, not a file.');
     if (stats.size > MAX_READ_FILE_BYTES) {
@@ -1448,6 +1447,8 @@ async function executeEditKnowledgeSource(
       buffer,
       principal: authorization.principal,
     });
+    const fileLink = (await readDirectMcpFileLinks(workspace.workspaceId, [filePath])).get(filePath)!;
+    const documentUrl = fileLink.document_url;
     const authorityForSnapshot = (snapshot: { documentId: string; lifecycleGeneration: number }) =>
       createDirectMcpEditAuthority({
         token: authInfo!.token,
@@ -1567,7 +1568,7 @@ async function executeEditKnowledgeSource(
         proposal_id: proposal.node.proposalId,
         proposal_lifecycle: proposal.node.lifecycle,
         review_url: reviewUrl,
-        document_url: documentUrl,
+        ...fileLink,
         idempotency_key: editIdentity.publicIdempotencyKey,
         message,
         size: Buffer.byteLength(current.content, 'utf8'),
@@ -1657,7 +1658,7 @@ async function executeEditKnowledgeSource(
           proposal_id: null,
           proposal_lifecycle: null,
           review_url: reviewRequired ? documentUrl : null,
-          document_url: documentUrl,
+          ...fileLink,
           idempotency_key: editIdentity.publicIdempotencyKey,
           message,
           size: Buffer.byteLength(after.content, 'utf8'),
@@ -1718,7 +1719,7 @@ async function executeEditKnowledgeSource(
         proposal_id: null,
         proposal_lifecycle: null,
         review_url: null,
-        document_url: documentUrl,
+        ...fileLink,
         idempotency_key: editIdentity.publicIdempotencyKey,
         message,
         size: Buffer.byteLength(current.content, 'utf8'),
@@ -1841,7 +1842,7 @@ async function executeEditKnowledgeSource(
         proposal_id: null,
         proposal_lifecycle: null,
         review_url: reviewRequired ? documentUrl : null,
-        document_url: documentUrl,
+        ...fileLink,
         idempotency_key: editIdentity.publicIdempotencyKey,
         message,
         size: Buffer.byteLength(after.content, 'utf8'),
@@ -1924,7 +1925,7 @@ async function executeEditKnowledgeSource(
       proposal_id: null,
       proposal_lifecycle: null,
       review_url: null,
-      document_url: documentUrl,
+      ...fileLink,
       idempotency_key: editIdentity.publicIdempotencyKey,
       message,
       size: afterBuffer.length,

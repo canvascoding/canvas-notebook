@@ -41,4 +41,19 @@ Die Gesamtabnahme deckte zusätzlich eine fehlerhafte Abhängigkeitsregel auf: E
 
 Die abschließende GitNexus-Prüfung der letzten Korrektur umfasst zwölf erwartete Symbole in fünf Code-/Testdateien, Risiko niedrig. Der gesamte Auftrag seit `a9b89776a` ist wegen seiner zentralen Export-/Importwege als hoch eingestuft; die neun gemeldeten Zugriffsabläufe sind durch die Berechtigungs- und Transferfälle abgedeckt. Der Vergleich mit dem inzwischen weiterentwickelten lokalen `main` umfasst zusätzlich fremde Änderungen und ist kein isolierter Änderungsumfang dieses Auftrags.
 
-ZIPs, private Rohprotokolle und Screenshots liegen außerhalb des Repositories unter `~/.local/state/canvas-local-team-seat/export-migration-99b4`. In Git stehen ausschließlich Testlogik und dieser bereinigte Bericht. Der eigene Testserver ist beendet; 48 Quell- und eine Ziel-Test-Sitzung wurden zum Abschluss ausschließlich in den beiden isolierten Datenbanken widerrufen.
+ZIPs, private Rohprotokolle und die ursprünglichen Screenshots liegen außerhalb des Repositories unter `~/.local/state/canvas-local-team-seat/export-migration-99b4`. Der eigene Testserver ist beendet; 48 Quell- und eine Ziel-Test-Sitzung wurden zum Abschluss dieser Abnahme ausschließlich in den beiden isolierten Datenbanken widerrufen.
+
+## Nachprüfung für den Pull Request
+
+Die Integrationsbasis wurde auf `origin/main` bei `1506927038b80036749266a56fb769dcb6e6d18c` aktualisiert. Die drei Konflikte betrafen generierte Lizenzübersichten; diese wurden aus dem zusammengeführten Lockfile neu erzeugt, ohne Release-Blocker.
+
+- `npm run build` bestanden, einschließlich vollständiger Release-Typprüfung und Prüfung der produktiven Kollaborationsmodule.
+- Dateisuche-Regressionen, gezielte Typprüfung und ESLint bestanden.
+- Alle 20 End-to-End-Fälle erneut bestanden: keine übersprungenen Fälle, keine Wiederholungen und keine Runner-Fehler; Laufzeit 4 Minuten 50 Sekunden.
+- Der erneute PostgreSQL-Transfer prüfte 133 Tabellen mit 126.317 Datensätzen, alle 230 Dateien und neun binäre native Dokumentzustände. Die Unterschiede zur ersten Abnahme entstehen durch zusätzliche Testdokumente und Prüfereignisse in der isolierten Quelle.
+- GitNexus-Auswirkungsanalyse für 100 Produktionsfunktionen: 96 niedrig, vier mittel; keine ungeklärte Zuordnung. Der Gesamtumfang bleibt wegen der zentralen Export-/Importwege hoch. Die neun betroffenen Zugriffsabläufe sind durch die Berechtigungs- und Transferfälle abgedeckt.
+- Der eigene Testserver wurde wieder beendet; vier Quell- und eine Ziel-Test-Sitzung wurden widerrufen. Private Archive und Rohprotokolle bleiben außerhalb von Git.
+
+Für den Pull Request wurde ausschließlich die folgende visuell geprüfte, zugangsdatenfreie UI-Abbildung übernommen:
+
+![Importbeleg nach dem vollständigen PostgreSQL-Transfer bei 390 px](postgres-restored-mobile.png)

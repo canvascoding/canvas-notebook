@@ -47,6 +47,7 @@ async function main() {
     access: { canRead: true, canUse: true, canEdit: false, canManage: false }, artifact: { resourceType: 'skill', resourceId: 'legacy-update', scopeType: 'organization',
       name: 'off-page-skill', version: '1.0.0', revision: 2, sourceType: 'standalone', sourcePluginId: null }, ownershipLabel: 'Design team',
     people: { responsible: { userId: 'PRIVATE_RESPONSIBLE_ID', name: 'Designer' } },
+    icon: { url: '/api/capabilities/packages/canvas-resource%3Aoff-page-update/icon?workspaceId=design', sourceKey: 'canvas-resource:off-page-update:2' },
     storeState: { origin: 'verified', localChanges: 'modified', upstream: 'update-available' } };
   const store: CapabilityPackageStoreListResponse = { schemaVersion: 1, selection: { ...current.selection, installedState: 'all' }, scopes: current.scopes,
     stores: ['plugin', 'skill'].map((kind, index) => ({ kind: kind as 'plugin' | 'skill', registry: { id: `registry-${kind}`, name: 'Store', updatedAt: 'today' }, availability: 'available',
@@ -81,10 +82,17 @@ async function main() {
 
     render(wrapped(<PluginWorkspaceLists {...props} store={store} view="updates" />));
     assert(screen.getByText('Off-page skill')); assert(screen.getByText('Responsible: Designer'));
+    assert.equal(screen.getByTestId('plugin-extension-avatar-image').getAttribute('src'), safeUpdate.icon?.url);
+    fireEvent.error(screen.getByTestId('plugin-extension-avatar-image'));
+    assert.equal(screen.getByTestId('plugin-extension-avatar-initials').textContent, 'OP');
     fireEvent.click(screen.getByRole('button', { name: 'Open Off-page skill' }));
     assert.equal(opened.at(-1)?.resourceRef, safeUpdate.metadata.resourceRef);
     assert.equal(opened.at(-1)?.ownership.type, 'team'); assert.deepEqual(opened.at(-1)?.people?.responsible, { name: 'Designer' });
     assert.equal(pluginWorkspaceUpdateItem(safeUpdate, current).revision, 2);
+    assert.deepEqual(pluginWorkspaceUpdateItem(safeUpdate, current).icon, safeUpdate.icon, 'Off-page updates use their exact current image metadata.');
+    const staleIcon = { url: 'https://logos.test/stale.svg', sourceKey: 'stale-version' };
+    const staleCatalog = catalog([{ ...own, resourceRef: safeUpdate.metadata.resourceRef, icon: staleIcon }]);
+    assert.equal(pluginWorkspaceUpdateItem({ ...safeUpdate, icon: undefined }, staleCatalog).icon, undefined, 'Unavailable current update images never borrow another catalog revision.');
     assert(!document.body.textContent?.includes('PRIVATE_RESPONSIBLE_ID'));
     assert(screen.getByText('1 updates confirmed · 1 locally modified · 33 unknown'));
     cleanup();

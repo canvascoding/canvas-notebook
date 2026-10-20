@@ -16,6 +16,7 @@ import {
 } from './mcp-file-ingest-e2e-helpers.ts';
 
 const exec = promisify(execFile);
+const treeLinksOnly = process.env.CANVAS_MCP_TREE_LINKS_ONLY === '1';
 const cwd = process.cwd();
 await fs.access(path.join(cwd, '.next/BUILD_ID')).catch(() => {
   throw new Error('Run npm run build before E2E: the current checkout has no production .next/BUILD_ID.');
@@ -23,7 +24,8 @@ await fs.access(path.join(cwd, '.next/BUILD_ID')).catch(() => {
 const runId = randomUUID();
 const envFile = process.env.CANVAS_ENV_FILE || path.join(os.homedir(), '.local/state/canvas-local-team-seat/notebook-host-dev.env');
 const localEnv = parse(await fs.readFile(envFile));
-const port = 3000;
+const port = Number(process.env.CANVAS_MCP_E2E_PORT || 3000);
+assert.ok(Number.isSafeInteger(port) && port >= 1024 && port <= 65535, 'A valid owned host port is required.');
 const baseURL = `http://127.0.0.1:${port}`;
 const artifactDirectory = path.join(cwd, 'artifacts', 'mcp-file-ingest-e2e', runId);
 const isolatedDatabase = `canvas_mcp_file_e2e_${runId.replaceAll('-', '')}`;
@@ -37,7 +39,7 @@ assert.ok(localEnv.BOOTSTRAP_ADMIN_EMAIL && localEnv.BOOTSTRAP_ADMIN_PASSWORD,
   'Private managed bootstrap credentials must be configured.');
 await new Promise((resolve, reject) => {
   const probe = net.createServer();
-  probe.once('error', () => reject(new Error('Port 3000 is occupied; its process was preserved.')));
+  probe.once('error', () => reject(new Error(`Port ${port} is occupied; its process was preserved.`)));
   probe.listen(port, '127.0.0.1', () => probe.close(resolve));
 });
 // Inventory is read-only. The runner never builds, stops or starts a container.
@@ -52,6 +54,7 @@ assert.ok(stackNames.every(name => ['canvas-local-prod-postgres', 'canvas-local-
 
 const tools = ['auth_probe', 'list_workspaces', 'list_knowledge_tree', 'read_knowledge_source',
   'read_knowledge_asset', 'create_knowledge_source', 'import_knowledge_file', 'upload_knowledge_asset'];
+if (treeLinksOnly) tools.push('edit_knowledge_source', 'search_knowledge', 'create_excalidraw_scene', 'get_excalidraw_scene', 'edit_excalidraw_scene');
 const isolatedData = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mcp-file-e2e-'));
 await fs.chmod(isolatedData, 0o700);
 await fs.mkdir(artifactDirectory, { recursive: true, mode: 0o700 });
@@ -92,7 +95,8 @@ const report = { runId, startedAt, passed: false, evidence: {
   runtime: 'current checkout production build, owned host, disposable database on existing managed PostgreSQL',
   oauth: 'real Better Auth login, public registration, browser consent, authorization code and PKCE',
   hostAttachment: 'real HTTPS import adapter using immutable primary public fixture; actual ChatGPT file-reference mediation is outside this test',
-  originalByteCases: 'source-only original Markdown is checked in the real editor; BOM/CRLF originals are covered by focused validation/storage tests',
+  originalByteCases: treeLinksOnly ? 'original HTTPS import identity is verified; byte/parser coverage remains in focused import tests'
+    : 'source-only original Markdown is checked in the real editor; BOM/CRLF originals are covered by focused validation/storage tests',
   containersBuilt: false, traceRecorded: false, videoRecorded: false,
 }, steps, receipts };
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -245,7 +249,7 @@ try {
     const session = await requireIngestE2EJson(await owner.request.get('/api/auth/get-session'), 'Validate bootstrap session');
     assert.ok(session.user?.id, 'The authenticated session must identify the real bootstrap user.');
     await requireIngestE2EJson(await owner.request.patch('/api/admin/experimental-settings', {
-      data: { documentReviewEnabled: true }, timeout: 90_000,
+      data: { documentReviewEnabled: !treeLinksOnly }, timeout: 90_000,
     }), 'Enable real history surfaces in disposable instance');
     const settings = await requireIngestE2EJson(await owner.request.patch('/api/integrations/mcp-server', {
       data: { enabled: true, tools }, timeout: 90_000,
@@ -277,6 +281,11 @@ try {
     assert.ok(allowed.workspaces.some(item => item.workspace_id === workspace.id || item.id === workspace.id));
     assert.ok(!allowed.workspaces.some(item => item.workspace_id === deniedWorkspace.id || item.id === deniedWorkspace.id));
   });
+  if (treeLinksOnly) {
+    const { runMcpTreeLinksE2E } = await import('./mcp-tree-links-e2e.mjs');
+    await runMcpTreeLinksE2E({ owner, browser, mcp, workspace, deniedWorkspace, baseURL, physical, step,
+      runId, artifactDirectory, fixtureDatabase, email: env.BOOTSTRAP_ADMIN_EMAIL, password: env.BOOTSTRAP_ADMIN_PASSWORD });
+  } else {
   await step('run existing Office path, lease, create/write/upload and workspace binding regression against real PostgreSQL', async () => {
     const artifact = path.join(artifactDirectory, 'office-path-alias-regression.log');
     try {
@@ -569,6 +578,7 @@ try {
     assert.match(rejected.structuredContent.authentication_challenge, /invalid_token/u);
     await noFile(filePath);
   });
+  }
   report.passed = true;
 } catch (error) {
   report.error = safeDiagnostic(error.message);

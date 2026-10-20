@@ -1,13 +1,20 @@
 import 'server-only';
 
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
-import { getAuthorizedAgentWorkflowPackageSelections, isAuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
-import { IntegrationContractError, type IntegrationExecutionContext, type IntegrationPolicy, type IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
-import { authorizeIntegrationConnection } from '@/app/lib/integration-tools/connections/store';
+import { getAuthorizedAgentWorkflowPackageSelections, isAuthorizedAgentWorkflowPackageSelections,
+  type AuthorizedAgentWorkflowPackageSelections } from '@/app/lib/capabilities/packages/runtime-bindings';
+import { IntegrationContractError, type IntegrationExecutionContext, type IntegrationPolicy,
+  type IntegrationProviderDescriptor, type IntegrationProviderToolRule } from '@/app/lib/integration-tools/contracts';
+import { authorizeIntegrationConnection, lockIntegrationConnectionBindingsOnConnection,
+  revalidateIntegrationConnectionRuntimeSourceOnConnection } from '@/app/lib/integration-tools/connections/store';
+import type { AuthorizedIntegrationConnection } from '@/app/lib/integration-tools/connections/contracts';
+import type { SqlConnection } from '@/app/lib/db';
+import { readAgentWorkflowSharedSourceMetadata } from './workflow-source-metadata';
 import { createSharedIntegrationProviderRef, findSharedIntegrationConnectionAuthorization } from '@/app/lib/integration-tools/connections/provider-authorization';
 import { createSharedIntegrationPolicyDescriptor } from '@/app/lib/integration-tools/connections/provider-policy';
 import { integrationPolicyAllowedToolNames, isIntegrationProviderOperationAllowed, isIntegrationProviderVisible } from '@/app/lib/integration-tools/policy';
 import { attachPersonalWorkflowProviderTargets, verifyStoredPersonalWorkflowProviderTarget, getPreparedPersonalWorkflowProviderTarget,
+  revalidatePreparedPersonalWorkflowMetadataOnConnection,
   type PreparedPersonalWorkflowProviderTarget } from '@/app/lib/integration-tools/workflow-personal-bindings';
 import { getAttachedPersonalWorkflowProviderDescriptor } from '@/app/lib/integration-tools/workflow-personal-provenance';
 import { schemaFingerprint } from '@/app/lib/integration-tools/schema';
@@ -16,14 +23,63 @@ import { getSelectedAgentWorkflowCapability } from './workflow-configuration';
 import { agentWorkflowRuntimeActor, getRuntimeAgentWorkflowMode } from './workflow-runtime-mode';
 import { agentWorkflowCapabilityKey, type StoredAgentWorkflowTarget } from './workflow-contracts';
 import type { WorkflowIntegrationAlternative } from '@/app/lib/capabilities/workflow-contracts';
+import { resolveAgentStandaloneRuntimeProviders, type AgentStandaloneRuntimeSelection } from '@/app/lib/capabilities/extensions/standalone-runtime';
+import { readAcceptedTurnRuntimeSelection, type HeldAcceptedTurnRuntimeSelection } from '@/app/lib/capabilities/extensions/turn-runtime';
+import { extensionSelectionIdentity, type StandaloneExtensionSelection } from '@/app/lib/capabilities/extensions/contracts';
+import { resolveTurnPackageCapabilitySelections, turnPackageCapabilityKey,
+  type TurnPackageCapability } from '@/app/lib/capabilities/extensions/turn-package-bindings';
 
 const OPERATIONS = ['list_providers', 'search_providers', 'list_tools', 'search_tools', 'describe', 'call'] as const;
 type RequiredProviderTools = { source: 'mcp' | 'composio'; providerRef: string; names: readonly string[] };
-export type AgentWorkflowRuntimeProjection = Readonly<{ policy: IntegrationPolicy; revision: string }>;
+type RequiredProvider = { source: 'mcp' | 'composio'; providerRef: string };
+export type AgentWorkflowRuntimeProjection = Readonly<{ policy: IntegrationPolicy; revision: string;
+  selectedProviders: readonly IntegrationProviderDescriptor[];
+  standaloneSelections: readonly AgentStandaloneRuntimeSelection[]; unavailable: boolean }>;
 type ProjectionProof = { actorKey: string; prepared: readonly PreparedPersonalWorkflowProviderTarget[];
-  requiredTools: readonly RequiredProviderTools[]; associations: readonly WorkflowProviderAssociation[]; unavailable: boolean };
+  admissionPrepared: readonly PreparedPersonalWorkflowProviderTarget[];
+  admissionNamespace: string; turnSource: AgentExecutionContext['turnExtensionSource'];
+  selection: AuthorizedAgentWorkflowPackageSelections;
+  shared: readonly { authorization: AuthorizedIntegrationConnection; metadata: string }[];
+  requiredTools: readonly RequiredProviderTools[]; requiredProviders: readonly RequiredProvider[];
+  associations: readonly WorkflowProviderAssociation[]; unavailable: boolean };
 const host = globalThis as typeof globalThis & { __canvasAgentWorkflowRuntimeV1?: WeakMap<object, ProjectionProof> };
 const projections = host.__canvasAgentWorkflowRuntimeV1 ??= new WeakMap<object, ProjectionProof>();
+export type HeldAgentWorkflowPackageTurnFocus = Readonly<{ kind: 'workflow_package_turn_focus' }>;
+type PackageTurnFocus = { actorKey: string; selection: AuthorizedAgentWorkflowPackageSelections;
+  turnSource: HeldAcceptedTurnRuntimeSelection; identities: readonly string[] };
+const focusHost = globalThis as typeof globalThis & { __canvasAgentPackageTurnFocusV1?: WeakMap<object, PackageTurnFocus> };
+const packageTurnFocuses = focusHost.__canvasAgentPackageTurnFocusV1 ??= new WeakMap<object, PackageTurnFocus>();
+
+/** This decision can only narrow standalone processing; its issuer is private to actual package compilation. */
+export function readAgentWorkflowPackageTurnFocus(focus: HeldAgentWorkflowPackageTurnFocus,
+  context: AgentExecutionContext, selection: AuthorizedAgentWorkflowPackageSelections,
+  turnSource: HeldAcceptedTurnRuntimeSelection): readonly string[] {
+  const issued = packageTurnFocuses.get(focus);
+  if (!issued || issued.actorKey !== JSON.stringify([actorKey(context), context.agentTurnId, context.turnExtensions])
+    || issued.selection !== selection || issued.turnSource !== turnSource
+    || !isAuthorizedAgentWorkflowPackageSelections(selection, context)) return deny();
+  readAcceptedTurnRuntimeSelection(turnSource, context, selection);
+  return issued.identities;
+}
+
+function publicTargetIdentity(target: StoredAgentWorkflowTarget,
+  alternative: WorkflowIntegrationAlternative): string | null {
+  let selected: StandaloneExtensionSelection;
+  if (target.kind === 'shared') {
+    const current = { kind: 'shared' as const, connectionRef: target.connectionRef, bindingRevision: target.bindingRevision };
+    selected = alternative.source === 'mcp' ? { kind: 'mcp', source: 'mcp', target: current }
+      : { kind: 'composio', source: 'composio', toolkit: alternative.toolkit, target: current };
+  } else if (target.personalBinding?.source === 'mcp') {
+    selected = { kind: 'mcp', source: 'mcp', target: { kind: 'personal', connectionRef: `mcp-personal:${target.personalBinding.connectionId}` } };
+  } else if (target.personalBinding?.source === 'composio') {
+    const binding = target.personalBinding;
+    selected = { kind: 'composio', source: 'composio', toolkit: binding.toolkit, target: binding.accountBinding === 'no_auth'
+      ? { kind: 'personal', profileId: binding.profileId, accountBinding: 'no_auth' }
+      : { kind: 'personal', profileId: binding.profileId, accountBinding: 'account', accountId: binding.connectedAccountId!,
+        connectionRef: `composio-personal:${binding.profileId}:${binding.connectedAccountId}` } };
+  } else return null;
+  return extensionSelectionIdentity(selected);
+}
 
 function actorKey(context: AgentExecutionContext | IntegrationExecutionContext): string {
   return 'userId' in context
@@ -48,19 +104,31 @@ function exactAlternative(alternative: WorkflowIntegrationAlternative, target: S
 }
 
 /** Compile only current, private instance bindings. This performs no provider or tool discovery. */
-export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecutionContext): Promise<AgentWorkflowRuntimeProjection | null> {
-  if (await getRuntimeAgentWorkflowMode(context) === null) return null;
+export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecutionContext,
+  options: { packageSelection?: AuthorizedAgentWorkflowPackageSelections } = {}): Promise<AgentWorkflowRuntimeProjection | null> {
+  if (options.packageSelection && !isAuthorizedAgentWorkflowPackageSelections(options.packageSelection, context)) return deny();
+  const mode = await getRuntimeAgentWorkflowMode(context);
+  const packageTurn = context.turnExtensions?.selections.some(entry => entry.selection.kind === 'plugin' || entry.selection.kind === 'skill');
+  if (mode === null && !context.turnExtensionSource && !packageTurn) return null;
   const actor = agentWorkflowRuntimeActor(context);
-  const selection = await getAuthorizedAgentWorkflowPackageSelections(context);
+  const selection = options.packageSelection ?? await getAuthorizedAgentWorkflowPackageSelections(context);
   if (!isAuthorizedAgentWorkflowPackageSelections(selection, context)) return deny();
-  if (selection.workflowVersion === null) return null;
-  const chosen = selection.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities.map(capability => ({
+  const turn = context.turnExtensionSource ? readAcceptedTurnRuntimeSelection(context.turnExtensionSource, context, selection) : null;
+  let chosen: readonly TurnPackageCapability[] = selection.packages.flatMap(pkg => pkg.declarations.flatMap(declaration => declaration.capabilities.map(capability => ({
     pkg, declaration, capability, chosen: getSelectedAgentWorkflowCapability(selection.snapshot, pkg, declaration, capability),
   }))));
+  const turnCapabilities = await resolveTurnPackageCapabilitySelections(context, selection);
+  const turnBySlot = new Map(turnCapabilities.map(entry => [turnPackageCapabilityKey(entry), entry]));
+  chosen = [...chosen.filter(entry => !turnBySlot.has(turnPackageCapabilityKey(entry))), ...turnCapabilities];
   let unavailable = chosen.some(entry => entry.capability.required && !entry.chosen);
+  const requested = new Map((turn?.privateFixedBindings ?? []).map(binding => [extensionSelectionIdentity(binding.entry.selection), binding.entry]));
+  const handled = new Map<string, { providerRef: string; toolCap: readonly string[] | null; required: boolean }>();
   const rules = new Map<string, IntegrationProviderToolRule>();
+  const descriptors = new Map<string, IntegrationProviderDescriptor>();
   const prepared: PreparedPersonalWorkflowProviderTarget[] = [];
+  const shared: Array<{ authorization: AuthorizedIntegrationConnection; metadata: string }> = [];
   const requirements = new Map<string, RequiredProviderTools>();
+  const requiredProviders = new Map<string, RequiredProvider>();
   const associations = new Map<string, WorkflowProviderAssociation>();
   const authorityRevisions: unknown[] = [];
   // A missing mandatory selection closes the complete workflow before any provider inspection.
@@ -68,9 +136,25 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
     if (!entry.chosen) continue;
     const { target, toolCap, alternativeKey } = entry.chosen;
     const alternative = entry.capability.alternatives.find(item => `${item.source}:${item.source === 'mcp' ? item.connector : item.toolkit}` === alternativeKey);
+    const identity = alternative ? publicTargetIdentity(target, alternative) : null;
+    const focus = identity ? requested.get(identity) : undefined;
+    if (focus) {
+      const requestedTarget = focus.target;
+      // An invalid explicit focus is fatal even when the package dependency is
+      // optional. Check before adding a provider and outside its outage catch.
+      if (requestedTarget.kind !== target.kind || requestedTarget.source !== target.source
+        || target.kind === 'shared' && (requestedTarget.kind !== 'shared'
+          || requestedTarget.connectionRef !== target.connectionRef || requestedTarget.bindingRevision !== target.bindingRevision)
+        || target.kind === 'personal' && (requestedTarget.kind !== 'personal'
+          || requestedTarget.ownerUserId !== target.ownerUserId || requestedTarget.providerRef !== target.providerRef
+          || requestedTarget.boundProviderRef !== target.boundProviderRef || requestedTarget.bindingFingerprint !== target.bindingFingerprint
+          || JSON.stringify(requestedTarget.personalBinding) !== JSON.stringify(target.personalBinding))) return deny();
+    }
     try {
       if (!alternative || !exactAlternative(alternative, target)) return deny();
       let providerRef: string, permitted: readonly string[] | null = toolCap;
+      const metadataContext: IntegrationExecutionContext = { actorUserId: actor.userId, organizationId: context.organizationId,
+        workspaceId: context.workspaceId, agentId: context.agentId, sessionId: context.sessionId, policyRevision: 'agent-workflow-selection' };
       if (target.kind === 'shared') {
         const authorization = await authorizeIntegrationConnection({ userId: actor.userId, organizationId: actor.organizationId,
           workspaceId: actor.workspaceId, agentId: context.agentId, sessionId: context.sessionId, policyRevision: 'agent-workflow-selection' },
@@ -90,9 +174,12 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
             if (!definition?.enabled || definition.revision !== target.verifiedMcpMapping.definitionRevision) return deny();
           }
         }
+        const metadata = await readAgentWorkflowSharedSourceMetadata(authorization);
         providerRef = createSharedIntegrationProviderRef(authorization.resource);
+        descriptors.set(providerRef, await createSharedIntegrationPolicyDescriptor(metadataContext, authorization));
         permitted = intersectTools(toolCap, authorization.allowedToolNames);
         authorityRevisions.push([providerRef, authorization.authorizationRevision]);
+        shared.push({ authorization, metadata });
       } else {
         if (!target.personalBinding || !target.boundProviderRef || !target.bindingFingerprint || target.ownerUserId !== actor.userId
           || target.personalBinding.source !== alternative.source || alternative.source === 'composio'
@@ -101,20 +188,28 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
           baseProviderRef: target.providerRef, boundProviderRef: target.boundProviderRef, bindingFingerprint: target.bindingFingerprint } }, { checkProviderReadiness: false });
         const actual = getPreparedPersonalWorkflowProviderTarget(proof);
         providerRef = actual.boundProviderRef; prepared.push(proof);
+        attachPersonalWorkflowProviderTargets(metadataContext, [proof]);
+        const descriptor = getAttachedPersonalWorkflowProviderDescriptor(metadataContext, providerRef);
+        if (!descriptor) return deny();
+        descriptors.set(providerRef, descriptor);
         authorityRevisions.push([providerRef, actual.bindingFingerprint]);
       }
       const previous = rules.get(providerRef);
       const names = previous ? unionTools(previous.allowedToolNames, permitted) : permitted;
       rules.set(providerRef, { source: target.source, providerRef, allowedToolNames: names,
         allowedOperations: names?.length === 0 ? OPERATIONS.filter(operation => operation !== 'call') : [...OPERATIONS] });
+      if (identity && focus) handled.set(identity, { providerRef, toolCap: focus.toolCap, required: focus.requirement === 'required' });
       const associated = associations.get(providerRef);
       associations.set(providerRef, { providerRef, aliases: [...new Set([...(associated?.aliases ?? []), entry.capability.application,
         entry.capability.capabilityId, ...(alternative.source === 'mcp' ? [alternative.connector] : [alternative.toolkit])])],
       pluginRefs: [...new Set([...(associated?.pluginRefs ?? []), ...(selection.snapshot.bindings.some(binding => binding.resourceType === 'plugin'
-        && binding.configuration?.resourceRef === entry.pkg.resourceRef) ? [entry.pkg.resourceRef] : [])])],
+        && binding.configuration?.resourceRef === entry.pkg.resourceRef) || context.turnExtensions?.selections.some(selected =>
+          selected.selection.kind === 'plugin' && selected.selection.package.resourceRef === entry.pkg.resourceRef)
+          ? [entry.pkg.resourceRef] : [])])],
       skillRefs: [...new Set([...(associated?.skillRefs ?? []), ...entry.pkg.selectedSkills.map(skill => skill.name)])],
       capabilityRefs: [...new Set([...(associated?.capabilityRefs ?? []), agentWorkflowCapabilityKey(entry.pkg.resourceRef,
         entry.declaration.declarationPath, entry.capability.capabilityId)])] });
+      if (entry.capability.required) requiredProviders.set(providerRef, { source: target.source, providerRef });
       if (entry.capability.required && alternative.requiredTools?.length) {
         const previousRequirement = requirements.get(providerRef);
         requirements.set(providerRef, { source: target.source, providerRef,
@@ -124,15 +219,119 @@ export async function resolveAgentWorkflowRuntimeProjection(context: AgentExecut
       if (entry.capability.required) { unavailable = true; break; }
     }
   }
+  let packageFocus: HeldAgentWorkflowPackageTurnFocus | undefined;
+  if (context.turnExtensionSource && handled.size) {
+    packageFocus = Object.freeze({ kind: 'workflow_package_turn_focus' });
+    packageTurnFocuses.set(packageFocus, { actorKey: JSON.stringify([actorKey(context), context.agentTurnId, context.turnExtensions]),
+      selection, turnSource: context.turnExtensionSource, identities: Object.freeze([...handled.keys()]) });
+  }
+  const standalone = await resolveAgentStandaloneRuntimeProviders(context, selection, { skipProviderResolution: unavailable,
+    ...(context.turnExtensionSource ? { turnSource: context.turnExtensionSource } : {}), ...(packageFocus ? { packageFocus } : {}) });
+  const admissionPrepared = [...prepared];
+  for (const provider of standalone.admissionProviders ?? standalone.providers) {
+    if (provider.personalProof) admissionPrepared.push(provider.personalProof);
+    if (provider.sharedAuthorization) {
+      if (!provider.sharedSourceMetadata) return deny();
+      shared.push({ authorization: provider.sharedAuthorization, metadata: provider.sharedSourceMetadata });
+    }
+  }
+  unavailable ||= standalone.unavailable;
+  if (!unavailable) for (const provider of standalone.providers) {
+    const { descriptor, toolCap, selected } = provider;
+    const previous = rules.get(descriptor.providerRef);
+    if (previous && previous.source !== descriptor.source) return deny();
+    const names = previous ? unionTools(previous.allowedToolNames, toolCap) : toolCap;
+    rules.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef,
+      allowedToolNames: names, allowedOperations: names?.length === 0 ? OPERATIONS.filter(operation => operation !== 'call') : [...OPERATIONS] });
+    descriptors.set(descriptor.providerRef, descriptor);
+    if (provider.personalProof) prepared.push(provider.personalProof);
+    authorityRevisions.push([descriptor.providerRef, provider.authorityRevision, selected.slotRef]);
+    if (selected.required) requiredProviders.set(descriptor.providerRef, { source: descriptor.source, providerRef: descriptor.providerRef });
+    const associated = associations.get(descriptor.providerRef);
+    associations.set(descriptor.providerRef, { providerRef: descriptor.providerRef,
+      aliases: [...new Set([...(associated?.aliases ?? []), ...(descriptor.aliases ?? []), ...(descriptor.application ? [descriptor.application] : [])])],
+      pluginRefs: [...(associated?.pluginRefs ?? [])], skillRefs: [...(associated?.skillRefs ?? [])],
+      capabilityRefs: [...new Set([...(associated?.capabilityRefs ?? []), selected.slotRef])] });
+  }
+  if (!unavailable) for (const focus of handled.values()) {
+    const rule = rules.get(focus.providerRef);
+    if (!rule) return deny();
+    const names = intersectTools(rule.allowedToolNames, focus.toolCap);
+    rules.set(focus.providerRef, { ...rule, allowedToolNames: names,
+      allowedOperations: names?.length === 0 ? OPERATIONS.filter(operation => operation !== 'call') : rule.allowedOperations });
+    if (focus.required) requiredProviders.set(focus.providerRef, { source: rule.source, providerRef: focus.providerRef });
+  }
   const matrix = unavailable ? [] : [...rules.values()].sort((left, right) => left.providerRef.localeCompare(right.providerRef));
   const policy: IntegrationPolicy = { allowedSources: null, allowedProviderRefs: null, allowedApplications: null,
     allowedToolNames: null, allowedOperations: null, providerToolRules: matrix };
   const projection = freeze({ policy, revision: schemaFingerprint({ agentRevision: selection.snapshot.agent.revision,
     workflowRevision: selection.workflowRevision, preferenceRevision: selection.snapshot.preferenceRevision,
-    choices: selection.snapshot.choices, packages: selection.fingerprint, authorityRevisions, unavailable, policy }) });
-  projections.set(projection, { actorKey: actorKey(context), prepared: unavailable ? [] : prepared,
-    requiredTools: unavailable ? [] : [...requirements.values()], associations: unavailable ? [] : [...associations.values()], unavailable });
+    choices: selection.snapshot.choices, packages: selection.fingerprint, authorityRevisions,
+    standaloneSelections: standalone.selections, unavailable, policy }),
+    selectedProviders: unavailable ? [] : [...descriptors.values()], standaloneSelections: standalone.selections, unavailable });
+  projections.set(projection, { actorKey: actorKey(context), admissionNamespace: admissionSourceNamespace(context),
+    turnSource: context.turnExtensionSource, selection, shared, admissionPrepared, prepared: unavailable ? [] : prepared,
+    requiredTools: unavailable ? [] : [...requirements.values()], requiredProviders: unavailable ? [] : [...requiredProviders.values()],
+    associations: unavailable ? [] : [...associations.values()], unavailable });
   return projection;
+}
+
+function admissionSourceNamespace(context: AgentExecutionContext): string {
+  return JSON.stringify([actorKey(context), context.agentTurnId ?? null, context.turnExtensions ?? null,
+    context.turnExtensionSource?.fingerprint ?? null, context.workspaceType, context.workspaceRoot,
+    context.workspaceRootRelativePath, context.projectId, context.customerId, context.canWrite, context.canDelete,
+    context.canShare, context.legacy]);
+}
+
+/** Lock the complete selected Shared union before Personal, Package and Agent locks.
+ * Additional refs are structural locks only; no supplied DTO can issue runtime authority. */
+export async function withRevalidatedAgentWorkflowProjectionSourcesOnConnection<T>(database: SqlConnection,
+  contextInput: AgentExecutionContext, projection: AgentWorkflowRuntimeProjection | null,
+  options: { additionalSharedRefs?: readonly string[] }, callback: () => Promise<T>): Promise<T> {
+  const { resolveVerifiedAgentActorContextOnConnection } = await import('./actor-context');
+  const { readStoredAgentWorkspaceOnConnection, workspaceToAgentExecutionContext } = await import('@/app/lib/pi/session-workspace-context');
+  const context = { ...contextInput, ...(contextInput.turnExtensions ? { turnExtensions: structuredClone(contextInput.turnExtensions) } : {}) };
+  const namespace = admissionSourceNamespace(context);
+  const proof = projection ? projections.get(projection) : null;
+  if (projection && (!proof || proof.admissionNamespace !== namespace || proof.turnSource !== context.turnExtensionSource
+    || !isAuthorizedAgentWorkflowPackageSelections(proof.selection, context))) return deny();
+  if (!projection && (context.turnExtensionSource || context.turnExtensions?.selections.length)) return deny();
+  const actor = agentWorkflowRuntimeActor(context);
+  const transactionId = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+  const verifyActor = async () => {
+    const current = await resolveVerifiedAgentActorContextOnConnection(actor, database, { lock: true });
+    if (!context.agentId || !context.workspaceId) return deny();
+    const workspace = await readStoredAgentWorkspaceOnConnection(database, { userId: context.userId, sessionId: context.sessionId,
+      agentId: context.agentId, workspaceId: context.workspaceId, permissions: ['canRead', 'canRunAgent'] });
+    const fresh = { ...context, ...workspaceToAgentExecutionContext({ workspace, userId: context.userId,
+      sessionId: context.sessionId, agentId: context.agentId }) };
+    if (admissionSourceNamespace(fresh) !== namespace || admissionSourceNamespace(contextInput) !== namespace
+      || contextInput.turnExtensionSource !== context.turnExtensionSource) return deny();
+    const currentTransaction = String((await database.get('SELECT txid_current()::text AS transaction_id') as { transaction_id?: string } | undefined)?.transaction_id ?? '');
+    if (!transactionId || transactionId !== currentTransaction) return deny();
+    if (proof && (!isAuthorizedAgentWorkflowPackageSelections(proof.selection, context)
+      || projections.get(projection!) !== proof)) return deny();
+    if (!projection) {
+      const snapshot = await (await import('./workflow-configuration')).readManagedAgentWorkflow(actor, context.agentId, { database });
+      if (snapshot.workflowVersion !== null) return deny();
+    }
+    return current;
+  };
+  const current = await verifyActor();
+  await lockIntegrationConnectionBindingsOnConnection(database, { userId: context.userId, ...current.context },
+    [...(proof?.shared.map(entry => entry.authorization.resource.connectionRef) ?? []), ...(options.additionalSharedRefs ?? [])]);
+  const verify = async () => {
+    await verifyActor();
+    for (const entry of proof?.shared ?? []) {
+      await revalidateIntegrationConnectionRuntimeSourceOnConnection(database, entry.authorization);
+      if (await readAgentWorkflowSharedSourceMetadata(entry.authorization, database) !== entry.metadata) return deny();
+    }
+    for (const personal of proof?.admissionPrepared ?? []) await revalidatePreparedPersonalWorkflowMetadataOnConnection(database, personal);
+  };
+  await verify();
+  const result = await callback();
+  await verify();
+  return result;
 }
 
 /** JSON clones and another session cannot attach a workflow's personal provider authority. */
@@ -150,6 +349,20 @@ export async function assertAgentWorkflowRuntimeReady(input: { context: Integrat
   if (!input.projection) return;
   const proof = projections.get(input.projection);
   if (!proof || proof.actorKey !== actorKey(input.context) || proof.unavailable) return deny();
+  for (const requirement of proof.requiredProviders) {
+    input.signal?.throwIfAborted();
+    let descriptor: IntegrationProviderDescriptor | null;
+    if (requirement.providerRef.includes(':shared:')) {
+      const authorization = await findSharedIntegrationConnectionAuthorization(input.context, requirement.providerRef, 'inspect');
+      if (!authorization?.access.canUse) return deny();
+      descriptor = await createSharedIntegrationPolicyDescriptor(input.context, authorization);
+    } else descriptor = getAttachedPersonalWorkflowProviderDescriptor(input.context, requirement.providerRef);
+    if (!descriptor || !isIntegrationProviderVisible(input.context, input.policy, descriptor)) return deny();
+    const adapter = requirement.source === 'mcp' ? (await import('@/app/lib/integration-tools/adapters/mcp-runtime')).mcpIntegrationToolAdapter
+      : (await import('@/app/lib/integration-tools/adapters/composio-runtime')).composioIntegrationToolAdapter;
+    const provider = await adapter.resolveProvider(input.context, requirement.providerRef);
+    if (!provider.provider.canExecute || !isIntegrationProviderVisible(input.context, input.policy, provider.provider)) return deny();
+  }
   for (const requirement of proof.requiredTools) {
     input.signal?.throwIfAborted();
     if (!isIntegrationProviderOperationAllowed(input.policy, requirement.source, requirement.providerRef, 'call')) return deny();

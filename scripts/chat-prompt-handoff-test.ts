@@ -14,6 +14,13 @@ const payload = createPromptHandoff({ prompt: 'Review the plan', attachments: []
 persistPromptHandoff(storage, key, payload);
 const context = { workspaceId: 'workspace-one', requestedHandoffId: payload.handoffId, auth };
 assert.deepEqual(readPromptHandoff(storage, key, context), payload);
+assert.equal(payload.mode, undefined, 'Existing handoffs retain their established send mode.');
+const composer = createPromptHandoff({ ...payload, handoffId: 'compose', mode: 'compose' });
+persistPromptHandoff(storage, key, composer);
+assert.equal(readPromptHandoff(storage, key, { ...context, requestedHandoffId: 'compose' })?.mode, 'compose');
+storage.setItem(key, JSON.stringify({ ...composer, mode: 'unknown' }));
+assert.throws(() => readPromptHandoff(storage, key, { ...context, requestedHandoffId: 'compose' }), /mode/);
+persistPromptHandoff(storage, key, payload);
 assert.equal(readPromptHandoff(storage, key, context)?.handoffId, payload.handoffId);
 assert.throws(() => readPromptHandoff(storage, key, { ...context, workspaceId: 'workspace-two' }), /original workspace/);
 assert.throws(() => readPromptHandoff(storage, key, { ...context, auth: { ...auth, sessionId: 'other' } }), /another sign-in/);

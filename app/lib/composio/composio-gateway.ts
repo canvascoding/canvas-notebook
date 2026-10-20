@@ -5,6 +5,7 @@ import { eq, desc } from 'drizzle-orm';
 import { getComposio, getComposioMode, isManagedComposioConfigured, verifyApiKey, type ComposioMode } from './composio-client';
 import { disconnectTool, getActiveConnectedAccounts, getConnectedAccounts, initiateConnection } from './composio-auth';
 import { resetSessionCache } from './composio-session';
+import { invalidateComposioConnectionObservations } from './composio-connection-observation-revision';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
 import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
 import {
@@ -893,6 +894,7 @@ export async function deleteGatewayTrigger(triggerId: string, context: ResolvedC
 }
 
 export function clearComposioGatewayCaches(context?: ResolvedComposioContext | null): void {
+  invalidateComposioConnectionObservations();
   clearToolkitCache();
   triggerAppCache.clear();
   toolVersionCache.clear();

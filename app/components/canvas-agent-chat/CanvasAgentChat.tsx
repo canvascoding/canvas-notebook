@@ -3,7 +3,8 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { authClient } from '@/app/lib/auth-client';
-import { isPromptHandoffForNavigation } from '@/app/lib/chat/prompt-handoff';
+import { isPromptHandoffForNavigation, type PromptHandoff } from '@/app/lib/chat/prompt-handoff';
+import { persistComposePromptHandoff, readNewChatComposerDraft } from '@/app/lib/chat/composer-handoff';
 import { toast } from 'sonner';
 import {
   Loader2,
@@ -62,6 +63,8 @@ import { isMainAgentId, MAIN_AGENT_DISPLAY_NAME } from '@/app/lib/agents/main-ag
 import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
+import { useChatQueueRecovery } from '@/app/components/canvas-agent-chat/useChatQueueRecovery';
+import { ChatQueueRecoveryPanel } from '@/app/components/canvas-agent-chat/ChatQueueRecoveryPanel';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
 import { useChatRuntimeEvents } from '@/app/components/canvas-agent-chat/useChatRuntimeEvents';
 import {
@@ -72,6 +75,10 @@ import {
 import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
+import { useChatReferencePresentation } from './useChatReferencePresentation';
+import { ChatExtensionReferenceDialog } from './ChatExtensionReferenceDialog';
+import { createTextChatBody, readMessageChatBody } from '@/app/lib/chat/body-state';
+import { projectChatBodyText, type ChatBodyV1 } from '@/app/lib/chat/chat-body-contracts';
 import { useChatRuntimeSelection } from '@/app/components/canvas-agent-chat/useChatRuntimeSelection';
 import { useCurrentUserProfile } from '@/app/components/user-profile/useCurrentUserProfile';
 import type {
@@ -111,19 +118,6 @@ interface CanvasAgentChatProps {
 
 const CHAT_REQUEST_TIMEOUT_MS = 30_000;
 const ONBOARDING_CHAT_REQUEST_TIMEOUT_MS = 90_000;
-
-function isTextareaAtHistoryBoundary(textarea: HTMLTextAreaElement, direction: 'older' | 'newer'): boolean {
-  const { selectionStart, selectionEnd, value } = textarea;
-  if (selectionStart !== selectionEnd) {
-    return false;
-  }
-
-  if (direction === 'older') {
-    return !value.slice(0, selectionStart).includes('\n');
-  }
-
-  return !value.slice(selectionEnd).includes('\n');
-}
 
 function isSelectableRuntimeSelection(
   resolution: AiEffectiveRuntimeResolution | null,
@@ -232,7 +226,11 @@ export default function CanvasAgentChat({
   const [oldestMessageId, setOldestMessageId] = useState<number | null>(null);
   const [oldestSequence, setOldestSequence] = useState<number | null>(null);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const [input, setInput] = useState<string>('');
+  const [inputBody, setInputBody] = useState<ChatBodyV1>(() => createTextChatBody(''));
+  const input = useMemo(() => projectChatBodyText(inputBody), [inputBody]);
+  const setInput = useCallback<React.Dispatch<React.SetStateAction<string>>>((next) => {
+    setInputBody(current => createTextChatBody(typeof next === 'function' ? next(projectChatBodyText(current)) : next));
+  }, []);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionTitle, setSessionTitle] = useState<string | null>(null);
   const requestedHistory = searchParams.get('history') === 'open';
@@ -249,6 +247,7 @@ export default function CanvasAgentChat({
     activeThinkingLevel,
     availableAgents,
     refreshAgents,
+    acceptCreatedAgent,
     selectedAgentId,
     setActiveModel,
     setActiveProvider,
@@ -260,33 +259,6 @@ export default function CanvasAgentChat({
     sessionId,
     workspaceId: activeWorkspaceId,
   });
-  const {
-    resolution: runtimeResolution,
-    selection: requestedRuntimeSelection,
-    selectionSource: runtimeSelectionSource,
-    hasLocalSelection: hasLocalRuntimeSelection,
-    loading: isRuntimeSelectionLoading,
-    error: runtimeSelectionError,
-    setRequestedSelection: setRequestedRuntimeSelection,
-    applyResolution: applyRuntimeResolution,
-    refresh: refreshRuntimeSelection,
-  } = useChatRuntimeSelection({
-    workspaceId: activeWorkspaceId,
-    agentId: selectedAgentId,
-    sessionId,
-  });
-  const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
-    ? requestedRuntimeSelection
-    : null;
-  useEffect(() => {
-    if (!runtimeSelection) return;
-    updateAgentModelSelection({
-      provider: runtimeSelection.providerId,
-      model: runtimeSelection.modelId,
-      thinkingLevel: runtimeSelection.thinkingLevel,
-    });
-  }, [runtimeSelection, updateAgentModelSelection]);
-  const selectedAgentProfile = availableAgents.find((agent) => agent.agentId === selectedAgentId);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
   const [openQueueItemPopoverId, setOpenQueueItemPopoverId] = useState<string | null>(null);
@@ -344,8 +316,7 @@ export default function CanvasAgentChat({
     composerHeight,
     composerRef,
     composerWidth,
-    textareaHeight,
-    textareaRef,
+    editorRef,
   } = useChatComposerLayout({ input, isMobile });
   const {
     isAtBottomRef,
@@ -416,6 +387,34 @@ export default function CanvasAgentChat({
     surfaceVisibleRef,
     t,
   });
+  const activeSession = history.find((session) => session.sessionId === sessionId);
+  const composerAgentId = sessionId ? activeSession?.agentId ?? null : selectedAgentId;
+  const {
+    resolution: runtimeResolution,
+    selection: requestedRuntimeSelection,
+    selectionSource: runtimeSelectionSource,
+    hasLocalSelection: hasLocalRuntimeSelection,
+    loading: isRuntimeSelectionLoading,
+    error: runtimeSelectionError,
+    setRequestedSelection: setRequestedRuntimeSelection,
+    applyResolution: applyRuntimeResolution,
+    refresh: refreshRuntimeSelection,
+  } = useChatRuntimeSelection({
+    workspaceId: activeWorkspaceId,
+    agentId: composerAgentId ?? '',
+    sessionId,
+  });
+  const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
+    ? requestedRuntimeSelection
+    : null;
+  useEffect(() => {
+    if (!runtimeSelection) return;
+    updateAgentModelSelection({
+      provider: runtimeSelection.providerId,
+      model: runtimeSelection.modelId,
+      thinkingLevel: runtimeSelection.thinkingLevel,
+    });
+  }, [runtimeSelection, updateAgentModelSelection]);
   const applyHistoryPanelWidth = useCallback((nextWidth: number) => {
     historyPanelRef.current?.style.setProperty('width', `${nextWidth}px`);
   }, []);
@@ -473,10 +472,12 @@ export default function CanvasAgentChat({
     resetInputHistoryNavigation,
   } = useChatComposerDraft({
     input,
+    inputBody,
     messages,
     sessionId,
     setInput,
-    textareaRef,
+    setInputBody,
+    editorRef,
   });
   const {
     activeReferenceMatch,
@@ -484,29 +485,46 @@ export default function CanvasAgentChat({
     handleInputChange,
     handleReferenceSelect,
     isLoadingReferenceItems,
+    referenceSourceStatuses,
+    retryReferenceSource,
+    configureReference,
     referencePickerError,
     referencePickerItems,
     selectedReferenceIndex,
     selectNextReference,
     selectPreviousReference,
+    handleSelectionChange,
+    referenceTypeFilter,
+    setReferenceTypeFilter,
+    openReferencePicker,
+    pendingReference,
+    closeReferenceDialog,
+    acceptReference,
+    prepareIntakeSelection,
+    target: referenceTarget,
   } = useComposerReferences({
-    agentId: selectedAgentId,
-    input,
-    relevantSkillNames: selectedAgentProfile?.relevantSkills,
+    agentId: composerAgentId,
+    sessionId,
+    inputBody,
     workspaceId: activeWorkspaceId,
     resetInputHistoryNavigation,
-    setInput,
-    textareaRef,
+    setInputBody,
+    editorRef,
   });
+  const referenceBodies = useMemo(() => [inputBody, ...messages.flatMap(message => {
+    const body = readMessageChatBody(message.piMessage); return body ? [body] : [];
+  })], [inputBody, messages]);
+  const referenceIcons = useChatReferencePresentation(referenceTarget, referenceBodies);
 
   const handleWorkspaceFilesDrop = useCallback((paths: string[]) => {
     const references = paths.map((path) => `@"${path}"`);
     if (references.length === 0) return;
 
     resetInputHistoryNavigation();
-    setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${references.join(' ')} `);
-    window.setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [resetInputHistoryNavigation, setInput, textareaRef]);
+    editorRef.current?.replaceText(`${input.trimEnd() ? ' ' : ''}${references.join(' ')} `,
+      { from: input.length, to: input.length });
+    editorRef.current?.focusEnd();
+  }, [resetInputHistoryNavigation, input, editorRef]);
 
   const buildRequestContext = useCallback((activeFilePath: string | null): ChatRequestContext => ({
     activeFilePath,
@@ -658,6 +676,9 @@ export default function CanvasAgentChat({
     router.replace(nextUrl, { scroll: false });
   }, [pathname, router]);
 
+  const queueRecovery = useChatQueueRecovery({ sessionId, workspaceId: activeWorkspaceId, connected: wsConnected,
+    runtimeStatus, onRuntimeStatus: setRuntimeStatusWithReconciliation });
+
   const {
     isSending,
     sendError,
@@ -682,6 +703,7 @@ export default function CanvasAgentChat({
     runtimePolicyRevision: runtimeResolution?.policyRevision ?? null,
     refreshRuntimeSelection,
     activeWorkspaceId,
+    queueSendBlockedError: queueRecovery.sendBlocked ? t('queueRecoverySendBlocked') : null,
     addSessionToHistory,
     appendCompactionBreak,
     appendOptimisticUserMessage,
@@ -695,6 +717,8 @@ export default function CanvasAgentChat({
     ensureSessionSubscribed,
     fetchHistory,
     input,
+    inputBody,
+    prepareIntakeSelection,
     isMobile,
     isUploading,
     messages,
@@ -704,6 +728,7 @@ export default function CanvasAgentChat({
     resetStreamConnection,
     runtimePhase,
     selectedAgentId,
+    actualSessionAgentId: sessionId ? composerAgentId : null,
     sessionId,
     sessionAgentIdRef,
     sessionIdRef,
@@ -716,6 +741,7 @@ export default function CanvasAgentChat({
     setHasMoreBefore,
     setHistoryAgentFilter,
     setInput,
+    setInputBody,
     setIsLoadingOlder,
     setIsResolvingInitialChatState,
     setMessages,
@@ -735,7 +761,7 @@ export default function CanvasAgentChat({
     showHistory,
     skipNextSessionStatusRefreshRef,
     t,
-    textareaRef,
+    editorRef,
     userStartedNewChatRef,
     wsRequest,
   });
@@ -780,6 +806,7 @@ export default function CanvasAgentChat({
     setHasUnreadInCurrentSession,
     setHistory,
     setInput,
+    setInputBody,
     setIsLoadingOlder,
     setMessages,
     setOldestMessageId,
@@ -920,7 +947,10 @@ export default function CanvasAgentChat({
     }
   }, [selectedAgentId, setHistory, setTotalUnreadCount]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.nativeEvent.isComposing || e.key === 'Process') return;
+    if (pendingReference && e.key === 'Escape') { e.preventDefault(); closeReferenceDialog(); return; }
+    if (pendingReference && (e.key === 'Enter' && !e.shiftKey || e.key === 'Tab')) { e.preventDefault(); return; }
     if (e.shiftKey && e.key === 'Tab') {
       e.preventDefault();
       togglePlanningMode();
@@ -942,7 +972,7 @@ export default function CanvasAgentChat({
       }
     }
 
-    if (activeReferenceMatch && referencePickerItems.length > 0) {
+    if (activeReferenceMatch) {
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault();
@@ -964,7 +994,10 @@ export default function CanvasAgentChat({
 
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       const direction = e.key === 'ArrowUp' ? 'older' : 'newer';
-      if (isTextareaAtHistoryBoundary(e.currentTarget, direction) && navigateInputHistory(direction)) {
+      const range = editorRef.current?.getSelection();
+      const atBoundary = range && range.from === range.to && (direction === 'older'
+        ? !input.slice(0, range.from).includes('\n') : !input.slice(range.to).includes('\n'));
+      if (atBoundary && navigateInputHistory(direction)) {
         e.preventDefault();
       }
       return;
@@ -974,9 +1007,25 @@ export default function CanvasAgentChat({
       e.preventDefault();
       void handleSend();
     }
-  }, [activeReferenceMatch, closeReferencePicker, handleReferenceSelect, handleSend, handleStop, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
+  }, [activeReferenceMatch, closeReferencePicker, closeReferenceDialog, pendingReference, editorRef, handleReferenceSelect, handleSend, handleStop, input, isWebSocketUnavailable, navigateInputHistory, referencePickerItems, runtimeStatusRef, selectNextReference, selectedReferenceIndex, selectPreviousReference, togglePlanningMode]);
+
+  const composePromptHandoff = useCallback((handoff: PromptHandoff) => {
+    if (!activeWorkspaceId) throw new Error('Choose the original workspace to open this composer draft.');
+    const body = persistComposePromptHandoff(handoff, activeWorkspaceId);
+    startNewChat(handoff.agentId ?? CHAT_AGENT_ID);
+    setInputBody(body);
+    setAttachments(handoff.attachments);
+  }, [activeWorkspaceId, setAttachments, startNewChat]);
+
+  const restoreNewChatDraft = useCallback(() => {
+    if (!activeWorkspaceId) return;
+    const body = readNewChatComposerDraft(activeWorkspaceId);
+    if (body) setInputBody(current => projectChatBodyText(current) ? current : body);
+  }, [activeWorkspaceId]);
 
   const { initialSessionError, retryInitialSession } = useChatSessionBootstrap({
+    onComposeHandoff: composePromptHandoff,
+    onRestoreNewChatDraft: restoreNewChatDraft,
     addSessionToHistory,
     appendSystemMessage,
     clearSessionParamFromUrl,
@@ -1056,7 +1105,6 @@ export default function CanvasAgentChat({
     }
   }, [isMobile]);
 
-  const totalQueuedMessages = (runtimeStatus?.followUpQueue.length || 0) + (runtimeStatus?.steeringQueue.length || 0);
   const isRuntimeBusy = Boolean(
     runtimeStatus
     && (runtimeStatus.phase !== 'idle' || runtimeStatus.compactionStatus?.state === 'running'),
@@ -1064,7 +1112,8 @@ export default function CanvasAgentChat({
   const queueItems: QueuePreviewItem[] = [
     ...(runtimeStatus?.steeringQueue || []).map((entry) => ({ ...entry, kind: 'steer' as const })),
     ...(runtimeStatus?.followUpQueue || []).map((entry) => ({ ...entry, kind: 'follow_up' as const })),
-  ];
+  ].filter(entry => entry.executionRevision === undefined && entry.queue === undefined);
+  const totalQueuedMessages = queueItems.length;
   const contextStatusDisplay = getContextStatusDisplay(runtimeStatus);
   const contextDetailedLabel = contextStatusDisplay.source === 'pressure'
     ? t('contextPressureLabel', {
@@ -1146,7 +1195,7 @@ export default function CanvasAgentChat({
   const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
-    : isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
+    : Boolean(pendingReference) || isSending || isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured || queueRecovery.sendBlocked;
   const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
@@ -1156,7 +1205,6 @@ export default function CanvasAgentChat({
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && (isResolvingInitialChatState || isLoadingMessages);
   const showStarterScreen = messages.length === 0 && !sessionId && !showInitialChatLoader && !initialSessionError;
-  const activeSession = history.find((session) => session.sessionId === sessionId);
   const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
   useEffect(() => {
     // A responsive remount must resolve its stored session before clearing context.
@@ -1228,7 +1276,7 @@ export default function CanvasAgentChat({
         ...current.filter((candidate) => candidate.sessionId !== forkedSession.sessionId),
       ]);
       await loadSession(forkedSession);
-      requestAnimationFrame(() => textareaRef.current?.focus());
+      requestAnimationFrame(() => editorRef.current?.focus());
       toast.success(t('forkCreated', {
         title: getSessionDisplayTitle(forkedSession.title, t('newChatTitle')),
       }));
@@ -1236,7 +1284,7 @@ export default function CanvasAgentChat({
       console.error('[CanvasAgentChat] Failed to fork session', error);
       toast.error(t('forkFailed'));
     }
-  }, [activeSession, activeWorkspaceId, loadSession, selectedAgentId, setHistory, t, textareaRef]);
+  }, [activeSession, activeWorkspaceId, editorRef, loadSession, selectedAgentId, setHistory, t]);
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = getAgentProfileDisplayName(activeSessionAgentId, activeAgentProfile?.name);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
@@ -1356,6 +1404,7 @@ export default function CanvasAgentChat({
           selectChatAgent(agentId);
         }}
         onReloadAgents={refreshAgents}
+        onAgentCreated={acceptCreatedAgent}
         onOpenLiveBrowser={onOpenLiveBrowser}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}
@@ -1476,6 +1525,7 @@ export default function CanvasAgentChat({
             )}
 
             <ChatMessageList
+              referenceIcons={referenceIcons}
               toolOutputScope={sessionId && activeWorkspaceId ? { sessionId, agentId: activeSessionAgentId, workspaceId: activeWorkspaceId } : undefined}
               messages={messages}
               assistantName={activeAgentDisplayName}
@@ -1527,6 +1577,13 @@ export default function CanvasAgentChat({
           />
         ) : null}
         attachments={attachments}
+        queueRecoveryPanel={sessionId ? <ChatQueueRecoveryPanel queue={queueRecovery.queue} loading={queueRecovery.loading}
+          error={queueRecovery.error} pendingId={queueRecovery.pendingId} runtimeBusy={Boolean(queueRecovery.runtimeBusy)} actionsDisabled={queueRecovery.actionsDisabled}
+          onRefresh={() => { void queueRecovery.refresh(); }}
+          onControl={(item, action) => { void queueRecovery.control(item, action).catch(() => {}); }}
+          onPromote={isWebSocketUnavailable ? undefined : item => { void queueRecovery.runExistingAction(item, () => handlePromoteQueuedMessage(item.id)).catch(() => {}); }}
+          onEdit={isWebSocketUnavailable ? undefined : item => { void queueRecovery.runExistingAction(item, () => handleEditQueuedMessage({ ...item, kind: 'follow_up' })).catch(() => {}); }}
+          onNewChat={() => startNewChat()} /> : null}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}
         showQueuePanel={Boolean(runtimeStatus && totalQueuedMessages > 0)}
@@ -1548,13 +1605,23 @@ export default function CanvasAgentChat({
         onWorkspaceFilesDrop={handleWorkspaceFilesDrop}
         composerDisabled={composerDisabled}
         isUploading={isUploading}
-        textareaRef={textareaRef}
+        editorRef={editorRef}
         input={input}
+        inputBody={inputBody}
+        referenceIcons={referenceIcons}
         onInputChange={handleInputChange}
+        onSelectionChange={handleSelectionChange}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         composerPlaceholderText={composerPlaceholderText}
-        textareaHeight={textareaHeight}
+        onOpenReferences={openReferencePicker}
+        referenceTypeFilter={referenceTypeFilter}
+        onReferenceTypeFilterChange={setReferenceTypeFilter}
+        referenceNotice={referencePickerError}
+        referenceSourceStatuses={referenceSourceStatuses}
+        onRetryReferenceSource={retryReferenceSource}
+        onConfigureReference={configureReference}
+        isLoadingReferenceItems={isLoadingReferenceItems}
         planningMode={planningMode}
         showReferencePicker={Boolean(activeReferenceMatch)}
         referencePickerEmptyState={referencePickerEmptyState}
@@ -1569,8 +1636,8 @@ export default function CanvasAgentChat({
         onSend={handleSend}
         onDictationTranscript={(text) => {
           resetInputHistoryNavigation();
-          setInput((current) => `${current}${current.trimEnd() ? ' ' : ''}${text}`);
-          textareaRef.current?.focus();
+          editorRef.current?.replaceText(`${input.trimEnd() ? ' ' : ''}${text}`, { from: input.length, to: input.length });
+          editorRef.current?.focusEnd();
         }}
         selectedAgentId={selectedAgentId}
         sessionId={sessionId}
@@ -1591,6 +1658,8 @@ export default function CanvasAgentChat({
         promptSuggestions={promptSuggestions}
         showPromptSuggestions={showStarterScreen}
       />
+      {pendingReference ? <ChatExtensionReferenceDialog request={pendingReference}
+        onClose={closeReferenceDialog} onSelect={acceptReference} /> : null}
         </div>
       </div>
       <AttachmentPreviewDialog

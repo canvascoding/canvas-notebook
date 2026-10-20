@@ -4,6 +4,8 @@ import type { AgentEvent, AgentMessage } from '@earendil-works/pi-agent-core';
 
 import { loadPiSession } from '@/app/lib/pi/session-store';
 import type { DelegateTaskRequest } from '@/app/lib/pi/delegate-task-tool';
+import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import type { HeldDelegatedExtensionSource } from '@/app/lib/capabilities/extensions/delegation-source';
 
 export type RuntimeInstance = {
   agentId: string;
@@ -16,6 +18,8 @@ export type RuntimeInstance = {
   abort: () => Promise<unknown>;
   reloadTools: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
+  startDelegatedPrompt?: (message: Extract<AgentMessage, { role: 'user' }>, source: HeldDelegatedExtensionSource,
+    delegationId: string, preparePrompt?: (issuedContext: AgentExecutionContext) => Promise<Extract<AgentMessage, { role: 'user' }>>) => Promise<void>;
   queueSteering: (message: Extract<AgentMessage, { role: 'user' }>) => Promise<unknown>;
   removeQueuedMessage: (id: string) => Promise<unknown>;
 };

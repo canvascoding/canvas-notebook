@@ -4,6 +4,7 @@ import type { CapabilityPackagePublishedSummary, CapabilityPackageState } from '
 import type { CapabilityResourceMetadata } from '../resources/contracts';
 import type { SafeActorSkillStoreResource } from '@/app/lib/skills/actor-skill-store-state';
 import type { PluginWorkspaceCatalogResponse } from '@/app/lib/plugins/plugin-workspace-catalog-contracts';
+import type { PluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 
 const boundedText = (max: number) => z.string().trim().min(1).max(max).refine(value => !/[\u0000-\u001f\u007f]/u.test(value));
 const checksum = z.string().regex(/^[a-f0-9]{64}$/u);
@@ -45,7 +46,7 @@ export type CapabilityPackageStoreListResponse = {
   stores: Array<{
     kind: 'plugin' | 'skill'; registry: { id: string; name: string; updatedAt: string }; availability: 'available' | 'unavailable';
     pagination: { page: number; pageSize: number; totalItems: number; totalPages: number; hasNextPage: boolean; hasPreviousPage: boolean };
-    offerings: Array<{ kind: 'plugin' | 'skill'; registryId: string; entryKey: string; displayName: string; description: string;
+    offerings: Array<{ kind: 'plugin' | 'skill'; registryId: string; entryKey: string; displayName: string; description: string; icon?: PluginExtensionIcon;
       latestVersion: string; publisher?: { name: string }; versions: Array<{ version: string; checksum: string; releasedAt?: string; notes?: string }>;
       installedResourceRefs: string[]; installedRefsTruncated: boolean }>;
     installedResources: SafeActorSkillStoreResource[];

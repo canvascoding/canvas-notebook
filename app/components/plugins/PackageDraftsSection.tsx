@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import type { CapabilityPackageOwnedDraftList, CapabilityPackageOwnedDraftStatus } from '@/app/lib/capabilities/packages/contracts';
 import { usePluginEditorNavigationGuard } from './plugin-navigation-guard';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
+import { draftPluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
+import { PackageCreatorResumeButton } from './PackageCreatorResumeButton';
 
 type DraftResponse = { success: boolean; data?: CapabilityPackageOwnedDraftList; code?: string };
 
@@ -110,6 +113,8 @@ export function PackageDraftsSection({ workspaceId, onOpenDraft, showHeader = tr
     <ul className="space-y-3">
       {visibleDrafts.map(draft => <li key={draft.draftRef} data-testid="package-draft-row" className="min-w-0 rounded-lg border p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <PluginExtensionAvatar name={draft.name} identity={JSON.stringify([draft.draftRef, workspaceId ?? '', draft.draftRevision])}
+            icon={draftPluginExtensionIcon(draft.draftRef, draft.draftRevision, workspaceId)} size="sm" />
           <div className="min-w-0 flex-1 space-y-1">
             <p className="break-words font-medium">{draft.name}</p>
             <p className="text-xs text-muted-foreground">{t(draft.kind)} · {t(draft.operation)} · {t(draft.targetOwnership.type === 'user' ? 'personal' : draft.targetOwnership.type)}</p>
@@ -117,6 +122,7 @@ export function PackageDraftsSection({ workspaceId, onOpenDraft, showHeader = tr
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => onOpenDraft(draft)} disabled={loading || pendingDraft !== null}>{t('open')}</Button>
+            <PackageCreatorResumeButton draftRef={draft.draftRef} workspaceId={workspaceId} disabled={loading || pendingDraft !== null} />
             <Button variant="ghost" onClick={() => void discard(draft)} disabled={loading || pendingDraft !== null}>
               {pendingDraft === draft.draftRef ? t('pending') : t('discard')}
             </Button>

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { openDb } from '@/app/lib/db';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 
 import {
   createCapabilityReference,
@@ -25,39 +25,57 @@ import {
   listCanvasPlugins,
   getCanvasPlugin,
   readCanvasPluginRegistry,
+  isManifestDeclaredPluginRootSkill,
   type CanvasPluginInstallRecord,
   type CanvasPluginStorageScope,
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import { resolvePluginConnectionReadiness } from '@/app/lib/plugins/plugin-connection-readiness';
-import { readCanvasSkillRegistry } from '@/app/lib/skills/canvas-skill-store';
+import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { loadCoreSkills } from '@/app/lib/skills/core-skill-loader';
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { corePluginResourceId, isCorePluginName } from '@/app/lib/plugins/core-plugins';
 import {
   DISABLED_ALL_SKILLS_SENTINEL,
   normalizeEnabledSkillsConfig,
   resolveEnabledSkillNames,
 } from '@/app/lib/skills/enabled-skills';
-import { isValidAgentSkillName, parseSkillFile, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import { isValidAgentSkillName, parseSkillFile, loadCanvasSkillInterface, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { loadSkillSummaries } from '@/app/lib/skills/skill-summaries';
 import { readEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 import { resolveScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
 import { applyCapabilityCandidateResourceAccess, assertCapabilityCandidateAccess } from './resources/catalog-access';
-import { getCapabilityResourceAccess, listCapabilityResourceRecordsForActor } from './resources/store';
-import type { CapabilityResourceStorageBinding } from './resources/contracts';
+import { getCapabilityResourceAccess, listCapabilityResourceRecordsForActor, readCapabilityResourceAccessBatch } from './resources/store';
+import type { CapabilityResourceAccessEntry, CapabilityResourceStorageBinding } from './resources/contracts';
 import { capabilityResourceStorageBinding } from './resources/storage-binding';
 
 type CatalogPackagePointer = { name: string; resourceId?: string; version: string; checksum: string; installDir: string;
   packageManaged?: boolean; packageResourceRef?: string; publishedRevisionRef?: string };
 
+const declaresImage = (...paths: Array<string | undefined>): boolean => paths.some(value => typeof value === 'string' && value.trim().length > 0);
+type SourceAccessPhase = ReadonlyMap<string, CapabilityResourceAccessEntry>;
+function sourceAccessKey(storage: CapabilityResourceStorageBinding): string {
+  return JSON.stringify([storage.resourceType, storage.resourceId, storage.scopeType, storage.name,
+    storage.sourceType, storage.organizationId, storage.ownerUserId, storage.sourcePluginId]);
+}
+async function readSourceAccessPhase(context: CapabilityResolutionContext, storages: CapabilityResourceStorageBinding[],
+  database?: SqlConnection): Promise<SourceAccessPhase> {
+  const access = await readCapabilityResourceAccessBatch({ userId: context.userId, workspaceId: context.workspaceId }, storages, database);
+  return new Map(storages.map((storage, index) => [sourceAccessKey(storage), access[index]]));
+}
+
 /** A local load receipt avoids hashing one parent for each bundled child. It is never reused across calls. */
 async function readableCurrentPackagePointer(record: CatalogPackagePointer, storage: CapabilityResourceStorageBinding,
-  scope: CanvasPluginStorageScope, actor: CapabilityResolutionContext, verified: Set<string>): Promise<boolean> {
+  scope: CanvasPluginStorageScope, actor: CapabilityResolutionContext, verified: Set<string>, database?: SqlConnection,
+  sourceAccess?: SourceAccessPhase): Promise<boolean> {
   try {
-    if (!(await getCapabilityResourceAccess({ userId: actor.userId, workspaceId: actor.workspaceId }, storage)).access.canRead) return false;
+    const access = sourceAccess ? sourceAccess.get(sourceAccessKey(storage))
+      : await getCapabilityResourceAccess({ userId: actor.userId, workspaceId: actor.workspaceId }, storage, database);
+    if (!access?.access.canRead) return false;
     if (!record.packageManaged && !record.packageResourceRef && !record.publishedRevisionRef) return true;
     const key = JSON.stringify([record.resourceId, record.packageResourceRef, record.publishedRevisionRef, record.checksum, record.installDir, scope]);
     if (!verified.has(key)) {
       const { assertCapabilityPackageRegistryPointerCurrent } = await import('./packages/artifacts');
-      await assertCapabilityPackageRegistryPointerCurrent(storage.resourceType, record, scope);
+      await assertCapabilityPackageRegistryPointerCurrent(storage.resourceType, record, scope, database);
       verified.add(key);
     }
     return true;
@@ -72,29 +90,50 @@ function matchesStorageBinding(candidate: CapabilityCandidate, storage: Capabili
 }
 
 /** Load only explicitly readable foreign personal identities, never the owner's complete catalog. */
-async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionContext, enabledSkills: string[] | null): Promise<{
+async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionContext, enabledSkills: string[] | null,
+  database?: SqlConnection): Promise<{
   candidates: CapabilityCandidate[]; plugins: Map<string, CanvasPluginInstallRecord>;
 }> {
   const actor = { userId: context.userId, workspaceId: context.workspaceId };
-  const records = await listCapabilityResourceRecordsForActor(actor);
+  const records = await listCapabilityResourceRecordsForActor(actor, database);
   const candidates = new Map<string, CapabilityCandidate>();
   const plugins = new Map<string, CanvasPluginInstallRecord>();
   const verified = new Set<string>();
-  for (const { storage } of records) {
-    if (storage.scopeType !== 'user' || !storage.ownerUserId || storage.ownerUserId === context.userId) continue;
-    const scope = { scopeType: 'user' as const, userId: storage.ownerUserId };
-    const ownerContext = { ...context, userId: storage.ownerUserId };
+  const pluginRegistries = new Map<string, ReturnType<typeof readCanvasPluginRegistry>>();
+  const skillRegistries = new Map<string, ReturnType<typeof readCanvasSkillRegistry>>();
+  const sources = await Promise.all(records.filter(({ storage }) => storage.scopeType === 'user'
+    && storage.ownerUserId && storage.ownerUserId !== context.userId).map(async ({ storage }) => {
+    const scope = { scopeType: 'user' as const, userId: storage.ownerUserId! };
+    const ownerContext = { ...context, userId: storage.ownerUserId! };
+    let plugin: CanvasPluginInstallRecord | null = null;
+    let skillRecord: CanvasSkillInstallRecord | undefined;
     if (storage.resourceType === 'plugin' || storage.sourceType === 'plugin') {
-      let plugin = storage.resourceType === 'plugin' ? await getCanvasPlugin(storage.name, scope) : null;
-      if (!plugin && storage.sourceType === 'plugin') for (const record of Object.values((await readCanvasPluginRegistry(scope)).plugins)) {
-        if ((await pluginCandidate(record, 'user', ownerContext, true, context, verified)).ref.resourceId === storage.sourcePluginId) { plugin = record; break; }
-      }
+      let registry = pluginRegistries.get(scope.userId);
+      if (!registry) { registry = readCanvasPluginRegistry(scope); pluginRegistries.set(scope.userId, registry); }
+      const installed = await registry;
+      plugin = storage.resourceType === 'plugin'
+        ? isCorePluginName(storage.name) ? await getCanvasPlugin(storage.name, scope) : installed.plugins[storage.name] ?? null
+        : Object.values(installed.plugins).find(record => pluginReference(record, 'user', ownerContext).resourceId === storage.sourcePluginId) ?? null;
+    } else if (isValidAgentSkillName(storage.name)) {
+      let registry = skillRegistries.get(scope.userId);
+      if (!registry) { registry = readCanvasSkillRegistry(scope); skillRegistries.set(scope.userId, registry); }
+      skillRecord = (await registry).skills[storage.name];
+    }
+    return { storage, scope, ownerContext, plugin, skillRecord };
+  }));
+  // Recheck exactly the selected foreign identities and their parents before any source files are opened.
+  const sourceAccess = await readSourceAccessPhase(context, sources.flatMap(({ storage, ownerContext, plugin }) => [storage,
+    ...(plugin ? [capabilityResourceStorageBinding(pluginReference(plugin, 'user', ownerContext))] : [])]), database);
+  for (const { storage, scope, ownerContext, plugin, skillRecord: record } of sources) {
+    if (!sourceAccess.get(sourceAccessKey(storage))?.access.canRead) continue;
+    if (storage.resourceType === 'plugin' || storage.sourceType === 'plugin') {
       if (!plugin) continue;
-      const entry = await pluginCandidate(plugin, 'user', ownerContext, true, context, verified);
+      const entry = await pluginCandidate(plugin, 'user', ownerContext, true, context, verified, database, sourceAccess);
       if (storage.resourceType === 'plugin' && !matchesStorageBinding(entry, storage)) continue;
-      if (!(await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(entry.ref))).access.canRead) continue;
+      if (!sourceAccess.get(sourceAccessKey(capabilityResourceStorageBinding(entry.ref)))?.access.canRead) continue;
+      if (plugins.has(entry.ref.resourceId)) continue;
       const names = resolveEnabledSkillNames(new Set(plugin.skills.map(skill => skill.name)), enabledSkills);
-      const children = await pluginSkillCandidates(plugin, entry.ref.resourceId, 'user', ownerContext, names, enabledSkills, true, context, verified);
+      const children = await pluginSkillCandidates(plugin, entry.ref.resourceId, 'user', ownerContext, names, enabledSkills, true, context, verified, database, sourceAccess);
       if (storage.resourceType === 'skill' && !children.some(child => matchesStorageBinding(child, storage))) continue;
       candidates.set(entry.ref.resourceId, entry);
       plugins.set(entry.ref.resourceId, plugin);
@@ -102,10 +141,8 @@ async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionC
       continue;
     }
     if (!isValidAgentSkillName(storage.name)) continue;
-    const registry = await readCanvasSkillRegistry(scope);
-    const record = registry.skills[storage.name];
     if (record?.sourceType === 'plugin') continue;
-    if (record && !await readableCurrentPackagePointer(record, storage, scope, context, verified)) continue;
+    if (record && !await readableCurrentPackagePointer(record, storage, scope, context, verified, database, sourceAccess)) continue;
     const skillPath = record?.skillPath || path.join(resolveScopedSkillsDataDir(scope), storage.name, 'SKILL.md');
     const skill = await parseSkillFile(skillPath).catch(() => null);
     if (!skill || skill.name !== storage.name) continue;
@@ -116,6 +153,7 @@ async function sharedPersonalCapabilityCandidates(context: CapabilityResolutionC
         checksum: await computeCanvasPluginChecksum(path.dirname(skillPath)), sourceType: 'standalone',
         organizationId: null, ownerUserId: storage.ownerUserId, sourcePluginId: null }),
       description: skill.description, runtimePath: skillPath,
+      hasDeclaredIcon: declaresImage(skill.interface?.iconSmall, skill.interface?.iconLarge),
       enabled: resolveEnabledSkillNames(new Set([skill.name]), enabledSkills).has(skill.name)
         && (record?.packageDefaultEnabled !== false || skillUserPreference(skill.name, enabledSkills) === 'enabled'),
       userPreference: skillUserPreference(skill.name, enabledSkills),
@@ -159,16 +197,12 @@ function connectionRequirementCount(plugin: CanvasPluginInstallRecord): number {
     + (connectors.mcpServers ? 1 : 0);
 }
 
-async function pluginCandidate(
-  plugin: CanvasPluginInstallRecord,
-  scopeType: CapabilityScopeType,
-  context: CapabilityResolutionContext,
-  connectionReady: boolean,
-  actor = context,
-  verified = new Set<string>(),
-): Promise<CapabilityCandidate> {
+function pluginReference(plugin: CanvasPluginInstallRecord, scopeType: CapabilityScopeType,
+  context: CapabilityResolutionContext): CapabilityCandidate['ref'] {
   const refScope = capabilityScopeType(plugin.scopeType, scopeType);
-  const ref = createCapabilityReference({
+  const core = plugin.core === true && plugin.sourceType === 'core' && refScope === 'system'
+    && isCorePluginName(plugin.name) && plugin.resourceId === corePluginResourceId(plugin.name);
+  return createCapabilityReference({
     resourceType: 'plugin',
     scopeType: refScope,
     resourceId: plugin.scopeType === 'legacy' ? undefined : plugin.resourceId,
@@ -176,17 +210,41 @@ async function pluginCandidate(
     version: plugin.version,
     revision: plugin.revision || 1,
     checksum: plugin.checksum,
-    sourceType: 'standalone',
+    sourceType: core ? 'core' : 'standalone',
     organizationId: refScope === 'organization' ? context.organizationId : null,
     ownerUserId: refScope === 'user' ? context.userId : null,
     sourcePluginId: null,
   });
+}
+
+function standaloneSkillReference(record: CanvasSkillInstallRecord, scopeType: CapabilityScopeType,
+  context: CapabilityResolutionContext): CapabilityCandidate['ref'] {
+  const refScope = capabilityScopeType(record.scopeType, scopeType);
+  return createCapabilityReference({ resourceType: 'skill', scopeType: refScope,
+    resourceId: record.scopeType === 'legacy' ? undefined : record.resourceId, name: record.name,
+    version: record.version, revision: record.revision || 1, checksum: record.checksum, sourceType: 'standalone',
+    organizationId: refScope === 'organization' ? context.organizationId : null,
+    ownerUserId: refScope === 'user' ? context.userId : null, sourcePluginId: null });
+}
+
+async function pluginCandidate(
+  plugin: CanvasPluginInstallRecord,
+  scopeType: CapabilityScopeType,
+  context: CapabilityResolutionContext,
+  connectionReady: boolean,
+  actor = context,
+  verified = new Set<string>(),
+  database?: SqlConnection,
+  sourceAccess?: SourceAccessPhase,
+): Promise<CapabilityCandidate> {
+  const ref = pluginReference(plugin, scopeType, context), refScope = ref.scopeType;
   const readable = await readableCurrentPackagePointer(plugin, capabilityResourceStorageBinding(ref), refScope === 'organization'
     ? { scopeType: 'organization', organizationId: context.organizationId }
-    : { scopeType: 'user', userId: context.userId }, actor, verified);
+    : { scopeType: 'user', userId: context.userId }, actor, verified, database, sourceAccess);
   return {
     ref,
     description: plugin.description,
+    hasDeclaredIcon: declaresImage(plugin.interface?.logo, plugin.interface?.icon),
     enabled: plugin.enabled && readable,
     runtimePath: readable ? plugin.manifestPath : null,
     connectionRequirementCount: connectionRequirementCount(plugin),
@@ -221,16 +279,25 @@ async function pluginSkillCandidates(
   includeUserPreference = true,
   actor = context,
   verified = new Set<string>(),
+  database?: SqlConnection,
+  sourceAccess?: SourceAccessPhase,
 ): Promise<CapabilityCandidate[]> {
   const refScope = capabilityScopeType(plugin.scopeType, scopeType);
   const candidates: CapabilityCandidate[] = [];
-  const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified);
+  const parent = await pluginCandidate(plugin, scopeType, context, true, actor, verified, database, sourceAccess);
   for (const record of plugin.skills) {
+    // Membership does not create a second identity for an existing public Core skill.
+    if (plugin.core && record.sourceType === 'seed' && isCoreSkillName(record.name)) continue;
     const skillPath = record.path || path.join(record.directory, 'SKILL.md');
-    const skill = parent.runtimePath ? await parseSkillFile(skillPath).catch(() => null) : null;
+    const skill = parent.runtimePath ? await parseSkillFile(skillPath, {
+      validateDirectoryName: !isManifestDeclaredPluginRootSkill(plugin, skillPath),
+    }).catch(() => null) : null;
     if (!skill && parent.runtimePath) continue;
     const name = skill?.name ?? record.name;
     const checksum = skill ? await computeCanvasPluginChecksum(skill.directory).catch(() => plugin.checksum) : plugin.checksum;
+    const relativeRoot = skill ? path.relative(plugin.installDir, skill.directory).split(path.sep).join('/') : undefined;
+    const containedRoot = relativeRoot !== undefined && !path.isAbsolute(relativeRoot)
+      && relativeRoot !== '..' && !relativeRoot.startsWith('../') ? relativeRoot : undefined;
     candidates.push({
       ref: createCapabilityReference({
         resourceType: 'skill',
@@ -246,12 +313,14 @@ async function pluginSkillCandidates(
         sourcePluginName: plugin.name,
       }),
       description: skill?.description || record.description,
-      enabled: Boolean(skill) && plugin.enabled && enabledSkillNames.has(name),
-      userPreference: includeUserPreference
+      hasDeclaredIcon: declaresImage(skill?.interface?.iconSmall, skill?.interface?.iconLarge),
+      enabled: Boolean(skill) && plugin.enabled && (plugin.core === true || enabledSkillNames.has(name)),
+      userPreference: includeUserPreference && !plugin.core
         ? skillUserPreference(name, enabledSkillsConfig)
         : 'unset',
       runtimePath: skill?.path ?? null,
       pluginResourceId,
+      ...(containedRoot === undefined ? {} : { pluginSkillRelativeRoot: containedRoot }),
     });
   }
   return candidates;
@@ -265,36 +334,22 @@ async function standaloneSkillCandidates(input: {
   enabledSkillsConfig?: string[] | null;
   includeUserPreference?: boolean;
   verified?: Set<string>;
+  database?: SqlConnection;
+  sourceAccess?: SourceAccessPhase;
 }): Promise<CapabilityCandidate[]> {
   const registry = await readCanvasSkillRegistry(input.scope);
   const preferences = input.scopeType === 'organization' ? await readCapabilityPreferences(input.context.userId) : null;
   return Promise.all(Object.values(registry.skills)
     .filter((record) => record.sourceType !== 'plugin')
     .map(async (record): Promise<CapabilityCandidate> => {
-      const refScope = capabilityScopeType(record.scopeType, input.scopeType);
-      const resourceId = createCapabilityReference({ resourceType: 'skill', scopeType: refScope,
-        resourceId: record.scopeType === 'legacy' ? undefined : record.resourceId, name: record.name,
-        version: record.version, revision: record.revision || 1, checksum: record.checksum, sourceType: 'standalone',
-        organizationId: refScope === 'organization' ? input.context.organizationId : null,
-        ownerUserId: refScope === 'user' ? input.context.userId : null, sourcePluginId: null }).resourceId;
-      const readable = await readableCurrentPackagePointer(record, { resourceType: 'skill', resourceId, scopeType: refScope,
-        name: record.name, sourceType: 'standalone', organizationId: refScope === 'organization' ? input.context.organizationId : null,
-        ownerUserId: refScope === 'user' ? input.context.userId : null, sourcePluginId: null }, input.scope, input.context, input.verified ?? new Set());
+      const ref = standaloneSkillReference(record, input.scopeType, input.context), resourceId = ref.resourceId;
+      const readable = await readableCurrentPackagePointer(record, capabilityResourceStorageBinding(ref),
+        input.scope, input.context, input.verified ?? new Set(), input.database, input.sourceAccess);
+      const currentInterface = readable ? await loadCanvasSkillInterface(record.installDir) : undefined;
       return {
-        ref: createCapabilityReference({
-          resourceType: 'skill',
-          scopeType: refScope,
-          resourceId: record.scopeType === 'legacy' ? undefined : record.resourceId,
-          name: record.name,
-          version: record.version,
-          revision: record.revision || 1,
-          checksum: record.checksum,
-          sourceType: 'standalone',
-          organizationId: refScope === 'organization' ? input.context.organizationId : null,
-          ownerUserId: refScope === 'user' ? input.context.userId : null,
-          sourcePluginId: null,
-        }),
+        ref,
         description: record.description,
+        hasDeclaredIcon: declaresImage(currentInterface?.iconSmall, currentInterface?.iconLarge),
         enabled: readable && input.enabledSkillNames.has(record.name) && (record.packageDefaultEnabled !== false
           || skillUserPreference(record.name, input.enabledSkillsConfig) === 'enabled'
           || preferences?.preferences[resourceId]?.enabled === true),
@@ -341,6 +396,7 @@ async function unregisteredPersonalSkillCandidates(input: {
         sourcePluginId: null,
       }),
       description: skill.description,
+      hasDeclaredIcon: declaresImage(skill.interface?.iconSmall, skill.interface?.iconLarge),
       enabled: userPreference === 'unset' || input.enabledSkillNames.has(skill.name),
       userPreference,
       runtimePath: skillPath,
@@ -350,8 +406,12 @@ async function unregisteredPersonalSkillCandidates(input: {
 
 export async function loadCapabilityCandidates(
   context: CapabilityResolutionContext,
-  options: { resolveConnections?: boolean; /** Server-only raw artifact inspection. Never read from requests. */ applyResourceAccess?: boolean } = {},
+  options: { resolveConnections?: boolean; /** Server-only raw artifact inspection. Never read from requests. */ applyResourceAccess?: boolean;
+    /** Caller owns this read lease and its transaction. Metadata-only loading never borrows another client. */ database?: SqlConnection } = {},
 ): Promise<CapabilityCandidate[]> {
+  if (options.database && options.resolveConnections !== false) {
+    throw new Error('A borrowed SQL connection requires metadata-only capability loading.');
+  }
   const organizationScope = {
     scopeType: 'organization' as const,
     organizationId: context.organizationId,
@@ -363,7 +423,7 @@ export async function loadCapabilityCandidates(
   };
   const [coreSkills, organizationSkillRegistry, personalSkillRegistry, organizationPlugins, personalPlugins, organizationEnabledSkills, enabledSkills, capabilityPreferences] = await Promise.all([
     loadCoreSkills(),
-    context.organizationId ? readCanvasSkillRegistry(organizationScope) : Promise.resolve({ skills: {} }),
+    context.organizationId ? readCanvasSkillRegistry(organizationScope) : Promise.resolve({ skills: {} as Record<string, CanvasSkillInstallRecord> }),
     readCanvasSkillRegistry(userScope),
     context.organizationId ? listCanvasPlugins(organizationScope) : Promise.resolve([]),
     listCanvasPlugins(userScope),
@@ -384,6 +444,15 @@ export async function loadCapabilityCandidates(
   const enabledSkillNames = resolveEnabledSkillNames(personalSkillNames, enabledSkills);
   const pluginRecords = new Map<string, CanvasPluginInstallRecord>();
   const verified = new Set<string>();
+  // The metadata-only preread is local to this load. Final ACL projection below is a separate fresh phase.
+  const sourceAccess = await readSourceAccessPhase(context, [
+    ...organizationPlugins.map(plugin => capabilityResourceStorageBinding(pluginReference(plugin, 'organization', context))),
+    ...personalPlugins.map(plugin => capabilityResourceStorageBinding(pluginReference(plugin, 'user', context))),
+    ...Object.values(organizationSkillRegistry.skills).filter(record => record.sourceType !== 'plugin')
+      .map(record => capabilityResourceStorageBinding(standaloneSkillReference(record, 'organization', context))),
+    ...Object.values(personalSkillRegistry.skills).filter(record => record.sourceType !== 'plugin')
+      .map(record => capabilityResourceStorageBinding(standaloneSkillReference(record, 'user', context))),
+  ], options.database);
   const candidates: CapabilityCandidate[] = coreSkills.map((skill) => ({
     ref: createCapabilityReference({
       resourceType: 'skill',
@@ -398,6 +467,7 @@ export async function loadCapabilityCandidates(
       sourcePluginId: null,
     }),
     description: skill.description,
+    hasDeclaredIcon: declaresImage(skill.interface?.iconSmall, skill.interface?.iconLarge),
     enabled: true,
     runtimePath: skill.path,
   }));
@@ -410,6 +480,8 @@ export async function loadCapabilityCandidates(
     enabledSkillsConfig: organizationEnabledSkills,
     includeUserPreference: false,
     verified,
+    database: options.database,
+    sourceAccess,
   }));
   candidates.push(...await standaloneSkillCandidates({
     scope: userScope,
@@ -418,10 +490,12 @@ export async function loadCapabilityCandidates(
     enabledSkillNames,
     enabledSkillsConfig: enabledSkills,
     verified,
+    database: options.database,
+    sourceAccess,
   }));
 
   for (const plugin of organizationPlugins) {
-    const pluginEntry = await pluginCandidate(plugin, 'organization', context, true, context, verified);
+    const pluginEntry = await pluginCandidate(plugin, 'organization', context, true, context, verified, options.database, sourceAccess);
     pluginRecords.set(pluginEntry.ref.resourceId, plugin);
     candidates.push(pluginEntry);
     candidates.push(...await pluginSkillCandidates(
@@ -434,13 +508,15 @@ export async function loadCapabilityCandidates(
       false,
       context,
       verified,
+      options.database,
+      sourceAccess,
     ));
   }
   for (const plugin of personalPlugins) {
-    const pluginEntry = await pluginCandidate(plugin, 'user', context, true, context, verified);
+    const pluginEntry = await pluginCandidate(plugin, 'user', context, true, context, verified, options.database, sourceAccess);
     pluginRecords.set(pluginEntry.ref.resourceId, plugin);
     candidates.push(pluginEntry);
-    candidates.push(...await pluginSkillCandidates(plugin, pluginEntry.ref.resourceId, 'user', context, enabledSkillNames, enabledSkills, true, context, verified));
+    candidates.push(...await pluginSkillCandidates(plugin, pluginEntry.ref.resourceId, 'user', context, enabledSkillNames, enabledSkills, true, context, verified, options.database, sourceAccess));
   }
 
   candidates.push(...await unregisteredPersonalSkillCandidates({
@@ -450,7 +526,7 @@ export async function loadCapabilityCandidates(
     enabledSkillsConfig: enabledSkills,
   }));
   if (options.applyResourceAccess !== false) {
-    const shared = await sharedPersonalCapabilityCandidates(context, enabledSkills ?? null);
+    const shared = await sharedPersonalCapabilityCandidates(context, enabledSkills ?? null, options.database);
     candidates.push(...shared.candidates);
     for (const [id, plugin] of shared.plugins) pluginRecords.set(id, plugin);
   }
@@ -463,7 +539,7 @@ export async function loadCapabilityCandidates(
     };
   });
   const authorized = options.applyResourceAccess === false ? preferred
-    : await applyCapabilityCandidateResourceAccess({ userId: context.userId, workspaceId: context.workspaceId }, preferred);
+    : await applyCapabilityCandidateResourceAccess({ userId: context.userId, workspaceId: context.workspaceId }, preferred, options.database);
   if (options.resolveConnections === false) return authorized;
   const readablePlugins = authorized.filter(candidate => candidate.ref.resourceType === 'plugin'
     && candidate.resourceAccess?.canRead !== false);

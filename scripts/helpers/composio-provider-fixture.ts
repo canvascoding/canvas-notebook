@@ -127,7 +127,10 @@ export async function createComposioProviderFixture(options: { nativeConsent?: C
         toolkit: { slug: account.toolkit }, status: account.status })) });
     if (url.pathname === '/api/v3.1/auth_configs') return send({ items: [], next_cursor: null, total_pages: 1 });
     if (url.pathname === '/api/v3.1/toolkits') {
-      const matching = APPS.filter((app) => !url.searchParams.has('search') || app.slug === url.searchParams.get('search'));
+      // The SDK contract defines a name/slug/description search, not an exact
+      // toolkit identity. This fixture's description is the displayed name.
+      const search = (url.searchParams.get('search') ?? '').trim().toLocaleLowerCase('en-US');
+      const matching = APPS.filter(app => [app.slug, app.name].some(value => value.toLocaleLowerCase('en-US').includes(search)));
       const offset = url.searchParams.get('cursor') ? 2 : 0;
       const items = matching.slice(offset, offset + 2).map((app) => ({ ...app, is_local_toolkit: false, meta: { description: app.name, tools_count: 2 } }));
       return send({ items, next_cursor: offset === 0 && matching.length > 2 ? 'apps-2' : null,

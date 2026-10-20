@@ -119,6 +119,11 @@ jobs:
           ref: ${{ needs.source.outputs.commit_sha }}
           persist-credentials: false
 
+      - name: Prepare memory and disk for the production compiler
+        env:
+          CANVAS_RELEASE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: bash scripts/prepare-release-runner.sh
+
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -131,16 +136,10 @@ jobs:
         run: npm run prebuild
 
       - name: Compile production bundles
-        env:
-          CANVAS_RELEASE_BUILD_SKIP_TYPECHECK: "1"
-          CANVAS_RELEASE_BUILD_LOW_MEMORY: "1"
-        run: node ./node_modules/next/dist/bin/next build --experimental-build-mode compile
+        run: npm run build:release:compile
 
       - name: Generate production routes and verify collaboration modules
-        env:
-          CANVAS_RELEASE_BUILD_SKIP_TYPECHECK: "1"
-          CANVAS_RELEASE_BUILD_LOW_MEMORY: "1"
-        run: node ./node_modules/next/dist/bin/next build --experimental-build-mode generate && bash scripts/inject-cli-version.sh && npm run test:collaboration:production-modules
+        run: npm run build:release:generate
 
       - name: Package verified application build
         env:
@@ -178,9 +177,7 @@ jobs:
         run: npm ci
 
       - name: Generate route types and verify TypeScript
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-        run: npm run build:decision-models && npx next typegen && npx tsc --project tsconfig.release.json --noEmit --incremental false
+        run: npm run build:release:typecheck
 
   release-cli-safety:
     runs-on: ubuntu-latest

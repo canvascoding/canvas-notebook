@@ -1,0 +1,421 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^(?!.*--)[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][a-zA-Z0-9.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+    },
+    "skills": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "."
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?:\\.\\/)?(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+)*$"
+        }
+      ]
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+    },
+    "author": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+        },
+        "url": {
+          "type": "string",
+          "maxLength": 2048,
+          "format": "uri"
+        }
+      },
+      "additionalProperties": false
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+    },
+    "interface": {
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+        },
+        "shortDescription": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+        },
+        "logo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "allOf": [
+            {
+              "type": "string",
+              "pattern": "^(?:\\.\\/)?(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+)*$"
+            },
+            {
+              "type": "string",
+              "pattern": "\\.svg$"
+            }
+          ]
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+        },
+        "brandColor": {
+          "type": "string",
+          "pattern": "^#[a-fA-F0-9]{6}$"
+        },
+        "icon": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^(?:\\.\\/)?(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+(?:\\/(?!\\.{1,2}(?:\\/|$))[^/\\\\:\\u0000-\\u0020\\u007f]+)*$"
+        },
+        "defaultPrompt": {
+          "minItems": 1,
+          "maxItems": 16,
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+          }
+        }
+      },
+      "required": [
+        "displayName",
+        "shortDescription",
+        "logo"
+      ],
+      "additionalProperties": false
+    },
+    "connectors": {
+      "type": "object",
+      "properties": {
+        "composio": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "toolkit": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+              },
+              "recommended": {
+                "type": "boolean"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "tools": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f]+$"
+                }
+              }
+            },
+            "required": [
+              "toolkit"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "email": {
+          "maxItems": 8,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "mailbox"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024,
+                "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f]+$"
+              },
+              "recommended": {
+                "type": "boolean"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "providers": {
+                "minItems": 1,
+                "maxItems": 2,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "gmail",
+                    "imap-smtp"
+                  ]
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "mcp": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f/\\\\:]+$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "recommended": {
+                "type": "boolean"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "configPath": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "pattern": "^(?![A-Za-z]:)(?!\\/)(?![\\s\\S]*(?:^|\\/)\\.\\.(?:\\/|$))(?![\\s\\S]*\\/\\/)(?![\\s\\S]*\\/$)[^\\\\\\u0000-\\u001f\\u007f]+$"
+              },
+              "env": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+                }
+              },
+              "oauth": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflow": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "integrationCapabilities": {
+          "maxItems": 32,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[a-z0-9][a-z0-9._-]*$"
+              },
+              "application": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "required": {
+                "default": true,
+                "type": "boolean"
+              },
+              "alternatives": {
+                "minItems": 1,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "const": "mcp"
+                        },
+                        "connector": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f/\\\\:]+$"
+                        },
+                        "requiredTools": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f]+$"
+                          }
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "connector"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "source": {
+                          "type": "string",
+                          "const": "composio"
+                        },
+                        "toolkit": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 128,
+                          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+                        },
+                        "requiredTools": {
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f]+$"
+                          }
+                        }
+                      },
+                      "required": [
+                        "source",
+                        "toolkit"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "skillRefs": {
+                "maxItems": 64,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^(?!\\s)(?![\\s\\S]*\\s$)[^\\u0000-\\u0020\\u007f/\\\\:]+$"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "application",
+              "alternatives"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "integrationCapabilities"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "name",
+    "version",
+    "description",
+    "skills",
+    "interface"
+  ],
+  "additionalProperties": false,
+  "$id": "urn:canvas:creator-plugin-manifest:1",
+  "title": "Canvas Creator Plugin Manifest V1",
+  "$comment": "Structural input contract. The existing complete package validator additionally checks uniqueness, references and exact package files; Creator validation also checks actual SVG bytes. Schema validity supplies no connection or execution authority."
+}

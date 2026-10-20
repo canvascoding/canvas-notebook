@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { AgentIdentityAvatar } from '@/app/components/agents/AgentIdentityVisual';
 import { CreateAgentDialog, type CreateAgentInput } from './CreateAgentDialog';
+import type { AgentExtensionEditorContext } from '@/app/components/agents/AgentExtensionEditor';
 import type { AgentIconId } from '@/app/lib/agents/icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -44,6 +45,7 @@ type AgentSelectorCardProps = {
   creating: boolean;
   deletingAgentId: string | null;
   canManageAgentDefaults: boolean;
+  context?: AgentExtensionEditorContext;
   openCreateDialogOnMount?: boolean;
   onSelectedAgentIdChange: (agentId: string) => void;
   onCreate: (input: CreateAgentInput) => Promise<AgentProfileItem | null>;
@@ -59,6 +61,7 @@ export function AgentSelectorCard({
   creating,
   deletingAgentId,
   canManageAgentDefaults,
+  context,
   openCreateDialogOnMount = false,
   onSelectedAgentIdChange,
   onCreate,
@@ -193,6 +196,7 @@ export function AgentSelectorCard({
       creating={creating}
       error={error}
       canManageAgentDefaults={canManageAgentDefaults}
+      context={context}
       onOpenChange={setCreateDialogOpen}
       onCreate={onCreate}
     />

@@ -2,7 +2,7 @@
 
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { ArrowLeft, ArrowRight, FileCode2, Loader2, Package, RefreshCw } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2, RefreshCw } from 'lucide-react';
 import type { CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
 import type { CapabilityPackagePresentation } from '@/app/lib/capabilities/packages/presentation-contracts';
 import type { CapabilityPackageStoreListResponse, CapabilityPackageStoreSelection } from '@/app/lib/capabilities/packages/store-contracts';
@@ -11,23 +11,30 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { InlineNotice } from '@/components/ui/inline-notice';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import type { ExtensionPackagePin } from '@/app/lib/capabilities/extensions/contracts';
+import { PackageProvisioningSection } from './PackageProvisioningSection';
+import { publishedPackageNavigationPatch } from './package-provisioning-client';
 import { ResourceManagementSection } from './ResourceManagementSection';
 import { PackageEditorSection } from './PackageEditorSection';
-import { SharedConnectionsSection } from './SharedConnectionsSection';
+import { PackageRequirementsSetup } from './PackageRequirementsSetup';
 import { PackageDetailPresentation } from './PackageDetailPresentation';
 import { PackageDetailVersions } from './PackageDetailVersions';
 import { PackageWorkspaceRequestError, workspaceRequest } from './plugin-workspace-client';
 import { confirmPluginNavigation } from './plugin-navigation-guard';
+import { PluginExtensionAvatar } from './PluginExtensionAvatar';
 
 export type PackageDetailWorkspaceProps = {
   resourceRef: string;
   workspaceId: string | null;
   task: typeof PLUGIN_DETAIL_TASKS[number];
   file?: string;
+  publishedPin?: ExtensionPackagePin;
   store?: CapabilityPackageStoreListResponse | null;
   /** The shell owns the existing navigation guard, including Back and task changes. */
   onNavigate: (patch: Partial<PluginNavigation>) => void;
   onUpdated: () => void;
+  /** Connection metadata changes do not replace this package's local setup state. */
+  onConnectionsUpdated?: () => void;
   onClose: () => void;
   onStoreUpdate: (source: CapabilityPackageStoreSelection, resourceRef: string) => void;
 };
@@ -55,8 +62,8 @@ function exactStoreUpdate(resource: CapabilityResourceDescriptor, presentation: 
   return sources.length === 1 ? sources[0] : null;
 }
 
-function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onNavigate, onUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
-  const t = useTranslations('skills.workspace.detail'), locale = useLocale();
+function PackageDetailSession({ resourceRef, workspaceId, task, file, publishedPin, store, onNavigate, onUpdated, onConnectionsUpdated, onClose, onStoreUpdate }: PackageDetailWorkspaceProps) {
+  const t = useTranslations('skills.workspace.detail'), provisioningCopy = useTranslations('skills.provisioning'), locale = useLocale();
   const [resource, setResource] = useState<CapabilityResourceDescriptor | null>(null);
   const [presentation, setPresentation] = useState<CapabilityPackagePresentation | null>(null);
   const [loading, setLoading] = useState(true);
@@ -108,7 +115,6 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
   const description = resource?.metadata.description ?? presentation?.description ?? resource?.description ?? '';
   const displayVersion = presentation?.version || resource?.artifact.version || '';
   const ownership = resource?.metadata.ownership;
-  const sharedOwnership = ownership?.type === 'organization' || ownership?.type === 'team' ? ownership : undefined;
   const scope = ownership ? t(`scopes.${ownership.type}`) : '';
   const ownerLabel = resource?.ownershipLabel || (ownership?.type === 'user' ? resource?.people?.owner?.name : '') || scope;
   const parentRef = resource?.metadata.sourcePluginId && isPluginNavigationResourceRef(resource.metadata.sourcePluginId) ? resource.metadata.sourcePluginId : null;
@@ -125,7 +131,7 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
         <Button variant="outline" size="sm" onClick={() => { if (confirmPluginNavigation()) void load(); }} disabled={loading} data-testid="package-detail-reload"><RefreshCw className="size-4" />{t('reload')}</Button>
       </div>
       {resource ? <div className="flex min-w-0 items-start gap-4">
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border bg-muted/40" aria-hidden="true">{resource.artifact.resourceType === 'plugin' ? <Package className="size-6" /> : <FileCode2 className="size-6" />}</div>
+        <PluginExtensionAvatar name={title} identity={JSON.stringify([resource.metadata.resourceRef, workspaceId])} icon={presentation?.icon} size="lg" />
         <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground"><span>{t(resource.artifact.resourceType)}</span><span aria-hidden="true">/</span><span className="break-words">{scope}{ownerLabel && ownerLabel !== scope ? ` · ${ownerLabel}` : ''}</span></div>
           <h1 className="mt-1 break-words text-2xl font-semibold tracking-tight sm:text-3xl" data-testid="package-detail-title">{title}</h1>
           {description ? <p className="mt-2 max-w-3xl whitespace-pre-line break-words text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
@@ -136,6 +142,7 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
         </div>
       </div> : <h1 className="text-xl font-semibold">{t('title')}</h1>}
     </header>
+    {publishedPin ? <InlineNotice size="compact">{provisioningCopy('currentDetailsHint')}</InlineNotice> : null}
     {loading ? <p className="flex items-center gap-2 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>
       : error ? <InlineNotice variant="destructive" size="compact">{t(error)}</InlineNotice>
         : resource ? <>
@@ -167,8 +174,9 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
                 </aside>
               </div>
               {presentation?.children.length ? <section className="space-y-3"><h2 className="text-lg font-semibold">{t('containedSkills', { count: presentation.children.length })}</h2>
-                <div className="grid gap-3 sm:grid-cols-2">{presentation.children.map(child => <article key={child.name} className="min-w-0 rounded-xl border p-4"><h3 className="break-words text-sm font-semibold">{child.title}</h3>
-                  <p className="mt-1 break-words text-sm leading-relaxed text-muted-foreground">{child.description}</p></article>)}</div>
+                <div className="grid gap-3 sm:grid-cols-2">{presentation.children.map(child => <article key={child.name} className="flex min-w-0 items-start gap-3 rounded-xl border p-4">
+                  <PluginExtensionAvatar name={child.title} identity={JSON.stringify([resource.metadata.resourceRef, workspaceId, 'child', child.name])} icon={child.icon} size="sm" />
+                  <div className="min-w-0"><h3 className="break-words text-sm font-semibold">{child.title}</h3><p className="mt-1 break-words text-sm leading-relaxed text-muted-foreground">{child.description}</p></div></article>)}</div>
               </section> : null}
               {presentation?.scripts.length ? <details className="space-y-3"><summary className="cursor-pointer text-sm font-semibold">{t('declaredScripts')}</summary><p className="text-sm text-muted-foreground">{t('scriptsHint')}</p>
                 <ul className="divide-y rounded-xl border">{presentation.scripts.map(script => <li key={`${script.skillName}:${script.id}`} className="min-w-0 p-4"><p className="break-words text-sm font-medium">{script.title}</p>
@@ -181,13 +189,21 @@ function PackageDetailSession({ resourceRef, workspaceId, task, file, store, onN
               </section> : null}
             </TabsContent> : null}
             {task === 'connections' ? <TabsContent value="connections" className="space-y-6" data-testid="package-detail-connections">
-              {presentation ? <PackageDetailPresentation presentation={presentation} /> : null}
               <InlineNotice size="compact">{t('accountRightsHint')}</InlineNotice>
-              <SharedConnectionsSection workspaceId={workspaceId} ownership={sharedOwnership} initiallyOpen />
-              <Button variant="outline" className="h-auto min-h-11 whitespace-normal" onClick={advanced}>{t('personalConnections')}</Button>
+              {presentation ? <PackageRequirementsSetup presentation={presentation} workspaceId={workspaceId}
+                returnPath={typeof window !== 'undefined' ? window.location.pathname + window.location.search : `/${locale}/plugins?view=browse&resourceRef=${encodeURIComponent(resource.metadata.resourceRef)}&task=connections`}
+                onUpdated={onConnectionsUpdated ?? (() => undefined)} /> : null}
+              {presentation ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><PackageDetailPresentation presentation={presentation}
+                identity={JSON.stringify([resource.metadata.resourceRef, workspaceId, resource.artifact.revision])} /></div></details> : null}
             </TabsContent> : null}
-            {task === 'sharing' ? <TabsContent value="sharing"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></TabsContent> : null}
-            {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh} /></TabsContent> : null}
+            {task === 'sharing' ? <TabsContent value="sharing" className="space-y-6">
+              {resource.metadata.ownership.type === 'organization' && resource.access.canManage && publishedPin ? <PackageProvisioningSection
+                key={JSON.stringify(publishedPin)} pin={publishedPin} workspaceId={workspaceId} onUpdated={onUpdated} onSelectVersion={pin => onNavigate(publishedPackageNavigationPatch(pin))} /> : null}
+              <div>{publishedPin ? <details><summary className="cursor-pointer text-sm font-medium">{t('advancedTitle')}</summary><div className="mt-4"><ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} /></div></details> : <ResourceManagementSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} onUpdated={refresh} />}</div>
+            </TabsContent> : null}
+            {task === 'content' ? <TabsContent value="content"><PackageEditorSection resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} initialFile={file} initiallyOpen onUpdated={refresh}
+              onPublished={pin => onNavigate(publishedPackageNavigationPatch(pin))} onDraftStarted={draft => onNavigate({ area: draft.kind === 'plugin' ? 'plugins' : 'skills', view: 'drafts',
+                resourceRef: draft.sourceResourceRef ?? undefined, draftRef: draft.draftRef, task: 'content', file: undefined })} /></TabsContent> : null}
             {task === 'versions' ? <TabsContent value="versions"><PackageDetailVersions resourceRef={resource.metadata.resourceRef} workspaceId={workspaceId} /></TabsContent> : null}
             {task === 'advanced' ? <TabsContent value="advanced" className="space-y-4" data-testid="package-detail-advanced"><h2 className="text-lg font-semibold">{t('advancedTitle')}</h2><p className="text-sm text-muted-foreground">{t('advancedHint')}</p>
               <dl className="space-y-4 rounded-xl border p-4">{[[t('resourceRef'),resource.metadata.resourceRef],[t('version'),resource.artifact.version],[t('checksum'),resource.artifact.checksum]].map(([label,value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-mono text-xs [overflow-wrap:anywhere]">{value}</dd></div>)}</dl>

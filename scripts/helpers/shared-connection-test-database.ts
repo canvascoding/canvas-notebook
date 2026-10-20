@@ -8,7 +8,7 @@ import type { SqlConnection } from '../../app/lib/db';
 import { createPiTestDatabase } from './pi-test-database';
 
 /** Native mode creates and drops only its nonce database on the existing managed local PostgreSQL. */
-export async function createSharedConnectionTestDatabase() {
+export async function createSharedConnectionTestDatabase(options: { poolMax?: 2 | 8 | 10 } = {}) {
   if (process.env.CANVAS_SHARED_CONNECTION_POSTGRES_TEST !== '1') return { ...await createPiTestDatabase(), native: false };
   assert.equal(process.env.NODE_ENV, 'test');
   const localUrl = new URL(process.env.DATABASE_URL ?? '');
@@ -27,7 +27,8 @@ export async function createSharedConnectionTestDatabase() {
   let pool: Pool;
   try {
     process.env.DATABASE_URL = testUrl.toString();
-    process.env.CANVAS_POSTGRES_POOL_MAX = '8';
+    assert(options.poolMax === undefined || [2, 8, 10].includes(options.poolMax));
+    process.env.CANVAS_POSTGRES_POOL_MAX = String(options.poolMax ?? 8);
     pool = createPostgresPool();
   } finally {
     if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
@@ -56,9 +57,18 @@ export async function createSharedConnectionTestDatabase() {
     ensureDatabaseReady: async () => {}, assertDatabaseAvailable: () => {},
     openDb: async (): Promise<SqlConnection> => {
       const client = await pool.connect();
-      return { get: async (sql, params = []) => (await client.query(sql, params)).rows[0],
-        all: async (sql, params = []) => (await client.query(sql, params)).rows,
-        run: async (sql, params = []) => ({ changes: (await client.query(sql, params)).rowCount ?? 0 }),
-        close: () => client.release() };
+      // Failure-only teardown may terminate an owned idle transaction. pg's
+      // pool handles idle clients, while this checked-out lease owns its error.
+      let failure: Error | undefined;
+      const onError = (error: Error) => { failure = error; };
+      client.on('error', onError);
+      const query = async (sql: string, params: unknown[]) => {
+        if (failure) throw failure;
+        return client.query(sql, params);
+      };
+      return { get: async (sql, params = []) => (await query(sql, params)).rows[0],
+        all: async (sql, params = []) => (await query(sql, params)).rows,
+        run: async (sql, params = []) => ({ changes: (await query(sql, params)).rowCount ?? 0 }),
+        close: (error?: Error) => { client.removeListener('error', onError); client.release(error ?? failure); } };
     }, close: cleanup };
 }

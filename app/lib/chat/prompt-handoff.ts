@@ -2,6 +2,7 @@ import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview
 import { isRecord } from '@/app/lib/chat/message-content';
 import type { Attachment } from '@/app/lib/chat/types';
 import type { OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import { parseChatBody, projectChatBodyText, type ChatBodyV1 } from './chat-body-contracts';
 
 type HandoffAuth = Pick<OpenedDocumentAuthScope, 'userId' | 'sessionId'>;
 type HandoffStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
@@ -9,8 +10,11 @@ export type PromptHandoff = {
   handoffId: string;
   workspaceId: string;
   prompt: string;
+  body?: ChatBodyV1;
   attachments: Attachment[];
   agentId: string | null;
+  /** Absent retains the established send handoff. Composer handoffs never submit a message. */
+  mode?: 'compose';
   auth?: HandoffAuth;
 };
 
@@ -29,17 +33,27 @@ function attachment(value: unknown): Attachment | null {
 
 export function createPromptHandoff(input: {
   prompt: string; attachments: Attachment[]; agentId: string | null; workspaceId: string;
-  auth?: HandoffAuth | null; handoffId?: string;
+  auth?: HandoffAuth | null; handoffId?: string; body?: ChatBodyV1;
+  mode?: 'compose';
 }): PromptHandoff {
   if (!input.workspaceId.trim()) throw new Error('Select a workspace before starting this chat.');
+  if (input.mode !== undefined && input.mode !== 'compose') throw new Error('The chat handoff mode is invalid.');
+  const body = input.body === undefined ? undefined : parseChatBody(input.body);
+  if (body && projectChatBodyText(body) !== input.prompt) throw new Error('The saved prompt differs from its inline body.');
   return {
     handoffId: input.handoffId ?? crypto.randomUUID(), workspaceId: input.workspaceId,
     prompt: input.prompt, attachments: input.attachments, agentId: input.agentId,
+    ...(input.mode === 'compose' ? { mode: 'compose' as const } : {}),
+    ...(body === undefined ? {} : { body }),
     ...(input.auth ? { auth: { userId: input.auth.userId, sessionId: input.auth.sessionId } } : {}),
   };
 }
 
 export function persistPromptHandoff(storage: HandoffStorage, key: string, payload: PromptHandoff): void {
+  if (payload.mode !== undefined && payload.mode !== 'compose') throw new Error('The chat handoff mode is invalid.');
+  if ('selection' in payload || 'intakeSelection' in payload) throw new Error('Account receipts cannot be saved in a prompt handoff.');
+  if (payload.body !== undefined && projectChatBodyText(parseChatBody(payload.body)) !== payload.prompt)
+    throw new Error('The saved prompt differs from its inline body.');
   const serialized = JSON.stringify(payload);
   storage.setItem(key, serialized);
   if (storage.getItem(key) !== serialized) throw new Error('The prompt could not be saved. Please try again.');
@@ -54,6 +68,7 @@ export function readPromptHandoff(storage: HandoffStorage, key: string, context:
   let value: unknown;
   try { value = JSON.parse(stored); } catch { value = { prompt: stored }; }
   if (!isRecord(value)) throw new Error('The saved prompt is invalid.');
+  if ('selection' in value || 'intakeSelection' in value) throw new Error('The saved prompt contains transient account data.');
   const prompt = typeof value.prompt === 'string' ? value.prompt : '';
   const attachments = Array.isArray(value.attachments)
     ? value.attachments.map(attachment).filter((entry): entry is Attachment => Boolean(entry)) : [];
@@ -69,12 +84,15 @@ export function readPromptHandoff(storage: HandoffStorage, key: string, context:
   if (value.auth !== undefined && (!isRecord(value.auth) || typeof value.auth.userId !== 'string'
     || typeof value.auth.sessionId !== 'string')) throw new Error('The saved prompt account is invalid.');
   const auth = value.auth as HandoffAuth | undefined;
+  if (value.mode !== undefined && value.mode !== 'compose') throw new Error('The saved chat handoff mode is invalid.');
   if (auth && (!context.auth || auth.userId !== context.auth.userId || auth.sessionId !== context.auth.sessionId)) {
     throw new Error('This prompt belongs to another sign-in session.');
   }
   const rawAgentId = typeof value.agentId === 'string' ? value.agentId.trim().toLowerCase() : '';
   const payload = createPromptHandoff({ prompt, attachments, handoffId, workspaceId,
     agentId: /^[a-z0-9][a-z0-9_-]{0,63}$/u.test(rawAgentId) ? rawAgentId : null,
+    ...(value.body === undefined ? {} : { body: parseChatBody(value.body) }),
+    ...(value.mode === 'compose' ? { mode: 'compose' } : {}),
     auth: auth ?? context.auth });
   if (stored !== JSON.stringify(payload)) persistPromptHandoff(storage, key, payload);
   return payload;

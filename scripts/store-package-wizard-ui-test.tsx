@@ -20,6 +20,7 @@ const source: CapabilityPackageStoreSelection = { kind: 'plugin', registryId: 's
 const resourceRef = 'canvas-resource:11111111-1111-4111-8111-111111111111';
 const revisionRef = 'canvas-package-revision:22222222-2222-4222-8222-222222222222';
 const preview: CapabilityPackagePresentation = { schemaVersion: 1, origin: 'store', kind: 'plugin', name: source.entryKey, version: source.version,
+  icon: { url: 'https://logos.test/exact-store.svg', sourceKey: JSON.stringify(source) },
   title: 'Design package', description: 'A complete design workflow.', source, children: [{ name: 'design-skill', title: 'Design skill', description: 'Prepare designs.', version: '2.0.0' }],
   scripts: [{ skillName: 'design-skill', id: 'prepare', title: 'Prepare assets', runtime: { kind: 'node', minimumVersion: '22' } }],
   capabilities: [{ declaredBy: { kind: 'plugin', name: source.entryKey }, id: 'design', application: 'Canva', required: true, alternatives: [{ source: 'composio', label: 'Composio' }, { source: 'mcp', label: 'MCP' }] }],
@@ -93,6 +94,11 @@ async function main() {
     handler = async request => request.path.endsWith('/store/install') ? (await installHold.wait, success(applicationResult)) : base(request);
     render(view(props));
     await screen.findByRole('button', { name: labels.confirmTarget });
+    await waitFor(() => assert(screen.getByTestId('store-package-wizard').querySelector('header [data-testid="plugin-extension-avatar-image"]')));
+    const headerImage = screen.getByTestId('store-package-wizard').querySelector('header [data-testid="plugin-extension-avatar-image"]')!;
+    assert.equal(headerImage.getAttribute('src'), preview.icon?.url);
+    fireEvent.error(headerImage);
+    assert.equal(screen.getByTestId('store-package-wizard').querySelector('header [data-testid="plugin-extension-avatar-initials"]')?.textContent, 'DP');
     await waitFor(() => assert.equal((screen.getByTestId('store-wizard-target') as HTMLSelectElement).value, 'team:own-team'));
     assert.equal(requests.some(request => request.path.endsWith('/store/install-options')), false, 'The directory is lazy until explicit target confirmation.');
     fireEvent.click(screen.getByText(labels.packageDetails));

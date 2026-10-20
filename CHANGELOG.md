@@ -11,6 +11,33 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.17.2] - 2026-10-17
+
+### Added
+
+- Added unified extension discovery and exact skill, plugin, integration, and MCP selection for chat and agent workflows.
+- Added organization plugin creation with durable drafts, provisioning, validation, and guided setup.
+- Added durable chat queue recovery and inline extension references, with scoped mobile extension context.
+- Added complete workspace file discovery across desktop, mobile, and Studio reference pickers.
+
+### Changed
+
+- Prioritized connected and usable extension references and made search results available progressively.
+- Preserved exact account, connection, package, and workflow choices across setup, navigation, and OAuth.
+- Aligned local production verification with the CI compiler, typecheck, route generation, and production module checks.
+
+### Fixed
+
+- Improved provider setup recovery, Codex request compatibility, dictation error handling, and MCP file-link identity.
+- Fixed workspace search depth limits and refreshed package readiness from current connected sources.
+- Provisioned compiler memory on hosted release runners and added bounded build execution with resource diagnostics.
+- Corrected macOS bundle path validation during signed desktop packaging.
+
+### Verification
+
+- `npm run build` from a clean source copy without cached build output.
+- `npm run verify:release`
+
 ## [2026.10.15.2] - 2026-10-15
 
 ### Changed

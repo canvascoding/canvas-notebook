@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createPiTestDatabase } from './helpers/pi-test-database';
+import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-automation-runner-tools-'));
 process.env.DATA = dataDir;
@@ -24,6 +25,7 @@ const toolCalls: Array<{
   automationExecution: boolean | undefined;
   automationJobState: { jobId: string; runId: string } | undefined;
 }> = [];
+const toolExecutionContexts: AgentExecutionContext[] = [];
 let agentLoopToolNames: string[] = [];
 let agentLoopMode: 'success' | 'heartbeat-ok' | 'no-action' | 'empty-error' = 'success';
 let exclusiveMode: 'pass' | 'busy' = 'pass';
@@ -488,7 +490,8 @@ moduleInternals._load = (request, parent, isMain) => {
   if (request === '@/app/lib/pi/tool-registry' || request.endsWith('/pi/tool-registry')) {
     return {
       getPiTools: async (userId?: string, agentId?: string | null, sessionId?: string | null,
-        options?: { automationExecution?: boolean; automationJobState?: { jobId: string; runId: string } }) => {
+        options?: { automationExecution?: boolean; automationJobState?: { jobId: string; runId: string }; executionContext?: AgentExecutionContext }) => {
+        if (options?.executionContext) toolExecutionContexts.push(options.executionContext);
         toolCalls.push({ userId, agentId, sessionId, automationExecution: options?.automationExecution,
           automationJobState: options?.automationJobState });
         return [
@@ -593,6 +596,16 @@ async function main() {
   assert.notEqual(agentLoopStreamFns[0], testStreamFn, 'automation must wrap the provider stream with its explicit output cap');
   assert.equal(agentLoopThinkingLevels[0], undefined);
   assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);
+  const { readEffectiveExtensionContext } = await import('../app/lib/capabilities/extensions/effective-context');
+  const firstExecutionContext = toolExecutionContexts[0];
+  assert(firstExecutionContext?.effectiveExtensions, 'The actual automation preflight issues a shared context before its tool registry.');
+  const issued = readEffectiveExtensionContext(firstExecutionContext)!;
+  assert.equal(issued.fingerprint, firstExecutionContext.effectiveExtensions.fingerprint);
+  assert.match(agentLoopSystemPrompts[0] || '', /<!-- canvas-effective-extensions:v1 -->/);
+  assert((agentLoopSystemPrompts[0] || '').includes(issued.fingerprint), 'Automation renders the same issued context used by its final tools.');
+  assert((agentLoopSystemPrompts[0] || '').includes('Skill reading is unavailable'), 'No file-read recipe may be invented for the actual no-read fixture toolset.');
+  assert(!issued.skills.some(skill => (agentLoopSystemPrompts[0] || '').includes(skill.runtimePath)), 'Tool-subset filtering keeps skill paths out when read is not registered.');
+  assert.match(agentLoopNextTurnSystemPrompts[0] || '', /<!-- canvas-effective-extensions:v1 -->/);
   assert.match(agentLoopSystemPrompts[0] || '', /`studio_generate_image`/);
   assert.doesNotMatch(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);
   assert.match(agentLoopNextTurnSystemPrompts[0] || '', /<!-- canvas-effective-tools:v1 -->/);

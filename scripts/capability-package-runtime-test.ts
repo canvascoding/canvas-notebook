@@ -92,8 +92,27 @@ async function main() {
     const heldRoot = path.dirname(heldFirst.runtimePath), script = path.join(heldRoot, 'scripts/main.js');
     assert(held.skillReadRoots!.includes(heldRoot));
     const managedPrompt = await import('../app/lib/agents/system-prompt');
+    const {resolveEffectiveExtensionContext, readEffectiveExtensionContext} = await import('../app/lib/capabilities/extensions/effective-context');
+    const {appendEffectiveExtensionContextPrompt, EFFECTIVE_EXTENSION_FOUNDATION_MARKER} = await import('../app/lib/capabilities/extensions/runtime-prompt');
+    const {piTools} = await import('../app/lib/pi/core-tools');
+    const {wrapToolWithExecutionContext} = await import('../app/lib/pi/tool-runtime-helpers');
+    const actualRead = piTools.find(tool => tool.name === 'read'); assert(actualRead);
     const prompt = await managedPrompt.loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, { userId: 'alice', organizationId: 'held-org', workspaceId: 'held-team' }, { executionContext: held });
-    assert(prompt.systemPrompt.includes(heldFirst.runtimePath), 'Initial prompt and file access use the same held version path.');
+    assert(prompt.systemPrompt.includes(EFFECTIVE_EXTENSION_FOUNDATION_MARKER));
+    assert(!prompt.systemPrompt.includes(heldFirst.runtimePath), 'The stored foundation has no second inherited skill index.');
+    const generalFinal = appendEffectiveExtensionContextPrompt(prompt.systemPrompt, held, [actualRead], 'held-first');
+    assert(!generalFinal.includes(heldFirst.runtimePath), 'Task ranking never injects an optional unselected plugin child into a general agent.');
+    const explicitHeld = await resolveEffectiveExtensionContext({...held, turnExtensions: {version: 1, origin: 'turn_reference', selections: [{
+      requirement: 'required', toolCap: null, selection: {kind: 'plugin', package: {resourceRef: ref,
+        publishedRevisionRef: first.published.revisionRef, checksum: first.published.checksum}, skillSelection: {kind: 'all'}}}]}});
+    const explicitFoundation = await managedPrompt.loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, { userId: 'alice', organizationId: 'held-org', workspaceId: 'held-team' }, {executionContext: explicitHeld});
+    assert(explicitFoundation.systemPrompt.includes(EFFECTIVE_EXTENSION_FOUNDATION_MARKER));
+    const explicitFinal = appendEffectiveExtensionContextPrompt(explicitFoundation.systemPrompt, explicitHeld, [actualRead], 'held-first');
+    assert(explicitFinal.includes(heldFirst.runtimePath), 'The actual issued explicit plugin context and read recipe use the same held version path.');
+    assert.throws(() => appendEffectiveExtensionContextPrompt(prompt.systemPrompt, structuredClone(explicitHeld), [actualRead]), {code: 'AGENT_EXTENSION_CONTEXT_DENIED'});
+    const explicitRead = wrapToolWithExecutionContext(actualRead, explicitHeld);
+    const readResult = await explicitRead.execute('held-explicit-read', {path: heldFirst.runtimePath});
+    assert(JSON.stringify(readResult.content).includes('Body version-one held-first.'));
 
     const current = await packages.inspectCapabilityPackage(owner, ref);
     let nextDraft = await packages.createCapabilityPackageDraftAction(owner, edit(current));
@@ -119,12 +138,35 @@ async function main() {
     assert.equal(child.skillPackageBindings![0].publishedRevisionRef, first.published.revisionRef);
     assert(!child.skillReadRoots!.some(rootPath => rootPath.endsWith('held-second')));
     await fresh.revalidateAgentBashSkillReadRoots(child);
+    const compiledChild = await resolveEffectiveExtensionContext(child, {preserveIssuedBindings: true});
+    assert.equal(compiledChild.skillPackageBindings?.length, 1);
+    assert.equal(compiledChild.skillPackageBindings![0].publishedRevisionRef, first.published.revisionRef);
+    assert.equal(compiledChild.skillPackageBindings![0].runtimePath, heldFirst.runtimePath);
+    assert(compiledChild.skillReadRoots!.includes(heldRoot));
+    const currentChildPath = freshChild.skillPackageBindings!.find(binding => binding.skillName === 'held-first')!.runtimePath;
+    assert.notEqual(currentChildPath, heldFirst.runtimePath, 'The actual child was initially resolved against the newer published head.');
+    assert(!compiledChild.skillReadRoots!.includes(path.dirname(currentChildPath)), 'Preserving an issued source never keeps the fresh V2 read root.');
+    assert.notEqual(compiledChild.effectiveExtensions, held.effectiveExtensions, 'The child receives a new opaque proof for its own session.');
+    const compiledChildData = readEffectiveExtensionContext(compiledChild); assert(compiledChildData);
+    const compiledChildSkill = compiledChildData.skills.find(skill => skill.name === 'held-first'); assert(compiledChildSkill);
+    assert.equal(compiledChildSkill.runtimePath, heldFirst.runtimePath);
+    assert.equal(compiledChildSkill.package?.publishedRevisionRef, first.published.revisionRef);
+    assert.equal(compiledChildSkill.package?.checksum, first.published.checksum);
+    const childFinal = appendEffectiveExtensionContextPrompt(EFFECTIVE_EXTENSION_FOUNDATION_MARKER, compiledChild, [actualRead], 'held-first');
+    assert(childFinal.includes(heldFirst.runtimePath)); assert(!childFinal.includes(currentChildPath));
+    const childRead = await wrapToolWithExecutionContext(actualRead, compiledChild).execute('held-child-preserved-read', {path: script});
+    assert(JSON.stringify(childRead.content).includes('version-one-held-first'));
+    assert(!JSON.stringify(childRead.content).includes('version-two-held-first'), 'The fresh native read still opens the delegated V1 bytes.');
     const cloned = JSON.parse(JSON.stringify(held));
     assert.equal((await runtime.reissueCapabilityPackageRuntimeBindings(cloned, freshChild)).skillPackageBindings?.length, 0, 'JSON strings cannot reissue a private server receipt.');
     assert(!(await fresh.resolveFreshAgentSkillReadRoots(cloned)).some(rootPath => rootPath.includes('/capability-packages/published/')));
     const updatedPrompt = await managedPrompt.loadManagedAgentSystemPrompt(DEFAULT_MANAGED_AGENT_ID, { userId: 'alice', organizationId: 'held-org', workspaceId: 'held-team' }, { executionContext: held });
-    assert(updatedPrompt.systemPrompt.includes(heldFirst.runtimePath));
+    assert(updatedPrompt.systemPrompt.includes(EFFECTIVE_EXTENSION_FOUNDATION_MARKER));
+    assert(!updatedPrompt.systemPrompt.includes(heldFirst.runtimePath));
     assert(!updatedPrompt.systemPrompt.includes(next.skillPackageBindings![0].runtimePath));
+    const retainedFinal = appendEffectiveExtensionContextPrompt(explicitFoundation.systemPrompt, explicitHeld, [actualRead], 'held-first');
+    assert(retainedFinal.includes(heldFirst.runtimePath));
+    assert(!retainedFinal.includes(next.skillPackageBindings![0].runtimePath), 'A new publication cannot rewrite the exact issued turn context.');
 
     const childDescriptor = (await resources.listCapabilityResources(alice)).find(value => value.artifact.resourceType === 'skill' && value.artifact.name === 'held-first')!;
     const childPackage = await packages.inspectCapabilityPackage(alice, childDescriptor.metadata.resourceRef);
@@ -194,6 +236,9 @@ async function main() {
     assert(!(await fresh.resolveFreshAgentSkillReadRoots(held)).includes(heldRoot));
     await assert.rejects(executeAgentBashCommand(bashInput), /Skill access is unavailable/);
     assert.equal(launches.length, 1, 'A live ACL revocation blocks the issued old version before Bash starts.');
+    const deniedRead = await explicitRead.execute('held-revoked-read', {path: heldFirst.runtimePath});
+    assert.equal(typeof (deniedRead.details as {error?: unknown}).error, 'string');
+    assert(!JSON.stringify(deniedRead.content).includes('Body version-one held-first.'), 'A descriptive held prompt never bypasses current native read authorization.');
     if (oldSandbox === undefined) delete process.env.CANVAS_AGENT_BASH_SANDBOX; else process.env.CANVAS_AGENT_BASH_SANDBOX = oldSandbox;
     const outsider = await catalog.resolveEffectiveCapabilitySnapshot({ userId: 'outsider', organizationId: 'held-org', role: 'member', workspaceId: 'held-team' });
     assert(!outsider.capabilities.some(candidate => candidate.ref.name === 'held-first' && candidate.effectiveEnabled));

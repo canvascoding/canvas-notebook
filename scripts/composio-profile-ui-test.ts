@@ -31,16 +31,19 @@ async function main() {
   assert.match(profileSwitcher, /WORKSPACE_ID_HEADER/u);
 
   assert.match(connectedApps, /ComposioProfileSwitcher/u);
-  assert.match(connectedApps, /secretScope=system/u);
+  assert.match(connectedApps, /secretScope: 'system'/u);
   assert.match(connectedApps, /isAdmin/u);
   assert.match(connectedApps, /WORKSPACE_ID_HEADER/u);
-  assert.match(connectedApps, /data-testid="composio-connect-context-dialog"/u);
-  assert.match(connectedApps, /connectContext\.createProfile/u);
-  assert.match(connectedApps, /profileCreateRequest/u);
-  assert.match(connectedApps, /window\.open\('about:blank', '_blank'\)/u);
-  assert.match(connectedApps, /window\.location\.assign\(data\.redirectUrl\)/u);
-  assert.match(connectedApps, /tk\.noAuth/u);
-  assert.match(connectedApps, /noAuthBadge/u);
+  assert.match(connectedApps, /data-testid="composio-open-catalog"/u);
+  assert.match(connectedApps, /view:\s*'browse',\s*kind:\s*'integration'/u);
+  assert.match(connectedApps, /patchScopedIntegrationEnv/u);
+  assert.doesNotMatch(
+    connectedApps,
+    /\/api\/composio\/(?:toolkits|trigger-apps|connect|disconnect|refresh)/u,
+  );
+  assert.doesNotMatch(connectedApps, /ToolkitToolsDialog|loadExistingEnvEntries|method: 'PUT'/u);
+  assert.match(profileSwitcher, /profileRequest/u);
+  assert.match(profileSwitcher, /current\(\)/u);
   assert.match(toolkitDialog, /workspaceId/u);
   assert.match(toolkitDialog, /WORKSPACE_ID_HEADER/u);
   assert.match(toolkitDialog, /directlyAvailable/u);

@@ -1,22 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Brain,
   FileText,
   Loader2,
   LockKeyhole,
-  Plug,
   Save,
-  Search,
   ShieldCheck,
-  Sparkles,
   Trash2,
   Users,
   Wrench,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentFormSection } from '@/app/components/agents/AgentFormSection';
@@ -28,12 +25,15 @@ import {
   getExplicitEnabledToolsFromConfig,
   isExactAgentDeleteConfirmation,
 } from '@/app/components/agents/agent-form-client';
-import {
-  AgentConnectionsPicker,
-  AgentPluginsPicker,
-  AgentRelevantSkillsPicker,
-  type AgentPluginSelection,
-} from '@/app/components/settings/AgentCapabilityPickers';
+import { AgentExtensionEditor, type AgentExtensionEditorContext, type AgentExtensionEditorDraft,
+  type AgentExtensionEditorProps, type AgentExtensionEditorValidation, clearAgentExtensionEditorDraft } from './AgentExtensionEditor';
+import { readAgentExtensionManagement } from './agent-workflow-management-client';
+import { rebaseAgentExtensionRetentions } from './agent-extension-retention-rebase';
+import { clearAgentFormDraft, readAgentFormDraft, writeAgentFormDraft } from './agent-form-draft-storage';
+import { agentProfileEditUrl, agentProfileModelFields, buildAgentProfileEditPatch,
+  resolveAgentFormToolDraft, sameAgentProfileModelFields, toggleAgentFormToolDraft, toggleAgentFormToolsDraft,
+  type AgentProfileModelPatch } from './agent-profile-edit-client';
+import type { AgentExtensionConfigurationInput } from '@/app/lib/capabilities/extensions/contracts';
 import {
   AgentCatalogModelOverrideEditor,
   initialAgentCatalogSelection,
@@ -47,15 +47,8 @@ import {
 import { readAdminRuntimeCatalog } from '@/app/components/settings/ai-runtime/catalog-client';
 import { AgentToolsEditor, type ToolMetadata } from '@/app/components/settings/AgentToolsCard';
 import type { AiAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/types';
-import type { AgentIconId } from '@/app/lib/agents/icons';
+import { normalizeAgentIconId, type AgentIconId } from '@/app/lib/agents/icons';
 import type { AgentProfile } from '@/app/lib/chat/types';
-import {
-  disableToolInConfig,
-  enableToolInConfig,
-  getDefaultEnabledToolNames,
-  isDefaultToolsConfig,
-  resolveEnabledToolNames,
-} from '@/app/lib/pi/enabled-tools';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -90,17 +83,11 @@ const EMPTY_FILES: Record<ManagedFileName, string> = {
   'TOOLS.md': '',
 };
 
-type AgentCapabilityBinding = {
-  resourceType: 'skill' | 'plugin' | 'connection';
-  resourceId: string;
-  name: string;
-  scopeType: 'system' | 'organization' | 'user';
-};
-
 type AgentInspection = {
   agent: AgentProfile;
   access: NonNullable<AgentProfile['access']>;
-  bindings: AgentCapabilityBinding[];
+  extensions?: { configuration: AgentExtensionConfigurationInput | null; workflowRevision: number;
+    bindingSummaries?: AgentExtensionEditorProps['bindingSummaries']; standaloneSummaries?: AgentExtensionEditorProps['standaloneSummaries'] };
   files?: Partial<Record<ManagedFileName, string>>;
 };
 
@@ -130,6 +117,7 @@ type EditAgentProfileDialogProps = {
   open: boolean;
   agent: AgentProfile | null;
   canManageAgentDefaults: boolean;
+  context?: AgentExtensionEditorContext;
   onOpenChange: (open: boolean) => void;
   onChanged: (agent: AgentProfile) => void | Promise<void>;
   onDeleted: (agentId: string) => void | Promise<void>;
@@ -164,15 +152,51 @@ export function EditAgentProfileDialog({
   open,
   agent,
   canManageAgentDefaults,
+  context,
   onOpenChange,
   onChanged,
   onDeleted,
 }: EditAgentProfileDialogProps) {
+  const locale = useLocale();
+  const labels = locale.startsWith('de') ? {
+    historicalModel: 'Die gespeicherte Modellkonfiguration bleibt erhalten, bis du sie ausdrücklich änderst.',
+    savedRefresh: 'Gespeichert. Die Anzeige konnte anschließend nicht aktualisiert werden.',
+    refresh: 'Anzeige aktualisieren',
+    draftConflict: 'Ein gespeicherter Entwurf gehört zu einem älteren Agentenstand. Er wurde nicht übernommen.',
+    discardDraft: 'Alten Entwurf verwerfen und aktuellen Stand verwenden',
+    retentionPending: 'Aktuelle Verbindungshinweise werden geladen …',
+    retentionError: 'Die Änderung wurde gespeichert. Der Verbindungsstand muss vor weiteren Änderungen neu geladen werden.',
+    retryRetention: 'Verbindungshinweise erneut laden',
+    reloadConfiguration: 'Gespeicherte Konfiguration laden',
+    discardUnsaved: 'Ungespeicherte Formularänderungen werden verworfen. Den gespeicherten Stand laden?',
+    grantRefreshError: 'Berechtigungen gespeichert. Die Agentenliste konnte danach nicht aktualisiert werden.',
+  } : {
+    historicalModel: 'The saved model configuration stays in place until you explicitly change it.',
+    savedRefresh: 'Saved. The display could not be refreshed afterward.',
+    refresh: 'Refresh display',
+    draftConflict: 'A saved draft belongs to an older Agent revision. It has not been applied.',
+    discardDraft: 'Discard the old draft and use the current configuration',
+    retentionPending: 'Loading current connection hints…',
+    retentionError: 'The change was saved. Reload the connection state before making more changes.',
+    retryRetention: 'Retry connection metadata',
+    reloadConfiguration: 'Reload saved configuration',
+    discardUnsaved: 'Unsaved form changes will be discarded. Reload the saved configuration?',
+    grantRefreshError: 'Permissions saved. The Agent list could not be refreshed afterward.',
+  };
   const t = useTranslations('chat.agentEdit');
   const tCreate = useTranslations('settings.agentPanel.createDialog');
   const nameId = useId();
   const deleteConfirmationId = useId();
   const loadSequenceRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const submitTokenRef = useRef<symbol | null>(null);
+  const scopedContext = useMemo<AgentExtensionEditorContext>(() => ({ actorId: context?.actorId ?? null,
+    workspaceId: context?.workspaceId ?? null, organizationId: context?.organizationId ?? null,
+    projectId: context?.projectId ?? null }), [context?.actorId, context?.workspaceId, context?.organizationId, context?.projectId]);
+  const scopeKey = JSON.stringify([scopedContext, agent?.agentId ?? null, open]);
+  const activeScopeRef = useRef(scopeKey);
+  useLayoutEffect(() => { activeScopeRef.current = scopeKey; }, [scopeKey]);
+  const [loadedScope, setLoadedScope] = useState<string | null>(null);
 
   const [currentAgent, setCurrentAgent] = useState<AgentProfile | null>(null);
   const [name, setName] = useState('');
@@ -182,6 +206,23 @@ export function EditAgentProfileDialog({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [savedAgent, setSavedAgent] = useState<AgentProfile | null>(null);
+  const [refreshError, setRefreshError] = useState(false);
+  const [extensionDraft, setExtensionDraft] = useState<AgentExtensionEditorDraft>({ intent: 'keep', configuration: null });
+  const [bindingSummaries, setBindingSummaries] = useState<AgentExtensionEditorProps['bindingSummaries']>();
+  const [standaloneSummaries, setStandaloneSummaries] = useState<AgentExtensionEditorProps['standaloneSummaries']>();
+  const [extensionValidation, setExtensionValidation] = useState<AgentExtensionEditorValidation & { key?: string }>({ pending: false,
+    blocked: false, preview: null, error: null });
+  const [workflowRevision, setWorkflowRevision] = useState<number | null>(null);
+  const [draftConflict, setDraftConflict] = useState(false);
+  const [retentionPending, setRetentionPending] = useState(false), [retentionError, setRetentionError] = useState(false);
+  const [retentionConflict, setRetentionConflict] = useState(false);
+  const [confirmRetentionReload, setConfirmRetentionReload] = useState(false);
+  const extensionDraftRef = useRef(extensionDraft);
+  const extensionBaseline = useRef<{ agentId: string; revision: number; workflowRevision: number; configuration: AgentExtensionConfigurationInput | null } | null>(null);
+  const retentionController = useRef<AbortController | null>(null), retentionGeneration = useRef(0);
+  const retentionRetry = useRef<AgentProfile | null>(null);
+  useLayoutEffect(() => { extensionDraftRef.current = extensionDraft; }, [extensionDraft]);
 
   const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
   const [modelOpen, setModelOpen] = useState(true);
@@ -189,27 +230,20 @@ export function EditAgentProfileDialog({
   const [modelDraft, setModelDraft] = useState<AgentCatalogModelSelection | null>(null);
   const [modelLoading, setModelLoading] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
+  const [modelTouched, setModelTouched] = useState(false);
 
   const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
   const [customEnabledTools, setCustomEnabledTools] = useState<string[] | null>(null);
   const [effectiveEnabledTools, setEffectiveEnabledTools] = useState<string[] | null>(null);
   const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(false);
+  const [toolsTouched, setToolsTouched] = useState(false);
+  const [initialToolsDraft, setInitialToolsDraft] = useState<{ enabled: boolean; tools: string[] | null }>({ enabled: false, tools: null });
   const [toolsOpen, setToolsOpen] = useState(false);
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
-
-  const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
-  const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
-  const [pluginsOverrideEnabled, setPluginsOverrideEnabled] = useState(false);
-  const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [selectedPlugins, setSelectedPlugins] = useState<AgentPluginSelection[]>([]);
-  const [skillsOverrideEnabled, setSkillsOverrideEnabled] = useState(false);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const [filesOpen, setFilesOpen] = useState(true);
   const [files, setFiles] = useState<Record<ManagedFileName, string> | null>(null);
@@ -223,6 +257,11 @@ export function EditAgentProfileDialog({
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  const formDraftScope = useMemo(() => currentAgent && workflowRevision !== null ? { ...scopedContext,
+    target: { kind: 'existing' as const, agentId: currentAgent.agentId, expectedRevision: currentAgent.revision ?? 1,
+      expectedWorkflowRevision: workflowRevision } } : null,
+  [currentAgent, scopedContext, workflowRevision]);
 
   const canManageAccess = Boolean(currentAgent?.access?.canManage);
   const canDelete = Boolean(currentAgent?.removable && canManageAccess);
@@ -251,6 +290,11 @@ export function EditAgentProfileDialog({
 
   const resetDialogState = useCallback(() => {
     loadSequenceRef.current += 1;
+    loadAbortRef.current?.abort();
+    retentionController.current?.abort(); retentionGeneration.current += 1; retentionRetry.current = null;
+    extensionBaseline.current = null; setRetentionPending(false); setRetentionError(false); setRetentionConflict(false); setConfirmRetentionReload(false);
+    submitTokenRef.current = null;
+    setLoadedScope(null);
     setCurrentAgent(null);
     setName('');
     setIconId('bot');
@@ -259,31 +303,33 @@ export function EditAgentProfileDialog({
     setLoadError(null);
     setError(null);
     setIsSubmitting(false);
+    setSavedAgent(null);
+    setRefreshError(false);
+    setExtensionDraft({ intent: 'keep', configuration: null });
+    setBindingSummaries(undefined);
+    setStandaloneSummaries(undefined);
+    setExtensionValidation({ pending: false, blocked: false, preview: null, error: null });
+    setWorkflowRevision(null);
+    setDraftConflict(false);
     setModelOverrideEnabled(false);
     setModelOpen(true);
     setModelCatalog(null);
     setModelDraft(null);
     setModelLoading(false);
     setModelError(null);
+    setModelTouched(false);
     setAvailableTools([]);
     setCustomEnabledTools(null);
     setEffectiveEnabledTools(null);
     setToolsOverrideEnabled(false);
+    setToolsTouched(false);
+    setInitialToolsDraft({ enabled: false, tools: null });
     setToolsOpen(false);
     setToolsLoading(false);
     setToolsError(null);
     setOpenToolRows({});
     setToolSearchQuery('');
     setActiveToolGroups(new Set());
-    setConnectionsOverrideEnabled(false);
-    setConnectionsOpen(false);
-    setSelectedConnections([]);
-    setPluginsOverrideEnabled(false);
-    setPluginsOpen(false);
-    setSelectedPlugins([]);
-    setSkillsOverrideEnabled(false);
-    setSkillsOpen(false);
-    setSelectedSkills([]);
     setFilesOpen(true);
     setFiles(null);
     setFileDrafts(EMPTY_FILES);
@@ -299,8 +345,18 @@ export function EditAgentProfileDialog({
 
   const loadConfiguration = useCallback(async () => {
     if (!agent) return;
+    retentionController.current?.abort(); retentionGeneration.current += 1;
     const requestSequence = ++loadSequenceRef.current;
+    const requestedScope = scopeKey;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const isCurrent = () => !controller.signal.aborted && requestSequence === loadSequenceRef.current
+      && requestedScope === activeScopeRef.current;
     setLoading(true);
+    submitTokenRef.current = null;
+    setIsSubmitting(false);
+    setDeleting(false);
     setLoadError(null);
     setError(null);
     setToolsLoading(true);
@@ -309,14 +365,14 @@ export function EditAgentProfileDialog({
     setModelError(null);
 
     try {
-      const params = new URLSearchParams({
+      const params = {
         agentId: agent.agentId,
         includeFiles: 'true',
         includeAccess: 'true',
-      });
+      };
       const [inspection, toolsPayload, catalogResult] = await Promise.all([
-        fetchAgentFormJson<AgentInspection>(`/api/agents?${params.toString()}`),
-        fetchAgentFormJson<AgentToolsPayload>(`/api/agents/tools?${new URLSearchParams({ agentId: agent.agentId }).toString()}`),
+        fetchAgentFormJson<AgentInspection>(agentProfileEditUrl('/api/agents', scopedContext, params), { signal: controller.signal }),
+        fetchAgentFormJson<AgentToolsPayload>(agentProfileEditUrl('/api/agents/tools', scopedContext, { agentId: agent.agentId }), { signal: controller.signal }),
         canManageAgentDefaults
           ? readAdminRuntimeCatalog()
               .then((payload) => ({ payload, error: null }))
@@ -326,107 +382,176 @@ export function EditAgentProfileDialog({
               }))
           : Promise.resolve({ payload: null, error: null }),
       ]);
-      if (requestSequence !== loadSequenceRef.current) return;
+      if (!isCurrent()) return;
 
       const inspectedAgent: AgentProfile = {
         ...inspection.agent,
         access: inspection.access,
       };
       const storedModelSelection = selectionFromAgent(inspectedAgent);
+      const hasStoredModel = Object.values(agentProfileModelFields(inspectedAgent)).some(value => value !== null);
       const nextFiles = filesFromInspection(inspection.files);
       const storedTools = Array.isArray(inspectedAgent.enabledTools) ? inspectedAgent.enabledTools : null;
-      const nextPlugins = (inspection.bindings || [])
-        .filter((binding) => binding.resourceType === 'plugin')
-        .map((binding): AgentPluginSelection => ({
-          resourceType: 'plugin',
-          resourceId: binding.resourceId,
-          name: binding.name,
-          scopeType: binding.scopeType,
-        }));
-
+      const actualWorkflowRevision = inspection.extensions?.workflowRevision ?? inspectedAgent.workflowRevision ?? null;
+      const restored = actualWorkflowRevision !== null ? readAgentFormDraft({ ...scopedContext,
+        target: { kind: 'existing', agentId: inspectedAgent.agentId, expectedRevision: inspectedAgent.revision ?? 1,
+          expectedWorkflowRevision: actualWorkflowRevision } }) : { state: 'none' as const };
+      const restoredFields = restored.state === 'ready' ? restored.fields : undefined;
+      const restoredModel = restoredFields && (Object.hasOwn(restoredFields, 'modelOverrideEnabled') || Object.hasOwn(restoredFields, 'modelDraft'));
+      const restoredTools = restoredFields && (Object.hasOwn(restoredFields, 'toolsOverrideEnabled') || Object.hasOwn(restoredFields, 'customEnabledTools'));
       setCurrentAgent(inspectedAgent);
-      setName(inspectedAgent.name);
-      setIconId((inspectedAgent.iconId || 'bot') as AgentIconId);
-      setModelOverrideEnabled(Boolean(storedModelSelection));
+      setLoadedScope(requestedScope);
+      setSavedAgent(null);
+      setRefreshError(false);
+      const configured = inspection.extensions?.configuration ?? null;
+      extensionBaseline.current = Number.isSafeInteger(inspectedAgent.revision) && actualWorkflowRevision !== null
+        ? { agentId: inspectedAgent.agentId, revision: inspectedAgent.revision!, workflowRevision: actualWorkflowRevision, configuration: configured } : null;
+      extensionDraftRef.current = { intent: 'keep', configuration: configured };
+      setExtensionDraft(extensionDraftRef.current);
+      setRetentionError(false); setRetentionPending(false); setRetentionConflict(false); retentionRetry.current = null;
+      setBindingSummaries(inspection.extensions?.bindingSummaries);
+      setStandaloneSummaries(inspection.extensions?.standaloneSummaries);
+      setWorkflowRevision(actualWorkflowRevision);
+      setDraftConflict(restored.state === 'conflict');
+      setName(restoredFields?.name ?? inspectedAgent.name);
+      setIconId(normalizeAgentIconId(restoredFields?.iconId ?? inspectedAgent.iconId));
+      setModelOverrideEnabled(restoredFields?.modelOverrideEnabled ?? hasStoredModel);
+      setModelTouched(Boolean(restoredModel));
       setModelCatalog(catalogResult.payload?.catalog ?? null);
       setModelError(catalogResult.error);
-      setModelDraft(storedModelSelection || (catalogResult.payload?.catalog
+      setModelDraft(restoredModel ? restoredFields?.modelDraft ?? null
+        : storedModelSelection || (!hasStoredModel && catalogResult.payload?.catalog
         ? initialAgentCatalogSelection(catalogResult.payload.catalog)
         : null));
       setAvailableTools(toolsPayload.tools || []);
       setEffectiveEnabledTools(toolsPayload.config?.enabledTools ?? []);
-      setToolsOverrideEnabled(Array.isArray(inspectedAgent.enabledTools));
-      setCustomEnabledTools(getExplicitEnabledToolsFromConfig(
+      setToolsOverrideEnabled(restoredFields?.toolsOverrideEnabled ?? Array.isArray(inspectedAgent.enabledTools));
+      const explicitTools = getExplicitEnabledToolsFromConfig(
         toolsPayload.tools || [],
         storedTools ?? toolsPayload.config?.enabledTools ?? [],
-      ));
+      );
+      setCustomEnabledTools(restoredTools ? restoredFields?.customEnabledTools ?? null : explicitTools);
+      setToolsTouched(Boolean(restoredTools));
+      setInitialToolsDraft({ enabled: Array.isArray(inspectedAgent.enabledTools), tools: explicitTools });
       setToolsOpen(Array.isArray(inspectedAgent.enabledTools));
-      setSelectedConnections(inspectedAgent.relevantConnections || []);
-      setConnectionsOverrideEnabled(Array.isArray(inspectedAgent.relevantConnections));
-      setConnectionsOpen(Array.isArray(inspectedAgent.relevantConnections));
-      setSelectedPlugins(nextPlugins);
-      setPluginsOverrideEnabled(nextPlugins.length > 0);
-      setPluginsOpen(nextPlugins.length > 0);
-      setSelectedSkills(inspectedAgent.relevantSkills || []);
-      setSkillsOverrideEnabled(Array.isArray(inspectedAgent.relevantSkills));
-      setSkillsOpen(Array.isArray(inspectedAgent.relevantSkills));
       setFiles(nextFiles);
-      setFileDrafts(nextFiles);
+      setFileDrafts({ ...nextFiles, ...restoredFields?.fileDrafts });
     } catch (loadFailure) {
-      if (requestSequence !== loadSequenceRef.current) return;
+      if (!isCurrent()) return;
       setLoadError(loadFailure instanceof Error ? loadFailure.message : t('errors.loadFailed'));
     } finally {
-      if (requestSequence === loadSequenceRef.current) {
+      if (isCurrent()) {
         setLoading(false);
         setToolsLoading(false);
         setModelLoading(false);
       }
     }
-  }, [agent, canManageAgentDefaults, t, tCreate]);
+  }, [agent, canManageAgentDefaults, scopeKey, scopedContext, t, tCreate]);
 
   const loadModelOptions = useCallback(async () => {
     if (!canManageAgentDefaults) return;
+    const requestSequence = loadSequenceRef.current;
+    const requestedScope = scopeKey;
+    const isCurrent = () => requestSequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
     setModelLoading(true);
     setModelError(null);
     try {
       const payload = await readAdminRuntimeCatalog();
+      if (!isCurrent()) return;
       setModelCatalog(payload.catalog);
-      setModelDraft((current) => current || initialAgentCatalogSelection(payload.catalog));
+      setModelDraft((current) => current || (modelTouched ? initialAgentCatalogSelection(payload.catalog) : null));
     } catch (catalogError) {
+      if (!isCurrent()) return;
       setModelError(catalogError instanceof Error ? catalogError.message : tCreate('model.loadError'));
     } finally {
-      setModelLoading(false);
+      if (isCurrent()) setModelLoading(false);
     }
-  }, [canManageAgentDefaults, tCreate]);
+  }, [canManageAgentDefaults, modelTouched, scopeKey, tCreate]);
 
   useEffect(() => {
     if (!open || !agent) return;
     queueMicrotask(() => void loadConfiguration());
+    return () => {
+      loadSequenceRef.current += 1;
+      loadAbortRef.current?.abort(); retentionController.current?.abort(); retentionGeneration.current += 1;
+    };
   }, [agent, loadConfiguration, open]);
 
-  useEffect(() => {
-    if (currentAgent?.scopeType !== 'organization') return;
-    queueMicrotask(() => {
-      setSelectedPlugins((current) => current.filter((plugin) => plugin.scopeType !== 'user'));
-    });
-  }, [currentAgent?.scopeType]);
+  const renewRetentionHints = async (acknowledged: AgentProfile, sequence: number, requestedScope: string): Promise<AgentProfile | null> => {
+    const baseline = extensionBaseline.current;
+    const isCurrent = () => sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
+    if (!isCurrent()) return null;
+    retentionController.current?.abort();
+    const controller = new AbortController(), generation = ++retentionGeneration.current;
+    retentionController.current = controller; retentionRetry.current = acknowledged;
+    setRetentionPending(true); setRetentionError(false);
+    try {
+      const fresh = await readAgentExtensionManagement({ ...scopedContext, agentId: acknowledged.agentId }, controller.signal);
+      if (!isCurrent() || controller.signal.aborted || generation !== retentionGeneration.current) return null;
+      if (!baseline || baseline.agentId !== acknowledged.agentId || fresh.agent.agentId !== baseline.agentId
+        || fresh.agent.revision !== acknowledged.revision || !fresh.access.canEdit
+        || fresh.extensions.workflowRevision !== baseline.workflowRevision || fresh.extensions.configurationState === 'blocked') {
+        throw new Error(labels.retentionError);
+      }
+      const next = rebaseAgentExtensionRetentions({ draft: extensionDraftRef.current, before: baseline.configuration,
+        current: fresh.extensions.configuration });
+      extensionDraftRef.current = next; setExtensionDraft(next);
+      extensionBaseline.current = { agentId: fresh.agent.agentId, revision: fresh.agent.revision!,
+        workflowRevision: fresh.extensions.workflowRevision, configuration: fresh.extensions.configuration };
+      const profile = { ...fresh.agent, access: fresh.access };
+      setCurrentAgent(profile); setWorkflowRevision(fresh.extensions.workflowRevision);
+      setBindingSummaries(fresh.extensions.bindingSummaries); setStandaloneSummaries(fresh.extensions.standaloneSummaries);
+      setExtensionValidation({ pending: true, blocked: true, preview: null, error: null });
+      retentionRetry.current = null;
+      return profile;
+    } catch (failure) {
+      if (isCurrent() && !controller.signal.aborted && generation === retentionGeneration.current) setRetentionError(true);
+      throw failure;
+    } finally {
+      if (isCurrent() && !controller.signal.aborted && generation === retentionGeneration.current) setRetentionPending(false);
+    }
+  };
+
+  const handleGrantChanged = async (updated: { agentId: string; organizationId: string | null; revision: number }, mutation: { expectedRevision: number }) => {
+    if (!currentAgent || updated.agentId !== currentAgent.agentId) return;
+    const sequence = loadSequenceRef.current, requestedScope = scopeKey;
+    if (requestedScope !== activeScopeRef.current) return;
+    const acknowledged = { ...currentAgent, ...updated };
+    let refreshed: AgentProfile | null = null;
+    if (mutation.expectedRevision !== extensionBaseline.current?.revision || mutation.expectedRevision !== currentAgent.revision
+      || updated.revision !== mutation.expectedRevision + 1) {
+      // A child grants reload must not silently adopt somebody else's profile changes.
+      retentionController.current?.abort(); retentionGeneration.current += 1; retentionRetry.current = null;
+      setRetentionPending(false); setRetentionError(true); setRetentionConflict(true);
+    } else {
+      try { refreshed = await renewRetentionHints(acknowledged, sequence, requestedScope); }
+      catch { /* The grant was acknowledged; only metadata recovery remains. Never repeat its write. */ }
+    }
+    if (sequence !== loadSequenceRef.current || requestedScope !== activeScopeRef.current) return;
+    try { await onChanged(refreshed ?? acknowledged); }
+    catch { if (sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current) setError(labels.grantRefreshError); }
+  };
 
   const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && (isSubmitting || deleting)) return;
-    if (!nextOpen) resetDialogState();
+    if (!nextOpen && (isSubmitting || deleting || retentionPending)) return;
+    if (!nextOpen) {
+      if (formDraftScope && loadedScope === scopeKey) {
+        clearAgentFormDraft(formDraftScope);
+        clearAgentExtensionEditorDraft(scopedContext, formDraftScope.target);
+      }
+      resetDialogState();
+    }
     onOpenChange(nextOpen);
   };
 
   const isToolEnabled = useCallback((toolName: string): boolean => {
     const allNames = availableTools.map((tool) => tool.name);
-    const enabledTools = customEnabledTools ?? [];
-    if (isDefaultToolsConfig(enabledTools)) {
-      return getDefaultEnabledToolNames(allNames).has(toolName);
-    }
-    return resolveEnabledToolNames(allNames, enabledTools).has(toolName);
+    return resolveAgentFormToolDraft(allNames, customEnabledTools).has(toolName);
   }, [availableTools, customEnabledTools]);
 
   const setToolsOverride = useCallback((enabled: boolean) => {
+    setToolsTouched(true);
+    setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
     setToolsOverrideEnabled(enabled);
     if (enabled && customEnabledTools === null) {
       setCustomEnabledTools(getExplicitEnabledToolsFromConfig(availableTools, effectiveEnabledTools));
@@ -434,32 +559,26 @@ export function EditAgentProfileDialog({
   }, [availableTools, customEnabledTools, effectiveEnabledTools]);
 
   const handleToolToggle = useCallback((toolName: string, enabled: boolean) => {
+    setToolsTouched(true);
+    setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
     const currentEnabled = customEnabledTools ?? [];
     const allNames = availableTools.map((tool) => tool.name);
-    setCustomEnabledTools(
-      enabled
-        ? enableToolInConfig(toolName, currentEnabled, allNames)
-        : disableToolInConfig(toolName, currentEnabled, allNames),
-    );
+    setCustomEnabledTools(toggleAgentFormToolDraft(toolName, enabled, currentEnabled, allNames));
   }, [availableTools, customEnabledTools]);
 
   const handleEnableAllTools = useCallback(() => {
+    setToolsTouched(true);
+    setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
     const allNames = availableTools.map((tool) => tool.name);
-    let newEnabledTools = customEnabledTools ?? [];
-    for (const tool of filteredTools) {
-      if (tool.availability?.available === false) continue;
-      newEnabledTools = enableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    setCustomEnabledTools(newEnabledTools);
+    setCustomEnabledTools(toggleAgentFormToolsDraft(filteredTools.filter(tool => tool.availability?.available !== false)
+      .map(tool => tool.name), true, customEnabledTools ?? [], allNames));
   }, [availableTools, customEnabledTools, filteredTools]);
 
   const handleDisableAllTools = useCallback(() => {
+    setToolsTouched(true);
+    setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
     const allNames = availableTools.map((tool) => tool.name);
-    let newEnabledTools = customEnabledTools ?? [];
-    for (const tool of filteredTools) {
-      newEnabledTools = disableToolInConfig(tool.name, newEnabledTools, allNames);
-    }
-    setCustomEnabledTools(newEnabledTools);
+    setCustomEnabledTools(toggleAgentFormToolsDraft(filteredTools.map(tool => tool.name), false, customEnabledTools ?? [], allNames));
   }, [availableTools, customEnabledTools, filteredTools]);
 
   const toggleToolGroup = useCallback((group: string) => {
@@ -471,7 +590,43 @@ export function EditAgentProfileDialog({
     });
   }, []);
 
-  const modelSelectionReady = !canManageAgentDefaults || !modelOverrideEnabled || (
+  const proposedModel: AgentProfileModelPatch = modelOverrideEnabled ? {
+    defaultProviderInstallationId: modelDraft?.providerInstallationId ?? null,
+    defaultProvider: modelDraft?.providerId ?? null,
+    defaultModel: modelDraft?.modelId ?? null,
+    defaultThinking: modelDraft?.thinkingLevel ?? null,
+    expectedCatalogRevision: modelCatalog?.revision,
+  } : { defaultProviderInstallationId: null, defaultProvider: null, defaultModel: null, defaultThinking: null };
+  const modelChanged = Boolean(modelTouched && currentAgent
+    && !sameAgentProfileModelFields(proposedModel, agentProfileModelFields(currentAgent)));
+  const toolsChanged = toolsTouched && (toolsOverrideEnabled !== initialToolsDraft.enabled
+    || toolsOverrideEnabled && JSON.stringify(customEnabledTools) !== JSON.stringify(initialToolsDraft.tools));
+  const proposedEnabledTools = toolsOverrideEnabled ? customEnabledTools ?? [] : null;
+  const changesContext = extensionDraft.intent === 'replace' || modelChanged || toolsChanged;
+
+  const hasParentChanges = Boolean(currentAgent && (name !== currentAgent.name || iconId !== (currentAgent.iconId || 'bot')
+    || modelChanged || toolsChanged || EDIT_AGENT_FILE_NAMES.some(file => fileDrafts[file] !== (files?.[file] ?? ''))));
+  useEffect(() => {
+    if (!open || loadedScope !== scopeKey || !formDraftScope || loading || isSubmitting || savedAgent || draftConflict) return;
+    if (!hasParentChanges) {
+      clearAgentFormDraft(formDraftScope);
+      return;
+    }
+    writeAgentFormDraft(formDraftScope, { name, iconId,
+      ...(modelTouched ? { modelOverrideEnabled, modelDraft } : {}),
+      ...(toolsTouched ? { toolsOverrideEnabled, customEnabledTools } : {}),
+      fileDrafts: Object.fromEntries(EDIT_AGENT_FILE_NAMES.map(file => [file, fileDrafts[file]])),
+    });
+  }, [open, loadedScope, scopeKey, formDraftScope, loading, isSubmitting, savedAgent, draftConflict,
+    hasParentChanges, name, iconId, modelTouched, modelOverrideEnabled, modelDraft, toolsTouched,
+    toolsOverrideEnabled, customEnabledTools, fileDrafts]);
+  const extensionValidationKey = JSON.stringify([scopeKey, currentAgent?.revision ?? null, workflowRevision,
+    extensionDraft, toolsChanged ? proposedEnabledTools : undefined, modelChanged ? proposedModel : undefined]);
+  const handleExtensionValidation = useCallback((validation: AgentExtensionEditorValidation) => {
+    setExtensionValidation({ ...validation, key: extensionValidationKey });
+  }, [extensionValidationKey]);
+
+  const modelSelectionReady = !modelChanged || !canManageAgentDefaults || !modelOverrideEnabled || (
     canManageAgentDefaults
     && !modelLoading
     && !modelError
@@ -479,16 +634,36 @@ export function EditAgentProfileDialog({
   );
   const canSave = Boolean(
     currentAgent
+    && loadedScope === scopeKey
+    && open
     && !loading
     && !isSubmitting
+    && !retentionPending
+    && !retentionError
+    && !savedAgent
+    && !draftConflict
     && name.trim()
     && name.trim().length <= 80
     && modelSelectionReady
+    && (!changesContext || (extensionValidation.key === extensionValidationKey && !extensionValidation.pending && !extensionValidation.blocked))
     && (!toolsOverrideEnabled || (!toolsLoading && customEnabledTools !== null)),
   );
 
+  const finishRefresh = async (updated: AgentProfile, sequence: number, requestedScope: string) => {
+    const isCurrent = () => sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
+    if (!isCurrent()) return;
+    try {
+      await onChanged(updated);
+      if (!isCurrent()) return;
+      resetDialogState();
+      onOpenChange(false);
+    } catch {
+      if (isCurrent()) setRefreshError(true);
+    }
+  };
+
   const submit = async () => {
-    if (!currentAgent || !canSave) return;
+    if (!currentAgent || !canSave || submitTokenRef.current !== null) return;
     const trimmedName = name.trim();
     if (!trimmedName) {
       setError(t('errors.nameRequired'));
@@ -498,101 +673,109 @@ export function EditAgentProfileDialog({
       setError(t('errors.nameTooLong'));
       return;
     }
-
+    const sequence = loadSequenceRef.current;
+    const token = Symbol('agent-profile-save');
+    submitTokenRef.current = token;
+    const requestedScope = scopeKey;
+    const isCurrent = () => sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
     setIsSubmitting(true);
     setError(null);
+    let lastFileAcknowledgement: AgentProfile | null = null;
     try {
-      const patchPayload: Record<string, unknown> = {
-        agentId: currentAgent.agentId,
-        expectedRevision: currentAgent.revision ?? 1,
-        name: trimmedName,
-        iconId,
-        enabledTools: toolsOverrideEnabled ? customEnabledTools ?? [] : null,
-        relevantSkills: skillsOverrideEnabled ? selectedSkills : null,
-        relevantConnections: connectionsOverrideEnabled ? selectedConnections : null,
-        capabilities: pluginsOverrideEnabled
-          ? selectedPlugins.map(({ resourceType, resourceId, name: pluginName }) => ({
-              resourceType,
-              resourceId,
-              name: pluginName,
-            }))
-          : null,
-      };
-      if (canManageAgentDefaults) {
-        patchPayload.defaultProviderInstallationId = modelOverrideEnabled ? modelDraft?.providerInstallationId ?? null : null;
-        patchPayload.defaultProvider = modelOverrideEnabled ? modelDraft?.providerId ?? null : null;
-        patchPayload.defaultModel = modelOverrideEnabled ? modelDraft?.modelId ?? null : null;
-        patchPayload.defaultThinking = modelOverrideEnabled ? modelDraft?.thinkingLevel ?? null : null;
-        if (modelOverrideEnabled) patchPayload.expectedCatalogRevision = modelCatalog?.revision;
+      const patchPayload = buildAgentProfileEditPatch({ agent: currentAgent, name: trimmedName, iconId,
+        extensions: extensionDraft, workflowRevision,
+        ...(toolsChanged ? { enabledTools: proposedEnabledTools } : {}),
+        ...(canManageAgentDefaults && modelChanged ? { model: proposedModel } : {}) });
+      let latestAgent = currentAgent;
+      if (Object.keys(patchPayload).length > 2) {
+        const patched = await fetchAgentFormJson<AgentInspection>(agentProfileEditUrl('/api/agents', scopedContext), {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patchPayload),
+        });
+        if (!isCurrent()) return;
+        if (formDraftScope) {
+          // This exact revision has been acknowledged even if a later file write fails.
+          clearAgentExtensionEditorDraft(scopedContext, formDraftScope.target);
+        }
+        latestAgent = { ...patched.agent, access: patched.agent.access ?? currentAgent.access };
+        setCurrentAgent(latestAgent);
+        setBindingSummaries(patched.extensions?.bindingSummaries);
+        setStandaloneSummaries(patched.extensions?.standaloneSummaries);
+        setWorkflowRevision(patched.extensions?.workflowRevision ?? latestAgent.workflowRevision ?? workflowRevision);
+        const savedConfiguration = patched.extensions?.configuration ?? null;
+        extensionDraftRef.current = { intent: 'keep', configuration: savedConfiguration };
+        setExtensionDraft(extensionDraftRef.current);
+        const savedWorkflowRevision = patched.extensions?.workflowRevision ?? latestAgent.workflowRevision ?? workflowRevision;
+        extensionBaseline.current = savedWorkflowRevision !== null && Number.isSafeInteger(latestAgent.revision)
+          ? { agentId: latestAgent.agentId, revision: latestAgent.revision!, workflowRevision: savedWorkflowRevision, configuration: savedConfiguration } : null;
+        setToolsTouched(false);
+        setInitialToolsDraft({ enabled: toolsOverrideEnabled, tools: customEnabledTools });
+        setModelTouched(false);
       }
-
-      const patched = await fetchAgentFormJson<{ agent: AgentProfile }>('/api/agents', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchPayload),
-      });
-      let latestAgent: AgentProfile = {
-        ...patched.agent,
-        access: currentAgent.access,
-      };
-
       for (const fileName of EDIT_AGENT_FILE_NAMES) {
         const nextContent = fileDrafts[fileName] ?? '';
         if (nextContent === (files?.[fileName] ?? '')) continue;
-        const updatedFile = await fetchAgentFormJson<{ agent: AgentProfile }>('/api/agents/files', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentId: latestAgent.agentId,
-            expectedRevision: latestAgent.revision ?? 1,
-            fileName,
-            content: nextContent,
+        const updatedFile = await fetchAgentFormJson<{ agent: AgentProfile }>(agentProfileEditUrl('/api/agents/files', scopedContext), {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            agentId: latestAgent.agentId, expectedRevision: latestAgent.revision ?? 1, fileName, content: nextContent,
           }),
         });
-        latestAgent = {
-          ...updatedFile.agent,
-          access: currentAgent.access,
-        };
+        if (!isCurrent()) return;
+        latestAgent = { ...updatedFile.agent, access: updatedFile.agent.access ?? currentAgent.access };
+        setCurrentAgent(latestAgent); lastFileAcknowledgement = latestAgent;
+        setFiles(previous => ({ ...EMPTY_FILES, ...previous, [fileName]: nextContent }));
       }
-
-      setCurrentAgent(latestAgent);
-      setFiles(fileDrafts);
-      await onChanged(latestAgent);
-      resetDialogState();
-      onOpenChange(false);
+      if (!isCurrent()) return;
+      if (formDraftScope) {
+        clearAgentFormDraft(formDraftScope);
+        clearAgentExtensionEditorDraft(scopedContext, formDraftScope.target);
+      }
+      setSavedAgent(latestAgent);
+      await finishRefresh(latestAgent, sequence, requestedScope);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : t('errors.saveFailed'));
+      if (isCurrent()) {
+        setError(saveError instanceof Error ? saveError.message : t('errors.saveFailed'));
+        if (lastFileAcknowledgement) {
+          try { await renewRetentionHints(lastFileAcknowledgement, sequence, requestedScope); }
+          catch { /* Preserve every remaining form draft and require metadata recovery before another save. */ }
+        }
+      }
     } finally {
-      setIsSubmitting(false);
+      if (submitTokenRef.current === token) submitTokenRef.current = null;
+      if (isCurrent()) setIsSubmitting(false);
     }
   };
 
   const requestDeletion = async () => {
-    if (!currentAgent || !canDelete) return;
+    if (!currentAgent || !canDelete || loadedScope !== scopeKey) return;
+    const sequence = loadSequenceRef.current, requestedScope = scopeKey;
+    const isCurrent = () => sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
     setDeletePreviewLoading(true);
     setDeleteError(null);
     try {
-      const preview = await fetchAgentFormJson<AgentDeletionPreview>('/api/agents/delete-preview', {
+      const preview = await fetchAgentFormJson<AgentDeletionPreview>(agentProfileEditUrl('/api/agents/delete-preview', scopedContext), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agentId: currentAgent.agentId }),
       });
+      if (!isCurrent()) return;
       setDeletePreview(preview);
       setDeleteConfirmation('');
       setDeleteDialogOpen(true);
     } catch (previewError) {
-      setDeleteError(previewError instanceof Error ? previewError.message : t('errors.deleteFailed'));
+      if (isCurrent()) setDeleteError(previewError instanceof Error ? previewError.message : t('errors.deleteFailed'));
     } finally {
-      setDeletePreviewLoading(false);
+      if (isCurrent()) setDeletePreviewLoading(false);
     }
   };
 
   const confirmDeletion = async () => {
     if (!deletePreview || !isExactAgentDeleteConfirmation(deleteConfirmation, deletePreview.agent.name)) return;
+    const sequence = loadSequenceRef.current, requestedScope = scopeKey;
+    const isCurrent = () => sequence === loadSequenceRef.current && requestedScope === activeScopeRef.current;
     setDeleting(true);
     setDeleteError(null);
     try {
-      await fetchAgentFormJson<{ deleted: true; agentId: string }>('/api/agents', {
+      await fetchAgentFormJson<{ deleted: true; agentId: string }>(agentProfileEditUrl('/api/agents', scopedContext), {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -601,15 +784,16 @@ export function EditAgentProfileDialog({
           confirmationToken: deletePreview.confirmationToken,
         }),
       });
+      if (!isCurrent()) return;
       const deletedAgentId = deletePreview.agent.agentId;
       setDeleteDialogOpen(false);
       resetDialogState();
       await onDeleted(deletedAgentId);
       onOpenChange(false);
     } catch (deleteFailure) {
-      setDeleteError(deleteFailure instanceof Error ? deleteFailure.message : t('errors.deleteFailed'));
+      if (isCurrent()) setDeleteError(deleteFailure instanceof Error ? deleteFailure.message : t('errors.deleteFailed'));
     } finally {
-      setDeleting(false);
+      if (isCurrent()) setDeleting(false);
     }
   };
 
@@ -625,22 +809,22 @@ export function EditAgentProfileDialog({
             <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
               <DialogTitle>{t('title')}</DialogTitle>
               <DialogDescription>
-                {currentAgent || agent
-                  ? t('description', { name: currentAgent?.name || agent?.name || '' })
+                {loadedScope === scopeKey && currentAgent || agent
+                  ? t('description', { name: loadedScope === scopeKey ? currentAgent?.name || agent?.name || '' : agent?.name || '' })
                   : t('descriptionFallback')}
               </DialogDescription>
             </DialogHeader>
 
             <ScrollArea className="h-full min-h-0 max-w-full overflow-x-hidden">
               <div className="mx-auto box-border flex w-[100dvw] max-w-[100dvw] min-w-0 flex-col gap-4 overflow-x-hidden p-3 pr-[calc(0.75rem+0.625rem)] sm:gap-5 sm:p-5 sm:pr-[calc(1.25rem+0.625rem)] md:w-full md:max-w-4xl">
-                {loading && !currentAgent ? (
+                {loading && loadedScope !== scopeKey ? (
                   <div className="flex min-h-60 flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-muted/15 text-sm text-muted-foreground" role="status">
                     <Loader2 className="h-5 w-5 animate-spin" />
                     {t('loading')}
                   </div>
                 ) : null}
 
-                {loadError && !currentAgent ? (
+                {loadError && loadedScope !== scopeKey ? (
                   <div className="space-y-3 rounded-md border border-destructive/30 bg-destructive/5 p-4" role="alert">
                     <div className="flex items-start gap-2 text-sm text-destructive">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -652,8 +836,21 @@ export function EditAgentProfileDialog({
                   </div>
                 ) : null}
 
-                {currentAgent ? (
+                {currentAgent && loadedScope === scopeKey ? (
                   <>
+                    {draftConflict ? (
+                      <div className="space-y-2 rounded-md border border-amber-400/40 p-3 text-sm" role="alert" data-testid="edit-agent-draft-conflict">
+                        <p>{labels.draftConflict}</p>
+                        <Button type="button" variant="outline" onClick={() => {
+                          if (formDraftScope) {
+                            clearAgentFormDraft(formDraftScope);
+                            clearAgentExtensionEditorDraft(scopedContext, formDraftScope.target);
+                          }
+                          void loadConfiguration();
+                        }}>{labels.discardDraft}</Button>
+                      </div>
+                    ) : null}
+                    <fieldset disabled={isSubmitting || Boolean(savedAgent) || draftConflict || retentionPending || retentionError} className="contents">
                     <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10 p-3 sm:p-4">
                       <div className="flex min-w-0 flex-col gap-3 min-[420px]:flex-row min-[420px]:items-center sm:gap-4">
                         <button
@@ -704,8 +901,18 @@ export function EditAgentProfileDialog({
                         onOpenChange={setModelOpen}
                         enabled={modelOverrideEnabled}
                         showWhenDisabled
-                        onEnabledChange={setModelOverrideEnabled}
+                        onEnabledChange={(enabled) => {
+                          setModelTouched(true);
+                          setModelOverrideEnabled(enabled);
+                          setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
+                        }}
                       >
+                        {!modelTouched && currentAgent && !selectionFromAgent(currentAgent)
+                          && Object.values(agentProfileModelFields(currentAgent)).some(value => value !== null) ? (
+                            <p className="mb-3 rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground">
+                              {labels.historicalModel}
+                            </p>
+                          ) : null}
                         {!modelOverrideEnabled ? (
                           <p className="mb-3 rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
                             {tCreate('model.inheritedDefault')}
@@ -716,8 +923,12 @@ export function EditAgentProfileDialog({
                           selection={modelDraft}
                           loading={modelLoading}
                           error={modelError}
-                          disabled={!modelOverrideEnabled}
-                          onSelectionChange={setModelDraft}
+                          disabled={!modelOverrideEnabled || isSubmitting || Boolean(savedAgent)}
+                          onSelectionChange={(selection) => {
+                            setModelTouched(true);
+                            setModelDraft(selection);
+                            setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
+                          }}
                           onRetry={() => void loadModelOptions()}
                         />
                       </AgentFormSection>
@@ -766,55 +977,23 @@ export function EditAgentProfileDialog({
                       />
                     </AgentFormSection>
 
-                    <AgentFormSection
-                      title={tCreate('connections.title')}
-                      description={tCreate('connections.description')}
-                      icon={Plug}
-                      open={connectionsOpen}
-                      onOpenChange={setConnectionsOpen}
-                      enabled={connectionsOverrideEnabled}
-                      onEnabledChange={setConnectionsOverrideEnabled}
-                    >
-                      <AgentConnectionsPicker
-                        enabled={connectionsOverrideEnabled}
-                        selectedConnectionIds={selectedConnections}
-                        onSelectedConnectionIdsChange={setSelectedConnections}
-                        pageSize={6}
+                    {workflowRevision !== null ? (
+                      <AgentExtensionEditor
+                        target={{ kind: 'existing', agentId: currentAgent.agentId,
+                          expectedRevision: currentAgent.revision ?? 1, expectedWorkflowRevision: workflowRevision }}
+                        context={scopedContext}
+                        bindingSummaries={bindingSummaries} standaloneSummaries={standaloneSummaries}
+                        value={extensionDraft}
+                        onChange={(value) => {
+                          setExtensionDraft(value);
+                          setExtensionValidation({ pending: true, blocked: false, preview: null, error: null });
+                        }}
+                        enabledTools={toolsChanged ? proposedEnabledTools : undefined}
+                        model={canManageAgentDefaults && modelChanged ? proposedModel : undefined}
+                        onValidationChange={handleExtensionValidation}
+                        disabled={isSubmitting || Boolean(savedAgent) || draftConflict || retentionPending || retentionError}
                       />
-                    </AgentFormSection>
-
-                    <AgentFormSection
-                      title={tCreate('plugins.title')}
-                      description={tCreate('plugins.description')}
-                      icon={Sparkles}
-                      open={pluginsOpen}
-                      onOpenChange={setPluginsOpen}
-                      enabled={pluginsOverrideEnabled}
-                      onEnabledChange={setPluginsOverrideEnabled}
-                    >
-                      <AgentPluginsPicker
-                        enabled={pluginsOverrideEnabled}
-                        organizationOnly={currentAgent.scopeType === 'organization'}
-                        selectedPlugins={selectedPlugins}
-                        onSelectedPluginsChange={setSelectedPlugins}
-                      />
-                    </AgentFormSection>
-
-                    <AgentFormSection
-                      title={tCreate('skills.title')}
-                      description={tCreate('skills.description')}
-                      icon={Search}
-                      open={skillsOpen}
-                      onOpenChange={setSkillsOpen}
-                      enabled={skillsOverrideEnabled}
-                      onEnabledChange={setSkillsOverrideEnabled}
-                    >
-                      <AgentRelevantSkillsPicker
-                        enabled={skillsOverrideEnabled}
-                        selectedSkillNames={selectedSkills}
-                        onSelectedSkillNamesChange={setSelectedSkills}
-                      />
-                    </AgentFormSection>
+                    ) : null}
 
                     <AgentFormSection
                       title={tCreate('files.title')}
@@ -850,11 +1029,7 @@ export function EditAgentProfileDialog({
                             active={open && accessOpen}
                             agentId={currentAgent.agentId}
                             revision={currentAgent.revision || 1}
-                            onChanged={async (updated) => {
-                              const nextAgent = { ...currentAgent, ...updated };
-                              setCurrentAgent(nextAgent);
-                              await onChanged(nextAgent);
-                            }}
+                            onChanged={handleGrantChanged}
                           />
                         ) : !currentAgent.scopeType ? (
                           <AgentMembersEditor
@@ -898,21 +1073,43 @@ export function EditAgentProfileDialog({
                       </section>
                     ) : null}
 
+                    {savedAgent && refreshError ? (
+                      <div className="rounded-md border border-amber-400/40 bg-amber-50/30 px-3 py-2 text-sm dark:bg-amber-950/20"
+                        role="status" data-testid="edit-agent-saved-refresh-error">
+                        {labels.savedRefresh}
+                      </div>
+                    ) : null}
+
                     {error ? (
                       <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive" role="alert">
                         {error}
                       </p>
                     ) : null}
+                    </fieldset>
+                    {retentionPending ? <p role="status" data-testid="edit-agent-retention-pending" className="text-sm text-muted-foreground">{labels.retentionPending}</p> : null}
+                    {retentionError ? <div role="alert" data-testid="edit-agent-retention-error" className="space-y-2 rounded-md border border-amber-400/40 p-3 text-sm">
+                      <p>{labels.retentionError}</p>
+                      <Button type="button" variant="outline" disabled={retentionConflict} onClick={() => { const acknowledged = retentionRetry.current;
+                        if (acknowledged) void renewRetentionHints(acknowledged, loadSequenceRef.current, scopeKey).catch(() => {});
+                      }}>{labels.retryRetention}</Button>
+                      <Button type="button" variant="outline" onClick={() => setConfirmRetentionReload(true)}>{labels.reloadConfiguration}</Button>
+                    </div> : null}
                   </>
                 ) : null}
               </div>
             </ScrollArea>
 
             <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
-              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isSubmitting || deleting} className="w-full sm:w-auto">
+              <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={isSubmitting || deleting || retentionPending} className="w-full sm:w-auto">
                 {tCreate('cancel')}
               </Button>
-              <Button type="button" onClick={() => void submit()} disabled={!canSave} className="w-full sm:w-auto">
+              {savedAgent && refreshError ? (
+                <Button type="button" variant="outline" data-testid="edit-agent-refresh"
+                  onClick={() => void finishRefresh(savedAgent, loadSequenceRef.current, scopeKey)}>
+                  {labels.refresh}
+                </Button>
+              ) : null}
+              <Button type="button" onClick={() => void submit()} disabled={!canSave} data-testid="edit-agent-save" className="w-full sm:w-auto">
                 {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {isSubmitting ? t('saving') : t('save')}
               </Button>
@@ -928,8 +1125,19 @@ export function EditAgentProfileDialog({
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={confirmRetentionReload} onOpenChange={setConfirmRetentionReload}>
+        <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{labels.reloadConfiguration}</AlertDialogTitle>
+          <AlertDialogDescription>{labels.discardUnsaved}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{tCreate('cancel')}</AlertDialogCancel><AlertDialogAction onClick={() => {
+            setConfirmRetentionReload(false);
+            if (formDraftScope) { clearAgentFormDraft(formDraftScope); clearAgentExtensionEditorDraft(scopedContext, formDraftScope.target); }
+            void loadConfiguration();
+          }}>{labels.reloadConfiguration}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <AlertDialog
-        open={deleteDialogOpen}
+        open={deleteDialogOpen && loadedScope === scopeKey}
         onOpenChange={(nextOpen) => {
           if (deleting) return;
           setDeleteDialogOpen(nextOpen);

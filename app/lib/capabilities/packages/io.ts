@@ -237,12 +237,16 @@ export async function readExactPackageInventory(rootPath: string,
   }
   files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   directories.sort((left, right) => left.localeCompare(right));
-  const captureParent = path.join(await fs.realpath(resolveCanvasDataRoot()), 'capability-packages', '.captures');
-  const captureRoot = path.join(captureParent, randomUUID());
-  let checksum: string;
-  try { checksum = await writeCapturedInventory({ files, directories, totalBytes }, captureRoot); }
-  finally { await fs.rm(captureRoot, { recursive: true, force: true }).catch(() => undefined); }
-  return { files, directories, totalBytes, checksum };
+  // These exact bytes have already passed no-follow handles, ancestry and
+  // after-read identity checks. Rewriting/fsyncing a second complete tree only
+  // to hash it adds no integrity proof. Match the legacy checksum's native path
+  // ordering and NUL framing directly, including its treatment of executable bits.
+  const checksum = createHash('sha256');
+  for (const file of [...files].sort((left, right) => left.relativePath.split('/').join(path.sep)
+    .localeCompare(right.relativePath.split('/').join(path.sep)))) {
+    checksum.update(file.relativePath.split('/').join(path.sep)).update('\0').update(file.bytes).update('\0');
+  }
+  return { files, directories, totalBytes, checksum: checksum.digest('hex') };
 }
 
 export async function copyExactPackage(sourceRoot: string, targetRoot: string): Promise<ExactCapabilityPackageInventory> {
@@ -253,6 +257,14 @@ export async function copyExactPackage(sourceRoot: string, targetRoot: string): 
   const checksum = await writeCapturedInventory(inventory, targetRoot);
   if (checksum !== inventory.checksum) throw new CapabilityPackageError('PACKAGE_SOURCE_CHANGED', 'The package copy did not match the captured bytes.', 409);
   return inventory;
+}
+
+/** Parse and validate the captured bytes, never a concurrently changing legacy source tree. */
+export async function withCapturedCapabilityPackageInventory<T>(inventory: ExactCapabilityPackageInventory,
+  callback: (rootPath:string) => Promise<T>): Promise<T> {
+  const root=path.join(await fs.realpath(resolveCanvasDataRoot()),'capability-packages','.captures',randomUUID());
+  try {await writeCapturedInventory(inventory,root);return await callback(root);}
+  finally {await fs.rm(root,{recursive:true,force:true}).catch(()=>undefined);}
 }
 
 function assertDraftLocation(location: CapabilityPackageDraftLocation): void {
@@ -328,6 +340,13 @@ export async function copyCapabilityPackageSourceWithReferences(source: Capabili
   // writes use those immutable buffers rather than rereading mutable sources.
   await writeCapturedInventory({ files, directories: [...directories].sort(), totalBytes }, targetRoot);
   return readExactPackageInventory(targetRoot);
+}
+
+/** A new authoring draft starts empty; the normal revisioned writes supply its complete files. */
+export async function createEmptyCapabilityPackageDraft(draft: CapabilityPackageDraftLocation): Promise<void> {
+  assertDraftLocation(draft);
+  await writeCapturedInventory({ files: [], directories: [], totalBytes: 0 }, draft.rootPath);
+  await sealPackageDirectory(draft.rootPath, { files: [], directories: [], totalBytes: 0, checksum: '' });
 }
 
 export async function createCapabilityPackageDraft(source: CapabilityPackagePrivateLocation,
@@ -423,6 +442,43 @@ export async function writeCapabilityPackageDraftFile(location: CapabilityPackag
   const updated = await readExactPackageInventory(next.rootPath);
   await sealPackageDirectory(next.rootPath, updated);
   return updated;
+}
+
+/** One held draft CAS publishes one complete generation; validation failures expose no partial batch. */
+export async function writeCapabilityPackageDraftBatch(location: CapabilityPackageDraftLocation,
+  entries: readonly {path:string;bytes:Buffer;executable?:boolean}[], validate: (rootPath:string) => Promise<void>,
+  extraDirectories: readonly string[] = []): Promise<ExactCapabilityPackageInventory> {
+  assertDraftLocation(location);
+  if(entries.length>CAPABILITY_PACKAGE_LIMITS.maxFiles) limit('The batch contains too many files.');
+  const paths = new Set<string>(), directories = new Set<string>();
+  let totalBytes=0;
+  const files = entries.map(entry => {
+    const relativePath=normalizeCapabilityPackageRelativePath(entry.path), key=relativePath.toLocaleLowerCase('en-US');
+    if (paths.has(key)) throw new CapabilityPackageError('PACKAGE_NAMESPACE_CONFLICT','The batch contains conflicting file paths.',409);
+    paths.add(key); assertNotSecret(relativePath,entry.bytes);
+    if (entry.bytes.length>CAPABILITY_PACKAGE_LIMITS.maxFileBytes) limit('A package file exceeds its byte limit.');
+    totalBytes+=entry.bytes.length;
+    if(totalBytes>CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) limit('The batch exceeds its byte limit.');
+    let parent=path.posix.dirname(relativePath);
+    while(parent!=='.') { directories.add(parent); parent=path.posix.dirname(parent); }
+    return {path:relativePath,relativePath,bytes:Buffer.from(entry.bytes),size:entry.bytes.length,
+      checksum:createHash('sha256').update(entry.bytes).digest('hex'),executable:entry.executable===true};
+  });
+  for(const directory of extraDirectories) directories.add(normalizeCapabilityPackageRelativePath(directory));
+  if(files.length>CAPABILITY_PACKAGE_LIMITS.maxFiles || directories.size>CAPABILITY_PACKAGE_LIMITS.maxFiles || totalBytes>CAPABILITY_PACKAGE_LIMITS.maxTotalBytes) limit('The batch exceeds package limits.');
+  for(const directory of directories) if(paths.has(directory.toLocaleLowerCase('en-US'))) invalidPath('A package path is both a file and directory.');
+  const current=await readExactPackageInventory(location.rootPath), next=await prepareNextDraftRevision(location,current);
+  try {
+    await unlockOwnedDraftTree(next.rootPath); await fs.rm(next.rootPath,{recursive:true});
+    await writeCapturedInventory({files,directories:[...directories].sort(),totalBytes},next.rootPath);
+    const inventory=await readExactPackageInventory(next.rootPath);
+    await sealPackageDirectory(next.rootPath,inventory);
+    await validate(next.rootPath);
+    return inventory;
+  } catch(error) {
+    if(await fs.lstat(next.rootPath).catch(()=>null)) { await unlockOwnedDraftTree(next.rootPath); await fs.rm(next.rootPath,{recursive:true}); }
+    throw error;
+  }
 }
 
 export async function deleteCapabilityPackageDraftFile(location: CapabilityPackageDraftLocation,

@@ -23,6 +23,8 @@ const sourceRef = 'canvas-resource:11111111-1111-4111-8111-111111111111';
 const targetRef = 'canvas-resource:22222222-2222-4222-8222-222222222222';
 const draftRef = 'canvas-package-draft:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const foreignRef = 'canvas-package-draft:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const editRef = 'canvas-package-draft:cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+const consumedRef = 'canvas-package-draft:dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ownership = { type: 'organization' as const, organizationId: 'ui-fixture' };
 const stamp = { resourceId: 'canvas-capability:v1:plugin:org:ui-fixture:standalone:source', kind: 'plugin' as const, name: 'source', version: '1.0.0',
   artifactRevision: 1, registryChecksum: 'a'.repeat(64), checksum: 'a'.repeat(64), sourcePluginId: null };
@@ -33,6 +35,7 @@ async function main() {
   const loader = Module as typeof Module & { _load: (name: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = loader._load, originalFetch = globalThis.fetch, originalConfirm = window.confirm;
   loader._load = (name, parent, isMain) => {
+    if (name === '@/i18n/navigation') return { useRouter: () => ({ push: () => { throw new Error('This drafts test does not navigate to chat.'); } }) };
     if (name === 'next/navigation') return { useSearchParams: () => {
       const search = useSyncExternalStore(subscribe, () => window.location.search);
       return useMemo(() => new URLSearchParams(search), [search]);
@@ -46,6 +49,7 @@ async function main() {
   const requests: Array<{ suffix: string; workspace: string | null; method: string; body?: Record<string, unknown> }> = [];
   const holds = new Map<string, Promise<void>>();
   let text = 'Saved fork README', revision = 1, confirmResult = false, confirmations = 0, holdWrite: Promise<void> | undefined, holdDiscard: Promise<void> | undefined;
+  let holdCreation: Promise<void> | undefined, editCreated = false;
   window.confirm = () => { confirmations += 1; return confirmResult; };
   const response = (value: unknown, code = 200) => Response.json({ success: code === 200, ...(code === 200 ? { data: value } : { code: 'PACKAGE_ACCESS_DENIED' }) }, { status: code });
   const draft = () => ({ contractVersion: 1, draftRef, resourceRef: targetRef, sourceResourceRef: sourceRef, kind: 'plugin', name: 'Private fork', operation: 'fork', actorUserId: 'creator',
@@ -56,14 +60,27 @@ async function main() {
     const url = new URL(String(input), window.location.origin), prefix = '/api/capabilities/packages';
     assert(url.pathname.startsWith(prefix), 'Only package SafeDTO transport is used.');
     const suffix = url.pathname.slice(prefix.length), workspace = url.searchParams.get('workspaceId'), method = init?.method || 'GET';
+    if (suffix.endsWith('/presentation')) return response({}, 503);
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
     requests.push({ suffix, workspace, method, body });
     const parts = suffix.split('/').filter(Boolean).map(decodeURIComponent);
+    if (parts[0] === 'operations') return url.searchParams.get('draftRef') === consumedRef
+      ? response({ operation: { status: 'published', resourceRef: sourceRef } }) : response({}, 404);
     if (parts[0] === 'drafts' && parts.length === 1) {
+      if (method === 'POST') {
+        assert.equal(body?.operation,'edit');assert.equal(body?.resourceRef,sourceRef);await holdCreation;editCreated=true;
+        return response({draft:{...draft(),draftRef:editRef,resourceRef:sourceRef,name:'source',operation:'edit'}});
+      }
       const value = { ...status, name: workspace === 'workspace-one' ? 'Previous workspace draft' : 'Private fork', draftRevision: revision };
       await holds.get(workspace || ''); return response({ drafts: [value], nextCursor: null });
     }
     if (parts[0] === 'drafts') {
+      if(parts[1]===editRef&&editCreated){
+        const next={...draft(),draftRef:editRef,resourceRef:sourceRef,name:'source',operation:'edit'};
+        if(parts[2]==='status')return response({status:{...status,draftRef:editRef,resourceRef:sourceRef,name:'source',operation:'edit'}});
+        if(parts[2]==='tree')return response({draft:next,target,files:[{type:'file',path:'README.md',size:Buffer.byteLength(text),checksum:'a'.repeat(64)}]});
+        throw new Error('Unexpected new edit request.');
+      }
       if (parts[1] !== draftRef) return response({}, 404);
       if (parts[2] === 'status') return response({ status: { ...status, draftRevision: revision } });
       if (parts[2] === 'tree') return response({ draft: draft(), target, files: [{ type: 'file', path: 'README.md', size: Buffer.byteLength(text), checksum: 'a'.repeat(64) }] });
@@ -77,6 +94,7 @@ async function main() {
     if (parts[0] === 'scopes') return response({ scopes: [{ type: 'user', label: 'Personal' }] });
     assert.equal(parts[0], sourceRef, 'Fork continuation must open its canonical SOURCE, never its new target.');
     if (parts[1] === 'versions') return response({ versions: [] });
+    if (parts[1] === 'tree') return response({ files: [] });
     return response({ package: { resource: { resourceRef: sourceRef, legacyResourceId: stamp.resourceId, resourceType: 'plugin', sourceType: 'standalone', sourcePluginId: null, ownership,
       displayName: null, description: null, responsibleUserId: null, createdByUserId: 'creator', updatedByUserId: 'creator', metadataRevision: 1, grantsRevision: 1,
       accessMode: 'restricted', status: 'active', createdAt: 1, updatedAt: 1 }, access: { canRead: true, canUse: true, canEdit: true, canManage: false },
@@ -131,8 +149,27 @@ async function main() {
     const foreignStart = requests.length;
     await act(async () => { window.history.pushState(null, '', `/en/plugins?${new URLSearchParams({ view: 'drafts', resourceRef: sourceRef, draftRef: foreignRef, task: 'content' })}`); });
     await screen.findByText(messages.skills.packageEditor.accessError);
-    assert.equal(requests.length, foreignStart + 1); assert(requests.at(-1)?.suffix.endsWith('/status'));
+    assert.equal(requests.length, foreignStart + 2);
+    assert(requests.at(-2)?.suffix.endsWith('/status')); assert.equal(requests.at(-1)?.suffix, '/operations');
     assert.equal(Boolean(screen.queryByTestId('package-file-content')), false, 'Foreign creator status404 must not open source bytes.');
+
+    await act(async()=>{window.history.pushState(null,'',`/en/plugins?${new URLSearchParams({view:'drafts',draftRef:consumedRef,task:'content'})}`);});
+    await screen.findByTestId('package-create-edit');
+    let releaseCreation!:()=>void;holdCreation=new Promise<void>(resolve=>{releaseCreation=resolve;});
+    fireEvent.click(screen.getByTestId('package-create-edit'));
+    await waitFor(()=>assert.equal(confirmPluginNavigation(),false));
+    assert.equal(new URLSearchParams(window.location.search).get('draftRef'),consumedRef,'An unacknowledged create cannot change the explicit URL.');
+    await act(async()=>{releaseCreation();});
+    await waitFor(()=>assert.equal(new URLSearchParams(window.location.search).get('draftRef'),editRef));
+    assert.equal(new URLSearchParams(window.location.search).get('resourceRef'),sourceRef);
+    await screen.findByText('Draft: source');assert.equal(confirmPluginNavigation(),true);
+    cleanup();requests.length=0;render(<App/>);await screen.findByText('Draft: source');
+    assert(requests[0].suffix.endsWith(`${encodeURIComponent(editRef)}/status`),'A full remount follows the canonical new edit URL.');
+    assert(!requests.some(request=>request.suffix==='/operations'),'Reloading the new edit cannot recover the old consumed create instead.');
+    await act(async()=>{window.history.pushState(null,'',`/en/plugins?${new URLSearchParams({view:'drafts',draftRef:consumedRef,task:'content'})}`);});
+    await screen.findByTestId('package-create-edit');
+    assert.equal(new URLSearchParams(window.location.search).get('draftRef'),consumedRef,'An explicitly revisited old receipt URL keeps its own meaning.');
+    assert(!screen.queryByText('Draft: source'),'The old explicit link must not silently select a remembered different draft.');
     console.log('PASS actual drafts workspace UI: context-fenced safe list, canonical fork continuation, unsaved/pending navigation, exact CAS and foreign status404 without source I/O.');
   } finally { cleanup(); loader._load = originalLoad; globalThis.fetch = originalFetch; window.confirm = originalConfirm; dom.window.close(); }
 }

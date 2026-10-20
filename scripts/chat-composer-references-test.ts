@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import referenceMatcherFixtures from '../tests/fixtures/chat/composer-reference-matcher.json';
 
 import {
   findActiveComposerReference,
@@ -6,20 +7,12 @@ import {
 } from '../app/lib/chat/composer-references';
 import { filterSkillsForAgent } from '../app/lib/chat/reference-capabilities';
 
-assert.deepEqual(findActiveComposerReference('+', 1), {
-  kind: 'all',
-  trigger: '+',
-  query: '',
-  startIndex: 0,
-  endIndex: 1,
-});
-assert.equal(findActiveComposerReference('+annual report', 14)?.query, 'annual report');
-assert.equal(findActiveComposerReference('@annual', 7)?.kind, 'file');
-assert.equal(findActiveComposerReference('/pdf', 4)?.kind, 'capability');
-assert.equal(findActiveComposerReference('person@example.com', 18), null);
-assert.equal(findActiveComposerReference('https://example.com', 19), null);
-assert.equal(findActiveComposerReference('2 + 2', 5), null);
-assert.equal(findActiveComposerReference('C++', 3), null);
+assert.equal(referenceMatcherFixtures.schemaVersion, 1);
+assert.ok(referenceMatcherFixtures.cases.length > 0);
+assert.equal(new Set(referenceMatcherFixtures.cases.map(fixture => fixture.id)).size, referenceMatcherFixtures.cases.length);
+for (const fixture of referenceMatcherFixtures.cases) {
+  assert.deepEqual(findActiveComposerReference(fixture.value, fixture.cursorPosition), fixture.expected, `Shared reference matcher fixture: ${fixture.id}`);
+}
 
 assert.deepEqual(
   replaceComposerReference('Use +annual report now', {
@@ -67,4 +60,4 @@ assert.deepEqual(
   ['core', 'selected'],
 );
 
-console.log('chat composer references test passed');
+console.log(`chat composer references test passed (${referenceMatcherFixtures.cases.length} shared matcher fixtures)`);

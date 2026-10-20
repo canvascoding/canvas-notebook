@@ -1,8 +1,9 @@
 import 'server-only';
 
+import type { SqlConnection } from '@/app/lib/db';
 import type { CapabilityCandidate } from '../types';
 import type { CapabilityResourceActor } from './contracts';
-import { getCapabilityResourceAccess } from './store';
+import { getCapabilityResourceAccess, readCapabilityResourceAccessBatch } from './store';
 import { capabilityResourceStorageBinding } from './storage-binding';
 import { projectCapabilityPluginChildAccess } from './child-access';
 
@@ -10,11 +11,13 @@ import { projectCapabilityPluginChildAccess } from './child-access';
 export async function applyCapabilityCandidateResourceAccess(
   actor: CapabilityResourceActor,
   candidates: readonly CapabilityCandidate[],
+  database?: SqlConnection,
 ): Promise<CapabilityCandidate[]> {
-  const entries = await Promise.all(candidates.map(async (candidate) => {
-    const entry = await getCapabilityResourceAccess(actor, capabilityResourceStorageBinding(candidate.ref));
+  const access = await readCapabilityResourceAccessBatch(actor, candidates.map(candidate => capabilityResourceStorageBinding(candidate.ref)), database);
+  const entries = candidates.map((candidate, index) => {
+    const entry = access[index];
     return { ...candidate, resourceMetadata: entry.metadata, resourceAccess: entry.access };
-  }));
+  });
   const parents = new Map(entries.filter(entry => entry.ref.resourceType === 'plugin')
     .map(entry => [entry.ref.resourceId, entry]));
   return entries.map(candidate => {

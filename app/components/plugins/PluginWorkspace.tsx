@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { ArrowLeft, Building2, CircleUserRound, Loader2, RefreshCw, Search, UsersRound } from 'lucide-react';
 import type { PluginNavigation, PluginManagementScope } from '@/app/lib/plugins/plugin-navigation';
@@ -8,6 +8,7 @@ import type { PluginWorkspaceCatalogItem } from '@/app/lib/plugins/plugin-worksp
 import type { CapabilityPackageStoreApplicationResult, CapabilityPackageStoreSelection } from '@/app/lib/capabilities/packages/store-contracts';
 import type { CapabilityResourceOwnerScope } from '@/app/lib/capabilities/resources/contracts';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { authClient } from '@/app/lib/auth-client';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,19 +25,31 @@ import { PackageDetailWorkspace } from './PackageDetailWorkspace';
 import { StorePackageWizard } from './StorePackageWizard';
 import { PackageDraftsWorkspace } from './PackageDraftsWorkspace';
 import { SharedConnectionsSection } from './SharedConnectionsSection';
+import { PluginExtensionWorkspace } from './PluginExtensionWorkspace';
+import { PluginCreatorMenu } from './PluginCreatorMenu';
 
 const clearDetail = { plugin: undefined, skill: undefined, source: undefined, resourceId: undefined, resourceRef: undefined,
   draftRef: undefined, task: undefined, file: undefined, storeRegistryId: undefined, storeVersion: undefined, storeChecksum: undefined } satisfies Partial<PluginNavigation>;
 const primaryScopes = ['user', 'team', 'organization'] as const;
 
 export function PluginWorkspace(_props: { canManageOrganizationCapabilities: boolean }) {
-  const { navigation } = usePluginNavigation();
+  const { navigation, navigate } = usePluginNavigation();
+  const { data: session, isPending, error } = authClient.useSession();
   const activeWorkspaceId = useWorkspaceStore(state => state.activeWorkspaceId);
   const initialized = useWorkspaceStore(state => state.initialized);
   const t = useTranslations('skills.workspace.shell');
   const workspaceId = navigation.workspaceId ?? activeWorkspaceId;
-  if (!initialized || !workspaceId) return <p className="flex items-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>;
-  return <PluginWorkspaceSession key={workspaceId} workspaceId={workspaceId} />;
+  const legacyList = ['installed', 'discover', 'library'].includes(navigation.view)
+    && !navigation.resourceRef && !navigation.resourceId && !navigation.plugin && !navigation.skill && !navigation.draftRef
+    && !navigation.extensionId && !navigation.setup;
+  useEffect(() => {
+    if (legacyList) navigate({ view: 'browse', stock: navigation.view === 'installed' ? 'installed' : 'available',
+      kind: navigation.kind ?? (navigation.area === 'skills' ? 'skill' : 'all') }, { replace: true });
+  }, [legacyList, navigation.view, navigation.kind, navigation.area, navigate]);
+  if (!initialized || !workspaceId || isPending || legacyList) return <p className="flex items-center gap-2 py-12 text-sm text-muted-foreground" role="status"><Loader2 className="size-4 animate-spin" />{t('loading')}</p>;
+  if (!session || error) return <InlineNotice size="compact">{t('accessError')}</InlineNotice>;
+  const sessionKey = JSON.stringify([workspaceId, session.user.id, session.session.id]);
+  return navigation.view === 'browse' ? <PluginExtensionWorkspace key={sessionKey} workspaceId={workspaceId} /> : <PluginWorkspaceSession key={sessionKey} workspaceId={workspaceId} />;
 }
 
 /** Every read and action uses this explicit browsing workspace; URL selection grants no authority. */
@@ -50,7 +63,7 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
   const legacy = useLegacyPluginWorkspaceSelection(navigation, workspaceId);
   const resourceRef = navigation.resourceRef ?? legacy?.resourceRef ?? undefined;
   const data = usePluginWorkspaceData({ navigation: resourceRef && !navigation.resourceRef ? { ...navigation, resourceRef } : navigation, workspaceId, epoch });
-  const kind = navigation.kind ?? (navigation.area === 'skills' ? 'skill' : 'all');
+  const kind = navigation.kind === 'plugin' || navigation.kind === 'skill' || navigation.kind === 'all' ? navigation.kind : navigation.area === 'skills' ? 'skill' : 'all';
   const view = navigation.view === 'library' || navigation.view === 'discover' ? 'store' : navigation.view;
   const selectionKey = JSON.stringify([workspaceId, navigation.scope, navigation.teamId, navigation.audience, resourceRef]);
   const selection = useRef(selectionKey);
@@ -97,11 +110,11 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
 
   return <section className="min-w-0 space-y-6" data-testid="plugin-workspace">
     <header className="space-y-5 border-b pb-5">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0"><h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
           <p className="mt-1.5 max-w-2xl text-sm text-muted-foreground">{t('description')}</p>
           {workspaceLabel ? <p className="mt-2 truncate text-xs text-muted-foreground">{t('workspace', { name: workspaceLabel })}</p> : null}</div>
-        <Button variant="ghost" size="icon" onClick={() => { if (confirmPluginNavigation()) refresh(); }} aria-label={t('refresh')} disabled={data.status === 'loading'}><RefreshCw className="size-4" /></Button>
+        <div className="flex shrink-0 items-center gap-1"><PluginCreatorMenu workspaceId={workspaceId} /><Button variant="ghost" size="icon" onClick={() => { if (confirmPluginNavigation()) refresh(); }} aria-label={t('refresh')} disabled={data.status === 'loading'}><RefreshCw className="size-4" /></Button></div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex max-w-full flex-wrap gap-1 rounded-lg bg-muted/60 p-1" aria-label={t('scope')}>
@@ -142,7 +155,8 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
       onUpdated={() => { if (selection.current === selectionKey) { setUpdate(null); refresh(); navigate({ task: 'versions' }); } }}
       onClose={() => { if (confirmPluginNavigation()) setUpdate(null); }} />
       : resourceRef ? <PackageDetailWorkspace key={JSON.stringify([workspaceId, resourceRef, epoch])} resourceRef={resourceRef}
-        workspaceId={workspaceId} task={navigation.task ?? 'overview'} file={navigation.file} store={data.store} onNavigate={navigate}
+        workspaceId={workspaceId} publishedPin={navigation.publishedRevisionRef && navigation.publishedChecksum && navigation.resourceRef
+          ? { resourceRef: navigation.resourceRef, publishedRevisionRef: navigation.publishedRevisionRef, checksum: navigation.publishedChecksum } : undefined} task={navigation.task ?? 'overview'} file={navigation.file} store={data.store} onNavigate={navigate}
         onUpdated={refresh} onClose={closeDetail} onStoreUpdate={(value, canonicalRef) => { if (confirmPluginNavigation()) setUpdate({ key: selectionKey, source: value, resourceRef: canonicalRef }); }} />
         : source ? <div className="space-y-4">
           {offering && offering.registryId === source.registryId && offering.versions.some(version => version.version === source.version && version.checksum === source.checksum)
@@ -176,7 +190,7 @@ function PluginWorkspaceSession({ workspaceId }: { workspaceId: string }) {
               <div className="h-28 animate-pulse rounded-lg bg-muted/50" /></div> : data.status === 'error' ? <InlineNotice size="compact" variant="warning"
                 actions={<Button size="sm" variant="outline" onClick={refresh}>{t('refresh')}</Button>}>{t(errorKey)}</InlineNotice> : data.catalog ? <>
                 {data.error ? <InlineNotice size="compact" variant="warning">{t('limitedStore')}</InlineNotice> : null}
-                <PluginWorkspaceLists catalog={data.catalog} store={data.store} view={view === 'store' || view === 'updates' ? view : 'installed'}
+                <PluginWorkspaceLists catalog={data.catalog} store={data.store} workspaceId={workspaceId} view={view === 'store' || view === 'updates' ? view : 'installed'}
                   onOpenResource={openResource} onOpenOffering={openOffering} onPage={page => navigate({ page })} />
               </> : null}
           </>}

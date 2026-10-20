@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="visual-title visual-desc">
+  <title id="visual-title">Plugin purpose graphic</title>
+  <desc id="visual-desc">A pencil draws a simple card using a circle, a square and a connected result.</desc>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="#E8F3EC"/>
+  <rect x="35" y="43" width="186" height="154" rx="22" fill="#F8FCF9" stroke="#17614B" stroke-width="7"/>
+  <circle cx="79" cy="91" r="20" fill="#A3CFB2"/>
+  <rect x="124" y="71" width="58" height="40" rx="8" fill="#17614B"/>
+  <path d="M66 142h80m-14-12 14 12-14 12" fill="none" stroke="#17614B" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m104 219 8-26 62-62 18 18-62 62Z" fill="#F5BE64" stroke="#6B4318" stroke-width="5" stroke-linejoin="round"/>
+  <path d="m112 193 18 18M162 143l18 18" fill="none" stroke="#6B4318" stroke-width="5"/>
+</svg>

@@ -24,15 +24,14 @@ import { EmailClassificationSettingsCard } from '@/app/components/settings/Email
 import { UpdateCenterPanel } from '@/app/components/settings/UpdateCenterPanel';
 import {
   McpServerDialog,
-  collectMcpEnvEntries,
   createBlankMcpServerDraft,
   deleteMcpConfigRawServer,
   parseMcpConfigFile,
   toMcpServerDraft,
-  updateMcpConfigRawServer,
   type McpConfigFile,
   type McpServerDraft,
 } from '@/app/components/settings/McpServerDialog';
+import { patchPersonalIntegrationEnv, savePersonalMcpServer } from '@/app/components/settings/mcp-setup-client';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
 import {
   SETTINGS_NAV_GROUPS,
@@ -465,15 +464,7 @@ const INITIAL_MCP_STATE: McpEditorState = {
 
 /** Fachformulare update only their own logical integration keys in the personal store. */
 export async function patchSettingsIntegrationEnv(patches: Array<{ key: string; value: string | null }>, errorMessage: string): Promise<void> {
-  const response = await fetch('/api/integrations/env?scope=integrations', {
-    method: 'PATCH',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope: 'integrations', secretScope: 'user', patches }),
-  });
-  const result = await response.json();
-  if (!response.ok || !result.success) throw new Error(result.error || errorMessage);
-  window.dispatchEvent(new CustomEvent('canvas_secrets_updated', { detail: { secretScope: 'user' } }));
+  await patchPersonalIntegrationEnv(patches, errorMessage);
 }
 
 export function SearchIntegrationCard({
@@ -2562,7 +2553,6 @@ export function IntegrationsSettingsClient({
 
   const saveMcpServer = async (draft: McpServerDraft, originalName?: string) => {
     try {
-      const rawContent = updateMcpConfigRawServer(mcpEditor.rawContent, draft, originalName);
       setMcpEditor((current) => ({
         ...current,
         isSaving: true,
@@ -2570,23 +2560,8 @@ export function IntegrationsSettingsClient({
         errorCode: undefined,
         success: null,
       }));
-      const envEntries = collectMcpEnvEntries(draft);
-      if (envEntries.length > 0) {
-        await patchSettingsIntegrationEnv(envEntries, t('envCard.errors.saveEnvFile'));
-      }
-
-      const response = await fetch('/api/integrations/mcp-config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ rawContent }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new McpAuthorizationError(result.code || 'request_failed', result.error || t('mcpConfig.errors.save'));
-      }
-
-      const nextState: McpConfigState = result.data;
+      const nextState = await savePersonalMcpServer({rawContent: mcpEditor.rawContent, draft, originalName,
+        envError: t('envCard.errors.saveEnvFile'), saveError: t('mcpConfig.errors.save')});
       setMcpEditor((current) => ({
         ...current,
         state: nextState,

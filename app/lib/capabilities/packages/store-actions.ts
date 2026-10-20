@@ -97,7 +97,9 @@ function sameSourceStamp(left: CapabilityPackageSourceStamp, right: CapabilityPa
 }
 
 /** Store discovery uses existing fresh actor projections and returns only safe, bounded metadata. */
-export async function listCapabilityPackageStoreAction(actorInput: CapabilityResourceActor, value: unknown = {}) {
+export async function listCapabilityPackageStoreAction(actorInput: CapabilityResourceActor, value: unknown = {},
+  options: { signal?: AbortSignal } = {}) {
+  options.signal?.throwIfAborted();
   const actor = snapshotActor(actorInput), query = capabilityPackageStoreListSchema.parse(structuredClone(value));
   const scopeQuery = capabilityPackageStoreCatalogQuery(query);
   const initialContext = await resolvePluginWorkspaceCatalogScopeContext(actor);
@@ -105,16 +107,20 @@ export async function listCapabilityPackageStoreAction(actorInput: CapabilityRes
   selectPluginWorkspaceCatalogResources([], initialContext, scopeQuery);
   const { listCapabilityResources } = await import('../resources/actions');
   const initial = await listCapabilityResources(actor);
+  options.signal?.throwIfAborted();
   const selected = selectPluginWorkspaceCatalogResources(initial, initialContext, { ...scopeQuery, q: '' });
   const visible = selectPluginWorkspaceCatalogResources(initial, initialContext, scopeQuery);
   const sources: CapabilityPackageStoreSources = { plugin: null, skill: null };
-  for (const kind of query.kind ? [query.kind] : ['plugin', 'skill'] as const) {
+  await Promise.all((query.kind ? [query.kind] : ['plugin', 'skill'] as const).map(async kind => {
     try {
-      if (kind === 'plugin') sources.plugin = await (await import('@/app/lib/plugins/canvas-plugin-store')).readCanvasPluginStoreRegistry();
-      else sources.skill = await (await import('@/app/lib/skills/canvas-skill-store')).readCanvasSkillStoreRegistry();
+      const readOptions = { signal: options.signal, cache: 'metadata' as const };
+      if (kind === 'plugin') sources.plugin = await (await import('@/app/lib/plugins/canvas-plugin-store')).readCanvasPluginStoreRegistry(readOptions);
+      else sources.skill = await (await import('@/app/lib/skills/canvas-skill-store')).readCanvasSkillStoreRegistry(readOptions);
     } catch { /* An unavailable registry never removes current readable installed metadata. */ }
-  }
+  }));
+  options.signal?.throwIfAborted();
   const observations = await readInstalledStoreResources(actor, prioritizeScopedStoreResources(selected, scopeQuery, visible), { preserveInputOrder: true });
+  options.signal?.throwIfAborted();
   // Re-read both scope and resource authority after every kind/read await. No earlier DTO is returned verbatim.
   const current = await listCapabilityResources(actor), context = await resolvePluginWorkspaceCatalogScopeContext(actor);
   const currentSelected = selectPluginWorkspaceCatalogResources(current, context, { ...scopeQuery, q: '' });

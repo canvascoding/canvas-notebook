@@ -1,4 +1,5 @@
 import 'server-only';
+import type { PluginExtensionIcon } from '@/app/lib/plugins/plugin-extension-icons';
 
 import { CapabilityResourceError, type CapabilityResourceActor, type CapabilityResourceDescriptor } from '@/app/lib/capabilities/resources/contracts';
 import { openDb } from '@/app/lib/db';
@@ -9,6 +10,7 @@ import { capabilityStoreComparison, compareInstalledStoreResource, installedStor
 
 /** The actor-facing store never returns installation paths, digests or grant inventories. */
 export type SafeActorSkillStoreResource = {
+  icon?: PluginExtensionIcon;
   metadata: CapabilityResourceDescriptor['metadata'];
   access: CapabilityResourceDescriptor['access'];
   artifact: Omit<CapabilityResourceDescriptor['artifact'], 'checksum'>;

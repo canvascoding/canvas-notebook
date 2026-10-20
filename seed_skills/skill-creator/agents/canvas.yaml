@@ -1,5 +1,5 @@
 interface:
   display_name: Skill Creator
-  short_description: Create, test, and package Canvas skills
+  short_description: Create and test a complete organization or plugin skill
   brand_color: "#0F172A"
-  default_prompt: Use $skill-creator to create or improve a Canvas skill.
+  default_prompt: Create or improve a reusable Canvas skill for this workflow.

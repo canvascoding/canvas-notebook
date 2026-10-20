@@ -12,6 +12,7 @@ import type { AgentExecutionContext } from '../app/lib/pi/agent-execution-contex
 import type { IntegrationProviderPage, IntegrationToolPage, IntegrationToolSchema } from '../app/lib/integration-tools/contracts';
 import type { AgentWorkflowPackageConfiguration } from '../app/lib/agents/workflow-contracts';
 import type { CapabilityPackageDescriptor, CapabilityPackageDraft } from '../app/lib/capabilities/packages/contracts';
+import type { AgentExtensionConfigurationInput } from '../app/lib/capabilities/extensions/contracts';
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-workflow-integration-'));
@@ -52,11 +53,11 @@ async function main() {
   try {
     for (const name of ['@earendil-works/pi-agent-core', '@earendil-works/pi-ai', '@earendil-works/pi-ai/compat', '@earendil-works/pi-ai/oauth']) modules.set(name, await import(name));
     const org = 'workflow-integration-org';
-    for (const id of ['owner', 'alice']) {
+    for (const id of ['owner', 'alice', 'bob']) {
       await raw.run('INSERT INTO "user" (id,name,email,role,email_verified,banned,created_at,updated_at) VALUES($1,$1,$2,$3,1,0,1,1)', [id, `${id}@workflow-integration.example.test`, id === 'owner' ? 'admin' : 'user']);
     }
     await raw.run("INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES($1,'owner','team',1,1,1)", [org]);
-    for (const id of ['owner', 'alice']) {
+    for (const id of ['owner', 'alice', 'bob']) {
       await raw.run("INSERT INTO organization_user_permissions(organization_id,user_id,role,status,can_share_plugins_and_skills,created_at,updated_at) VALUES($1,$2,$3,'active',$4,1,1)", [org, id, id === 'owner' ? 'owner' : 'member', Number(id === 'owner')]);
       await raw.run("INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at) VALUES($1,$2,$3,$4,$5,'active',$6,$6,$6,$6)", [`seat-${id}`, org, `${id}@workflow-integration.example.test`, id, id === 'owner' ? 'owner' : 'member', Date.now()]);
       await raw.run("INSERT INTO canvas_workspaces(id,organization_id,type,owner_user_id,root_relative_path,display_name,status,created_at,updated_at) VALUES($1,$2,'personal',$3,$4,$3,'active',1,1)", [`personal-${id}`, org, id, `workspaces/${id}/files`]);
@@ -66,7 +67,7 @@ async function main() {
     const license = await getLicenseStatus(); assert(license.licensed); assert.equal(license.edition, 'team');
     const { assertUserSeatAccess } = await import('../app/lib/license/seat-limit');
     assert.equal((await assertUserSeatAccess({ userId: 'alice' })).mode, 'team');
-    const owner = { userId: 'owner', workspaceId: 'personal-owner' }, alice = { userId: 'alice', workspaceId: 'personal-alice' };
+    const owner = { userId: 'owner', workspaceId: 'personal-owner' }, alice = { userId: 'alice', workspaceId: 'personal-alice' }, bob = { userId: 'bob', workspaceId: 'personal-bob' };
     const { patchUnifiedEnvEntries } = await import('../app/lib/secrets/unified-env-store');
     await patchUnifiedEnvEntries([{ key: 'COMPOSIO_API_KEY', value: 'inert-shared-workflow-key' }], { secretScope: 'organization', organizationId: org });
     const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
@@ -77,7 +78,8 @@ async function main() {
       { id: 'SHARED_CANVA_B', toolkit: 'canva', status: 'ACTIVE' }, { id: 'SHARED_SLACK', toolkit: 'slack', status: 'ACTIVE' }]);
     const connections = await import('../app/lib/integration-tools/connections/store');
     const grants = [{ targetType: 'user' as const, targetId: 'owner', canUse: true, canManage: true, allowedToolNames: null },
-      { targetType: 'user' as const, targetId: 'alice', canUse: true, canManage: false, allowedToolNames: null }];
+      { targetType: 'user' as const, targetId: 'alice', canUse: true, canManage: false, allowedToolNames: null },
+      { targetType: 'user' as const, targetId: 'bob', canUse: true, canManage: false, allowedToolNames: null }];
     const createComposio = (toolkit: string, account: string, names: string[]) => connections.createSharedIntegrationConnection(owner, {
       ownership: { type: 'organization', organizationId: org }, displayName: `Shared ${toolkit} ${account.endsWith('_B') ? 'B' : 'A'}`, grants, allowedToolNames: names,
       backend: { source: 'composio', profileId: sharedProfile.id, toolkit, mode: 'local', accountBinding: 'account', connectedAccountId: account } });
@@ -112,7 +114,8 @@ async function main() {
     assert(installed.success && installed.plugin?.resourceId, installed.error || 'Actual plugin install failed.');
     const configured = await resources.configureCapabilityResource(owner, installed.plugin.resourceId, { expectedMetadataRevision: 0, expectedGrantsRevision: 0,
       ownership: { type: 'organization' }, accessMode: 'restricted', grants: [{ targetType: 'user', targetId: 'owner', canUse: true, canEdit: true, canManage: true },
-        { targetType: 'user', targetId: 'alice', canUse: true, canEdit: false, canManage: false }] });
+        { targetType: 'user', targetId: 'alice', canUse: true, canEdit: false, canManage: false },
+        { targetType: 'user', targetId: 'bob', canUse: true, canEdit: false, canManage: false }] });
     const ref = configured.metadata.resourceRef;
     assert.equal(configured.access.canRead, true, 'Actual configured resource authority must be readable.');
     assert.equal((await resources.inspectCapabilityResource(owner, ref)).access.canRead, true, 'Fresh resource inspection must remain readable.');
@@ -130,11 +133,13 @@ async function main() {
       expectedPackageRevision: descriptor.state?.packageRevision ?? 0, expectedPublishedRevisionRef: descriptor.state?.currentPublishedRevisionRef ?? null });
     const inspected = await packages.inspectCapabilityPackage(owner, ref), draft = await packages.createCapabilityPackageDraftAction(owner, edit(inspected));
     const v1 = await packages.publishCapabilityPackageDraftAction(owner, publish(draft, inspected));
-    const enabledTools = ['mcp', 'COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute', 'email_read_message', 'email_list_mailboxes', 'email_create_outbox_draft'];
+    const enabledTools = ['read', 'mcp', 'COMPOSIO_SEARCH_TOOLS', 'COMPOSIO_GET_TOOL_SCHEMAS', 'composio_execute', 'email_read_message', 'email_list_mailboxes', 'email_create_outbox_draft'];
     const createAgent = async (id: string) => {
       await agentActions.createManagedAgent(owner, { agentId: id, name: id, scopeType: 'organization', enabledTools });
-      const profile = (await agents.getAgentProfile(id))!;
-      await agentActions.setManagedAgentGrant({ actor: owner, agentId: id, expectedRevision: profile.revision, targetType: 'user', targetId: 'alice', canUse: true, canEdit: false, canManage: false });
+      for (const userId of ['alice', 'bob']) {
+        const profile = (await agents.getAgentProfile(id))!;
+        await agentActions.setManagedAgentGrant({ actor: owner, agentId: id, expectedRevision: profile.revision, targetType: 'user', targetId: userId, canUse: true, canEdit: false, canManage: false });
+      }
     };
     for (const id of ['workflow-main', 'workflow-empty', 'workflow-missing']) await createAgent(id);
     const sharedTarget = (source: 'mcp' | 'composio', connection: typeof canvaA) => ({ kind: 'shared' as const, source,
@@ -151,23 +156,35 @@ async function main() {
           { capabilityId: 'notify', selection: { mode: 'fixed', alternativeKey: 'composio:slack', target: sharedTarget('composio', slack), toolCap: ['CHANNEL_POST'] } },
         ] },
       ] };
+    const extensionConfiguration = (packagesInput: AgentWorkflowPackageConfiguration[]): AgentExtensionConfigurationInput => ({
+      version: 1, origin: 'agent_configuration', mode: 'fixed',
+      selections: packagesInput.map(pkg => ({ selection: { kind: 'plugin', package: { resourceRef: pkg.resourceRef,
+        publishedRevisionRef: pkg.publishedRevisionRef, checksum: pkg.checksum }, skillSelection: { kind: 'all' } }, requirement: 'optional', toolCap: null })),
+      workflow: { version: 1, packages: packagesInput }, standalone: [],
+    });
     const configure = async (id: string, packagesInput: AgentWorkflowPackageConfiguration[]) => {
       const current = (await agents.getAgentProfile(id))!;
       return workflow.updateManagedAgentConfiguration({ actor: owner, agentId: id, expectedRevision: current.revision,
-        expectedWorkflowRevision: current.workflowRevision ?? 0, workflow: { version: 1, packages: packagesInput } });
+        expectedWorkflowRevision: current.workflowRevision ?? 0, extensions: extensionConfiguration(packagesInput) });
     };
     await configure('workflow-main', [basePackage]); await configure('workflow-empty', []);
+    const beforeExcluded = await workflow.readManagedAgentWorkflow(owner, 'workflow-main');
+    assert.equal(beforeExcluded.workflowVersion, 2);
     const excludedRequirement = structuredClone(basePackage);
     const excludedSelection = excludedRequirement.declarations[0].capabilities[0].selection;
     assert(excludedSelection.mode === 'fixed'); excludedSelection.toolCap = [];
-    await assert.rejects(() => configure('workflow-main', [excludedRequirement]), { code: 'AGENT_WORKFLOW_TOOLS_DENIED' });
+    // V2 validates the private wrapper's requiredTools subset before the write transaction.
+    await assert.rejects(() => configure('workflow-main', [excludedRequirement]), { code: 'AGENT_WORKFLOW_CORRUPT' });
+    assert.equal((await agents.getAgentProfile('workflow-main'))!.revision, beforeExcluded.agent.revision);
     const currentAgent = (await agents.getAgentProfile('workflow-main'))!;
     await assert.rejects(() => workflow.updateManagedAgentConfiguration({ actor: alice, agentId: currentAgent.agentId, expectedRevision: currentAgent.revision,
-      expectedWorkflowRevision: currentAgent.workflowRevision!, workflow: { version: 1, packages: [] } }), { code: 'AGENT_ACCESS_DENIED' });
+      expectedWorkflowRevision: currentAgent.workflowRevision!, extensions: extensionConfiguration([]) }), { code: 'AGENT_ACCESS_DENIED' });
     assert.equal((await agents.getAgentProfile('workflow-main'))!.revision, currentAgent.revision);
     const { piSessions } = await import('../app/lib/db/schema');
     for (const id of ['workflow-main', 'workflow-empty', 'workflow-missing']) await database.db.insert(piSessions).values({ sessionId: `${id}-session`, userId: 'alice', agentId: id,
       workspaceId: 'personal-alice', workspaceType: 'personal', organizationId: org, provider: 'fixture', model: 'fixture', createdAt: new Date(), updatedAt: new Date() });
+    await database.db.insert(piSessions).values({ sessionId: 'workflow-main-bob-session', userId: 'bob', agentId: 'workflow-main',
+      workspaceId: 'personal-bob', workspaceType: 'personal', organizationId: org, provider: 'fixture', model: 'fixture', createdAt: new Date(), updatedAt: new Date() });
     const { resolveAgentExecutionContextForStoredSession } = await import('../app/lib/pi/session-workspace-context');
     const fresh = (id = 'workflow-main') => resolveAgentExecutionContextForStoredSession({ userId: 'alice', agentId: id, sessionId: `${id}-session` });
     const { serverPreferencesPath } = await import('../app/lib/terminal-policy');
@@ -264,6 +281,51 @@ async function main() {
     assert.equal(composio.calls.filter(call => call.path.includes('/tools/execute/')).at(-1)!.body.connected_account_id, 'PERSONAL_EXACT_B');
     assert((await discover()).providers.some(provider => provider.source === 'mcp' && provider.providerRef === catalogue.providers.find(provider => provider.source === 'mcp')!.providerRef),
       'The fixed team MCP is unaffected by another personal Composio default.');
+    const bobPersonal = await createComposioProfile({ ownerUserId: 'bob', name: 'Bob selected design' });
+    const bobDefault = await createComposioProfile({ ownerUserId: 'bob', name: 'Bob unrelated default' });
+    assert.notEqual(bobPersonal.id, firstPersonal.id); assert.notEqual(bobPersonal.composioUserId, firstPersonal.composioUserId);
+    composio.accounts.set(bobPersonal.composioUserId, [{ id: 'PERSONAL_BOB_EXACT_A', toolkit: 'canva', status: 'ACTIVE' },
+      { id: 'PERSONAL_BOB_EXACT_B', toolkit: 'canva', status: 'ACTIVE' }]);
+    composio.accounts.set(bobDefault.composioUserId, [{ id: 'PERSONAL_BOB_DEFAULT', toolkit: 'canva', status: 'ACTIVE' }]);
+    const bobRef = createIntegrationProviderRef({ source: 'composio', profileId: bobPersonal.id, toolkit: 'canva',
+      scope: { type: 'user', ownerUserId: 'bob', resourceId: `profile:${bobPersonal.id}:canva` } });
+    const bobChoices = await listPersonalWorkflowProviderAccountChoices({ actor: bob, providerRef: bobRef });
+    const bobState = await workflow.inspectManagedAgentWorkflow(bob, 'workflow-main');
+    const bobAssets = bobState.packages[0].declarations.flatMap(declaration => declaration.capabilities).find(capability => capability.capabilityId === 'assets')!;
+    assert.equal(bobState.packages[0].publishedRevisionRef, v1.published.revisionRef);
+    await workflow.setManagedAgentWorkflowChoice({ actor: bob, agentId: 'workflow-main', capabilityKey: bobAssets.capabilityKey,
+      expectedWorkflowRevision: bobState.workflowRevision, expectedPreferenceRevision: bobState.preferenceRevision,
+      personalSelection: { alternativeKey: 'composio:canva', target: { kind: 'personal', source: 'composio', ownerUserId: 'bob',
+        providerRef: bobRef, accountSelectionRef: bobChoices.accounts[1].accountSelectionRef } } });
+    const freshBob = () => resolveAgentExecutionContextForStoredSession({ userId: 'bob', agentId: 'workflow-main', sessionId: 'workflow-main-bob-session' });
+    const bobContext = await freshBob();
+    assert.equal(bobContext.skillPackageBindings?.[0].publishedRevisionRef, v1.published.revisionRef);
+    assert.equal(bobContext.skillPackageBindings?.[0].checksum, initialContext.skillPackageBindings?.[0].checksum);
+    const beforeBobTools = counts();
+    const bobTools = await getPiTools('bob', 'workflow-main', 'workflow-main-bob-session', { executionContext: bobContext, strictAuthorization: true, metadataOnlyExternal: true });
+    assert.deepEqual(counts(), beforeBobTools, 'Bob normal session/tool construction does not borrow or probe Alice accounts.');
+    const bobGateway = bobTools.find(isIntegrationGatewayTool); assert(bobGateway);
+    const invokeBob = async (request: unknown) => runWithAgentExecutionContext({ ...await freshBob(), agentTurnId: 'workflow-bob-turn' },
+      () => bobGateway.execute('workflow-bob-fixture', request as never));
+    const bobCatalogue = details<IntegrationProviderPage>(await invokeBob({ action: 'list', target: 'providers' }));
+    const bobCanva = bobCatalogue.providers.find(provider => provider.application === 'canva'); assert(bobCanva);
+    assert.notEqual(bobCanva.providerRef, personalCanva.providerRef);
+    const bobToolPage = details<IntegrationToolPage>(await invokeBob({ action: 'list', target: 'tools', providerRef: bobCanva.providerRef }));
+    const bobSchema = details<IntegrationToolSchema>(await invokeBob({ action: 'describe', toolRef: bobToolPage.tools[0].toolRef }));
+    await setComposioWorkspaceProfileOverride({ userId: 'bob', workspaceId: 'personal-bob', profileId: bobDefault.id });
+    details(await invokeBob({ action: 'call', toolRef: bobSchema.toolRef, schemaRef: bobSchema.schemaRef, arguments: { folder_id: 'Bob exact personal account' } }));
+    const bobExecution = composio.calls.filter(call => call.path.includes('/tools/execute/')).at(-1)!;
+    assert.equal(bobExecution.body.connected_account_id, 'PERSONAL_BOB_EXACT_B');
+    assert.equal(bobExecution.body.user_id, bobPersonal.composioUserId);
+    details(await invoke({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef, arguments: { folder_id: 'Alice exact personal account after Bob' } }));
+    const aliceExecution = composio.calls.filter(call => call.path.includes('/tools/execute/')).at(-1)!;
+    assert.equal(aliceExecution.body.connected_account_id, 'PERSONAL_EXACT_B',
+      'One immutable organization package keeps two independently confirmed personal accounts.');
+    assert.equal(aliceExecution.body.user_id, firstPersonal.composioUserId);
+    const beforeCrossUser = counts();
+    const crossUser = (await invokeBob({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef,
+      arguments: { folder_id: 'Never borrow Alice receipt' } })).details as { integrationError: unknown };
+    assert(crossUser.integrationError); assert.deepEqual(counts(), beforeCrossUser, 'Alice schema/account receipt cannot execute in Bob normal session.');
     const beforeAccountChange = counts().slice(2);
     composio.accounts.set(firstPersonal.composioUserId, [{ id: 'PERSONAL_EXACT_A', toolkit: 'canva', status: 'ACTIVE' }]);
     const missingAccount = (await invoke({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef, arguments: { folder_id: 'No replacement account' } })).details as { integrationError: unknown };
@@ -330,7 +392,7 @@ async function main() {
     await fs.writeFile(serverPreferencesPath(), JSON.stringify({ settings: { integrationToolGatewayEnabled: false } }));
     const beforeEmpty = counts();
     const emptyResult = await invoke({ action: 'list', target: 'providers' }, emptyGateway, 'workflow-empty');
-    assert((emptyResult.details as { integrationError?: unknown }).integrationError);
+    assert.deepEqual(details<IntegrationProviderPage>(emptyResult).providers, [], 'A complete V2 empty selection has no executable providers.');
     const { createMcpProxyTool } = await import('../app/lib/mcp/proxy-tool');
     const { createComposioExecuteTool } = await import('../app/lib/composio/composio-tools');
     const proxy = createMcpProxyTool('alice'), legacy = createComposioExecuteTool();
@@ -359,7 +421,7 @@ async function main() {
     const beforeRevoke = counts().slice(2);
     const revoked = (await invoke({ action: 'call', toolRef: selectedSchema.toolRef, schemaRef: selectedSchema.schemaRef, arguments: { folder_id: 'Revoked required Slack' } })).details as { integrationError: { code: string } };
     assert(revoked.integrationError); assert.deepEqual(counts().slice(2), beforeRevoke, 'Revoke of a required second capability blocks business dispatch on the first.');
-    console.log('agent-workflow-integration-runtime-test: PASS (signed Team license/actual seats + PGlite ACL/session/package/configuration, real central runtime policy/getPiTools/gateway/SDK/MCP, exact shared and personal choices/default stability, provider matrices, required readiness, pinned v1/head v2, canUse-only denial, planning/email zero SDK, empty workflow/legacy gates, current required revoke)');
+    console.log('agent-workflow-integration-runtime-test: PASS (signed Team license/actual seats + PGlite ACL/session/package/configuration, real central runtime policy/getPiTools/gateway/SDK/MCP, Alice and Bob exact distinct personal accounts on the same immutable package and cross-user receipt refusal, shared/personal default stability, provider matrices, required readiness, pinned v1/head v2, canUse-only denial, planning/email zero SDK, empty workflow/legacy gates, current required revoke)');
   } finally {
     try { await closeMcp?.(); } finally {
       loader._load = original; await mcp.close(); await composio.close(); await raw.close(); await database.close();
