@@ -75,6 +75,99 @@ async function main(): Promise<void> {
       assert.deepEqual((await database.query('SELECT * FROM collaboration_native_restore_intents')).rows, privateBefore);
     }
     assert.deepEqual(dependencyOrder, Array.from({ length: 3 }, () => ['combined', 'supplemental', 'restore']).flat());
+    // Actual old-schema upgrade, on the same owned PG18 client and dispatcher.
+    // This block grants no actor or filesystem-write capability.
+    {
+      phase = 'old Yjs lifecycle schema upgrade preserves native state and identity';
+      await assertOwnConnection();
+      const resource = (await migrationTarget.query(`SELECT oid::text AS schema_oid,pg_backend_pid() AS backend
+        FROM pg_namespace WHERE nspname=$1`, [schema])).rows[0];
+      const schemaOid = Number(resource.schema_oid); assert(Number.isSafeInteger(schemaOid) && schemaOid > 0);
+      assert.equal(resource.backend, backend);
+      const controlBackend = (await control.query('SELECT pg_backend_pid() AS backend')).rows[0].backend;
+      console.log('NATIVE_STORAGE_UPGRADE_RESOURCES', JSON.stringify({ schema, schemaOid,
+        databaseBackendPid: resource.backend, controlBackendPid: controlBackend, processPid: process.pid }));
+      const { createPlainTextYDoc, createRichMarkdownYDoc, validateRichMarkdownYDoc } = await import('../app/lib/collaboration/markdown-state');
+      const { Y } = await import('../app/lib/collaboration/server-runtime');
+      const { readWorkspaceDocumentCatalogue } = await import('../app/lib/collaboration/workspace-document-catalogue');
+      const { assertNoInitializedNativeFileWrite, NativeWholeFileWriteBlockedError } = await import('../app/lib/files/native-file-write-authority');
+      const workspaceId = 'owned-upgrade-workspace', legacyId = 'upgrade-no-state', legacyPath = 'old-no-state.md';
+      const fixtures: Array<{ id: string; path: string; lineage: string; update: Buffer; vector: Buffer }> = [];
+      for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+        const id = `upgrade-${representation}`, filePath = `${representation}.md`, lineage = `lineage-${id}`;
+        const doc = representation === 'plain_text' ? createPlainTextYDoc('Preserved native plain text Ω\n')
+          : createRichMarkdownYDoc('# Preserved title\n\nNative **rich** body Ω.', representation);
+        let update: Buffer, vector: Buffer;
+        try {
+          if (representation !== 'plain_text') assert.equal(validateRichMarkdownYDoc(doc).valid, true);
+          update = Buffer.from(Y.encodeStateAsUpdate(doc)); vector = Buffer.from(Y.encodeStateVector(doc));
+        } finally { doc.destroy(); }
+        assert(update.length > 0 && vector.length > 0); fixtures.push({ id, path: filePath, lineage, update, vector });
+        await migrationTarget.query(`INSERT INTO file_collaboration_lineages(id,workspace_id,workspace_type,path,status,created_at)
+          VALUES($1,$2,'personal',$3,'active',100)`, [lineage, workspaceId, filePath]);
+        await migrationTarget.query(`INSERT INTO collaboration_documents(id,lineage_id,workspace_id,workspace_type,path,provider,state_version,status,created_at,updated_at)
+          VALUES($1,$2,$3,'personal',$4,'yjs',7,'active',100,200)`, [id, lineage, workspaceId, filePath]);
+        await migrationTarget.query(`INSERT INTO collaboration_yjs_states(document_id,workspace_id,path,representation,lifecycle_generation,schema_version,
+          yjs_state,state_vector,document_sequence,persisted_at,checkpoint_sequence,newline_style,has_bom,degraded,status)
+          VALUES($1,$2,$3,$4,1,1,$5,$6,7,300,0,'lf',0,0,'active')`, [id, workspaceId, filePath, representation, update, vector]);
+      }
+      await migrationTarget.query(`INSERT INTO file_collaboration_lineages(id,workspace_id,workspace_type,path,status,created_at)
+        VALUES('lineage-upgrade-no-state',$1,'personal',$2,'active',100)`, [workspaceId, legacyPath]);
+      await migrationTarget.query(`INSERT INTO collaboration_documents(id,lineage_id,workspace_id,workspace_type,path,provider,status,created_at,updated_at)
+        VALUES($1,'lineage-upgrade-no-state',$2,'personal',$3,'yjs','active',100,200)`, [legacyId, workspaceId, legacyPath]);
+      const registryBefore = (await migrationTarget.query(`SELECT to_jsonb(d)-'yjs_state_lifecycle' AS document
+        FROM collaboration_documents d WHERE workspace_id=$1 ORDER BY id`, [workspaceId])).rows;
+      const lineagesBefore = (await migrationTarget.query('SELECT * FROM file_collaboration_lineages WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows;
+      const statesBefore = (await migrationTarget.query('SELECT * FROM collaboration_yjs_states WHERE workspace_id=$1 ORDER BY document_id', [workspaceId])).rows;
+      assert.equal(registryBefore.length, 4); assert.equal(lineagesBefore.length, 4); assert.equal(statesBefore.length, 3);
+      await migrationTarget.query('ALTER TABLE collaboration_documents DROP COLUMN yjs_state_lifecycle CASCADE');
+      assert.equal((await migrationTarget.query(`SELECT count(*)::integer AS count FROM pg_attribute
+        WHERE attrelid='collaboration_documents'::regclass AND attname='yjs_state_lifecycle' AND NOT attisdropped`)).rows[0].count, 0);
+      await runPostgresMigrations(migrationTarget);
+      assert.deepEqual((await migrationTarget.query(`SELECT to_jsonb(d)-'yjs_state_lifecycle' AS document
+        FROM collaboration_documents d WHERE workspace_id=$1 ORDER BY id`, [workspaceId])).rows, registryBefore);
+      assert.deepEqual((await migrationTarget.query('SELECT * FROM file_collaboration_lineages WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows, lineagesBefore);
+      assert.deepEqual((await migrationTarget.query('SELECT * FROM collaboration_yjs_states WHERE workspace_id=$1 ORDER BY document_id', [workspaceId])).rows, statesBefore);
+      assert.deepEqual((await migrationTarget.query(`SELECT id,yjs_state_lifecycle FROM collaboration_documents WHERE workspace_id=$1 ORDER BY id`, [workspaceId])).rows,
+        [...fixtures.map(value => ({ id: value.id, yjs_state_lifecycle: 'initialized' })),
+          { id: legacyId, yjs_state_lifecycle: 'legacy_unknown' }].sort((a, b) => a.id.localeCompare(b.id)));
+      for (const fixture of fixtures) {
+        const actual = (await migrationTarget.query('SELECT yjs_state,state_vector,lineage_id FROM collaboration_yjs_states s JOIN collaboration_documents d ON d.id=s.document_id WHERE document_id=$1', [fixture.id])).rows[0];
+        assert.deepEqual(actual.yjs_state, fixture.update); assert.deepEqual(actual.state_vector, fixture.vector); assert.equal(actual.lineage_id, fixture.lineage);
+      }
+      const reader: import('../app/lib/db').SqlConnection = {
+        get: async (sql, values) => (await migrationTarget.query(sql, values)).rows[0],
+        all: async (sql, values) => (await migrationTarget.query(sql, values)).rows,
+        run: () => { throw new Error('The owned upgrade catalogue reader cannot mutate storage.'); },
+        close: () => { throw new Error('The owned upgrade catalogue reader cannot release its owner.'); },
+      };
+      const workspace: import('../app/lib/workspaces/types').WorkspaceContext = { workspaceId, workspaceType: 'personal', organizationId: null,
+        rootPath: '/deliberately-absent-owned-upgrade-root', status: 'active', legacy: false,
+        permissions: { canRead: true, canWrite: true, canDelete: false, canCreatePublicLinks: false, canManageWorkspace: false, canRunAgent: false } };
+      await migrationTarget.query('BEGIN ISOLATION LEVEL READ COMMITTED READ ONLY');
+      try {
+        const catalogue = await readWorkspaceDocumentCatalogue(reader, workspace, { paths: [legacyPath] });
+        assert.equal(catalogue.length, 1); assert.equal(catalogue[0].id, legacyId); assert.equal(catalogue[0].authority, 'missing-state');
+        assert.equal(catalogue[0].yjs_state_lifecycle, 'legacy_unknown'); assert.equal(catalogue[0].has_persisted_state, false);
+        await assert.rejects(assertNoInitializedNativeFileWrite(reader, workspace, legacyPath), error => {
+          assert(error instanceof NativeWholeFileWriteBlockedError); assert.equal(error.code, 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED');
+          assert.equal(error.status, 409); assert.equal(error.authority, 'missing-state'); assert.equal(error.path, legacyPath); return true;
+        });
+      } finally { await migrationTarget.query('ROLLBACK'); }
+      await migrationTarget.query(`INSERT INTO file_collaboration_lineages(id,workspace_id,workspace_type,path,status,created_at)
+        VALUES('lineage-after-upgrade',$1,'personal','new-after-upgrade.md','active',400)`, [workspaceId]);
+      await migrationTarget.query(`INSERT INTO collaboration_documents(id,lineage_id,workspace_id,workspace_type,path,provider,status,created_at,updated_at)
+        VALUES('document-after-upgrade','lineage-after-upgrade',$1,'personal','new-after-upgrade.md','yjs','active',400,400)`, [workspaceId]);
+      const upgradedRegistry = (await migrationTarget.query('SELECT * FROM collaboration_documents WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows;
+      assert.equal(upgradedRegistry.find(row => row.id === 'document-after-upgrade')?.yjs_state_lifecycle, 'never_initialized');
+      const upgradedLineages = (await migrationTarget.query('SELECT * FROM file_collaboration_lineages WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows;
+      await runPostgresMigrations(migrationTarget);
+      assert.deepEqual((await migrationTarget.query('SELECT * FROM collaboration_documents WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows, upgradedRegistry);
+      assert.deepEqual((await migrationTarget.query('SELECT * FROM file_collaboration_lineages WHERE workspace_id=$1 ORDER BY id', [workspaceId])).rows, upgradedLineages);
+      assert.deepEqual((await migrationTarget.query('SELECT * FROM collaboration_yjs_states WHERE workspace_id=$1 ORDER BY document_id', [workspaceId])).rows, statesBefore);
+      assert.deepEqual(dependencyOrder.slice(9), Array.from({ length: 2 }, () => ['combined', 'supplemental', 'restore']).flat());
+      await assertOwnConnection();
+    }
     phase = 'schema-local Restore relations and constraints';
     const relations = await database.query(`SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname=$1 AND c.relkind='r' AND c.relname=ANY($2::text[]) ORDER BY c.relname`, [schema, restoreTables]);
