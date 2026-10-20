@@ -475,25 +475,48 @@ test.describe('shared workspace HTML move safety', () => {
       await fixture.upload(localHtmlPath, localHtmlContent);
       await uploadLocalImage(fixture);
       await openOriginal(fixture.adminPage, fixture.workspaceId, 'unbeteiligt.md');
+      const renames: Array<Record<string, unknown>> = [];
+      fixture.adminPage.on('request', (observed) => {
+        if (new URL(observed.url()).pathname === '/api/files/rename' && observed.method() === 'POST') {
+          renames.push(observed.postDataJSON() as Record<string, unknown>);
+        }
+      });
       for (const source of [localImagePath, localHtmlPath]) {
+        const beforeRenames = renames.length;
         const dialog = await moveDialog(fixture.adminPage, source);
         const [response] = await Promise.all([
-          fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, `Ziel/${source}`)),
+          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun === true
+            && candidate.request().postDataJSON().oldPath === source
+            && candidate.request().postDataJSON().newPath === `Ziel/${source}`),
           dialog.getByRole('button', { name: 'Move', exact: true }).click(),
         ]);
-        expect(response.status(), `Moving ${source} changes the HTML link and remains protected`).toBe(409);
-        expect(await response.json()).toMatchObject({ code: 'PREVIEW_BLOCKED', operation: { workspaceId: fixture.workspaceId,
-          status: 'blocked', completedActions: 0, issues: expect.arrayContaining([expect.objectContaining({
-            code: 'affected-html-link', path: localHtmlPath, targetLiteral: localImagePath, line: 5,
-          })]) } });
-        const issues = dialog.getByTestId('workspace-move-operation-issues');
+        expect(response.status(), `Moving ${source} changes the HTML link and remains protected at preview`).toBe(200);
+        expect(response.request().postDataJSON()).toEqual({ oldPath: source, newPath: `Ziel/${source}`, dryRun: true });
+        const blocked = await response.json();
+        expect(blocked).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: {
+          readiness: 'blocked', pathMappings: expect.arrayContaining([expect.objectContaining({
+            sourceWorkspaceId: fixture.workspaceId, sourcePath: source,
+            destinationWorkspaceId: fixture.workspaceId, destinationPath: `Ziel/${source}`,
+          })]), linkAssessment: { blockers: expect.arrayContaining([expect.objectContaining({
+            reason: 'affected-html-link', sourcePath: localHtmlPath, targetLiteral: localImagePath, line: 5,
+          })]) },
+        } });
+        expect(blocked.plan.planId).toMatch(/^[a-f0-9]{64}$/u);
+        expect(Object.hasOwn(blocked, 'operation'), 'A blocked preview does not fabricate a durable operation').toBe(false);
+        await expect(dialog.getByTestId('workspace-move-preview')).toContainText('blocked');
+        await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toBeDisabled();
+        const issues = dialog.getByTestId('file-operation-link-blockers');
         await expect(issues).toContainText('This action affects a local HTML link.');
         await expect(issues).toContainText('Its file path cannot be updated safely yet.');
-        await expect(issues).toContainText(`${localHtmlPath}:5`);
+        await expect(issues).toContainText(localHtmlPath);
         await expect(issues).toContainText(localImagePath);
         await expect(issues.getByRole('button', { name: 'Open affected file', exact: true })).toBeVisible();
         await assertAbsent(fixture, `Ziel/${source}`);
         expect((await fixture.read(fixture.admin.request, localHtmlPath)).content).toBe(localHtmlContent);
+        expect(renames.slice(beforeRenames), 'Initial blocked preview never submits an apply').toEqual([
+          { oldPath: source, newPath: `Ziel/${source}`, dryRun: true },
+        ]);
         await fixture.adminPage.screenshot({ path: info.outputPath(`affected-html-${source.endsWith('.png') ? 'image' : 'source'}-blocked.png`),
           animations: 'disabled' });
         await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -785,19 +808,31 @@ test.describe('shared workspace HTML move safety', () => {
         });
         const dialog = await moveDialog(fixture.adminPage, source);
         const [blocked] = await Promise.all([
-          fixture.adminPage.waitForResponse((candidate) => isRenameApply(candidate, source, `Ziel/${source}`)),
+          fixture.adminPage.waitForResponse((candidate) => new URL(candidate.url()).pathname === '/api/files/rename'
+            && candidate.request().method() === 'POST' && candidate.request().postDataJSON().dryRun === true
+            && candidate.request().postDataJSON().oldPath === source
+            && candidate.request().postDataJSON().newPath === `Ziel/${source}`),
           dialog.getByRole('button', { name: 'Move', exact: true }).click(),
         ]);
-        expect(blocked.status(), 'Local HTML remains protected').toBe(409);
+        expect(blocked.status(), 'Local HTML remains protected at the initial preview').toBe(200);
+        expect(blocked.request().postDataJSON()).toEqual({ oldPath: source, newPath: `Ziel/${source}`, dryRun: true });
         const failure = await blocked.json();
-        expect(failure).toMatchObject({ code: 'PREVIEW_BLOCKED', operation: { workspaceId: fixture.workspaceId,
-          status: 'blocked', errorCode: 'PREVIEW_BLOCKED', completedActions: 0,
-          issues: expect.arrayContaining([expect.objectContaining({ code: 'affected-html-link', path: issueFile,
-            targetLiteral: source })]) } });
-        const issues = dialog.getByTestId('workspace-move-operation-issues');
+        expect(failure).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: {
+          readiness: 'blocked', pathMappings: expect.arrayContaining([expect.objectContaining({
+            sourceWorkspaceId: fixture.workspaceId, sourcePath: source,
+            destinationWorkspaceId: fixture.workspaceId, destinationPath: `Ziel/${source}`,
+          })]), linkAssessment: { blockers: expect.arrayContaining([expect.objectContaining({
+            reason: 'affected-html-link', sourcePath: issueFile, targetLiteral: source,
+          })]) },
+        } });
+        expect(failure.plan.planId).toMatch(/^[a-f0-9]{64}$/u);
+        expect(Object.hasOwn(failure, 'operation'), 'A blocked preview has no durable operation').toBe(false);
+        const issues = dialog.getByTestId('file-operation-link-blockers');
         await expect(issues).toBeVisible();
         await expect(issues).toContainText(issueFile);
-        await expect(issues).toContainText('affected-html-link');
+        await expect(issues).toContainText('This action affects a local HTML link.');
+        await expect(issues).toContainText('Its file path cannot be updated safely yet.');
+        await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toBeDisabled();
         await expect(issues).toContainText(source);
         await expect(issues.getByRole('button', { name: 'Open affected file', exact: true })).toBeVisible();
         await assertOriginal(fixture, source);
@@ -809,10 +844,17 @@ test.describe('shared workspace HTML move safety', () => {
         ]);
         expect(preview.status(), 'Recheck reads a new preview').toBe(200);
         expect(preview.request().postDataJSON()).toEqual({ oldPath: source, newPath: `Ziel/${source}`, dryRun: true });
-        expect(await preview.json()).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: { readiness: 'blocked' } });
+        const rechecked = await preview.json();
+        expect(rechecked).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: { readiness: 'blocked',
+          linkAssessment: { blockers: expect.arrayContaining([expect.objectContaining({
+            reason: 'affected-html-link', sourcePath: issueFile, targetLiteral: source,
+          })]) },
+        } });
+        expect(Object.hasOwn(rechecked, 'operation')).toBe(false);
         await expect(dialog.getByTestId('workspace-move-preview')).toContainText('blocked');
-        expect(renames.filter((body) => body.dryRun !== true), 'Recheck never applies or retries the move').toHaveLength(1);
-        expect(renames.filter((body) => body.dryRun === true)).toHaveLength(1);
+        await expect(dialog.getByRole('button', { name: 'Move', exact: true })).toBeDisabled();
+        expect(renames.filter((body) => body.dryRun !== true), 'Initial blocked preview and recheck never apply or retry the move').toHaveLength(0);
+        expect(renames.filter((body) => body.dryRun === true)).toHaveLength(2);
         await assertOriginal(fixture, source);
         await assertAbsent(fixture, `Ziel/${source}`);
         expect((await fixture.read(fixture.admin.request, issueFile)).content).toBe(html);
