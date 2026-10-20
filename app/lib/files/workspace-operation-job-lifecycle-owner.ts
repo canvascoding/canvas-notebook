@@ -740,7 +740,19 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
   }};
   try {
     await database.run("SET statement_timeout='5s'"); await database.run("SET lock_timeout='4s'");
-    const locked = await database.get('SELECT pg_try_advisory_lock($1::bigint) AS locked',[key]) as {locked?:boolean}|undefined;
+    let locked: {locked?:boolean}|undefined;
+    try {
+      // A short read fence can outlive Move admission. Wait only for the
+      // workspace lease, within the fixed bounds, before any owner effects.
+      locked = await database.get(captured.move
+        ? 'SELECT pg_advisory_lock($1::bigint), true AS locked'
+        : 'SELECT pg_try_advisory_lock($1::bigint) AS locked',[key]) as {locked?:boolean}|undefined;
+    } catch (error) {
+      if (captured.move && error instanceof Error && 'code' in error && error.code === '55P03') {
+        throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_CHANGED', { cause: error });
+      }
+      throw error;
+    }
     if (locked?.locked !== true) fail('JOB_LIFECYCLE_CHANGED');
     // The held workspace session lease permits only this genuine Claim's
     // exact durable P0, or its actual historical B1 without a new P0.

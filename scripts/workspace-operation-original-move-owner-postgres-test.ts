@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { mkdir, mkdtemp, readFile, realpath, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { types } from 'node:util';
 import { parse } from 'dotenv';
 import { Client, type Pool, type PoolClient } from 'pg';
 import type { SqlConnection } from '../app/lib/db';
@@ -494,6 +495,166 @@ async function main(): Promise<void> {
       for(const table of tables)rows[table]=(await admin.query(`SELECT to_jsonb(t)::text AS row FROM "${table}" t ORDER BY to_jsonb(t)::text`)).rows.map(row=>row.row);
       return rows;
     }
+    // Arm the independent reader at the real session-EX query, after the
+    // ordinary runner has completed P0/admission. Every SQL call below is
+    // forwarded to the actual PoolClient; no result or owner is substituted.
+    type AdmissionLockRow={pid:number;start:string;mode:string;granted:boolean;application_name:string;
+      wait_event_type:string|null;blockers:number[];query_age_ms:string};
+    const {collaborationAdmissionLockKey}=await import('../app/lib/collaboration/room-admission-contract');
+    const admissionKey=collaborationAdmissionLockKey(workspaceId),unsignedKey=BigInt.asUintN(64,BigInt(admissionKey));
+    const keyParts=[Number(unsignedKey>>BigInt(32)),Number(unsignedKey&BigInt('0xffffffff'))];
+    const lockRows=async():Promise<AdmissionLockRow[]>=>{
+      await admin.query('SELECT pg_stat_clear_snapshot()');
+      return (await admin.query(`SELECT l.pid,extract(epoch FROM a.backend_start)::text AS start,l.mode,l.granted,
+        a.application_name,a.wait_event_type,pg_blocking_pids(l.pid) AS blockers,
+        (extract(epoch FROM (clock_timestamp()-a.query_start))*1000)::text AS query_age_ms
+        FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+        WHERE l.locktype='advisory' AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+          AND l.classid=$1::oid AND l.objid=$2::oid AND l.objsubid=1 ORDER BY l.pid,l.mode`,keyParts)).rows;
+    };
+    const bounded=async<T>(promise:Promise<T>,milliseconds:number,label:string):Promise<T>=>{
+      let timer:ReturnType<typeof setTimeout>|undefined;
+      try{return await Promise.race([promise,new Promise<never>((_resolve,reject)=>{
+        timer=setTimeout(()=>reject(new Error(`${label} exceeded its observation deadline.`)),milliseconds);
+      })]);}finally{if(timer)clearTimeout(timer);}
+    };
+    for(const mode of ['short-shared-reader','bounded-shared-reader'] as const)await check(`original Move ${mode} uses one genuine keyed session acquisition`,async()=>{
+      const name=`move-admission-${mode}-${crypto.randomUUID()}.pdf`,destination=`move-admission-${mode}/${name}`;
+      const bytes=Buffer.from(`%PDF-1.7\n${mode} original bytes\n`);
+      await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});await seedMetadata(name);
+      const peer=await seedNative(`move-admission-peer-${crypto.randomUUID()}.md`,`[PDF](${name})\n`),job=await freshJob([{sourcePath:name,destinationPath:destination}]);
+      assert.equal(job.plan.planIdentityVersion,2);
+      const actualPool=runtime as unknown as Pool,observed=new Map<PoolClient,PropertyDescriptor|undefined>();
+      const holder=await ownClient();assert.notEqual(holder,admin);
+      type Settled={value:Awaited<ReturnType<typeof execute>>}|{error:unknown};
+      let pending:Promise<Settled>|undefined,settled:Settled|undefined,holderActive=false,holderPid=0,holderStart='';
+      let ownerPid=0,ownerStart='',armCount=0,pathCallbacks=0,waitStartedAt=0;
+      let sessionSqlOutcome:{status:'returned';locked:unknown}|{status:'rejected';code:unknown}|undefined;
+      let beforeRows:Awaited<ReturnType<typeof originalDataFacts>>|undefined,beforeFs:Awaited<ReturnType<typeof workspacePhysicalFacts>>|undefined;
+      let originalPreparation:Array<{preparation_digest:string;preparation_text:string}>|undefined;
+      let signalArmed!:()=>void;const armed=new Promise<void>(resolve=>{signalArmed=resolve;});
+      const release=async()=>{
+        if(!holderActive)return;
+        await holder.query('ROLLBACK');holderActive=false;
+        assert.equal((await lockRows()).some(row=>row.pid===holderPid&&row.start===holderStart&&row.mode==='ShareLock'&&row.granted),false);
+      };
+      const arm=async(client:PoolClient)=>{
+        assert.equal(armCount,0);armCount++;
+        const actualPid=Reflect.get(client,'processID');assert(Number.isSafeInteger(actualPid)&&actualPid>0);
+        const owner=(await admin.query(`SELECT pid,extract(epoch FROM backend_start)::text AS start,application_name
+          FROM pg_stat_activity WHERE pid=$1`,[actualPid])).rows[0];
+        assert(owner);assert.equal(owner.application_name,`owned-move-owner-${nonce}`);ownerPid=owner.pid;ownerStart=owner.start;
+        await holder.query('BEGIN READ ONLY');holderActive=true;
+        await holder.query('SELECT pg_advisory_xact_lock_shared($1::bigint)',[admissionKey]);
+        const facts=(await holder.query(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+          current_setting('transaction_read_only') AS readonly,pg_current_xact_id_if_assigned()::text AS xid
+          FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+        assert.equal(facts.readonly,'on');assert.equal(facts.xid,null);holderPid=facts.pid;holderStart=facts.start;assert.notEqual(holderPid,ownerPid);
+        assert((await lockRows()).some(row=>row.pid===holderPid&&row.start===holderStart&&row.mode==='ShareLock'&&row.granted));
+        originalPreparation=(await admin.query(`SELECT preparation_digest,preparation_text FROM workspace_file_operation_move_preparations
+          WHERE batch_id=$1`,[job.claimed.batchId])).rows;assert.equal(originalPreparation.length,1);
+        beforeRows=await originalDataFacts();beforeFs=await workspacePhysicalFacts();signalArmed();
+      };
+      const onClient=(client:PoolClient)=>{
+        if(observed.has(client))return;
+        observed.set(client,Object.getOwnPropertyDescriptor(client,'query'));const original=client.query;
+        Object.defineProperty(client,'query',{configurable:true,writable:true,value:(...args:unknown[])=>{
+          if(armCount||typeof args.at(-1)==='function')return Reflect.apply(original,client,args);
+          let text:string,values:unknown[]|undefined;
+          if(typeof args[0]==='string'){text=args[0];values=args[1] as unknown[]|undefined;}
+          else{
+            const config=args[0];
+            if(args.length!==1||!config||typeof config!=='object'||types.isProxy(config)
+              ||![Object.prototype,null].includes(Object.getPrototypeOf(config)))return Reflect.apply(original,client,args);
+            const fields=Object.getOwnPropertyDescriptors(config),keys=Reflect.ownKeys(config);
+            if(keys.length!==3||!keys.every(key=>typeof key==='string'&&['name','text','values'].includes(key))
+              ||!Object.values(fields).every(field=>'value' in field)||typeof fields.name?.value!=='string'||typeof fields.text?.value!=='string'
+              ||fields.values?.value!==undefined&&!Array.isArray(fields.values.value))return Reflect.apply(original,client,args);
+            text=fields.text.value;values=fields.values.value;
+          }
+          if(!/^SELECT pg_(?:try_)?advisory_lock\(\$1::bigint\)(?: AS locked|, true AS locked)$/u.test(text.trim())
+            ||values?.length!==1||String(values[0])!==String(admissionKey))return Reflect.apply(original,client,args);
+          return (async()=>{
+            await arm(client);
+            try{
+              const answer=await Reflect.apply(original,client,args) as {rows:Array<{locked?:unknown}>};
+              sessionSqlOutcome={status:'returned',locked:answer.rows[0]?.locked};return answer;
+            }catch(error){sessionSqlOutcome={status:'rejected',code:code(error)};throw error;}
+          })();
+        }});
+      };
+      let primary:unknown,failed=false;const closureFailures:unknown[]=[];
+      actualPool.on('connect',onClient);actualPool.on('acquire',onClient);
+      try{
+        pending=invoke(job,async()=>{
+          pathCallbacks++;const owners=(await lockRows()).filter(row=>row.mode==='ExclusiveLock'&&row.granted
+            &&row.application_name===`owned-move-owner-${nonce}`);
+          assert.equal(owners.length,1);assert.equal(owners[0].pid,ownerPid);assert.equal(owners[0].start,ownerStart);
+        }).then(value=>({value}),error=>({error}));
+        void pending.then(value=>{settled=value;});
+        await bounded(Promise.race([armed,pending.then(()=>{throw new Error('Move settled before the genuine session-EX reader was armed.');})]),5000,'Move reader arm');
+        let waiter:AdmissionLockRow|undefined;const waitDeadline=performance.now()+2000;
+        do{
+          waiter=(await lockRows()).find(row=>row.pid===ownerPid&&row.start===ownerStart&&row.mode==='ExclusiveLock'&&!row.granted
+            &&row.application_name===`owned-move-owner-${nonce}`&&row.wait_event_type==='Lock'&&row.blockers.includes(holderPid));
+          if(waiter){const age=Number(waiter.query_age_ms);assert(Number.isFinite(age)&&age>=0&&age<4000);waitStartedAt=performance.now()-age;break;}
+          if(settled)break;
+          await new Promise<void>(resolve=>setTimeout(resolve,20));
+        }while(performance.now()<waitDeadline);
+        if(!waiter)console.log('Original Move contention actual pre-fix result:',JSON.stringify({mode,armCount,sessionSqlOutcome,
+          jobCode:settled&&'error' in settled?code(settled.error):null,
+          sharedHolderStillGranted:(await lockRows()).some(row=>row.pid===holderPid&&row.start===holderStart&&row.mode==='ShareLock'&&row.granted)}));
+        assert(waiter,'The genuine Move session-EX must wait for its independent keyed READ ONLY holder.');
+        assert.equal(settled,undefined);assert.equal(armCount,1);assert.equal(pathCallbacks,0);
+        assert.deepEqual(await originalDataFacts(),beforeRows);assert.deepEqual(await workspacePhysicalFacts(),beforeFs);
+        if(mode==='short-shared-reader')await release();
+        const outcome=await bounded(pending,mode==='short-shared-reader'?10000:Math.max(1,waitStartedAt+8000-performance.now()),'Contended original Move');
+        // A missing key lock alone does not prove that the dedicated session
+        // was discarded. Verify its exact backend identity before any recovery.
+        const discardDeadline=performance.now()+1000;
+        for(;;){
+          const backend=(await admin.query(`SELECT pid FROM pg_stat_activity
+            WHERE pid=$1 AND extract(epoch FROM backend_start)::text=$2`,[ownerPid,ownerStart])).rows;
+          if(!backend.length)break;
+          assert(performance.now()<discardDeadline,'The exact original Move backend must be discarded after its owner settles.');
+          await new Promise<void>(resolve=>setTimeout(resolve,20));
+        }
+        if(mode==='short-shared-reader'){
+          if('error' in outcome)throw outcome.error;
+          assert.equal(pathCallbacks,1);assert.equal(outcome.value.pathReceipts.length,1);
+        }else{
+          assert('error' in outcome,'A persistent READ ONLY holder must end at the bounded acquisition.');
+          assert.equal(code(outcome.error),'JOB_LIFECYCLE_CHANGED');assert.equal((outcome.error as {status?:unknown}).status,409);
+          assert.equal(code((outcome.error as Error).cause),'55P03');
+          const elapsed=performance.now()-waitStartedAt;assert(elapsed>=3500&&elapsed<8000,`Unexpected Move admission bound (${Math.round(elapsed)}ms).`);
+          assert.equal(pathCallbacks,0);assert.equal(armCount,1);
+          assert.deepEqual(await originalDataFacts(),beforeRows);assert.deepEqual(await workspacePhysicalFacts(),beforeFs);
+          const rows=await lockRows();assert(rows.some(row=>row.pid===holderPid&&row.start===holderStart&&row.mode==='ShareLock'&&row.granted));
+          assert.equal(rows.some(row=>row.pid===ownerPid&&row.start===ownerStart),false);
+          await release();
+          const resumed=await resume(job);assert.equal(resumed.claimed.batchId,job.claimed.batchId);assert.equal(resumed.claimed.planId,job.claimed.planId);
+          await invoke(resumed);assert.deepEqual((await admin.query(`SELECT preparation_digest,preparation_text
+            FROM workspace_file_operation_move_preparations WHERE batch_id=$1`,[job.claimed.batchId])).rows,originalPreparation);
+        }
+        assert.equal(armCount,1);assert(await absent(path.join(workspace.rootPath,name)));assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);
+        assert.equal(await nativeContent(peer.documentId),`[PDF](${destination})\n`);assert.deepEqual(await metadata(name),[]);
+        assert.deepEqual(await metadata(destination),[{path:destination,title:'Preserved title'}]);
+        for(const table of ['workspace_file_operation_move_intents','workspace_file_operation_move_path_receipts','workspace_file_operation_move_receipts']){
+          assert.equal((await admin.query(`SELECT count(*)::integer AS n FROM "${table}" WHERE batch_id=$1`,[job.claimed.batchId])).rows[0].n,1);
+        }
+        console.log('Original Move contention actual completion:',JSON.stringify({mode,armCount,keyedWaitObserved:true,
+          independentReadOnlyHolder:true,exactOwnerBackendRemoved:true,resumed:mode==='bounded-shared-reader'}));
+      }catch(error){primary=error;failed=true;}
+      finally{
+        try{await release();}catch(error){closureFailures.push(error);}
+        if(pending)try{await bounded(pending,10000,'Contended Move drain');}catch(error){closureFailures.push(error);}
+        actualPool.off('connect',onClient);actualPool.off('acquire',onClient);
+        for(const [client,descriptor] of observed){try{if(descriptor)Object.defineProperty(client,'query',descriptor);else Reflect.deleteProperty(client,'query');}catch(error){closureFailures.push(error);}}
+        try{await endClient(holder);}catch(error){closureFailures.push(error);}
+      }
+      if(closureFailures.length)throw new AggregateError([...(failed?[primary]:[]),...closureFailures],'Contended Move fixture closure failed.');
+      if(failed)throw primary;
+    });
     const stableName=`html-stable-${crypto.randomUUID()}.bin`,stableBytes=Buffer.from('owned unrelated HTML target\n');
     await writeFile(path.join(workspace.rootPath,stableName),stableBytes,{flag:'wx',mode:0o600});
     await check('identity4 actual owner rewrites native backlinks while preserving native HTML and unrelated physical sources',async()=>{
@@ -580,7 +741,7 @@ async function main(): Promise<void> {
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
       await abort(job);
     });
-    assert.equal(passed,17);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
+    assert.equal(passed,19);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
     for(const [filename,hash] of sourcePins)assert.equal(sha(await readFile(filename)),hash,`Source changed during original Move fixture: ${filename}`);
     console.log('Original Move genuine owner assertions finished:',JSON.stringify({passed,sourcePins,fetches}));
   } catch(error) {failures.push(error);}
