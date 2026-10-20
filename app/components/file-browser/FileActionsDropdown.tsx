@@ -45,7 +45,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { hasMarpFileName } from '@/app/lib/marp/detect';
 import { useFileStore } from '@/app/store/file-store';
-import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
+import { copyWorkspacePaths, previewWorkspaceCopy, previewWorkspaceRename, workspaceHeaders,
+  WorkspacePathOperationPreviewError, type WorkspacePathOperationBlockedPreview, type WorkspaceFileOperationDryRun } from '@/app/lib/files/client';
+import { openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import type { WorkspacePlannerIssue } from '@/app/lib/markdown/workspace-file-operation-planner';
 import type { FileNode } from '@/app/lib/files/types';
 import { getParentDirectory, isSameOrDescendantPath, joinWorkspacePath } from '@/app/lib/files/path-utils';
@@ -91,9 +93,34 @@ const previewIssueKeys = {
   'unsupported-target-format': 'fileOperationIssueUnsupportedTargetFormat',
 } as const satisfies Record<WorkspacePlannerIssue['code'], string>;
 
-function FileOperationLinkAssessment({ plan }: { plan: WorkspaceFileOperationDryRun['plan'] }) {
+function FileOperationPreviewIssues({ issues, onOpenIssueFile }: {
+  issues: ReadonlyArray<{ code: string; path: string }>; onOpenIssueFile?: (path: string) => void;
+}) {
+  const t = useTranslations('workspacePathOperationStatus');
+  if (!issues.length) return null;
+  return <section className="space-y-2" aria-label={t('blockers')} data-testid="file-operation-preview-issues">
+    <h3 className="font-medium">{t('blockers')}</h3>
+    <ul className="max-h-40 space-y-2 overflow-auto">
+      {issues.map((issue, index) => <li key={`${issue.code}:${issue.path}:${index}`} className="[overflow-wrap:anywhere]">
+        <p>{t(`issue.${issue.code === 'unresolved-selected-source-link' ? 'unresolvedLink'
+          : Object.hasOwn(workspacePathOperationIssueKeys, issue.code) ? workspacePathOperationIssueKeys[issue.code] : 'unknown'}`)}</p>
+        {issue.path && issue.path !== '.' ? <p className="font-mono text-xs">{issue.path}</p> : null}
+        <p className="text-xs text-muted-foreground">{issue.code}</p>
+        {onOpenIssueFile && /\.(?:md|markdown|mdx)$/iu.test(issue.path) ? <Button variant="outline" size="sm"
+          onClick={() => onOpenIssueFile(issue.path)}>{t('openFile')}</Button> : null}
+      </li>)}
+    </ul>
+  </section>;
+}
+
+function FileOperationLinkAssessment({ plan, showIssues = false, onOpenIssueFile }: {
+  plan: WorkspaceFileOperationDryRun['plan'] | WorkspacePathOperationBlockedPreview['plan'];
+  showIssues?: boolean; onOpenIssueFile?: (path: string) => void;
+}) {
   const t = useTranslations('notebook');
+  const tStatus = useTranslations('workspacePathOperationStatus');
   if (plan.kind === 'native-path-import-preparation') return <section className="my-2 space-y-2" data-testid="file-operation-import-preview">
+    {showIssues && <FileOperationPreviewIssues issues={plan.issues} onOpenIssueFile={onOpenIssueFile} />}
     <p>{t('fileOperationImportSummary', { count: plan.imports.length })}</p>
     <ul className="max-h-40 space-y-1 overflow-auto font-mono">
       {plan.imports.map(item => <li key={item.path} className="break-all">{item.path}</li>)}
@@ -114,6 +141,8 @@ function FileOperationLinkAssessment({ plan }: { plan: WorkspaceFileOperationDry
         {assessment.blockers.map((item, index) => <li key={`${item.sourcePath}:${index}`}>
           <p className="break-all font-mono">{item.sourcePath}{item.targetLiteral ? ` → ${item.targetLiteral}` : ''}</p>
           <p className="text-muted-foreground">{t(`fileOperationLinkBlocker_${item.reason}`)}</p>
+          {onOpenIssueFile && /\.(?:md|markdown|mdx)$/iu.test(item.sourcePath) ? <Button variant="outline" size="sm"
+            onClick={() => onOpenIssueFile(item.sourcePath)}>{tStatus('openFile')}</Button> : null}
         </li>)}
       </ul>
     </section> : null}
@@ -142,6 +171,7 @@ function FileOperationLinkAssessment({ plan }: { plan: WorkspaceFileOperationDry
         </li>)}
       </ul>
     </details>
+    {showIssues && <FileOperationPreviewIssues issues={plan.issues} onOpenIssueFile={onOpenIssueFile} />}
   </div>;
 }
 
@@ -197,7 +227,7 @@ export function FileActionsDropdown({
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
   const [moveError, setMoveError] = useState('');
   const [moveOperation, setMoveOperation] = useState<WorkspacePathOperationPublic | null>(null);
-  const [movePreview, setMovePreview] = useState<WorkspaceFileOperationDryRun | null>(null);
+  const [movePreview, setMovePreview] = useState<WorkspaceFileOperationDryRun | WorkspacePathOperationBlockedPreview | null>(null);
   const [isPreviewingMove, setIsPreviewingMove] = useState(false);
   const moveRequestId = useRef(0);
   const [isMoving, setIsMoving] = useState(false);
@@ -749,6 +779,7 @@ export function FileActionsDropdown({
     setMoveError('');
     setMoveOperation(null);
     const workspaceId = activeWorkspace?.id ?? null;
+    const authScope = openedDocumentAuthScope();
     const requestId = ++moveRequestId.current;
     const current = () => requestId === moveRequestId.current
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
@@ -765,6 +796,12 @@ export function FileActionsDropdown({
       setMoveOpen(false);
     } catch (moveOperationError) {
       if (!current()) return;
+      if (moveOperationError instanceof WorkspacePathOperationPreviewError) {
+        const binding = moveOperationError.preview.binding;
+        if (openedDocumentAuthScope() !== authScope || binding.authScope !== authScope
+          || binding.workspaceId !== workspaceId || binding.sourcePath !== node.path || binding.destinationPath !== destination) return;
+        setMovePreview(moveOperationError.preview);
+      }
       setMoveError(fileOperationErrorMessage(moveOperationError, 'moveFailed'));
       if (moveOperationError instanceof WorkspacePathOperationClientError
         && moveOperationError.operation.workspaceId === workspaceId) setMoveOperation(moveOperationError.operation);
@@ -776,6 +813,7 @@ export function FileActionsDropdown({
   const handlePreviewMove = async () => {
     if (!node || isMoving || creatingMoveDirectory || !moveName.trim()) return;
     const workspaceId = activeWorkspace?.id ?? null;
+    const authScope = openedDocumentAuthScope();
     const requestId = ++moveRequestId.current;
     const current = () => requestId === moveRequestId.current
       && useWorkspaceStore.getState().activeWorkspaceId === workspaceId;
@@ -783,9 +821,16 @@ export function FileActionsDropdown({
     setMovePreview(null);
     setMoveError('');
     try {
-      const preview = await previewWorkspaceRename(node.path, resolveMoveDestination(moveTarget, moveName.trim()), workspaceId);
-      if (!current()) return;
-      setMovePreview(preview);
+      const destination = resolveMoveDestination(moveTarget, moveName.trim());
+      const preview = await previewWorkspaceRename(node.path, destination, workspaceId);
+      if (!current() || openedDocumentAuthScope() !== authScope) return;
+      if (preview.plan?.readiness === 'blocked' && (!authScope || !workspaceId)) {
+        throw new Error('The signed-in session changed. Please retry.');
+      }
+      setMovePreview(preview.plan?.readiness === 'blocked'
+        ? new WorkspacePathOperationPreviewError(preview, {
+          workspaceId: workspaceId!, sourcePath: node.path, destinationPath: destination, authScope: authScope!,
+        }).preview : preview);
       setMoveOperation((previous) => previous && (previous.planId === preview.plan.planId
         || previous.preparation?.previewPlanId === preview.plan.planId) ? previous : null);
     } catch (error) {
@@ -794,11 +839,17 @@ export function FileActionsDropdown({
   };
 
   const openMoveIssueFile = async (path: string) => {
-    if (!moveOperation || useWorkspaceStore.getState().activeWorkspaceId !== moveOperation.workspaceId) return;
+    const previewBinding = movePreview && 'binding' in movePreview ? movePreview.binding : null;
+    const workspaceId = moveOperation?.workspaceId ?? previewBinding?.workspaceId;
+    if (!workspaceId || useWorkspaceStore.getState().activeWorkspaceId !== workspaceId
+      || previewBinding && (openedDocumentAuthScope() !== previewBinding.authScope
+        || previewBinding.sourcePath !== node?.path
+        || previewBinding.destinationPath !== resolveMoveDestination(moveTarget, moveName.trim()))) return;
     const requestId = moveRequestId.current;
-    const result = await revealAndLoadFile(path, { workspaceId: moveOperation.workspaceId,
-      isCurrent: () => requestId === moveRequestId.current });
-    if (requestId !== moveRequestId.current) return;
+    const result = await revealAndLoadFile(path, { workspaceId,
+      isCurrent: () => requestId === moveRequestId.current
+        && (!previewBinding || openedDocumentAuthScope() === previewBinding.authScope) });
+    if (requestId !== moveRequestId.current || previewBinding && openedDocumentAuthScope() !== previewBinding.authScope) return;
     if (result.status === 'opened') { setMoveOpen(false); invalidateMovePreview(); }
     else if (result.status === 'failed') toast.error(t('moveFailed'));
   };
@@ -1095,7 +1146,7 @@ export function FileActionsDropdown({
             {movePreview ? <div role="status" data-testid="workspace-move-preview" className="text-sm">
               {t('fileOperationPreviewReadiness', { readiness: t(movePreview.plan.readiness === 'requires-import-rebinding'
                 ? 'fileOperationPreviewImportRequired' : movePreview.plan.readiness === 'ready' ? 'fileOperationPreviewReady' : 'fileOperationPreviewBlocked') })}
-              <FileOperationLinkAssessment plan={movePreview.plan} />
+              <FileOperationLinkAssessment plan={movePreview.plan} showIssues onOpenIssueFile={(path) => { void openMoveIssueFile(path); }} />
             </div> : null}
           </div>
           <DialogFooter className="gap-2">

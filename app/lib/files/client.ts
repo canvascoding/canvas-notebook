@@ -3,6 +3,7 @@ import type { WorkspacePathRenameMutation } from './file-events';
 import type { WorkspacePathOperationPreviewPublic } from './workspace-path-operation-preview';
 import type { WorkspaceUploadCommit } from './upload-result';
 import type { WorkspacePathOperationPublic } from './workspace-path-operation-public';
+import { WorkspacePathOperationPreviewError } from './workspace-path-operation-preview-error';
 import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError,
   WorkspacePathOperationOutcomeUnknownError } from './workspace-path-operation-client';
 import { readWorkspacePathOperation } from './workspace-path-operation-parser';
@@ -27,6 +28,8 @@ import {
 } from './workspace-upload-client';
 
 export { WorkspaceBatchUploadError } from './workspace-upload-client';
+export { WorkspacePathOperationPreviewError } from './workspace-path-operation-preview-error';
+export type { WorkspacePathOperationBlockedPreview } from './workspace-path-operation-preview-error';
 export type { WorkspaceBatchUploadResult, WorkspaceUploadFileProgress } from './workspace-upload-client';
 
 interface ApiErrorPayload {
@@ -674,9 +677,13 @@ export async function renameWorkspacePath(
     if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
     if (attempt.planId === undefined && !overwrite) {
       const preview = await previewWorkspaceRename(oldPath, newPath, requestedWorkspaceId);
+      if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
       if (preview.dryRun !== true || preview.requiresRevalidation !== true || !preview.plan
-        || !/^[a-f0-9]{64}$/u.test(preview.plan.planId)
-        || !['ready', 'requires-import-rebinding'].includes(preview.plan.readiness)) throw new Error('Check the file action preview before applying it.');
+        || !/^[a-f0-9]{64}$/u.test(preview.plan.planId)) throw new Error('Check the file action preview before applying it.');
+      if (preview.plan.readiness === 'blocked') throw new WorkspacePathOperationPreviewError(preview, {
+        workspaceId: requestedWorkspaceId!, sourcePath: oldPath, destinationPath: newPath, authScope: attempt.authScope,
+      });
+      if (!['ready', 'requires-import-rebinding'].includes(preview.plan.readiness)) throw new Error('Check the file action preview before applying it.');
       bindWorkspacePathOperationAttemptPreview(attempt, preview.plan.planId);
     }
     const init: RequestInit = {
