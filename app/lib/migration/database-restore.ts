@@ -40,7 +40,7 @@ export async function stagePortableDatabase(client: Client, filename: string, ma
   for (const [index, table] of schema.tables.entries()) {
     if (table.mode !== 'copy') continue;
     const temporary = 'migration_rows_' + index;
-    await client.query(`CREATE TEMP TABLE ${sqlName(temporary)} (LIKE public.${sqlName(table.name)}) ON COMMIT DROP`);
+    await client.query(`CREATE TEMP TABLE ${sqlName(temporary)} (LIKE public.${sqlName(table.name)} INCLUDING GENERATED) ON COMMIT DROP`);
     tables.set(table.name, { table, temporary });
   }
   let rows = 0; let end = false;
@@ -52,7 +52,7 @@ export async function stagePortableDatabase(client: Client, filename: string, ma
         if (trailer.end !== true || trailer.rowCount !== rows) throw new Error('Database snapshot row count is incomplete.');
         end = true; continue;
       }
-      const record = /^\{"table":"([a-z_][a-z0-9_]*)","row":(\{.*\})\}$/u.exec(line);
+      const record = /^\{"table":"([a-z_][a-z0-9_]*)","row":(\{[\s\S]*\})\}$/u.exec(line);
       const target = record && tables.get(record[1]);
       if (!record || !target) throw new Error('Database snapshot contains an unknown or excluded table.');
       const value = JSON.parse(record[2]) as Record<string, unknown>;
@@ -70,6 +70,9 @@ export async function stagePortableDatabase(client: Client, filename: string, ma
   if (JSON.stringify(actual) !== JSON.stringify(header.users)) throw new Error('Database rows and approved user inventory differ.');
   await client.query('CREATE TEMP TABLE migration_user_map (source text PRIMARY KEY,target text UNIQUE NOT NULL) ON COMMIT DROP');
   for (const user of users) await client.query('INSERT INTO migration_user_map VALUES ($1,$2)', [user.sourceUserId, user.targetUserId]);
+  for (const { table, temporary } of tables.values()) if (table.nullColumns?.length) {
+    await client.query(`UPDATE ${sqlName(temporary)} SET ${table.nullColumns.map(column => sqlName(column) + '=NULL').join(',')}`);
+  }
   const workspaces = tables.get('canvas_workspaces');
   if (workspaces) {
     const roots = (await client.query<DatabaseWorkspaceRoot>(`SELECT id,type,root_relative_path AS "rootRelativePath",owner_user_id AS "ownerUserId",organization_id AS "organizationId" FROM ${sqlName(workspaces.temporary)}`)).rows;
@@ -116,6 +119,15 @@ async function preservedDatabaseHash(client: Client): Promise<string> {
 /** Replaces application tables inside the transaction; target license/Team Seat rows are never written. */
 export async function replacePortableDatabase(client: Client, stage: StagedDatabase): Promise<void> {
   const preserved = await preservedDatabaseHash(client);
+  // Application transition triggers govern new edits, not loading already
+  // committed history. Internal constraint triggers stay enabled throughout.
+  const triggers = (await client.query<{ table_name: string; trigger_name: string; enabled: string }>(`SELECT c.relname table_name,t.tgname trigger_name,t.tgenabled enabled
+    FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND NOT t.tgisinternal AND c.relname=ANY($1::text[]) ORDER BY c.relname,t.tgname`,
+  [stage.header.tables.map(table => table.name)])).rows;
+  for (const trigger of triggers) if (trigger.enabled !== 'D') {
+    await client.query(`ALTER TABLE public.${sqlName(trigger.table_name)} DISABLE TRIGGER ${sqlName(trigger.trigger_name)}`);
+  }
   const fkChanges = stage.foreignKeys.filter(key => !key.deferrable);
   for (const key of fkChanges) await client.query(`ALTER TABLE public.${sqlName(key.child)} ALTER CONSTRAINT ${sqlName(key.name)} DEFERRABLE INITIALLY DEFERRED`);
   await client.query('SET CONSTRAINTS ALL DEFERRED');
@@ -133,7 +145,12 @@ export async function replacePortableDatabase(client: Client, stage: StagedDatab
     const columns = table.columns.map(column => sqlName(column.name)).join(',');
     await client.query(`INSERT INTO public.${sqlName(table.name)} (${columns}) SELECT ${columns} FROM ${sqlName(temporary)}`);
   }
+  // Drain deferred foreign-key events before ALTER TABLE restores trigger modes.
   await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+  for (const trigger of triggers) if (trigger.enabled !== 'D') {
+    const mode = trigger.enabled === 'A' ? 'ENABLE ALWAYS' : trigger.enabled === 'R' ? 'ENABLE REPLICA' : 'ENABLE';
+    await client.query(`ALTER TABLE public.${sqlName(trigger.table_name)} ${mode} TRIGGER ${sqlName(trigger.trigger_name)}`);
+  }
   for (const key of fkChanges) await client.query(`ALTER TABLE public.${sqlName(key.child)} ALTER CONSTRAINT ${sqlName(key.name)} NOT DEFERRABLE INITIALLY IMMEDIATE`);
   if (await preservedDatabaseHash(client) !== preserved) throw new Error('Database restore would change target licensing or Team Seat state.');
   for (const sequence of stage.header.sequences ?? []) {

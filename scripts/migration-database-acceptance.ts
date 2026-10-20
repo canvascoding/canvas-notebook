@@ -24,17 +24,36 @@ async function main() {
     return createHash('sha256').update(JSON.stringify(rows)).digest('hex');
   };
   const before = await fingerprint();
+  const triggerModes = async () => (await client.query(`SELECT c.relname,t.tgname,t.tgenabled FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' ORDER BY c.relname,t.tgname`)).rows;
+  const triggersBefore = await triggerModes();
   try {
     await client.query('BEGIN');
     const manifest = { users: snapshot.header.users, source: { organizationId: snapshot.header.organizationId } } as Parameters<typeof stagePortableDatabase>[2];
     const stage = await stagePortableDatabase(client, file, manifest);
+    const core = ['automation_jobs', 'automation_runs', 'file_change_proposals', 'file_proposal_action_receipts',
+      'file_change_groups', 'file_agent_turn_checkpoints', 'capability_package_operations', 'pi_messages', 'collaboration_yjs_states'];
+    for (const name of core) assert.ok(stage.tables.has(name), 'Stored application data must be copied: ' + name);
+    const { sqlName } = await import('../app/lib/migration/database-schema');
+    const expected = new Map<string, string>();
+    for (const { table, temporary } of stage.tables.values()) expected.set(table.name,
+      (await client.query(`SELECT count(*)::text count FROM ${sqlName(temporary)}`)).rows[0].count);
     await replacePortableDatabase(client, stage);
+    assert.deepEqual(await triggerModes(), triggersBefore, 'All database trigger modes must be restored.');
+    for (const { table } of stage.tables.values()) {
+      const actual = (await client.query(`SELECT count(*)::text count FROM public.${sqlName(table.name)}`)).rows[0].count;
+      if (['user', 'account'].includes(table.name)) assert.ok(Number(actual) >= Number(expected.get(table.name)));
+      else assert.equal(actual, expected.get(table.name), 'Complete row transfer: ' + table.name);
+    }
+    assert.ok(Number(expected.get('automation_jobs')) > 0, 'The real fixture must contain automation data.');
     assert.equal(await fingerprint(), before);
     assert.equal((await client.query('SELECT count(*) FROM "session"')).rows[0].count, '0');
     assert.equal((await client.query("SELECT count(*) FROM automation_jobs WHERE status='active'")).rows[0].count, '0');
     const bad = await client.query('SELECT count(*) FROM account WHERE access_token IS NOT NULL OR refresh_token IS NOT NULL OR id_token IS NOT NULL');
     assert.equal(bad.rows[0].count, '0');
     await client.query('ROLLBACK');
+    assert.deepEqual(await triggerModes(), triggersBefore, 'Rollback must retain all database trigger modes.');
     assert.equal(await fingerprint(), before);
     console.log(JSON.stringify({ result: 'PASS', snapshotBytes: snapshot.bytes, tables: stage.tables.size, rows: stage.rows,
       targetLicensePreserved: true, transactionRollbackVerified: true }));

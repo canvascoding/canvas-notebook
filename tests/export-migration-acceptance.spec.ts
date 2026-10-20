@@ -321,18 +321,23 @@ test.describe('source export and migration acceptance', () => {
         access_token: sentinel, refresh_token: sentinel, id_token: sentinel,
       })]);
       const proof = await json<{ project: { id: string; name: string } }>(await admin.request.post('/api/projects', { data: { name: 'Migration DB proof 99b4 ' + Date.now() } }));
+      const unicodeDescription = 'Übertragung 日本語 A\u2028B\u2029C';
+      await database.query('UPDATE canvas_projects SET description=$1 WHERE id=$2 AND name=$3', [unicodeDescription, proof.project.id, proof.project.name]);
+      const sourceAutomationCount = Number((await database.query('SELECT count(*)::text count FROM automation_jobs')).rows[0].count);
+      expect(sourceAutomationCount).toBeGreaterThan(0);
       const sourceStatus = await json<{ instanceId: string; licensed: boolean }>(await admin.request.get('/api/license/status'));
       const cert = (await database.query('SELECT cert FROM license_certs WHERE instance_id=$1 ORDER BY id DESC LIMIT 1', [sourceStatus.instanceId])).rows[0].cert as string;
       const licenseId = JSON.parse(Buffer.from(cert.split('.')[1], 'base64url').toString()).licenseId || digest(Buffer.from(cert));
       await fs.writeFile(path.join(artifacts, 'database-proof.json'), JSON.stringify({ project: proof.project,
-        sourceInstanceId: sourceStatus.instanceId, sourceLicenseId: licenseId }, null, 2), { mode: 0o600 });
+        sourceInstanceId: sourceStatus.instanceId, sourceLicenseId: licenseId, unicodeDescription, sourceAutomationCount }, null, 2), { mode: 0o600 });
       await settings(page, 'data-migration'); await configureExport(page, ['database', 'workspace'], 'full_admin', true);
       const exported = await exportDownload(page, 'database-selection');
       expect(exported.manifest.database?.backupKind).toBe('postgres_rows');
       expect(exported.manifest.database?.artifactPath).toBe('data/database/postgres.jsonl.gz');
       const { execFileSync } = await import('node:child_process');
       const summary = JSON.parse(execFileSync('python3', ['-c',
-        'import zipfile,gzip,json,sys\nz=zipfile.ZipFile(sys.argv[1]); f=gzip.GzipFile(fileobj=z.open("data/database/postgres.jsonl.gz")); h=json.loads(f.readline()); n=0; tokens=0; excluded=0; fixture=False; trailer=None\nfor line in f:\n r=json.loads(line)\n if r.get("end"): trailer=r; continue\n n+=1; t=r["table"]; v=r["row"]\n if t=="account":\n  tokens+=int(any(v.get(k) is not None for k in ["access_token","refresh_token","id_token"]))\n  fixture=fixture or v["id"]=="migration-oauth-fixture-99b4"\n excluded+=int(t in ["session","oauth_access_token","public_file_shares","license_certs","license_public_keys","team_memberships"])\nassert trailer and trailer["rowCount"]==n\nprint(json.dumps(dict(format=h["format"],rows=n,accountsWithTokens=tokens,excludedRows=excluded,fixturePresent=fixture)))', exported.filename], { encoding: 'utf8', maxBuffer: 4096 }));
+        'import zipfile,gzip,json,sys,hashlib\nz=zipfile.ZipFile(sys.argv[1]); f=gzip.GzipFile(fileobj=z.open("data/database/postgres.jsonl.gz")); h=json.loads(f.readline()); n=0; tokens=0; excluded=0; fixture=False; trailer=None; native=[]\nfor line in f:\n r=json.loads(line)\n if r.get("end"): trailer=r; continue\n n+=1; t=r["table"]; v=r["row"]\n if t=="account":\n  tokens+=int(any(v.get(k) is not None for k in ["access_token","refresh_token","id_token"]))\n  fixture=fixture or v["id"]=="migration-oauth-fixture-99b4"\n if t=="collaboration_yjs_states" and v["path"].startswith("export-99b4/current-") and v["status"]=="active": native.append(dict(id=v["document_id"],sha256=hashlib.sha256(bytes.fromhex(v["yjs_state"][2:])).hexdigest()))\n excluded+=int(t in ["session","oauth_access_token","public_file_shares","license_certs","license_public_keys","team_memberships"])\nassert trailer and trailer["rowCount"]==n\nprint(json.dumps(dict(format=h["format"],rows=n,accountsWithTokens=tokens,excludedRows=excluded,fixturePresent=fixture,nativeStateHashes=native)))', exported.filename], { encoding: 'utf8', maxBuffer: 65536 }));
+      expect(summary.nativeStateHashes.length).toBeGreaterThan(0);
       expect(summary.format).toBe('canvas-postgres-rows'); expect(summary.rows).toBeGreaterThan(100);
       expect(summary.accountsWithTokens).toBe(0); expect(summary.excludedRows).toBe(0); expect(summary.fixturePresent).toBe(true);
       await fs.writeFile(path.join(artifacts, 'database-snapshot-result.json'), JSON.stringify(summary, null, 2), { mode: 0o600 });
@@ -490,14 +495,20 @@ test.describe('isolated target restore acceptance', () => {
     const fixturesDatabase = new Pool({ connectionString: target.DATABASE_URL });
     const jobId = `restore-fixture-99b4-${Date.now()}`;
     try {
-      const template = (await fixturesDatabase.query('SELECT * FROM automation_jobs LIMIT 1')).rows[0];
-      if (!template) throw new Error('The isolated baseline requires one automation row for the dormant restore fixture.');
+      let template = (await fixturesDatabase.query('SELECT * FROM automation_jobs LIMIT 1')).rows[0];
+      if (!template) {
+        const sourceDatabase = new Pool({ connectionString: (await runtimeEnv('source')).DATABASE_URL });
+        try { template = (await sourceDatabase.query('SELECT * FROM automation_jobs LIMIT 1')).rows[0]; }
+        finally { await sourceDatabase.end(); }
+      }
+      if (!template) throw new Error('A source automation definition is required for the isolated dormant fixture.');
       // This fixture tests restore pausing, not automation creation or execution.
       // It stays in the guarded target DB and cannot become due before 2099.
       const row = { ...template, id: jobId, name: 'Restore acceptance future fixture 99b4',
-        prompt: 'Dormant restore fixture; do not execute.', status: 'active',
+        prompt: 'Dormant restore fixture; do not execute.', status: 'active', composio_profile_id: null,
+        job_type: 'default', trigger_kind: 'schedule', schedule_kind: 'once',
         next_run_at: Date.parse('2099-01-01T11:00:00Z'),
-        schedule_json: JSON.stringify({ kind: 'once', date: '2099-01-01', time: '12:00', timeZone: 'Europe/Berlin' }) };
+        schedule_config_json: JSON.stringify({ kind: 'once', date: '2099-01-01', time: '12:00', timeZone: 'Europe/Berlin' }) };
       await fixturesDatabase.query('INSERT INTO automation_jobs SELECT * FROM json_populate_record(NULL::automation_jobs,$1::json)', [JSON.stringify(row)]);
     } finally { await fixturesDatabase.end(); }
     try {
@@ -553,17 +564,19 @@ test.describe('isolated target restore acceptance', () => {
     let page = await context.newPage();
     try {
       const existing = (await json<{ workspaces: Array<{ id: string; name: string; type: string }> }>(await context.request.get('/api/workspaces'))).workspaces;
+      const actor = await json<{ user: { id: string } }>(await context.request.get('/api/auth/get-session'));
       const targets = new Map<string, string>();
       for (const source of manifest.workspaces || []) {
-        const exact = existing.find(target => target.id === source.id);
-        if (exact) { targets.set(source.id, exact.id); continue; }
+        if (source.type === 'personal' && source.ownerUserId !== actor.user.id) {
+          targets.set(source.id, source.id); continue;
+        }
         const name = 'Migration target 99b4 ' + source.id;
         let target = existing.find(workspace => workspace.name === name);
         if (!target) {
           let projectId: string | undefined;
           if (source.type === 'project') projectId = (await json<{ project: { id: string } }>(await context.request.post('/api/projects', { data: { name } }))).project.id;
           target = (await json<{ workspace: typeof existing[number] }>(await context.request.post('/api/workspaces', {
-            data: { type: source.type, name, ...(projectId ? { projectId } : {}) },
+            data: { type: source.type === 'organization' ? 'team' : source.type, name, ...(projectId ? { projectId } : {}) },
           }))).workspace;
         }
         targets.set(source.id, target.id);
@@ -572,11 +585,11 @@ test.describe('isolated target restore acceptance', () => {
       const completed = page.waitForResponse(response => /\/api\/migration\/uploads\/[^/]+\/complete$/.test(response.url()));
       await page.locator('input[type=file]').setInputFiles(filename);
       let inspection = (await (await completed).json()).inspection;
-      expect(inspection.dryRun.workspaces.some((mapping: { status: string }) => mapping.status !== 'mapped')).toBe(true);
-      for (const mapping of inspection.dryRun.workspaces as Array<{ sourcePath: string; sourceWorkspaceId: string; status: string }>) {
-        if (mapping.status === 'mapped') continue;
+      for (const mapping of inspection.dryRun.workspaces as Array<{ sourcePath: string; sourceWorkspaceId: string; targetWorkspaceId: string; kind: string; status: string }>) {
+        if (mapping.kind === 'legacy') continue;
         const target = targets.get(mapping.sourceWorkspaceId);
         expect(target, mapping.sourcePath).toBeTruthy();
+        if (mapping.status === 'mapped' && mapping.targetWorkspaceId === target) continue;
         const updated = page.waitForResponse(response => response.request().method() === 'PATCH' && response.url().includes('/api/migration/uploads/'));
         await page.getByLabel('Ziel-Workspace für ' + mapping.sourcePath, { exact: true }).selectOption(target!);
         const response = await updated;
@@ -584,6 +597,7 @@ test.describe('isolated target restore acceptance', () => {
         inspection = (await response.json()).upload.inspection;
       }
       expect(inspection.canRestore).toBe(true);
+      expect(inspection.dryRun.workspaces.some((mapping: { sourcePath: string; targetPath: string }) => mapping.sourcePath !== mapping.targetPath)).toBe(true);
       await page.setViewportSize({ width: 390, height: 844 });
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       const mappedRow = inspection.dryRun.workspaces.find((mapping: { kind: string }) => mapping.kind !== 'legacy');
@@ -598,12 +612,13 @@ test.describe('isolated target restore acceptance', () => {
       context = await login(browser); page = await context.newPage();
       const targetEnv = await runtimeEnv('target');
       let checked = 0;
+      const expectedHashes = new Map(zipEntries(filename).filter(entry => !entry.directory).map(entry => [entry.path, entry.sha256]));
       for (const file of manifest.files) {
         const mapping = [...inspection.dryRun.workspaces].sort((a, b) => b.sourcePath.length - a.sourcePath.length)
           .find(mapping => file.archivePath.startsWith(mapping.sourcePath + '/'));
         expect(mapping, file.archivePath).toBeTruthy();
         const destination = mapping.targetPath.slice(5) + file.archivePath.slice(mapping.sourcePath.length);
-        expect(digest(await fs.readFile(path.join(targetEnv.DATA, destination))), destination).toBe(digest(zipRead(filename, file.archivePath)));
+        expect(digest(await fs.readFile(path.join(targetEnv.DATA, destination))), destination).toBe(expectedHashes.get(file.archivePath));
         checked++;
       }
       expect(checked).toBeGreaterThan(5);
@@ -626,9 +641,9 @@ test.describe('isolated target restore acceptance', () => {
   test('DB TRANSFER: real PostgreSQL snapshot and files survive restart while distinct target identity, license and API keys remain', async ({ browser }) => {
     const filename = path.join(artifacts, 'database-selection.zip');
     const proof = JSON.parse(await fs.readFile(path.join(artifacts, 'database-proof.json'), 'utf8')) as {
-      project: { id: string; name: string }; sourceInstanceId: string; sourceLicenseId: string;
+      project: { id: string; name: string }; sourceInstanceId: string; sourceLicenseId: string; unicodeDescription: string; sourceAutomationCount: number;
     };
-    const snapshot = JSON.parse(await fs.readFile(path.join(artifacts, 'database-snapshot-result.json'), 'utf8')) as { rows: number };
+    const snapshot = JSON.parse(await fs.readFile(path.join(artifacts, 'database-snapshot-result.json'), 'utf8')) as { rows: number; nativeStateHashes: Array<{ id: string; sha256: string }> };
     const manifest = JSON.parse(zipRead(filename, 'manifest.json').toString()) as CanvasMigrationManifest;
     const target = await runtimeEnv('target');
     let context = await login(browser); let page = await context.newPage();
@@ -668,6 +683,19 @@ test.describe('isolated target restore acceptance', () => {
       expect(await licenseIdentity(after.instanceId)).toBe(beforeLicense);
       const result = await json<{ result: { status: string; databaseRows: number; databaseTables: number } }>(await context.request.get('/api/migration/restore'));
       expect(result.result.status).toBe('completed'); expect(result.result.databaseRows).toBe(snapshot.rows); expect(result.result.databaseTables).toBeGreaterThan(100);
+      const verification = new Pool({ connectionString: target.DATABASE_URL });
+      try {
+        for (const state of snapshot.nativeStateHashes) {
+          const row = (await verification.query('SELECT yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [state.id])).rows[0];
+          expect(Boolean(row && Buffer.isBuffer(row.yjs_state))).toBe(true);
+          expect(digest(row.yjs_state), 'Native PostgreSQL state survives the logical transfer.').toBe(state.sha256);
+        }
+        expect((await verification.query('SELECT count(*)::text count FROM public_file_shares')).rows[0].count).toBe('0');
+        expect((await verification.query("SELECT access_token IS NULL AND refresh_token IS NULL AND id_token IS NULL cleared FROM account WHERE id='migration-oauth-fixture-99b4'")).rows[0]?.cleared).toBe(true);
+        expect(Number((await verification.query('SELECT count(*)::text count FROM automation_jobs')).rows[0].count)).toBe(proof.sourceAutomationCount);
+        expect((await verification.query("SELECT count(*)::text count FROM automation_jobs WHERE status='active'")).rows[0].count).toBe('0');
+        expect((await verification.query('SELECT description FROM canvas_projects WHERE id=$1', [proof.project.id])).rows[0].description).toBe(proof.unicodeDescription);
+      } finally { await verification.end(); }
       const projectList = await json<{ projects: Array<{ id: string; name: string }> }>(await context.request.get('/api/projects'));
       expect(projectList.projects.some(project => project.id === proof.project.id && project.name === proof.project.name)).toBe(true);
       const secret = await json<{ data: { entries: Array<{ key: string; value: string }> } }>(await context.request.get('/api/integrations/env?scope=all&secretScope=system&key=MIGRATION_TARGET_KEEP_99B4'));
@@ -688,7 +716,7 @@ test.describe('isolated target restore acceptance', () => {
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: path.join(artifacts, '15-postgres-restored-mobile.png') });
       await fs.writeFile(path.join(artifacts, 'database-transfer-result.json'), JSON.stringify({ rows: result.result.databaseRows,
-        tables: result.result.databaseTables, filesChecked: checked, distinctTargetInstancePreserved: true,
+        tables: result.result.databaseTables, filesChecked: checked, nativeStatesChecked: snapshot.nativeStateHashes.length, distinctTargetInstancePreserved: true,
         distinctTargetLicensePreserved: true, sourceProjectVisible: true, targetApiKeyPreserved: true,
         staleWorkspaceFilesRemoved: true, previousSessionInvalidated: true }, null, 2), { mode: 0o600 });
     } finally { await page.close(); await context.close(); }

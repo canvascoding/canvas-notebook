@@ -236,9 +236,12 @@ export function preserveMigrationTable(name: string): boolean {
 }
 
 export function resetMigrationTable(name: string): boolean {
+  // These are durable change/review history, not live execution authority.
+  if (['collaboration_agent_operations', 'file_proposal_action_receipts', 'capability_package_operations'].includes(name)) return false;
   if (/^(?:composio_|integration_connection_)/u.test(name)) return true;
   return /^(?:oauth_|channel_|composio_.*oauth|composio_webhook_|mcp_.*oauth|collaboration_admission_|collaboration_agent_|collaboration_excalidraw_(?:agent_operations|checkpoint_intents|creates|operations|restores)|collaboration_native_|collaboration_markdown_create_|collaboration_room_|collaboration_recovery_|workspace_file_operation|file_guest_|file_proposal_action_receipts|mobile_push_|email_classification_(?:jobs|mailbox_sync_leases)|todo_email_reply_|automation_webhook_|capability_package_operations)/u.test(name)
     || ['session', 'verification', 'jwks', 'public_file_shares', 'file_locks', 'security_public_rate_limits',
-      'mcp_revoked_access_token', 'pi_message_delivery_receipts', 'memory_review_jobs', 'file_version_restore_receipts',
+      'mcp_revoked_access_token', 'mcp_direct_grant_revocation', 'mcp_direct_workspace_grant',
+      'pi_message_delivery_receipts', 'memory_review_jobs', 'file_version_restore_receipts',
       'collaboration_markdown_file_import_receipts', 'telegram_active_session', 'session_channel_links'].includes(name);
 }

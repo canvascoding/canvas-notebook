@@ -6,11 +6,11 @@ import { PORTABLE_DATABASE_TABLES, preserveMigrationTable, resetMigrationTable }
 export const DATABASE_ARTIFACT = 'data/database/postgres.jsonl.gz';
 export const DATABASE_RECEIPTS = 'canvas_migration_restore_receipts';
 export type PortableColumn = { name: string; type: string };
-export type PortableTable = { name: string; columns: PortableColumn[]; mode: 'copy' | 'reset' };
+export type PortableTable = { name: string; columns: PortableColumn[]; mode: 'copy' | 'reset'; nullColumns?: string[] };
 export type PortableDatabaseHeader = { format: 'canvas-postgres-rows'; version: 1; schemaHash: string;
   organizationId: string; tables: PortableTable[]; users: Array<{ id: string; email: string | null }>;
   sequences?: Array<{ table: string; column: string; value: string }> };
-export type PortableForeignKey = { child: string; parent: string; name: string; deferred: boolean; deferrable: boolean; userColumns: string[] };
+export type PortableForeignKey = { child: string; parent: string; name: string; deferred: boolean; deferrable: boolean; userColumns: string[]; columns: string[]; nullable: boolean };
 export function sqlName(value: string): string {
   if (!/^[a-z_][a-z0-9_]*$/u.test(value)) throw new Error('Unsupported PostgreSQL migration identifier.');
   return '"' + value + '"';
@@ -45,19 +45,19 @@ export async function readPortableDatabaseSchema(client: Client): Promise<{ tabl
     table.columns.push({ name: row.name, type: row.type });
   }
   const foreignKeys = (await client.query<PortableForeignKey>(`SELECT c.conname name,r.relname child,p.relname parent,c.condeferrable deferrable,c.condeferred deferred,
-    COALESCE(array_agg(a.attname ORDER BY k.ordinality) FILTER (WHERE p.relname='user'),ARRAY[]::name[]) AS "userColumns"
+    COALESCE(array_agg(a.attname::text ORDER BY k.ordinality) FILTER (WHERE p.relname='user'),ARRAY[]::text[]) AS "userColumns",
+    array_agg(a.attname::text ORDER BY k.ordinality) AS columns,bool_and(NOT a.attnotnull) AS nullable
     FROM pg_constraint c JOIN pg_class r ON r.oid=c.conrelid JOIN pg_class p ON p.oid=c.confrelid
     JOIN pg_namespace n ON n.oid=r.relnamespace JOIN unnest(c.conkey) WITH ORDINALITY k(attnum,ordinality) ON true
     JOIN pg_attribute a ON a.attrelid=r.oid AND a.attnum=k.attnum WHERE c.contype='f' AND n.nspname='public'
     GROUP BY c.oid,r.relname,p.relname ORDER BY r.relname,c.conname`)).rows;
-  // A copied child cannot retain a reference to deliberately excluded authority.
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const fk of foreignKeys) {
-      const child = byName.get(fk.child);
-      if (child?.mode === 'copy' && byName.get(fk.parent)?.mode === 'reset') { child.mode = 'reset'; changed = true; }
-    }
+  // Remove optional authority references without dropping the user's records.
+  // Required dependencies need an explicit policy decision, never silent loss.
+  for (const fk of foreignKeys) {
+    const child = byName.get(fk.child);
+    if (child?.mode !== 'copy' || byName.get(fk.parent)?.mode !== 'reset') continue;
+    if (!fk.nullable) throw new Error('Portable data policy must preserve the required dependency ' + fk.child + ' -> ' + fk.parent + '.');
+    child.nullColumns = [...new Set([...(child.nullColumns ?? []), ...fk.columns])].sort();
   }
   for (const fk of foreignKeys) if (preserveMigrationTable(fk.child) && !preserveMigrationTable(fk.parent) && fk.parent !== 'user') {
     throw new Error('Preserved instance state has an unsupported dependency on ' + fk.parent + '.');
@@ -66,6 +66,7 @@ export async function readPortableDatabaseSchema(client: Client): Promise<{ tabl
 }
 
 export function databaseExportExpression(table: PortableTable, column: PortableColumn): string {
+  if (table.nullColumns?.includes(column.name)) return 'NULL AS ' + sqlName(column.name);
   if (table.name === 'account' && /^(?:access_token|refresh_token|id_token)(?:_expires_at)?$/u.test(column.name)) return 'NULL AS ' + sqlName(column.name);
   if (table.name === 'collaboration_yjs_states' && /^room_owner_(?:token|backend_pid|backend_start)$/u.test(column.name)) return 'NULL AS ' + sqlName(column.name);
   if (table.name === 'automation_jobs' && column.name === 'status') return "'paused' AS status";
