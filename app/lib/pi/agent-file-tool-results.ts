@@ -1,8 +1,10 @@
+import { types } from 'node:util';
 import { ExactTextPatchError } from '@/app/lib/files/exact-text-patch';
 import { WorkspaceFileRevisionError } from '@/app/lib/files/revision-guard';
 import { AgentBlockEditError } from '@/app/lib/collaboration/agent-block-edits';
 import { AgentFileReviewDisabledConflictError } from '@/app/lib/collaboration/agent-operations';
 import { CollaborationFileCheckpointUnavailableError } from '@/app/lib/collaboration/agent-file-checkpoint';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
 import { AgentFileOperationOutcomeUnavailableError, type AgentFileChangeResult } from './agent-file-operations';
 import { ProposalGraphContractError } from '../file-version-center/contracts/proposal-graph-v1';
 import { parseProposalToolCreationResultV1, type ProposalToolCreationResultV1 } from '../file-version-center/contracts/proposal-tools-v1';
@@ -41,6 +43,7 @@ export type AgentFileToolError = {
   safeToAutoRetry: false;
   error: string;
   operationId?: string;
+  idempotencyKey?: string;
   collaboration?: { operationId: string; operationStatus: string; durability: string };
 };
 
@@ -83,6 +86,36 @@ export function asAgentFileToolError(
   fallbackPath?: string,
 ): AgentFileToolError {
   const message = error instanceof Error ? error.message : String(error);
+  if (!types.isProxy(error) && types.isNativeError(error) && error instanceof MarkdownFileImportError) {
+    const codeDescriptor = Object.getOwnPropertyDescriptor(error, 'code');
+    const code: unknown = codeDescriptor && Object.hasOwn(codeDescriptor, 'value') ? codeDescriptor.value : undefined;
+    if (typeof code === 'string' && ['MARKDOWN_IMPORT_INVALID_INPUT', 'MARKDOWN_IMPORT_ENCODING_UNSUPPORTED',
+      'MARKDOWN_IMPORT_RICH_UNAVAILABLE', 'MARKDOWN_IMPORT_TARGET_CHANGED', 'MARKDOWN_IMPORT_TARGET_NOT_EMPTY',
+      'MARKDOWN_IMPORT_LIFECYCLE_REQUIRED', 'MARKDOWN_IMPORT_REQUEST_CONFLICT', 'MARKDOWN_IMPORT_BUSY',
+      'MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'].includes(code)) {
+      const operationIdDescriptor = Object.getOwnPropertyDescriptor(error, 'operationId');
+      const operationId: unknown = operationIdDescriptor && Object.hasOwn(operationIdDescriptor, 'value')
+        ? operationIdDescriptor.value : undefined;
+      const idempotencyKeyDescriptor = Object.getOwnPropertyDescriptor(error, 'idempotencyKey');
+      const idempotencyKey: unknown = idempotencyKeyDescriptor && Object.hasOwn(idempotencyKeyDescriptor, 'value')
+        ? idempotencyKeyDescriptor.value : undefined;
+      return {
+        contractVersion: 1, kind: 'file_mutation_error', operation, outcome: 'blocked',
+        category: ['MARKDOWN_IMPORT_COMMIT_UNCONFIRMED', 'MARKDOWN_IMPORT_BUSY', 'MARKDOWN_IMPORT_LIFECYCLE_REQUIRED'].includes(code)
+          ? 'technical_error' : 'safety_conflict',
+        code, path: fallbackPath || null, message,
+        editIndex: null, expectedOccurrences: null, actualOccurrences: null, matchMode: null, oldTextPreview: null,
+        occurrenceLines: [], expectedSha256: null, currentSha256: null,
+        recommendedAction: 'inspect_error', safeToAutoRetry: false, error: message,
+        ...(typeof operationId === 'string' && operationId.length >= 1 && operationId.length <= 256
+          && operationId.trim() === operationId && !/[\u0000-\u001f\u007f]/u.test(operationId)
+          && Buffer.from(operationId, 'utf8').toString('utf8') === operationId ? { operationId } : {}),
+        ...(typeof idempotencyKey === 'string' && idempotencyKey.length >= 1 && idempotencyKey.length <= 500
+          && !/[\u0000-\u001f\u007f]/u.test(idempotencyKey)
+          && Buffer.from(idempotencyKey, 'utf8').toString('utf8') === idempotencyKey ? { idempotencyKey } : {}),
+      };
+    }
+  }
   if (error instanceof AgentFileReviewDisabledConflictError
     || error instanceof CollaborationFileCheckpointUnavailableError) {
     const operationId = error instanceof AgentFileReviewDisabledConflictError ? error.operationId : undefined;

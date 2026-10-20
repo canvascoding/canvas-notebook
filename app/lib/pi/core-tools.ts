@@ -484,15 +484,18 @@ export const piTools: AgentTool[] = [
   {
     name: 'write',
     label: 'Writing file',
-    description: 'Writes text content to a file. Creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried. After success, inspect local link diagnostics and repair missing or ambiguous targets within the task. Link warnings never require replaying the mutation or inventing missing files.',
+    description: 'Writes text content to a file, returns a diff, validates supported file types, and verifies the saved result. Legacy file edits may include a snapshot; confirmed native document creation returns its native receipt with no undo snapshot. New native Markdown files are limited to 1 MiB (1048576 UTF-8 bytes); this limit applies only to new creation, not existing-file edits or original creation retries. Use for new files or an intentional full rewrite; use edit_file or apply_patch for existing-file edits when possible. For a Markdown creation retry after an uncertain result, reuse the exact original path, content and idempotencyKey returned in the error; do not generate a new key or replay automatically. Existing shared workspace files require expectedSha256 from a current read. A revision conflict requires a new read and is never auto-retried. After success, inspect local link diagnostics and repair missing or ambiguous targets within the task. Link warnings never require replaying the mutation or inventing missing files.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       content: Type.String({ description: 'The content to write.' }),
+      idempotencyKey: Type.Optional(Type.String({ minLength: 1, maxLength: 500,
+        description: 'Stable caller key for a Markdown creation retry. Reuse the exact original key after an uncertain result; omitted keys use this tool call ID.' })),
       expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before writing.' })),
       proposal: Type.Optional(ProposalToolEditSchemaV1),
     }),
     execute: async (toolCallId, params) => {
-      const { path: filePath, content, expectedSha256 } = params as { path: string; content: string; expectedSha256?: string };
+      const { path: filePath, content, expectedSha256, idempotencyKey } = params as {
+        path: string; content: string; expectedSha256?: string; idempotencyKey?: string };
       try {
         const proposal = parseOptionalProposalToolEditV1(params as Record<string, unknown>);
         const [result] = await addAgentFileLinkDiagnostics([await writeAgentTextFile({
@@ -500,7 +503,7 @@ export const piTools: AgentTool[] = [
           content,
           expectedSha256,
           operation: 'write',
-          idempotencyKey: toolCallId,
+          idempotencyKey: idempotencyKey ?? toolCallId,
           ...(proposal ? { proposal } : {}),
         })]);
         return {

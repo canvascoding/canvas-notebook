@@ -114,10 +114,14 @@ export type WorkspaceAgentToolHistoricalOrigin = Readonly<{
 export type WorkspaceAgentToolHistoricalOriginObserver = (origin: WorkspaceAgentToolHistoricalOrigin) => void;
 type Phase = { active: boolean; failure?: unknown; request: RequestCapture | InvitationCapture | AgentCapture | JobUserCapture | JobAgentCapture; database: SqlConnection;
   identity?: Identity; deadline: number; checking: boolean; pending: Set<Promise<unknown>>;
-  accepting: boolean; nativeEditSessionExpiresAt?: number };
+  accepting: boolean; nativeEditSessionExpiresAt?: number; agentCreateRealm?: string };
 const requests = new WeakMap<WorkspaceRequestPrincipal, RequestCapture>();
 const invitationAuthorities = new WeakMap<FileGuestInvitationAuthority, InvitationCapture>();
 const agentToolPrincipals = new WeakMap<WorkspaceAgentToolPrincipal, AgentCapture>();
+declare const agentMarkdownCreateBrand: unique symbol;
+export type WorkspaceAgentMarkdownCreatePrincipal = WorkspaceAgentToolPrincipal & Readonly<{ [agentMarkdownCreateBrand]: never }>;
+const agentMarkdownCreatePrincipals = new WeakMap<WorkspaceAgentMarkdownCreatePrincipal, AgentCapture>();
+const agentMarkdownCreateCaptures = new WeakSet<AgentCapture>();
 const jobPolicies = new WeakMap<WorkspaceOperationJobPolicy, JobPolicyCapture>();
 const phases = new WeakMap<SqlConnection, Phase>();
 const MAX_ORGANIZATIONS = 16, MAX_ROWS = 1024, MAX_PHASE_MS = 5000;
@@ -576,6 +580,7 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
       if (request.kind === 'job_user' || request.kind === 'job_agent') await initializeJobCapture(phase);
       if (request.kind === 'member') await observeOriginalOrigin(phase);
       await schema(phase); await locks(phase);
+      if (request.kind === 'agent_tool' && agentMarkdownCreateCaptures.has(request)) await pinAgentCreateReceiptRealm(phase);
       const workspace = await readCurrent(phase);
       const assertCurrent = (): Promise<void> => {
         if (phase.checking) {
@@ -604,6 +609,23 @@ function withCapturedPrincipalOnConnection<T, Access>(database: SqlConnection, r
   request.pending.add(pending);
   void pending.then(() => request.pending.delete(pending), () => request.pending.delete(pending));
   return pending;
+}
+
+/** One fixed initial transition, after authenticating the original realm and
+ * relation identities. Never repairs drift after the consumer has started. */
+async function pinAgentCreateReceiptRealm(phase: Phase): Promise<void> {
+  const request = phase.request, before = phase.identity;
+  if (request.kind !== 'agent_tool' || !agentMarkdownCreateCaptures.has(request) || !before || phase.agentCreateRealm
+    || !request.originalOrigin || before.searchPath !== request.originalOrigin.realm.searchPath) fail('PRINCIPAL_SCOPE_CHANGED');
+  await checkIdentity(phase); await schema(phase);
+  const row = await phase.database.get("SELECT quote_ident($1)||', pg_catalog, pg_temp' AS canonical", [request.schema]) as Row | undefined;
+  if (!row || typeof row.canonical !== 'string') fail('PRINCIPAL_SCOPE_CHANGED');
+  await phase.database.run("SELECT set_config('search_path',$1,true)", [row.canonical]);
+  const after = await identity(phase);
+  if (after.searchPath !== row.canonical || Object.keys(before).some(key => key !== 'searchPath'
+    && Reflect.get(before,key) !== Reflect.get(after,key))) fail('PRINCIPAL_SCOPE_CHANGED');
+  phase.agentCreateRealm = row.canonical; phase.identity = after;
+  await checkIdentity(phase); await schema(phase);
 }
 
 export class FileGuestInvitationAuthorityError extends Error {
@@ -849,11 +871,12 @@ async function currentAgentWithOriginalOrigin(phase: Phase): Promise<WorkspaceCo
     || expected.legacy !== false || expected.status !== 'active' || typeof expected.rootPath !== 'string' || !expected.rootPath
     || typeof expected.rootRelativePath !== 'string' || expected.rootRelativePath.length > 4096
     || row.schema !== request.schema || !number(row.schema_oid,1) || Number(row.schema_oid) !== optin.realm.schemaOid
-    || row.search_path !== optin.realm.searchPath || !number(row.database_oid,1) || Number(row.database_oid) !== request.database) fail('PRINCIPAL_SCOPE_CHANGED');
+    || row.search_path !== (agentMarkdownCreateCaptures.has(request) ? phase.agentCreateRealm : optin.realm.searchPath)
+    || !number(row.database_oid,1) || Number(row.database_oid) !== request.database) fail('PRINCIPAL_SCOPE_CHANGED');
   await checkIdentity(phase);
   const historical: WorkspaceAgentToolHistoricalOrigin = Object.freeze({ ...expected,
     rootRelativePath: expected.rootRelativePath, legacy: false, status: 'active', schema: request.schema,
-    schemaOid: Number(row.schema_oid), searchPath: String(row.search_path), databaseOid: request.database });
+    schemaOid: Number(row.schema_oid), searchPath: optin.realm.searchPath, databaseOid: request.database });
   const returned: unknown = optin.observe(historical);
   if (returned !== undefined) {
     if (returned instanceof Promise) void returned.catch(() => undefined);
@@ -881,12 +904,15 @@ export async function withWorkspaceAgentToolPrincipalOriginalOrigin<T>(input: { 
 }
 
 async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWrite'; workspaceId?: string },
-  operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>, observe?: WorkspaceAgentToolHistoricalOriginObserver): Promise<T> {
+  operation: (principal: WorkspaceAgentToolPrincipal) => Promise<T>, observe?: WorkspaceAgentToolHistoricalOriginObserver,
+  markdownCreate = false): Promise<T> {
   const selected = agentOptions(input);
   if (typeof operation !== 'function') return Promise.reject(new WorkspaceRequestPrincipalError('PRINCIPAL_INVALID'));
   const invocation = captureCurrentAgentToolInvocation();
   return withCapturedAgentToolInvocation(invocation, async assertInvocation => {
     const origin = assertInvocation();
+    if (markdownCreate && (selected.permission !== 'canWrite' || !observe
+      || origin.toolName !== 'write' && origin.toolName !== 'pdf_to_markdown')) fail('PRINCIPAL_ACCESS_DENIED');
     if (origin.legacy || !id(origin.userId) || !id(origin.sessionId) || !id(origin.workspaceId)
       || origin.agentId !== null && !id(origin.agentId)
       || selected.workspaceId !== undefined && selected.workspaceId !== origin.workspaceId
@@ -917,7 +943,10 @@ async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWr
     assertInvocation();
     captured.enterBefore = performance.now()+MAX_PHASE_MS;
     const principal = Object.freeze({}) as WorkspaceAgentToolPrincipal;
-    agentToolPrincipals.set(principal,captured);
+    if (markdownCreate) {
+      agentMarkdownCreateCaptures.add(captured);
+      agentMarkdownCreatePrincipals.set(principal as WorkspaceAgentMarkdownCreatePrincipal,captured);
+    } else agentToolPrincipals.set(principal,captured);
     try {
       let result: T | undefined, operationFailure: unknown;
       try { result = await operation(principal); }
@@ -931,8 +960,30 @@ async function withAgentToolPrincipal<T>(input: { permission: 'canRead' | 'canWr
       if (captured.failure !== undefined) throw captured.failure;
       assertInvocation();
       return result as T;
-    } finally { captured.active = false; captured.accepting = false; agentToolPrincipals.delete(principal); }
+    } finally {
+      captured.active = false; captured.accepting = false; agentToolPrincipals.delete(principal);
+      agentMarkdownCreatePrincipals.delete(principal as WorkspaceAgentMarkdownCreatePrincipal); agentMarkdownCreateCaptures.delete(captured);
+    }
   });
+}
+
+/** Create-only genuine PI factory; ordinary Agent handles cannot enter it. */
+export function withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin<T>(input: { workspaceId: string },
+  observe: WorkspaceAgentToolHistoricalOriginObserver,
+  operation: (principal: WorkspaceAgentMarkdownCreatePrincipal) => Promise<T>): Promise<T> {
+  if (typeof observe !== 'function' || typeof operation !== 'function') fail('PRINCIPAL_INVALID');
+  return withAgentToolPrincipal({ permission: 'canWrite', workspaceId: input.workspaceId },
+    principal => operation(principal as WorkspaceAgentMarkdownCreatePrincipal), observe, true);
+}
+
+/** Caller owns the genuine short transaction and its COMMIT/close. */
+export function withWorkspaceAgentMarkdownCreatePrincipalOnConnection<T>(database: SqlConnection,
+  principal: WorkspaceAgentMarkdownCreatePrincipal,
+  operation: (access: WorkspaceAgentToolPrincipalAccess) => Promise<T>): Promise<T> {
+  const request = agentMarkdownCreatePrincipals.get(principal);
+  return withCapturedPrincipalOnConnection(database, request, new WorkspaceRequestPrincipalError('PRINCIPAL_REQUIRED'), currentAgentWithOriginalOrigin,
+    (workspace, assertCurrent) => Object.freeze({ workspace, userId: request!.userId, agentId: request!.agentId,
+      piSessionId: request!.origin.sessionId, toolName: request!.origin.toolName, toolCallId: request!.origin.toolCallId, assertCurrent }), operation);
 }
 
 /** Caller owns the same RC/RW transaction, admission and confirmed COMMIT.

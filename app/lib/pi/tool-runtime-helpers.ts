@@ -3,7 +3,7 @@ import { promises as fsPromises } from 'fs';
 import { PDFParse } from 'pdf-parse';
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { type ImageContent } from '@earendil-works/pi-ai';
-import { promisify } from 'util';
+import { promisify, types } from 'util';
 import path from 'path';
 import {
   applyAgentFilePatch,
@@ -45,6 +45,8 @@ import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { withAgentToolInvocation } from '@/app/lib/pi/agent-tool-invocation';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
+import { asAgentFileToolError } from '@/app/lib/pi/agent-file-tool-results';
 import { createBrowserGatewayTool, type BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
@@ -101,6 +103,15 @@ export function wrapToolWithExecutionContext(
       ) as ProgressiveGatewayTool,
     } } : {}),
     execute: (toolCallId, params, signal, onUpdate) => {
+      const toolName = scopedTool.name;
+      const markdownCreateCaller = toolName === 'write' || toolName === 'pdf_to_markdown';
+      // Error display uses only a detached own data value, never a getter or a
+      // later mutation of the caller's params. This does not authorize a path.
+      const pathDescriptor = markdownCreateCaller && params && typeof params === 'object' && !types.isProxy(params)
+        ? Object.getOwnPropertyDescriptor(params, toolName === 'write' ? 'path' : 'outputPath') : undefined;
+      const fallbackPath = pathDescriptor && Object.hasOwn(pathDescriptor, 'value') && typeof pathDescriptor.value === 'string'
+        && pathDescriptor.value.length <= 4096
+        ? pathDescriptor.value : undefined;
       // The runtime rotates agentTurnId between user messages. An in-flight tool
       // must retain the turn that started it, including across its awaits.
       const invocationContext = { ...context };
@@ -110,7 +121,25 @@ export function wrapToolWithExecutionContext(
           const result = await execute(toolCallId, params, signal, onUpdate);
           return prepareToolOutput({ result: attachChatFileReferences(result, scopedTool.name, toolCallId, invocationContext),
             identity: invocationContext, toolCallId, toolName: scopedTool.name });
-        }));
+        })).catch((error: unknown) => {
+          // The invocation has drained and closed before this boundary. Keep
+          // principal, invocation and aggregate failures as rejected promises.
+          if (!markdownCreateCaller || types.isProxy(error) || !types.isNativeError(error)
+            || !(error instanceof MarkdownFileImportError)) throw error;
+          const details = asAgentFileToolError(error, 'write', fallbackPath);
+          // The existing mapper owns the recognized import-code allowlist.
+          if (details.code === 'FILE_OPERATION_FAILED') throw error;
+          return {
+            content: [{ type: 'text' as const, text: [
+              `Error: ${details.message}`,
+              `Recommended action: ${details.recommendedAction}. Do not retry automatically.`,
+              ...(details.operationId ? [`Operation ID: ${JSON.stringify(details.operationId)}`] : []),
+              ...(details.idempotencyKey ? [`Idempotency key: ${JSON.stringify(details.idempotencyKey)}`] : []),
+            ].join('\n') }],
+            details,
+            isError: true,
+          };
+        });
     },
   };
 }

@@ -70,9 +70,13 @@ import {
 import { listWorkspaceTrashEntries, trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { publishWorkspaceFileMutation, withWorkspacePathRenameEvent, type FileEventType } from '@/app/lib/filesystem/file-watcher';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, type AgentToolInvocation } from '@/app/lib/pi/agent-tool-invocation';
 import { agentTurnHistoryService } from '@/app/lib/file-version-center/agent-turn-history';
 import { readDocumentReviewAvailability } from '@/app/lib/document-review-availability';
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
+import { persistAndProjectAgentMarkdownCreate } from '@/app/lib/collaboration/markdown-file-import-persistence';
+import { MarkdownFileImportError } from '@/app/lib/collaboration/markdown-file-import';
+import type { DocumentCreateMutationResultV1 } from '@/app/lib/documents/contracts';
 import { recordWorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { getToolOutputRoot, getToolOutputSessionDirectory } from '@/app/lib/pi/tool-output-store';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
@@ -141,6 +145,7 @@ export type AgentFileSnapshotMetadata = {
 };
 
 export type AgentFileChangeResult = {
+  nativeCreate?: DocumentCreateMutationResultV1;
   linkDiagnostics?: WorkspaceLinkDiagnostics;
   proposal?: ProposalToolCreationResultV1;
   path: string;
@@ -1698,6 +1703,41 @@ async function commitTextChange(params: {
   return captureAgentFileLinkSource(result, { beforeContent, content: readBackText, basis: 'applied' });
 }
 
+async function createOrReplayAgentMarkdownFile(input: {
+  path: string; fullPath: string; content: string; idempotencyKey?: string; expectedSha256?: string;
+  workspaceId: string; workspaceRoot: string; relativePath: string; legacy: false; invocation: AgentToolInvocation;
+}): Promise<AgentFileChangeResult | null> {
+  const original = assertCurrentAgentToolInvocation(input.invocation);
+  if (original.legacy !== input.legacy || original.workspaceId !== input.workspaceId || original.workspaceRoot !== input.workspaceRoot
+    || !isPathWithin(input.fullPath,input.workspaceRoot)
+    || path.relative(input.workspaceRoot,input.fullPath).split(path.sep).join('/') !== input.relativePath) {
+    throw new MarkdownFileImportError('MARKDOWN_IMPORT_INVALID_INPUT');
+  }
+  const validation = validateAgentFileContent(input.path,input.content);
+  if (!validation.ok) throw new Error(`Refusing to write ${input.path}: validation failed.`);
+  const expectedSha256 = normalizeAgentExpectedSha256(input.expectedSha256);
+  const callerKey = input.idempotencyKey ?? original.toolCallId;
+  const nativeCreate = await persistAndProjectAgentMarkdownCreate({workspaceId:input.workspaceId,path:input.relativePath,content:input.content,
+    idempotencyKey:callerKey,
+    ...(expectedSha256 ? {expectedSha256} : {})});
+  assertCurrentAgentToolInvocation(input.invocation);
+  if (!nativeCreate) return null;
+  const created = nativeCreate.outcome === 'created';
+  const result: AgentFileChangeResult = {path:input.path,resolvedPath:input.fullPath,changed:created,snapshot:null,nativeCreate,
+    beforeSha256:null,afterSha256:sha256Text(input.content),size:Buffer.byteLength(input.content,'utf8'),
+    diff:created ? createUnifiedDiff('',input.content,`${input.path} (before)`,`${input.path} (after)`)
+      : 'Original native creation confirmed. This retry did not write the document again.',validation};
+  if (created) {
+    // The central first projection already invalidates the actual native view.
+    // Preserve PI audit only on the first confirmed result, never on replay.
+    try { await recordAgentFileChangeAudit(result,'write'); }
+    catch (error) { throw Object.assign(new MarkdownFileImportError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
+      {cause:error,operationId:nativeCreate.operationId,idempotencyKey:callerKey}); }
+    return captureAgentFileLinkSource(result,{beforeContent:'',content:input.content,basis:'applied'});
+  }
+  return result;
+}
+
 export async function writeAgentTextFile(params: {
   path: string;
   content: string;
@@ -1708,14 +1748,34 @@ export async function writeAgentTextFile(params: {
 }): Promise<AgentFileChangeResult> {
   const proposal = parseOptionalProposalToolEditV1(params);
   const fullPath = resolveAgentPath(params.path);
+  // Detach the Create request before the first asynchronous path check.
+  const createInput = {path:params.path,fullPath,content:params.content,
+    ...(params.idempotencyKey !== undefined ? {idempotencyKey:params.idempotencyKey} : {}),
+    ...(params.expectedSha256 !== undefined ? {expectedSha256:params.expectedSha256} : {})};
+  const createWorkspace = getAgentWorkspaceContext();
+  const nativeSelection = !proposal && authenticatedNativeTextSessionEnabled() && createWorkspace?.legacy === false
+    && /\.(?:md|markdown)$/iu.test(fullPath) && isPathWithin(fullPath,createWorkspace.rootPath)
+    ? Object.freeze({workspaceId:createWorkspace.workspaceId,workspaceRoot:createWorkspace.rootPath,
+      relativePath:workspaceRelativeAgentPath(createWorkspace,fullPath),legacy:false as const,
+      invocation:captureCurrentAgentToolInvocation()}) : null;
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   await assertAgentWritablePathAllowed(fullPath);
+  // Eligibility was selected before the await. A changed invocation cannot
+  // turn an active native request into a legacy/raw fallback afterwards.
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   if (proposal) {
     return createProposedAgentFileChange({ inputPath: params.path, fullPath, proposal,
       idempotencyKey: params.idempotencyKey, expectedSha256: params.expectedSha256,
       mutation: { operation: 'write', path: params.path, content: params.content, expectedSha256: params.expectedSha256 ?? null },
       content: params.content });
   }
+  if (nativeSelection) {
+    const nativeCreate = await createOrReplayAgentMarkdownFile({...createInput,...nativeSelection});
+    assertCurrentAgentToolInvocation(nativeSelection.invocation);
+    if (nativeCreate) return nativeCreate;
+  }
   const before = await readExistingFile(fullPath);
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
   const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
   assertAgentSharedWorkspaceRevision({
@@ -1727,6 +1787,7 @@ export async function writeAgentTextFile(params: {
 
   if (before.existed) {
     const collaboration = await collaborativeAgentFileContext(fullPath, before.buffer ?? undefined);
+    if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
     if (collaboration) {
       const fingerprint = hashAgentBlockJson({ version: 1, operation: 'write', path: collaboration.relativePath,
         expectedSha256, content: params.content });
@@ -1781,6 +1842,7 @@ export async function writeAgentTextFile(params: {
     }
   }
   if (before.existed && before.buffer?.toString('utf8') === params.content) {
+    if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
     return commitTextChange({ inputPath: params.path, fullPath, beforeBuffer: before.buffer,
       beforeExisted: true, nextContent: params.content, operation: params.operation ?? 'write', enforceValidation: true });
   }
@@ -1789,6 +1851,7 @@ export async function writeAgentTextFile(params: {
     throwAgentFileRevisionConflict({ operation: 'write', path: params.path, expectedSha256, currentSha256: beforeSha256 });
   }
 
+  if (nativeSelection) assertCurrentAgentToolInvocation(nativeSelection.invocation);
   return commitTextChange({
     inputPath: params.path,
     fullPath,

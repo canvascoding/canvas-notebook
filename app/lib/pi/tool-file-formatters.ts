@@ -41,7 +41,7 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
   let action = 'Checked';
   if (result.changed) {
     action = result.fileOperation?.kind === 'delete' ? 'Deleted'
-      : result.snapshot?.existed === false ? 'Created' : 'Updated';
+      : result.nativeCreate?.outcome === 'created' || result.snapshot?.existed === false ? 'Created' : 'Updated';
   } else if (result.collaboration?.reviewRequired || result.review) {
     action = result.review ? 'Stored review for' : 'Prepared review for';
   } else if (result.fileOperation) {
@@ -50,6 +50,9 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
 
   return [
     `${action} file: ${result.path}`,
+    result.nativeCreate
+      ? `${result.changed ? 'Native creation' : 'Previously confirmed native creation'}: ${result.nativeCreate.operationId} (${result.nativeCreate.outcome}); document ${result.nativeCreate.document.documentId}; workspace ${result.nativeCreate.document.workspaceId}`
+      : null,
     result.fileOperation ? `Durable file action: ${result.fileOperation.batchId} (${result.fileOperation.status}, ${result.fileOperation.phase}, ${result.fileOperation.completedActions}/${result.fileOperation.totalActions})` : null,
     result.fileOperation?.errorCode ? `File action error: ${result.fileOperation.errorCode}. Inspect Notification Center; do not replay completed steps.` : null,
     result.review ? `Stored file action review ${result.review.status}: ${result.review.reviewId}. Inspect the original review outcome before another mutation.` : null,

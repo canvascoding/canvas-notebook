@@ -407,6 +407,31 @@ def direct_mcp_attribution(intent):
     return dict(selected)
 
 
+def agent_attribution(intent):
+    """Mechanical original PI source metadata; never an authentication grant."""
+    selected, origin = intent.get('source'), intent.get('origin')
+    keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'agentId', 'toolName', 'toolCallId',
+            'operationId', 'requestId', 'requestFingerprint', 'sourceHash', 'sourceBytes'}
+    def units(value):
+        return len(value.encode('utf-16-le', errors='surrogatepass')) // 2
+    if not isinstance(selected, dict) or set(selected) != keys or not isinstance(origin, dict) \
+            or selected.get('kind') != 'agent-markdown-v1' or selected.get('toolName') not in ('write', 'pdf_to_markdown') \
+            or not all(isinstance(selected.get(key), str) and 0 < units(selected[key]) <= 256
+                       for key in ['workspaceId', 'actorUserId', 'actorSessionId', 'agentId']) \
+            or not isinstance(selected.get('toolCallId'), str) or not 0 < units(selected['toolCallId']) <= 4096 \
+            or not all(isinstance(selected.get(key), str) and re.fullmatch('[a-f0-9]{64}', selected[key])
+                       for key in ['operationId', 'requestFingerprint', 'sourceHash']) \
+            or selected['requestId'] != 'agent-create:' + selected['operationId'] or selected['operationId'] != intent.get('operationId') \
+            or any(selected.get(key) != origin.get(other) for key, other in [('workspaceId', 'workspaceId'), ('actorUserId', 'userId'),
+                       ('actorSessionId', 'piSessionId'), ('agentId', 'agentId'), ('toolName', 'toolName'), ('toolCallId', 'toolCallId')]) \
+            or not isinstance(selected.get('targetPath'), str) or not 0 < units(selected['targetPath']) <= 4096 \
+            or selected['targetPath'] != intent.get('targetPath') or not re.search(r'\.(?:md|markdown)$', selected['targetPath'], re.IGNORECASE) \
+            or any(name in ('', '.', '..') or re.search(r'[\\\x00-\x1f\x7f]', name) for name in selected['targetPath'].split('/')) \
+            or type(selected.get('sourceBytes')) is not int or not 0 <= selected['sourceBytes'] <= 8 * 1024 * 1024:
+        fail('SOURCE_CHANGED')
+    return dict(selected)
+
+
 def current_source(intent):
     """Read the real original staging leaf, never the retained snapshot.
 
@@ -419,6 +444,8 @@ def current_source(intent):
     if 'kind' in selected:
         if selected.get('kind') == 'direct-mcp-markdown-v1':
             return direct_mcp_attribution(intent)
+        if selected.get('kind') == 'agent-markdown-v1':
+            return agent_attribution(intent)
         keys = {'kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId', 'sourceHash', 'sourceBytes'}
         origin = intent.get('origin')
         if not isinstance(selected, dict) or set(selected) != keys or selected.get('kind') != 'manual-empty-v1' \
@@ -511,6 +538,7 @@ def run(message):
         # Fixed source kinds are attribution, not upload manifests or grants.
         # Validate them before even initializing the private claim namespace.
         current_source(intent)
+    file_limit = 8 * 1024 * 1024 if intent['source'].get('kind') == 'agent-markdown-v1' else LIMIT
     store_name, store = claim_store(3)
     claim = None
     try:
@@ -563,17 +591,17 @@ def run(message):
                 if prepared is None or not stat.S_ISREG(info.st_mode) or file_identity(info) != prepared['file']:
                     fail('TARGET_CHANGED')
                 if completed is None:
-                    data, observed = read_file(claim, 'content.tmp', LIMIT, 2)
+                    data, observed = read_file(claim, 'content.tmp', file_limit, 2)
                     if observed != prepared['file'] or digest(data) != prepared['serializedHash'] or info.st_nlink != 2:
                         fail('TARGET_CHANGED')
-                    actual, observed = read_file(parent, name, LIMIT, 2)
+                    actual, observed = read_file(parent, name, file_limit, 2)
                 else:
                     links = info.st_nlink
                     if links not in (1, 2):
                         fail('TARGET_CHANGED')
-                    actual, observed = read_file(parent, name, LIMIT, links)
+                    actual, observed = read_file(parent, name, file_limit, links)
                     if links == 2:
-                        temp, temp_info = read_file(claim, 'content.tmp', LIMIT, 2)
+                        temp, temp_info = read_file(claim, 'content.tmp', file_limit, 2)
                         if temp_info != observed or temp != actual:
                             fail('TARGET_CHANGED')
                     elif settled != {'file': file_identity(info), 'ctimeNs': str(info.st_ctime_ns)}:
@@ -586,7 +614,7 @@ def run(message):
                 fail('TARGET_CHANGED')
             if message['action'] == 'prepare':
                 content = base64.b64decode(message['bytes'], validate=True)
-                if len(content) > LIMIT or digest(content) != message['serializedHash']:
+                if len(content) > file_limit or digest(content) != message['serializedHash']:
                     fail('INVALID_INPUT')
                 if intent['source'].get('kind') == 'manual-empty-v1' and content != b'':
                     fail('SOURCE_CHANGED')
@@ -612,7 +640,7 @@ def run(message):
                 elif prepared['serializedHash'] != digest(content):
                     fail('TARGET_CHANGED')
                 if info is None:
-                    staged, staged_info = read_file(claim, 'content.tmp', LIMIT)
+                    staged, staged_info = read_file(claim, 'content.tmp', file_limit)
                     if staged != content or staged_info != prepared['file']:
                         fail('TARGET_CHANGED')
                     ack('before_link')
@@ -633,7 +661,7 @@ def run(message):
                 record(claim, 'completed.json', value)
                 completed = value
                 try:
-                    temp, observed = read_file(claim, 'content.tmp', LIMIT, 2)
+                    temp, observed = read_file(claim, 'content.tmp', file_limit, 2)
                     if observed != prepared['file'] or digest(temp) != prepared['serializedHash']:
                         fail('TARGET_CHANGED')
                     os.unlink('content.tmp', dir_fd=claim)
@@ -664,10 +692,18 @@ def run(message):
 
 
 try:
-    request = sys.stdin.readline(8 * 1024 * 1024 + 1)
-    if len(request) > 8 * 1024 * 1024:
+    request = sys.stdin.readline(64 * 1024 * 1024 + 1)
+    if len(request) > 64 * 1024 * 1024:
         fail('INVALID_INPUT')
-    print(json.dumps({'result': run(decode(request))}), flush=True)
+    message = decode(request)
+    if isinstance(message.get('intent'), dict) and isinstance(message['intent'].get('source'), dict) \
+            and message['intent']['source'].get('kind') == 'agent-markdown-v1':
+        agent_attribution(message['intent'])
+        if len(request.encode('utf-8')) > 64 * 1024 * 1024:
+            fail('INVALID_INPUT')
+    elif len(request) > 8 * 1024 * 1024:
+        fail('INVALID_INPUT')
+    print(json.dumps({'result': run(message)}), flush=True)
 except BaseException as error:
     print(json.dumps({'error': str(error) if isinstance(error, Refused) else 'MARKDOWN_CREATE_BIRTH_IO_UNCONFIRMED'}), flush=True)
     sys.exit(1)

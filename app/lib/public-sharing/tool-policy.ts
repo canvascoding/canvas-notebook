@@ -106,9 +106,19 @@ export async function withPreparedDocumentEditToolPolicy<T>(operation: (policy: 
   return withPreparedFixedDocumentToolPolicy('edit_file', operation);
 }
 
+/** Fixed genuine create callers; this is policy only, never a Principal. */
+export async function withPreparedDocumentCreateToolPolicy<T>(operation: (policy: Policy) => Promise<T>): Promise<T> {
+  const invocation = captureCurrentAgentToolInvocation();
+  return withCapturedAgentToolInvocation(invocation, async assertInvocation => {
+    const tool = assertInvocation().toolName;
+    if (tool !== 'write' && tool !== 'pdf_to_markdown') return fail('TOOL_POLICY_DENIED');
+    return withPreparedFixedDocumentToolPolicy(tool, operation);
+  });
+}
+
 /** The public wrappers fix the operation; callers cannot select a policy,
  * provide an authorization reader or expand this private set. */
-async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_file' | 'search_documents' | 'edit_file',
+async function withPreparedFixedDocumentToolPolicy<T>(toolName: 'public_share_file' | 'search_documents' | 'edit_file' | 'write' | 'pdf_to_markdown',
   operation: (policy: Policy) => Promise<T>): Promise<T> {
   const invocation = captureCurrentAgentToolInvocation();
   return withCapturedAgentToolInvocation(invocation,async assertInvocation => {

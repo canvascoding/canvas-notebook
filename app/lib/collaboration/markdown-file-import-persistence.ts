@@ -13,6 +13,11 @@ import { getSchema } from '@tiptap/core';
 import { getPostgresRuntimeQueryable, openDb, type SqlConnection } from '../db';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspaceRequestPrincipal, WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import { withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin, withWorkspaceAgentMarkdownCreatePrincipalOnConnection,
+  type WorkspaceAgentToolHistoricalOrigin, type WorkspaceAgentToolPrincipalAccess,
+  type WorkspaceAgentMarkdownCreatePrincipal } from '../workspaces/request-principal';
+import { captureCurrentAgentToolInvocation, withCapturedAgentToolInvocation } from '../pi/agent-tool-invocation';
+import { withPreparedDocumentCreateToolPolicy } from '../public-sharing/tool-policy';
 import { ensureActiveFileLineage, lockFileCollaborationPaths } from '../files/collaboration-repository';
 import { assertWorkspaceOriginalPathCurrent, readWorkspaceOriginalFileSource,
   type WorkspaceOriginalPathObservation, type WorkspaceOriginalRootObservation } from '../files/workspace-original-file-source';
@@ -20,7 +25,8 @@ import { isInternalWorkspaceStagingPath } from '../files/internal-staging-path';
 import type { MarkdownUploadAttemptSelection } from '../files/workspace-markdown-upload-attempt';
 import { withCurrentWorkspaceUploadFile, type CurrentWorkspaceUploadFileSource } from '../files/workspace-upload-live-source';
 import { withMarkdownCreateBirthClaim, observeMarkdownCreateBirth, observeOptionalMarkdownCreateBirth,
-  directMcpMarkdownCreateAttribution, type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
+  directMcpMarkdownCreateAttribution, agentMarkdownCreateAttribution, type AgentMarkdownCreateSourceBinding,
+  type DirectMcpMarkdownCreateSourceBinding, type MarkdownCreateBirthOriginal,
   type MarkdownCreateBirthStorageInput, type MarkdownCreateBirthClaim } from '../files/markdown-create-birth';
 import { withWorkspaceMutationLock } from '../files/workspace-mutation-lock';
 import { directMcpFileLinkFields } from '../mcp/server/file-links';
@@ -302,7 +308,8 @@ type BootstrapFrameCore = { selection: PristineOriginalWorkspaceFileRequest; rea
   permission: 'canRead' | 'canWrite'; expectedScope?: PristineOriginalRequestScopeExpectation;
   explicitOriginal?: MarkdownOriginalImportSelectionV1 };
 type BootstrapFrame = BootstrapFrameCore & ({ kind: 'request'; request: NextRequest }
-  | { kind: 'direct-mcp'; invocation: DirectMcpCreateInvocation; originalOrigin: DirectMcpDocumentCreateCurrentOrigin });
+  | { kind: 'direct-mcp'; invocation: DirectMcpCreateInvocation; originalOrigin: DirectMcpDocumentCreateCurrentOrigin }
+  | { kind: 'agent-tool'; invocation: AgentCreateInvocation; originalOrigin: WorkspaceAgentToolHistoricalOrigin });
 type RequestBootstrapFrame = Extract<BootstrapFrame, { kind: 'request' }>;
 type BootstrapLineage = { id: string; organizationId: string | null; existing: boolean };
 type OriginalBootstrapScope = { active: boolean; database: SqlConnection; access: WorkspaceRequestPrincipalAccess;
@@ -878,7 +885,7 @@ export type ManualMarkdownCreateSelection = Readonly<{ workspaceId: string; path
 type ManualEmptyBinding = Readonly<{ kind: 'manual-empty-v1'; workspaceId: string; targetPath: string;
   actorUserId: string; actorSessionId: string; requestId: string; operationId: string; sourceHash: string; sourceBytes: 0 }>;
 type CreateIntent = MarkdownUploadAttemptSelection | Omit<ManualEmptyBinding, 'kind' | 'sourceHash' | 'sourceBytes'>;
-type AuthenticatedCreateSource = Readonly<{ binding: CurrentWorkspaceUploadFileSource['binding'] | ManualEmptyBinding | DirectMcpMarkdownCreateSourceBinding;
+type AuthenticatedCreateSource = Readonly<{ binding: CurrentWorkspaceUploadFileSource['binding'] | ManualEmptyBinding | DirectMcpMarkdownCreateSourceBinding | AgentMarkdownCreateSourceBinding;
   assertCurrent(): Promise<void>; readSource(): Promise<Uint8Array> }>;
 const createSources = new WeakSet<AuthenticatedCreateSource>();
 const manualUuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu;
@@ -894,8 +901,20 @@ function manualBinding(selection: ManualMarkdownCreateSelection, origin: Pristin
     actorUserId: origin.userId, actorSessionId: origin.sessionId, requestId: `manual-create:${selection.requestId}`,
     operationId: `manual-create:${selection.requestId}`, sourceHash: hash(new Uint8Array()), sourceBytes: 0 });
 }
-function createFingerprint(binding: AuthenticatedCreateSource['binding'], origin: PristineOriginalRequestScopeExpectation,
+function createFingerprint(binding: AuthenticatedCreateSource['binding'], origin: PristineOriginalRequestScopeExpectation | WorkspaceAgentToolHistoricalOrigin,
   prepared: Pick<PreparedMarkdownFileImport, 'representation' | 'newlineStyle' | 'hasBom'>): string {
+  if ('kind' in binding && binding.kind === 'agent-markdown-v1') {
+    const sourceKeys = ['kind','workspaceId','targetPath','actorUserId','actorSessionId','agentId','toolName','toolCallId',
+      'operationId','requestId','requestFingerprint','sourceHash','sourceBytes'] as const;
+    const originKeys = ['userId','agentId','piSessionId','toolName','toolCallId','agentTurnId','piSessionDbId',
+      'agentProfileId','agentProfileRevision','workflowVersion','workflowRevision','workspaceId','workspaceType',
+      'organizationId','customerId','projectId','ownerUserId','rootPath','rootRelativePath','legacy','status',
+      'schema','schemaOid','searchPath','databaseOid'] as const;
+    return hash(JSON.stringify({ domain: 'canvas-authenticated-agent-markdown-create-v1',
+      intent:Object.fromEntries(sourceKeys.map(key => [key,binding[key]])),
+      origin:Object.fromEntries(originKeys.map(key => [key,Reflect.get(origin,key)])),
+      representation: prepared.representation, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom }));
+  }
   if ('kind' in binding && binding.kind === 'direct-mcp-markdown-v1') {
     const keys = ['kind', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'clientId', 'tool', 'operationId', 'requestId',
       'ingestRequestFingerprint', 'sourceHash', 'sourceBytes', 'fileId', 'declaredMimeType', 'ingestValidationJson'] as const;
@@ -932,7 +951,7 @@ async function withManualCreateSource<T>(binding: ManualEmptyBinding, origin: Pr
   createSources.add(source);
   try { await assert(); return await operation(source); } finally { createSources.delete(source); }
 }
-type AuthenticatedCreateAccess = WorkspaceRequestPrincipalAccess | DirectMcpDocumentCreatePrincipalAccess;
+type AuthenticatedCreateAccess = WorkspaceRequestPrincipalAccess | DirectMcpDocumentCreatePrincipalAccess | WorkspaceAgentToolPrincipalAccess;
 type AuthenticatedUploadScope = { active: boolean; database: SqlConnection; access: AuthenticatedCreateAccess;
   frame: BootstrapFrame; source: AuthenticatedCreateSource; absence: UploadTargetAbsence;
   documentId: string; originalLineageId: string | null; lineage: BootstrapLineage };
@@ -987,6 +1006,191 @@ export function assertAuthenticatedManualMarkdownBirthWithinTurn(input: ManualBi
     || performance.now() >= phase.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
 }
 const uploadIntentKeys = ['uploadSessionId', 'fileId', 'workspaceId', 'targetPath', 'actorUserId', 'actorSessionId', 'requestId', 'operationId'] as const;
+
+type AgentCreateSelection = Readonly<{ workspaceId: string; path: string; content: string; idempotencyKey?: string; expectedSha256?: string }>;
+type AgentCreateInvocation = {
+  active: boolean; selection: AgentCreateSelection; operationId: string; fingerprint: string; callerKey: string;
+  original: WorkspaceAgentToolHistoricalOrigin; current: WorkspaceAgentToolHistoricalOrigin;
+  assertInvocation: () => void;
+  policy: { assertCurrent(database: SqlConnection, access: WorkspaceAgentToolPrincipalAccess): Promise<void> };
+  binding: AgentMarkdownCreateSourceBinding; birth: MarkdownCreateBirthOriginal | null;
+  mutationResult?: DocumentCreateMutationResultV1;
+};
+const agentCreateInvocations = new WeakSet<AgentCreateInvocation>();
+type AgentCreatePhase = { active: boolean; database: SqlConnection; access: WorkspaceAgentToolPrincipalAccess;
+  frame: Extract<BootstrapFrame, { kind: 'agent-tool' }> };
+const agentCreatePhases = new AsyncLocalStorage<AgentCreatePhase>();
+const agentCreateFactories = new AsyncLocalStorage<{active:boolean;frame:Extract<BootstrapFrame,{kind:'agent-tool'}>;
+  principal:WorkspaceAgentMarkdownCreatePrincipal}>();
+type AgentBirthOwner = { active: boolean; accepting: boolean; frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>;
+  source: AuthenticatedCreateSource; openPhase: () => Promise<SqlConnection>;
+  invocation?: MarkdownCreateBirthStorageInput; claim?: MarkdownCreateBirthClaim };
+const agentBirthOwners = new AsyncLocalStorage<AgentBirthOwner>();
+
+function captureAgentCreateSelection(value: AgentCreateSelection): AgentCreateSelection {
+  const row = mcpObject(value,['workspaceId','path','content'],['idempotencyKey','expectedSha256']);
+  if (!validId(row.workspaceId) || typeof row.path !== 'string' || row.path.length > 4096
+    || !isCanonicalAdmissionPath(row.path) || isInternalWorkspaceStagingPath(row.path) || !/\.(?:md|markdown)$/iu.test(row.path)
+    || typeof row.content !== 'string' || row.content.length > MARKDOWN_FILE_IMPORT_LIMIT
+    || Buffer.byteLength(row.content,'utf8') > MARKDOWN_FILE_IMPORT_LIMIT || Buffer.from(row.content,'utf8').toString('utf8') !== row.content
+    || Object.hasOwn(row,'idempotencyKey') && (typeof row.idempotencyKey !== 'string' || row.idempotencyKey.length < 1
+      || row.idempotencyKey.length > 500 || /[\u0000-\u001f\u007f]/u.test(row.idempotencyKey)
+      || Buffer.from(row.idempotencyKey,'utf8').toString('utf8') !== row.idempotencyKey)
+    || Object.hasOwn(row,'expectedSha256') && (typeof row.expectedSha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(row.expectedSha256))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  return Object.freeze({ workspaceId: row.workspaceId, path: row.path, content: row.content,
+    ...(Object.hasOwn(row,'idempotencyKey') ? { idempotencyKey: row.idempotencyKey as string } : {}),
+    ...(Object.hasOwn(row,'expectedSha256') ? {expectedSha256:row.expectedSha256 as string} : {}) });
+}
+function currentAgentCreateInvocation(frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>): AgentCreateInvocation {
+  const actual = frame.invocation;
+  if (!actual.active || !agentCreateInvocations.has(actual) || actual.original !== frame.originalOrigin) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  actual.assertInvocation();
+  const before = actual.original, current = actual.current;
+  if (['userId','agentId','toolName','workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId',
+    'rootPath','rootRelativePath','legacy','status','schema','schemaOid','searchPath','databaseOid']
+    .some(key => Reflect.get(before,key) !== Reflect.get(current,key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  return actual;
+}
+async function withAgentCreateSource<T>(actual: AgentCreateInvocation, operation: (source: AuthenticatedCreateSource) => Promise<T>): Promise<T> {
+  const bytes = Buffer.from(actual.selection.content,'utf8');
+  const source: AuthenticatedCreateSource = Object.freeze({ binding: actual.binding,
+    assertCurrent: async () => {
+      actual.assertInvocation();
+      if (!actual.active || !agentCreateInvocations.has(actual) || !createSources.has(source)
+        || bytes.byteLength !== source.binding.sourceBytes || hash(bytes) !== source.binding.sourceHash) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    }, readSource: async () => { await source.assertCurrent(); return new Uint8Array(bytes); } });
+  createSources.add(source);
+  try { return await operation(source); } finally { createSources.delete(source); }
+}
+function currentAgentBirthOwner(input: MarkdownCreateBirthStorageInput): AgentBirthOwner {
+  const owner = agentBirthOwners.getStore(), binding = owner?.source.binding;
+  if (!owner?.active || !owner.accepting || !binding || !('kind' in binding) || binding.kind !== 'agent-markdown-v1'
+    || !createSources.has(owner.source) || input.workspaceRoot !== owner.frame.originalOrigin.rootPath
+    || input.targetPath !== binding.targetPath || input.operationId !== binding.operationId
+    || !isDeepStrictEqual(input.origin,owner.frame.originalOrigin) || !isDeepStrictEqual(input.source,binding)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  currentAgentCreateInvocation(owner.frame); agentMarkdownCreateAttribution(input as unknown as Record<string,unknown>); return owner;
+}
+export async function assertAuthenticatedAgentMarkdownBirthStorageAllowed(input: MarkdownCreateBirthStorageInput, stage: string): Promise<void> {
+  const owner = currentAgentBirthOwner(input), consumer = agentCreatePhases.getStore(), projection = firstProjectionPhases.getStore();
+  if (consumer && (!consumer.active || consumer.frame !== owner.frame)
+    || projection && (!projection.active || projection.frame !== owner.frame || projection.source !== owner.source
+      || !consumer || projection.database !== consumer.database || projection.access !== consumer.access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (stage === 'entry') { if (owner.invocation) return fail('MARKDOWN_IMPORT_INVALID_INPUT'); owner.invocation = input; }
+  else if (owner.invocation !== input) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (stage === 'closed') { owner.accepting = false; return; }
+  await assertBootstrapOwner(owner.frame); await assertFirstProjectionOwnerOrigin(owner.frame); await owner.source.assertCurrent();
+  if (projection) await currentAuthenticatedMarkdownBirth(projection);
+  else if (consumer) await assertAuthenticatedCreateOriginCurrent(consumer.database,owner.frame,consumer.access);
+  else await withAuthenticatedCreatePhaseFactory(owner.frame,() => executeLifecycleTransaction({openConnection:owner.openPhase,execute:async database => {
+    await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+    return withAuthenticatedCreatePrincipalOnConnection(database,owner.frame,async access => {
+      await access.assertCurrent(); await assertBootstrapOwner(owner.frame); await owner.source.assertCurrent();
+    });
+  },recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED')}));
+  if (stage === 'before_link' || stage === 'parent_link') assertAuthenticatedAgentMarkdownBirthWithinTurn(input);
+}
+export function assertAuthenticatedAgentMarkdownBirthWithinTurn(input: MarkdownCreateBirthStorageInput): void {
+  const owner = currentAgentBirthOwner(input), phase = firstProjectionPhases.getStore(), consumer = agentCreatePhases.getStore();
+  if (owner.invocation !== input || !consumer?.active || consumer.frame !== owner.frame || !phase?.active
+    || phase.database !== consumer.database || phase.access !== consumer.access || phase.frame !== owner.frame || phase.source !== owner.source
+    || !owner.claim || phase.claim !== owner.claim || phase.input.operationId !== input.operationId || phase.input.path !== input.targetPath
+    || phase.input.actorUserId !== owner.frame.originalOrigin.userId || phase.input.actorSessionId !== owner.frame.originalOrigin.piSessionId
+    || phase.result.receipt.requestFingerprint !== phase.input.fingerprint || performance.now() >= phase.publicationDeadline) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+}
+function bindAgentBirthOriginal(actual: AgentCreateInvocation, birth: MarkdownCreateBirthOriginal): void {
+  const binding = agentMarkdownCreateAttribution(birth.intent as Record<string, unknown>);
+  const row = mcpObject(birth.intent.origin,Object.keys(actual.original));
+  const origin = Object.freeze(row) as WorkspaceAgentToolHistoricalOrigin;
+  if (binding.operationId !== actual.operationId || binding.requestFingerprint !== actual.fingerprint
+    || binding.targetPath !== actual.selection.path || binding.workspaceId !== actual.selection.workspaceId) return fail('MARKDOWN_IMPORT_REQUEST_CONFLICT');
+  for (const key of ['userId','agentId','toolName','workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId',
+    'rootPath','rootRelativePath','legacy','status','schema','schemaOid','searchPath','databaseOid']) {
+    if (Reflect.get(origin,key) !== Reflect.get(actual.current,key)) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+  }
+  actual.original = isDeepStrictEqual(actual.original,origin) ? actual.original : origin;
+  actual.binding = binding; actual.birth = birth;
+}
+
+/** Genuine PI entry. The caller's stable key is independent of the current
+ * PI session; private original attribution never supplies current rights. */
+export async function persistAndProjectAgentMarkdownCreate(selection: AgentCreateSelection): Promise<DocumentCreateMutationResultV1 | null> {
+  const selected = captureAgentCreateSelection(selection);
+  if (!authenticatedNativeTextSessionEnabled()) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+  if (hasCollaborationHandoffExecutionContext() || getWorkspaceFileLifecycleLeases()?.size) return fail('MARKDOWN_IMPORT_BUSY');
+  const invocation = captureCurrentAgentToolInvocation();
+  return withCapturedAgentToolInvocation(invocation, async assertInvocation => withPreparedDocumentCreateToolPolicy(policy =>
+    withWorkspaceMutationLock(selected.workspaceId, async () => {
+      const callerKey = selected.idempotencyKey ?? assertInvocation().toolCallId;
+      if (typeof callerKey !== 'string' || !callerKey || callerKey.length > 500 || /[\u0000-\u001f\u007f]/u.test(callerKey)
+        || Buffer.from(callerKey,'utf8').toString('utf8') !== callerKey) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+      let current: WorkspaceAgentToolHistoricalOrigin | undefined;
+      const workspace = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({ workspaceId: selected.workspaceId },
+        observed => { current = observed; }, principal => executeLifecycleTransaction({ openConnection: openDb,
+          execute: async database => {
+            await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+            return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
+              await policy.assertCurrent(database,access); return access.workspace;
+            });
+          }, recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+      if (!current) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+      const original = current;
+      const operationId = hash(JSON.stringify(['canvas-agent-markdown-create-key-v1',original.userId,original.agentId,selected.workspaceId,callerKey]));
+      const fingerprint = hash(JSON.stringify(['canvas-agent-markdown-create-request-v1',original.toolName,selected.path,hash(selected.content),Buffer.byteLength(selected.content)]));
+      try {
+      const birth = await observeOptionalMarkdownCreateBirth({ workspaceRoot: workspace.rootPath, workspaceId: selected.workspaceId, operationId });
+      const binding: AgentMarkdownCreateSourceBinding = Object.freeze({ kind: 'agent-markdown-v1', workspaceId: selected.workspaceId,
+        targetPath: selected.path, actorUserId: original.userId, actorSessionId: original.piSessionId,
+        agentId: original.agentId, toolName: original.toolName as 'write' | 'pdf_to_markdown', toolCallId: original.toolCallId,
+        operationId, requestId: `agent-create:${operationId}`, requestFingerprint: fingerprint,
+        sourceHash: hash(selected.content), sourceBytes: Buffer.byteLength(selected.content) });
+      const actual: AgentCreateInvocation = { active: true, selection: selected, operationId, fingerprint, callerKey, original, current: original,
+        assertInvocation: () => { assertInvocation(); }, policy, binding, birth: null };
+      if (birth) bindAgentBirthOriginal(actual,birth);
+      // Historical original lookup precedes any present-day target observation.
+      if (!birth) {
+        const documents = await withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:selected.workspaceId},
+          () => undefined, principal => executeLifecycleTransaction({ openConnection:openDb,
+            execute:async database => {
+              await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+              return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,principal,async access => {
+                await policy.assertCurrent(database,access);
+                return readWorkspaceDocumentCatalogue(database,access.workspace,{paths:[selected.path],maxEntries:2});
+              });
+            }, recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED') }));
+        let physical: Stats | undefined;
+        try { physical = await fs.lstat(path.join(workspace.rootPath,selected.path)); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        if (documents.some(document => document.authority === 'initialized') && (!physical || physical.size === 0)) return fail('MARKDOWN_IMPORT_LIFECYCLE_REQUIRED');
+        if (physical) return null;
+        if (selected.expectedSha256 !== undefined) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+        // This MVP bound applies only to a genuinely fresh Agent creation.
+        // Original Birth retries and existing files were selected above.
+        if (binding.sourceBytes > 1024 * 1024) throw Object.assign(new MarkdownFileImportError('MARKDOWN_IMPORT_INVALID_INPUT'), {
+          message: 'New native Markdown documents created by an agent support at most 1 MiB (1048576 UTF-8 bytes). The supplied content exceeds this limit.',
+        });
+      }
+      agentCreateInvocations.add(actual);
+      try {
+        return await withAgentCreateSource(actual,async source => {
+          const origin = actual.original;
+          await persistAuthenticatedCreateEngine(actual,{workspaceId:selected.workspaceId,targetPath:selected.path,actorUserId:origin.userId,
+            actorSessionId:origin.piSessionId,requestId:binding.requestId,operationId},origin,source,{openConnection:openDb},true);
+          if (!actual.mutationResult) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+          return actual.mutationResult;
+        });
+      } finally { actual.active = false; agentCreateInvocations.delete(actual); }
+      } catch (error) {
+        // The original key remains concrete even when native/FD COMMIT or
+        // cleanup cannot be confirmed. No automatic retry is initiated here.
+        if (error instanceof MarkdownFileImportError
+          && (error.code === 'MARKDOWN_IMPORT_ENCODING_UNSUPPORTED' || error.code === 'MARKDOWN_IMPORT_RICH_UNAVAILABLE')) throw error;
+        if (error && typeof error === 'object' && ['MARKDOWN_IMPORT_REQUEST_CONFLICT','MARKDOWN_IMPORT_INVALID_INPUT',
+          'MARKDOWN_IMPORT_LIFECYCLE_REQUIRED','MARKDOWN_IMPORT_TARGET_CHANGED',
+          'PRINCIPAL_ACCESS_DENIED','PRINCIPAL_AUTH_REVOKED','TOOL_POLICY_DENIED'].includes(String(Reflect.get(error,'code')))) throw error;
+        throw Object.assign(new MarkdownFileImportError('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),{ cause:error,operationId,idempotencyKey:callerKey });
+      }
+    })));
+}
 
 export type DirectMcpMarkdownCreateSelection = Readonly<{ workspaceId: string; path: string; idempotencyKey: string } & (
   { tool: 'create_knowledge_source'; content: string }
@@ -1069,6 +1273,20 @@ function currentMcpInvocation(frame: Extract<BootstrapFrame, { kind: 'direct-mcp
 }
 async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConnection, frame: BootstrapFrame,
   operation: (access: AuthenticatedCreateAccess) => Promise<T>, requestPrincipal?: WorkspaceRequestPrincipal): Promise<T> {
+  if (frame.kind === 'agent-tool') {
+    currentAgentCreateInvocation(frame);
+    const factory = agentCreateFactories.getStore();
+    if (agentCreatePhases.getStore() || !factory?.active || factory.frame !== frame) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    return withWorkspaceAgentMarkdownCreatePrincipalOnConnection(database,factory.principal,async access => {
+        const phase: AgentCreatePhase = {active:true,database,access,frame};
+        return agentCreatePhases.run(phase,async () => {
+          try {
+            await assertAuthenticatedCreateOriginCurrent(database,frame,access);
+            const value = await operation(access); await assertAuthenticatedCreateOriginCurrent(database,frame,access); return value;
+          } finally { phase.active = false; }
+        });
+      });
+  }
   if (frame.kind === 'direct-mcp') {
     const actual = currentMcpInvocation(frame);
     // A retained or nested consumer cannot start a second Principal phase.
@@ -1089,14 +1307,36 @@ async function withAuthenticatedCreatePrincipalOnConnection<T>(database: SqlConn
     principal => withWorkspaceRequestPrincipalOnConnection(database, principal, operation));
 }
 async function withAuthenticatedCreatePhaseFactory<T>(frame: BootstrapFrame,
-  operation: (requestPrincipal?: WorkspaceRequestPrincipal) => Promise<T>): Promise<T> {
+  operation: (requestPrincipal?: WorkspaceRequestPrincipal) => Promise<T>, agentOnly = false): Promise<T> {
+  if (frame.kind === 'agent-tool') {
+    const actual = currentAgentCreateInvocation(frame);
+    return withWorkspaceAgentMarkdownCreatePrincipalOriginalOrigin({workspaceId:frame.selection.workspaceId},
+      observed => { actual.current = observed; }, async principal => {
+        const factory = {active:true,frame,principal};
+        try { return await agentCreateFactories.run(factory,() => operation()); }
+        finally { factory.active = false; }
+      });
+  }
+  if (agentOnly) return operation();
   if (frame.kind === 'direct-mcp') { currentMcpInvocation(frame); return operation(); }
   const { withWorkspaceRequestPrincipal } = await import('../workspaces/request-principal');
   return withWorkspaceRequestPrincipal(frame.request, { workspaceId: frame.selection.workspaceId, permission: frame.permission }, operation);
 }
 async function assertAuthenticatedCreateOriginCurrent(database: SqlConnection, frame: BootstrapFrame,
   access: AuthenticatedCreateAccess): Promise<void> {
-  if (frame.kind === 'request') return assertBootstrapExpectedScope(database, frame, access);
+  if (frame.kind === 'request') {
+    if (!('sessionId' in access)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    return assertBootstrapExpectedScope(database, frame, access);
+  }
+  if (frame.kind === 'agent-tool') {
+    const actual = currentAgentCreateInvocation(frame), current = actual.current, expected = frame.originalOrigin;
+    if (!('piSessionId' in access) || access.userId !== current.userId || access.agentId !== current.agentId
+      || access.piSessionId !== current.piSessionId || access.toolName !== current.toolName || access.toolCallId !== current.toolCallId
+      || !access.workspace.permissions.canRead || !access.workspace.permissions.canWrite || !access.workspace.permissions.canRunAgent
+      || ['workspaceId','workspaceType','organizationId','customerId','projectId','ownerUserId','rootPath','rootRelativePath','legacy','status']
+        .some(key => (Reflect.get(access.workspace,key) ?? null) !== Reflect.get(expected,key))) return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    await actual.policy.assertCurrent(database,access); await assertMarkdownBirthRealm(database,frame); return;
+  }
   const actual = currentMcpInvocation(frame), expected = frame.originalOrigin, current = actual.current!;
   if (!('clientId' in access) || !('tool' in access) || access.userId !== current.userId || access.clientId !== current.clientId
     || access.sessionId !== current.sessionId || access.tool !== current.tool
@@ -1209,7 +1449,7 @@ function bindMcpBirthOriginal(actual: DirectMcpCreateInvocation, birth: Markdown
 }
 /** Bounded actual metadata from this principal's already pinned native realm.
  * No ReadPhase/admission or read grant is borrowed to describe a write result. */
-async function readMcpCreateResultMetadata(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>,
+async function readMcpCreateResultMetadata(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' | 'agent-tool' }>,
   target: MarkdownFileImportReceipt['target']): Promise<{ title: string | null; revision: number | null }> {
   const schema = quoteBootstrap(frame.realm.schema), original = frame.originalOrigin;
   const rows = await database.all(`SELECT m.workspace_id IS NOT NULL AS metadata_present,
@@ -1240,9 +1480,15 @@ async function readMcpCreateResultMetadata(database: SqlConnection, frame: Extra
   return Object.freeze({ title: title as string | null, revision: revision === null ? null : Number(revision) });
 }
 async function observeMcpNativeCompletion(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' }>,
+  access: AuthenticatedCreateAccess, outcome?: 'created' | 'already_created'):
+  Promise<{ result: MarkdownFileImportResult; receipt: DirectMcpFileReceipt; mutationResult?: DocumentCreateMutationResultV1 } | null>;
+async function observeMcpNativeCompletion(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'agent-tool' }>,
+  access: AuthenticatedCreateAccess, outcome?: 'created' | 'already_created'):
+  Promise<{ result: MarkdownFileImportResult; mutationResult?: DocumentCreateMutationResultV1 } | null>;
+async function observeMcpNativeCompletion(database: SqlConnection, frame: Extract<BootstrapFrame, { kind: 'direct-mcp' | 'agent-tool' }>,
   access: AuthenticatedCreateAccess, outcome: 'created' | 'already_created' = 'already_created'):
-  Promise<{ result: MarkdownFileImportResult; receipt: DirectMcpFileReceipt; mutationResult?: DocumentCreateMutationResultV1 } | null> {
-  const actual = currentMcpInvocation(frame), binding = actual.binding;
+  Promise<{ result: MarkdownFileImportResult; receipt?: DirectMcpFileReceipt; mutationResult?: DocumentCreateMutationResultV1 } | null> {
+  const actual = frame.kind === 'agent-tool' ? currentAgentCreateInvocation(frame) : currentMcpInvocation(frame), binding = actual.binding;
   await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame); await assertBootstrapNativeRealm(database, frame, true);
   await assertMarkdownBirthRealm(database, frame);
   const rows = await database.all(`SELECT actor_user_id,actor_session_id,request_id,request_fingerprint,private_result
@@ -1252,7 +1498,8 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
   if (rows.length !== 1 || !binding || !actual.birth) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   const receipt = rows[0].private_result as MarkdownFileImportReceipt;
   if (!receipt || !validIdentity(receipt.target)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-  const metadata = actual.apiVersion === 1 ? await readMcpCreateResultMetadata(database, frame, receipt.target) : undefined;
+  const metadata = frame.kind === 'agent-tool' || 'apiVersion' in actual && actual.apiVersion === 1
+    ? await readMcpCreateResultMetadata(database, frame, receipt.target) : undefined;
   const expected: RetryExpectation = { workspace: access.workspace, path: binding.targetPath, operationId: binding.operationId,
     requestId: binding.requestId, actorUserId: binding.actorUserId, actorSessionId: binding.actorSessionId,
     expectedTarget: { kind: 'absent' }, fingerprint: createFingerprint(binding, frame.originalOrigin, receipt.target),
@@ -1260,7 +1507,10 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
       newlineStyle: receipt.target.newlineStyle, hasBom: receipt.target.hasBom } };
   const prior = await confirmedAuthenticatedUploadRetry(database, expected);
   if (!prior || prior.currentObservation.documentSequence !== receipt.target.initialSequence
-    || prior.currentObservation.stateProof !== receipt.target.initialStateProof) throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The original document has changed.');
+    || prior.currentObservation.stateProof !== receipt.target.initialStateProof) {
+    if (frame.kind === 'agent-tool') return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The original document has changed.');
+  }
   await assertBootstrapRoomAbsent(database, receipt.target.documentId);
   const birth = await database.get(`SELECT document_id,lifecycle_generation,claim_id,claim_fingerprint,request_fingerprint,finalized,revision_id,serialized_hash
     FROM collaboration_markdown_create_births WHERE workspace_id=$1 AND operation_id=$2`,
@@ -1283,26 +1533,30 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
   const { serializeCanonicalText } = await import('./persistence');
   const serialized = serializeCanonicalText(authoritativeCollaborationSnapshot(state).canonicalContent, state);
   const serializedHash = hash(serialized), size = Buffer.byteLength(serialized);
-  if (serializedHash !== physical.serializedHash || size > 524288) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  if (serializedHash !== physical.serializedHash || size > (frame.kind === 'agent-tool' ? MARKDOWN_FILE_IMPORT_LIMIT : 524288)) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
   const latest = await database.get(`SELECT id,content_hash,size_bytes,created_by_user_id,created_by_actor_type,source_session_id
     FROM file_revisions WHERE lineage_id=$1 AND history_only=false ORDER BY revision_number DESC,id DESC LIMIT 1`,
   [receipt.target.lineageId]) as Record<string, unknown> | undefined;
   if (!latest || latest.id !== birth.revision_id || latest.content_hash !== serializedHash || Number(latest.size_bytes) !== size
     || latest.created_by_user_id !== frame.originalOrigin.userId || latest.created_by_actor_type !== 'agent'
-    || latest.source_session_id !== frame.originalOrigin.sessionId) throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The original revision has changed.');
+    || latest.source_session_id !== (frame.kind === 'agent-tool' ? frame.originalOrigin.piSessionId : frame.originalOrigin.sessionId)) {
+    if (frame.kind === 'agent-tool') return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
+    throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'The original revision has changed.');
+  }
   const projection = await database.get(`SELECT finalized,revision_id,serialized_hash,canonical_hash,projected_sequence FROM collaboration_file_projections
     WHERE document_id=$1 AND lifecycle_generation=$2`, [receipt.target.documentId, receipt.target.lifecycleGeneration]) as Record<string, unknown> | undefined;
   if (!projection || Number(projection.finalized) !== 1 || projection.revision_id !== latest.id || projection.serialized_hash !== serializedHash
     || projection.canonical_hash !== state.canonicalHash || Number(projection.projected_sequence) !== state.checkpointSequence) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
-  const validation = JSON.parse(binding.ingestValidationJson) as DirectMcpIngestContentValidation;
-  const result: DirectMcpFileReceipt = { status: 'already_created', workspace_id: binding.workspaceId, path: binding.targetPath,
+  const validation = binding.kind === 'direct-mcp-markdown-v1' ? JSON.parse(binding.ingestValidationJson) as DirectMcpIngestContentValidation : undefined;
+  const result: DirectMcpFileReceipt | undefined = validation ? { status: 'already_created', workspace_id: binding.workspaceId, path: binding.targetPath,
     size, sha256: serializedHash, mime_type: validation.mimeType, revision_id: String(latest.id), operation_id: binding.operationId,
     ...directMcpFileLinkFields({ workspaceId: binding.workspaceId, path: binding.targetPath,
-      documentId: receipt.target.documentId, lineageId: receipt.target.lineageId }), markdown: validation.markdown, warnings: validation.warnings };
+      documentId: receipt.target.documentId, lineageId: receipt.target.lineageId }), markdown: validation.markdown, warnings: validation.warnings } : undefined;
   await assertAuthenticatedCreateOriginCurrent(database, frame, access); await assertBootstrapOwner(frame);
   let mutationResult: DocumentCreateMutationResultV1 | undefined;
   if (metadata) {
     if (!isDeepStrictEqual(metadata, await readMcpCreateResultMetadata(database, frame, receipt.target))) {
+      if (frame.kind === 'agent-tool') return fail('MARKDOWN_IMPORT_TARGET_CHANGED');
       throw new DirectMcpFileIngestError('MCP_INGEST_DESTINATION_CHANGED', 'Document metadata changed during completion.');
     }
     const target = receipt.target;
@@ -1313,7 +1567,15 @@ async function observeMcpNativeCompletion(database: SqlConnection, frame: Extrac
       metadataTitle: metadata.title, metadataRevision: metadata.revision, persistedSequence: state.documentSequence,
       persistedAt: state.persistedAt, checkpointSequence: state.checkpointSequence, checkpointedAt: state.checkpointedAt });
   }
-  return { result: { disposition: 'already-applied', ...prior }, receipt: result, ...(mutationResult ? { mutationResult } : {}) };
+  return { result: { disposition: 'already-applied', ...prior }, ...(result ? {receipt: result} : {}), ...(mutationResult ? { mutationResult } : {}) };
+}
+async function observeAgentNativeCompletion(database: SqlConnection, frame: Extract<BootstrapFrame,{kind:'agent-tool'}>,
+  access: AuthenticatedCreateAccess, outcome: 'created' | 'already_created' = 'already_created'):
+  Promise<{result:MarkdownFileImportResult;mutationResult:DocumentCreateMutationResultV1}|null> {
+  const completed = await observeMcpNativeCompletion(database,frame,access,outcome);
+  if (!completed) return null;
+  if (!completed.mutationResult) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+  return {result:completed.result,mutationResult:completed.mutationResult};
 }
 /** Fixed real MCP entry. Content/URL IO is deliberately after both original lookups. */
 export async function persistAndProjectDirectMcpMarkdownCreate(authInfo: AuthInfo, selection: DirectMcpMarkdownCreateSelection,
@@ -1452,8 +1714,8 @@ async function openVerifiedManualCreateConnection(openConnection: () => Promise<
 async function assertAuthenticatedUploadScope(database: SqlConnection, input: Captured, scope: AuthenticatedUploadScope): Promise<void> {
   if (!scope.active || scope.database !== database || authenticatedUploadScopes.get(input) !== scope
     || !createSources.has(scope.source) || scope.access.userId !== input.actorUserId
-    || (scope.frame.kind === 'request' ? scope.access.sessionId !== input.actorSessionId
-      : input.actorSessionId !== scope.frame.originalOrigin.sessionId)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+    || (scope.frame.kind === 'request' ? !('sessionId' in scope.access) || scope.access.sessionId !== input.actorSessionId
+      : input.actorSessionId !== (scope.frame.kind === 'agent-tool' ? scope.frame.originalOrigin.piSessionId : scope.frame.originalOrigin.sessionId))) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   await scope.access.assertCurrent(); await assertBootstrapOwner(scope.frame); await assertBootstrapNativeRealm(database, scope.frame);
   await assertAuthenticatedCreateOriginCurrent(database, scope.frame, scope.access);
   await scope.source.assertCurrent(); await assertUploadTargetAbsent(scope.access.workspace, input.path, scope.absence);
@@ -1510,7 +1772,7 @@ async function captureAuthenticatedUpload(database: SqlConnection, frame: Bootst
     bytes, expectedTarget: { kind: 'absent' }, ...('kind' in source.binding && source.binding.kind === 'manual-empty-v1'
       ? { representation: 'tiptap_blocks' as const } : {}),
     validateAuthority: async () => undefined });
-  input.fingerprint = createFingerprint(source.binding, frame.expectedScope!, input.prepared);
+  input.fingerprint = createFingerprint(source.binding, frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope!, input.prepared);
   await assertWorkspaceFileLifecycleSqlAvailable(database, input.workspace.workspaceId, [input.path]);
   await lockFileCollaborationPaths(database, input.workspace.workspaceId, [input.path]);
   const prior = await confirmedAuthenticatedUploadRetry(database, input);
@@ -1733,11 +1995,13 @@ async function persistAuthenticatedMarkdownUploadEngine(request: NextRequest, se
     source => persistAuthenticatedCreateEngine(original, intent, expectedScope, source, dependencies, project)));
 }
 
-async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMcpCreateInvocation, intent: CreateIntent,
-  expectedScope: PristineOriginalRequestScopeExpectation, providedSource: AuthenticatedCreateSource | null,
+async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMcpCreateInvocation | AgentCreateInvocation, intent: CreateIntent,
+  expectedScope: PristineOriginalRequestScopeExpectation | WorkspaceAgentToolHistoricalOrigin, providedSource: AuthenticatedCreateSource | null,
   dependencies: { openConnection: () => Promise<SqlConnection> }, project: boolean): Promise<MarkdownFileImportResult | AuthenticatedMarkdownFirstProjectionResult> {
-  const mcp = original instanceof NextRequest ? null : original;
-  if (mcp ? !mcp.active || !directMcpInvocations.has(mcp) || providedSource !== null
+  const agent = !(original instanceof NextRequest) && agentCreateInvocations.has(original as AgentCreateInvocation) ? original as AgentCreateInvocation : null;
+  const mcp = original instanceof NextRequest || agent ? null : original as DirectMcpCreateInvocation;
+  if (agent ? !agent.active || !providedSource || !createSources.has(providedSource)
+    : mcp ? !mcp.active || !directMcpInvocations.has(mcp) || providedSource !== null
     : !providedSource || !createSources.has(providedSource)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const openConnection = dependencies.openConnection;
     let owner: SqlConnection | undefined, ownerIdentity: BootstrapOwner | undefined, ownerCloseFailure: unknown;
@@ -1758,9 +2022,10 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
       if (!owner || !ownerIdentity) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
       const common = { selection: { workspaceId: intent.workspaceId, path: intent.targetPath,
         operationId: intent.operationId, requestId: intent.requestId, expectedTarget: { kind: 'absent' as const } },
-      realm, owner, identity: ownerIdentity, permission: 'canWrite' as const, expectedScope };
-      const frame: BootstrapFrame = mcp ? { ...common, kind: 'direct-mcp', invocation: mcp, originalOrigin: mcp.original }
-        : { ...common, kind: 'request', request: original as NextRequest };
+      realm, owner, identity: ownerIdentity, permission: 'canWrite' as const };
+      const frame: BootstrapFrame = agent ? {...common,kind:'agent-tool',invocation:agent,originalOrigin:agent.original}
+        : mcp ? { ...common, expectedScope:mcp.original, kind: 'direct-mcp', invocation: mcp, originalOrigin: mcp.original }
+        : { ...common, expectedScope:expectedScope as PristineOriginalRequestScopeExpectation, kind: 'request', request: original as NextRequest };
       const openPhase = async () => {
         const database = await openConnection();
         if (database === owner) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
@@ -1782,6 +2047,13 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
           return completed.result;
         }
       }
+      if (frame.kind === 'agent-tool') {
+        const completed = await withAuthenticatedCreatePhaseFactory(frame,() => executeLifecycleTransaction({openConnection:openPhase,execute:async database => {
+          await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+          return withAuthenticatedCreatePrincipalOnConnection(database,frame,access => observeAgentNativeCompletion(database,frame,access));
+        },recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED')}));
+        if (completed) { frame.invocation.mutationResult = completed.mutationResult; return completed.result; }
+      }
       const source = frame.kind === 'direct-mcp' ? await loadDirectMcpCreateSource(frame) : providedSource!;
       const persist = async (birth?: MarkdownCreateBirthClaim) => {
       const manualOwner = manualBirthOwners.getStore();
@@ -1792,6 +2064,10 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         const mcpOwner = directMcpBirthOwners.getStore();
         if (!mcpOwner?.active || mcpOwner.frame !== frame || mcpOwner.source !== source || !birth || mcpOwner.claim) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
         mcpOwner.claim = birth;
+      } else if ('kind' in source.binding && source.binding.kind === 'agent-markdown-v1') {
+        const agentOwner = agentBirthOwners.getStore();
+        if (!agentOwner?.active || agentOwner.frame !== frame || agentOwner.source !== source || !birth || agentOwner.claim) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+        agentOwner.claim = birth;
       }
       const absence = birth ? Object.freeze({ configuredRoot: expectedScope.rootPath, resolvedRoot: '', profile: '', ancestors: [] })
         : await observeUploadTargetAbsence({ rootPath: expectedScope.rootPath } as WorkspaceContext, intent.targetPath);
@@ -1879,6 +2155,11 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         const mcpOwner: DirectMcpBirthOwner = { active: true, accepting: true, frame, source, openPhase };
         try { projected = await directMcpBirthOwners.run(mcpOwner, publish) as AuthenticatedMarkdownFirstProjectionResult; }
         finally { mcpOwner.accepting = false; mcpOwner.active = false; }
+      } else if ('kind' in source.binding && source.binding.kind === 'agent-markdown-v1') {
+        if (frame.kind !== 'agent-tool') return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+        const agentOwner: AgentBirthOwner = {active:true,accepting:true,frame,source,openPhase};
+        try { projected = await agentBirthOwners.run(agentOwner,publish) as AuthenticatedMarkdownFirstProjectionResult; }
+        finally { agentOwner.accepting = false; agentOwner.active = false; }
       } else projected = await publish() as AuthenticatedMarkdownFirstProjectionResult;
       await source.assertCurrent(); await assertBootstrapOwner(frame); await assertFirstProjectionOwnerOrigin(frame);
       if (frame.kind === 'direct-mcp') {
@@ -1895,6 +2176,18 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
         frame.invocation.receipt = { ...completed.receipt, status: 'created' };
         frame.invocation.mutationResult = completed.mutationResult;
       }
+      if (frame.kind === 'agent-tool') {
+        const freshBirth = await observeOptionalMarkdownCreateBirth({workspaceRoot:frame.originalOrigin.rootPath,
+          workspaceId:intent.workspaceId,operationId:intent.operationId});
+        if (!freshBirth) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+        bindAgentBirthOriginal(frame.invocation,freshBirth);
+        const completed = await withAuthenticatedCreatePhaseFactory(frame,() => executeLifecycleTransaction({openConnection:openPhase,execute:async database => {
+          await database.run('SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE');
+          return withAuthenticatedCreatePrincipalOnConnection(database,frame,access => observeAgentNativeCompletion(database,frame,access,'created'));
+        },recoverCommitted:async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED')}));
+        if (!completed) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
+        frame.invocation.mutationResult = completed.mutationResult;
+      }
       return projected;
     }, openOwner);
     return (async () => {
@@ -1909,7 +2202,7 @@ async function persistAuthenticatedCreateEngine(original: NextRequest | DirectMc
 }
 
 async function assertMarkdownBirthRealm(database: Pick<SqlConnection, 'get'>, frame: BootstrapFrame): Promise<void> {
-  const expected = frame.expectedScope;
+  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
   if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const row = await database.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,
@@ -1953,7 +2246,7 @@ function firstProjectionReads(database: SqlConnection): SqlConnection {
     run: () => fail('MARKDOWN_IMPORT_INVALID_INPUT'), close: () => fail('MARKDOWN_IMPORT_INVALID_INPUT') };
 }
 async function assertFirstProjectionOwnerOrigin(frame: BootstrapFrame): Promise<void> {
-  const expected = frame.expectedScope;
+  const expected = frame.kind === 'agent-tool' ? frame.originalOrigin : frame.expectedScope;
   if (!expected) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const row = await frame.owner.get(`SELECT current_schema() AS schema,to_regnamespace(current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_database WHERE datname=current_database()) AS database_oid,current_setting('search_path') AS search_path,
@@ -2037,7 +2330,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         });
       });
   };
-  const publication = await inCollaborationProjectionPhase('publication_authority', () => executeLifecycleTransaction({ openConnection: openPhase,
+  const publication = await withAuthenticatedCreatePhaseFactory(frame,() => inCollaborationProjectionPhase('publication_authority', () => executeLifecycleTransaction({ openConnection: openPhase,
     execute: database => phase(database, async (scope, state) => {
       const beforeBoundary = async (stage?: string) => {
         // A real Principal holds Auth/Workspace rows throughout this concrete
@@ -2078,8 +2371,9 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
           const revision = await ensureFileRevisionForCurrentContent({ workspace: scope.access.workspace, path: state.path,
             contentHash: sha256Text(serialized), sizeBytes: Buffer.byteLength(serialized),
             actorUserId: frame.kind === 'direct-mcp' ? frame.originalOrigin.userId : scope.access.userId,
-            actorType: frame.kind === 'direct-mcp' ? 'agent' : 'user',
-            sourceSessionId: frame.kind === 'direct-mcp' ? frame.originalOrigin.sessionId : scope.access.sessionId });
+            actorType: frame.kind === 'request' ? 'user' : 'agent',
+            sourceSessionId: frame.kind === 'agent-tool' ? frame.originalOrigin.piSessionId
+              : frame.kind === 'direct-mcp' ? frame.originalOrigin.sessionId : 'sessionId' in scope.access ? scope.access.sessionId : null });
           if (frame.kind === 'direct-mcp') {
             await beforeBoundary();
             const { fileVersionHistoryService } = await import('../file-version-center/history-service');
@@ -2108,7 +2402,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
       if (!changed) return fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED');
       return { revisionId: fenced.result.revisionId, serializedHash: fenced.state.serializedHash };
     }),
-    recoverCommitted: value => executeLifecycleTransaction({ openConnection: openPhase,
+    recoverCommitted: value => withAuthenticatedCreatePhaseFactory(frame,() => executeLifecycleTransaction({ openConnection: openPhase,
       execute: database => phase(database, async (_scope, state) => {
         const binding = await assertAuthenticatedMarkdownBirth(database, frame, input, result, claim);
         const receipt = await loadCollaborationProjectionReceipt(state), file = await claim.verify();
@@ -2118,8 +2412,8 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
         return value;
       }),
       recoverCommitted: async () => fail('MARKDOWN_IMPORT_COMMIT_UNCONFIRMED'),
-    }),
-  }));
+    }),true),
+  })),true);
   await assertBootstrapOwner(frame); await source.assertCurrent(); await claim.verify();
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
