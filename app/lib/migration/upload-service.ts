@@ -5,7 +5,6 @@ import path from 'path';
 import { createReadStream, createWriteStream, promises as fs } from 'fs';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import type { ReadableStream as NodeReadableStream } from 'stream/web';
 
 import { ensureMigrationDir, getMigrationUploadsRoot } from '@/app/lib/migration/paths';
 import type { MigrationUploadStatus } from '@/app/lib/migration/types';
@@ -110,7 +109,7 @@ export async function writeMigrationUploadPart(params: {
   await ensureMigrationDir(getUploadPartsDir(params.uploadId));
   const partPath = getPartPath(params.uploadId, params.partIndex);
   await pipeline(
-    Readable.fromWeb(params.body as unknown as NodeReadableStream<Uint8Array>),
+    Readable.fromWeb(params.body as unknown as Parameters<typeof Readable.fromWeb>[0]),
     createWriteStream(partPath, { mode: 0o600 }),
   );
   await fs.chmod(partPath, 0o600).catch(() => undefined);

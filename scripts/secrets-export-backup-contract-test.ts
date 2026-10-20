@@ -98,10 +98,11 @@ async function main() {
     assert.ok(reconnect.entries.some((entry: { path: string }) => entry.path === 'organizations/org-a/secrets/Canvas-Secrets.env'));
     assert.ok(reconnect.entries.some((entry: { path: string }) => entry.path === 'configured/pi-auth.json'));
     for (const entry of exported.manifest!.files) assert.equal(Buffer.byteLength(await zipText(exported.filePath, entry.archivePath)), entry.size, 'manifest sizes describe redacted archive bytes');
-    const withoutReconnect = await waitFor((await migration.createMigrationExportJob({ components: { ...DEFAULT_MIGRATION_COMPONENTS, secrets: false, database: true }, source: { databaseProvider: 'postgres' } })).id, migration.getMigrationExportJob);
+    await assert.rejects(migration.createMigrationExportJob({ components: { ...DEFAULT_MIGRATION_COMPONENTS, database: true } }), /Full Admin Export/);
+    const withoutReconnect = await waitFor((await migration.createMigrationExportJob({ components: { ...DEFAULT_MIGRATION_COMPONENTS, secrets: false, database: false }, source: { databaseProvider: 'postgres' } })).id, migration.getMigrationExportJob);
     assert.ok(withoutReconnect.filePath);
     const withoutNames = (await run('unzip', ['-Z1', withoutReconnect.filePath])).stdout;
-    assert.equal(withoutNames.includes('reconnect-manifest'), false); assert.equal(withoutNames.includes('database/'), false, 'portable Postgres exports carry metadata rather than credential-bearing dumps');
+    assert.equal(withoutNames.includes('reconnect-manifest'), false); assert.equal(withoutNames.includes('database/'), false, 'file-only exports do not include a database snapshot');
     assert.equal(withoutNames.includes('custom-canonical-private'), false);
     const safeArgs = ['--region', 'eu', '--api-key', '${API_KEY}', 'TOKEN=${TOKEN}', '--header', 'Authorization: Bearer ${TOKEN}'];
     const safeConfig = JSON.stringify({ mcpServers: { safe: { command: 'node', args: safeArgs, url: 'https://mcp.example.test?token=${TOKEN}&region=eu' } } });

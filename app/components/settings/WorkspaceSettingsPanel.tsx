@@ -39,6 +39,8 @@ import {
   type MigrationExportJob,
   type MigrationInspection,
   type MigrationUploadStatus,
+  type MigrationMappingChoices,
+  type MigrationRestoreResult,
 } from '@/app/lib/migration/types';
 import {
   getMigrationUploadPartRange,
@@ -162,6 +164,21 @@ function SettingsDataContent({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isMapping, setIsMapping] = useState(false);
+  const [mappingChoices, setMappingChoices] = useState<MigrationMappingChoices>({ users: {}, workspaces: {} });
+  const [restoreReceipt, setRestoreReceipt] = useState<MigrationRestoreResult | null>(null);
+
+  useEffect(() => {
+    if (section !== 'system' || !isAdmin) return;
+    let disposed = false;
+    void fetch('/api/migration/restore', { cache: 'no-store' }).then(async response => {
+      if (!response.ok) return;
+      const { result } = await response.json() as { result: MigrationRestoreResult | null };
+      if (!result || disposed) return;
+      setRestoreReceipt(result);
+    }).catch(() => undefined);
+    return () => { disposed = true; };
+  }, [isAdmin, section, t]);
 
   const selectedComponentCount = useMemo(
     () => MIGRATION_COMPONENT_KEYS.filter((key) => migrationComponents[key]).length,
@@ -228,6 +245,7 @@ function SettingsDataContent({
     setMigrationExportProfile(profile);
     if (profile !== 'full_admin') {
       setIncludePersonalWorkspaces(false);
+      setMigrationComponents(current => ({ ...current, database: false }));
     }
   };
 
@@ -276,6 +294,7 @@ function SettingsDataContent({
   };
 
   const uploadMigrationArchive = async (file: File) => {
+    setMappingChoices({ users: {}, workspaces: {} });
     if (!canRecoverWorkspaces) {
       setMigrationError(t('workspacePanel.migration.adminOnly'));
       return;
@@ -340,6 +359,21 @@ function SettingsDataContent({
     }
   };
 
+  const applyMigrationMapping = async (kind: keyof MigrationMappingChoices, source: string, target: string) => {
+    if (!uploadStatus || isMapping || !target) return;
+    const next = { ...mappingChoices, [kind]: { ...mappingChoices[kind], [source]: target } };
+    setIsMapping(true); setMigrationError(null);
+    try {
+      const response = await fetch(`/api/migration/uploads/${uploadStatus.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || t('workspacePanel.migration.errors.inspectFailed'));
+      setMappingChoices(next); setUploadStatus(payload.upload);
+    } catch (error) { setMigrationError(error instanceof Error ? error.message : t('workspacePanel.migration.errors.inspectFailed')); }
+    finally { setIsMapping(false); }
+  };
+
   const restoreMigration = async () => {
     if (!uploadStatus?.inspection?.canRestore) return;
     const confirmation = window.prompt(t('workspacePanel.migration.confirmPrompt'));
@@ -359,6 +393,7 @@ function SettingsDataContent({
         body: JSON.stringify({
           uploadId: uploadStatus.id,
           confirmation: 'FULL_RESTORE',
+          mappings: mappingChoices,
         }),
       });
       const payload = await response.json();
@@ -570,7 +605,7 @@ function SettingsDataContent({
                 type="button"
                 className="w-full justify-center sm:w-auto"
                 onClick={() => void createMigrationExport()}
-                disabled={!canExportData || isCreatingExport || selectedComponentCount === 0 || exportJob?.status === 'running' || exportJob?.status === 'queued'}
+                disabled={!canExportData || isCreatingExport || selectedComponentCount === 0 || (migrationComponents.database && !includePersonalWorkspaces) || exportJob?.status === 'running' || exportJob?.status === 'queued'}
               >
                 {isCreatingExport || exportJob?.status === 'running' || exportJob?.status === 'queued' ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -612,7 +647,7 @@ function SettingsDataContent({
                 type="checkbox"
                 checked={includePersonalWorkspaces}
                 onChange={() => setIncludePersonalWorkspaces((value) => !value)}
-                disabled={!canExportData || migrationExportProfile !== 'full_admin' || !migrationComponents.workspace}
+                disabled={!canExportData || migrationExportProfile !== 'full_admin' || (!migrationComponents.workspace && !migrationComponents.database)}
                 className="mt-0.5 h-4 w-4 accent-primary"
               />
               <span className="min-w-0">
@@ -635,7 +670,7 @@ function SettingsDataContent({
                       type="checkbox"
                       checked={migrationComponents[key]}
                       onChange={() => toggleMigrationComponent(key)}
-                      disabled={!canExportData}
+                      disabled={!canExportData || (key === 'database' && migrationExportProfile !== 'full_admin')}
                       className="h-4 w-4 accent-primary"
                     />
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -648,6 +683,7 @@ function SettingsDataContent({
               })}
             </div>
 
+            {migrationComponents.database ? <p className="text-sm text-muted-foreground">{t('workspacePanel.migration.databaseScopeWarning')}</p> : null}
             {migrationComponents.secrets ? (
               <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -770,13 +806,24 @@ function SettingsDataContent({
                       <div className="space-y-1">
                         <p className="text-xs font-medium">{t('workspacePanel.migration.dryRun.users')}</p>
                         {inspection.dryRun.users.map((mapping) => (
-                          <p key={`${mapping.sourceUserId || 'no-id'}:${mapping.sourceEmail || 'no-email'}`} className="text-xs text-muted-foreground">
+                          <div key={`${mapping.sourceUserId || 'no-id'}:${mapping.sourceEmail || 'no-email'}`} className="space-y-1">
+                          <p className="break-all text-xs text-muted-foreground">
                             {mapping.sourceEmail || mapping.sourceUserId || t('workspacePanel.migration.dryRun.unknownSource')}
                             {' -> '}
                             {mapping.targetEmail || mapping.targetUserId || t('workspacePanel.migration.dryRun.unresolved')}
                             {' · '}
                             {t(`workspacePanel.migration.dryRun.mappingStatus.${mapping.status}`)}
                           </p>
+                          {mapping.sourceUserId && !inspection.manifest?.components.database ? (
+                            <select className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                              aria-label={t('workspacePanel.migration.mappingTargetUser', { source: mapping.sourceEmail || mapping.sourceUserId })}
+                              disabled={isMapping || isRestoring} value={mappingChoices.users[mapping.sourceUserId] || (mapping.status === 'mapped' ? mapping.targetUserId || '' : '')}
+                              onChange={event => void applyMigrationMapping('users', mapping.sourceUserId!, event.target.value)}>
+                              <option value="">{t('workspacePanel.migration.mappingSelect')}</option>
+                              {inspection.dryRun?.availableUsers?.map(user => <option key={user.id} value={user.id}>{user.email || user.id}</option>)}
+                            </select>
+                          ) : null}
+                          </div>
                         ))}
                       </div>
                     ) : null}
@@ -785,13 +832,30 @@ function SettingsDataContent({
                       <div className="space-y-1">
                         <p className="text-xs font-medium">{t('workspacePanel.migration.dryRun.workspaces')}</p>
                         {inspection.dryRun.workspaces.map((mapping) => (
-                          <p key={mapping.sourcePath} className="text-xs text-muted-foreground">
+                          <div key={mapping.sourcePath} className="space-y-1">
+                          <p className="break-all text-xs text-muted-foreground">
                             {mapping.sourcePath}
                             {' -> '}
                             {mapping.targetPath || t('workspacePanel.migration.dryRun.unresolved')}
                             {' · '}
                             {t(`workspacePanel.migration.dryRun.mappingStatus.${mapping.status}`)}
                           </p>
+                          {mapping.kind !== 'legacy' && mapping.kind !== 'unknown' && !inspection.manifest?.components.database ? (
+                            <select className="w-full rounded-md border border-input bg-background px-2 py-2 text-sm"
+                              aria-label={t('workspacePanel.migration.mappingTargetWorkspace', { source: mapping.sourcePath })}
+                              disabled={isMapping || isRestoring} value={mappingChoices.workspaces[mapping.sourcePath] || (mapping.status === 'mapped' ? mapping.targetWorkspaceId || '' : '')}
+                              onChange={event => void applyMigrationMapping('workspaces', mapping.sourcePath, event.target.value)}>
+                              <option value="">{t('workspacePanel.migration.mappingSelect')}</option>
+                              {inspection.dryRun?.availableWorkspaces?.filter(target => {
+                                if (mapping.kind === 'organization' || mapping.kind === 'team') return target.type === 'organization' || target.type === 'team';
+                                if (target.type !== mapping.kind) return false;
+                                if (mapping.kind !== 'personal') return true;
+                                const owner = inspection.dryRun?.users.find(user => user.sourceUserId === mapping.sourceOwnerUserId)?.targetUserId;
+                                return Boolean(owner && target.ownerUserId === owner);
+                              }).map(target => <option key={target.id} value={target.id}>{target.displayName} ({target.type})</option>)}
+                            </select>
+                          ) : null}
+                          </div>
                         ))}
                       </div>
                     ) : null}
@@ -821,7 +885,7 @@ function SettingsDataContent({
                   type="button"
                   variant="destructive"
                   onClick={() => void restoreMigration()}
-                  disabled={!inspection.canRestore || !canRecoverWorkspaces || isRestoring}
+                  disabled={!inspection.canRestore || !canRecoverWorkspaces || isRestoring || isMapping}
                 >
                   {isRestoring ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -836,6 +900,17 @@ function SettingsDataContent({
 
           {migrationError ? <p className="text-sm text-destructive">{migrationError}</p> : null}
           {migrationMessage ? <p className="text-sm text-muted-foreground">{migrationMessage}</p> : null}
+          {restoreReceipt ? <div className="space-y-1 rounded-md border p-3" data-testid="migration-restore-receipt">
+            <p className="text-xs text-muted-foreground">{t('workspacePanel.migration.restorePrevious')} · {new Date(restoreReceipt.completedAt).toLocaleString()}</p>
+            <p className={restoreReceipt.status === 'completed' ? 'text-sm' : 'text-sm text-destructive'}>
+              {restoreReceipt.status === 'completed'
+                ? t('workspacePanel.migration.restoreCompleted', { count: restoreReceipt.filesApplied })
+                : t('workspacePanel.migration.restoreRejected', { error: restoreReceipt.error || t('workspacePanel.migration.errors.restoreFailed') })}
+            </p>
+            {restoreReceipt.status === 'completed' && restoreReceipt.databaseRows !== undefined ? (
+              <p className="text-sm">{t('workspacePanel.migration.restoreDatabaseCompleted', { count: restoreReceipt.databaseRows, tables: restoreReceipt.databaseTables || 0 })}</p>
+            ) : null}
+          </div> : null}
         </CardContent>
       </Card>
       ) : null}

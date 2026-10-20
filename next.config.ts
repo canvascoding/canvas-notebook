@@ -8,6 +8,7 @@ const withNextIntl = createNextIntlPlugin('./i18n/request.ts');
 
 const externalPackages = [
   'node-pty',
+  'unzipper',
   'drizzle-orm',
   '@earendil-works/pi-ai',
   '@earendil-works/pi-agent-core',

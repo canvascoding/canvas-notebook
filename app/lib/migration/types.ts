@@ -20,7 +20,7 @@ export const MIGRATION_EXPORT_PROFILES = ['standard', 'full_admin'] as const;
 export type MigrationExportProfile = (typeof MIGRATION_EXPORT_PROFILES)[number];
 
 export const DEFAULT_MIGRATION_COMPONENTS: MigrationComponents = {
-  database: true,
+  database: false,
   workspace: true,
   studioAssets: true,
   studioOutputs: true,
@@ -48,6 +48,21 @@ export interface MigrationFileEntry {
   archivePath: string;
   size: number;
   modifiedAt: string;
+  sha256?: string;
+}
+
+export interface MigrationWorkspaceDescriptor {
+  id: string;
+  type: 'personal' | 'organization' | 'team' | 'project';
+  rootRelativePath: string;
+  displayName: string;
+  organizationId: string | null;
+  ownerUserId: string | null;
+}
+
+export interface MigrationMappingChoices {
+  users: Record<string, string>;
+  workspaces: Record<string, string>;
 }
 
 export interface CanvasMigrationManifest {
@@ -69,6 +84,9 @@ export interface CanvasMigrationManifest {
   totalBytes: number;
   warnings: string[];
   files: MigrationFileEntry[];
+  directories?: string[];
+  workspaces?: MigrationWorkspaceDescriptor[];
+  users?: Array<{ id: string; email: string | null }>;
 }
 
 export interface MigrationExportSelection {
@@ -106,7 +124,7 @@ export interface MigrationExportSecurity {
 
 export type MigrationExportDatabaseProvider = 'postgres' | 'unknown';
 
-export type MigrationExportDatabaseBackupKind = 'postgres_dump' | 'none';
+export type MigrationExportDatabaseBackupKind = 'postgres_dump' | 'postgres_rows' | 'none';
 
 export interface MigrationExportDatabase {
   provider: MigrationExportDatabaseProvider;
@@ -211,7 +229,7 @@ export interface MigrationImportUserMapping {
 }
 
 export interface MigrationImportWorkspaceMapping {
-  kind: 'legacy' | 'team' | 'personal' | 'project' | 'unknown';
+  kind: 'legacy' | 'organization' | 'team' | 'personal' | 'project' | 'unknown';
   sourcePath: string;
   sourceWorkspaceId: string | null;
   sourceOrganizationId: string | null;
@@ -252,6 +270,8 @@ export interface MigrationImportDryRun {
   };
   users: MigrationImportUserMapping[];
   workspaces: MigrationImportWorkspaceMapping[];
+  availableWorkspaces?: MigrationWorkspaceDescriptor[];
+  availableUsers?: Array<{ id: string; email: string | null }>;
   reconnect: MigrationImportReconnectRequirement[];
   stats: {
     userMappings: number;
@@ -275,4 +295,18 @@ export interface PendingMigrationRestore {
   pauseAutomations: boolean;
   clearOAuthTokens: boolean;
   preserveTargetInstanceAndLicense: boolean;
+  archiveSha256?: string;
+  targetFingerprint?: string;
+  mappings?: MigrationMappingChoices;
+}
+
+export interface MigrationRestoreResult {
+  id: string;
+  status: 'completed' | 'failed';
+  completedAt: string;
+  filesApplied: number;
+  rollbackComplete: boolean;
+  error?: string;
+  databaseRows?: number;
+  databaseTables?: number;
 }

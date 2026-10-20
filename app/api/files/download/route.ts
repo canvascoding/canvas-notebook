@@ -7,6 +7,7 @@ import {
 } from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'node:crypto';
 import { finished } from 'stream/promises';
 import { createReadStream, getFileStats, validatePath, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
@@ -17,6 +18,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { canExportWorkspaceFiles } from '@/app/lib/workspaces/export-access';
 import { excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
+import { ensurePortableTextCheckpointsCurrent } from '@/app/lib/exports/text-checkpoints';
 import {
   requireRequestPersonalWorkspace,
   requireRequestWorkspace,
@@ -45,6 +47,39 @@ interface ArchiveEntry {
   fullPath: string | null;
   stats?: Stats;
   type: 'file' | 'directory';
+}
+
+type DownloadOwner = { userId: string; sessionId: string; workspaceId: string };
+type PreparedArchive = { archivePath: string; tempDirectory: string; fileName: string };
+const preparedDownloads = new Map<string, PreparedArchive & DownloadOwner & {
+  expiresAt: number; expiration: ReturnType<typeof setTimeout>;
+}>();
+
+function storePreparedArchive(archive: PreparedArchive, owner: DownloadOwner): string {
+  const token = randomUUID();
+  const expiration = setTimeout(() => {
+    preparedDownloads.delete(token);
+    void fs.rm(archive.tempDirectory, { recursive: true, force: true }).catch(() => undefined);
+  }, DOWNLOAD_ARCHIVE_TTL_MS);
+  expiration.unref?.();
+  preparedDownloads.set(token, { ...archive, ...owner, expiration, expiresAt: Date.now() + DOWNLOAD_ARCHIVE_TTL_MS });
+  return token;
+}
+
+function claimPreparedArchive(token: string, owner: DownloadOwner): PreparedArchive {
+  const archive = preparedDownloads.get(token);
+  if (!archive || archive.expiresAt <= Date.now()) {
+    if (archive) {
+      clearTimeout(archive.expiration); preparedDownloads.delete(token);
+      void fs.rm(archive.tempDirectory, { recursive: true, force: true }).catch(() => undefined);
+    }
+    throw new DownloadPlanError('This prepared download expired. Prepare the export again.', 410, 'DOWNLOAD_EXPIRED');
+  }
+  if (archive.userId !== owner.userId || archive.sessionId !== owner.sessionId || archive.workspaceId !== owner.workspaceId) {
+    throw new DownloadPlanError('This download belongs to another session or workspace.', 403, 'DOWNLOAD_OWNER_MISMATCH');
+  }
+  clearTimeout(archive.expiration); preparedDownloads.delete(token);
+  return archive;
 }
 
 function resolveDownloadName(filePath: string): string {
@@ -202,6 +237,9 @@ async function writeArchive(entries: readonly ArchiveEntry[]): Promise<{ archive
   const output = createNodeWriteStream(archivePath);
   let archiveError: Error | null = null;
   const outputFinished = finished(output);
+  // Attach a rejection handler immediately: entry planning can fail before
+  // the normal await below, while destroying the ZIP rejects this promise.
+  void outputFinished.catch(() => undefined);
 
   archive.on('error', (error) => {
     archiveError = error;
@@ -237,13 +275,13 @@ async function writeArchive(entries: readonly ArchiveEntry[]): Promise<{ archive
   } catch (error) {
     archive.destroy(error instanceof Error ? error : new Error('Failed to create ZIP archive'));
     output.destroy();
+    await outputFinished.catch(() => undefined);
     await fs.rm(tempDirectory, { recursive: true, force: true });
     throw error;
   }
 }
 
-async function createArchiveResponse(entries: readonly ArchiveEntry[], fileName: string): Promise<NextResponse> {
-  const { archivePath, tempDirectory } = await writeArchive(entries);
+async function streamPreparedArchive({ archivePath, tempDirectory, fileName }: PreparedArchive): Promise<NextResponse> {
   try {
     const stats = await fs.stat(archivePath);
     const stream = createNodeReadStream(archivePath);
@@ -271,6 +309,16 @@ async function createArchiveResponse(entries: readonly ArchiveEntry[], fileName:
     await fs.rm(tempDirectory, { recursive: true, force: true });
     throw error;
   }
+}
+
+async function createArchiveResponse(entries: readonly ArchiveEntry[], fileName: string, owner?: DownloadOwner): Promise<NextResponse> {
+  const archive = { ...await writeArchive(entries), fileName };
+  if (!owner) return streamPreparedArchive(archive);
+  const token = storePreparedArchive(archive, owner);
+  const query = new URLSearchParams({ scope: 'workspace', workspaceId: owner.workspaceId, ticket: token });
+  return NextResponse.json({ success: true, downloadUrl: `/api/files/download?${query}` }, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
 }
 
 export async function GET(request: NextRequest) {
@@ -324,6 +372,17 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   const isWorkspaceArchive = scope === 'personal' || scope === 'workspace';
+  const owner = { workspaceId: workspace.workspaceId, userId: session.user.id, sessionId: session.session.id };
+  const ticket = searchParams.get('ticket');
+  if (ticket) {
+    try {
+      if (!isWorkspaceArchive) throw new DownloadPlanError('A prepared workspace download requires a workspace scope.');
+      return await streamPreparedArchive(claimPreparedArchive(ticket, owner));
+    } catch (error) {
+      if (error instanceof DownloadPlanError) return NextResponse.json({ success: false, error: error.message, code: error.code }, { status: error.status });
+      throw error;
+    }
+  }
   let selectedPaths: string[];
   try {
     selectedPaths = isWorkspaceArchive ? ['.'] : normalizeSelectionPaths(searchParams.getAll('path'));
@@ -338,6 +397,7 @@ export async function GET(request: NextRequest) {
   try {
     const { ensureExcalidrawCheckpointsCurrent } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
     await ensureExcalidrawCheckpointsCurrent({ workspaceId: workspace.workspaceId, paths: selectedPaths });
+    await ensurePortableTextCheckpointsCurrent({ workspaceId: workspace.workspaceId, paths: selectedPaths });
     const isMultipleSelection = selectedPaths.length > 1;
     const effectiveFilePath = selectedPaths[0];
     const stats = await getFileStats(effectiveFilePath, fileOptions);
@@ -346,7 +406,8 @@ export async function GET(request: NextRequest) {
       const fileName = isMultipleSelection
         ? 'notebook-selection.zip'
         : `${resolveDownloadName(effectiveFilePath)}.zip`;
-      return await createArchiveResponse(entries, fileName);
+      return await createArchiveResponse(entries, fileName,
+        isWorkspaceArchive && searchParams.get('prepare') === '1' ? owner : undefined);
     }
 
     if (stats.size > MAX_SINGLE_FILE_SIZE) {
@@ -365,6 +426,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof Error && 'code' in error
+      && error.code === 'COLLABORATION_EXPORT_CHECKPOINT_UNAVAILABLE') {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
+    }
     if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
       && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     if (hasNodeErrorCode(error, ['ENOENT', 'ENOTDIR'])) {

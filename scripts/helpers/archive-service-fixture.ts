@@ -27,6 +27,10 @@ export function loadArchiveServiceFixture<T>(filename: string): T {
   const evaluated = { exports: {} };
   const localRequire = createRequire(absolutePath);
   const load = (name: string) => {
+    // These filesystem-only fixtures have no native text state database.
+    // Durable text materialization is covered by the real PostgreSQL acceptance suite.
+    if (name === '@/app/lib/exports/text-checkpoints') return { ensurePortableTextCheckpointsCurrent: async () => {} };
+    if (name === '@/app/lib/db') return { openDb: async () => ({ all: async () => [], close: async () => {} }) };
     if (name === '@/app/lib/excalidraw-collaboration/checkpoint-worker') return {
       ensureExcalidrawCheckpointsCurrent: async () => {
         const root = process.env.DATA ?? process.env.CANVAS_DATA_ROOT;

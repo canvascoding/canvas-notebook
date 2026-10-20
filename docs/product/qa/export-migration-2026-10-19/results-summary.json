@@ -1,0 +1,89 @@
+{
+  "baseline": "a9b89776ab92414e0917731717eeb83eb3bf8c80",
+  "browser": "chromium",
+  "stats": {
+    "startTime": "2026-10-19T12:55:53.411Z",
+    "duration": 279364.95900000003,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 5,
+    "flaky": 0
+  },
+  "cases": [
+    {
+      "title": "WS1 WS2 WS4: actual ZIP bytes for personal, organization, team and project workspaces",
+      "status": "passed",
+      "durationMs": 9523
+    },
+    {
+      "title": "WS3 WS6 VIEW: rapid selection, refreshed statistics and empty/mobile state",
+      "status": "passed",
+      "durationMs": 1853
+    },
+    {
+      "title": "AUTH: owner, member, administrator, foreign personal and anonymous boundaries",
+      "status": "passed",
+      "durationMs": 895
+    },
+    {
+      "title": "ERR: missing paths, traversal, symlink, sparse ZIP size, depth and entry limits",
+      "status": "passed",
+      "durationMs": 1804
+    },
+    {
+      "title": "WS5: a newly edited native Excalidraw scene is materialized in its workspace ZIP",
+      "status": "passed",
+      "durationMs": 2203
+    },
+    {
+      "title": "WS5: Markdown edited in the visible native editor immediately reaches the downloaded ZIP",
+      "status": "failed",
+      "durationMs": 6985
+    },
+    {
+      "title": "ALL1 ALL2: standard and explicit full-admin exports contain exactly selected workspace files",
+      "status": "failed",
+      "durationMs": 16120
+    },
+    {
+      "title": "ALL3 SEC: component fidelity, excluded managed secrets and reconnect manifest",
+      "status": "passed",
+      "durationMs": 17398
+    },
+    {
+      "title": "DB: database metadata has no dump and the inspector blocks PostgreSQL restore",
+      "status": "passed",
+      "durationMs": 3350
+    },
+    {
+      "title": "UP1: real UI uploads an archive larger than one chunk and verifies exact bytes",
+      "status": "passed",
+      "durationMs": 1179
+    },
+    {
+      "title": "MAP: an actual full-workspace UI export cannot silently remap project data",
+      "status": "passed",
+      "durationMs": 1196
+    },
+    {
+      "title": "UP2 MAP: corrupt/version/schema/path/chunk and differing user/project mappings are blocked",
+      "status": "passed",
+      "durationMs": 57958
+    },
+    {
+      "title": "ALL4: the migration bundle preserves empty directories from a selected workspace",
+      "status": "failed",
+      "durationMs": 217
+    },
+    {
+      "title": "ERR VIEW: a rejected ZIP download displays an actionable error in settings",
+      "status": "failed",
+      "durationMs": 23022
+    },
+    {
+      "title": "REST: a ready file restore must actually apply after application restart",
+      "status": "failed",
+      "durationMs": 32191
+    }
+  ]
+}
