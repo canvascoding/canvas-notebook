@@ -2,12 +2,15 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { types } from 'node:util';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { parseObsidianBlockIds } from './obsidian-flavored-markdown';
 import { parseCanvasMarkdownDocument } from './obsidian-metadata';
-import { evaluateWorkspaceHtmlLinks } from './workspace-html-link-safety';
+import { evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks, type WorkspaceStaticHtmlLinkInspection } from './workspace-html-link-safety';
 import { extractWorkspaceMarkdownHeadings, resolveWorkspaceWikiFileLink } from './workspace-link-index-core';
-import { parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV3, resolveExactWorkspaceLink, type ParsedWorkspaceLocalLink } from './workspace-local-link-parser';
+import { MAX_INDEXED_MARKDOWN_BYTES } from './workspace-link-limits';
+import { inspectWorkspaceMarkdownHtmlV4, parseWorkspaceLocalLinks, parseWorkspaceLocalLinksV3, parseWorkspaceLocalLinksV4, resolveExactWorkspaceLink,
+  type ParsedWorkspaceLocalLink, type WorkspaceMarkdownHtmlInspectionV4 } from './workspace-local-link-parser';
 import { nativeLinkJsonProof } from './workspace-native-link-inventory';
 import type { NativeDocumentLinkInventory, NativeNamespaceEntry } from './workspace-link-contract-v2';
 import type { WorkspaceLinkTargetRangeV1 } from './workspace-link-contract-v1';
@@ -43,6 +46,19 @@ export type OriginalPhysicalLinkInventory = {
   applicability: 'requires-import-and-rebinding';
   executionReady: false;
   physicalSourceProof: string;
+};
+export type OriginalPhysicalLinkInventoryV4 = Omit<OriginalPhysicalLinkInventory, 'parserVersion'> & {
+  parserVersion: 4;
+  htmlInspection: WorkspaceMarkdownHtmlInspectionV4;
+};
+export type OriginalPhysicalHtmlInventoryV4 = Pick<OriginalPhysicalLinkInventory,
+  'workspaceId' | 'organizationId' | 'path' | 'authority' | 'physical' | 'originalBytes' | 'encoding' | 'hasBom' | 'lineEndings'> & {
+  htmlSourceVersion: 4;
+  source: 'original-physical-html-bytes';
+  htmlInspection: WorkspaceStaticHtmlLinkInspection;
+  applicability: 'requires-operation-assessment';
+  executionReady: false;
+  htmlSourceProof: string;
 };
 export type WorkspaceSourceAuthorityStage = {
   stageVersion: 1;
@@ -107,19 +123,79 @@ export function inspectOriginalPhysicalLinksV3(input: Parameters<typeof inspectO
   return inspectOriginalPhysicalLinksForParser(input, 3);
 }
 
-function inspectOriginalPhysicalLinksForParser(input: Parameters<typeof inspectOriginalPhysicalLinks>[0],
-  parserVersion: 2 | 3): OriginalPhysicalLinkInventory {
-  const originalBytes = Uint8Array.from(input.bytes);
+/** New exact grammar only. HTML is a distinct source, never a Markdown import. */
+export function inspectOriginalPhysicalLinksV4(input: Parameters<typeof inspectOriginalPhysicalLinks>[0]): OriginalPhysicalLinkInventoryV4 {
+  if (!/\.(?:md|markdown)$/iu.test(input.path)) throw new Error('Physical parser 4 requires a Markdown source.');
+  const bytes = copyBoundedPhysicalSourceBytesV4(input.bytes);
+  const { physicalSourceProof: _baseProof, ...inventory } = inspectOriginalPhysicalLinksForParser({ ...input, bytes }, 4);
+  const text = Buffer.from(inventory.originalBytes.buffer, inventory.originalBytes.byteOffset, inventory.originalBytes.byteLength).toString('utf8');
+  const body = { ...inventory, htmlInspection: inspectWorkspaceMarkdownHtmlV4(text, input.path) };
+  return { ...body, physicalSourceProof: originalPhysicalSourceProofV4(body) };
+}
+
+/** New captures use actual typed-array slots, never an overridden iterator or
+ * apparent byteLength. Historical parser2/3 retain their original byte reader. */
+function copyBoundedPhysicalSourceBytesV4(input: Uint8Array): Uint8Array {
+  if (!input || types.isProxy(input) || !ArrayBuffer.isView(input)
+    || ![Uint8Array.prototype, Buffer.prototype].includes(Object.getPrototypeOf(input))
+    || ['byteLength', 'byteOffset', 'buffer', 'constructor'].some(key => Object.hasOwn(input, key))) {
+    throw new TypeError('Physical source requires genuine byte-array storage.');
+  }
+  const typed = Object.getPrototypeOf(Uint8Array.prototype);
+  const size = Object.getOwnPropertyDescriptor(typed, 'byteLength')!.get!.call(input) as number;
+  const buffer = Object.getOwnPropertyDescriptor(typed, 'buffer')!.get!.call(input) as ArrayBuffer;
+  if (!types.isArrayBuffer(buffer) || Object.getPrototypeOf(buffer) !== ArrayBuffer.prototype) {
+    throw new TypeError('Physical source requires private byte-array storage.');
+  }
+  if (size > MAX_INDEXED_MARKDOWN_BYTES) throw new RangeError('Physical source exceeds its byte limit.');
+  const bytes = new Uint8Array(size);
+  Uint8Array.prototype.set.call(bytes, input);
+  return bytes;
+}
+
+function readOriginalPhysicalText(bytes: Uint8Array) {
+  const originalBytes = Uint8Array.from(bytes);
   const originalBuffer = Buffer.from(originalBytes.buffer, originalBytes.byteOffset, originalBytes.byteLength);
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(originalBytes);
   if (!Buffer.from(text, 'utf8').equals(originalBuffer) || text.includes('\0')) throw new Error('Original Markdown bytes are not strict UTF-8 text.');
   const crlf = (text.match(/\r\n/gu) ?? []).length; const remainder = text.replace(/\r\n/gu, '');
   const lf = (remainder.match(/\n/gu) ?? []).length; const bareCr = (remainder.match(/\r/gu) ?? []).length;
-  const style = bareCr ? 'bare-cr' : lf && crlf ? 'mixed' : lf ? 'lf' : crlf ? 'crlf' : 'none';
+  const style: OriginalPhysicalLinkInventory['lineEndings']['style'] = bareCr ? 'bare-cr' : lf && crlf ? 'mixed' : lf ? 'lf' : crlf ? 'crlf' : 'none';
+  return { originalBytes, originalBuffer, text, lineEndings: { style, lf, crlf, bareCr } };
+}
+
+export function originalPhysicalSourceProofV4(inventory: Omit<OriginalPhysicalLinkInventoryV4, 'physicalSourceProof'> | OriginalPhysicalLinkInventoryV4): string {
+  const { originalBytes, ...body } = inventory;
+  const { physicalSourceProof: _stored, ...withoutProof } = body as Omit<OriginalPhysicalLinkInventoryV4, 'originalBytes'>;
+  return proof({ ...withoutProof, observedOriginalByteHash: originalPhysicalByteHash(originalBytes) });
+}
+
+export function originalPhysicalHtmlSourceProofV4(inventory: Omit<OriginalPhysicalHtmlInventoryV4, 'htmlSourceProof'> | OriginalPhysicalHtmlInventoryV4): string {
+  const { originalBytes, ...body } = inventory;
+  const { htmlSourceProof: _stored, ...withoutProof } = body as Omit<OriginalPhysicalHtmlInventoryV4, 'originalBytes'>;
+  return proof({ ...withoutProof, observedOriginalByteHash: originalPhysicalByteHash(originalBytes) });
+}
+
+/** Source facts only. This neither imports HTML nor permits a file operation. */
+export function inspectOriginalPhysicalHtmlV4(input: Parameters<typeof inspectOriginalPhysicalLinks>[0]): OriginalPhysicalHtmlInventoryV4 {
+  if (!/\.html?$/iu.test(input.path)) throw new Error('Physical HTML inspection requires an HTML source.');
+  const { originalBytes, text, lineEndings } = readOriginalPhysicalText(copyBoundedPhysicalSourceBytesV4(input.bytes));
+  const body: Omit<OriginalPhysicalHtmlInventoryV4, 'htmlSourceProof'> = { htmlSourceVersion: 4,
+    source: 'original-physical-html-bytes', workspaceId: input.workspaceId, organizationId: input.organizationId,
+    path: input.path, authority: structuredClone(input.authority),
+    physical: { filesystemIdentity: input.filesystemIdentity, byteHash: originalPhysicalByteHash(originalBytes), byteLength: originalBytes.length },
+    originalBytes, encoding: 'utf8', hasBom: text.charCodeAt(0) === 0xfeff, lineEndings,
+    htmlInspection: inspectWorkspaceStaticHtmlLinks(text), applicability: 'requires-operation-assessment', executionReady: false };
+  return { ...body, htmlSourceProof: originalPhysicalHtmlSourceProofV4(body) };
+}
+
+function inspectOriginalPhysicalLinksForParser<Parser extends 2 | 3 | 4>(input: Parameters<typeof inspectOriginalPhysicalLinks>[0],
+  parserVersion: Parser): Omit<OriginalPhysicalLinkInventory, 'parserVersion'> & { parserVersion: Parser } {
+  const { originalBytes, originalBuffer, text, lineEndings } = readOriginalPhysicalText(input.bytes);
   const gaps: PhysicalSourceGap[] = []; const links: OriginalPhysicalLink[] = [];
   const parsedDocument = parseCanvasMarkdownDocument(text);
   if (parsedDocument.error) gaps.push({ code: 'invalid-frontmatter', path: input.path });
-  const metadataBody = parserVersion === 3 && !parsedDocument.frontmatter && text.charCodeAt(0) === 0xfeff
+  const metadataBody = parserVersion !== 2 && !parsedDocument.frontmatter && text.charCodeAt(0) === 0xfeff
     ? parsedDocument.body.slice(1) : parsedDocument.body;
   const headings = parsedDocument.error ? [] : extractWorkspaceMarkdownHeadings(metadataBody);
   const metadata = { path: input.path, aliases: parsedDocument.frontmatter?.aliases ?? [], tags: parsedDocument.frontmatter?.tags ?? [],
@@ -133,7 +209,7 @@ function inspectOriginalPhysicalLinksForParser(input: Parameters<typeof inspectO
     gaps.push({ code: 'uninspected-html', path: input.path, ...(html.explicitLocalTargets ? { htmlTargets: html.explicitLocalTargets } : {}) });
   } else if (!/\.(?:md|markdown)$/iu.test(input.path)) gaps.push({ code: 'unsupported-physical-source', path: input.path });
   else if (!parsedDocument.error) {
-    const parsed = (parserVersion === 3 ? parseWorkspaceLocalLinksV3 : parseWorkspaceLocalLinks)(text, input.path, { notebookPaths: 'exact' });
+    const parsed = (parserVersion === 4 ? parseWorkspaceLocalLinksV4 : parserVersion === 3 ? parseWorkspaceLocalLinksV3 : parseWorkspaceLocalLinks)(text, input.path, { notebookPaths: 'exact' });
     for (const unevaluated of parsed.unevaluated) gaps.push({ code: unevaluated.reason === 'html' ? 'uninspected-html' : `unevaluated-${unevaluated.reason}`,
       path: input.path, startUtf16: unevaluated.start, ...(unevaluated.htmlTargets ? { htmlTargets: unevaluated.htmlTargets } : {}) });
     const maxLinks = input.maxLinks ?? 20_000;
@@ -149,12 +225,13 @@ function inspectOriginalPhysicalLinksForParser(input: Parameters<typeof inspectO
         physical, syntaxRange, targetRange, raw: link.raw })}`, syntaxRange, targetRange });
     }
   }
-  const body: Omit<OriginalPhysicalLinkInventory, 'physicalSourceProof'> = { physicalSourceVersion: 1, parserVersion, source: 'original-physical-bytes',
+  const body = { physicalSourceVersion: 1 as const, parserVersion, source: 'original-physical-bytes' as const,
     workspaceId: input.workspaceId, organizationId: input.organizationId, path: input.path, authority: structuredClone(input.authority),
-    physical, originalBytes, encoding: 'utf8', hasBom: text.charCodeAt(0) === 0xfeff,
-    lineEndings: { style, lf, crlf, bareCr }, frontmatterPrefix: parsedDocument.frontmatterPrefix, metadata, links,
-    coverage: { complete: !gaps.length, gaps }, applicability: 'requires-import-and-rebinding', executionReady: false };
-  return { ...body, physicalSourceProof: originalPhysicalSourceProof(body) };
+    physical, originalBytes, encoding: 'utf8' as const, hasBom: text.charCodeAt(0) === 0xfeff,
+    lineEndings, frontmatterPrefix: parsedDocument.frontmatterPrefix, metadata, links,
+    coverage: { complete: !gaps.length, gaps }, applicability: 'requires-import-and-rebinding' as const, executionReady: false as const };
+  const { originalBytes: _private, ...facts } = body;
+  return { ...body, physicalSourceProof: proof({ ...facts, observedOriginalByteHash: originalPhysicalByteHash(originalBytes) }) };
 }
 
 export type StagedWorkspaceLinkEffectPreview = {

@@ -10,7 +10,7 @@ import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contra
 import { isCollaborationStateProof } from '../collaboration/state-proof';
 import { COLLABORATION_SCHEMA_VERSION } from '../collaboration/types';
 import type { NativeDocumentLinkInventory, NativeDocumentLink } from '../markdown/workspace-link-contract-v2';
-import { inspectNativeDocumentLinks, nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
+import { inspectNativeDocumentLinks, nativeLinkJsonProof, type NativeDocumentLinkInventoryV4 } from '../markdown/workspace-native-link-inventory';
 import { evaluateWorkspaceHtmlLinks, inspectWorkspaceStaticHtmlLinks } from '../markdown/workspace-html-link-safety';
 import { inspectWorkspaceMarkdownHtmlV4 } from '../markdown/workspace-local-link-parser';
 import { workspaceSourceAuthorityStageProof, type WorkspaceSourceAuthorityStage } from '../markdown/workspace-physical-link-inventory';
@@ -204,7 +204,7 @@ function complete(value: unknown): void {
   const row = record(value, ['complete', 'gaps']);
   if (row.complete !== true || list(row.gaps, 0).length) fail();
 }
-function inspectHtmlInventoryCoverage(inventory: NativeDocumentLinkInventory): void {
+function inspectHtmlInventoryCoverage(inventory: Pick<NativeDocumentLinkInventory, 'coverage' | 'document'>): void {
   const coverage = record(inventory.coverage, ['complete', 'gaps']);
   const gaps = list(coverage.gaps, MAX_LINKS);
   if (coverage.complete !== (gaps.length === 0)) fail();
@@ -215,11 +215,37 @@ function inspectHtmlInventoryCoverage(inventory: NativeDocumentLinkInventory): v
     if (!actual.unevaluated || nativeLinkJsonProof(gap.htmlTargets ?? null) !== nativeLinkJsonProof(actual.explicitLocalTargets ?? null)) fail();
   }
 }
-function inspectInventory(inventory: NativeDocumentLinkInventory, html = false): void {
+function inspectInventoryCoverageV4(inventory: NativeDocumentLinkInventoryV4): void {
+  const coverage = record(inventory.coverage, ['complete', 'gaps']);
+  const gaps = list(coverage.gaps, MAX_LINKS);
+  if (coverage.complete !== (gaps.length === 0)) fail();
+  for (const value of gaps) {
+    const gap = record(value, ['code', 'path'], ['nodeId', 'attribute', 'raw', 'htmlTargets']);
+    if (!['unknown-node', 'unknown-mark', 'unknown-attribute', 'invalid-target', 'unsupported-target',
+      'invalid-frontmatter', 'limit-exceeded', 'unreadable-source', 'uninitialized-source', 'identity-conflict',
+      'uninspected-html', 'unsupported-source'].includes(String(gap.code)) || gap.path !== inventory.document.path
+      || gap.nodeId !== undefined && !id(gap.nodeId) || gap.attribute !== undefined && !text(gap.attribute)
+      || gap.raw !== undefined && !text(gap.raw, MAX_EVIDENCE_BYTES)) fail();
+    if (gap.code === 'uninspected-html') {
+      if (typeof gap.raw !== 'string' || !gap.raw) fail();
+      const actual = inspectWorkspaceStaticHtmlLinks(gap.raw);
+      if (actual.fullyInspected && actual.explicitLocalTargets.length === 0
+        || (!actual.fullyInspected || actual.explicitLocalTargets.length === 0) && Object.hasOwn(gap, 'htmlTargets')
+        || nativeLinkJsonProof(gap.htmlTargets ?? null) !== nativeLinkJsonProof(actual.fullyInspected && actual.explicitLocalTargets.length
+          ? actual.explicitLocalTargets : null)) fail();
+    } else if (Object.hasOwn(gap, 'htmlTargets')) fail();
+  }
+}
+
+function inspectInventory(inventory: NativeDocumentLinkInventory | NativeDocumentLinkInventoryV4, html = false, parserPolicy: 2 | 4 = 2): void {
   record(inventory, ['contractVersion', 'document', 'version', 'parserVersion', 'metadata', 'links', 'coverage']);
   record(inventory.document, ['documentId', 'workspaceId', 'organizationId', 'path', 'lifecycleGeneration', 'representation', 'schemaVersion']);
   record(inventory.version, ['stateVector', 'stateProof', 'documentSequence', 'persistedAt']);
-  if (html) inspectHtmlInventoryCoverage(inventory); else complete(inventory.coverage);
+  if (parserPolicy === 4) {
+    if (inventory.parserVersion !== 4) fail();
+    inspectInventoryCoverageV4(inventory);
+  }
+  else if (html) inspectHtmlInventoryCoverage(inventory); else complete(inventory.coverage);
   const metadata = record(inventory.metadata, ['aliases', 'blockIds', 'headings', 'hasExplicitTitle', 'path', 'tags', 'title']);
   if (metadata.path !== inventory.document.path || typeof metadata.hasExplicitTitle !== 'boolean' || !text(metadata.title)) fail();
   for (const name of ['aliases', 'blockIds', 'tags']) if (list(metadata[name], MAX_LINKS).some(value => !text(value))) fail();
@@ -275,6 +301,28 @@ function inspectInventory(inventory: NativeDocumentLinkInventory, html = false):
     if (locator.ownerBlockId !== ownerBlockId || locator.nodeId !== nodeId || locator.ordinal !== ordinal
       || link.id !== `${inventory.document.documentId}:${inventory.document.lifecycleGeneration}:${nativeLinkJsonProof(identity)}` || seen.has(link.id)) fail();
     ordinals.set(key, ordinal + 1); seen.add(link.id);
+  }
+}
+
+/** Explicit parser-4 historical facts only. A caller must separately bind the
+ * decoded inventory to freshly verified native bytes before any execution. */
+export function decodeNativeInventoryV4Facts(input: unknown): NativeDocumentLinkInventoryV4 {
+  try {
+    const value = plainJson(input) as NativeDocumentLinkInventoryV4;
+    record(value, ['contractVersion', 'document', 'version', 'parserVersion', 'metadata', 'links', 'coverage']);
+    record(value.document, ['documentId', 'workspaceId', 'organizationId', 'path', 'lifecycleGeneration', 'representation', 'schemaVersion']);
+    record(value.version, ['stateVector', 'stateProof', 'documentSequence', 'persistedAt']);
+    const document = value.document, version = value.version;
+    if (value.contractVersion !== 2 || value.parserVersion !== 4 || !id(document.documentId) || !id(document.workspaceId)
+      || !nullableId(document.organizationId) || !canonicalPath(document.path) || !integer(document.lifecycleGeneration, 1)
+      || !representations.includes(document.representation) || document.schemaVersion !== COLLABORATION_SCHEMA_VERSION
+      || !integer(version.documentSequence) || !integer(version.persistedAt) || !isCollaborationStateProof(version.stateProof)) fail();
+    vector(version.stateVector);
+    inspectInventory(value, false, 4);
+    return freeze(value);
+  } catch (error) {
+    if (error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error;
+    return fail(error instanceof RangeError ? 'NATIVE_SOURCE_EVIDENCE_TOO_LARGE' : 'NATIVE_SOURCE_EVIDENCE_INVALID');
   }
 }
 /** Historical positions are bounded facts, not a claim that these offsets were
