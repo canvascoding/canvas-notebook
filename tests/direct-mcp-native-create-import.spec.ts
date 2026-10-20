@@ -1650,7 +1650,9 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
             assert.equal(native.complete, true); assert.equal(native.nextCursor, null); assert.equal(native.currency.source, 'persisted_yjs');
             assert.equal(native.currency.observedDurable, true); assert.equal(native.currency.observedVersion, native.document.version); assert.equal(native.currency.durableVersion, native.document.version);
             const expectedMarkdown = isTarget ? pair.targetMarkdown : expectedIncoming;
-            const expected = object(schema.nodeFromJSON(manager.parse(expectedMarkdown)).toJSON()), actualDocument = nativeJson(native);
+            // Materialize JSON values: ProseMirror shares default attrs and retains
+            // null-prototype mark attrs; only this independent expectation is copied.
+            const expected = object(JSON.parse(JSON.stringify(schema.nodeFromJSON(manager.parse(expectedMarkdown)).toJSON()))), actualDocument = nativeJson(native);
             // Bind only server-generated stable identity attributes into the
             // independently parsed authored expectation. Never normalize the
             // actual body or copy actual content/marks/other attributes.

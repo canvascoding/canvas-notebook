@@ -227,3 +227,29 @@ Browserfixture `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-
 Die vorherige exakt begrenzte Bereinigung der fünften Browserfixture `Yfnm0u` ist inzwischen tatsächlich abgeschlossen: beide gebundenen eigenen DB-OIDs 14265702 und 14273493 sind entfernt, nur eigenes DATA/TMP entfernt, sämtliche gepinnten Originalbelege bytegleich erhalten. Separater Bericht `/private/tmp/canvas-m3-exact-failed-runtime-cleanup-20261020/cleanup-result.json`, SHA-256 `81190302a140ffe10d0b58f6296a5e8b774dcf2644cdb700001453cbf32a00f4`. Dies ist keine nachträgliche Browser- oder Abschlussfreigabe des fehlgeschlagenen Originals.
 
 Die erneute vollständige Abnahme des korrigierten Tests sowie aktuelle CI/Review bleiben offen. Keine Main-/Launchfreigabe oder Produktionsauslieferung. Die sieben nachgelagerten Roadmap-Pakete bleiben unverändert.
+
+
+## Siebter Originalbuild bestanden; unabhängiges Expected-JSON wertbasiert getrennt
+
+Auf Root `50506cda2fe2f2bc222af7a4cd47848865f3c641` / QA `64c5239068c605733dc3d554ea7dae69de566a52`, CP unverändert, besteht der vollständige Originalproduktionsbuild mit **Exit 0 nach 163,279 s**. Der unabhängige vollständige Quellen-/Artefaktabgleich besteht. Originalcontroller `/private/tmp/canvas-m3-nextrequest-controller-inputs-20261020-Nr2/mcp10`; Buildroot `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-build-YkkI10`.
+
+Die reale Zehnerfolge bleibt **9/10, Exit 1, keine Skips, Timeouts oder Unterbrechungen**. Der Request-Fix und die korrigierte Tree-Bedienung bestehen; Ziel-Datei-Sichtbarkeit sowie die nachfolgenden nativen Lese-/Identitäts-/Versions-/Dauerhaftigkeitsfelder werden erreicht. Der Abbruch erfolgt in der unabhängig geparsten Expected-Struktur beim zweiten Absatz: dessen erwartete `attrs.id` ist durch die vorherige ID-Zuweisung bereits verändert, obwohl der frische Parser korrekt `null` liefert. Die vollständige Inhalts-/Editorabnahme und Raw-Web-Delete werden noch nicht erreicht; die weiteren 19 Fälle starten nicht.
+
+ProseMirror `NodeType.computeAttrs` verwendet gemeinsame `defaultAttrs`; `Node.toJSON` übernimmt diese Referenz. Das erste `attrs.id=id` verändert daher auch weitere erwartete Absätze und das Schema-Default. `Mark.toJSON` behält zudem Nullprototyp-Attributobjekte, während die tatsächliche API JSON-Werte liefert. Eine nur lokale Attrkopie würde den folgenden Link-Mark-Vergleich noch nicht reparieren; ein tatsächlicher isolierter Probeversuch bestätigt diesen zusätzlichen Prototypunterschied.
+
+Die minimale Korrektur materialisiert ausschließlich die unabhängig aus dem Autoren-Markdown und Schema erzeugte Expected-Struktur einmal mittels `JSON.parse(JSON.stringify(...))`. Die tatsächliche Antwort bleibt exakt erhalten. Null-Erwartung, gültige eindeutige tatsächliche IDs, Knotentypen/-anzahl und der vollständige JSON-/Mark-/Attribut-/Textvergleich bleiben unverändert. `structuredClone` wird nicht verwendet, weil es geteilte Referenzen erhält. Vier tatsächliche reine Orakelproben für Move/Delete und ihre Incoming-Linkinhalte bestätigen den alten Aliasfehler und die neue unveränderte Schema-/Attributbehandlung; synthetische opake IDs sind ausschließlich Probeinputs. **Keine App-, DB- oder Browserfreigabe aus diesen Proben.** Gezielte Spec-Typprüfung und Scoped-ESLint bestehen. Beide unabhängigen Quellreviews finden im vollständig gelesenen übrigen Fall keine weitere konkrete falsche Testannahme; der echte vollständige Lauf bleibt erforderlich.
+
+Korrektur-/Probeoriginale: `/private/tmp/canvas-m3-expected-attrs-correction-20261020`. Ursprüngliche Spec SHA-256 `a65f6957a9bc29e6ae0518ed75e19bc938e994ece5f39d10912180a850bc1ffe`; erste neun Fälle, restliche Orakel, Fristen und Cleanup bleiben bytegleich. Produktcode bleibt unverändert. GitNexus löst die neue Testfunktion weiterhin nicht auf; Impact UNKNOWN und enge unabhängige Quellprüfung sind ausdrücklich getrennt.
+
+Browserfixture `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-authority-W5FIBa`. Originalruntime und unabhängiger Abschlussbericht bleiben rot und werden nicht nachträglich freigegeben. Eine gezielte Bereinigung eigener DBs/DATA/TMP wird gesondert dokumentiert und erhält die Originalbelege.
+
+| Original | SHA-256 |
+|---|---|
+| `build-terminal.json` | `c6771fb793097c3bcf9cb08f6b7253e25af7323e400486ed6b25bc28c4a94d21` |
+| `artifact-report.json` | `1b247ee72d14e2ee254c09eada9b3cbf900e7453b864402da6cd0c825dd797a7` |
+| `runtime-terminal.json` | `49cb1d7885561124c38d7c256f53b3112ee1a677fb151a1004f5656ae79a562e` |
+| `postruntime-report.json` | `4c152f91f8078b7a3be9e05b5d3c512a50b849f9f518cdb63080f43defcc35dc` |
+| `queue-terminal.json` | `b6680ce0010ae1848c685b95c03eaad72b8237b1fd5f973a780594dab4e7bd33` |
+| `launch-terminal.json` | `2c9ff58adf0c88af06a2dfa2dcdc7dac82411ed1abc54e4917066b743602d068` |
+
+Vollständige 29er-Abnahme, aktuelle CI und finale Reviewkontrolle bleiben offen. Keine Main-/Launchfreigabe und keine Produktionsauslieferung; die sieben Roadmap-Pakete bleiben unverändert.
