@@ -161,22 +161,60 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
       const original = client.query;
       const raw = original.bind(client) as (sql: string, values?: unknown[]) => Promise<QueryResult>;
       Object.defineProperty(client, 'query', { configurable: true, writable: true, value: (...args: unknown[]) => {
-        // Preserve callback/stream/other QueryConfig overloads. Observe only the
-        // fixed inert {name,text,values} config emitted by the real SQL adapter.
-        if (typeof args.at(-1) === 'function') return Reflect.apply(original, client, args);
+        // Preserve every original overload and argument. In addition to the
+        // SQL adapter's inert config, observe Drizzle's actual config/params
+        // form without reading or replacing its opaque type-parser object.
+        // pg-pool forwards a Promise query to its client with this third
+        // callback. Every other callback/stream overload stays untouched.
+        const callback = args.length === 3 && typeof args[2] === 'function' && Array.isArray(args[1])
+          && args[0] !== null && typeof args[0] === 'object' ? args[2] as (...values: unknown[]) => unknown : undefined;
+        if (typeof args.at(-1) === 'function' && !callback) return Reflect.apply(original, client, args);
         let text: string, values: unknown[] | undefined;
         if (typeof args[0] === 'string') {
           text = args[0]; values = args[1] as unknown[] | undefined;
         } else {
           const config = args[0];
-          if (args.length !== 1 || !config || typeof config !== 'object' || types.isProxy(config)
+          if (!config || typeof config !== 'object' || types.isProxy(config)
             || ![Object.prototype, null].includes(Object.getPrototypeOf(config))) return Reflect.apply(original, client, args);
           const fields = Object.getOwnPropertyDescriptors(config), keys = Reflect.ownKeys(config);
-          if (keys.length !== 3 || !keys.every(key => typeof key === 'string' && ['name', 'text', 'values'].includes(key))
-            || !Object.values(fields).every(field => 'value' in field)
-            || typeof fields.name?.value !== 'string' || typeof fields.text?.value !== 'string'
-            || (fields.values?.value !== undefined && !Array.isArray(fields.values.value))) return Reflect.apply(original, client, args);
-          text = fields.text.value; values = fields.values.value;
+          if (!Object.values(fields).every(field => 'value' in field)
+            || typeof fields.text?.value !== 'string') return Reflect.apply(original, client, args);
+          const adapter = args.length === 1 && keys.length === 3
+            && keys.every(key => typeof key === 'string' && ['name', 'text', 'values'].includes(key))
+            && typeof fields.name?.value === 'string'
+            && (fields.values?.value === undefined || Array.isArray(fields.values.value));
+          const drizzle = (args.length === 2 || callback !== undefined) && Array.isArray(args[1])
+            && keys.length === (Object.hasOwn(fields, 'rowMode') ? 4 : 3)
+            && keys.every(key => typeof key === 'string' && ['name', 'text', 'types', 'rowMode'].includes(key))
+            && Object.hasOwn(fields, 'name') && Object.hasOwn(fields, 'types')
+            && (fields.name.value === undefined || typeof fields.name.value === 'string')
+            && (!Object.hasOwn(fields, 'rowMode') || fields.rowMode.value === 'array');
+          if (!adapter && !drizzle) return Reflect.apply(original, client, args);
+          text = fields.text.value; values = adapter ? fields.values.value : args[1] as unknown[];
+        }
+        if (callback) {
+          const forwarded = [...args];
+          forwarded[2] = function (this: unknown, ...callbackArgs: unknown[]) {
+            const currentProbe = probe;
+            if (callbackArgs[0] != null || !currentProbe || activeProbe) return Reflect.apply(callback, this, callbackArgs);
+            activeProbe = true;
+            const deliver = (outcome: unknown[]) => {
+              activeProbe = false;
+              try { Reflect.apply(callback, this, outcome); }
+              catch (error) { process.nextTick(() => { throw error; }); }
+            };
+            // Await only after native pg supplied the real successful result,
+            // while its pool callback still retains this exact acquired client.
+            // Both Promise branches terminate; callback throws follow pg's own
+            // nextTick policy instead of becoming an unhandled rejection.
+            void Promise.resolve().then(() => currentProbe({ text, values: values ?? [], client,
+              result: callbackArgs[1] as QueryResult, raw })).then(
+              () => deliver(callbackArgs),
+              error => deliver([error instanceof Error ? error : new Error('Metadata SQL probe failed.', { cause: error }),
+                ...callbackArgs.slice(1)]),
+            );
+          };
+          return Reflect.apply(original, client, forwarded);
         }
         return (async () => {
           const answer = await Reflect.apply(original, client, args) as QueryResult; if (probe && !activeProbe) { activeProbe = true;
