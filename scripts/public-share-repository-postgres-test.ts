@@ -112,7 +112,7 @@ async function main(): Promise<void> {
     const candidate = (overrides: Partial<PublicShareRow> = {}): PublicShareRow => {
       const id = crypto.randomUUID(), token = crypto.randomBytes(32).toString('base64url');
       const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
-      const shortCode = [...crypto.randomBytes(6)].map(value => alphabet[value % alphabet.length]).join('');
+      const shortCode = Array.from({ length: 6 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
       return { id, token, tokenHash: crypto.createHash('sha256').update(token).digest('hex'), tokenPreview: token.slice(0,8), shortCode,
         organizationId:'repository-org',customerId:'repository-customer',projectId:'repository-project',workspaceId:'repository-space',
         workspaceType:'organization',workspaceRootRelativePath:'organizations/repository-org/shared',workspacePath:`file-${id}.md`,
