@@ -27,6 +27,25 @@ Die gewöhnlichen JSON-/Asset-Arme sind nicht pauschal ausgeschlossen. Für Rena
 
 Die statische Bestandsaufnahme bindet alle 201 Pfade mit einzelnen SHA-256-Werten und dem Config-Hash. Privater Beleg: `/private/tmp/canvas-test-all-static-inventory-d05337daa-20261020.json`, SHA-256 `ae26554b8f90bee72f638be0faa8be6f2a0e35c023e258a088c6f7c9370ccf3a`. Die Originalausgaben der Runner-Gegenprobe sind separat erhalten: Baseline `cd10431d5ed34f9983175bf0210b13335c7b4cea4de82e611f2a97c2cda2ebba`, korrigierter Lauf `5a5e26d2db37b79831e8b7f4fe4222314c73482ad97a67ad738ddb976ec30636`. Diese Dateiinventur ersetzt keine tatsächliche Playwright-Collection.
 
+## Restore-Erwartung im Integrationstest korrigiert
+
+Der unveränderte Integrationstest aus Main (Datei-SHA `2625beaef9cad372edc56e9d3147fc26d0d92ec44bda5af1073a18e839f5bf3e`) scheitert in einer tatsächlichen eigenen synthetischen HTTP-Probe an der korrekten Antwort `409 / FILE_OPERATION_UNDO_DISABLED`: Child-Exit 1 nach elf Requests, ohne Fixturefehler in diesem maßgeblichen Fall. Der Originalbericht bleibt erhalten (`canvas-integration-http-contract-c9K9rC/report.json`, SHA `89ae868e03718a435f1892bfd4b3cd265cf14c89af73d7dc09ff7786aad5a3ca`).
+
+Die korrigierte Testdatei (SHA `7707a881379dc9820a7bd68277e5f86c8e00053ce2626b2097e40c6902d5201c`) verlangt den exakten Fehlercode und Status. Anschließend müssen die gelöschte Quelle weiterhin 404 und die Kopie unveränderten Inhalt liefern. Cleanup betrifft nur das noch vorhandene Kopierverzeichnis und weist auch HTTP 200 mit nicht leerem `failed` zurück. Die tatsächliche Ausführung der integrierten Root-Datei besteht alle sechs Vertragsfälle:
+
+| Probe | erwarteter und tatsächlicher Script-Exit | Requests |
+| --- | --- | --- |
+| Korrektes Undo-OFF-Verhalten | 0 | 14 |
+| Unerwarteter Restore-Erfolg | 1 | 11 |
+| Falscher Fehlercode bei 409 | 1 | 11 |
+| Gelöschte Quelle taucht wieder auf | 1 | 12 |
+| Kopie verändert | 1 | 13 |
+| Cleanup meldet 200 mit fehlgeschlagenem Eintrag | 1 | 14 |
+
+Alle sechs Kindprozesse und eigenen HTTP-Server sind geschlossen; keine offenen Sockets, Timeouts oder Fixturefehler. Der tatsächliche Root-Bericht ist `canvas-integration-http-contract-8P7yEP/report.json`, SHA `82c7cf9967cbe8d3bded1347f44c171d65bf2374e729af8c3d6d756c50784d27`; Originale liegen unter dem privaten Host-TMP. Der separat vor Integration geprüfte Candidate-Bericht `canvas-integration-http-contract-FxJdtT/report.json` hat SHA `9daa6efa58c90fda08083c32ecc989d2b30ee541249ea232c3be41d4dc45e7b4`. Der private V2-Driver bleibt auf SHA `3b2a021d8334abd07f3ec9e67b7b5baba2269c2fd62659626c31972ecf4a119a` gebunden; seine einzige Korrektur vor Erststart betrifft den schon im Original gesetzten JSON-Header des leeren Restore-POSTs. V1 wurde nicht ausgeführt und bleibt erhalten.
+
+Node-Syntaxprüfung, Scoped-ESLint und unabhängiges enges Review bestehen. Produktpolicy, Restore-Route und Experimentalschalter sind unverändert. Diese synthetischen HTTP-Proben bestätigen das korrigierte Testorakel; ein tatsächlicher App-/DB-Integrationstest und das vollständige `npm run test:all` stehen weiter aus. Die bestehende Cleanup-Toleranz für sonstige 2xx-Antworten oder fehlende `failed`-Felder wurde nicht als vollständiger physischer Löschbeleg gewertet.
+
 ## Umsetzung bei unverändertem Gesamtgate
 
 1. Vollständigen ursprünglichen Collectionbestand und deklarierte Fall-IDs erfassen; vorhandene optionale Bedingungen ausdrücklich erhalten.
