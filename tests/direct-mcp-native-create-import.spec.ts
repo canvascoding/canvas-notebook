@@ -1517,6 +1517,8 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
         const files = await active.newPage(); pages.push(files);
         await files.addInitScript(({ id, host }) => { if (location.origin === host) localStorage.setItem('canvas.activeWorkspaceId', id); }, { id: selected.id, host: origin });
         await files.goto(`/en/files?workspaceId=${encodeURIComponent(selected.id)}`, { waitUntil: 'domcontentloaded' });
+        const treeView = files.getByRole('button', { name: 'Tree view', exact: true });
+        await treeView.click(); await expect(treeView).toHaveAttribute('aria-pressed', 'true');
         const { createRichMarkdownManager, serializeRichMarkdownBody } = await import('../app/lib/markdown/rich-markdown-codec');
         const manager = createRichMarkdownManager(), schema = getSchema(richMarkdownCodecExtensions());
         for (const pair of pairs) {
@@ -1598,8 +1600,11 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
           assert.equal(object(completed.linkUpdates).updatedLinks, 1); assert.deepEqual(object(completed.linkUpdates).updatedFiles, [pair.incomingPath]);
           await expect(dialog).toHaveCount(0); await expect(sourceRow).toHaveCount(0);
           if (pair.kind === 'move') {
-            const folder = files.locator(`[data-file-path="${pair.destinationDirectory}"]`).filter({ visible: true }).first(); await expect(folder).toBeVisible();
-            await folder.dblclick(); await expect(files.locator(`[data-file-path="${pair.destinationPath}"]`).filter({ visible: true }).first()).toBeVisible();
+            const folder = files.locator(`[data-file-path="${pair.destinationDirectory}"]`).filter({ visible: true }).first().getByRole('treeitem');
+            await expect(folder).toBeVisible();
+            if (await folder.getAttribute('aria-expanded') !== 'true') await folder.click();
+            await expect(folder).toHaveAttribute('aria-expanded', 'true');
+            await expect(files.locator(`[data-file-path="${pair.destinationPath}"]`).filter({ visible: true }).first()).toBeVisible();
             await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
           }
           await expect(files.locator(`[data-file-path="${pair.incomingPath}"]`).filter({ visible: true }).first()).toBeVisible();

@@ -201,3 +201,29 @@ Originalcontroller: `/private/tmp/canvas-m3-capacity-v2-controller-inputs-202610
 Der ursprüngliche unabhängige Abschlussbericht ist ausdrücklich rot: Prozesse/Ports/Lock/DB-Backends sind beendet beziehungsweise frei und die vier verwalteten Dienste unverändert gesund, aber beide eigenen Datenbanken und DATA/TMP bleiben zur Fehlerdiagnose erhalten. Eine spätere gezielte Bereinigung ist ein eigener Nachweis und ändert diesen Originalbericht nicht. Noch keine M3-, Main- oder Launchfreigabe; keine Produktionsauslieferung. Die sieben Roadmap-Pakete bleiben offen.
 
 Auf der anschließenden Zwei-Handler-Korrektur bestehen der vollständige Release-Typecheck (`tsconfig.release.json`), Scoped-ESLint und die unveränderte echte Web-PG-Folge **7/7 mit Exit 0 nach 39,986 s**. Der Originaltest bestätigt entferntes eigenes Schema, geschlossene Pools/Clients, entferntes DATA und null Fetches; der echte ESM-Runner bestätigt sein entferntes Bundle. Originale unter `/private/tmp/canvas-m3-web-request-boundary-20261020`, Web-PG-Log SHA-256 `ea63279fc76fe4940e4d1b6d9df4c074df5fb520c5c8c9c03d0b6f9ad816a5fb`. Dies ist keine kompilierte Browserabnahme und kein grüner Standard-Gesamttypcheck.
+
+
+## Sechster Originalbuild bestanden; Tree-Bedienung des zehnten Tests korrigiert
+
+Auf Root `a2fce6070b8eb2b4ccfa34574c4a16bde5e24c8f` / QA `c53194ae81a3a6e7e725c472ddb45d162151dc19`, CP unverändert, besteht der tatsächliche vollständige Produktionsbuild mit **Exit 0 nach 316,455 s**. Der anschließende unabhängige vollständige Quellen-/Artefaktabgleich besteht. Neue Originale: `/private/tmp/canvas-m3-nextrequest-controller-inputs-20261020-Nr1/mcp10`; Buildroot `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-build-iJ1Fdj`.
+
+Die tatsächliche Zehnerfolge ist erneut **9/10, Exit 1, keine Skips, Timeouts oder Unterbrechungen**. Der vorherige `PRINCIPAL_INVALID`-Abbruch ist geschlossen: Das originale Web-Move-Preview antwortet 200, seine vollständigen NoWrite-Prüfungen bestehen; Apply und Status bestätigen `applied`, alle Aktionen abgeschlossen, `linkStatus: complete` und genau einen aktualisierten eingehenden Link. Der nächste Abbruch liegt vor den vollständigen nativen JSON-/Markdown-/Editororakeln und vor Raw-Web-Delete: Nach `folder.dblclick()` ist die Ziel-Datei nicht sichtbar.
+
+Der Originalsnapshot zeigt Tree-Modus, den richtigen Workspace, Breadcrumb `raw-web-destination` und einen ausgewählten, geschlossenen Zielordner. Der tatsächliche `FileTreeNode` verwendet einen kontrollierten Radix-Collapsible-Trigger: jeder Klick toggelt, ein Tree-Doppelklickhandler existiert nicht. Der erste Klick öffnet und lädt, der zweite schließt; `selectNode` setzt davon unabhängig die Breadcrumb. Dies erklärt das beobachtete Bild. Der minimale Testfix wählt ausdrücklich Tree-Modus, adressiert den primären `treeitem`, öffnet ihn bei Bedarf mit einem Klick und prüft zusätzlich `aria-expanded=true`. Dieselbe Ziel-Datei-Sichtbarkeitsprüfung bleibt erhalten. Kein Refresh, Reload, künstlicher Wait oder höheres Timeout wird ergänzt; Produktcode bleibt unverändert.
+
+Der unabhängige vollständige Testdiff bestätigt exakt diese zwei Stellen. Die ersten neun Fallkörper sowie alle übrigen Inhalts-/NoWrite-/Recoveryorakel, Fristen und Cleanup sind bytegleich. Ursprüngliche Spec SHA-256 `80cef0d0497c3cef044f8e244ec977bdfb241308944b757d7db05329ab80470c`; Originalkopie und Korrekturbelege unter `/private/tmp/canvas-m3-tree-test-correction-20261020`. Der GitNexus-Index löst weder die neue benannte Testfunktion noch die Spec auf; die Impactbewertung bleibt UNKNOWN und wird durch den engen unabhängigen Quell-/Aufrufervergleich ergänzt.
+
+Browserfixture `/private/var/folders/bx/tjzzmjhn2qdcdyfc_l7hkv900000gn/T/canvas-yjs-authority-JXh9nO`. Die ursprüngliche Runtime und ihr unabhängiger Abschlussbericht bleiben rot; eigene Datenbanken und DATA/TMP sind zur Diagnose erhalten. Die Queue startet weder die weiteren 17 Editorfälle noch die zwei Neustartfälle. Eine spätere gezielte Bereinigung verändert diesen Originalnachweis nicht.
+
+| Original | SHA-256 |
+|---|---|
+| `build-terminal.json` | `376208db6806a4240165faa44e01e43e8344c0825745a1430a9cb74d2764124d` |
+| `artifact-report.json` | `78f5d001573c97cb5aef9acb0d4d6aef9e76530e7a8a850d92ee5d637045ee31` |
+| `runtime-terminal.json` | `c330a05f31aa0cf0d0b06d99589422715e350e134313b742e2d68866896373fc` |
+| `postruntime-report.json` | `795e92d312306eea0fee162ce396ad05777aa0b15fb7baf6ede9c1a58bd08779` |
+| `queue-terminal.json` | `b6680ce0010ae1848c685b95c03eaad72b8237b1fd5f973a780594dab4e7bd33` |
+| `launch-terminal.json` | `e98964fd19453a1f1115171b346ccd973b3af6266ced6d6077fb22c3386a04c6` |
+
+Die vorherige exakt begrenzte Bereinigung der fünften Browserfixture `Yfnm0u` ist inzwischen tatsächlich abgeschlossen: beide gebundenen eigenen DB-OIDs 14265702 und 14273493 sind entfernt, nur eigenes DATA/TMP entfernt, sämtliche gepinnten Originalbelege bytegleich erhalten. Separater Bericht `/private/tmp/canvas-m3-exact-failed-runtime-cleanup-20261020/cleanup-result.json`, SHA-256 `81190302a140ffe10d0b58f6296a5e8b774dcf2644cdb700001453cbf32a00f4`. Dies ist keine nachträgliche Browser- oder Abschlussfreigabe des fehlgeschlagenen Originals.
+
+Die erneute vollständige Abnahme des korrigierten Tests sowie aktuelle CI/Review bleiben offen. Keine Main-/Launchfreigabe oder Produktionsauslieferung. Die sieben nachgelagerten Roadmap-Pakete bleiben unverändert.
