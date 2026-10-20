@@ -17,6 +17,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { canExportWorkspaceFiles } from '@/app/lib/workspaces/export-access';
 import { excalidrawRouteError } from '@/app/lib/excalidraw-collaboration/http';
+import { ensurePortableTextCheckpointsCurrent } from '@/app/lib/exports/text-checkpoints';
 import {
   requireRequestPersonalWorkspace,
   requireRequestWorkspace,
@@ -338,6 +339,7 @@ export async function GET(request: NextRequest) {
   try {
     const { ensureExcalidrawCheckpointsCurrent } = await import('@/app/lib/excalidraw-collaboration/checkpoint-worker');
     await ensureExcalidrawCheckpointsCurrent({ workspaceId: workspace.workspaceId, paths: selectedPaths });
+    await ensurePortableTextCheckpointsCurrent({ workspaceId: workspace.workspaceId, paths: selectedPaths });
     const isMultipleSelection = selectedPaths.length > 1;
     const effectiveFilePath = selectedPaths[0];
     const stats = await getFileStats(effectiveFilePath, fileOptions);
@@ -365,6 +367,10 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    if (error instanceof Error && 'code' in error
+      && error.code === 'COLLABORATION_EXPORT_CHECKPOINT_UNAVAILABLE') {
+      return NextResponse.json({ success: false, code: error.code, error: error.message }, { status: 409 });
+    }
     if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
       && error.code.startsWith('EXCALIDRAW_')) return excalidrawRouteError(error);
     if (hasNodeErrorCode(error, ['ENOENT', 'ENOTDIR'])) {

@@ -40,6 +40,7 @@ import { getDeploymentMode } from '@/app/lib/organization/config';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { isPortableCredentialPath, isPortableRuntimeConfigPath, redactPortableRuntimeConfig } from '@/app/lib/migration/secret-export-policy';
 import { parseEnvDocument } from '@/app/lib/secrets/env-document';
+import { ensurePortableTextCheckpointsCurrent } from '@/app/lib/exports/text-checkpoints';
 
 const EXPORT_STATUS_FILE = 'status.json';
 const EXPORT_WRITE_THROTTLE_MS = 750;
@@ -120,15 +121,9 @@ async function readJobStatus(exportId: string): Promise<MigrationExportJob | nul
 }
 
 function shouldSkipPath(filePath: string): boolean {
-  const parts = filePath.split(path.sep);
-  return isPortableCredentialPath(filePath, getMigrationDataRoot()) || parts.includes('.migration') ||
-    parts.includes('.restore-backups') ||
-    parts.includes('cache') ||
-    parts.includes('logs') ||
-    parts.includes('temp') ||
-    parts.includes('node_modules') ||
-    parts.includes('.next') ||
-    parts.includes('.git');
+  const parts = path.relative(getMigrationDataRoot(), filePath).split(path.sep);
+  return isPortableCredentialPath(filePath, getMigrationDataRoot())
+    || ['.migration', '.restore-backups', 'cache', 'logs', 'temp', 'node_modules', '.next', '.git'].includes(parts[0]);
 }
 
 async function collectFiles(
@@ -136,6 +131,7 @@ async function collectFiles(
   sourcePath: string,
   archiveRoot: string,
   includeRelativePath?: (relativePath: string) => boolean,
+  directories?: Set<string>,
 ): Promise<MigrationFileEntry[]> {
   const entries: MigrationFileEntry[] = [];
 
@@ -160,6 +156,8 @@ async function collectFiles(
       }
 
       if (dirent.isDirectory()) {
+        const relative = path.posix.relative(archiveRoot, archivePath) + '/';
+        if (!includeRelativePath || includeRelativePath(relative)) directories?.add(archivePath + '/');
         await walk(absolutePath, archivePath);
         continue;
       }
@@ -502,12 +500,17 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       archiveRoot: mapping.archiveRoot,
       includeRelativePath: mapping.includeRelativePath,
     }));
+    if (job.components.workspace) await ensurePortableTextCheckpointsCurrent({
+      rootRelativePaths: componentRoots.filter(root => root.component === 'workspace')
+        .map(root => path.relative(dataRoot, root.sourcePath).split(path.sep).join('/')),
+    });
+    const directories = new Set<string>();
     const virtualFileContents = new Map<string, string>();
 
     for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
       await persist(true);
-      const collected = await collectFiles(root.component, root.sourcePath, root.archiveRoot, root.includeRelativePath);
+      const collected = await collectFiles(root.component, root.sourcePath, root.archiveRoot, root.includeRelativePath, directories);
       for (const entry of collected) {
         const sourcePath = path.join(root.sourcePath, path.posix.relative(root.archiveRoot, entry.archivePath));
         if (isPortableRuntimeConfigPath(sourcePath, dataRoot)) {
@@ -542,6 +545,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       files,
     });
     job.manifest = manifest;
+    manifest.directories = [...directories].sort();
     job.progress.fileCount = manifest.fileCount;
     job.progress.totalBytes = manifest.totalBytes;
     job.phase = 'Writing archive';
@@ -560,6 +564,7 @@ async function runExport(job: MigrationExportJob): Promise<void> {
     await addZipEntry(archive, `${JSON.stringify(manifest, null, 2)}\n`, {
       name: 'manifest.json',
     });
+    for (const directory of manifest.directories) await addZipEntry(archive, null, { name: directory, type: 'directory' });
 
     const filePathByArchivePath = new Map<string, string>();
 

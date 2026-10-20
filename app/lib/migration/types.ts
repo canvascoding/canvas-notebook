@@ -69,6 +69,7 @@ export interface CanvasMigrationManifest {
   totalBytes: number;
   warnings: string[];
   files: MigrationFileEntry[];
+  directories?: string[];
 }
 
 export interface MigrationExportSelection {
