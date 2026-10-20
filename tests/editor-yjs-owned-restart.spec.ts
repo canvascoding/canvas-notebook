@@ -113,35 +113,14 @@ test.describe('Owned host restart and fresh browser durability', () => {
         expect((await durable(workspace, path, initial)).content).toEqual(saved.content);
         await fresh.reload(); await expect.poll(() => tree(fresh)).toEqual(final);
         await fresh.screenshot({ path: info.outputPath(`${mode}-fresh-browser.png`), animations: 'disabled' });
-        // Cleanup must first exercise the active-editor denial, then prove the
-        // exact normal UI close released its native owner without forcing a drain.
+        // Prove the exact normal UI close released its native owner. An active
+        // Delete would deliberately use the separate coordinated drain contract.
         const ownedBefore = await roomEvidence(path, initial);
         expect(ownedBefore).toMatchObject({ ownerTupleCleared: false, ownerTupleComplete: true, advisoryLockHeld: true, released: false });
         expect(ownedBefore.version.stateProof).toBe(saved.stateProof); expect(ownedBefore.version.sequence).toBe(saved.sequence);
-        const busy = await fresh.request.delete('/api/files/delete', { headers: workspace.headers, data: { path } });
-        const busyPayload = await busy.json() as { success: boolean; code: string; operation: {
-          workspaceId: string; status: string; phase: string; errorCode: string; completedActions: number; totalActions: number;
-          kind: string; selections: Array<{ sourcePath: string }> } };
-        await info.attach('active-editor-delete', { contentType: 'application/json', body: JSON.stringify({
-          status: busy.status(), busyCodeConfirmed: busyPayload.code === 'COLLABORATION_FILE_LIFECYCLE_BUSY',
-          operationBusyCodeConfirmed: busyPayload.operation?.errorCode === 'COLLABORATION_FILE_LIFECYCLE_BUSY',
-          failedBeforeMutation: busyPayload.operation?.status === 'failed' && busyPayload.operation?.phase === 'preparing'
-            && busyPayload.operation?.completedActions === 0 && busyPayload.operation?.totalActions === 1,
-        }) });
-        expect(busy.status()).toBe(409); expect(busyPayload.success).toBe(false);
-        expect(busyPayload.code === 'COLLABORATION_FILE_LIFECYCLE_BUSY').toBe(true);
-        expect(busyPayload.operation?.errorCode === 'COLLABORATION_FILE_LIFECYCLE_BUSY').toBe(true);
-        expect(busyPayload.operation?.status).toBe('failed'); expect(busyPayload.operation?.phase).toBe('preparing');
-        expect(busyPayload.operation?.completedActions).toBe(0); expect(busyPayload.operation?.totalActions).toBe(1);
-        expect(busyPayload.operation?.kind).toBe('delete');
-        expect(typeof busyPayload.operation?.workspaceId === 'string' && busyPayload.operation.workspaceId.length > 0).toBe(true);
-        expect(busyPayload.operation?.selections?.length).toBe(1);
-        expect(busyPayload.operation.selections[0].sourcePath === path).toBe(true);
-        const expectedRoom = { expectedWorkspaceId: busyPayload.operation.workspaceId, expectedOwnerEpoch: ownedBefore.ownerEpoch,
-          expectedScopeProof: ownedBefore.scopeProof };
-        const deniedState = await roomEvidence(path, initial, expectedRoom);
-        expect(deniedState.version).toEqual(ownedBefore.version);
-        expect(deniedState).toMatchObject({ ownerTupleCleared: false, ownerTupleComplete: true, advisoryLockHeld: true, released: false });
+        // The scope proof binds the observed workspace, organization, path,
+        // generation, representation, schema and lineage as well as this ID.
+        const expectedRoom = { expectedOwnerEpoch: ownedBefore.ownerEpoch, expectedScopeProof: ownedBefore.scopeProof };
         await fresh.getByRole('button', { name: 'Close preview', exact: true }).click();
         await expect(fresh.locator(selector)).toHaveCount(0);
         await expect.poll(async () => (await roomEvidence(path, initial, expectedRoom)).released,
