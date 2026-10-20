@@ -33,12 +33,6 @@ async function useWorkspace(context: BrowserContext, workspaceId: string) {
 }
 
 async function clickToolbarButton(page: Page, name: string) {
-  if (name === 'Edit as text') {
-    await page.getByRole('group', { name: 'Document view' })
-      .getByRole('button', { name: 'Source', exact: true })
-      .click();
-    return;
-  }
   const menuTargetByAction: Record<string, { group: string; item: string }> = {
     Callout: { group: 'Blocks', item: 'Callout' },
     'Collapsible section': { group: 'Blocks', item: 'Collapsible section' },
@@ -172,16 +166,47 @@ Table anchor`,
       await page.screenshot({ path: richScreenshot, type: 'png' });
       await testInfo.attach('rich blocks desktop', { path: richScreenshot, contentType: 'image/png' });
 
-      await clickToolbarButton(page, 'Edit as text');
-      const sourceEditor = page.locator('.cm-content');
-      await expect(sourceEditor).toBeVisible();
-      await expect(sourceEditor).toContainText('> [!info] UI callout');
-      await expect(sourceEditor).toContainText('<details>');
-      await expect(sourceEditor).toContainText('<summary>UI details</summary>');
-      await expect(sourceEditor).toContainText('$x^2$');
-      await expect(sourceEditor).toContainText('[^1]: Footnote body');
-      await expect(sourceEditor).toContainText('Editable table value');
-      await expect(sourceEditor).not.toContainText('> [!note] Note |');
+      // Native rich documents expose serialized Markdown through the read API,
+      // while their authoritative structured document remains directly editable.
+      let serialized = '';
+      await expect.poll(async () => {
+        const response = await context.request.get('/api/files/read', {
+          headers: { [workspaceIdHeader]: workspaceId! }, params: { path: filePath },
+        });
+        expect(response.status(), 'Read the exact owned rich-block document').toBe(200);
+        const payload = await response.json() as { success: boolean; data: { path: string; content: string } };
+        expect(payload.success).toBe(true);
+        expect(payload.data.path).toBe(filePath);
+        expect(typeof payload.data.content).toBe('string');
+        serialized = payload.data.content;
+        return ['> [!info] UI callout', '<details>', '<summary>UI details</summary>', '$x^2$',
+          '[^1]: Footnote body', 'Editable table value'].every((text) => serialized.includes(text))
+          && !serialized.includes('> [!note] Note |');
+      }).toBe(true);
+      expect(serialized).toContain('> [!info] UI callout');
+      expect(serialized).toContain('<details>');
+      expect(serialized).toContain('<summary>UI details</summary>');
+      expect(serialized).toContain('$x^2$');
+      expect(serialized).toContain('[^1]: Footnote body');
+      expect(serialized).toContain('Editable table value');
+      expect(serialized).not.toContain('> [!note] Note |');
+
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await expect(editor).toBeVisible({ timeout: 30_000 });
+      await expect(editor).toHaveAttribute('contenteditable', 'true');
+      await expect(callout).toHaveCount(1);
+      await expect(callout).toContainText('UI callout');
+      await expect(callout).toContainText('Callout body');
+      await expect(details).toHaveCount(1);
+      await expect(details).toContainText('UI details');
+      await expect(details).toContainText('Details body');
+      await expect(details.locator('summary')).toHaveText('UI details');
+      await expect(editor.locator('[data-type="inline-math"]')).toHaveCount(1);
+      await expect(footnoteReference).toHaveCount(1);
+      await expect(footnoteDefinition).toContainText('Footnote body');
+      await expect(table).toBeVisible();
+      await expect(table).toContainText('Editable table value');
+      await expect(table.locator('[data-type="canvas-callout"]')).toHaveCount(0);
     } finally {
       await page.close().catch(() => undefined);
       if (workspaceId) {
