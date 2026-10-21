@@ -1122,10 +1122,32 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
   const prepared = captureMovePrepared(fields.preparedSteps as readonly MovePrepared[],true);
   captured.move!.preparedSteps = prepared;
   return movePhase(owner,async (access,database,check) => {
+    const timingPhase = captured.phase;
+    const timingClock = () => { try { return performance.now(); } catch { return 0; } };
+    const timingStartedAt = timingPhase?.startedMonotonic ?? timingClock();
+    const timingQueriesBefore = timingPhase?.queriesBefore ?? captured.forwardedQueries;
+    const timingMilestones: Array<Readonly<{ stage: string; elapsedMs: number; forwardedQueries: number }>> = [];
+    let timingStage = 'initial-rows', timingFinishedCallback = false;
+    let timingMutationsCount = 0, timingMutationsCompleted = 0;
+    let timingMutationStartedAt: number | null = null, timingMutationElapsedMs = 0, timingMutationMaxMs = 0;
+    let timingNativeSideEffectsMs: number | null = null, timingReceiptProofMs: number | null = null;
+    let timingNamespaceMs: number | null = null, timingFinalSourceMs: number | null = null;
+    const timingMark = (stage: string) => {
+      try {
+        if (timingMilestones.length < 12) timingMilestones.push({ stage,
+          elapsedMs: Math.max(0, Math.round(timingClock() - timingStartedAt)),
+          forwardedQueries: captured.forwardedQueries - timingQueriesBefore });
+      } catch { /* Diagnostics cannot replace the original operation result/error. */ }
+    };
+    timingMark('b2-enter');
+    try {
     const rows = await readMoveRows(captured,database), intent = rows.intent;
     if (!intent || !rows.intentRow || rows.completion || rows.pathRows.length !== intent.steps.length) fail('JOB_LIFECYCLE_CHANGED');
+    timingMark('original-rows-read'); timingStage = 'original-context';
     const source = await readWorkspaceOperationOriginalMoveSourcesContext(database); await source.assertCurrent(); await check();
+    timingStage = 'original-bundle';
     const request = moveRequest(captured,intent), bundle = readWorkspaceOperationOriginalMoveNativeBundle(intent);
+    timingMutationsCount = bundle?.mutations.length ?? 0; timingMark('original-context-ready');
     captured.move!.nativePhase = captured.phase; captured.move!.nativeReceipts = Object.freeze([]); captured.move!.namespaceReceipt = null;
     let native: WorkspaceOperationOriginalMoveCompletionData['native'] = null;
     let namespaceEffects: WorkspaceOperationOriginalMoveCompletionData['namespaceEffects'] = null;
@@ -1134,52 +1156,78 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
     await executeCollaborationAdmissionHandoffOnConnection(database,request,{kind:'apply',
       authorize:async () => { await check(); },
       prepare:async connection => {
+        timingStage = 'prepare-authority'; timingMark('prepare-enter');
         if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
         await check(); await source.assertCurrent();
+        timingStage = 'original-source';
         const observation = await readWorkspaceOperationOriginalMoveSourcesOnConnection(database,access.workspace,'original');
+        timingMark('original-source-read'); timingStage = 'current-plan';
         assertWorkspaceOperationNativeMoveBatchPlanCurrent(captured.move!.context.plan,observation,intent.jobScope);
+        timingMark('current-plan-checked');
         if (bundle) {
+          timingStage = 'staged-binding';
           const staged = await readStagedNativeFileOperationBindingOnConnection(database,{request,operationId:bundle.operationId});
           if (staged.changesBundleProof !== intent.nativeBundle!.changesBundleProof) fail('JOB_LIFECYCLE_CHANGED');
+          timingMark('staged-binding-read');
           if (bundle.mutations.some(mutation => mutation.kind !== 'link')) {
+            timingStage = 'side-effect-capture';
             await fixedMoveSideEffect(captured,database,() => captureNativeFileOperationSideEffectsOnConnection(database,{workspace:access.workspace,request,operationId:bundle.operationId}));
+            timingMark('side-effects-captured');
           }
         }
+        timingStage = 'prepare-exit';
         await check();
       },
       mutate:async connection => {
+        timingStage = 'mutate-authority'; timingMark('mutate-enter');
         if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
         await check(); await source.assertCurrent();
         const result: Record<string,string> = {};
         if (bundle) {
           const receipts = [];
           for (const mutation of bundle.mutations) {
+            timingStage = 'native-mutation'; timingMutationStartedAt = timingClock();
             await check();
             const applied = await applyNativeFileOperationMutationOnConnection(database,{workspace:access.workspace,action:bundle.action,
               operationId:bundle.operationId,mutationId:mutation.mutationId});
             receipts.push({mutationId:mutation.mutationId,receiptDigest:applied.receiptDigest});
             captured.move!.nativeReceipts = Object.freeze([...captured.move!.nativeReceipts!,applied.receipt]); await check();
+            const timingMutationMs = Math.max(0, timingClock() - timingMutationStartedAt);
+            timingMutationElapsedMs += timingMutationMs; timingMutationMaxMs = Math.max(timingMutationMaxMs, timingMutationMs);
+            timingMutationsCompleted++; timingMutationStartedAt = null;
           }
+          timingMark('mutations-applied');
           let sideEffectReceiptDigest: string|null = null;
           if (bundle.mutations.some(mutation => mutation.kind !== 'link')) {
+            timingStage = 'native-side-effects'; const timingSectionStartedAt = timingClock();
             const effects = await fixedMoveSideEffect(captured,database,() => applyNativeFileOperationSideEffectsOnConnection(database,{workspace:access.workspace,operationId:bundle.operationId}));
             result.nativeFileSideEffectSetProof = effects.nativeFileSideEffectSetProof;
             const row = await database.get('SELECT receipt_digest FROM collaboration_native_file_operation_side_effect_receipts WHERE operation_id=$1 FOR SHARE',[bundle.operationId]) as {receipt_digest?:unknown}|undefined;
             if (typeof row?.receipt_digest !== 'string' || !/^[a-f0-9]{64}$/u.test(row.receipt_digest)) fail('JOB_LIFECYCLE_CHANGED');
             sideEffectReceiptDigest = row.receipt_digest;
+            timingNativeSideEffectsMs = Math.max(0, Math.round(timingClock() - timingSectionStartedAt));
           }
+          timingStage = 'receipt-proof'; const timingProofStartedAt = timingClock();
           result.nativeFileReceiptSetProof = await nativeFileOperationReceiptSetProofOnConnection(database,bundle.action,bundle.operationId);
+          timingReceiptProofMs = Math.max(0, Math.round(timingClock() - timingProofStartedAt));
           native = {operationId:bundle.operationId,requestId:bundle.requestId,changesBundleProof:intent.nativeBundle!.changesBundleProof,
             receipts,sideEffectReceiptDigest};
         }
+        timingStage = 'namespace'; const timingNamespaceStartedAt = timingClock();
         namespaceEffects = await applyWorkspaceOperationOriginalMoveNamespaceEffectsOnConnection(database,{workspace:access.workspace,context:captured.move!.context,intent});
+        timingNamespaceMs = Math.max(0, Math.round(timingClock() - timingNamespaceStartedAt));
         captured.move!.namespaceReceipt = namespaceEffects;
         await source.assertCurrent(); await check();
+        timingStage = 'final-source'; const timingFinalSourceStartedAt = timingClock();
         await readWorkspaceOperationOriginalMoveSourcesOnConnection(database,access.workspace,'final');
+        timingFinalSourceMs = Math.max(0, Math.round(timingClock() - timingFinalSourceStartedAt));
         await check();
+        timingStage = 'handoff-outcome';
         return result;
       }}).finally(() => { captured.move!.namespaceReceipt = null; });
+    timingMark('da04-done'); timingStage = 'completion-authority';
     await check(); await source.assertCurrent();
+    timingStage = 'completion-body';
     const completion: WorkspaceOperationOriginalMoveCompletionData = {version:1,batchId:intent.batchId,intentDigest:rows.intentRow.intentDigest,
       planId:intent.planId,compilerPlanProof:intent.compilerPlanProof,finalGraphProof:intent.finalGraphProof,
       parentReceipts:intent.parents.map(parent => ({parentPath:parent.parentPath,receiptDigest:rows.parentRows.find(row => row.parentPath === parent.parentPath)!.receiptDigest})),
@@ -1187,12 +1235,30 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
     const receiptText = moveJson(completion), candidate = {batchId:intent.batchId,intentDigest:rows.intentRow.intentDigest,
       receiptText,receiptDigest:moveHash(receiptText),createdAt:0};
     decodeWorkspaceOperationOriginalMoveCompletion(candidate,intent,rows.parentRows,rows.pathRows);
+    timingStage = 'completion-insert';
     const inserted = await insertWorkspaceOperationOriginalMoveReceiptOnConnection(database,{schema:captured.binding.source.schemaName,
       batchId:intent.batchId,intentDigest:rows.intentRow.intentDigest,receiptText});
     if (inserted.kind === 'conflict') fail('JOB_LIFECYCLE_CHANGED');
+    timingMark('completion-ack'); timingStage = 'completion-validate';
     const completed = decodeWorkspaceOperationOriginalMoveCompletion(inserted.row,intent,rows.parentRows,rows.pathRows);
+    timingStage = 'notify';
     await notifyWorkspaceFileInvalidationOnConnection(database, captured.binding.workspaceId);
+    timingStage = 'callback-return'; timingFinishedCallback = true;
     return completed;
+    } finally {
+      // Callback/SQL-ACK diagnostics only: the owning transaction commits later.
+      try {
+        const activeMutationMs = timingMutationStartedAt === null ? null : Math.max(0, timingClock() - timingMutationStartedAt);
+        console.info('[File action owner] Move B2 timings.', JSON.stringify({ version: 1,
+          phaseIndex: timingPhase?.index ?? null, elapsedMs: Math.max(0, Math.round(timingClock() - timingStartedAt)),
+          forwardedQueries: captured.forwardedQueries - timingQueriesBefore, currentStage: timingStage,
+          finishedCallback: timingFinishedCallback, mutationsCount: timingMutationsCount,
+          mutationsCompleted: timingMutationsCompleted, mutationElapsedMs: Math.round(timingMutationElapsedMs),
+          mutationMaxMs: Math.round(timingMutationMaxMs), activeMutationMs: activeMutationMs === null ? null : Math.round(activeMutationMs),
+          nativeSideEffectsMs: timingNativeSideEffectsMs, receiptProofMs: timingReceiptProofMs,
+          namespaceMs: timingNamespaceMs, finalSourceMs: timingFinalSourceMs, milestones: timingMilestones }));
+      } catch { /* Logger/serialization failures cannot replace the original result/error. */ }
+    }
   });
   } catch (error) { return rejectMoveBoundary(owner,error); }
 }
