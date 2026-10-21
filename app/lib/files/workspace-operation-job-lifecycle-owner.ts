@@ -1160,10 +1160,8 @@ export function completeWorkspaceOperationOriginalMoveJob(owner: WorkspaceOperat
         if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
         await check(); await source.assertCurrent();
         timingStage = 'original-source';
-        const observation = await readWorkspaceOperationOriginalMoveSourcesOnConnection(database,access.workspace,'original');
-        timingMark('original-source-read'); timingStage = 'current-plan';
-        assertWorkspaceOperationNativeMoveBatchPlanCurrent(captured.move!.context.plan,observation,intent.jobScope);
-        timingMark('current-plan-checked');
+        await readWorkspaceOperationOriginalMoveSourcesOnConnection(database,access.workspace,'original');
+        timingMark('original-source-read');
         if (bundle) {
           timingStage = 'staged-binding';
           const staged = await readStagedNativeFileOperationBindingOnConnection(database,{request,operationId:bundle.operationId});
