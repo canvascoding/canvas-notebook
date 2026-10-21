@@ -1,4 +1,9 @@
 import 'server-only';
+import { readWorkspaceHtmlCopyObservationOnConnection } from './workspace-operation-html-copy-observation';
+import { assertWorkspaceOperationManagedCopyPlanV6Current } from './workspace-operation-managed-copy-plan-v6';
+import { captureWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedSourceSnapshotV5 } from './workspace-operation-mixed-source-evidence-v5';
+import { prepareNativeCopyLinkUpdatesV4 } from '../markdown/workspace-native-copy-link-updates-v4';
+import { assertNativeCopyFinalHtmlGraphV5 } from './workspace-operation-native-copy-html-graph';
 import { notifyWorkspaceFileInvalidationOnConnection } from '../filesystem/workspace-file-invalidation';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -108,7 +113,7 @@ async function samePhase(database: SqlConnection): Promise<void> {
  * perform title SQL. A data digest or caller-provided flag is no grant. */
 export async function assertNativeCopyMetadataPhaseOnConnection(database: SqlConnection, stage: WorkspaceOperationOwnedCopyStage): Promise<void> {
   const frame = phaseContext.getStore();
-  if (!frame?.active || frame.database !== database || frame.stage !== stage || stage.version !== 3 && (stage.version !== 4 && stage.version !== 5 && stage.version !== 6)) copyPhaseChanged();
+  if (!frame?.active || frame.database !== database || frame.stage !== stage || stage.version !== 3 && (stage.version !== 4 && stage.version !== 5 && stage.version !== 6 && stage.version !== 7)) copyPhaseChanged();
   captureNativeCopyPhaseStage(stage);
   await samePhase(database); await owner(database, stage);
   if (!frame.active || phaseContext.getStore() !== frame) copyPhaseChanged();
@@ -363,6 +368,13 @@ async function phase<T>(database: SqlConnection, input: NativeCopyPhaseInput,
     });
   }); } finally { executing.delete(database); }
 }
+function nativeCopyLinkConfirmation(stage: WorkspaceOperationOwnedCopyStage, link: NativeCopyPhaseLinkReceipt) {
+  const original = { version: 1, kind: 'native-copy-link-confirmation', stageDigest: stage.payloadSha256,
+    mutationId: link.mutationId, preparedProof: link.receipt.binding.authorizedPreparedProof, receiptProof: link.receiptProof };
+  if (stage.version !== 7) return original;
+  if (!link.htmlEvidence || link.htmlEvidence.resultEvidenceVersion !== 4 || link.htmlEvidence.parserVersion !== 4) copyPhaseChanged();
+  return { ...original, version: 2, htmlEvidence: link.htmlEvidence };
+}
 async function existing(database: SqlConnection, input: Captured): Promise<NativeCopyPhaseResult | null> {
   const journal = await readNativeCopyPhaseJournalOnConnection(database, input.stage);
   const ledger = await readNativeCopyPhaseLedgerOnConnection(database, input.stage);
@@ -423,9 +435,7 @@ async function existing(database: SqlConnection, input: Captured): Promise<Nativ
     const link = confirmations.get(step.stepKey);
     if (!link || step.phase !== 'link' || step.beforeFence !== proof({ stage: input.stage.payloadSha256,
       source: link.receipt.source, before: link.receipt.before }) || step.afterFence !== link.receiptProof || step.backupRef !== null) copyPhaseChanged();
-    if (step.status === 'applied' && (!step.receiptJson || !equal(JSON.parse(step.receiptJson), { version: 1,
-      kind: 'native-copy-link-confirmation', stageDigest: input.stage.payloadSha256, mutationId: link.mutationId,
-      preparedProof: link.receipt.binding.authorizedPreparedProof, receiptProof: link.receiptProof }))) copyPhaseChanged();
+    if (step.status === 'applied' && (!step.receiptJson || !equal(JSON.parse(step.receiptJson), nativeCopyLinkConfirmation(input.stage, link)))) copyPhaseChanged();
     confirmations.delete(step.stepKey);
   }
   if (paths.size || journal.status === 'completed' && (confirmations.size || rawConfirmations.size || ledger.receipt.publicationStatus !== 'published'
@@ -456,7 +466,13 @@ export function prepareNativeCopyPhaseOnConnection(database: SqlConnection, inpu
         const normalized = { ...body, scope: { ...body.scope, excludedPaths: body.scope.excludedPaths.filter(path => !originals.has(path)) } };
         return { ...observation, stage: { ...normalized, stageProof: workspaceSourceAuthorityStageProof(normalized) } };
       };
-      if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
+      if (stage.version === 7) {
+        const source = normalize(await readWorkspaceHtmlCopyObservationOnConnection(database, access.sourceWorkspace));
+        const destination = access.sourceWorkspace.workspaceId === access.destinationWorkspace.workspaceId ? source
+          : normalize(await readWorkspaceHtmlCopyObservationOnConnection(database, access.destinationWorkspace));
+        assertWorkspaceOperationManagedCopyPlanV6Current(stage.plan, { sourceScope: captureWorkspaceOperationJobScope(access.sourceWorkspace),
+          destinationScope: captureWorkspaceOperationJobScope(access.destinationWorkspace), sourceObservation: source, destinationObservation: destination });
+      } else if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
         const sourceParser = deriveCopyPhysicalParserVersion(stage.plan.sourceEvidence);
         const destinationParser = deriveCopyPhysicalParserVersion(stage.plan.destinationEvidence);
         if (access.sourceWorkspace.workspaceId === access.destinationWorkspace.workspaceId && sourceParser !== destinationParser) copyPhaseChanged();
@@ -533,7 +549,8 @@ export function prepareNativeCopyPhaseOnConnection(database: SqlConnection, inpu
       const state = await loadCollaborationStateOnConnection(database, link.document.clone.documentId, true);
       const source = records.get(link.document.source.documentId);
       if (!state || !source) copyPhaseChanged();
-      const prepared = prepareNativeCopyLinkUpdates({ sourceScope: stage.plan.sourceScope, destinationScope: stage.plan.destinationScope,
+      const prepareCloneLinks = stage.version === 7 ? prepareNativeCopyLinkUpdatesV4 : prepareNativeCopyLinkUpdates;
+      const prepared = prepareCloneLinks({ sourceScope: stage.plan.sourceScope, destinationScope: stage.plan.destinationScope,
         source, clone: { lineageId: link.document.clone.lineageId, state }, receipt: link.document,
         recipes: stage.plan.nativePathPlan.mutations.filter(recipe => recipe.source.documentId === source.state.documentId
           && recipe.sourcePathAfter === link.document.clone.path), operationId: link.mutationId });
@@ -677,7 +694,12 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
       await fences(database, access, stage);
       let observations: Awaited<ReturnType<typeof readWorkspaceLinkSourceAuthorityOnConnection>>[];
       let managedScenes: NativeCopyFinalManagedScenes | undefined;
-      if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
+      if (stage.version === 7) {
+        const source = await readWorkspaceHtmlCopyObservationOnConnection(database, access.sourceWorkspace);
+        const destination = access.sourceWorkspace.workspaceId === access.destinationWorkspace.workspaceId ? source
+          : await readWorkspaceHtmlCopyObservationOnConnection(database, access.destinationWorkspace);
+        observations = source === destination ? [source] : [source, destination];
+      } else if ((stage.version === 4 || stage.version === 5 || stage.version === 6)) {
         if (!managedReceipt) copyPhaseChanged();
         const sourceParser = deriveCopyPhysicalParserVersion(stage.plan.sourceEvidence);
         const destinationParser = deriveCopyPhysicalParserVersion(stage.plan.destinationEvidence);
@@ -700,7 +722,9 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
       }
       const mixedCurrent = (stage.version === 5 || stage.version === 6) ? observations.map(observation => captureWorkspaceOperationCopySourceEvidenceV4(
         observation.stage.workspaceId === stage.plan.sourceScope.workspaceId ? stage.plan.sourceScope : stage.plan.destinationScope, observation)) : null;
-      const final = mixedCurrent ? mixedCurrent.map(workspaceOperationMixedCopySourceSnapshot)
+      const htmlCurrent = stage.version === 7 ? observations.map(observation => captureWorkspaceOperationMixedSourceEvidenceV5(
+        observation.stage.workspaceId === stage.plan.sourceScope.workspaceId ? stage.plan.sourceScope : stage.plan.destinationScope, observation)) : null;
+      const final = htmlCurrent ? htmlCurrent.map(workspaceOperationMixedSourceSnapshotV5) : mixedCurrent ? mixedCurrent.map(workspaceOperationMixedCopySourceSnapshot)
         : observations.map(observation => workspaceOperationNativePlanSnapshot(observation, copyPhaseChanged));
       const compiled = nativeCopyPhaseCompiler(stage), originalEntries = new Map(nativeCopyPhaseOriginals(stage).flatMap(snapshot => snapshot.namespace)
         .map(entry => [proof({ workspaceId: entry.workspaceId, identity: entry.identity }), entry]));
@@ -731,7 +755,16 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
       const states = observations.flatMap(observation => [...observation.privateNativeStates]);
       const graphInput = { receipt: before.nativeReceipt, states, physicalCopies, createdParents,
         ...(managedScenes ? { managedScenes } : {}) };
-      if (stage.version === 6) {
+      if (stage.version === 7) {
+        if (compiled.contractVersion !== 5 || !htmlCurrent) copyPhaseChanged();
+        const originals = (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
+          ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence]).map(workspaceOperationMixedSourceSnapshotV5);
+        assertNativeCopyFinalHtmlGraphV5({ ...graphInput, compiled, originals, final: htmlCurrent.map(workspaceOperationMixedSourceSnapshotV5),
+          physicalEvidence: htmlCurrent.map((current, index) => ({
+            original: current.workspaceScope.workspaceId === stage.plan.sourceScope.workspaceId ? stage.plan.sourceEvidence : stage.plan.destinationEvidence,
+            current, currentCatalogue: observations[index].privateCatalogue ?? copyPhaseChanged(),
+          })) });
+      } else if (stage.version === 6) {
         if (compiled.contractVersion !== 4 || !mixedCurrent || !before.rawBirths || !before.rawTargets) copyPhaseChanged();
         const rawIds = new Set(before.rawBirths.map(birth => birth.binding.receipt.target.documentId));
         const finalRaw = mixedCurrent.map(current => {
@@ -812,8 +845,7 @@ export function completeNativeCopyPhaseOnConnection(database: SqlConnection,
       await write(database, captured, () => beginWorkspaceOperationStepOnConnection(database, { operationId: stage.identity.operationId,
         stepKey: link.stepKey, phase: 'link', beforeFence, afterFence }));
       await write(database, captured, () => finishWorkspaceOperationStepOnConnection(database, { operationId: stage.identity.operationId,
-        stepKey: link.stepKey, beforeFence, afterFence, receipt: { version: 1, kind: 'native-copy-link-confirmation', stageDigest: stage.payloadSha256,
-          mutationId: link.mutationId, preparedProof: link.receipt.binding.authorizedPreparedProof, receiptProof: link.receiptProof } }));
+        stepKey: link.stepKey, beforeFence, afterFence, receipt: nativeCopyLinkConfirmation(stage, link) }));
     }
     if (stage.version === 6) for (const target of before.rawTargets ?? copyPhaseChanged()) {
       const { stepKey, beforeFence, afterFence, receipt } = target.confirmation;

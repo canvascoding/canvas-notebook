@@ -1,4 +1,5 @@
 import 'server-only';
+import type { WorkspaceOperationHtmlCopyStageV7 } from './workspace-operation-html-copy-stage';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal, types } from 'node:util';
@@ -93,7 +94,7 @@ export type WorkspaceOperationRawCopyStageInput = Readonly<Omit<WorkspaceOperati
 type LegacyManagedCopyStage = WorkspaceOperationManagedCopyStageV4 | WorkspaceOperationManagedCopyStageV5;
 type ManagedCopyPlanData = WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
 export type WorkspaceOperationAnyManagedCopyStage = LegacyManagedCopyStage | WorkspaceOperationManagedCopyStageV6;
-export type WorkspaceOperationOwnedCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationAnyManagedCopyStage;
+export type WorkspaceOperationOwnedCopyStage = WorkspaceOperationNativeCopyStage | WorkspaceOperationAnyManagedCopyStage | WorkspaceOperationHtmlCopyStageV7;
 /** The fixed owner admits every stored version through its original decoder. */
 export type WorkspaceOperationStoredCopyStage = WorkspaceOperationOwnedCopyStage;
 export type ManagedCopyStagePayloads = Readonly<{ recordsBytes: Buffer; sceneRecordsBytes: Buffer; sceneAssetsBytes: Buffer }>;

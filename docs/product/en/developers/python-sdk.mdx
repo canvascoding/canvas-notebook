@@ -248,6 +248,8 @@ For an Apply/Recover transport failure before a result is received, `CanvasMutat
 
 The SDK validates the fixed Copy wire shape, canonical paths, JavaScript UTF-16 length bounds, and complete escaped UTF-8 JSON request up to 65,536 bytes and 1,000 selections. Path whitespace is preserved. Selection paths cannot be empty; only `destination_directory=""` means the root. The server separately bounds its full canonical request, including actual origin data and resolved names, and can reject a request that passes the local wire check. No request or result is silently truncated.
 
+Copy Preview supports V4 and HTML-aware V5. V5 retains per-workspace `sourceCoverage` and warnings. `coverage.complete` can be `false` while `linkAssessment.complete` is `true` for a supported copy beside unrelated HTML: the selected operation has no link blocker, while original source coverage remains incomplete. The SDK preserves these fields and does not upgrade that result to complete workspace coverage.
+
 `copied`, Status `copiedPaths` and Preview `sourceIdentity` contain paths or preview display identity, not native document IDs or full versions. Search the authorized destination, keep the matching result's actual `documentId` and `version`, and perform a version-bound Read to inspect a native document. Do not substitute a path or `sourceIdentity` as a document ID.
 
 Legacy/raw Markdown remains an open central import/rebinding boundary. Uninitialized Markdown anywhere in the inspected source or destination graph can return `COPY_NATIVE_REQUIRED`, even outside selected roots. Do not migrate a Read-only source or write its `.md` projection to bypass that boundary. Copy does not parse a PDF into a native notebook document.

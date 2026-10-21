@@ -302,7 +302,9 @@ Start with a Preview using the actual workspace IDs and canonical workspace-rela
 }
 ```
 
-The response contains `apiVersion: 1`, `action: "preview"` and the full public V4 `preview`. Preserve its `planId`. For each original selected root, match `sourceWorkspaceId`, its exact `sourcePath` and `destinationWorkspaceId` in `preview.pathMappings`, then retain the resolved `destinationPath` in the original selection order. Reject a missing, ambiguous or foreign-workspace root mapping. The mappings are sorted by source and include descendants; do not submit every mapping as a selection or use their order instead of the original root order.
+The response contains `apiVersion: 1`, `action: "preview"` and the full public V4 or V5 `preview`. Preserve its `planId`. For each original selected root, match `sourceWorkspaceId`, its exact `sourcePath` and `destinationWorkspaceId` in `preview.pathMappings`, then retain the resolved `destinationPath` in the original selection order. Reject a missing, ambiguous or foreign-workspace root mapping. The mappings are sorted by source and include descendants; do not submit every mapping as a selection or use their order instead of the original root order.
+
+HTML-aware plans return Preview V5, which preserves `sourceCoverage` for each inspected workspace. A supported copy beside unrelated HTML can have `coverage.complete: false` while `linkAssessment.complete: true`: original sources still have coverage gaps, but the selected operation has no link blocker. Inspect the preserved warnings, including `unaffected-existing-link` and `unaffected-explicit-html-link`; do not turn a complete link assessment into a claim that every workspace source was fully inspected.
 
 Persist a caller-selected operation ID and the exact Apply request before sending it. Use the resolved root paths and set `rename_on_collision: false` or omit that field. Apply and Recover reject `true`; a retry must retain the already chosen destination name.
 

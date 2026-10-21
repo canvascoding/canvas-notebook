@@ -1,4 +1,6 @@
 import 'server-only';
+import { workspaceOperationNativeCopyHtmlPublicPreview, type WorkspaceOperationNativeCopyPreviewPublicV5 } from './workspace-operation-native-copy-html-public';
+import type { WorkspaceOperationManagedCopyPlanV6 } from './workspace-operation-managed-copy-plan-v6';
 
 import { types } from 'node:util';
 import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-operation-planner';
@@ -13,7 +15,7 @@ import { workspaceOperationMixedCopySourceSnapshot } from './workspace-operation
 
 /** Display data only. The fixed Copy owner performs fresh clone rebinding;
  * this summary never exposes a native identity, recipe or mutation capability. */
-export type WorkspaceOperationNativeCopyPreviewPublic = {
+export type WorkspaceOperationNativeCopyPreviewPublicV4 = {
   version: 4;
   kind: 'native-copy';
   sourceWorkspaceId: string;
@@ -43,7 +45,11 @@ export type WorkspaceOperationNativeCopyPreviewPublic = {
   issues: [];
 };
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5): WorkspaceOperationNativeCopyPreviewPublic {
+export type WorkspaceOperationNativeCopyPreviewPublic = WorkspaceOperationNativeCopyPreviewPublicV4 | WorkspaceOperationNativeCopyPreviewPublicV5;
+
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6): WorkspaceOperationNativeCopyPreviewPublic {
+  if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
+    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 6) return workspaceOperationNativeCopyHtmlPublicPreview(input as WorkspaceOperationManagedCopyPlanV6);
   const managed = input !== null && typeof input === 'object' && !types.isProxy(input)
     && Object.getPrototypeOf(input) === Object.prototype
     && [3, 4].includes(Object.getOwnPropertyDescriptor(input, 'version')?.value);

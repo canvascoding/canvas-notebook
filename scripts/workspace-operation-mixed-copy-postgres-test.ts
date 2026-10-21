@@ -267,10 +267,10 @@ export async function workspaceOperationMixedCopyPostgresTest(): Promise<void> {
     error => mixedCopyCode(error) === 'MANAGED_COPY_PLAN_UNSUPPORTED'));
     await assert.rejects(fs.lstat(path.join(h.source.rootPath, 'copy-would-resolve.md')), { code: 'ENOENT' });
     await fs.unlink(resolutionFile); groups++;
-    phase = 'selected physical Markdown still requires the explicit import branch';
+    phase = 'selected raw copy cannot make an unselected native alias ambiguous';
     await mixedCopyNoWrites(() => assert.rejects(mixedCopyCall({ action: 'preview', selections: [
       { source_path: rawPath, destination_path: 'selected-raw-copy.md' }] }, ownerToken, true),
-    error => mixedCopyCode(error) === 'MANAGED_COPY_PLAN_IMPORT_REQUIRED'));
+    error => mixedCopyCode(error) === 'MANAGED_COPY_PLAN_UNSUPPORTED'));
     assert.deepEqual(await fs.readFile(rawFile), rawBytes); groups++;
     phase = 'stale raw source evidence rejects before Copy stage or domain writes';
     const ackDestination = `ack-${crypto.randomUUID()}`, ackSelections = [{ source_path: root, destination_path: ackDestination }];

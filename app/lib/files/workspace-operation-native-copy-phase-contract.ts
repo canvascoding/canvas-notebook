@@ -1,4 +1,7 @@
 import 'server-only';
+import { prepareHtmlCopyStage, decodeHtmlCopyStage, replayHtmlCopyStageCompiler } from './workspace-operation-html-copy-stage';
+import { workspaceOperationMixedSourceSnapshotV5 } from './workspace-operation-mixed-source-evidence-v5';
+import type { NativeMixedHtmlBatchPlanV5 } from '../markdown/workspace-native-mixed-batch-compiler';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
@@ -40,7 +43,19 @@ export const nativeCopyPhaseSha = (value: string | Uint8Array) => createHash('sh
 function captureNativeCopyPhaseStageRaw(stage: WorkspaceOperationOwnedCopyStage): WorkspaceOperationOwnedCopyStage {
   if (!stage || types.isProxy(stage) || Object.getPrototypeOf(stage) !== Object.prototype) copyPhaseChanged();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
-  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || ![2, 3, 4, 5, 6].includes(discriminator.value)) copyPhaseChanged();
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value') || ![2, 3, 4, 5, 6, 7].includes(discriminator.value)) copyPhaseChanged();
+  if (discriminator.value === 7) {
+    const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'metadata', 'nativeRecords', 'payloadSha256'];
+    if (Reflect.ownKeys(stage).length !== expected.length || expected.some(key => {
+      const property = Object.getOwnPropertyDescriptor(stage, key);
+      return !property?.enumerable || !Object.hasOwn(property, 'value');
+    }) || stage.version !== 7) copyPhaseChanged();
+    const prepared = prepareHtmlCopyStage({ operationId: stage.identity.operationId, request: stage.request, plan: stage.plan,
+      physical: stage.physical, nativeRecords: stage.nativeRecords, metadata: stage.metadata });
+    if (stage.kind !== 'native-copy' || prepared.manifest.payloadSha256 !== stage.payloadSha256
+      || !equal(stage.origin, prepared.manifest.origin) || !equal(stage.identity, prepared.manifest.identity)) copyPhaseChanged();
+    return decodeHtmlCopyStage(prepared.manifest, prepared.recordsBytes, prepared.manifest.identity);
+  }
   if (discriminator.value === 6) {
     const expected = ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'metadata',
       'nativeRecords', 'sceneRecords', 'sceneAssets', 'rawOriginals', 'payloadSha256'];
@@ -97,6 +112,8 @@ export function captureNativeCopyPhaseStage(stage: WorkspaceOperationOwnedCopySt
   return captureNativeCopyPhaseStageRaw(stage);
 }
 export function nativeCopyPhaseOriginals(stage: WorkspaceOperationOwnedCopyStage) {
+  if (stage.version === 7) return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
+    ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence]).map(workspaceOperationMixedSourceSnapshotV5);
   if (stage.version === 5 || stage.version === 6) return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
     ? [stage.plan.sourceEvidence] : [stage.plan.sourceEvidence, stage.plan.destinationEvidence]).map(workspaceOperationMixedCopySourceSnapshot);
   return (stage.plan.sourceScope.workspaceId === stage.plan.destinationScope.workspaceId
@@ -105,7 +122,7 @@ export function nativeCopyPhaseOriginals(stage: WorkspaceOperationOwnedCopyStage
 }
 type CompilationFrame = {
   stage: WorkspaceOperationOwnedCopyStage | null; pin: string | null; active: boolean;
-  compiled: NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | null; failure: unknown; failed: boolean;
+  compiled: NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 | null; failure: unknown; failed: boolean;
 };
 const compilations = new AsyncLocalStorage<CompilationFrame>();
 /** Pin every original data descriptor, including native lineage/state metadata.
@@ -208,11 +225,18 @@ export async function withNativeCopyPhaseCompilation<T>(stage: WorkspaceOperatio
     });
   } finally { frame.active = false; frame.compiled = null; frame.stage = null; frame.pin = null; }
 }
-export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 {
+export function nativeCopyPhaseCompiler(stage: WorkspaceOperationOwnedCopyStage): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 {
   const frame = compilations.getStore();
   if (frame && !frame.active) copyPhaseChanged();
   const current = frame?.stage === stage ? frame : null;
   if (current) { assertCompilationPin(current); if (current.compiled) return current.compiled; }
+  if (stage.version === 7) {
+    try {
+      const compiled = replayHtmlCopyStageCompiler(stage.plan, stage.nativeRecords);
+      if (current) { assertCompilationPin(current); current.compiled = compiled; }
+      return compiled;
+    } catch (error) { if (current) { current.failed = true; current.failure = error; } throw error; }
+  }
   if (stage.version === 4 || stage.version === 5 || stage.version === 6) {
     try {
       const compiled = replayManagedCopyStageCompiler(stage.plan, stage.nativeRecords);
@@ -255,6 +279,9 @@ export function nativeCopyPhaseCompletionReceipt(stage: WorkspaceOperationOwnedC
     })) } as const;
   if (stage.version === 2) return original;
   if (copyCreatedAt === undefined) copyPhaseChanged();
+  if (stage.version === 7) return { ...original, version: 6 as const,
+    metadata: nativeCopyMetadataCompletionWitness(stage.metadata, copyCreatedAt),
+    htmlAssessmentProof: stage.plan.nativePathPlan.htmlAssessmentProof };
   if (stage.version === 6) {
     const births = nativeCopyPhaseRawBirths(stage, receipt, rawBirths);
     if (!managedReceipt || managedReceipt.operationId !== stage.identity.operationId || managedReceipt.stageDigest !== stage.payloadSha256
@@ -315,7 +342,7 @@ export function nativeCopyPhaseReceiptProof(receipt: NativeCopyReceipt): string 
 }
 function cloneBindings(stage: WorkspaceOperationOwnedCopyStage, compiled = nativeCopyPhaseCompiler(stage)) {
   const entities = new Map(compiled.finalNamespace.map(entity => [entity.entityKey, entity]));
-  const sources = new Map(stage.plan.sourceEvidence.stage.namespace.map(entry => [proof({ workspaceId: entry.workspaceId, identity: entry.identity }), entry]));
+  const sources = new Map((stage.version === 7 ? stage.plan.sourceEvidence.namespace : stage.plan.sourceEvidence.stage.namespace).map(entry => [proof({ workspaceId: entry.workspaceId, identity: entry.identity }), entry]));
   return compiled.cloneRequirements.map(requirement => {
     const entity = entities.get(requirement.entityKey), source = sources.get(requirement.sourceEntityKey);
     if (!entity || entity.binding.kind !== 'unbound-copy' || !source?.documentId
@@ -343,7 +370,7 @@ export function nativeCopyPhaseAdmissions(stage: WorkspaceOperationOwnedCopyStag
   if (stage.version === 6) return nativeCopyPhaseRawAdmissions(stage, receipt, nativeCopyPhaseRawBirths(stage, receipt, rawBirths));
   const groups: Array<{ scopes: CollaborationAdmissionScope[]; indexes: number[]; count: number }> = [];
   for (const [index, selected] of stage.plan.selections.entries()) {
-    const source = stage.plan.sourceEvidence.stage.namespace.find(entry => entry.path === selected.sourcePath) ?? copyPhaseChanged();
+    const source = (stage.version === 7 ? stage.plan.sourceEvidence.namespace : stage.plan.sourceEvidence.stage.namespace).find(entry => entry.path === selected.sourcePath) ?? copyPhaseChanged();
     const count = receipt.documents.filter(document => document.clone.path === selected.destinationPath
       || source.kind === 'directory' && document.clone.path.startsWith(selected.destinationPath + '/')).length;
     if (count > 1024) throw new NativeCopyPhaseError('NATIVE_COPY_PHASE_UNSUPPORTED');
@@ -383,7 +410,7 @@ export function assertNativeCopyPhaseReceipt(stage: WorkspaceOperationOwnedCopyS
   const originals = new Map(stage.nativeRecords.map(record => [record.state.documentId, record]));
   for (const document of receipt.documents) {
     const requirement = expected.get(document.clone.path), source = originals.get(document.source.documentId);
-    const binding = stage.plan.sourceEvidence.nativeBindings.find(binding => binding.expected.documentId === requirement?.sourceDocumentId);
+    const binding = (stage.version === 7 ? stage.plan.sourceEvidence.nativeComponent.nativeBindings : stage.plan.sourceEvidence.nativeBindings).find(binding => binding.expected.documentId === requirement?.sourceDocumentId);
     if (!requirement || !source || !binding || document.source.documentId !== requirement.sourceDocumentId
       || source.state.workspaceId !== stage.identity.sourceWorkspaceId || source.state.organizationId !== stage.origin.sourceScope.organizationId
       || source.lineageId !== binding.expected.lineageId || source.state.path !== requirement.sourcePath || document.version !== 1

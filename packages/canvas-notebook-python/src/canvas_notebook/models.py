@@ -248,10 +248,56 @@ class WorkspaceCopyPreview(TypedDict):
     issues: list[NoReturn]
 
 
+class WorkspaceCopyHtmlLinkWarning(TypedDict):
+    workspaceId: str
+    sourcePath: str
+    targetLiteral: str
+    status: Literal["not-evaluated"]
+    reason: Literal["unaffected-explicit-html-link"]
+    htmlTargets: list[str]
+
+
+class WorkspaceCopyHtmlLinkAssessment(TypedDict):
+    version: Literal[1]
+    complete: Literal[True]
+    warnings: list[WorkspaceCopyLinkWarning | WorkspaceCopyHtmlLinkWarning]
+    blockers: list[NoReturn]
+
+
+class WorkspaceCopySourceCoverageGap(TypedDict):
+    code: str
+    path: str
+
+
+class WorkspaceCopyOriginalSourceCoverage(TypedDict):
+    complete: bool
+    gaps: list[WorkspaceCopySourceCoverageGap]
+
+
+class WorkspaceCopySourceCoverage(TypedDict):
+    workspaceId: str
+    coverage: WorkspaceCopyOriginalSourceCoverage
+
+
+class WorkspaceCopyHtmlPreviewV5(TypedDict):
+    version: Literal[5]
+    kind: Literal["native-copy"]
+    sourceWorkspaceId: str
+    destinationWorkspaceId: str
+    planId: str
+    readiness: Literal["ready"]
+    pathMappings: list[WorkspaceCopyPathMapping]
+    linkEdits: list[WorkspaceCopyLinkEdit]
+    coverage: WorkspaceCopyCoverage
+    linkAssessment: WorkspaceCopyHtmlLinkAssessment
+    sourceCoverage: list[WorkspaceCopySourceCoverage]
+    issues: list[NoReturn]
+
+
 class WorkspaceCopyPreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceCopyPreview
+    preview: WorkspaceCopyPreview | WorkspaceCopyHtmlPreviewV5
 
 
 class WorkspaceCopyExecution(TypedDict):

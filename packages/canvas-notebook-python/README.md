@@ -181,6 +181,8 @@ If the Apply/Recover transport fails before returning a result, `CanvasMutationO
 
 The wire request is capped at 65,536 escaped UTF-8 JSON bytes and 1,000 selections. The server separately checks its complete canonical request, including actual origin and resolved names, so a locally valid request can still exceed that bound. Workspace/path limits count JavaScript UTF-16 units; paths preserve whitespace, require canonical relative segments and are nonempty for selections. Only `destination_directory=""` means the root. The SDK does not normalize paths or reinterpret the plan as authority.
 
+Copy Preview supports V4 and HTML-aware V5. V5 retains per-workspace `sourceCoverage` and warnings. `coverage.complete` can be `false` while `linkAssessment.complete` is `true` for a supported copy beside unrelated HTML: the selected operation has no link blocker, while original source coverage remains incomplete. The SDK preserves these fields and does not upgrade that result to complete workspace coverage.
+
 Copied paths, Status `copiedPaths` and Preview `sourceIdentity` are not document IDs. Discover resulting native documents through authorized search, then use a real `documentId` and its full `version` for a version-bound Read. The current native Copy owner requires an initialized native Markdown graph; uninitialized raw Markdown anywhere in the inspected source/destination graph can return `COPY_NATIVE_REQUIRED`. The central legacy import/rebinding path remains open. A Read-only source must not be migrated or its `.md` projection rewritten to bypass this boundary.
 
 ## Failures and request repetitions

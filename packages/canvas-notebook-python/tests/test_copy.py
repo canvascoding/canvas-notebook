@@ -584,5 +584,93 @@ class CopyBoundaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received[0][1]["selections"], SELECTIONS)
 
 
+    def test_declared_copy_types_keep_v4_and_add_exact_html_v5_arm(self) -> None:
+        from typing import Literal, NoReturn, get_args, get_type_hints
+        from canvas_notebook import models
+
+        preview = get_type_hints(models.WorkspaceCopyPreviewResult)["preview"]
+        self.assertEqual(set(get_args(preview)),
+                         {models.WorkspaceCopyPreview, models.WorkspaceCopyHtmlPreviewV5})
+        original = get_type_hints(models.WorkspaceCopyPreview)
+        html = get_type_hints(models.WorkspaceCopyHtmlPreviewV5)
+        self.assertEqual(original["version"], Literal[4])
+        self.assertEqual(html["version"], Literal[5])
+        self.assertEqual(set(html), set(original) | {"sourceCoverage"})
+        self.assertNotIn("sourceCoverage", original)
+        self.assertEqual(html["kind"], Literal["native-copy"])
+        self.assertEqual(html["readiness"], Literal["ready"])
+        self.assertEqual(html["linkAssessment"], models.WorkspaceCopyHtmlLinkAssessment)
+        self.assertEqual(html["sourceCoverage"], list[models.WorkspaceCopySourceCoverage])
+        for name in (set(original) - {"version", "linkAssessment"}):
+            self.assertEqual(html[name], original[name])
+        self.assertEqual(get_type_hints(models.WorkspaceCopyLinkWarning)["reason"],
+                         Literal["unaffected-existing-link"])
+        warning = get_type_hints(models.WorkspaceCopyHtmlLinkWarning)
+        self.assertEqual(set(warning), {"workspaceId", "sourcePath", "targetLiteral", "status", "reason", "htmlTargets"})
+        self.assertEqual(warning["status"], Literal["not-evaluated"])
+        self.assertEqual(warning["reason"], Literal["unaffected-explicit-html-link"])
+        self.assertEqual(warning["htmlTargets"], list[str])
+        assessment = get_type_hints(models.WorkspaceCopyHtmlLinkAssessment)
+        self.assertEqual(assessment["complete"], Literal[True])
+        self.assertEqual(assessment["warnings"],
+                         list[models.WorkspaceCopyLinkWarning | models.WorkspaceCopyHtmlLinkWarning])
+        self.assertEqual(assessment["blockers"], list[NoReturn])
+        source = get_type_hints(models.WorkspaceCopySourceCoverage)
+        self.assertEqual(source, {"workspaceId": str, "coverage": models.WorkspaceCopyOriginalSourceCoverage})
+        coverage = get_type_hints(models.WorkspaceCopyOriginalSourceCoverage)
+        self.assertEqual(coverage, {"complete": bool, "gaps": list[models.WorkspaceCopySourceCoverageGap]})
+        self.assertEqual(get_type_hints(models.WorkspaceCopySourceCoverageGap), {"code": str, "path": str})
+
+    async def test_html_v5_preview_keeps_source_gaps_warnings_and_raw_envelope_without_followup(self) -> None:
+        # Exact public HTML V5 wire fixtures. A safe operation may retain false
+        # original coverage; the SDK preserves it without claiming completeness.
+        for destination in ("source", "destination"):
+            with self.subTest(destination=destination):
+                source_coverage = [{"workspaceId": "source", "coverage": {
+                    "complete": False, "gaps": [{"code": "uninspected-html", "path": "page.html"}]}}]
+                if destination != "source":
+                    source_coverage.append({"workspaceId": destination,
+                                            "coverage": {"complete": True, "gaps": []}})
+                payload = {"apiVersion": 1, "action": "preview", "preview": {
+                    "version": 5, "kind": "native-copy", "sourceWorkspaceId": "source",
+                    "destinationWorkspaceId": destination, "planId": PLAN, "readiness": "ready",
+                    "pathMappings": [{"sourceWorkspaceId": "source", "sourcePath": "source.md",
+                        "destinationWorkspaceId": destination, "destinationPath": "copy.md",
+                        "sourceKind": "file", "sourceIdentity": "native-copy-preview:" + "b" * 64}],
+                    "linkEdits": [],
+                    "coverage": {"complete": False, "omittedSources": [], "unresolvedLinks": [
+                        {"sourcePath": "existing.md", "targetLiteral": "missing.md", "status": "missing"}]},
+                    "linkAssessment": {"version": 1, "complete": True, "warnings": [
+                        {"workspaceId": "source", "sourcePath": "existing.md", "targetLiteral": "missing.md",
+                         "status": "missing", "reason": "unaffected-existing-link"},
+                        {"workspaceId": "source", "sourcePath": "page.html", "targetLiteral": "<a href=\"stable.pdf\">Stable</a>",
+                         "status": "not-evaluated", "reason": "unaffected-explicit-html-link", "htmlTargets": ["stable.pdf"]}],
+                        "blockers": []},
+                    "sourceCoverage": source_coverage, "issues": [],
+                }}
+                raw = copy_result(payload)
+                raw.meta = {"sdk-unit": {"opaque": "html-original-envelope"}}
+                transport = CopyRecordingTransport(raw)
+                response = await CanvasNotebook(transport).copy_preview("source", destination, SELECTIONS)
+                self.assertIs(response.raw, raw)
+                self.assertIs(response.structured_content, raw.structured_content)
+                self.assertIs(response.content, raw.content)
+                self.assertIs(response.require_success(), raw.structured_content)
+                self.assertEqual(response.raw.meta, {"sdk-unit": {"opaque": "html-original-envelope"}})
+                observed = response.require_success()["preview"]
+                self.assertEqual(observed["version"], 5)
+                self.assertEqual(observed["sourceCoverage"], source_coverage)
+                self.assertFalse(observed["coverage"]["complete"])
+                self.assertTrue(observed["linkAssessment"]["complete"])
+                self.assertEqual(observed["linkAssessment"]["warnings"], payload["preview"]["linkAssessment"]["warnings"])
+                self.assertNotIn("htmlTargets", observed["linkAssessment"]["warnings"][0])
+                self.assertEqual(observed["linkAssessment"]["warnings"][1]["htmlTargets"], ["stable.pdf"])
+                self.assertNotIn("importLinkBindings", observed)
+                self.assertEqual(transport.calls, [(TOOL, {
+                    "api_version": 1, "action": "preview", "source_workspace_id": "source",
+                    "destination_workspace_id": destination, "selections": SELECTIONS, "rename_on_collision": False})])
+
+
+
 if __name__ == "__main__":
     unittest.main()

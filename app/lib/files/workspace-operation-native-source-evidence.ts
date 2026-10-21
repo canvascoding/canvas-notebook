@@ -684,3 +684,11 @@ export function assertWorkspaceOperationNativeSourceEvidenceCurrent(expected: Wo
   const current = captureWorkspaceOperationNativeSourceEvidence(scope, observation);
   if (original.semanticProof !== current.semanticProof) fail('NATIVE_SOURCE_EVIDENCE_CHANGED');
 }
+
+/** Internal historical byte/inventory validation only. The supplied evidence
+ * must first pass its strict versioned decoder. This does not capture a current
+ * catalogue, SQL principal, namespace, admission, or publication capability. */
+export function captureNativeCopyHtmlOriginalStates(evidence: WorkspaceOperationNativeHtmlSourceEvidenceV4,
+  supplied: unknown): ReadonlyMap<string, PersistedCollaborationState> {
+  return captureAndAssertNativeEvidenceStates(decodeWorkspaceOperationNativeHtmlSourceEvidenceV4(evidence), supplied);
+}

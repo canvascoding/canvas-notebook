@@ -1,4 +1,6 @@
 import 'server-only';
+import type { WorkspaceOperationHtmlCopyStageV7 } from './workspace-operation-html-copy-stage';
+import { decodeWorkspaceOperationManagedCopyPlanV6, type WorkspaceOperationManagedCopyPlanV6 } from './workspace-operation-managed-copy-plan-v6';
 
 import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { SqlConnection } from '../db';
@@ -24,8 +26,8 @@ export type NativeCopyMetadataCompletionWitness = NativeCopyMetadataWitness & Re
 export type NativeCopyMetadataStage = Omit<WorkspaceOperationNativeCopyStage, 'version'> & Readonly<{
   version: 3; metadata: NativeCopyMetadataSnapshot; coreV2StageDigest: string;
 }>;
-type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationAnyManagedCopyStage;
-type MetadataPlan = WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
+type NativeCopyMetadataOwnedStage = NativeCopyMetadataStage | WorkspaceOperationAnyManagedCopyStage | WorkspaceOperationHtmlCopyStageV7;
+type MetadataPlan = WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5;
 type Input = Readonly<{ plan: MetadataPlan; physical: readonly WorkspaceOperationNativeCopyPhysical[] }>;
 type Row = Record<string, unknown>;
 const MAX_ROWS = 2048;
@@ -87,7 +89,9 @@ function context(input: Input) {
   const raw = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
     && Object.getPrototypeOf(supplied) === Object.prototype
     && Object.getOwnPropertyDescriptor(supplied, 'version')?.value === 5;
-  const plan = raw ? decodeWorkspaceOperationManagedCopyPlanV5(supplied)
+  const html = supplied !== null && typeof supplied === 'object' && !types.isProxy(supplied)
+    && Object.getPrototypeOf(supplied) === Object.prototype && Object.getOwnPropertyDescriptor(supplied, 'version')?.value === 6;
+  const plan = html ? decodeWorkspaceOperationManagedCopyPlanV6(supplied) : raw ? decodeWorkspaceOperationManagedCopyPlanV5(supplied)
     : managed ? decodeWorkspaceOperationAnyManagedCopyPlan(supplied) : decodeWorkspaceOperationNativeCopyPlan(supplied);
   const physical = list(fields.physical, 1000).map((value, index) => {
     const item = object(value, ['selectionIndex', 'original']), selected = plan.selections[index];
@@ -103,7 +107,7 @@ function context(input: Input) {
     ...physical.flatMap(({ original }) => original.staging && original.filesystem.destinationParents.missingPrefix !== null
       ? [path(original.filesystem.destinationParents.missingPrefix)] : [])])].sort(order);
   const vacancyScopes = scopes.filter((scope, index) => !scopes.some((other, otherIndex) => otherIndex !== index && scope.startsWith(other + '/')));
-  const originalPaths = new Set(plan.destinationEvidence.stage.namespace.map(entry => entry.path)), absent = new Set<string>();
+  const originalPaths = new Set((plan.version === 6 ? plan.destinationEvidence.namespace : plan.destinationEvidence.stage.namespace).map(entry => entry.path)), absent = new Set<string>();
   for (const mapping of mappings) {
     const parts = mapping.destinationPath.split('/').slice(0, -1);
     for (let length = 1; length <= parts.length; length++) {
@@ -143,7 +147,7 @@ export function decodeNativeCopyMetadataSnapshot(input: unknown, supplied: Input
   if (Buffer.byteLength(JSON.stringify(maximumAfter)) + 8 * maximumAfter.length > MAX_BYTES) fail('NATIVE_COPY_METADATA_TOO_LARGE');
   return freeze(result);
 }
-function checkedSnapshot(input: NativeCopyMetadataSnapshot): NativeCopyMetadataSnapshot {
+function checkedSnapshot(input: unknown): NativeCopyMetadataSnapshot {
   const value = object(detached(input), ['version', 'kind', 'planId', 'sourceWorkspaceId', 'destinationWorkspaceId', 'mappingsProof', 'vacancyScopes', 'exactVacancyPaths', 'sourceRows']);
   if (value.version !== 1 || value.kind !== 'shared-title-copy' || !hash(value.planId) || !hash(value.mappingsProof)
     || ![value.sourceWorkspaceId, value.destinationWorkspaceId].every(id => typeof id === 'string' && id.length > 0 && id.length <= 256
@@ -166,7 +170,7 @@ function checkedSnapshot(input: NativeCopyMetadataSnapshot): NativeCopyMetadataS
   if (Buffer.byteLength(JSON.stringify(result)) > MAX_BYTES) fail('NATIVE_COPY_METADATA_TOO_LARGE');
   return freeze(result);
 }
-export function nativeCopyMetadataWitness(input: NativeCopyMetadataSnapshot): NativeCopyMetadataWitness {
+export function nativeCopyMetadataWitness(input: unknown): NativeCopyMetadataWitness {
   const snapshot = checkedSnapshot(input);
   return freeze({ version: 1, kind: 'shared-title-copy', snapshotProof: proof(snapshot), sourceRowCount: snapshot.sourceRows.length,
     copiedTitleCount: snapshot.sourceRows.filter(row => row.title !== null).length });
@@ -274,11 +278,11 @@ function capturedStage(stage: WorkspaceOperationOwnedCopyStage): NativeCopyMetad
   if (!stage || typeof stage !== 'object' || types.isProxy(stage) || Object.getPrototypeOf(stage) !== Object.prototype) fail();
   const discriminator = Object.getOwnPropertyDescriptor(stage, 'version');
   if (!discriminator?.enumerable || !Object.hasOwn(discriminator, 'value')
-    || discriminator.value !== 3 && discriminator.value !== 4 && discriminator.value !== 5 && discriminator.value !== 6) fail();
+    || discriminator.value !== 3 && discriminator.value !== 4 && discriminator.value !== 5 && discriminator.value !== 6 && discriminator.value !== 7) fail();
   object(stage, ['version', 'kind', 'identity', 'request', 'origin', 'plan', 'physical', 'nativeRecords', 'payloadSha256', 'metadata',
-    ...((discriminator.value === 4 || discriminator.value === 5 || discriminator.value === 6) ? ['sceneRecords', 'sceneAssets'] : ['coreV2StageDigest']),
+    ...((discriminator.value === 4 || discriminator.value === 5 || discriminator.value === 6) ? ['sceneRecords', 'sceneAssets'] : discriminator.value === 7 ? [] : ['coreV2StageDigest']),
     ...(discriminator.value === 6 ? ['rawOriginals'] : [])]);
-  if (stage.version !== 3 && stage.version !== 4 && stage.version !== 5 && stage.version !== 6) fail();
+  if (stage.version !== 3 && stage.version !== 4 && stage.version !== 5 && stage.version !== 6 && stage.version !== 7) fail();
   // The actual phase checker below requires this exact fully captured Stage
   // and checks its complete original pin. Do not rebuild C1/native snapshots
   // inside every short SQL boundary or treat a matching digest as authority.
