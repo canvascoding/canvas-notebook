@@ -13,6 +13,9 @@ import { waitForFileCreateBudget } from './helpers/create-request-budget';
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
 import { nativeRichParagraph } from './helpers/native-rich-paragraph';
 import { aggregateOwnedNativeErrors, runOwnedNativeCommand } from './helpers/owned-native-command';
+import { holdOwnedNativeMoveSharedRoom } from './helpers/owned-yjs-authority-runtime';
+import { readWorkspaceImplicitMoveBinding, readWorkspaceImplicitMovePreparation } from '../app/lib/files/workspace-implicit-move-parser';
+import type { WorkspaceImplicitMovePreparationPublicV2 } from '../app/lib/files/workspace-implicit-move-public';
 
 const spec = 'tests/workspace-operation-native-move.spec.ts';
 const selector = '.tiptap-editor-shell .ProseMirror', insertionTitle = 'Insert Markdown…';
@@ -269,6 +272,132 @@ test.describe('native path operations through ordinary UI, durable jobs and orig
       await closeAndRelease(reopened, fixture, destination, sourceAfter);
       await settled(fresh.request, fixture, operation, updated, mobile ? 2 : 1);
       info.annotations.push({ type: 'acceptance-scope', description: 'Actual manual UI creation, browser clipboard Markdown insertion, independent authenticated browser peer, UI path action and fresh native PM equality. Unknown markup is deliberately literal fenced code; arbitrary unsupported native nodes are not claimed supported. Mobile keyboard height is emulated, with no OS/device clipboard or Undo claim.' });
+    });
+  });
+
+  test('desktop genuine pre-batch preparation survives reload and continues only through its original UUID', async ({ browser }, info) => {
+    await withFixture(browser, false, async fixture => {
+      const page = await fixture.context.newPage(), source = fileName(), destination = fileName(), backlink = fileName();
+      const initial = await createInUi(page, fixture, source);
+      await pasteMarkdown(page, fixture, '# Original pending source\n\nThe exact native paragraph remains.\n');
+      const before = await persisted(page, fixture, source, initial); await closeAndRelease(page, fixture, source, before.session);
+      const backlinkInitial = await createInUi(page, fixture, backlink);
+      await pasteMarkdown(page, fixture, `# Pending backlink\n\nRead [**Target**](${source}).\n\nIndependent paragraph.\n`);
+      const backlinkBefore = await persisted(page, fixture, backlink, backlinkInitial);
+      await closeAndRelease(page, fixture, backlink, backlinkBefore.session);
+      const expectedBacklink = rewriteHrefs(backlinkBefore.candidate.document, { [source]: destination });
+      const target = { version: 1 as const,
+        target: { nonce: fixture.owned.nonce, repo: fixture.owned.repo, head: fixture.owned.head,
+          sourceFingerprint: fixture.owned.sourceFingerprint, buildFingerprint: fixture.owned.buildFingerprint,
+          buildId: fixture.owned.buildId, receiptIdentity: ownedNativeFileRoomReceiptIdentity(fixture.owned) },
+        room: { documentId: before.session.documentId, path: source, generation: before.session.lifecycleGeneration,
+          expectedWorkspaceId: fixture.workspaceId },
+        expectedSession: { documentSequence: before.session.documentSequence,
+          stateProof: before.session.stateProof, stateVector: before.session.stateVector } };
+      const holder = await holdOwnedNativeMoveSharedRoom(target);
+      let preparation: WorkspaceImplicitMovePreparationPublicV2 | undefined, complete = false, failed = false, primary: unknown;
+      try {
+        expect(holder.held).toMatchObject({ workspaceId: fixture.workspaceId, documentId: before.session.documentId,
+          mode: 'ShareLock', lockCount: 1 });
+        const auth = await fixture.context.request.get('/api/auth/get-session'); expect(auth.status()).toBe(200);
+        const actorUserId = (await auth.json()).user.id as string, operationId = randomUUID();
+        // API -> UI boundary: one genuine authenticated request creates the
+        // preparation. No active Rename client's automatic continuation spans
+        // the following navigation/reload, so passive POST observations are exact.
+        const started = performance.now();
+        const pending = await fixture.context.request.post('/api/files/rename', { headers: fixture.headers, timeout: 60_000,
+          data: { oldPath: source, newPath: destination, idempotencyKey: operationId } });
+        expect(pending.status()).toBe(202); const initialWaitMs = Math.round(performance.now() - started);
+        const payload = await pending.json(); expect(payload.operation).toBeUndefined();
+        preparation = readWorkspaceImplicitMovePreparation(payload.preparation, { actorUserId, workspaceId: fixture.workspaceId,
+          operationId, action: 'rename', selections: [{ sourcePath: source, destinationPath: destination }] });
+        expect(preparation.state).toBe('pending'); if (preparation.state !== 'pending') throw new Error('Expected real pending preparation.');
+        expect(['reserved', 'draining']).toContain(preparation.status); expect(preparation.canResume).toBe(true);
+        const saved = preparation;
+        const observed = await room(fixture, source, before.session);
+        expect(observed).toMatchObject({ ownerTupleCleared: true, admissionPending: true, version: { sequence: before.session.documentSequence, stateProof: before.session.stateProof } });
+        const itemId = `file-path-preparation:${saved.requestId}`;
+        const census = await fixture.context.request.get('/api/notifications/summary?todoMode=lifecycle', { headers: fixture.headers });
+        expect(census.status()).toBe(200);
+        expect((await census.json()).data.sections.notifications).toEqual(expect.arrayContaining([expect.objectContaining({
+          id: itemId, workspaceId: fixture.workspaceId, target: expect.objectContaining({
+            workspaceId: fixture.workspaceId, preparationRequestId: saved.requestId, operationKind: 'rename', status: 'pending' }) })]));
+        const traffic: Array<{ path: string; method: string }> = [];
+        page.on('request', request => {
+          const path = new URL(request.url()).pathname;
+          if (path === '/api/files/rename' || path.startsWith('/api/files/operations/implicit-moves/')) {
+            traffic.push({ path, method: request.method() });
+          }
+        });
+        await page.goto(`/en?workspaceId=${fixture.workspaceId}`); await page.reload();
+        const row = page.locator('#home-attention-items').locator(`[data-notification-id="${itemId}"]`);
+        await expect(row).toBeVisible({ timeout: 60_000 });
+        await row.getByRole('link').click();
+        const status = page.getByTestId('workspace-path-operation-status'); await expect(status).toBeVisible();
+        await expect(status).toContainText(source); await expect(status).toContainText(destination);
+        await expect(page.getByTestId('workspace-path-operation-resume')).toBeEnabled();
+        await expect.poll(() => traffic.filter(request => request.path === saved.statusUrl && request.method === 'GET').length,
+          { timeout: 10_000 }).toBeGreaterThanOrEqual(2); // real mount + existing 2s passive poll
+        expect(traffic.filter(request => request.method === 'POST')).toEqual([]);
+        await status.getByRole('button', { name: 'Close', exact: true }).last().click();
+        await page.reload(); await expect(row).toBeVisible({ timeout: 60_000 });
+        await page.goto(`/en/notebook?workspaceId=${fixture.workspaceId}&workspacePathPreparation=${saved.requestId}`);
+        await expect(status).toBeVisible(); await expect(status).toContainText(source);
+        await expect(page.getByTestId('workspace-path-operation-resume')).toBeEnabled();
+        expect(traffic.filter(request => request.method === 'POST')).toEqual([]);
+        const requested = page.waitForRequest(request => new URL(request.url()).pathname === saved.resumeUrl && request.method() === 'POST');
+        const resumed = page.waitForResponse(response => new URL(response.url()).pathname === saved.resumeUrl
+          && response.request().method() === 'POST', { timeout: 90_000 });
+        void requested.catch(() => {}); void resumed.catch(() => {});
+        await page.getByTestId('workspace-path-operation-resume').click();
+        const actualRequest = await requested;
+        expect(actualRequest.headers()['x-canvas-workspace-id']).toBe(fixture.workspaceId);
+        expect(actualRequest.postData()).toBeNull();
+        await holder.release();
+        const response = await resumed; expect([200, 202]).toContain(response.status());
+        const result = await response.json() as WorkspacePathOperationResponse;
+        const binding = readWorkspaceImplicitMoveBinding(result.operation.implicitBinding, {
+          actorUserId, workspaceId: fixture.workspaceId, operationId, requestId: saved.requestId, selectionDigest: saved.selectionDigest });
+        expect(binding.requestId).toBe(saved.requestId);
+        const final = await settled(fixture.context.request, fixture, result.operation, [backlink], 1); complete = true;
+        await expect(status).toContainText('Files and links updated', { timeout: 90_000 });
+        expect(traffic.filter(request => request.method === 'POST')).toEqual([{ path: saved.resumeUrl, method: 'POST' }]);
+        const after = await session(fixture.context.request, fixture.workspaceId, destination);
+        expect(after).toMatchObject({ documentId: before.session.documentId, lifecycleGeneration: before.session.lifecycleGeneration,
+          documentSequence: before.session.documentSequence, stateProof: before.session.stateProof, stateVector: before.session.stateVector });
+        const backlinkAfter = await session(fixture.context.request, fixture.workspaceId, backlink);
+        expect(backlinkAfter).toMatchObject({ documentId: backlinkBefore.session.documentId,
+          lifecycleGeneration: backlinkBefore.session.lifecycleGeneration, documentSequence: backlinkBefore.session.documentSequence + 1 });
+        expect((await fixture.context.request.get('/api/files/read', { headers: fixture.headers, params: { path: source } })).status()).toBe(404);
+        const original = await fixture.context.request.get(saved.statusUrl, { headers: fixture.headers }); expect(original.status()).toBe(200);
+        expect((await original.json()).operation).toMatchObject({ batchId: final.operation.batchId, planId: final.operation.planId,
+          implicitBinding: binding, status: 'applied', phase: 'complete' });
+        await status.getByRole('button', { name: 'Close', exact: true }).last().click();
+        const fresh = await freshContext(browser, fixture), reopened = await fresh.newPage(); await open(reopened, fixture, backlink);
+        expect((await readNativeRichCandidate(reopened, selector)).document).toEqual(expectedBacklink);
+        await expect(reopened.locator(selector).locator(`a[href="${destination}"]`)).toHaveText('Target');
+        await reopened.screenshot({ path: info.outputPath('pending-reload-original-uuid-complete.png'), animations: 'disabled' });
+        await closeAndRelease(reopened, fixture, backlink, backlinkAfter);
+        await info.attach('pending-acceptance-scope', { body: JSON.stringify({ version: 1,
+          initialBoundary: 'real authenticated API -> ordinary browser UI', initialWaitMs,
+          holderMode: holder.held.mode, originalRequestId: saved.requestId, completedBatchId: final.operation.batchId,
+          passivePosts: 0, explicitResumePosts: 1 }), contentType: 'application/json' });
+      } catch (error) { failed = true; primary = error; }
+      finally {
+        const errors: unknown[] = [];
+        let releaseConfirmed = false;
+        try { await holder.release(); releaseConfirmed = true; } catch (error) { errors.push(error); }
+        // Dispose a real saved pending selection through its original API only
+        // after releasing the test lock; never cancel/rewrite rows by SQL.
+        if (preparation && !complete && releaseConfirmed) try {
+          const response = await fixture.context.request.post(`/api/files/operations/implicit-moves/${preparation.requestId}`,
+            { headers: fixture.headers, timeout: 60_000 }); expect([200, 202]).toContain(response.status());
+          const payload = await response.json() as WorkspacePathOperationResponse;
+          expect(payload.operation).toBeTruthy(); await settled(fixture.context.request, fixture, payload.operation, [backlink], 1);
+        } catch (error) { errors.push(error); }
+        if (errors.length) throw aggregateOwnedNativeErrors(failed ? primary : undefined, errors, 'Owned Pending browser control cleanup failed.');
+        if (failed) throw primary;
+      }
     });
   });
 
