@@ -10,7 +10,7 @@ import { decodeWorkspaceOperationMixedOriginalSourceWitness } from './workspace-
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
-import { getWorkspaceOperationOriginalMoveNativeIds,
+import { captureWorkspaceOperationOriginalMoveContext, getWorkspaceOperationOriginalMoveNativeIds,
   type WorkspaceOperationOriginalMoveActor, type WorkspaceOperationOriginalMoveContext,
   type WorkspaceOperationOriginalMoveNativeBundleData } from './workspace-operation-original-move';
 import { captureWorkspaceOperationOriginalMoveAdmissionBundleData } from './workspace-operation-original-move-admission';
@@ -136,7 +136,8 @@ export function createWorkspaceOperationOriginalMovePreparation(context: Workspa
   input: Readonly<{ currentWitness: WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 | WorkspaceOperationMixedSourceEvidenceV5;
     nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null }>
 ): WorkspaceOperationOriginalMovePrepared {
-  const selected = captureOriginalMovePreparationJson(context, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext;
+  const selected = captureWorkspaceOperationOriginalMoveContext(
+    captureOriginalMovePreparationJson(context, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext);
   getWorkspaceOperationOriginalMoveNativeIds(selected); // exact existing context/plan/actor validation, including the fallback arm
   if (selected.plan.planIdentityVersion !== 2 && selected.plan.planIdentityVersion !== 3 && selected.plan.planIdentityVersion !== 4) originalMovePreparationFailure();
   if (!input || typeof input !== 'object' || types.isProxy(input) || Object.getPrototypeOf(input) !== Object.prototype
@@ -232,7 +233,8 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
   }
   if (Object.hasOwn(fields, 'readOnly') && fields.readOnly?.value !== true) originalMovePreparationFailure();
   const schema = originalMovePreparationSchema(fields.schema.value);
-  const context = captureOriginalMovePreparationJson(fields.context.value, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext;
+  const context = captureWorkspaceOperationOriginalMoveContext(
+    captureOriginalMovePreparationJson(fields.context.value, 64 * 1024 ** 2) as unknown as WorkspaceOperationOriginalMoveContext);
   const nativeIds = getWorkspaceOperationOriginalMoveNativeIds(context);
   if (context.plan.planIdentityVersion !== 2 && context.plan.planIdentityVersion !== 3 && context.plan.planIdentityVersion !== 4) originalMovePreparationFailure();
   const lock = Object.hasOwn(fields, 'readOnly') ? '' : ' FOR SHARE NOWAIT';

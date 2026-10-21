@@ -182,11 +182,22 @@ function actor(value: unknown): WorkspaceOperationOriginalMoveActor {
   id(row.userId); id(row.actorId); if (!['user','agent'].includes(row.actorType as string)) fail();
   if (row.actorSessionId !== null) id(row.actorSessionId); return row as WorkspaceOperationOriginalMoveActor;
 }
+// Only this module's strictly captured, detached and recursively frozen
+// data results are reusable. No caller reference, Claim or current fact is kept.
+const capturedContexts = new WeakSet<WorkspaceOperationOriginalMoveContext>();
 function context(input: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveContext {
+  if (capturedContexts.has(input)) return input;
   const supplied = exact(input, ['batchId','requestHash','actor','plan']);
   const batchId = id(supplied.batchId, 16, 128), requestHash = digest(supplied.requestHash);
   const selectedActor = actor(capture(supplied.actor, 4096)), plan = decodeWorkspaceOperationNativeMoveBatchPlan(supplied.plan);
-  return freeze({ batchId, requestHash, actor: selectedActor, plan });
+  const selected = freeze({ batchId, requestHash, actor: selectedActor, plan });
+  capturedContexts.add(selected);
+  return selected;
+}
+/** Strict immutable original data only. This grants no execution, SQL or current
+ * observation authority; foreign inputs retain the complete original decoder. */
+export function captureWorkspaceOperationOriginalMoveContext(input: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveContext {
+  return context(input);
 }
 const within = (candidate: string, parent: string) => candidate === parent || candidate.startsWith(parent + '/');
 const stepName = (index: number) => `path:${String(index).padStart(4, '0')}`;
@@ -396,6 +407,9 @@ function decodeNative(data: WorkspaceOperationOriginalMoveNativeBundleData | nul
 // data-validation provenance, never an execution or current-observation grant.
 const contexts = new WeakMap<WorkspaceOperationOriginalMoveIntentData,WorkspaceOperationOriginalMoveContext>();
 const intentHashes = new WeakMap<WorkspaceOperationOriginalMoveIntentData,string>();
+// Strict decoder-produced data for this exact frozen intent, never authority.
+// Typed update bytes remain exclusively private; public readers clone them.
+const decodedNativeBundles = new WeakMap<WorkspaceOperationOriginalMoveIntentData,NativeFileOperationBundle|null>();
 function originalContext(intent: WorkspaceOperationOriginalMoveIntentData): WorkspaceOperationOriginalMoveContext {
   const selected=contexts.get(intent);if(!selected)fail();return selected;
 }
@@ -429,7 +443,9 @@ function checkIntent(value: unknown, selected: WorkspaceOperationOriginalMoveCon
   const nativeBundle = decodeNative(valueTyped.nativeBundle,selected,sourceEvidence);
   contexts.set(valueTyped,selected);
   try{assertOriginalMovePreflightBudgetFromCapturedBundle(valueTyped,nativeBundle);}catch(error){contexts.delete(valueTyped);throw error;}
-  return freeze(valueTyped);
+  const frozen = freeze(valueTyped);
+  decodedNativeBundles.set(frozen,nativeBundle);
+  return frozen;
 }
 export function captureWorkspaceOperationOriginalMoveIntent(input: unknown, supplied: WorkspaceOperationOriginalMoveContext): WorkspaceOperationOriginalMoveIntentData {
   return checkIntent(input,context(supplied));
@@ -456,7 +472,12 @@ export function decodeWorkspaceOperationOriginalMoveNativeBundleData(data: Works
   return decodeNative(data,context(supplied),sourceEvidence);
 }
 export function readWorkspaceOperationOriginalMoveNativeBundle(intent: WorkspaceOperationOriginalMoveIntentData): NativeFileOperationBundle|null {
-  return decodeNative(intent.nativeBundle,originalContext(intent),intent.version!==1?intent.currentWitness:undefined);
+  // Keep the historical first property read before opaque provenance lookup.
+  const data=intent.nativeBundle,selected=originalContext(intent);
+  const decoded=decodedNativeBundles.get(intent);
+  if(decoded===undefined)return decodeNative(data,selected,intent.version!==1?intent.currentWitness:undefined);
+  // Preserve fresh, detached and mutable results, including each update array.
+  return decoded===null?null:structuredClone(decoded);
 }
 function intentHash(intent: WorkspaceOperationOriginalMoveIntentData): string {
   originalContext(intent);let result=intentHashes.get(intent);if(!result){result=sha(canonical(intent));intentHashes.set(intent,result);}return result;

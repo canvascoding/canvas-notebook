@@ -5,7 +5,7 @@ import { constants, promises as fs, type Stats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { isDeepStrictEqual as equal } from 'node:util';
+import { isDeepStrictEqual as equal, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
 import { getWorkspaceFileLifecycleLeases, withWorkspaceFileLifecycleLeases, type WorkspaceFileLifecycleLease } from '../collaboration/file-lifecycle-admission-context';
 import { hasCollaborationHandoffExecutionContext } from '../collaboration/handoff-execution-context';
@@ -56,7 +56,7 @@ import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-
 import { bindWorkspaceOperationOriginalMoveStorageOnConnection } from './workspace-operation-original-move-storage';
 import { bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection } from './workspace-operation-original-move-handoff-storage';
 import { notifyWorkspaceFileInvalidationOnConnection } from '../filesystem/workspace-file-invalidation';
-import { createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent,
+import { captureWorkspaceOperationOriginalMoveContext, createWorkspaceOperationOriginalMoveIntent, parseWorkspaceOperationOriginalMoveIntent,
   decodeWorkspaceOperationOriginalMoveParentReceipt, decodeWorkspaceOperationOriginalMovePathReceipt,
   decodeWorkspaceOperationOriginalMoveCompletion, serializeWorkspaceOperationOriginalMoveData,
   readWorkspaceOperationOriginalMoveNativeBundle, WorkspaceOperationOriginalMoveCodecError, type WorkspaceOperationOriginalMoveContext,
@@ -91,7 +91,10 @@ export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJo
 }>;
 type Identity = Readonly<{ backend: number; start: string; database: number; schema: number; searchPath: string }>;
 type Directory = { named: string; real: string; handle: FileHandle; stat: Stats };
+type MoveIntentReadFacts = Readonly<{ database: SqlConnection; context: WorkspaceOperationOriginalMoveContext;
+  transaction: string; row: WorkspaceOperationOriginalMoveIntent; intent: WorkspaceOperationOriginalMoveIntentData }>;
 type Phase = { active: boolean; accepting: boolean; transaction: string; pending: Set<Promise<unknown>>;
+  moveIntentReadFacts?: MoveIntentReadFacts;
   index: number; startedAt: number | null; startedMonotonic: number; queriesBefore: number;
   stage: 'preparation' | 'begin' | 'identity' | 'policy' | 'storage' | 'path-locks' | 'operation'
     | 'before-operation-check' | 'sql' | 'after-operation-check' | 'link-authority' | 'final-check' | 'commit' | 'after-commit';
@@ -671,7 +674,7 @@ function captureMove(binding: WorkspaceOperationBatchClaimBinding): MoveCapture 
       actorSessionId: auth.actorSessionId ?? null }), plan });
   const guards = nativeBindings.map(item => lockIdentity(item.expected.documentId).key);
   if (new Set(guards).size !== guards.length || guards.includes(collaborationAdmissionLockKey(binding.workspaceId))) fail('JOB_LIFECYCLE_INVALID');
-  return { context: selected, preparedSteps: Object.freeze([]), guards: Object.freeze(guards.sort((a,b) => BigInt(a)<BigInt(b)?-1:1)) };
+  return { context: captureWorkspaceOperationOriginalMoveContext(selected), preparedSteps: Object.freeze([]), guards: Object.freeze(guards.sort((a,b) => BigInt(a)<BigInt(b)?-1:1)) };
 }
 function moveOwner(owner: WorkspaceOperationNativeMoveJobOwner): Capture {
   const selected = owner && typeof owner === 'object' ? owners.get(owner as unknown as WorkspaceOperationJobLifecycleOwner) : undefined;
@@ -708,11 +711,48 @@ function checkMoveGuards(captured: Capture, observedCount: number | undefined): 
     fail('JOB_LIFECYCLE_CHANGED');
   }
 }
+// Only pure decoding facts belong to this exact live B/transaction/ALS phase.
+// History reads and foreign, detached or already closed phases stay fully strict.
+function moveIntentReadPhase(captured: Pick<Capture,'binding'|'move'>, database: SqlConnection): Phase | undefined {
+  const active = context.getStore(), phase = phaseContext.getStore();
+  if (!active || active !== captured || owners.get(active.owner) !== active || !active.active || !active.accepting
+    || active.disposed || active.failure || active.database !== database || active.move?.context !== captured.move?.context
+    || !phase || active.phase !== phase || !phase.active || !phase.accepting || !phase.transaction) return undefined;
+  return phase;
+}
+const moveIntentReadFields = ['batchId','planId','workspaceId','requestHash','intentText','intentDigest','createdAt'] as const;
+/** A small detached primitive snapshot, never another serialization of the payload.
+ * An unknown shape/inspection failure must reach the original strict parser. */
+function captureMoveIntentReadRow(row: WorkspaceOperationOriginalMoveIntent): WorkspaceOperationOriginalMoveIntent | null {
+  try {
+    if (!row || typeof row !== 'object' || types.isProxy(row) || Object.getPrototypeOf(row) !== Object.prototype) return null;
+    const keys = Reflect.ownKeys(row);
+    if (keys.length !== moveIntentReadFields.length || keys.some(key => typeof key !== 'string'
+      || !moveIntentReadFields.some(field => field === key))) return null;
+    const copied: Record<string, unknown> = {};
+    for (const field of moveIntentReadFields) {
+      const descriptor = Object.getOwnPropertyDescriptor(row, field);
+      if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')
+        || typeof descriptor.value !== (field === 'createdAt' ? 'number' : 'string')) return null;
+      copied[field] = descriptor.value;
+    }
+    return Object.freeze(copied) as WorkspaceOperationOriginalMoveIntent;
+  } catch { return null; }
+}
 async function readMoveRows(captured: Pick<Capture,'binding'|'move'>, database: SqlConnection): Promise<WorkspaceOperationOriginalMoveJobReceipts> {
   const selected = captured.move!.context, schema = captured.binding.source.schemaName;
+  const beforeReadPhase = moveIntentReadPhase(captured,database);
   const intentRow = await readWorkspaceOperationOriginalMoveIntentOnConnection(database,{schema,batchId:selected.batchId,forShare:true});
   if (!intentRow) return Object.freeze({context:selected,intentRow:null,intent:null,parentRows:[],pathRows:[],completionRow:null,completion:null});
-  const intent = parseWorkspaceOperationOriginalMoveIntent(intentRow,selected);
+  const phase = beforeReadPhase && moveIntentReadPhase(captured,database) === beforeReadPhase ? beforeReadPhase : undefined;
+  const rowFacts = phase ? captureMoveIntentReadRow(intentRow) : null, previous = phase?.moveIntentReadFacts;
+  const reusable = previous && rowFacts && previous.database === database && previous.context === selected
+    && previous.transaction === phase!.transaction
+    && moveIntentReadFields.every(field => Object.is(rowFacts[field],previous.row[field]));
+  const intent = reusable ? previous.intent : parseWorkspaceOperationOriginalMoveIntent(intentRow,selected);
+  if (!reusable && phase && rowFacts && moveIntentReadPhase(captured,database) === phase) {
+    phase.moveIntentReadFacts = Object.freeze({database,context:selected,transaction:phase.transaction,row:rowFacts,intent});
+  }
   const read = {schema,batchId:selected.batchId,intentDigest:intentRow.intentDigest,forShare:true as const};
   const parentRows = await listWorkspaceOperationOriginalMoveParentReceiptsOnConnection(database,{...read,maxRows:1000,maxTotalBytes:16*1024**2});
   const pathRows = await listWorkspaceOperationOriginalMovePathReceiptsOnConnection(database,{...read,maxRows:1000,maxTotalBytes:64*1024**2});

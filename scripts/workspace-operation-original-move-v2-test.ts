@@ -863,3 +863,201 @@ test('DECLARED P0 reader preserves malformed-row, early-witness and native-befor
   assert.equal(transportThenReads, 1); assert.equal(getters, 0); assert.equal(traps, 0);
   assert.deepEqual(await read(row, native, 2), { ...decodeP0(prepared.preparationText, value.context, value.nativeBundle), createdAt: 100 });
 });
+
+// Public immutable-intent / mutable-bundle parity. All journal/FS objects here
+// remain declared data; no private provenance map, authority or DB is exposed.
+test('strict Original bundle reads preserve exact bytes and independent mutable results for legacy, current and HTML intents', async () => {
+  const cases: Array<{ selected: codec.WorkspaceOperationOriginalMoveContext; intent: Intent }> = [];
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    const value = fixture(representation); cases.push({ selected: value.context, intent: value.intent });
+    const legacyPlan = createWorkspaceOperationNativeMoveBatchPlanV1({ scope,
+      actions: [{ kind: 'move', reviewId: 'getter_v1', selections }], observation: value.original });
+    const selected = context(legacyPlan), bundle = nativeBundle(selected, value.original);
+    cases.push({ selected, intent: codec.createWorkspaceOperationOriginalMoveIntent({ physical: [physical(false)], nativeBundle: bundle, namespaceState: null }, selected) });
+  }
+  const { createWorkspaceOperationNativeMoveBatchPlanV4 } = await import('../app/lib/files/workspace-operation-native-move-plan');
+  const { workspaceOperationMixedSourceEvidenceV5Fixture } = await import('./workspace-operation-mixed-source-evidence-v5-test');
+  const actual5 = workspaceOperationMixedSourceEvidenceV5Fixture({ raw: [], native: [['a.md', '[Self](a.md)'], ['incoming.md', '[Move](a.md)']] });
+  const workspace5: WorkspaceOperationBatchScope['workspace'] = { workspaceId: actual5.scope.workspaceId, workspaceType: 'personal',
+    organizationId: null, ownerUserId: actual5.scope.ownerUserId!, rootPath: actual5.scope.rootPath,
+    rootRelativePath: actual5.scope.rootRelativePath!, legacy: false, status: 'active', permissions: scope.workspace.permissions };
+  const plan5 = createWorkspaceOperationNativeMoveBatchPlanV4({ scope: { workspace: workspace5, fileOptions: {} },
+    actions: [{ kind: 'move', reviewId: 'getter_e5', selections }], observation: actual5.observation });
+  const selected5 = context(plan5), witness5 = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan5, actual5.observation, actual5.scope);
+  const bundle5 = codec.prepareWorkspaceOperationOriginalMoveNativeBundleData(selected5, actual5.observation, witness5); assert(bundle5);
+  const original5 = clone(physical(false)); original5.workspace = { workspaceId: workspace5.workspaceId,
+    workspaceType: 'personal', organizationId: null, rootPath: workspace5.rootPath }; original5.filesystem.root.resolvedPath = workspace5.rootPath;
+  const intent5 = codec.createWorkspaceOperationOriginalMoveIntent({ physical: [original5], nativeBundle: bundle5, namespaceState: null, currentWitness: witness5 }, selected5);
+  assert.equal(intent5.version, 4); cases.push({ selected: selected5, intent: intent5 });
+
+  for (const { selected, intent } of cases) {
+    const before = json(intent), expected = codec.decodeWorkspaceOperationOriginalMoveNativeBundleData(intent.nativeBundle, selected,
+      intent.version === 1 ? undefined : intent.currentWitness); assert(expected);
+    const first = codec.readWorkspaceOperationOriginalMoveNativeBundle(intent) as Mutable<NativeFileOperationBundle>;
+    const second = codec.readWorkspaceOperationOriginalMoveNativeBundle(intent) as Mutable<NativeFileOperationBundle>;
+    assert(first && second); assert.deepEqual(first, expected); assert.deepEqual(second, expected);
+    assert.notEqual(first, second); assert.notEqual(first.actor, second.actor); assert.notEqual(first.mutations, second.mutations);
+    assert(!Object.isFrozen(first) && !Object.isFrozen(first.actor) && !Object.isFrozen(first.mutations));
+    const left = first.mutations.find(mutation => mutation.prepared !== null)!, right = second.mutations.find(mutation => mutation.mutationId === left.mutationId)!;
+    assert(left.prepared && right.prepared); assert(left.prepared.inverseRecipes.length > 0);
+    assert.notEqual(left, right); assert.notEqual(left.source, right.source); assert.notEqual(left.prepared, right.prepared);
+    assert.notEqual(left.prepared.update, right.prepared.update); assert.notEqual(left.prepared.update.buffer, right.prepared.update.buffer);
+    assert.notEqual(left.prepared.inverseRecipes, right.prepared.inverseRecipes); assert(!Object.isFrozen(left.prepared.inverseRecipes));
+    const recaptured = captureNativeFileOperationBundle(second);
+    assert.equal(recaptured.privateText, intent.nativeBundle!.privateText); assert.equal(recaptured.changesBundleProof, intent.nativeBundle!.changesBundleProof);
+    assert.equal(recaptured.actionPayloadText, intent.nativeBundle!.actionPayloadText);
+    first.actor.actorUserId = 'mutated-public-actor'; left.source.path = 'mutated-public-source.md';
+    left.prepared.update.fill(0); left.prepared.inverseRecipes[0].originalLinkId = 'mutated-public-inverse';
+    first.mutations.splice(0, 1);
+    assert.deepEqual(second, expected); assert.deepEqual(codec.readWorkspaceOperationOriginalMoveNativeBundle(intent), expected);
+    second.actor.actorId = 'independently-mutated-second-result'; right.prepared.update[0] ^= 255;
+    assert.deepEqual(codec.readWorkspaceOperationOriginalMoveNativeBundle(intent), expected);
+    assert.equal(json(intent), before); assert(Object.isFrozen(intent) && Object.isFrozen(intent.nativeBundle));
+    codec.assertWorkspaceOperationOriginalMovePreflightBudget(intent);
+    const fresh = codec.parseWorkspaceOperationOriginalMoveIntent(intentRow(intent), selected);
+    assert.notEqual(fresh, intent); assert.deepEqual(fresh, intent);
+    assert.deepEqual(codec.readWorkspaceOperationOriginalMoveNativeBundle(fresh), expected);
+  }
+});
+
+test('Original bundle getter retains opaque provenance, historical property-read order, fresh-row validation and genuine null results', () => {
+  const value = fixture(), expected = codec.readWorkspaceOperationOriginalMoveNativeBundle(value.intent); assert(expected);
+  const invalid = (error: unknown) => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_INVALID';
+  for (const forged of [clone(value.intent), Object.freeze(clone(value.intent)), Object.create(value.intent)]) {
+    assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(forged), invalid);
+  }
+  const caller = clone(value.intent), captured = codec.captureWorkspaceOperationOriginalMoveIntent(caller, value.context);
+  caller.nativeBundle!.privateText = 'caller-mutated-after-strict-capture';
+  assert.deepEqual(codec.readWorkspaceOperationOriginalMoveNativeBundle(captured), expected);
+  assert.equal(Reflect.set(value.intent.nativeBundle!, 'privateText', 'cannot-mutate-genuine-intent'), false);
+  const changed = withBundle(value, raw => { raw.actor = { ...(raw.actor as Row), actorSessionId: 'foreign-original-session' }; });
+  assert.throws(() => codec.parseWorkspaceOperationOriginalMoveIntent(intentRow(changed), value.context),
+    error => error instanceof codec.WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED');
+  assert.deepEqual(codec.readWorkspaceOperationOriginalMoveNativeBundle(value.intent), expected);
+  let nativeReads = 0, versionReads = 0;
+  const sentinel = new Error('Declared nativeBundle getter error');
+  const throwing = Object.defineProperty({}, 'nativeBundle', { get() { nativeReads++; throw sentinel; } });
+  assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(throwing as Intent), error => error === sentinel);
+  const forgedGetter = Object.defineProperties({}, { nativeBundle: { get() { nativeReads++; return value.intent.nativeBundle; } },
+    version: { get() { versionReads++; throw new Error('Provenance must fail before version.'); } } });
+  assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(forgedGetter as Intent), invalid);
+  const accesses: PropertyKey[] = [], proxy = new Proxy(value.intent, { get(target, key, receiver) { accesses.push(key); return Reflect.get(target, key, receiver); } });
+  assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(proxy), invalid);
+  assert.deepEqual(accesses, ['nativeBundle']); assert.equal(nativeReads, 2); assert.equal(versionReads, 0);
+
+  // Existing compiler-derived physical-only pattern: this genuine null intent
+  // still has exact namespace facts and is not a forged native-null shortcut.
+  const observed = observation('plain_text'); observed.stage.namespace.push({ workspaceId: jobScope.workspaceId,
+    path: 'a.pdf', kind: 'file', identity: '1:100:3:100:100', filesystemIdentity: '1:100:3:100:100', documentId: null, lifecycleGeneration: null });
+  refresh(observed);
+  const plan = createWorkspaceOperationNativeMoveBatchPlanV2({ scope, actions: [{ kind: 'move', reviewId: 'getter_null',
+    selections: [{ sourcePath: 'a.pdf', destinationPath: 'b.pdf' }] }], observation: observed });
+  const selected = context(plan), currentWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observed, jobScope);
+  const effects = codec.workspaceOperationOriginalMoveNamespaceEffects(selected);
+  const stageText = json({ version: 1, batchId: selected.batchId, planId: plan.planId, workspaceId: plan.workspaceId,
+    organizationId: null, requestHash: selected.requestHash, actor: selected.actor, schema: 'declared_getter_null',
+    effectsProof: proof(effects), beforeRows: { metadata: [], userStates: [], guests: [], publicShares: [], locks: [] }, lineages: [] });
+  const original = { ...physical(true), sourcePath: 'a.pdf', destinationPath: 'b.pdf',
+    source: { kind: 'regular_file' as const, identity: identity('file', '100'), sha256: hash('declared physical PDF') } };
+  const intent = codec.createWorkspaceOperationOriginalMoveIntent({ physical: [original], nativeBundle: null,
+    namespaceState: { stageText, stageDigest: hash(stageText) }, currentWitness }, selected);
+  assert.equal(intent.nativeBundle, null); assert.equal(codec.readWorkspaceOperationOriginalMoveNativeBundle(intent), null);
+  assert.equal(codec.readWorkspaceOperationOriginalMoveNativeBundle(intent), null);
+  const fresh = codec.parseWorkspaceOperationOriginalMoveIntent(intentRow(intent), selected); assert.notEqual(fresh, intent);
+  assert.equal(codec.readWorkspaceOperationOriginalMoveNativeBundle(fresh), null);
+  assert.throws(() => codec.readWorkspaceOperationOriginalMoveNativeBundle(Object.freeze(clone(intent))), invalid);
+});
+
+
+test('strict captured Context preserves detached immutable plan bytes and public Intent/P0 results', async () => {
+  const { workspaceOperationSourceNativeEvidence } = await import('../app/lib/files/workspace-operation-mixed-source-evidence');
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    const value = fixture(representation), supplied = clone(value.context);
+    const owned = codec.captureWorkspaceOperationOriginalMoveContext(supplied), before = json(owned);
+    assert.notEqual(owned, supplied); assert.notEqual(owned.actor, supplied.actor); assert.notEqual(owned.plan, supplied.plan);
+    assert.equal(JSON.stringify(owned.plan), JSON.stringify(supplied.plan));
+    assert.equal(json(owned), json(supplied)); assert.equal(codec.captureWorkspaceOperationOriginalMoveContext(owned), owned);
+    assert(Object.isFrozen(owned) && Object.isFrozen(owned.actor) && Object.isFrozen(owned.plan));
+    assert(Object.isFrozen(workspaceOperationSourceNativeEvidence(owned.plan.sourceEvidence).nativeBindings[0].expected));
+    assert.equal(Reflect.set(owned.actor, 'actorId', 'cannot-write-owned-actor'), false);
+    assert.equal(Reflect.set(owned.plan.nativePathPlan.pathMappings[0], 'destinationPath', 'cannot-write.md'), false);
+    const foreign = Object.freeze(clone(owned)), recaptured = codec.captureWorkspaceOperationOriginalMoveContext(foreign);
+    assert.notEqual(recaptured, foreign); assert.deepEqual(recaptured, owned);
+    const golden = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+    for (const selected of [supplied, owned, recaptured]) {
+      assert.deepEqual(codec.getWorkspaceOperationOriginalMoveNativeIds(selected), codec.getWorkspaceOperationOriginalMoveNativeIds(value.context));
+      const intent = codec.createWorkspaceOperationOriginalMoveIntent({ physical: [value.prepared], nativeBundle: value.nativeBundle,
+        namespaceState: null, currentWitness: value.currentWitness }, selected);
+      assert.equal(json(intent), json(value.intent));
+      const prepared = createP0(selected, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+      assert.deepEqual(prepared, golden); assert.deepEqual(decodeP0(prepared.preparationText, selected, value.nativeBundle), golden);
+      const p = prepared.preparation; assert(p.nativeBundle);
+      const row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId, requestHash: p.requestHash,
+        requestId: p.requestId, requestDigest: p.requestDigest, preparationText: prepared.preparationText,
+        preparationDigest: prepared.preparationDigest, createdAt: 101 };
+      const native = { operationId: p.nativeBundle.operationId, requestId: p.nativeBundle.requestId,
+        changesBundleProof: p.nativeBundle.changesBundleProof, privateText: prepared.nativeBundleData!.privateText };
+      let reads = 0;
+      const borrowed = { get: async () => ++reads === 1 ? row : native,
+        all: async () => { assert.fail('No alternate borrowed read.'); }, run: async () => { assert.fail('No borrowed write.'); },
+        close: async () => { assert.fail('No borrowed connection ownership.'); } };
+      assert.deepEqual(await readP0(borrowed, { schema: 'owned_context_parity', context: selected, readOnly: true }), { ...golden, createdAt: 101 });
+      assert.equal(reads, 2);
+    }
+    supplied.actor.actorId = 'changed-later';
+    Object.assign(workspaceOperationSourceNativeEvidence(supplied.plan.sourceEvidence).nativeBindings[0].expected, { path: 'changed-later.md' });
+    assert.equal(json(owned), before); assert.equal(json(recaptured), before);
+    const legacyPlan = createWorkspaceOperationNativeMoveBatchPlanV1({ scope, actions: [{ kind: 'move', reviewId: 'owned_legacy', selections }], observation: value.original });
+    const legacy = context(legacyPlan), capturedLegacy = codec.captureWorkspaceOperationOriginalMoveContext(legacy);
+    assert.equal(JSON.stringify(capturedLegacy.plan), JSON.stringify(legacy.plan));
+    assert.deepEqual(codec.getWorkspaceOperationOriginalMoveNativeIds(capturedLegacy), codec.getWorkspaceOperationOriginalMoveNativeIds(legacy));
+  }
+});
+
+test('captured Context foreign/mutable/spoof/proxy fallbacks preserve errors and never mint an Owner', async () => {
+  const value = fixture(), owned = codec.captureWorkspaceOperationOriginalMoveContext(value.context);
+  const failure = (operation: () => unknown) => {
+    try { operation(); } catch (error) {
+      assert(error instanceof Error);
+      return { name: error.name, message: error.message, code: Object.getOwnPropertyDescriptor(error, 'code')?.value,
+        status: Object.getOwnPropertyDescriptor(error, 'status')?.value };
+    }
+    assert.fail('Invalid foreign data must reject through the original strict validation.');
+  };
+  const corruptions: Array<(selected: Mutable<codec.WorkspaceOperationOriginalMoveContext>) => void> = [
+    selected => { selected.requestHash = 'invalid'; }, selected => { selected.batchId = 'short'; },
+    selected => { Object.assign(selected.actor, { actorType: 'invalid' }); },
+    selected => { selected.plan.compilerPlanProof = '0'.repeat(64); }, selected => { Object.assign(selected, { captured: true }); },
+  ];
+  for (const corrupt of corruptions) {
+    const supplied = clone(owned); corrupt(supplied);
+    const frozenForeign = Object.freeze(supplied);
+    assert.deepEqual(failure(() => codec.captureWorkspaceOperationOriginalMoveContext(frozenForeign)),
+      failure(() => codec.getWorkspaceOperationOriginalMoveNativeIds(frozenForeign)));
+  }
+  const mutable = clone(owned), first = codec.captureWorkspaceOperationOriginalMoveContext(mutable);
+  mutable.requestHash = hash('a different valid original request');
+  const second = codec.captureWorkspaceOperationOriginalMoveContext(mutable);
+  assert.notEqual(second, first);
+  assert.notEqual(second, mutable);
+  assert(Object.isFrozen(second));
+  assert.notDeepEqual(codec.getWorkspaceOperationOriginalMoveNativeIds(second), codec.getWorkspaceOperationOriginalMoveNativeIds(first));
+  assert.deepEqual(codec.getWorkspaceOperationOriginalMoveNativeIds(first), codec.getWorkspaceOperationOriginalMoveNativeIds(owned));
+  let getters = 0;
+  const accessor = Object.defineProperty({ ...clone(owned) }, 'plan', { enumerable: true, get() { getters++; return owned.plan; } });
+  assert.deepEqual(failure(() => codec.captureWorkspaceOperationOriginalMoveContext(accessor)), failure(() => codec.getWorkspaceOperationOriginalMoveNativeIds(accessor)));
+  assert.equal(getters, 0);
+  const sentinel = new Error('Original foreign proxy prototype failure');
+  const hostile = new Proxy(owned, { getPrototypeOf() { throw sentinel; } });
+  assert.throws(() => codec.captureWorkspaceOperationOriginalMoveContext(hostile), error => error === sentinel);
+  assert.throws(() => codec.getWorkspaceOperationOriginalMoveNativeIds(hostile), error => error === sentinel);
+  const inherited = Object.create(owned) as codec.WorkspaceOperationOriginalMoveContext;
+  assert.deepEqual(failure(() => codec.captureWorkspaceOperationOriginalMoveContext(inherited)), failure(() => codec.getWorkspaceOperationOriginalMoveNativeIds(inherited)));
+  const prepared = { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle };
+  for (const currentWitness of [null, { version: -1 }]) {
+    assert.deepEqual(failure(() => createP0(owned, { ...prepared, currentWitness } as unknown as Parameters<typeof createP0>[1])),
+      failure(() => createP0(clone(owned), { ...prepared, currentWitness } as unknown as Parameters<typeof createP0>[1])));
+  }
+  await assert.rejects(async () => stageWorkspaceOperationOriginalMoveJob(owned as unknown as WorkspaceOperationNativeMoveJobOwner, { preparedSteps: [] }),
+    error => error instanceof WorkspaceOperationJobLifecycleError && error.code === 'JOB_LIFECYCLE_REQUIRED');
+});
