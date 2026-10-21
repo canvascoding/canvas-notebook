@@ -1,3 +1,7 @@
+import { decodeWorkspaceOperationPhysicalDeleteBatchPlanV5, type WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
+import { readWorkspaceOperationPhysicalDeleteBatchStatusV5, type WorkspaceOperationPhysicalDeleteBatchStatusV5 } from './workspace-operation-physical-delete-status-v5';
+import { workspaceOperationPhysicalDeleteExecutionResultV5, projectWorkspaceOperationPhysicalDeleteExecutionV5 } from './workspace-operation-physical-delete-execution-public-v5';
+import { workspaceOperationMcpPhysicalHtmlDeletePreviewV3 } from './workspace-operation-physical-delete-public-v5';
 import 'server-only';
 
 import { isDeepStrictEqual, types } from 'node:util';
@@ -49,12 +53,12 @@ import { decodeWorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspac
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
-type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
+type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5;
 type SelectedRequest = Exclude<Request, { action: 'status' }>;
 type Authority = Readonly<{ userId: string; clientId: string; sessionId: string;
   tool: 'move_knowledge_source' | 'delete_knowledge_source'; scope: WorkspaceOperationBatchScope }>;
 type NativeStatus = Readonly<{ kind: 'move'; value: WorkspaceOperationNativeMoveBatchStatus }>
-  | Readonly<{ kind: 'delete'; value: WorkspaceOperationNativeDeleteBatchStatus }>;
+  | Readonly<{ kind: 'delete'; value: WorkspaceOperationNativeDeleteBatchStatus | WorkspaceOperationPhysicalDeleteBatchStatusV5 }>;
 type ImportHistory = NonNullable<Awaited<ReturnType<typeof readWorkspacePathImportOperationHistory>>>;
 
 /** Fixed current-principal phase only. No caller callback, arbitrary authority
@@ -104,8 +108,16 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
   const plan = await buildWorkspacePathOperationPlan({ scope: initial.scope, kind: live.kind,
     selections: selectedPaths(live.kind, input) });
   await capturePathAuthority(live, input.action === 'preview' ? undefined : input.operationId, initial);
-  if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2)) {
+  if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5)) {
     throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
+  }
+  if (plan.version === 5) {
+    const physical = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan);
+    if (!physical.linkAssessment.complete || physical.linkAssessment.blockers.length || physical.issues.length
+      || !isDeepStrictEqual(physical.sourceEvidence.workspaceScope, captureWorkspaceOperationJobScope(initial.scope.workspace))) {
+      throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
+    }
+    return physical;
   }
   const html = (plan.version === 2 || plan.version === 3) && plan.planIdentityVersion === 4 ? plan.version === 3 ? decodeWorkspaceOperationNativeMoveBatchPlan(plan)
     : plan.version === 2 ? decodeWorkspaceOperationNativeDeleteBatchPlan(plan) : null : null;
@@ -127,7 +139,9 @@ async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
     return value ? Object.freeze({ kind: 'move', value }) : null;
   }
   const value = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId, scope, mcpPrincipal: live });
-  return value ? Object.freeze({ kind: 'delete', value }) : null;
+  if (value) return Object.freeze({ kind: 'delete', value });
+  const physical = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({ batchId, scope, mcpPrincipal: live });
+  return physical ? Object.freeze({ kind: 'delete', value: physical }) : null;
 }
 
 function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobPrincipal,
@@ -146,7 +160,8 @@ function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobP
 function pathExecution(status: NativeStatus): WorkspaceOperationBatchExecutionResult | null {
   return status.kind === 'move'
     ? workspaceOperationNativeMoveExecutionResult(status.value.plan, status.value.observation)
-    : workspaceOperationNativeDeleteExecutionResult(status.value.plan, status.value.observation);
+    : status.value.plan.version === 5 ? workspaceOperationPhysicalDeleteExecutionResultV5(status.value.plan, status.value.observation)
+      : workspaceOperationNativeDeleteExecutionResult(status.value.plan, status.value.observation);
 }
 
 /** Whitelist presentation only. Journal progress never acknowledges a domain
@@ -157,7 +172,8 @@ function pathOperation(status: NativeStatus, operationId: string, history: Impor
     completedActions: batch.completedActions, phase: batch.phase };
   const execution = status.kind === 'move'
     ? projectWorkspaceOperationNativeMoveExecution({ ...summary, plan: status.value.plan }, status.value.observation)
-    : projectWorkspaceOperationNativeDeleteExecution({ ...summary, plan: status.value.plan }, status.value.observation);
+    : status.value.plan.version === 5 ? projectWorkspaceOperationPhysicalDeleteExecutionV5({ ...summary, plan: status.value.plan }, status.value.observation)
+      : projectWorkspaceOperationNativeDeleteExecution({ ...summary, plan: status.value.plan }, status.value.observation);
   // A lost completion acknowledgement can leave progress behind the proven
   // domain outcome. Preserve that honest journal separately from finality.
   const confirmed = execution.receiptStatus === 'available'
@@ -219,6 +235,7 @@ function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
 }
 
 function pathPreview(plan: NativePlan) {
+  if (plan.version === 5) return workspaceOperationMcpPhysicalHtmlDeletePreviewV3(plan);
   if (plan.version === 2 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlDeletePreviewV3(plan);
   if (plan.version === 3 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlPreviewV2(plan);
   const effects = plan.version === 3 ? workspaceOperationNativeMoveEffects(plan) : workspaceOperationNativeDeleteEffects(plan);
@@ -382,7 +399,8 @@ async function runDirectMcpWorkspacePathService(input: Request,
     const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
     await capturePathAuthority(live, undefined, initial);
     if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
-      preview: preparation.version === 3 ? workspaceOperationMcpHtmlDeletePreviewV3(preparation)
+      preview: preparation.version === 5 ? workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)
+        : preparation.version === 3 ? workspaceOperationMcpHtmlDeletePreviewV3(preparation)
         : preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
     const plan = await buildPathPlan(live, input, initial);
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathPreview(plan) });
@@ -434,7 +452,7 @@ async function runDirectMcpWorkspacePathService(input: Request,
         if (plan.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
         if (live.kind === 'move' && plan.version === 3) {
           selected = await store.createMcpMoveAndClaim(live.principal, { operationId: input.operationId, plan });
-        } else if (live.kind === 'delete' && plan.version === 2) {
+        } else if (live.kind === 'delete' && (plan.version === 2 || plan.version === 5)) {
           selected = await store.createMcpDeleteAndClaim(live.principal, { operationId: input.operationId, plan });
         } else throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.operationId);
       }

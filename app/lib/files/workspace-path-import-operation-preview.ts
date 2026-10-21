@@ -1,3 +1,4 @@
+import { createWorkspacePathPhysicalDeletePreparationPlanV5, type WorkspacePathPhysicalDeletePreparationPlanV5 } from './workspace-path-physical-delete-preparation-v5';
 import 'server-only';
 
 import { types } from 'node:util';
@@ -22,7 +23,7 @@ type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
 export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
-  | WorkspacePathHtmlNativeDeletePreparationPlanV3;
+  | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5;
 export class WorkspacePathImportPreviewError extends Error {
   readonly status: 403 | 409 | 422 | 503;
   constructor(readonly code: 'PATH_IMPORT_PREVIEW_INVALID' | 'PATH_IMPORT_PREVIEW_BUSY' | 'PATH_IMPORT_PREVIEW_UNAVAILABLE'
@@ -100,7 +101,14 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
         if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
         const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
         const scope = captureWorkspaceOperationJobScope(workspace);
-        const plan = !observation.stage.coverage.complete
+        const physicalPath = captured.selections.length === 1 ? captured.selections[0].sourcePath : null;
+        const physicalNode = physicalPath ? observation.stage.namespace.find(entry => entry.path === physicalPath) : null;
+        const physicalDelete = captured.kind === 'delete' && physicalNode?.kind === 'file' && physicalNode.documentId === null
+          && physicalNode.filesystemIdentity && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(physicalNode.path)
+          && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
+          && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
+        const plan = physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
+          selections: captured.selections.map(({sourcePath}) => ({sourcePath})), observation }) : !observation.stage.coverage.complete
           ? captured.kind === 'delete' ? createWorkspacePathHtmlNativeDeletePreparationPlanV3({ scope, kind: 'delete',
             selections: captured.selections.map(({ sourcePath }) => ({ sourcePath })), observation })
           : createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,

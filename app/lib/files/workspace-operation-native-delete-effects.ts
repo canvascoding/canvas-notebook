@@ -1,3 +1,4 @@
+import { workspaceOperationPhysicalDeleteEffectsV5 } from './workspace-operation-physical-delete-effects-v5';
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import type { AnyOriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 
@@ -5,7 +6,7 @@ export type WorkspaceOperationNativeDeleteEffect = Readonly<{
   documentId: string; path: string; updatedLinks: number;
 }>;
 type ExpectedEffect = WorkspaceOperationNativeDeleteEffect & { linkIds: string[] };
-type Completion = Readonly<{ version: 1 | 2 | 3 | 4 | 5 | 6; nativeLinks?: readonly AnyOriginalDeleteNativeLinkReceipt[] }>;
+type Completion = Readonly<{ version: 1 | 2 | 3 | 4 | 5 | 6 | 7; nativeLinks?: readonly AnyOriginalDeleteNativeLinkReceipt[] }>;
 const unavailable = (): never => { throw new Error('BATCH_JOURNAL_UNAVAILABLE'); };
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const canonicalPath = (value: unknown): value is string => typeof value === 'string' && value.length > 0
@@ -51,6 +52,7 @@ export function workspaceOperationNativeDeleteEffects(plan: WorkspaceOperationNa
 
 /** V1 retains its original count; native source documents are real link steps. */
 export function workspaceOperationBatchTotalActions(plan: WorkspaceOperationBatchPlan): number {
+  if (plan.version === 5) return 1 + workspaceOperationPhysicalDeleteEffectsV5(plan).length;
   if (plan.version === 2) return 1 + workspaceOperationNativeDeleteEffects(plan).length;
   if (plan.version === 3) return plan.pathSteps.length
     + new Set(plan.nativePathPlan.mutations.map(recipe => recipe.source.documentId)).size;

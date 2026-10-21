@@ -117,7 +117,7 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
     }
     // Native Move3 and explicit Delete4 replay complete original E5/HTML
     // evidence under the genuine owner before Intent, outside the span fence.
-    if (plan.readiness === 'ready' && plan.version !== 3
+    if (plan.readiness === 'ready' && plan.version !== 3 && plan.version !== 5
       && !(plan.version === 2 && plan.planIdentityVersion === 4)) {
       await (dependencies.htmlEvidenceCurrent ?? assertWorkspaceHtmlLinkEvidenceCurrent)(plan, input.scope);
     }

@@ -1,3 +1,5 @@
+import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
+import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import 'server-only';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -17,8 +19,7 @@ import { assertDirectMcpWorkspaceMovePrincipalCaptured, assertDirectMcpWorkspace
 import { assertWorkspaceFileUndoEnabled } from './workspace-file-undo-policy';
 import { workspaceOperationBatchTotalActions } from './workspace-operation-native-delete-effects';
 import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuthorization,
-  WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress,
-  WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+  WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
 import { decodeWorkspacePathImportPreparationRecordV1, readWorkspacePathImportPreparationRecordOnConnection,
@@ -90,10 +91,93 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-function fingerprint(batch: WorkspaceOperationBatchRecord): string {
-  return JSON.stringify([batch.batchId, batch.planId, batch.workspaceId, batch.plan, batch.authorization,
+// Only genuine registered Physical5 originals may reuse immutable JSON data.
+// These are bytes, never a Claim, SQL, permission, expiry or current-state proof.
+const fingerprintJson = JSON, fingerprintStringify = JSON.stringify, fingerprintApply = Reflect.apply;
+const fingerprintSlice = String.prototype.slice, fingerprintDescriptor = Object.getOwnPropertyDescriptor;
+const fingerprintPrototype = Object.getPrototypeOf, fingerprintFrozen = Object.isFrozen;
+const fingerprintObjectPrototype = Object.prototype, fingerprintArrayPrototype = Array.prototype;
+const fingerprintFields = ['batchId', 'planId', 'workspaceId', 'plan', 'authorization', 'actionMode', 'totalActions',
+  'createdAt', 'leaseOwner', 'reviewIds', 'reviewRefs', 'reviewerUserId', 'reviewerDisplayName'] as const;
+type OriginalPlanFragment = Readonly<{ plan: object; json: string; prefix: string; wrapper: string; full: string;
+  first: string; second: string; third: string }>;
+const originalPlanFragments = new WeakMap<WorkspaceOperationBatchRecord, OriginalPlanFragment>();
+function fingerprintHooksCurrent(json: typeof JSON, stringify: typeof JSON.stringify): boolean {
+  if (json !== fingerprintJson || stringify !== fingerprintStringify) return false;
+  const descriptor = fingerprintDescriptor(json, 'stringify');
+  return descriptor?.value === fingerprintStringify
+    && fingerprintPrototype(fingerprintArrayPrototype) === fingerprintObjectPrototype
+    && fingerprintPrototype(fingerprintObjectPrototype) === null
+    && !fingerprintDescriptor(fingerprintArrayPrototype, 'toJSON') && !fingerprintDescriptor(fingerprintObjectPrototype, 'toJSON');
+}
+function fingerprintHeadersCurrent(batch: WorkspaceOperationBatchRecord, values: unknown[]): boolean {
+  if (types.isProxy(batch) || typeof values[0] !== 'string' || typeof values[1] !== 'string' || typeof values[2] !== 'string') return false;
+  for (let index = 0; index < fingerprintFields.length; index++) {
+    const descriptor = fingerprintDescriptor(batch, fingerprintFields[index]);
+    if (!descriptor?.enumerable || !descriptor.configurable || !descriptor.writable
+      || !Object.hasOwn(descriptor, 'value') || descriptor.value !== values[index]) return false;
+  }
+  return true;
+}
+function immutableFingerprintPlan(input: unknown): input is object {
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): boolean => {
+    if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+    if (typeof value === 'number') return Number.isFinite(value);
+    if (!value || typeof value !== 'object' || types.isProxy(value) || !fingerprintFrozen(value)
+      || fingerprintPrototype(value) !== (Array.isArray(value) ? fingerprintArrayPrototype : fingerprintObjectPrototype)) return false;
+    if (seen.has(value)) return true;
+    seen.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      const descriptor = fingerprintDescriptor(value, key);
+      if (typeof key !== 'string' || !descriptor || !Object.hasOwn(descriptor, 'value') || !visit(descriptor.value)) return false;
+    }
+    return true;
+  };
+  return !!input && typeof input === 'object' && visit(input);
+}
+function rememberOriginalPlanFragment(batch: WorkspaceOperationBatchRecord, full: string): void {
+  // Registration receives only the private record(row) result: Auth/Reviews
+  // came from JSON.parse and contain no own callable toJSON or accessors.
+  // Check hooks without invoking a replaced JSON/stringify getter again.
+  const json = fingerprintJson, stringify = fingerprintStringify;
+  if (fingerprintDescriptor(globalThis, 'JSON')?.value !== json || !fingerprintHooksCurrent(json, stringify)) return;
+  const values: unknown[] = [batch.batchId, batch.planId, batch.workspaceId, batch.plan, batch.authorization,
     batch.actionMode, batch.totalActions, batch.createdAt, batch.leaseOwner,
-    batch.reviewIds, batch.reviewRefs, batch.reviewerUserId, batch.reviewerDisplayName]);
+    batch.reviewIds, batch.reviewRefs, batch.reviewerUserId, batch.reviewerDisplayName];
+  const plan = values[3];
+  if (!fingerprintHooksCurrent(json, stringify) || !fingerprintHeadersCurrent(batch, values)
+    || !plan || typeof plan !== 'object' || fingerprintDescriptor(plan, 'version')?.value !== 5 || !immutableFingerprintPlan(plan)) return;
+  const fragment = fingerprintApply(stringify, json, [plan]) as string;
+  const prefix = fingerprintApply(stringify, json, [[values[0], values[1], values[2]]]) as string;
+  values[3] = null;
+  const wrapper = fingerprintApply(stringify, json, [values]) as string;
+  const length = prefix.length;
+  if (fingerprintApply(fingerprintSlice, wrapper, [0, length]) + fragment
+    + fingerprintApply(fingerprintSlice, wrapper, [length + 4]) !== full) return;
+  originalPlanFragments.set(batch, Object.freeze({ plan, json: fragment, prefix, wrapper, full,
+    first: values[0] as string, second: values[1] as string, third: values[2] as string }));
+}
+function fingerprint(batch: WorkspaceOperationBatchRecord): string {
+  // Preserve the original function lookup and all thirteen property reads,
+  // including their order, before deciding whether any fragment may be reused.
+  const json = JSON, stringify = json.stringify;
+  const values: unknown[] = [batch.batchId, batch.planId, batch.workspaceId, batch.plan, batch.authorization,
+    batch.actionMode, batch.totalActions, batch.createdAt, batch.leaseOwner,
+    batch.reviewIds, batch.reviewRefs, batch.reviewerUserId, batch.reviewerDisplayName];
+  const cached = originalPlanFragments.get(batch);
+  if (!cached || values[3] !== cached.plan || !fingerprintHooksCurrent(json, stringify) || !fingerprintHeadersCurrent(batch, values)) {
+    return fingerprintApply(stringify, json, [values]) as string;
+  }
+  const prefix = values[0] === cached.first && values[1] === cached.second && values[2] === cached.third ? cached.prefix
+    : fingerprintApply(stringify, json, [[values[0], values[1], values[2]]]) as string;
+  values[3] = null;
+  const wrapper = fingerprintApply(stringify, json, [values]) as string;
+  if (wrapper === cached.wrapper && prefix === cached.prefix) return cached.full;
+  // Mutable toJSON callbacks run once at the original array keys. Never retry
+  // serialization after those callbacks; reconstruct from this exact wrapper.
+  return fingerprintApply(fingerprintSlice, wrapper, [0, prefix.length]) + cached.json
+    + fingerprintApply(fingerprintSlice, wrapper, [prefix.length + 4]);
 }
 function claimCurrent(captured: ClaimCapture, finalizing = false): void {
   try {
@@ -308,6 +392,7 @@ function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
       throw claimError('BATCH_INVALID_PLAN');
     }
   } catch { throw claimError('BATCH_INVALID_PLAN'); }
+  if (version === 5) return decodeWorkspaceOperationDeleteBatchPlan(input);
   if (version === 2) return decodeWorkspaceOperationNativeDeleteBatchPlan(input);
   if (version === 3) return decodeWorkspaceOperationNativeMoveBatchPlan(input);
   // Never reinterpret a downgraded/unknown native envelope as historical V1.
@@ -348,7 +433,7 @@ function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   if (plan?.version !== 1 && parsedAuthorization.mode !== 'review'
     && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
   if (parsedAuthorization.mode === 'direct-mcp' && (row.action_mode !== 'apply'
-    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2)
+    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5)
     || String(row.review_ids_json) !== '[]' || String(row.review_refs_json) !== '[]'
     || row.reviewer_user_id !== null || row.reviewer_display_name !== null
     || workspaceOperationBatchTotalActions(plan) !== Number(row.total_actions))) throw claimError('BATCH_INVALID_PLAN');
@@ -399,6 +484,7 @@ function registerClaimedBatch(store: WorkspaceOperationBatchStore, runtime: Runt
     reviewIdsBytes: selected.reviewIdsBytes, reviewRefsBytes: selected.reviewRefsBytes,
     leaseOwner: selected.owner, leaseToken: selected.token, expiresAt: selected.expiresAt,
     state: 'claimed', accepting: false, failure: undefined, pending: new Set(), finished: false });
+  rememberOriginalPlanFragment(selected.batch, claimedRows.get(selected.batch)!.originalFingerprint);
 }
 
 export type WorkspaceOperationMcpClaimResult = Readonly<
@@ -409,7 +495,7 @@ export type WorkspaceOperationMcpClaimResult = Readonly<
 type McpSelection = Readonly<{ kind: 'move'; principal: DirectMcpWorkspaceMovePrincipal }>
   | Readonly<{ kind: 'delete'; principal: DirectMcpWorkspaceDeletePrincipal }>;
 type McpCommand = Readonly<{ operationId: string; workspaceId: string }> & (
-  Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan }>
+  Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan }>
   | Readonly<{ mode: 'existing'; planId: string }>
 );
 type McpAccess = DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
@@ -424,7 +510,7 @@ function mcpSelection(input: unknown, names: readonly string[]): Record<string, 
 function captureMcpCreateInput(kind: McpSelection['kind'], input: unknown): McpCommand {
   const selected = mcpSelection(input, ['operationId', 'plan']);
   const plan = kind === 'move' ? decodeWorkspaceOperationNativeMoveBatchPlan(selected.plan)
-    : decodeWorkspaceOperationNativeDeleteBatchPlan(selected.plan);
+    : decodeWorkspaceOperationDeleteBatchPlan(selected.plan);
   if (typeof selected.operationId !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/u.test(selected.operationId)
     || plan.readiness !== 'ready') throw claimError('BATCH_INVALID_REQUEST');
   return Object.freeze({ mode: 'create', operationId: selected.operationId, workspaceId: plan.workspaceId, plan });
@@ -660,7 +746,7 @@ export class WorkspaceOperationBatchStore {
   }
 
   async createMcpDeleteAndClaim(principal: DirectMcpWorkspaceDeletePrincipal,
-    input: { operationId: string; plan: WorkspaceOperationNativeDeleteBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
+    input: { operationId: string; plan: WorkspaceOperationDeleteBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
     return runMcpClaim(this, { kind: 'delete', principal }, captureMcpCreateInput('delete', input));
   }
 
@@ -1126,7 +1212,9 @@ export async function insertWorkspaceImplicitMoveBatchOnConnection(database: Sql
   const source = await assertMcpClaimSource(database), table = `${quote(source.schemaName)}.workspace_file_operation_batches`;
   if (source.databaseOid !== identity.databaseOid || source.schemaOid !== identity.schemaOid
     || source.schemaName !== identity.schemaName || source.searchPath !== identity.searchPath) throw claimError('BATCH_SCOPE_CHANGED');
-  await database.run(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE NOWAIT`);
+  // The genuine request phase already bounds lock waiting to 50 ms. Keep the
+  // same table fence while allowing an in-flight worker poll to finish.
+  await database.run(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE`);
   await assertMcpClaimSource(database, source);
   if (await readMcpJobRow(database, source, selectedIdentity.batchId)) throw claimError('BATCH_IDEMPOTENCY_CONFLICT');
   await assertMcpPredecessor(database, source, scope.workspaceId, selectedIdentity.batchId);

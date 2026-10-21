@@ -1,4 +1,7 @@
 import 'server-only';
+import { decodeWorkspaceOperationDeleteBatchPlan, getWorkspaceOperationDeleteLinkRecipes } from './workspace-operation-delete-plan-dispatch';
+import { captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5, WorkspaceOperationPhysicalDeleteHtmlPlanError } from './workspace-operation-physical-delete-html-plan-v5';
+import { assertOriginalPhysicalDeleteLinkPlanV5 } from './workspace-operation-original-physical-delete-links-v5';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { constants, promises as fs, type Stats } from 'node:fs';
@@ -23,7 +26,6 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
 import { lockFileCollaborationPaths } from './collaboration-repository';
-import { decodeWorkspaceOperationNativeDeleteBatchPlan, getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
 import { readWorkspaceOperationOriginalDeleteIntentOnConnection } from './workspace-operation-original-delete-repository';
 import { readWorkspaceOperationNativePathAdmissionOnConnection } from './workspace-operation-native-path-admission';
 import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
@@ -142,7 +144,7 @@ function captureMcpJobPrincipal(binding: WorkspaceOperationBatchClaimBinding,
     if (input !== undefined) fail('JOB_LIFECYCLE_INVALID');
     return undefined;
   }
-  if (binding.actionMode !== 'apply' || binding.plan.version !== (move ? 3 : 2)) fail('JOB_LIFECYCLE_INVALID');
+  if (binding.actionMode !== 'apply' || (move ? binding.plan.version !== 3 : binding.plan.version !== 2 && binding.plan.version !== 5)) fail('JOB_LIFECYCLE_INVALID');
   const captured = captureWorkspaceOperationMcpJobPrincipal(input);
   if (captured.kind !== (move ? 'move' : 'delete')) fail('JOB_LIFECYCLE_INVALID');
   assertWorkspaceOperationMcpJobPrincipalCaptured(captured, binding);
@@ -264,8 +266,8 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
     const captured: Capture = { owner, claim, binding, mcp: mcpPrincipal, sourcePath: step.sourcePath, active: false, accepting: true,
       disposed: false, directories: [], pending: new Set(), phaseCount: 0, forwardedQueries: 0 };
     if (move) captured.move = captureMove(binding);
-    const nativePlan = captured.move?.context.plan ?? (binding.actionMode === 'apply' && plan.version === 2
-      ? decodeWorkspaceOperationNativeDeleteBatchPlan(plan) : null);
+    const nativePlan = captured.move?.context.plan ?? (binding.actionMode === 'apply' && (plan.version === 2 || plan.version === 5)
+      ? decodeWorkspaceOperationDeleteBatchPlan(plan) : null);
     if (nativePlan) {
       const nativeBindings = workspaceOperationSourceNativeEvidence(nativePlan.sourceEvidence).nativeBindings;
       if (!equal(nativePlan.sourceEvidence.workspaceScope, jobScope) || nativeBindings.length > 1024) fail('JOB_LIFECYCLE_INVALID');
@@ -383,6 +385,8 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
   const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set(), index: ++captured.phaseCount,
     startedAt: null, startedMonotonic: 0, queriesBefore: 0, stage: 'preparation', operation: 'authority', relation: null };
+  const checkTimings = captured.binding.plan.version === 5
+    ? { started: 0, completed: 0, owner: 0, policy: 0, storage: 0, handoffStorage: 0 } : null;
   captured.phase = phase;
   const pending = withWorkspaceOperationJobClaimPhase(captured.claim, async () => {
     const database = captured.database!; let begun = false, commitAttempted = false;
@@ -410,13 +414,46 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           ? await bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection(database, { schemaName, schemaOid, databaseOid }) : null;
         // A fixed internal path set from the genuinely claimed native plan. Keep
         // advisory SQL on the actual owner B, outside the restricted facade.
-        if (captured.binding.plan.version === 2) {
+        if (captured.binding.plan.version === 2 || captured.binding.plan.version === 5) {
           phase.stage = 'path-locks';
-          const sources = getWorkspaceOperationNativeDeleteLinkRecipes(captured.binding.plan).map(recipe => recipe.source.path);
+          const sources = getWorkspaceOperationDeleteLinkRecipes(captured.binding.plan).map(recipe => recipe.source.path);
           if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
         }
-        const check = async () => { current(captured); await checkOwner(captured, phase.transaction);
-          await access.assertCurrent(); await storage.assertCurrent(); await handoffStorage?.assertCurrent(); current(captured); await checkOwner(captured, phase.transaction); };
+        const check = async () => {
+          let segment: 'owner' | 'policy' | 'storage' | 'handoffStorage' | null = null, since = 0;
+          const recordCheckSegment = (next: typeof segment) => {
+            if (!checkTimings) return;
+            const now = performance.now();
+            if (segment) checkTimings[segment] += now - since;
+            segment = next; since = now;
+          };
+          if (checkTimings) checkTimings.started++;
+          try {
+            recordCheckSegment('owner'); await checkOwner(captured, phase.transaction);
+            recordCheckSegment('policy'); await access.assertCurrent();
+            recordCheckSegment('storage'); await storage.assertCurrent();
+            recordCheckSegment('handoffStorage'); await handoffStorage?.assertCurrent();
+            recordCheckSegment('owner'); await checkOwner(captured, phase.transaction);
+            if (checkTimings) checkTimings.completed++;
+          } finally { recordCheckSegment(null); }
+        };
+        // The human Delete principal holds its auth/ACL tables and Claim in
+        // SHARE through this B. Internal reads may share those policy fences;
+        // every write and fixed method boundary still gets a full current
+        // check, as do entry/final/COMMIT. No result escapes before completion.
+        const lockedHumanDeleteReads = !captured.move && !captured.mcp && captured.binding.actionMode === 'apply'
+          && captured.binding.authorization.mode === 'direct' && captured.binding.authorization.actorType === 'user'
+          && (captured.binding.plan.version === 5 || captured.binding.plan.version === 2
+            && captured.binding.plan.kind === 'native-original-delete' && captured.binding.plan.planIdentityVersion === 4);
+        // One exact closed read-only writer scan; byte drift falls back to
+        // full checks. Never classify arbitrary WITH or caller SQL as read-only.
+        const humanReadPrefix = `"${schemaName.replaceAll('"', '""')}"`;
+        const humanWriterReadSql = lockedHumanDeleteReads ? `WITH
+    locks AS MATERIALIZED (SELECT id FROM ${humanReadPrefix}.file_locks WHERE workspace_id=$1 AND path=$2
+      AND status='active' AND expires_at>$3 FOR SHARE NOWAIT),
+    guests AS MATERIALIZED (SELECT id FROM ${humanReadPrefix}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
+      AND status='active' FOR SHARE NOWAIT)
+    SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests` : null;
         const dispatch = <R>(sql: string | undefined, query: () => R | Promise<R>,
           diagnosticOperation: Phase['operation'] = 'authority'): Promise<R> => {
           try {
@@ -431,10 +468,15 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
             'file_collaboration_lineages', 'collaboration_file_projections', 'workspace_trash_entries',
             'workspace_file_operation_delete_intents', 'workspace_file_operation_delete_receipts',
             'workspace_file_operation_delete_trash_receipts'].find(name => new RegExp(`\\b${name}\\b`, 'u').test(sql)) ?? null;
-          const checked = (async () => { try { phase.stage = 'before-operation-check'; await check(); checkPhase(captured, phase);
+          const groupedRead = lockedHumanDeleteReads && (sql === undefined ? diagnosticOperation === 'native-source-read'
+            : /^\s*SELECT\b/iu.test(sql) || sql === humanWriterReadSql);
+          // Register pending ownership before a cheap read can invoke even a
+          // synchronous adapter. Other WITH statements remain fully checked.
+          const checked = Promise.resolve().then(async () => { try { phase.stage = 'before-operation-check';
+            if (!groupedRead) await check(); checkPhase(captured, phase);
             phase.stage = 'sql'; const value = await query(); phase.stage = 'after-operation-check';
-            await check(); checkPhase(captured, phase); return value; }
-            catch (error) { return poison(captured, error); } })();
+            if (!groupedRead) await check(); checkPhase(captured, phase); return value; }
+            catch (error) { return poison(captured, error); } });
           phase.pending.add(checked); void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked)); return checked;
         };
         const facade: SqlConnection = Object.freeze({ get: (sql: string, values?: unknown[]) => dispatch(sql, () => database.get(sql, values)),
@@ -448,14 +490,14 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           try {
             const restrictedAccess: WorkspaceOperationJobLifecycleAccess = Object.freeze({ ...access, database: facade,
             readOriginalNativeDeleteAdmission: () => dispatch(undefined, async () => {
-              if (captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
+              if (captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5) fail('JOB_LIFECYCLE_INVALID');
               const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
               if (!admission || !['reserved', 'draining'].includes(admission.status) || admission.outcome) fail('JOB_LIFECYCLE_CHANGED');
               const original = captureCollaborationAdmissionRequest(admission.request);
               return Object.freeze({ requestId: original.request.requestId, requestDigest: original.requestDigest });
             }),
             readOriginalNativeDeleteSources: () => dispatch(undefined, async () => {
-              if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_INVALID');
+              if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5) fail('JOB_LIFECYCLE_INVALID');
               // Fixed read of this claimed workspace only. The ordinary SQL
               // facade remains restricted and every method boundary is checked.
               return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
@@ -463,7 +505,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
             }, 'native-source-read'),
             applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;
-              if (binding.actionMode !== 'apply' || binding.plan.version !== 2
+              if (binding.actionMode !== 'apply' || binding.plan.version !== 2 && binding.plan.version !== 5
                 || typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
               // Read the actual immutable journal on this owner B. The caller's
               // digest selects no actor, workspace, source, recipe or Yjs bytes.
@@ -473,15 +515,18 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
-              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 && intent.version !== 5 && intent.version !== 6 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 && intent.version !== 5 && intent.version !== 6 && intent.version !== 7 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
               assertOriginalDeleteIntentPlan(intent, binding.plan);
-              assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
+              if (binding.plan.version === 5) {
+                if (intent.version !== 7) fail('JOB_LIFECYCLE_CHANGED');
+                assertOriginalPhysicalDeleteLinkPlanV5(binding.plan,intent.nativeLinks);
+              } else assertOriginalDeleteNativeLinkPlan(binding.plan,intent.nativeLinks);
               // Keep current authority before every source (including receipt
               // retries) and immediately before each CAS. This private check
               // does not recursively enter the public dispatch queue.
               const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
                 checkPhase(captured, phase); phase.stage = 'sql'; };
-              if (intent.version === 6) return applyOriginalDeleteNativeHtmlLinksV4(database, access.workspace, intent.nativeLinks, validate, intent.currentWitness.nativeComponent);
+              if (intent.version === 6 || intent.version === 7) return applyOriginalDeleteNativeHtmlLinksV4(database, access.workspace, intent.nativeLinks, validate, intent.currentWitness.nativeComponent);
               return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate,
                 intent.version === 3 || intent.version === 4 || intent.version === 5
                   ? intent.version === 5 ? intent.currentWitness.nativeComponent : intent.currentWitness
@@ -553,7 +598,14 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
         try { await database.close(failure); } catch { /* Disposal failure is retained separately. */ }
       }
       return poison(captured, failure);
-    } finally { phase.accepting = false; phase.active = false; if (captured.phase === phase) captured.phase = undefined; }
+    } finally {
+      if (checkTimings && phase.startedAt !== null) console.info('[File action owner] Physical Delete current-check timings.', JSON.stringify({
+        version: 1, phaseIndex: phase.index, phaseElapsedMs: Math.round(performance.now() - phase.startedMonotonic),
+        forwardedQueries: captured.forwardedQueries - phase.queriesBefore, startedChecks: checkTimings.started,
+        completedChecks: checkTimings.completed, ownerMs: Math.round(checkTimings.owner), policyMs: Math.round(checkTimings.policy),
+        storageMs: Math.round(checkTimings.storage), handoffStorageMs: Math.round(checkTimings.handoffStorage) }));
+      phase.accepting = false; phase.active = false; if (captured.phase === phase) captured.phase = undefined;
+    }
   });
   captured.pending.add(pending); void pending.then(() => captured.pending.delete(pending), () => captured.pending.delete(pending)); return pending;
 }
@@ -569,6 +621,14 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
   const captured = owners.get(owner);
   if (captured?.move) { try { poison(captured, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID')); }
     catch (error) { return Promise.reject(error); } }
+  if (captured && captured.binding.actionMode === 'apply' && (captured.binding.plan.version === 5
+    || captured.binding.plan.version === 2 && captured.binding.plan.planIdentityVersion === 4)) {
+    // Preparation and preflight inspect the same fixed grammar as B2. Keep
+    // its lifetime within this fully awaited transaction; current data and
+    // every ordinary SQL/authority boundary are still freshly checked.
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, operation))
+      .catch(error => poison(captured, error));
+  }
   return runLifecycleTransaction(owner, operation);
 }
 
@@ -579,7 +639,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
 ): Promise<WorkspaceOperationOriginalDeleteResult> {
   const captured = owners.get(owner);
   try {
-    if (!captured || captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2) fail('JOB_LIFECYCLE_REQUIRED');
+    if (!captured || captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5) fail('JOB_LIFECYCLE_REQUIRED');
     current(captured);
     const fields = moveFields(input, ['expectedIntentDigest', 'prepared', 'physical']);
     if (typeof fields.expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(fields.expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
@@ -594,7 +654,8 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
       const durable = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database, { schema, batchId: binding.batchId, forShare: true });
       if (!durable || durable.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
       const intent = parseIntent(durable, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
-      if (intent.version !== 4 && intent.version !== 5 && intent.version !== 6 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
+      if (intent.version !== 4 && intent.version !== 5 && intent.version !== 6 && intent.version !== 7 || !equal(intent.physical,original)
+        || binding.plan.version !== 2 && binding.plan.version !== 5 || (binding.plan.version === 5) !== (intent.version === 7)) fail('JOB_LIFECYCLE_CHANGED');
       assertOriginalDeleteIntentPlan(intent, binding.plan);
       const admission = await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent });
       if (admission.outcome || !['reserved', 'draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
@@ -610,9 +671,14 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
         mutate: async connection => {
           if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
           await check();
-          if (intent.version === 6) {
-            if (binding.plan.version !== 2 || binding.plan.kind !== 'native-original-delete'
-              || binding.plan.planIdentityVersion !== 4 || !intent.native) fail('JOB_LIFECYCLE_INVALID');
+          {
+            // Admission-backed original profiles only; the strict intent/plan
+            // comparison above remains the authority for all original facts.
+            if (intent.version === 7
+              ? binding.plan.version !== 5 || binding.plan.kind !== 'physical-original-delete'
+                || binding.plan.planIdentityVersion !== 5 || intent.native !== null
+              : binding.plan.version !== 2 || binding.plan.kind !== 'native-original-delete'
+                || binding.plan.planIdentityVersion !== intent.version - 2 || !intent.native) fail('JOB_LIFECYCLE_INVALID');
             const domainPhase = captured.phase;
             if (!domainPhase) fail('JOB_LIFECYCLE_REQUIRED');
             let domainActive = true;
@@ -623,7 +689,7 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
     guests AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
       AND status='active' FOR SHARE NOWAIT)
     SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests`;
-            // Private to this exact awaited E6 algorithm. No raw B or grouped
+            // Private to these exact awaited original Delete algorithms. No raw B or grouped
             // read result escapes; all fixed access methods keep their dispatch.
             const assertDomainCurrent = () => {
               try {
@@ -682,9 +748,6 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
                 await Promise.allSettled([...domainPhase.pending]);
               }
             }
-          } else {
-            result = await completeWorkspaceOperationOriginalDeleteDomain(access, { binding, evidenceContext,
-              originalDurable: durable, originalIntent: intent, prepared, physical });
           }
           await check();
           return workspaceOperationOriginalDeleteAdmissionResult(result);
@@ -696,9 +759,12 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
       await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
       return result;
     });
-    if (captured.binding.plan.kind !== 'native-original-delete' || captured.binding.plan.planIdentityVersion !== 4) return complete();
-    // E6 alone shares fixed grammar for this fully awaited B2 attempt, including
-    // rollback/drain. No document facts or current-authority results are cached.
+    const htmlInspection = captured.binding.plan.kind === 'physical-original-delete'
+      || captured.binding.plan.kind === 'native-original-delete' && captured.binding.plan.planIdentityVersion === 4;
+    if (!htmlInspection) return complete();
+    // HTML-aware native and physical Delete share fixed grammar for this fully
+    // awaited B2 attempt, including rollback/drain. No document facts or
+    // current-authority results are cached.
     return withNativeInspectionSchema(complete).catch(error => poison(captured, error));
   } catch (error) {
     if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
@@ -720,7 +786,7 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
     if (plan.version === 3) {
       const rows = await readMoveRows(captured, database);
       if (rows.intent) return true; // Descriptor recovery must use its existing overlay.
-    } else if (plan.version === 2) {
+    } else if (plan.version === 2 || plan.version === 5) {
       if (await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
         { schema: binding.source.schemaName, batchId: binding.batchId, forShare: true })) return true;
     } else fail('JOB_LIFECYCLE_INVALID');
@@ -735,12 +801,15 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
         if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
         const witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
         conflict = !equal(witness, prepared.preparation.currentWitness);
+      } else if (plan.version === 5) {
+        captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,observation,plan.sourceEvidence.workspaceScope);
       } else if (plan.version === 2 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4)) {
         captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
       }
     } catch (error) {
       if (error instanceof WorkspaceOperationNativeMovePlanError && error.code === 'NATIVE_MOVE_PLAN_CHANGED'
         || error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_CHANGED'
+        || error instanceof WorkspaceOperationPhysicalDeleteHtmlPlanError && error.code === 'PHYSICAL_DELETE_PLAN_CHANGED'
         || error instanceof WorkspaceOperationNativeSourceEvidenceError && error.code === 'NATIVE_SOURCE_EVIDENCE_CHANGED') conflict = true;
       else throw error;
     }
@@ -914,9 +983,9 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
       ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
     if (admission && !['reserved','draining'].includes(admission.status)
       && !(captured.move && intent && admission.status === 'committed' && admission.outcome?.version === 1)) fail('JOB_LIFECYCLE_CHANGED');
-    if ((captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
+    if ((captured.binding.plan.version === 5 || (captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
       && (captured.binding.plan.planIdentityVersion === 2 || captured.binding.plan.planIdentityVersion === 3
-        || captured.binding.plan.version === 3 && captured.binding.plan.planIdentityVersion === 4) && !admission && !intent) {
+        || captured.binding.plan.version === 3 && captured.binding.plan.planIdentityVersion === 4)) && !admission && !intent) {
       const historical = !captured.move && await database.get(`SELECT 1 AS present FROM ${prefix}.workspace_file_operation_delete_intents WHERE batch_id=$1`,[captured.binding.batchId]);
       if (!historical) fail('JOB_LIFECYCLE_CHANGED');
     }
@@ -1467,7 +1536,7 @@ async function readOriginalDeleteJobRows(database: SqlConnection, binding: Works
     context: { batchId: binding.batchId, planId: binding.planId, workspaceId: binding.workspaceId,
       authorization: binding.authorization, sourcePath: binding.plan.pathSteps[0].sourcePath },
     workspace: access.workspace, dataRoot: resolveWorkspaceDataRoot() });
-  if (observed.original && binding.plan.version === 2) assertOriginalDeleteIntentPlan(observed.original, binding.plan);
+  if (observed.original && (binding.plan.version === 2 || binding.plan.version === 5)) assertOriginalDeleteIntentPlan(observed.original, binding.plan);
   return observed.deleted;
 }
 

@@ -319,6 +319,41 @@ async function observedMovedIdentity(stage: Stage, expected: PreparedSingleFileT
 export function readPreparedWorkspaceSingleFileTrash(prepared: PreparedWorkspaceSingleFileTrash): PreparedSingleFileTrashOriginalFacts {
   return requireStage(prepared).facts!;
 }
+/** Factual disposition of this live WeakMap-bound original stage. No SQL,
+ * authorization or rename is performed. A recovered receipt is still obtained
+ * from movePreparedWorkspaceSingleFileTrash's checked already_moved branch. */
+export function readPreparedWorkspaceSingleFileTrashDisposition(prepared: PreparedWorkspaceSingleFileTrash):
+  'pending' | 'already-moved' | 'projection-absent' {
+  const stage = requireStage(prepared);
+  if (stage.pending) throw poison(stage, failure('reentrant-operation', stage.renameAttempted));
+  if (stage.facts!.source.kind === 'projection_absent') return 'projection-absent';
+  if (stage.recovery === 'already_moved' || stage.moveCompleted) return 'already-moved';
+  if (stage.recovery === 'none' || stage.recovery === 'original_source') return 'pending';
+  throw failure('invalid-input');
+}
+/** Live FD/ancestry/content I/O after an already completed original move.
+ * This NEVER renames, reserves, authorizes or reconstructs a stage. The exact
+ * receipt includes the real current post-rename ctime from the pinned FD. */
+export function readPreparedWorkspaceSingleFileTrashMovedReceipt(prepared: PreparedWorkspaceSingleFileTrash):
+  Promise<PreparedSingleFileTrashReceipt> {
+  let stage: Stage;
+  try {
+    stage = requireStage(prepared);
+    if (stage.pending) throw poison(stage, failure('reentrant-operation', stage.renameAttempted));
+    if (!stage.moveCompleted || stage.facts!.source.kind !== 'regular_file') throw poison(stage, failure('invalid-lifetime', stage.renameAttempted));
+  } catch (error) { return Promise.reject(error); }
+  const operation = (async (): Promise<PreparedSingleFileTrashReceipt> => {
+    try {
+      await verifySource(stage, true); await verifyEntryContents(stage, true); assertInternal(stage);
+      const source = stage.facts!.source;
+      if (source.kind !== 'regular_file') throw failure('invalid-lifetime');
+      const after = await observedMovedIdentity(stage, source.identity); assertInternal(stage);
+      return Object.freeze({ version: 1, original: stage.facts!, observation: Object.freeze({
+        kind: 'moved', method: 'rename', identity: after, sha256: source.sha256 }) });
+    } catch (error) { throw poison(stage, error); }
+  })();
+  return trackPending(stage, operation);
+}
 /** Single rename only. No cross-device copy, rollback or overwrite compensation.
  * A rejected attempted rename requires caller-led recovery from its durable intent.
  * A missing projection is only absence evidence, never native document authority. */

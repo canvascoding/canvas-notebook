@@ -1,20 +1,22 @@
+import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
+import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import 'server-only';
+import { WorkspaceOperationPhysicalDeleteHtmlPlanError } from './workspace-operation-physical-delete-html-plan-v5';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import type { WorkspaceContext } from '../workspaces/types';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
-import type { WorkspaceOperationDirectMcpAuthorization, WorkspaceOperationJobScope,
-  WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationDirectMcpAuthorization, WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import { captureWorkspaceOperationJobScope, parseWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, WorkspaceOperationNativeMovePlanError,
   type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import { decodeWorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
+import { WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
 
 type Tool = WorkspaceOperationDirectMcpAuthorization['tool'];
-type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
+type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan;
 export type WorkspaceOperationMcpAuthorizationCurrent = Readonly<{
   userId: string; clientId: string; sessionId: string; workspace: WorkspaceContext; tool: Tool;
 }>;
@@ -83,11 +85,11 @@ function plan(input: unknown, selectedTool: Tool, jobScope: WorkspaceOperationJo
   let selected: NativePlan;
   try {
     if (version === 3 && selectedTool === 'move_knowledge_source') selected = decodeWorkspaceOperationNativeMoveBatchPlan(data);
-    else if (version === 2 && selectedTool === 'delete_knowledge_source') selected = decodeWorkspaceOperationNativeDeleteBatchPlan(data);
+    else if ((version === 2 || version === 5) && selectedTool === 'delete_knowledge_source') selected = decodeWorkspaceOperationDeleteBatchPlan(data);
     else return fail();
   } catch (error) {
     if ((error instanceof WorkspaceOperationNativeMovePlanError || error instanceof WorkspaceOperationNativeDeletePlanError
-      || error instanceof WorkspaceOperationNativeSourceEvidenceError) && error.code.endsWith('_TOO_LARGE')) {
+      || error instanceof WorkspaceOperationNativeSourceEvidenceError || error instanceof WorkspaceOperationPhysicalDeleteHtmlPlanError) && error.code.endsWith('_TOO_LARGE')) {
       fail('MCP_JOB_AUTHORIZATION_TOO_LARGE');
     }
     return fail();

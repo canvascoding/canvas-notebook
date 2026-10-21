@@ -1,3 +1,4 @@
+import { decodeWorkspaceOperationPhysicalDeleteBatchPlanV5, type WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
 import 'server-only';
 
 import { isDeepStrictEqual, types } from 'node:util';
@@ -18,7 +19,7 @@ import { captureWorkspaceOperationJobScope, workspaceOperationJobScopeMatches } 
 import { assertWorkspaceOperationMcpAuthorizationCurrent,
   type WorkspaceOperationMcpAuthorizationCurrent } from './workspace-operation-mcp-authorization';
 
-type NativePlan = WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan;
+type NativePlan = WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5;
 const moveHistoryTables = Object.freeze(['collaboration_admission_requests', 'collaboration_admission_targets',
   'collaboration_native_file_operation_intents', 'collaboration_native_file_operation_receipts',
   'collaboration_native_file_operation_side_effect_stages', 'collaboration_native_file_operation_side_effect_receipts',
@@ -34,7 +35,7 @@ function changed():never{throw new WorkspaceOperationNativeReadError('BATCH_SCOP
 function freeze<T>(value:T):T{if(value&&typeof value==='object'){for(const child of Object.values(value))freeze(child);Object.freeze(value);}return value;}
 export type WorkspaceOperationNativeBatchReadContext=Readonly<{database:SqlConnection;schema:string;workspace:WorkspaceContext;
   batch:WorkspaceOperationBatchRecord;plan:NativePlan}>;
-type Input={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3;expectedPlan?:NativePlan;
+type Input={batchId:string;scope:WorkspaceOperationBatchScope;planVersion:2|3|5;expectedPlan?:NativePlan;
   mcpPrincipal?:WorkspaceOperationMcpJobPrincipal};
 type McpRealm=Readonly<{schemaName:string;schemaOid:number;databaseOid:number;searchPath:string;tableOid:number}>;
 type McpAuthority=Readonly<{facts:WorkspaceOperationMcpAuthorizationCurrent;realm:McpRealm}>;
@@ -103,7 +104,8 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
   if(!userId||!workspace.permissions.canRead||workspace.status!=='active'||!other||other.actor?.userId!==userId
     ||!other.permissions.canRead||other.status!=='active')throw new WorkspaceOperationNativeReadError('BATCH_ACCESS_DENIED',403);
   const namespace=captureWorkspaceOperationJobScope(workspace),otherNamespace=captureWorkspaceOperationJobScope(other);
-  const version=input.planVersion,batchId=input.batchId,expected=input.expectedPlan && (version===2
+  const version=input.planVersion,batchId=input.batchId,expected=input.expectedPlan && (version===5
+    ?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.expectedPlan):version===2
     ?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
   let original:McpOriginal|undefined;
   const database=await openDb();
@@ -130,7 +132,7 @@ async function readNativeBatchSnapshot<T>(input:Omit<Input,'mcpPrincipal'>,
     if(mcp?batch.authorization.mode!=='direct-mcp':batch.authorization.mode==='direct-mcp')changed();
     if(mcp&&batch.actionMode!=='apply')changed();
     if(batch.plan.version!==version)return null;
-    const plan=batch.plan.version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(batch.plan):decodeWorkspaceOperationNativeMoveBatchPlan(batch.plan),auth=batch.authorization;
+    const plan=batch.plan.version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(batch.plan):batch.plan.version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(batch.plan):decodeWorkspaceOperationNativeMoveBatchPlan(batch.plan),auth=batch.authorization;
     if(mcp){
       if(auth.mode!=='direct-mcp')changed();
       assertWorkspaceOperationMcpAuthorizationCurrent(auth,mcp.facts,plan);
@@ -200,11 +202,11 @@ export async function withWorkspaceOperationNativeBatchReadContext<T>(input:Inpu
   if(field&&(!field.enumerable||!Object.hasOwn(field,'value')))changed();
   if(field?.value===undefined)return(await readNativeBatchSnapshot(input,operation)).value;
   const live=captureWorkspaceOperationMcpJobPrincipal(field.value),version=input.planVersion;
-  if(version!==(live.kind==='move'?3:2)||typeof operation!=='function')changed();
+  if((live.kind==='move'?version!==3:version!==2&&version!==5)||typeof operation!=='function')changed();
   const batchId=input.batchId,workspace=input.scope.workspace,other=input.scope.fileOptions.workspace;
   if(!other)changed();
   const namespace=captureWorkspaceOperationJobScope(workspace),otherNamespace=captureWorkspaceOperationJobScope(other);
-  const expected=input.expectedPlan&&(version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
+  const expected=input.expectedPlan&&(version===5?decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(input.expectedPlan):version===2?decodeWorkspaceOperationNativeDeleteBatchPlan(input.expectedPlan):decodeWorkspaceOperationNativeMoveBatchPlan(input.expectedPlan));
   const options={workspaceId:namespace.workspaceId};
   if(live.kind==='move')assertDirectMcpWorkspaceMovePrincipalCaptured(live.principal,options);
   else assertDirectMcpWorkspaceDeletePrincipalCaptured(live.principal,options);

@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { createWorkspaceOperationPhysicalDeleteBatchPlanV5, decodeWorkspaceOperationPhysicalDeleteBatchPlanV5,
+  computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5, computeWorkspaceOperationPhysicalDeleteBatchPlanIntegrityProofV5,
+  captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5, getWorkspaceOperationPhysicalDeleteLinkRecipesV5 } from '../app/lib/files/workspace-operation-physical-delete-html-plan-v5';
+import { createWorkspacePathPhysicalDeletePreparationPlanV5 } from '../app/lib/files/workspace-path-physical-delete-preparation-v5';
 import { createHash } from 'node:crypto';
 import { Y } from '../app/lib/collaboration/server-runtime';
 import { createRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
@@ -485,6 +489,218 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
       assertWorkspaceOperationNativeDeleteBatchPlanCurrentV4(plan, actual.input.observation, actual.jobScope);
     }
   });
-  assert.equal(families, 18);
+  // New physical arm uses these existing real Yjs/UTF8 pure fixtures only.
+  // No filesystem capability, SQL, principal or successful execution is implied.
+  const physicalFixture = (name: string, native = true) => {
+    const value = fixture({ native: native ? [['note.md', '[Asset](' + name + ')\n\n<p>Unchanged native HTML</p>']] : [],
+      raw: [['page.html','<p>Unchanged whole-file HTML</p>']],extra:[{path:name,kind:'file'}] });
+    value.input.actions[0].selections[0].sourcePath = name; return value;
+  };
+  family('Physical5 PNG/PDF/ordinary files retain genuine native unlink and unaffected HTML', () => {
+    for (const name of ['picture.png','report.pdf','ordinary.asset']) {
+      const value = physicalFixture(name), before = structuredClone(value.input.observation);
+      const plan = createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input);
+      assert.equal(plan.version,5); assert.equal(plan.kind,'physical-original-delete'); assert.equal(plan.targetAuthority,'filesystem');
+      assert.equal(plan.physicalTarget.path,name); assert.equal(plan.physicalTarget.documentId,null);
+      assert.equal(plan.physicalTarget.lifecycleGeneration,null); assert.equal(Object.hasOwn(plan,'nativeTarget'),false);
+      assert.equal(plan.coverage.complete,false); assert.equal(plan.linkAssessment.complete,true);
+      assert.deepEqual(plan.sourceEvidence.coverage,before.stage.coverage);
+      assert.equal(getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan).length,1);
+      assert.equal(getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan)[0].source.path,'note.md');
+      assert.equal(plan.nativeGraphPlan.finalNamespace.some(entry=>entry.path===name),false);
+      assert.equal(plan.nativeGraphPlan.finalNamespace.some(entry=>entry.path==='page.html'),true);
+      assert.deepEqual(decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(JSON.parse(JSON.stringify(plan))),plan);
+      assert.deepEqual(captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,value.input.observation,value.jobScope),plan.sourceEvidence);
+      assert.deepEqual(value.input.observation,before);
+    }
+  });
+  family('Physical5 asset-only and pristine IDs are filesystem facts without a native target', () => {
+    for (const pristine of [false,true]) {
+      const value = physicalFixture('pristine.pdf',false);
+      if (pristine) {
+        value.actual.observation.privateCatalogue.push({id:'pristine-physical-d1',lineage_id:'pristine-physical-l1',path:'pristine.pdf',
+          workspace_id:value.jobScope.workspaceId,organization_id:null,status:'active',state_version:0,yjs_state_lifecycle:'never_initialized',
+          has_persisted_state:false,has_state_history:false,lifecycle_generation:null,authority:'pristine',state_status:null,state_path:null,
+          state_workspace_id:null,state_organization_id:null});
+        refresh(value.actual);
+      }
+      const plan = createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input);
+      assert.equal(plan.sourceEvidence.nativeComponent.nativeBindings.length,0); assert.deepEqual(plan.nativeGraphPlan.documentEvidence,[]);
+      assert.deepEqual(getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan),[]); assert.equal(plan.physicalTarget.documentId,null);
+      assert.deepEqual(captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,value.input.observation,value.jobScope),plan.sourceEvidence);
+    }
+  });
+  family('Physical5 and native A4 identities cannot be retagged or erase false coverage', () => {
+    const value=physicalFixture('picture.png'),plan=createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input);
+    assert.equal(computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5(plan),plan.planId);
+    assert.equal(computeWorkspaceOperationPhysicalDeleteBatchPlanIntegrityProofV5(plan),plan.integrityProof);
+    assert.throws(()=>decodeWorkspaceOperationNativeDeleteBatchPlan(plan));
+    for(const mode of ['native-retag','wrong-authority','false-complete','omit-html','drop-unlink'] as const){
+      const forged=structuredClone(plan) as unknown as Mutable<typeof plan>;
+      if(mode==='native-retag'){Reflect.set(forged,'version',2);Reflect.set(forged,'planIdentityVersion',4);Reflect.set(forged,'kind','native-original-delete');}
+      if(mode==='wrong-authority')Reflect.set(forged,'targetAuthority','native');
+      if(mode==='false-complete')forged.coverage.complete=true;
+      if(mode==='omit-html')forged.nativeGraphPlan.finalNamespace=forged.nativeGraphPlan.finalNamespace.filter(entry=>entry.path!=='page.html');
+      if(mode==='drop-unlink')forged.nativeGraphPlan.steps[0].linkIntents=[];
+      try{forged.planId=computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5(forged);forged.integrityProof=computeWorkspaceOperationPhysicalDeleteBatchPlanIntegrityProofV5(forged);}catch{}
+      assert.throws(()=>decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(forged));
+    }
+  });
+  family('Physical5 affected or opaque HTML and unimported incoming raw are fail-closed without changing facts', () => {
+    for(const location of ['native','raw','whole','opaque','raw-ordinary'] as const){
+      const value=fixture({native:[['note.md',location==='native'?'<img src="asset.png">':'# Native']],
+        raw:location==='raw'?[['raw.md','<img src="asset.png">']]:location==='whole'?[['page.html','<img src="asset.png">']]
+          :location==='opaque'?[['page.html','<unknown value="asset.png">Opaque</unknown>']]
+          :location==='raw-ordinary'?[['raw.md','[Asset](asset.png)']]:[],extra:[{path:'asset.png',kind:'file'}]});
+      value.input.actions[0].selections[0].sourcePath='asset.png';const before=structuredClone(value.input.observation);
+      assert.throws(()=>createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input));
+      const preparation=createWorkspacePathPhysicalDeletePreparationPlanV5({scope:value.jobScope,kind:'delete',selections:[{sourcePath:'asset.png'}],observation:value.input.observation});
+      assert.equal(preparation.readiness,'blocked');assert.equal(preparation.executionReady,false);
+      assert.deepEqual(value.input.observation,before);
+    }
+  });
+  family('Physical5 SOURCE-PRESENT Current rejects changed target, workspace and unselected namespace', () => {
+    for(const changed of ['target','other','workspace'] as const){
+      const value=physicalFixture('picture.png'),plan=createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input);
+      if(changed==='workspace'){
+        assert.throws(()=>captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,value.input.observation,{...value.jobScope,workspaceId:'foreign-workspace'}));continue;
+      }
+      const entry=value.input.observation.stage.namespace.find(entry=>entry.path===(changed==='target'?'picture.png':'page.html'))!;
+      entry.filesystemIdentity='9:9:0:200:200';entry.identity=entry.filesystemIdentity;
+      if(changed==='other')value.input.observation.stage.sources=value.input.observation.stage.sources.map(source=>source.kind==='physical'&&source.inventory.path===entry.path
+        ?{kind:'physical',inventory:inspectOriginalPhysicalLinksV3({workspaceId:source.inventory.workspaceId,organizationId:source.inventory.organizationId,
+          path:source.inventory.path,bytes:source.inventory.originalBytes,filesystemIdentity:entry.filesystemIdentity!,authority:source.inventory.authority})}:source);
+      refresh(value.actual);
+      assert.throws(()=>captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,value.input.observation,value.jobScope));
+    }
+  });
+  family('Physical5 raw/native/folder exclusions and hostile plan fields retain strict dispatch', () => {
+    for(const name of ['note.md','page.html']){
+      const value=physicalFixture('picture.png');value.input.actions[0].selections[0].sourcePath=name;
+      assert.throws(()=>createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input));
+    }
+    const value=physicalFixture('picture.png'),plan=createWorkspaceOperationPhysicalDeleteBatchPlanV5(value.input);
+    let reads=0;const hostile={...plan};Object.defineProperty(hostile,'sourceEvidence',{enumerable:true,get(){reads++;throw Error('getter must not run');}});
+    assert.throws(()=>decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(hostile));assert.equal(reads,0);
+    assert.throws(()=>decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(new Proxy(plan,{ownKeys(){reads++;throw Error('proxy must not run');}})));assert.equal(reads,0);
+    const folder=fixture({extra:[{path:'folder',kind:'directory'}]});folder.input.actions[0].selections[0].sourcePath='folder';
+    assert.throws(()=>createWorkspaceOperationPhysicalDeleteBatchPlanV5(folder.input));
+  });
+  await asyncFamily('Physical5 immutable historical details retain cold, detached, hostile, Current and grammar parity', async () => {
+    const make = (representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks') => {
+      const value = physicalFixture('historical.png');
+      if (representation === 'plain_text') return value;
+      const state = value.input.observation.privateNativeStates.find(row => row.path === 'note.md')!;
+      const doc = createRichMarkdownYDoc('[**Asset**](historical.png)\n\n<p>Unchanged native HTML</p>', representation);
+      try { state.representation = representation; state.yjsState = Y.encodeStateAsUpdate(doc); state.stateVector = Y.encodeStateVector(doc); }
+      finally { doc.destroy(); }
+      const inventory = inspectPersistedDocumentLinks(state);
+      const binding = value.input.observation.nativeBindings.find(row => row.expected.documentId === state.documentId)!;
+      binding.expected.representation = representation; binding.expected.binaryHash = sha(state.yjsState);
+      binding.expected.vectorHash = sha(state.stateVector); binding.expected.stateProof = inventory.version.stateProof;
+      binding.inventoryProof = proof(inventory);
+      value.input.observation.stage.sources = value.input.observation.stage.sources.map(source => source.kind === 'native'
+        && source.inventory.document.documentId === state.documentId ? { kind: 'native', inventory } : source);
+      refresh(value.actual); return value;
+    };
+    for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+      const actual = make(representation), observation = structuredClone(actual.input.observation);
+      const plan = createWorkspaceOperationPhysicalDeleteBatchPlanV5(actual.input);
+      const first = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan), second = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan);
+      assert.deepEqual(first, plan); assert.deepEqual(second, plan); assert.notEqual(first, plan); assert.notEqual(first, second);
+      assert.notEqual(first.sourceEvidence, second.sourceEvidence); assert.notEqual(first.nativeGraphPlan, second.nativeGraphPlan);
+      assert(Object.isFrozen(first)); assert(Object.isFrozen(first.sourceEvidence)); assert(Object.isFrozen(first.nativeGraphPlan));
+      assert.equal(Reflect.set(first.coverage, 'complete', true), false);
+      const foreign = freezeHtmlPlanFixture(structuredClone(plan)), cold = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(foreign);
+      assert.deepEqual(cold, plan); assert.notEqual(cold, foreign);
+      const recipes = getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan), expectedRecipes = structuredClone(recipes);
+      const copiedRecipes = getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan);
+      assert.equal(recipes.length, 1); assert.deepEqual(copiedRecipes, recipes); assert.notEqual(copiedRecipes, recipes);
+      assert.notEqual(copiedRecipes[0], recipes[0]); Reflect.set(copiedRecipes[0], 'nextValue', 'caller-owned changed copy');
+      assert.deepEqual(getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan), expectedRecipes);
+      assert.deepEqual(getWorkspaceOperationPhysicalDeleteLinkRecipesV5(foreign), expectedRecipes);
+      const mutable = structuredClone(plan); assert.deepEqual(decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(mutable), plan);
+      Reflect.set(mutable.coverage, 'complete', true);
+      Reflect.set(mutable, 'integrityProof', computeWorkspaceOperationPhysicalDeleteBatchPlanIntegrityProofV5(mutable));
+      const failure = htmlPlanFailureFacts(() => decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(mutable));
+      const frozenForgery = freezeHtmlPlanFixture(structuredClone(mutable));
+      assert.deepEqual(htmlPlanFailureFacts(() => decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(frozenForgery)), failure);
+      assert.deepEqual(htmlPlanFailureFacts(() => getWorkspaceOperationPhysicalDeleteLinkRecipesV5(frozenForgery)), failure);
+      let traps = 0;
+      const handler: ProxyHandler<object> = {
+        get() { traps++; throw new Error('Hostile Physical5 get trap.'); },
+        ownKeys() { traps++; throw new Error('Hostile Physical5 keys trap.'); },
+        getPrototypeOf() { traps++; throw new Error('Hostile Physical5 prototype trap.'); },
+        getOwnPropertyDescriptor() { traps++; throw new Error('Hostile Physical5 descriptor trap.'); },
+      };
+      const getter = { ...plan };
+      Object.defineProperty(getter, 'sourceEvidence', { enumerable: true, get() { traps++; return plan.sourceEvidence; } });
+      Object.freeze(getter);
+      const nestedGetter = structuredClone(plan);
+      Object.defineProperty(nestedGetter.sourceEvidence, 'nativeOrdinarySources4', { enumerable: true,
+        get() { traps++; throw new Error('Hostile Physical5 nested getter.'); } });
+      Object.freeze(nestedGetter.sourceEvidence); Object.freeze(nestedGetter);
+      const nestedProxy = structuredClone(plan);
+      Reflect.set(nestedProxy.sourceEvidence.nativeComponent.stage, 'sources', new Proxy(nestedProxy.sourceEvidence.nativeComponent.stage.sources, handler));
+      Object.freeze(nestedProxy.sourceEvidence.nativeComponent.stage); Object.freeze(nestedProxy);
+      for (const hostile of [getter, new Proxy(plan, handler), nestedGetter, nestedProxy]) {
+        assert.throws(() => decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(hostile));
+        assert.throws(() => getWorkspaceOperationPhysicalDeleteLinkRecipesV5(hostile as typeof plan));
+        assert.throws(() => captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(hostile as typeof plan, actual.input.observation, actual.jobScope));
+      }
+      assert.equal(traps, 0);
+      const state = actual.input.observation.privateNativeStates.find(row => row.path === 'note.md')!, bytes = state.yjsState.slice();
+      try {
+        state.yjsState[0] ^= 0xff;
+        const currentFailure = htmlPlanFailureFacts(() => captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan, actual.input.observation, actual.jobScope));
+        assert.deepEqual(htmlPlanFailureFacts(() => captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(
+          freezeHtmlPlanFixture(structuredClone(plan)), actual.input.observation, actual.jobScope)), currentFailure);
+      } finally { state.yjsState.set(bytes); }
+      assert.deepEqual(actual.input.observation, observation);
+      assert.deepEqual(captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan, actual.input.observation, actual.jobScope), plan.sourceEvidence);
+      if (representation === 'plain_text') {
+        const oversized = structuredClone(plan); Reflect.set(oversized, 'oversized', 'x'.repeat(16 * 1024 * 1024));
+        const tooLarge = htmlPlanFailureFacts(() => decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(oversized));
+        assert.equal(tooLarge.code, 'PHYSICAL_DELETE_PLAN_TOO_LARGE');
+        assert.deepEqual(htmlPlanFailureFacts(() => decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(freezeHtmlPlanFixture(oversized))), tooLarge);
+      }
+    }
+    const plain = make('plain_text'), plainPlan = createWorkspaceOperationPhysicalDeleteBatchPlanV5(plain.input);
+    for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) for (const outcome of ['success', 'throw'] as const) {
+      const actual = make(representation), plan = createWorkspaceOperationPhysicalDeleteBatchPlanV5(actual.input);
+      decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan); getWorkspaceOperationPhysicalDeleteLinkRecipesV5(plan);
+      const reads = [decodeWorkspaceOperationPhysicalDeleteBatchPlanV5, getWorkspaceOperationPhysicalDeleteLinkRecipesV5] as const;
+      let release!: () => void, child: Promise<void> | undefined;
+      const gate = new Promise<void>(resolve => { release = resolve; }), primary = new Error('Original Physical5 schema callback failure.');
+      const operation = withNativeInspectionSchema(async () => {
+        const schema = getNativeInspectionSchema(); assert.deepEqual(decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan), plan);
+        const attributes = schema.marks.link.spec.attrs; assert(attributes);
+        const href = Object.getOwnPropertyDescriptor(attributes, 'href'); assert(href);
+        assert(Reflect.deleteProperty(attributes, 'href'));
+        try {
+          for (const read of reads) {
+            const warmFailure = htmlPlanFailureFacts(() => read(plan));
+            assert.deepEqual(htmlPlanFailureFacts(() => read(freezeHtmlPlanFixture(structuredClone(plan)))), warmFailure);
+          }
+        } finally { Object.defineProperty(attributes, 'href', href); }
+        assert.deepEqual(decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan), plan);
+        child = gate.then(() => {
+          for (const read of reads) {
+            const warmFailure = htmlPlanFailureFacts(() => read(plan));
+            assert.deepEqual(htmlPlanFailureFacts(() => read(freezeHtmlPlanFixture(structuredClone(plan)))), warmFailure);
+            assert.deepEqual(read(plainPlan), read(freezeHtmlPlanFixture(structuredClone(plainPlan))));
+          }
+        });
+        await Promise.resolve(); assert.equal(getNativeInspectionSchema(), schema);
+        if (outcome === 'throw') throw primary;
+      });
+      try { if (outcome === 'throw') await assert.rejects(operation, error => error === primary); else await operation; }
+      finally { release(); }
+      assert(child); await child;
+      assert.deepEqual(decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan), plan);
+      assert.deepEqual(captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan, actual.input.observation, actual.jobScope), plan.sourceEvidence);
+    }
+  });
+  assert.equal(families, 25);
   console.log(JSON.stringify({ suite: 'native-delete-html-plan-v4', families, pureFactsOnly: true, executionAuthority: false }));
 }

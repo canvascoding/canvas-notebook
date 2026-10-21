@@ -1,3 +1,5 @@
+import type { WorkspacePathPhysicalDeletePreparationPlanV5 } from './workspace-path-physical-delete-preparation-v5';
+import { workspaceOperationPhysicalDeleteWebPreviewV5 } from './workspace-operation-physical-delete-public-v5';
 import 'server-only';
 
 import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-operation-planner';
@@ -44,11 +46,11 @@ export type WorkspacePathHtmlNoImportPreviewPublic = Omit<WorkspacePathImportPre
 };
 
 /** Display only: final native references and spellings do not exist before import. */
-export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5
 ): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic {
   if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
     'This file action uses its ordinary preview.');
-  if (plan.version === 2 || plan.version === 3) return { version: 2, kind: plan.kind, executionReady: false,
+  if (plan.version === 2 || plan.version === 3 || plan.version === 5) return { version: 2, kind: plan.kind, executionReady: false,
     workspaceId: plan.scope.workspaceId, planId: plan.planId, readiness: 'blocked',
     pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
     linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },
@@ -70,6 +72,7 @@ export function workspacePathOperationPreview(plan: WorkspaceOperationBatchPlan)
     const { previewContents: _privateContents, ...publicPlan } = plan.linkPlan;
     return { ...publicPlan, planId: plan.planId, readiness: plan.readiness };
   }
+  if (plan.version === 5) return workspaceOperationPhysicalDeleteWebPreviewV5(plan);
   if (plan.version === 2) {
     return { version: 2, kind: 'native-original-delete', workspaceId: plan.workspaceId,
       planId: plan.planId, readiness: plan.readiness, pathMappings: [], coverage: plan.coverage,

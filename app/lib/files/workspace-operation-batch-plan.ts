@@ -1,3 +1,4 @@
+import { createWorkspaceOperationPhysicalDeleteBatchPlanV5, computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5 } from './workspace-operation-physical-delete-html-plan-v5';
 import { createHash } from 'node:crypto';
 import { fromMarkdown } from 'mdast-util-from-markdown';
 import type { Nodes } from 'mdast';
@@ -96,7 +97,9 @@ function originalOffset(cleanedOffset: number, replacements: Replacement[]): num
 
 /** Mutation identity excludes unrelated diagnostic noise; full safety is still re-evaluated on every first apply. */
 export function computeWorkspaceOperationBatchPlanId(plan: Omit<WorkspaceOperationLegacyBatchPlan, 'planId' | 'linkPlan'>
-  | Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'> | Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>): string {
+  | Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'> | Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>
+  | Omit<import('./workspace-operation-physical-delete-html-plan-v5').WorkspaceOperationPhysicalDeleteBatchPlanV5, 'planId'>): string {
+  if (plan.version === 5) return computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5(plan);
   if (plan.version === 2) return computeWorkspaceOperationNativeDeleteBatchPlanId(plan as Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'>);
   if (plan.version === 3) return computeWorkspaceOperationNativeMoveBatchPlanId(plan as Omit<WorkspaceOperationNativeMoveBatchPlan, 'planId'>);
   return sha(JSON.stringify({ version: plan.version, workspaceId: plan.workspaceId, actions: plan.actions,
@@ -310,6 +313,16 @@ export async function buildWorkspaceOperationBatchPlan(input: {
   if (!dependencies.buildSnapshot) {
     const observation = await readWorkspaceFileLifecycleSourceAuthority(input.scope.workspace)
       ?? await stageWorkspaceLinkSourceAuthorityObservation(input.scope.workspace, { physicalParserVersion: 3 });
+    if (input.actions.length === 1 && input.actions[0].kind === 'delete' && input.actions[0].selections.length === 1) {
+      const selectedPath = input.actions[0].selections[0].sourcePath;
+      const entry = observation.stage.namespace.find(item => item.path === selectedPath);
+      if (entry?.kind === 'file' && entry.documentId === null && entry.filesystemIdentity
+        && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(selectedPath)
+        && !observation.nativeBindings.some(item => item.expected.path === selectedPath)
+        && !observation.stage.sources.some(item => item.kind === 'physical' && item.inventory.path === selectedPath)) {
+        return createWorkspaceOperationPhysicalDeleteBatchPlanV5({ ...input, observation });
+      }
+    }
     if (!observation.stage.coverage.complete) {
       if (input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
         return createWorkspaceOperationNativeMoveBatchPlanV4({ ...input, observation });
@@ -337,6 +350,11 @@ export async function buildWorkspaceOperationBatchPlan(input: {
 }
 
 export function workspaceOperationBatchPublicPreview(plan: WorkspaceOperationBatchPlan): WorkspaceOperationBatchPreviewPublic {
+  if (plan.version === 5) return { version: 2, kind: 'native-original-delete', workspaceId: plan.workspaceId,
+    planId: plan.planId, readiness: plan.readiness, actions: plan.actions, pathMappings: [],
+    deletedPaths: plan.deletedPaths.map(entry => ({ ...entry, identity: `native-preview:${sha(JSON.stringify([plan.planId, entry.path]))}` })),
+    pathSteps: plan.pathSteps, linkEdits: [], expectedPathState: [], coverage: plan.coverage,
+    linkAssessment: plan.linkAssessment, issues: [] };
   if (plan.version !== 1) return { version: plan.version, kind: plan.kind, workspaceId: plan.workspaceId, planId: plan.planId,
     readiness: plan.readiness, actions: plan.actions, pathMappings: plan.pathMappings.map(entry => plan.version === 2 ? entry
       : { ...entry, sourceIdentity: `native-preview:${sha(JSON.stringify([plan.planId, entry.sourcePath]))}` }),

@@ -112,7 +112,10 @@ export type WorkspaceOperationNativeDeleteBatchPlanV4 = Omit<WorkspaceOperationN
   sourceEvidence: WorkspaceOperationMixedSourceEvidenceV5;
   nativeGraphPlan: NativeMixedHtmlBatchPlanV5;
 };
-export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan
+export type { WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
+export type WorkspaceOperationDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlan
+  | import('./workspace-operation-physical-delete-html-plan-v5').WorkspaceOperationPhysicalDeleteBatchPlanV5;
+export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationDeleteBatchPlan
   | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {
   completedActions: number;

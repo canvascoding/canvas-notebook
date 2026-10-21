@@ -1,4 +1,5 @@
 import 'server-only';
+import { workspaceOperationPhysicalDeleteEffectsV5 } from './workspace-operation-physical-delete-effects-v5';
 
 import { listWorkspaceTrashEntries } from '@/app/lib/filesystem/workspace-trash';
 import { getWorkspaceOperationBatchExecution, getWorkspaceOperationBatchExecutionPublic } from './workspace-operation-batch-executor';
@@ -52,6 +53,7 @@ export async function workspacePathOperationResponse(batch: WorkspaceOperationBa
   const receipts = execution!.stepResults ?? [];
   let nativeEffects: ReturnType<typeof workspaceOperationNativeDeleteEffects> | undefined;
   try {
+    if (batch.plan.version === 5) nativeEffects = workspaceOperationPhysicalDeleteEffectsV5(batch.plan);
     if (batch.plan.version === 2) nativeEffects = workspaceOperationNativeDeleteEffects(batch.plan);
     if (batch.plan.version === 3) nativeEffects = workspaceOperationNativeMoveEffects(batch.plan);
   }

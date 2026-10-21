@@ -192,11 +192,25 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
           if (!adapter && !drizzle) return Reflect.apply(original, client, args);
           text = fields.text.value; values = adapter ? fields.values.value : args[1] as unknown[];
         }
+        const reportSqlFailure = (error: unknown) => {
+          try {
+            const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+            if (code !== '55P03' && code !== '25P04') return;
+            const operation = /^\s*(SELECT|LOCK|INSERT|UPDATE|DELETE|WITH)\b/iu.exec(text)?.[1].toUpperCase() ?? 'OTHER';
+            const relations = ['workspace_file_operation_batches', 'canvas_organization_settings', 'canvas_workspaces',
+              'canvas_workspace_members', 'organization_user_permissions', 'team_memberships', 'session', 'user',
+              'collaboration_documents', 'collaboration_yjs_states', 'file_collaboration_lineages',
+              'collaboration_admission_requests', 'collaboration_admission_targets']
+              .filter(name => new RegExp(`\\b${name}\\b`, 'u').test(text));
+            console.error(JSON.stringify({ diagnostic: 'native-copy-metadata-owner-sql-failure', sqlstate: code, operation, relations }));
+          } catch { /* Diagnostics retain the original SQL error and callback behavior. */ }
+        };
         if (callback) {
           const forwarded = [...args];
           forwarded[2] = function (this: unknown, ...callbackArgs: unknown[]) {
             const currentProbe = probe;
-            if (callbackArgs[0] != null || !currentProbe || activeProbe) return Reflect.apply(callback, this, callbackArgs);
+            if (callbackArgs[0] != null) { reportSqlFailure(callbackArgs[0]); return Reflect.apply(callback, this, callbackArgs); }
+            if (!currentProbe || activeProbe) return Reflect.apply(callback, this, callbackArgs);
             activeProbe = true;
             const deliver = (outcome: unknown[]) => {
               activeProbe = false;
@@ -217,7 +231,10 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
           return Reflect.apply(original, client, forwarded);
         }
         return (async () => {
-          const answer = await Reflect.apply(original, client, args) as QueryResult; if (probe && !activeProbe) { activeProbe = true;
+          let answer: QueryResult;
+          try { answer = await Reflect.apply(original, client, args) as QueryResult; }
+          catch (error) { reportSqlFailure(error); throw error; }
+          if (probe && !activeProbe) { activeProbe = true;
             try { await probe({ text, values: values ?? [], client, result: answer, raw }); } finally { activeProbe = false; } }
           return answer;
         })();

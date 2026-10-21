@@ -1,4 +1,7 @@
 import 'server-only';
+import { assertOriginalPhysicalDeleteSourcesAfterTrashV5, assertOriginalPhysicalDeleteHtmlFinalGraphV5 } from './workspace-operation-original-physical-delete-html-graph-v5';
+import { archiveOriginalPhysicalDeleteRegistryOnConnectionV1 } from './workspace-operation-original-physical-delete-registry-v5';
+import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 
 import path from 'node:path';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -138,17 +141,22 @@ export async function completeWorkspaceOperationOriginalDeleteDomain(access: Wor
     // omits the target after archive; no missing row may be reconstructed from
     // a partial native binding or from a later document at the same path.
     markDeleteDomain('before-observation');
-    const beforeObservation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
+    const beforeObservation = binding.plan.version === 2 || binding.plan.version === 5 ? await access.readOriginalNativeDeleteSources() : null;
+    if ((binding.plan.version === 5) !== (originalIntent.version === 7)) fail('ORIGINAL_DELETE_UNPROVEN');
+    const afterTrash = binding.plan.version === 5 && originalIntent.version === 7 && beforeObservation
+      ? await assertOriginalPhysicalDeleteSourcesAfterTrashV5(binding.plan,{scope:originalIntent.jobScope,observation:beforeObservation,prepared,physical,originalSourceEvidence:originalIntent.currentWitness}) : null;
+    const beforeCatalogue = binding.plan.version === 5 && beforeObservation
+      ? captureWorkspaceOperationNativePlanData(beforeObservation.privateCatalogue,()=>fail('ORIGINAL_DELETE_UNPROVEN'),16 * 1024 * 1024) as typeof beforeObservation.privateCatalogue : null;
     markDeleteDomain('before-plan-check');
     if (binding.plan.version === 2 && beforeObservation) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
       beforeObservation, originalIntent.jobScope);
     markDeleteDomain('plan-checked');
-    if (!originalIntent.native) await assertStillPhysical(access, prefix, originalIntent.physical.canonicalPath);
+    if (!originalIntent.native && binding.plan.version !== 5) await assertStillPhysical(access,prefix,originalIntent.physical.canonicalPath);
     markDeleteDomain('before-prior-receipt');
     const prior = await readWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
     if (prior) fail('ORIGINAL_DELETE_UNPROVEN');
     markDeleteDomain('prior-receipt-checked');
-    const nativeLinks = (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6) && originalIntent.nativeLinks?.length
+    const nativeLinks = (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6 || originalIntent.version === 7) && originalIntent.nativeLinks?.length
       ? await access.applyOriginalNativeDeleteLinks(current.intentDigest) : [];
     markDeleteDomain('links-applied');
     const native = originalIntent.native ? originalIntent.version === 6
@@ -157,10 +165,21 @@ export async function completeWorkspaceOperationOriginalDeleteDomain(access: Wor
         { schema, workspace: access.workspace, expected: originalIntent.native, trashEntryId: originalIntent.physical.trashEntryId,
           archivedAt: originalIntent.physical.deletedAtMs }) : null;
     markDeleteDomain('archive-returned');
+    const physicalRegistry = binding.plan.version === 5 && originalIntent.version === 7 && beforeObservation
+      ? await archiveOriginalPhysicalDeleteRegistryOnConnectionV1(access.database,
+        { schema,workspace:access.workspace,workspaceScope:originalIntent.jobScope,sourcePath:originalIntent.physical.canonicalPath,
+          catalogue:beforeObservation.privateCatalogue,expected:originalIntent.physicalRegistry,trashEntryId:originalIntent.physical.trashEntryId,
+          archivedAt:originalIntent.physical.deletedAtMs }) : null;
     const publicShare = await applyOriginalDeletePublicShareOnConnection(access.database,
       { schema, workspace: access.workspace, original: originalIntent.publicShare, nowMs: originalIntent.physical.deletedAtMs });
     markDeleteDomain('share-applied');
-    if (binding.plan.version === 2 && binding.plan.planIdentityVersion === 4) {
+    if (binding.plan.version === 5) {
+      if (originalIntent.version !== 7 || !afterTrash || !beforeCatalogue || !physicalRegistry) fail('ORIGINAL_DELETE_UNPROVEN');
+      assertOriginalDeleteNativeHtmlLinkReceiptsV4(nativeLinks,originalIntent.nativeLinks);
+      assertOriginalPhysicalDeleteHtmlFinalGraphV5(binding.plan,await access.readOriginalNativeDeleteSources(),
+        { sourceEvidence:originalIntent.currentWitness,nativeLinks,beforeCatalogue,beforeAfterTrash:afterTrash,
+          physicalRegistryBefore:originalIntent.physicalRegistry.catalogue });
+    } else if (binding.plan.version === 2 && binding.plan.planIdentityVersion === 4) {
       if (originalIntent.version !== 6 || !beforeObservation) fail('ORIGINAL_DELETE_UNPROVEN');
       assertOriginalDeleteNativeHtmlLinkReceiptsV4(nativeLinks, originalIntent.nativeLinks);
       assertOriginalDeleteHtmlFinalGraph(binding.plan, await access.readOriginalNativeDeleteSources(),
@@ -187,7 +206,8 @@ export async function completeWorkspaceOperationOriginalDeleteDomain(access: Wor
     markDeleteDomain('physical-receipt-written');
     const value: Completion = freeze({ version: originalIntent.version, batchId: binding.batchId, intentDigest: current.intentDigest,
       trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest,
-      ...(originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6 ? { nativeLinks } : {}) });
+      ...(originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6 || originalIntent.version === 7 ? { nativeLinks } : {}),
+      ...(originalIntent.version === 7 ? { physicalRegistry:physicalRegistry ?? fail('ORIGINAL_DELETE_UNPROVEN') } : {}) });
     markDeleteDomain('completion-prepared');
     await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
     await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);

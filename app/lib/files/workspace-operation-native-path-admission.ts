@@ -1,4 +1,6 @@
 import 'server-only';
+import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
+import { assertWorkspaceOperationPhysicalDeleteCurrentV5 } from './workspace-operation-physical-delete-html-plan-v5';
 
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -12,6 +14,7 @@ import { reserveCollaborationAdmissionOnConnection, startCollaborationAdmissionD
 import { proveCollaborationAdmissionQuiescenceOnConnection } from '../collaboration/room-admission-quiescence';
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection, type CollaborationAdmissionOutcome } from '../collaboration/room-admission-outcome';
 import { getCollaborationRoomConnectionCount } from '../collaboration/runtime-state';
+import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { decodeNativeFileOperationBundleText, stageNativeFileOperationBundleOnConnection } from '../markdown/native-file-operation-handoff';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
 import { captureWorkspaceOperationJobPolicy, withWorkspaceOperationJobPolicyOnConnection,
@@ -21,7 +24,7 @@ import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJo
 import { WorkspaceOperationBatchError, readWorkspaceOperationBatchClaimBinding,
   type WorkspaceOperationBatchClaim, type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
 import type { WorkspaceOperationDirectAuthorization, WorkspaceOperationDirectMcpAuthorization,
-  WorkspaceOperationJobScope, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+  WorkspaceOperationJobScope, WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { workspaceOperationJobScopeMatches } from './workspace-operation-job-scope';
 import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
 import { deriveWorkspacePathPhysicalParserVersion } from './workspace-operation-path-source-parser';
@@ -30,7 +33,7 @@ import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-p
 import { WorkspaceFileLifecycleBusyError } from './workspace-file-lifecycle-guard';
 import { decodeWorkspaceOperationNativeMoveBatchPlan, captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness,
   WorkspaceOperationNativeMovePlanError, type WorkspaceOperationNativeMoveBatchPlan } from './workspace-operation-native-move-plan';
-import { decodeWorkspaceOperationNativeDeleteBatchPlan, assertWorkspaceOperationNativeDeleteBatchPlanCurrent,
+import { assertWorkspaceOperationNativeDeleteBatchPlanCurrent,
   WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { parseWorkspaceOperationOriginalMoveIntent, prepareWorkspaceOperationOriginalMoveNativeBundleData,
   decodeWorkspaceOperationOriginalMoveNativeBundleData, getWorkspaceOperationOriginalMoveNativeIds,
@@ -50,7 +53,7 @@ import type { WorkspacePathImportPreparationHandle } from './workspace-path-impo
 
 type NativePathBinding = Readonly<{
   binding: WorkspaceOperationBatchClaimBinding; authorization: WorkspaceOperationDirectAuthorization | WorkspaceOperationDirectMcpAuthorization;
-  scope: WorkspaceOperationJobScope; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
+  scope: WorkspaceOperationJobScope; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan;
   kind: 'move' | 'delete';
 }>;
 export type WorkspaceOperationNativePathAdmissionRead = Readonly<{
@@ -72,14 +75,14 @@ function captureNativePathBindingFacts(binding: WorkspaceOperationBatchClaimBind
   const auth = binding.authorization;
   if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
     || binding.workspaceId !== auth.jobScope.workspaceId || binding.plan.workspaceId !== binding.workspaceId || binding.plan.planId !== binding.planId
-    || binding.plan.readiness !== 'ready' || binding.plan.version !== 2 && binding.plan.version !== 3
+    || binding.plan.readiness !== 'ready' || binding.plan.version !== 2 && binding.plan.version !== 3 && binding.plan.version !== 5
     || typeof binding.source.schemaName !== 'string' || !binding.source.schemaName || Buffer.byteLength(binding.source.schemaName) > 63
     || /[\u0000-\u001f\u007f]/u.test(binding.source.schemaName)
     || Buffer.from(binding.source.schemaName, 'utf8').toString('utf8') !== binding.source.schemaName) {
     throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'The original native path claim is required.');
   }
   const plan = binding.plan.version === 3 ? decodeWorkspaceOperationNativeMoveBatchPlan(binding.plan)
-    : decodeWorkspaceOperationNativeDeleteBatchPlan(binding.plan);
+    : decodeWorkspaceOperationDeleteBatchPlan(binding.plan);
   if (!equal(plan.sourceEvidence.workspaceScope, auth.jobScope)) throw new WorkspaceOperationBatchError('BATCH_SCOPE_CHANGED', 409, 'The original workspace scope changed.');
   return Object.freeze({ binding, authorization: auth, scope: auth.jobScope, plan, kind: plan.version === 3 ? 'move' : 'delete' });
 }
@@ -295,7 +298,9 @@ export async function waitForWorkspaceOperationNativePathAdmission(claim: Worksp
 async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, original: NativePathBinding,
   mcp: WorkspaceOperationMcpJobPrincipal | undefined, openConnection: () => Promise<SqlConnection>,
   operation: (database: SqlConnection, access: WorkspaceOperationJobPolicyAccess) => Promise<T>): Promise<T> {
-  return withWorkspaceOperationJobClaimPhase(claim, async () => {
+  // Fixed editor grammar only, scoped through confirmed disposal of this one
+  // attempt. No document facts or current authorization are cached.
+  return withNativeInspectionSchema(() => withWorkspaceOperationJobClaimPhase(claim, async () => {
     const policy = mcp ? undefined : await captureWorkspaceOperationJobPolicy();
     let executed = false, closed = false;
     try {
@@ -353,7 +358,7 @@ async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, 
         'Native path admission transaction cleanup is unconfirmed.'), { cause: error });
       throw error;
     }
-  });
+  }));
 }
 
 async function prepareNativePathRequest(database: SqlConnection, original: NativePathBinding, mode: 'read' | 'prepare',
@@ -405,10 +410,10 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
         throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
       }
       const request = createWorkspaceOperationOriginalDeleteAdmissionRequest(binding);
-      if (plan.planIdentityVersion === 4 ? body.version !== 6 : plan.planIdentityVersion === 3 ? body.version !== 5 : body.version === 5 || body.version === 6) {
+      if (plan.version === 5 ? body.version !== 7 : plan.planIdentityVersion === 4 ? body.version !== 6 : plan.planIdentityVersion === 3 ? body.version !== 5 : body.version === 5 || body.version === 6 || body.version === 7) {
         throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
       }
-      if (body.version === 4 || body.version === 5 || body.version === 6) {
+      if (body.version === 4 || body.version === 5 || body.version === 6 || body.version === 7) {
         const reference = captureOriginalDeleteAdmissionBinding(body.admission), captured = captureCollaborationAdmissionRequest(request);
         if (reference.requestId !== captured.request.requestId || reference.requestDigest !== captured.requestDigest) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
         return Object.freeze({ request, requiresHeader: true, legacy: false });
@@ -416,7 +421,7 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
       if (![1, 2, 3].includes(body.version as number)) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
       return Object.freeze({ request, requiresHeader: false, legacy: mode === 'prepare' });
     }
-    const legacy = plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3 && plan.planIdentityVersion !== 4;
+    const legacy = plan.version !== 5 && plan.planIdentityVersion !== 2 && plan.planIdentityVersion !== 3 && plan.planIdentityVersion !== 4;
     if (mode === 'read' || legacy) return Object.freeze({ request: createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), requiresHeader: false, legacy });
   }
   if (!access || mode !== 'prepare' || !workspaceOperationJobScopeMatches(original.scope, access.workspace)) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
@@ -442,6 +447,10 @@ async function prepareNativePathRequest(database: SqlConnection, original: Nativ
   await access.assertCurrent(); const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
     { physicalParserVersion: deriveWorkspacePathPhysicalParserVersion(plan.sourceEvidence) });
   await access.assertCurrent();
+  if (plan.version === 5) {
+    assertWorkspaceOperationPhysicalDeleteCurrentV5(plan,observation,original.scope);
+    return Object.freeze({request:createWorkspaceOperationOriginalDeleteAdmissionRequest(binding),requiresHeader:true,legacy:false});
+  }
   if (plan.version === 2) {
     assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan, observation, original.scope);
     return Object.freeze({ request: createWorkspaceOperationOriginalDeleteAdmissionRequest(binding), requiresHeader: true, legacy: false });
@@ -482,6 +491,13 @@ async function advanceNativePathTargets(database: SqlConnection, original: Nativ
       || byId.size !== rows.length || rows.some(row => row.active !== true
         || !['reserved', 'draining', 'released'].includes(row.status as string))
       || request.expectedDocuments.some(document => !byId.has(document.documentId))) throw new CollaborationAdmissionError('ADMISSION_STATE_CHANGED');
+    // Human durable-job policy holds its actual auth/ACL tables in SHARE and
+    // the claim row in SHARE through this transaction. DA03 has only atomic
+    // SQL effects: its complete target set may share a current-policy fence.
+    // MCP and Agent runtime revocation retain their per-target checks. Every
+    // target still gets its own genuine room/header/state/hash proof below.
+    const atomicHumanPolicy = original.authorization.mode === 'direct' && original.authorization.actorType === 'user';
+    if (atomicHumanPolicy) await access.assertCurrent();
     let pending = false;
     for (const document of request.expectedDocuments) {
       ordinal = completed; stage = 'target-check';
@@ -499,10 +515,15 @@ async function advanceNativePathTargets(database: SqlConnection, original: Nativ
         if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT') pending = true;
         else throw error;
       }
-      stage = 'current-check';
-      await access.assertCurrent();
+      if (!atomicHumanPolicy) {
+        stage = 'current-check';
+        await access.assertCurrent();
+      }
       completed++;
     }
+    // An error here rolls back every provisional DA03 update. The enclosing
+    // principal and storage checks are also awaited before COMMIT.
+    if (atomicHumanPolicy) { stage = 'current-check'; await access.assertCurrent(); }
     stage = 'done'; finishedTargets = true;
     return pending;
   } finally {

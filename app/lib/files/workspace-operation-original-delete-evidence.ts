@@ -1,10 +1,15 @@
 import { isDeepStrictEqual as equal, types } from 'node:util';
+import { captureOriginalPhysicalDeleteRegistryFactsV1, assertOriginalPhysicalDeleteRegistryReceiptV1,
+  type OriginalPhysicalDeleteRegistryFactsV1, type OriginalPhysicalDeleteRegistryReceiptV1 } from './workspace-operation-original-physical-delete-registry-v5';
+import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
+import { decodeWorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-operation-physical-delete-html-plan-v5';
+import { assertOriginalPhysicalDeleteLinkPlanV5 } from './workspace-operation-original-physical-delete-links-v5';
 import type { NativeFileArchiveExpected, NativeFileArchiveTransition,
   NativeFileRestoreTransition } from '../collaboration/native-file-archive-transition';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { PreparedSingleFileTrashOriginalFacts, PreparedSingleFileTrashReceipt,
   PreparedSingleFileRestoreOriginalFacts, PreparedSingleFileRestoreReceipt } from '../filesystem/prepared-single-file-trash';
-import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationJobScope, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
+import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationJobScope } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import { decodeWorkspaceOperationNativeSourceEvidenceV3, type WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import { decodeWorkspaceOperationMixedSourceEvidenceV5, type WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
@@ -48,13 +53,16 @@ export type OriginalIntent = OriginalIntentFields & (
     nativeLinks: OriginalDeleteNativeLinkIntent[]; admission: OriginalDeleteAdmissionBinding }>
   | Readonly<{ version: 6; currentWitness: WorkspaceOperationMixedSourceEvidenceV5;
     nativeLinks: OriginalDeleteNativeLinkIntentV4[]; admission: OriginalDeleteAdmissionBinding }>
+  | Readonly<{ version: 7; native: null; currentWitness: WorkspaceOperationMixedSourceEvidenceV5;
+    nativeLinks: OriginalDeleteNativeLinkIntentV4[]; admission: OriginalDeleteAdmissionBinding; physicalRegistry: OriginalPhysicalDeleteRegistryFactsV1 }>
 );
 export type Completion = Readonly<{
-  version: 1 | 2 | 3 | 4 | 5 | 6; batchId: string; intentDigest: string; trashEntryId: string;
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7; batchId: string; intentDigest: string; trashEntryId: string;
   physical: PreparedSingleFileTrashReceipt; native: NativeFileArchiveTransition | null;
   publicShare: OriginalDeletePublicShareResult; trashReceiptDigest: string;
   /** Versions 2/3/4: actual SQL receipts committed atomically with this completion. */
   nativeLinks?: AnyOriginalDeleteNativeLinkReceipt[];
+  physicalRegistry?: OriginalPhysicalDeleteRegistryReceiptV1;
 }>;
 export type WorkspaceOperationOriginalDeleteResult = Readonly<Completion & { receiptDigest: string }>;
 export type RestoreIntent = Readonly<{
@@ -115,10 +123,11 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
   const auth = context.authorization; if (auth.mode !== 'direct' && auth.mode !== 'direct-mcp') fail('ORIGINAL_DELETE_INVALID');
   const parsed = JSON.parse(row.intentText);
   const value = object(parsed, ['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare',
-    ...(parsed?.version === 2 || parsed?.version === 3 || parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 ? ['nativeLinks'] : []),
-    ...(parsed?.version === 3 || parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 ? ['currentWitness'] : []),
-    ...(parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 ? ['admission'] : [])]);
-  if (![1, 2, 3, 4, 5, 6].includes(value.version as number) || row.batchId !== context.batchId || value.batchId !== context.batchId
+    ...(parsed?.version === 2 || parsed?.version === 3 || parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 || parsed?.version === 7 ? ['nativeLinks'] : []),
+    ...(parsed?.version === 3 || parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 || parsed?.version === 7 ? ['currentWitness'] : []),
+    ...(parsed?.version === 4 || parsed?.version === 5 || parsed?.version === 6 || parsed?.version === 7 ? ['admission'] : []),
+    ...(parsed?.version === 7 ? ['physicalRegistry'] : [])]);
+  if (![1, 2, 3, 4, 5, 6, 7].includes(value.version as number) || row.batchId !== context.batchId || value.batchId !== context.batchId
     || row.planId !== context.planId || value.planId !== context.planId || row.workspaceId !== context.workspaceId
     || row.requestHash !== auth.requestHash || value.requestHash !== auth.requestHash || !equal(value.actor, actor(context))
     || !equal(value.jobScope, auth.jobScope) || !workspaceOperationJobScopeMatches(value.jobScope, workspace)) fail('ORIGINAL_DELETE_UNPROVEN');
@@ -127,7 +136,7 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
     || physical.workspace.workspaceId !== context.workspaceId || physical.workspace.rootPath !== workspace.rootPath
     || physical.workspace.dataRoot !== dataRoot || !/^trash-[0-9a-f-]{36}$/u.test(physical.trashEntryId)) fail('ORIGINAL_DELETE_UNPROVEN');
   const native = value.native as NativeFileArchiveExpected | null;
-  if (auth.mode === 'direct-mcp' && native === null) fail('ORIGINAL_DELETE_UNPROVEN');
+  if (auth.mode === 'direct-mcp' && native === null && value.version !== 7) fail('ORIGINAL_DELETE_UNPROVEN');
   if (native !== null && (native.workspaceId !== workspace.workspaceId || native.organizationId !== (workspace.organizationId ?? null)
     || native.path !== physical.canonicalPath)) fail('ORIGINAL_DELETE_UNPROVEN');
   if (physical.source.kind === 'projection_absent' && native === null) fail('ORIGINAL_DELETE_UNPROVEN');
@@ -156,6 +165,24 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
       workspaceId: context.workspaceId, sourcePath: context.sourcePath, requestHash: auth.requestHash, actor: actor(context) });
     if ((value.nativeLinks as OriginalDeleteNativeLinkIntentV4[]).some(link => link.prepared.source.organizationId !== (workspace.organizationId ?? null))) fail('ORIGINAL_DELETE_UNPROVEN');
   }
+  if (value.version === 7) {
+    const witness = decodeWorkspaceOperationMixedSourceEvidenceV5(value.currentWitness);
+    const registry = captureOriginalPhysicalDeleteRegistryFactsV1(value.physicalRegistry);
+    const target = witness.namespace.find(entry => entry.path === context.sourcePath);
+    const identity = physical.source.kind === 'regular_file' ? physical.source.identity : null;
+    const fingerprint = identity ? `${identity.device}:${identity.inode}:${identity.size}:${identity.mtimeMs}:${identity.ctimeMs}` : null;
+    if (native !== null || !identity || !target || target.kind !== 'file' || target.documentId !== null || target.lifecycleGeneration !== null
+      || target.provider !== undefined || target.filesystemIdentity !== fingerprint || target.identity !== fingerprint
+      || /\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(target.path)
+      || !equal(witness.workspaceScope,value.jobScope) || !equal(registry.workspaceScope,value.jobScope)
+      || registry.sourcePath !== context.sourcePath || witness.nativeComponent.nativeBindings.some(binding => binding.expected.path === target.path)
+      || [...witness.physicalSources4,...witness.physicalHtmlSources4].some(source => source.path === target.path)) fail('ORIGINAL_DELETE_UNPROVEN');
+    value.currentWitness = witness; value.physicalRegistry = registry;
+    value.nativeLinks = decodeOriginalDeleteNativeHtmlLinkIntentsV4(value.nativeLinks, { batchId: context.batchId,
+      workspaceId: context.workspaceId, sourcePath: context.sourcePath, requestHash: auth.requestHash, actor: actor(context) });
+    if ((value.nativeLinks as OriginalDeleteNativeLinkIntentV4[]).some(link => link.prepared.source.organizationId !== (workspace.organizationId ?? null))) fail('ORIGINAL_DELETE_UNPROVEN');
+    value.admission = captureOriginalDeleteAdmissionBinding(value.admission);
+  }
   if (value.version === 4 || value.version === 5 || value.version === 6) value.admission = captureOriginalDeleteAdmissionBinding(value.admission);
   if (value.version === 2 || value.version === 3 || value.version === 4 || value.version === 5) {
     if (!native) fail('ORIGINAL_DELETE_UNPROVEN');
@@ -168,7 +195,21 @@ export function parseIntent(row: WorkspaceOperationOriginalDeleteIntent, context
 
 /** Bind historical B1 facts to the original decoded plan. This validator does
  * not read today's path or adopt a later document at that spelling. */
-export function assertOriginalDeleteIntentPlan(intent: OriginalIntent, plan: WorkspaceOperationNativeDeleteBatchPlan): void {
+export function assertOriginalDeleteIntentPlan(intent: OriginalIntent, plan: WorkspaceOperationDeleteBatchPlan): void {
+  if (plan.version === 5) {
+    const decoded = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan);
+    if (intent.version !== 7 || intent.native !== null) fail('ORIGINAL_DELETE_UNPROVEN');
+    const witness = decodeWorkspaceOperationMixedOriginalSourceWitness(decoded.sourceEvidence,intent.currentWitness);
+    const physical = intent.physical, entry = witness.namespace.find(item => item.path === physical.canonicalPath);
+    const identity = physical.source.kind === 'regular_file' ? physical.source.identity : null;
+    const fingerprint = identity ? `${identity.device}:${identity.inode}:${identity.size}:${identity.mtimeMs}:${identity.ctimeMs}` : null;
+    if (!entry || !equal(entry,decoded.physicalTarget) || physical.canonicalPath !== decoded.physicalTarget.path
+      || entry.filesystemIdentity !== fingerprint || intent.physicalRegistry.sourcePath !== physical.canonicalPath
+      || !equal(intent.physicalRegistry.workspaceScope,intent.jobScope)) fail('ORIGINAL_DELETE_UNPROVEN');
+    captureOriginalPhysicalDeleteRegistryFactsV1(intent.physicalRegistry);
+    assertOriginalPhysicalDeleteLinkPlanV5(decoded,intent.nativeLinks); return;
+  }
+  if (intent.version === 7) fail('ORIGINAL_DELETE_UNPROVEN');
   if (plan.planIdentityVersion === 4) {
     if (intent.version !== 6 || !intent.native) fail('ORIGINAL_DELETE_UNPROVEN');
     const witness = decodeWorkspaceOperationMixedOriginalSourceWitness(plan.sourceEvidence, intent.currentWitness);
@@ -219,7 +260,8 @@ export function assertOriginalDeleteIntentPlan(intent: OriginalIntent, plan: Wor
 export function completed(row: WorkspaceOperationOriginalDeleteReceipt, trash: WorkspaceOperationOriginalDeleteReceipt | null,
   durable: WorkspaceOperationOriginalDeleteIntent, intent: OriginalIntent): WorkspaceOperationOriginalDeleteResult {
   const value = object(JSON.parse(row.receiptText), ['version', 'batchId', 'intentDigest', 'trashEntryId', 'physical', 'native', 'publicShare', 'trashReceiptDigest',
-    ...(intent.version === 2 || intent.version === 3 || intent.version === 4 || intent.version === 5 || intent.version === 6 ? ['nativeLinks'] : [])]);
+    ...(intent.version === 2 || intent.version === 3 || intent.version === 4 || intent.version === 5 || intent.version === 6 || intent.version === 7 ? ['nativeLinks'] : []),
+    ...(intent.version === 7 ? ['physicalRegistry'] : [])]);
   const physical = value.physical as PreparedSingleFileTrashReceipt;
   if (!trash || row.batchId !== durable.batchId || trash.batchId !== durable.batchId || row.intentDigest !== durable.intentDigest
     || trash.intentDigest !== durable.intentDigest || value.version !== intent.version || value.batchId !== durable.batchId
@@ -241,6 +283,16 @@ export function completed(row: WorkspaceOperationOriginalDeleteReceipt, trash: W
   if (intent.version === 2 || intent.version === 3 || intent.version === 4 || intent.version === 5) assertOriginalDeleteNativeLinkReceipts(value.nativeLinks,
     intent.nativeLinks ?? fail('ORIGINAL_DELETE_UNPROVEN'), intent.version === 3 || intent.version === 4 || intent.version === 5 ? 3 : undefined);
   if (intent.version === 6) assertOriginalDeleteNativeHtmlLinkReceiptsV4(value.nativeLinks, intent.nativeLinks);
+  if (intent.version === 7) {
+    if (value.native !== null || physical.original.source.kind !== 'regular_file' || physical.observation.kind !== 'moved'
+      || physical.observation.method !== 'rename' || physical.observation.sha256 !== physical.original.source.sha256) fail('ORIGINAL_DELETE_UNPROVEN');
+    const originalIdentity = physical.original.source.identity, observedIdentity = physical.observation.identity;
+    if (Object.keys(originalIdentity).length !== Object.keys(observedIdentity).length
+      || Object.entries(originalIdentity).some(([key,expected]) => key !== 'ctimeMs' && Reflect.get(observedIdentity,key) !== expected)
+      || typeof observedIdentity.ctimeMs !== 'number' || !Number.isFinite(observedIdentity.ctimeMs)) fail('ORIGINAL_DELETE_UNPROVEN');
+    assertOriginalDeleteNativeHtmlLinkReceiptsV4(value.nativeLinks,intent.nativeLinks);
+    assertOriginalPhysicalDeleteRegistryReceiptV1(value.physicalRegistry,intent.physicalRegistry,intent.physical.trashEntryId,intent.physical.deletedAtMs);
+  }
   return freeze({ ...value, receiptDigest: row.receiptDigest }) as WorkspaceOperationOriginalDeleteResult;
 }
 export function parseRestoreIntent(row: WorkspaceOperationOriginalDeleteIntent, context: WorkspaceOperationOriginalDeleteEvidenceContext,

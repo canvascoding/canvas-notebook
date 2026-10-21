@@ -62,8 +62,11 @@ async function waitForNativePathRoomCondition(test: () => boolean | Promise<bool
 
 export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
   // Developer-only single-case iteration. The unchanged default suite remains
-  // mandatory: focused success never establishes all 31 owner cases.
+  // mandatory: focused success never establishes all 36 owner cases.
   const htmlDeleteCaseNames = {
+    'physical-web': 'Physical5 actual cookie Web DELETE and ordinary worker prove links, pristine registry and Trash response',
+    'physical-b2-revocation': 'Physical5 real rename fault, revoked grant and genuine SID-B recover original pristine PDF once',
+    'implicit-live-update': 'implicit Web rename retains a real accepted rich update through its pending final store and original Move',
     'after-physical': 'HTML Delete4: after-physical retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
     'grant-after-intent': 'HTML Delete4: grant-after-intent retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
     'commit-ack-loss': 'HTML Delete E6: actual completion COMMIT ACK loss and genuine SID-B preserve Original, receipts and later same-path D2 exactly once',
@@ -74,7 +77,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
   } as const;
   const selectedCaseId = process.env.CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE;
   assert(selectedCaseId === undefined || Object.hasOwn(htmlDeleteCaseNames, selectedCaseId),
-    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
+    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of physical-web, physical-b2-revocation, implicit-live-update, after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
   const selectedCaseName = selectedCaseId === undefined ? undefined
     : htmlDeleteCaseNames[selectedCaseId as keyof typeof htmlDeleteCaseNames];
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';
@@ -1403,6 +1406,8 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         const request = { oldPath: job.sourcePath, newPath: job.destinationPath, idempotencyKey: crypto.randomUUID() };
         let pending: Promise<void> | undefined, pump: Promise<void> | undefined, finished = false;
         let requestFailure: unknown, workerFailure: unknown, result: WebRenameResult | undefined, initialResult: WebRenameResult | undefined, requestId: string | undefined;
+        let batchLockAttempted = false, batchLockWaitObserved = false, batchLockFailure: unknown;
+        let batchLockObserver: Promise<void> | undefined;
         let acceptedBinary: Buffer | undefined, acceptedVector: Buffer | undefined, acceptedContent: unknown;
         try {
           const acks = peer.updateAcks(), marker = `implicit-accepted-${crypto.randomUUID()}`;
@@ -1421,7 +1426,42 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           assert.equal(stillOld.documentSequence, oldPersisted.documentSequence);
           assert.notDeepEqual(acceptedBinary, Buffer.from(stillOld.yjsState), 'An accepted room edit must genuinely be absent from PG.');
           const worker = createWorkspaceOperationBatchWorker({ store });
-          pending = renameWithActualCookie(request).then(async value => {
+          pending = h.withProbe(async event => {
+            if (batchLockAttempted || !requestId || event.text !== 'SELECT pg_catalog.to_regclass($1)::oid::bigint AS table_oid'
+              || event.values[0] !== `"${h.schema}".workspace_file_operation_batches`) return;
+            const actual = (await event.raw('SELECT pg_backend_pid() AS pid,current_schema() AS schema')).rows[0];
+            assert.equal(actual.schema, h.schema);
+            batchLockAttempted = true;
+            const blocker = await openDb();
+            try {
+              await blocker.run('BEGIN');
+              const identity = await blocker.get('SELECT pg_backend_pid() AS pid,current_schema() AS schema') as { pid: number; schema: string };
+              assert.equal(identity.schema, h.schema); assert.notEqual(identity.pid, actual.pid);
+              await blocker.run(`LOCK TABLE "${h.schema}".workspace_file_operation_batches IN ROW EXCLUSIVE MODE`);
+              // A real independent short table writer, compatible with other
+              // worker polls. Release only after the actual insert owner waits.
+              batchLockObserver = (async () => {
+                try {
+                  const deadline = Date.now() + 2000;
+                  while (!finished && Date.now() < deadline) {
+                    const observed = (await h.admin.query(`SELECT
+                      EXISTS(SELECT 1 FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid=l.relation
+                        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE l.pid=$1
+                        AND n.nspname=$3 AND c.relname='workspace_file_operation_batches'
+                        AND l.mode='ShareRowExclusiveLock' AND NOT l.granted) AS waiting,
+                      $2::integer=ANY(pg_catalog.pg_blocking_pids($1::integer)) AS blocked_by_fixture`,
+                    [actual.pid, identity.pid, h.schema])).rows[0];
+                    if (observed.waiting && observed.blocked_by_fixture) { batchLockWaitObserved = true; break; }
+                    await new Promise(resolve => setTimeout(resolve, 1));
+                  }
+                } finally { try { await blocker.run('ROLLBACK'); } finally { await blocker.close(); } }
+              })().catch(error => { batchLockFailure = error; });
+            } catch (error) {
+              try { await blocker.run('ROLLBACK'); } finally { await blocker.close(); }
+              throw error;
+            }
+          }, async () => {
+            const value = await renameWithActualCookie(request);
             if (value.body.operation) {
               assert.equal(value.body.operation.batchId, sha(JSON.stringify(['workspace-path-operation-id-v1',
                 h.source.workspaceId, 'member', request.idempotencyKey])));
@@ -1465,8 +1505,10 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           await pending;
         } finally {
           releaseSave(); if (pending) await pending; finished = true; if (pump) await pump;
+          if (batchLockObserver) await batchLockObserver;
         }
         if (requestFailure) throw requestFailure; if (workerFailure) throw workerFailure;
+        if (batchLockFailure) throw batchLockFailure;
         assert(result && requestId && acceptedBinary && acceptedVector);
         const safeCode = (value: unknown) => typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,127}$/u.test(value) ? value : null;
         console.log(JSON.stringify({ test: 'implicit-web-rename-accepted-update-result', initialStatus: initialResult?.status, status: result.status,
@@ -1475,6 +1517,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           operationStatus: ['queued', 'applying', 'applied', 'blocked', 'needs_review', 'needs_recovery', 'failed']
             .includes(result.body.operation?.status) ? result.body.operation.status : null }));
         assert.equal(result.status, 200, `Implicit rename lost an accepted update: ${result.body.code ?? result.body.operation?.errorCode ?? 'unknown'}`);
+        assert(batchLockAttempted && batchLockWaitObserved, 'The actual batch insert must wait for the independently held short writer lock.');
         assert.equal(result.body.success, true); assert.equal(result.body.operation.status, 'applied');
         assert.equal(result.body.linkStatus, 'complete'); assert.equal(result.body.linkUpdates?.updatedLinks, 1);
         const batch = await store.get(result.body.operation.batchId); assert(batch);
@@ -1525,13 +1568,15 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         const persisted = await load(h.connection, job.targetId); assert(persisted);
         assert.equal(authoritativeNativeCollaborationSnapshot(persisted).version.stateProof, acceptedProof);
         assert(nativeCollaborationSearchText(authoritativeNativeCollaborationSnapshot(persisted).content).includes(marker));
-        const before = await snapshot(), files = await filesystem(), domainWrites: string[] = [];
-        const result = await h.withProbe(async event => {
-          if (/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE)\b/iu.test(event.text)
-            && /\b(?:collaboration_[a-z_]+|file_collaboration_[a-z_]+|workspace_file_[a-z_]+|file_revisions|file_revision_contents|file_version_blobs|workspace_trash_entries)\b/iu.test(event.text)) domainWrites.push(event.text);
-        }, () => renameWithActualCookie({ ...request, planId: preview.body.plan!.planId }));
-        assert.equal(result.status, 409); assert.equal(result.body.code, 'PREVIEW_STALE');
-        assert.deepEqual(domainWrites, []); assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), files);
+        await withSettledProjectionReadBoundary(async () => {
+          const before = await snapshot(), files = await filesystem(), domainWrites: string[] = [];
+          const result = await h.withProbe(async event => {
+            if (/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE)\b/iu.test(event.text)
+              && /\b(?:collaboration_[a-z_]+|file_collaboration_[a-z_]+|workspace_file_[a-z_]+|file_revisions|file_revision_contents|file_version_blobs|workspace_trash_entries)\b/iu.test(event.text)) domainWrites.push(event.text);
+          }, () => renameWithActualCookie({ ...request, planId: preview.body.plan!.planId }));
+          assert.equal(result.status, 409); assert.equal(result.body.code, 'PREVIEW_STALE');
+          assert.deepEqual(domainWrites, []); assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), files);
+        });
         assert.equal(peer.closeReason(), null); assert.equal(nativeRooms.isLoaded(job.targetId), true);
         const unchanged = await load(h.connection, job.targetId); assert(unchanged);
         assert.equal(unchanged.path, job.sourcePath); assert.deepEqual(Buffer.from(unchanged.yjsState), Buffer.from(persisted.yjsState));
@@ -3113,6 +3158,394 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.equal((await load(h.connection, job.incomingId))!.documentSequence, incomingAfter.documentSequence);
       assert.equal((await load(h.connection, htmlDoc.documentId))!.documentSequence, htmlAfter.documentSequence);
     });
+    // Additive Physical5 families. Existing 29 case bodies and all global
+    // authority/realm/census/no-DML/FS/projection assertions above are retained.
+    const { runDirectMcpWorkspaceDeleteService: physicalPublicDelete } = await import('../app/lib/files/workspace-operation-mcp-path-service');
+    const { decodeDirectMcpWorkspaceDeleteRequestV1: physicalDeleteRequest } = await import('../app/lib/mcp/server/workspace-path-tool-contract');
+    const { workspaceOperationMcpBatchId: physicalBatchId } = await import('../app/lib/files/workspace-operation-mcp-authorization');
+    const { updateWorkspaceFileMetadata: physicalMetadata } = await import('../app/lib/files/workspace-file-metadata');
+    const { filesystemFileVersion: physicalVersion } = await import('../app/lib/filesystem/file-version');
+    const { inspectPersistedDocumentLinksV4: physicalLinks } = await import('../app/lib/markdown/workspace-native-link-inventory');
+    const { inspectWorkspaceMarkdownHtmlV4: physicalHtml } = await import('../app/lib/markdown/workspace-local-link-parser');
+    const { authoritativeNativeCollaborationSnapshot: physicalSnapshot } = await import('../app/lib/collaboration/document-snapshot');
+    type PhysicalIntent = Extract<import('../app/lib/files/workspace-operation-original-delete-evidence').OriginalIntent,{version:7}>;
+    const physicalHtmlFacts = (state: NonNullable<Awaited<ReturnType<typeof load>>>) => {
+      const snapshot = physicalSnapshot(state); assert(snapshot.content.kind === 'plain_text');
+      return physicalHtml(snapshot.content.text,state.path).occurrences.map(({raw,fullyInspected,explicitLocalTargets})=>({raw,fullyInspected,explicitLocalTargets}));
+    };
+    const seedPhysical = async (extension:'png'|'pdf',pristine:boolean) => {
+      const prefix='physical-delete5-'+crypto.randomUUID(),sourcePath=prefix+'.'+extension;
+      const bytes=extension==='png'?Buffer.from([137,80,78,71,13,10,26,10,0,255,17,35]):Buffer.from('%PDF-1.7\nOriginal physical delete fixture\n%%EOF\n');
+      await fs.writeFile(path.join(h.source.rootPath,sourcePath),bytes,{flag:'wx',mode:0o600});
+      const selectedId=pristine?'physical-pristine-'+crypto.randomUUID():null,selectedLineage=pristine?'physical-lineage-'+crypto.randomUUID():null;
+      if(pristine){
+        assert(selectedId&&selectedLineage);
+        await h.admin.query(`INSERT INTO file_collaboration_lineages(id,organization_id,customer_id,project_id,workspace_id,workspace_type,path,status,created_at)
+          VALUES($1,$2,$3,$4,$5,$6,$7,'active',100)`,[selectedLineage,h.source.organizationId??null,h.source.customerId??null,h.source.projectId??null,h.source.workspaceId,h.source.workspaceType,sourcePath]);
+        await h.admin.query(`INSERT INTO collaboration_documents(id,lineage_id,organization_id,customer_id,project_id,workspace_id,workspace_type,path,provider,status,state_version,yjs_state_lifecycle,created_at,updated_at)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,'yjs','active',0,'never_initialized',100,100)`,[selectedId,selectedLineage,h.source.organizationId??null,h.source.customerId??null,h.source.projectId??null,h.source.workspaceId,h.source.workspaceType,sourcePath]);
+      }
+      const incomingPath=prefix+'-ordinary.md',htmlPath=prefix+'-native-html.md',pagePath=prefix+'.html';
+      const incoming=await h.upload(incomingPath,Buffer.from('[Asset]('+sourcePath+')\n'));
+      const htmlRaw='<p><a href="https://example.com">Unchanged unrelated native HTML</a></p>';
+      const html=await h.upload(htmlPath,Buffer.from('[Asset]('+sourcePath+')\n\n'+htmlRaw+'\n'));
+      const pageBytes=Buffer.from('<p>Unrelated complete physical HTML</p>\n');
+      await fs.writeFile(path.join(h.source.rootPath,pagePath),pageBytes,{flag:'wx',mode:0o600});
+      const beforeFile=await fs.lstat(path.join(h.source.rootPath,sourcePath));assert(beforeFile.isFile());
+      const expectedTarget={version:1,kind:'filesystem',workspaceId:h.source.workspaceId,path:sourcePath,entryType:'file',fileVersion:physicalVersion(beforeFile)};
+      await physicalMetadata(await h.request(h.source,'member',false,currentRequestToken),{path:sourcePath,expectedTarget,title:'Original '+prefix,isFavorite:true,pinned:true});
+      const incomingBefore=await load(h.connection,incoming.documentId),htmlBefore=await load(h.connection,html.documentId);assert(incomingBefore&&htmlBefore);
+      const rawRegistry=(await h.admin.query('SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM collaboration_documents t WHERE id=$1',[selectedId])).rows;
+      const rawLineage=(await h.admin.query('SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM file_collaboration_lineages t WHERE id=$1',[selectedLineage])).rows;
+      assert.deepEqual((await h.admin.query('SELECT document_id FROM collaboration_yjs_states WHERE workspace_id=$1 AND path=$2',[h.source.workspaceId,sourcePath])).rows,[]);
+      return {sourcePath,bytes,beforeFile,selectedId,selectedLineage,incoming,html,incomingBefore,htmlBefore,pagePath,pageBytes,htmlRaw,rawRegistry,rawLineage};
+    };
+    type PhysicalSeed=Awaited<ReturnType<typeof seedPhysical>>;
+    const previewPhysical=async(seed:PhysicalSeed)=>{
+      const result=await withSettledProjectionReadBoundary(()=>noMutation(()=>physicalPublicDelete(physicalDeleteRequest({api_version:1,action:'preview',workspace_id:h.source.workspaceId,path:seed.sourcePath}),authInfo(currentToken))));
+      assert(result.action==='preview'&&result.preview.kind==='native-path-html-assessment');assert.equal(result.preview.version,3);
+      assert.equal(result.preview.readiness,'ready');assert.equal(result.preview.coverage.complete,false);assert.equal(result.preview.linkAssessment.complete,true);
+      assert.equal(result.preview.linkChanges.unlinks,2);assert.equal(result.preview.linkChanges.affectedDocuments,2);
+      assert.deepEqual(result.preview.paths,[{sourcePath:seed.sourcePath}]);return result.preview;
+    };
+    const physicalCall=(action:'apply'|'recover',seed:PhysicalSeed,operationId:string,planId:string)=>physicalPublicDelete(physicalDeleteRequest({api_version:1,action,workspace_id:h.source.workspaceId,path:seed.sourcePath,operation_id:operationId,plan_id:planId}),authInfo(currentToken));
+    const physicalRows=async(batchId:string)=>({intent:await row('workspace_file_operation_delete_intents',batchId),completion:await row('workspace_file_operation_delete_receipts',batchId),trash:await row('workspace_file_operation_delete_trash_receipts',batchId)});
+    const checkPhysicalCompletion=async(seed:PhysicalSeed,batchId:string,expectedMode:'direct'|'direct-mcp'='direct-mcp')=>{
+      const batch=await store.get(batchId);assert(batch&&batch.plan.version===5);assert.equal(batch.authorization.mode,expectedMode);
+      assert(batch.authorization.mode==='direct'||batch.authorization.mode==='direct-mcp');
+      assert.equal(batch.plan.kind,'physical-original-delete');assert.equal(batch.plan.planIdentityVersion,5);assert.equal(Object.hasOwn(batch.plan,'nativeTarget'),false);
+      assert.equal(batch.plan.physicalTarget.documentId,null);assert.equal(batch.status,'applied');assert.equal(batch.completedActions,3);assert.equal(batch.totalActions,3);
+      const rows=await physicalRows(batchId);assert.equal(rows.intent.length,1);assert.equal(rows.completion.length,1);assert.equal(rows.trash.length,1);
+      const intent=JSON.parse(JSON.parse(rows.intent[0].body).intent_text) as PhysicalIntent;
+      const completion=JSON.parse(JSON.parse(rows.completion[0].body).receipt_text) as import('../app/lib/files/workspace-operation-original-delete-evidence').Completion;
+      assert.equal(intent.version,7);assert.equal(intent.native,null);assert.equal(intent.currentWitness.evidenceVersion,5);assert.equal(intent.nativeLinks.length,2);
+      assert.equal(completion.version,7);assert.equal(completion.native,null);assert.equal(completion.nativeLinks?.length,2);assert(completion.physicalRegistry);
+      assert.equal(intent.physical.source.kind,'regular_file');assert(intent.physical.source.kind==='regular_file');assert.equal(intent.physical.source.sha256,sha(seed.bytes));
+      assert.equal(completion.physical.observation.kind,'moved');assert(completion.physical.observation.kind==='moved');assert.equal(completion.physical.observation.sha256,sha(seed.bytes));
+      assert.equal(completion.physical.observation.identity.device,seed.beforeFile.dev);assert.equal(completion.physical.observation.identity.inode,seed.beforeFile.ino);
+      assert.equal(intent.actor.actorSessionId,batch.authorization.actorSessionId??null);assert.equal(intent.physicalRegistry.registry?.id??null,seed.selectedId);
+      assert.equal(intent.physicalRegistry.lineage?.id??null,seed.selectedLineage);assert.deepEqual(completion.physicalRegistry.original,intent.physicalRegistry);
+      await absent(path.join(h.source.rootPath,seed.sourcePath));assert.deepEqual(await fs.readFile(path.join(h.dataRoot,intent.physical.trashRelativePath)),seed.bytes);
+      const payload=await fs.lstat(path.join(h.dataRoot,intent.physical.trashRelativePath));assert(payload.isFile());assert.equal(payload.dev,seed.beforeFile.dev);assert.equal(payload.ino,seed.beforeFile.ino);
+      assert.deepEqual((await h.admin.query('SELECT document_id FROM collaboration_yjs_states WHERE workspace_id=$1 AND path=$2',[h.source.workspaceId,seed.sourcePath])).rows,[]);
+      if(seed.selectedId){
+        assert.deepEqual((await h.admin.query('SELECT id,lineage_id,status,state_version::integer AS state_version,yjs_state_lifecycle FROM collaboration_documents WHERE id=$1',[seed.selectedId])).rows,
+          [{id:seed.selectedId,lineage_id:seed.selectedLineage,status:'archived',state_version:0,yjs_state_lifecycle:'never_initialized'}]);
+        assert.deepEqual((await h.admin.query('SELECT id,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1',[seed.selectedLineage])).rows,[{id:seed.selectedLineage,status:'archived',trash_entry_id:intent.physical.trashEntryId}]);
+      }else{
+        assert.equal(completion.physicalRegistry.registry,null);assert.equal(completion.physicalRegistry.lineage,null);
+        assert.deepEqual((await h.admin.query('SELECT id FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',[h.source.workspaceId,seed.sourcePath])).rows,[]);
+      }
+      const incomingAfter=await load(h.connection,seed.incoming.documentId),htmlAfter=await load(h.connection,seed.html.documentId);assert(incomingAfter&&htmlAfter);
+      assert.equal(incomingAfter.documentSequence,seed.incomingBefore.documentSequence+1);assert.equal(htmlAfter.documentSequence,seed.htmlBefore.documentSequence+1);
+      assert.equal(physicalLinks(incomingAfter).links.length,0);assert.equal(physicalLinks(htmlAfter).links.length,0);
+      assert.deepEqual(physicalHtmlFacts(htmlAfter),physicalHtmlFacts(seed.htmlBefore));assert.equal(physicalHtmlFacts(htmlAfter)[0].raw,seed.htmlRaw);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.pagePath)),seed.pageBytes);
+      for(const table of ['workspace_file_metadata','workspace_file_user_states'])assert.deepEqual((await h.admin.query(`SELECT path FROM ${table} WHERE workspace_id=$1 AND path=$2`,[h.source.workspaceId,seed.sourcePath])).rows,[]);
+      const trash=(await h.admin.query('SELECT id,status,original_path,metadata_json FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',[h.source.workspaceId,seed.sourcePath])).rows;
+      assert.equal(trash.length,1);assert.equal(trash[0].id,intent.physical.trashEntryId);assert.equal(trash[0].status,'trashed');assert.equal(JSON.parse(trash[0].metadata_json).nativeDocumentId,null);
+      const mutations=(await h.admin.query('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[]) ORDER BY operation_id',[intent.nativeLinks.map(link=>link.prepared.operationId)])).rows;
+      assert.equal(mutations.length,2);return {batch,rows,intent,completion,incomingAfter,htmlAfter};
+    };
+    await check('Physical5 public PNG/unregistered and PDF/pristine delete preserve unaffected HTML and native link identities',async()=>{
+      const {DELETE:webDelete}=await import('../app/api/files/delete/route');
+      for(const extension of ['png','pdf'] as const){
+        const seed=await seedPhysical(extension,extension==='pdf'),preview=await previewPhysical(seed);
+        const webRequest=await h.request(h.source,'member',true,currentRequestToken);
+        const webPreview=await withSettledProjectionReadBoundary(()=>noMutation(()=>webDelete(new NextRequest('http://localhost/api/files/delete',{method:'DELETE',headers:webRequest.headers,body:JSON.stringify({path:seed.sourcePath,dryRun:true})}))));
+        assert.equal(webPreview.status,200);const webBody=await webPreview.json();assert.equal(webBody.dryRun,true);assert.equal(webBody.plan.version,2);assert.equal(webBody.plan.kind,'native-original-delete');assert.equal(webBody.plan.linkEdits.length,2);
+        const operationId=crypto.randomUUID(),applied=await physicalCall('apply',seed,operationId,preview.planId);assert(applied.action==='apply');
+        assert.equal(applied.operation.execution.receiptStatus,'available');assert.equal(applied.operation.execution.finalization,'complete');
+        const checked=await checkPhysicalCompletion(seed,applied.operation.batchId);
+        assert.equal(checked.batch.authorization.mode,'direct-mcp');
+      }
+    });
+    await check('Physical5 actual cookie Web DELETE and ordinary worker prove links, pristine registry and Trash response',async()=>{
+      if(selectedCaseId==='physical-web'){
+        // Full36 reaches60 native Admission targets after the two unchanged
+        // seedPhysical calls below add2 native backlink documents each.
+        const existing=(await h.admin.query(`SELECT document_id FROM collaboration_yjs_states
+          WHERE workspace_id=$1 AND status='active' ORDER BY document_id COLLATE "C" LIMIT 57`,[h.source.workspaceId])).rows;
+        assert(existing.length<=56,'Focused Physical Web setup must fit the genuine Full36 starting census.');
+        for(let index=existing.length;index<56;index++){
+          const filePath='physical-web-neutral-'+crypto.randomUUID()+'.md';
+          const document=await h.upload(filePath,Buffer.from('# Neutral focus document '+index+'\n\nUnlinked native diagnostic content.\n'));
+          const state=await load(h.connection,document.documentId);assert(state);
+          assert.equal(state.workspaceId,h.source.workspaceId);assert.equal(state.path,filePath);assert.equal(state.status,'active');
+          assert.equal(links(state).links.length,0);
+        }
+        const ready=(await h.admin.query(`SELECT document_id FROM collaboration_yjs_states
+          WHERE workspace_id=$1 AND status='active' ORDER BY document_id COLLATE "C" LIMIT 57`,[h.source.workspaceId])).rows;
+        assert.equal(ready.length,56);
+      }
+      await run('delete',currentToken,h.source.workspaceId,live=>freshScope(live));
+      const {DELETE:webDelete}=await import('../app/api/files/delete/route');
+      const {GET:webBatch}=await import('../app/api/files/operations/batches/[batchId]/route');
+      const seed=await seedPhysical('pdf',true),actual=await h.request(h.source,'member',true,currentRequestToken);
+      // Real Web setup may create the user's personal workspace. Establish it
+      // before observing the pure selected-workspace preview, as login does.
+      const {requireRequestWorkspace}=await import('../app/lib/workspaces/request');
+      const initialized=await requireRequestWorkspace(actual,{permissions:['canRead','canWrite','canDelete']});
+      assert.equal(initialized.response,null);assert.equal(initialized.session!.user.id,'member');
+      assert.equal(initialized.workspace!.workspaceId,h.source.workspaceId);assert.equal(initialized.workspace!.rootPath,h.source.rootPath);
+      assert(initialized.workspace!.permissions.canRead&&initialized.workspace!.permissions.canWrite&&initialized.workspace!.permissions.canDelete);
+      assert(actual.headers.has('cookie'));assert.equal(actual.headers.has('authorization'),false);
+      const headers=new Headers(actual.headers);headers.set('Content-Type','application/json');
+      // Real human authority loss after an actual preparation read must roll
+      // back before intent insertion or any physical/native document effect.
+      {
+        const deniedSeed=await seedPhysical('pdf',true);
+        const deniedPreviewResponse=await withSettledProjectionReadBoundary(()=>noMutation(()=>webDelete(new NextRequest('http://localhost/api/files/delete',
+          {method:'DELETE',headers,body:JSON.stringify({path:deniedSeed.sourcePath,dryRun:true})}))));
+        assert.equal(deniedPreviewResponse.status,200);const deniedPreview=await deniedPreviewResponse.json();
+        assert.equal(deniedPreview.plan.version,2);assert.equal(deniedPreview.plan.kind,'native-original-delete');
+        const {POST:resumeWebBatch}=await import('../app/api/files/operations/batches/[batchId]/route');
+        const deniedWorker=createWorkspaceOperationBatchWorker({store});
+        const driveDeniedWeb=async(request:()=>Promise<Response>)=>{
+          let stopped=false,failure:unknown;const pendingResponse=request();
+          const pumping=(async()=>{try{while(!stopped){await deniedWorker.tick();if(!stopped)await new Promise(resolve=>setTimeout(resolve,25));}}catch(error){failure=error;}})();
+          try{
+            const response=await pendingResponse;let body=await response.json() as WorkspacePathOperationResponse&{success:boolean;code?:string};
+            assert([200,202,409].includes(response.status));assert(body.operation);const id=body.operation.batchId;
+            if(response.status===202){
+              const deadline=Date.now()+20000;
+              do{
+                await new Promise(resolve=>setTimeout(resolve,500));
+                if(failure)throw failure;const status=await webBatch(new NextRequest('http://localhost/api/files/operations/batches/'+id,{headers}),{params:Promise.resolve({batchId:id})});
+                assert.equal(status.status,200);body=await status.json();assert(body.operation);assert.equal(body.operation.batchId,id);
+              }while(['queued','applying'].includes(body.operation!.status)&&Date.now()<deadline);
+              if(['queued','applying'].includes(body.operation!.status))throw new Error('Physical5 authority fault/resume did not reach a terminal ordinary worker response.');
+            }
+            if(failure)throw failure;return {response,body};
+          }finally{stopped=true;await pumping;if(failure)throw failure;}
+        };
+        let deniedOwner:MetadataSqlEvent['client']|undefined,deniedBatchId:string|undefined;
+        let witness:{pid:number;start:string;xid:string}|undefined,originalBinding:unknown;
+        let baseline:Awaited<ReturnType<typeof snapshot>>|undefined,files:Awaited<ReturnType<typeof filesystem>>|undefined;
+        let injectedAuthDML=0,domainDML=0,notifications=0,rolledBack=false;
+        const registryRead=`SELECT pg_catalog.to_jsonb(d) AS row FROM "${h.schema}".collaboration_documents d
+          WHERE workspace_id=$1 AND path=$2 AND status='active' ORDER BY id LIMIT 2 FOR UPDATE NOWAIT`.replace(/\s+/gu,' ').trim();
+        const denied=await h.withProbe(async event=>{
+          if(deniedOwner===event.client&&injectedAuthDML&&!rolledBack){
+            assert(!/^\s*COMMIT\s*$/iu.test(event.text),'A revoked preparation transaction cannot commit.');
+            if(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE|CREATE|ALTER|DROP)\b/iu.test(event.text))domainDML++;
+            if(/\bpg_notify\s*\(/iu.test(event.text))notifications++;
+            if(/^\s*ROLLBACK\s*$/iu.test(event.text)){
+              assert.equal(event.result.command,'ROLLBACK');assert(witness);
+              const ended=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,to_regnamespace(current_schema())::oid::text AS schema_oid
+                FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+              assert.equal(Number(ended.pid),witness.pid);assert.equal(ended.start,witness.start);assert.equal(ended.xid,null);
+              assert.equal(ended.schema,h.schema);assert.equal(ended.schema_oid,h.schemaOid);rolledBack=true;
+            }
+          }
+          if(injectedAuthDML||event.text.replace(/\s+/gu,' ').trim()!==registryRead
+            ||event.values.length!==2||event.values[0]!==h.source.workspaceId||event.values[1]!==deniedSeed.sourcePath)return;
+          assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,1);assert.equal(event.result.rows[0].row.id,deniedSeed.selectedId);
+          const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,to_regnamespace(current_schema())::oid::text AS schema_oid
+            FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(actual.schema,h.schema);assert.equal(actual.schema_oid,h.schemaOid);assert.match(actual.xid,/^[0-9]{1,32}$/u);assert.match(actual.start,/^[0-9]+\.[0-9]+$/u);assert(Number.isSafeInteger(Number(actual.pid)));
+          deniedOwner=event.client;witness={pid:Number(actual.pid),start:actual.start,xid:actual.xid};
+          const bindings=(await event.raw(`SELECT batch_id,plan_id,workspace_id,plan_json,authorization_json,created_at,total_actions,action_mode
+            FROM workspace_file_operation_batches WHERE workspace_id=$1 AND plan_id=$2 AND status='applying'`,[h.source.workspaceId,deniedPreview.plan.planId])).rows;
+          assert.equal(bindings.length,1);originalBinding=bindings;deniedBatchId=bindings[0].batch_id;
+          const authorization=JSON.parse(bindings[0].authorization_json),plan=JSON.parse(bindings[0].plan_json);
+          assert.equal(authorization.mode,'direct');assert.equal(authorization.actorType,'user');assert.equal(authorization.actorUserId,'member');
+          assert.equal(plan.version,5);assert.equal(plan.kind,'physical-original-delete');assert.equal(plan.pathSteps[0].sourcePath,deniedSeed.sourcePath);
+          baseline=await snapshot();delete baseline.rows.workspace_file_operation_batches;files=await filesystem();
+          const banned=await event.raw(`UPDATE "${h.schema}"."user" SET banned=1 WHERE id='member' AND banned=0 RETURNING id,banned`);
+          assert.equal(banned.rowCount,1);assert.equal(banned.rows[0].id,'member');assert.equal(Number(banned.rows[0].banned),1);injectedAuthDML++;
+        },()=>driveDeniedWeb(()=>webDelete(new NextRequest('http://localhost/api/files/delete',{method:'DELETE',headers,
+          body:JSON.stringify({path:deniedSeed.sourcePath,planId:deniedPreview.plan.planId,idempotencyKey:crypto.randomUUID()})}))));
+        assert(deniedOwner&&witness&&deniedBatchId&&baseline&&files&&originalBinding);assert.equal(injectedAuthDML,1);assert.equal(rolledBack,true);
+        assert.equal(domainDML,0);assert.equal(notifications,0);assert.equal(denied.body.operation.batchId,deniedBatchId);
+        assert.equal(denied.body.operation.status,'failed');assert.equal(denied.body.operation.errorCode,'PRINCIPAL_AUTH_REVOKED');
+        if(denied.response.status===409)assert.equal(denied.body.code,'PRINCIPAL_AUTH_REVOKED');
+        assert.equal(Number((await h.admin.query('SELECT banned FROM "user" WHERE id=$1',['member'])).rows[0].banned),0);
+        const afterDenied=await snapshot();delete afterDenied.rows.workspace_file_operation_batches;assert.deepEqual(afterDenied,baseline);
+        assert.deepEqual(await filesystem(),files);assert.deepEqual(await physicalRows(deniedBatchId),{intent:[],completion:[],trash:[]});
+        assert.deepEqual((await h.admin.query(`SELECT batch_id,plan_id,workspace_id,plan_json,authorization_json,created_at,total_actions,action_mode
+          FROM workspace_file_operation_batches WHERE batch_id=$1`,[deniedBatchId])).rows,originalBinding);
+        const resumed=await driveDeniedWeb(()=>resumeWebBatch(new NextRequest('http://localhost/api/files/operations/batches/'+deniedBatchId,
+          {method:'POST',headers,body:JSON.stringify({action:'resume',planId:deniedPreview.plan.planId})}),{params:Promise.resolve({batchId:deniedBatchId!})}));
+        assert.equal(resumed.response.status,202);assert.equal(resumed.body.success,true);assert.equal(resumed.body.operation.batchId,deniedBatchId);
+        assert.equal(resumed.body.operation.planId,deniedPreview.plan.planId);assert.equal(resumed.body.operation.status,'applied');
+        await checkPhysicalCompletion(deniedSeed,deniedBatchId,'direct');
+        const historicalRows=await physicalRows(deniedBatchId);
+        const historical=await withSettledProjectionReadBoundary(()=>noMutation(()=>webBatch(new NextRequest('http://localhost/api/files/operations/batches/'+deniedBatchId,{headers}),
+          {params:Promise.resolve({batchId:deniedBatchId!})})));
+        assert.equal(historical.status,200);assert.equal((await historical.json()).operation.status,'applied');assert.deepEqual(await physicalRows(deniedBatchId),historicalRows);
+      }
+      const previewResponse=await withSettledProjectionReadBoundary(()=>noMutation(()=>webDelete(new NextRequest('http://localhost/api/files/delete',{method:'DELETE',headers,body:JSON.stringify({path:seed.sourcePath,dryRun:true})}))));
+      assert.equal(previewResponse.status,200);const preview=await previewResponse.json();assert.equal(preview.plan.version,2);assert.equal(preview.plan.kind,'native-original-delete');
+      const worker=createWorkspaceOperationBatchWorker({store});let stop=false,workerFailure:unknown;
+      const pending=webDelete(new NextRequest('http://localhost/api/files/delete',{method:'DELETE',headers,
+        body:JSON.stringify({path:seed.sourcePath,planId:preview.plan.planId,idempotencyKey:crypto.randomUUID()})}));
+      const pump=(async()=>{try{while(!stop){await worker.tick();if(!stop)await new Promise(resolve=>setTimeout(resolve,25));}}catch(error){workerFailure=error;}})();
+      try{
+        const response=await pending;let body=await response.json() as WorkspacePathOperationResponse&{success:boolean;code?:unknown};
+        if(![200,202].includes(response.status))console.error(JSON.stringify({test:'physical-web-delete-response',status:response.status,
+          code:typeof body.code==='string'&&/^[A-Z][A-Z0-9_]{0,99}$/u.test(body.code)?body.code:'UNCLASSIFIED'}));
+        assert([200,202].includes(response.status),'Physical Web DELETE must return success or an accepted durable job.');
+        assert.equal(body.success,true);assert(body.operation);const batchId=body.operation.batchId;
+        if(response.status===202){
+          const deadline=Date.now()+20000;
+          do{
+            await new Promise(resolve=>setTimeout(resolve,500));
+            if(workerFailure)throw workerFailure;const credentials=await h.request(h.source,'member',true,currentRequestToken);
+            const status=await webBatch(new NextRequest('http://localhost/api/files/operations/batches/'+batchId,{headers:credentials.headers}),{params:Promise.resolve({batchId})});
+            assert.equal(status.status,200);body=await status.json();assert(body.operation);assert.equal(body.operation.batchId,batchId);
+          }while(['queued','applying'].includes(body.operation!.status)&&Date.now()<deadline);
+          if(['queued','applying'].includes(body.operation!.status))throw new Error('Physical5 queued Web DELETE did not reach a real terminal batch response.');
+        }
+        assert.equal(body.operation!.status,'applied');assert.deepEqual(body.deleted,[seed.sourcePath]);assert.equal(body.linkStatus,'complete');
+        assert.equal(body.linkUpdates?.updatedLinks,2);assert.deepEqual([...body.linkUpdates!.updatedFiles].sort(),[seed.incomingBefore.path,seed.htmlBefore.path].sort());
+        assert.equal(body.trashEntries?.length,1);await checkPhysicalCompletion(seed,batchId,'direct');
+      }finally{stop=true;await pump;}
+      if(workerFailure)throw workerFailure;
+    });
+    await check('Physical5 real rename fault, revoked grant and genuine SID-B recover original pristine PDF once',async()=>{
+      // Obtain a genuine current principal before the separately observed pure
+      // preview; the focused case must initialize its own authorization path.
+      await run('delete',currentToken,h.source.workspaceId,live=>freshScope(live));
+      const seed=await seedPhysical('pdf',true),preview=await previewPhysical(seed),operationId=crypto.randomUUID();
+      const batchId=physicalBatchId({userId:'member',clientId,workspaceId:h.source.workspaceId,tool:'delete_knowledge_source',operationId});
+      let faulted=false,intentBefore:PhysicalIntent|undefined,stageRows:Awaited<ReturnType<typeof physicalRows>>|undefined;
+      await assert.rejects(h.withProbe(async event=>{
+        if(faulted||!/^\s*SELECT\b/iu.test(event.text)||!event.text.includes('workspace_file_operation_delete_intents')
+          ||!/\bFOR\s+SHARE\s+NOWAIT\s*$/iu.test(event.text)||event.values[0]!==batchId||event.result.rowCount!==1
+          ||!Object.hasOwn(event.result.rows[0],'intentText'))return;
+        const sourcePresent=await fs.lstat(path.join(h.source.rootPath,seed.sourcePath)).then(()=>true,error=>{assert.equal((error as NodeJS.ErrnoException).code,'ENOENT');return false;});
+        if(sourcePresent)return;
+        stageRows=await physicalRows(batchId);assert.equal(stageRows.intent.length,1);assert.equal(stageRows.completion.length,0);assert.equal(stageRows.trash.length,0);
+        intentBefore=JSON.parse(JSON.parse(stageRows.intent[0].body).intent_text) as PhysicalIntent;assert.equal(intentBefore.version,7);
+        assert.equal(event.result.rows[0].intentText,JSON.parse(stageRows.intent[0].body).intent_text);
+        const witness=(await event.raw('SELECT pg_backend_pid() AS pid,pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema')).rows[0];
+        assert(witness.xid);assert.equal(witness.schema,h.schema);
+        const moved=await fs.lstat(path.join(h.dataRoot,intentBefore.physical.trashRelativePath));assert.equal(moved.dev,seed.beforeFile.dev);assert.equal(moved.ino,seed.beforeFile.ino);
+        assert.deepEqual(await fs.readFile(path.join(h.dataRoot,intentBefore.physical.trashRelativePath)),seed.bytes);faulted=true;
+        throw Object.assign(new Error('Physical5 actual rename completed before B2 domain mutation.'),{code:'FIXTURE_PHYSICAL5_AFTER_RENAME'});
+      },()=>physicalCall('apply',seed,operationId,preview.planId)),rejected('FIXTURE_PHYSICAL5_AFTER_RENAME'));
+      assert(faulted&&stageRows&&intentBefore);assert.deepEqual(await physicalRows(batchId),stageRows);
+      assert.deepEqual((await h.admin.query('SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM collaboration_documents t WHERE id=$1',[seed.selectedId])).rows,seed.rawRegistry);
+      assert.deepEqual((await h.admin.query('SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM file_collaboration_lineages t WHERE id=$1',[seed.selectedLineage])).rows,seed.rawLineage);
+      assert.deepEqual(await load(h.connection,seed.incoming.documentId),seed.incomingBefore);assert.deepEqual(await load(h.connection,seed.html.documentId),seed.htmlBefore);
+      const original=(await store.get(batchId))!.authorization;assert(original.mode==='direct-mcp');const sidA=original.actorSessionId;
+      assert.equal((await h.admin.query('DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id=$2 AND workspace_id=$3 RETURNING client_id',[clientId,'member',h.source.workspaceId])).rowCount,1);
+      try{
+        await withSettledProjectionReadBoundary(()=>noMutation(()=>assert.rejects(physicalCall('recover',seed,operationId,preview.planId),rejected('MCP_READ_PRINCIPAL_ACCESS_DENIED'))));
+        assert.deepEqual(await physicalRows(batchId),stageRows);
+      }finally{
+        assert.equal((await h.admin.query('INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at) VALUES($1,$2,$3,100,100) RETURNING client_id',[clientId,'member',h.source.workspaceId])).rowCount,1);
+      }
+      // Revoke the actual tool after the fixed B2 domain has read its prior
+      // receipt, before its first unlink/archive/annotation mutation. The new
+      // read grouping must not cache authority across this boundary.
+      const originalTools=process.env.CANVAS_MCP_DIRECT_TOOLS;assert.equal(typeof originalTools,'string');
+      let revokedAfterRead=false,b2WritesAfterRead=0,b2NotificationsAfterRead=0;
+      let b2Client:MetadataSqlEvent['client']|undefined,b2Baseline:Awaited<ReturnType<typeof snapshot>>|undefined;
+      let b2Marker:{client:MetadataSqlEvent['client'];pid:number;start:string;xid:string}|undefined;
+      const expectedB2Targets=intentBefore.currentWitness.nativeComponent.nativeBindings.map(item=>item.expected.documentId).sort();
+      assert(expectedB2Targets.includes(seed.incoming.documentId)&&expectedB2Targets.includes(seed.html.documentId));
+      try {
+        await assert.rejects(h.withProbe(async event=>{
+          if(b2Marker&&event.client===b2Marker.client&&/^\s*(?:BEGIN|COMMIT|ROLLBACK)\b/iu.test(event.text))b2Marker=undefined;
+          if(event.text.replace(/\s+/gu,' ').trim()==='SELECT document_id FROM collaboration_admission_targets WHERE request_id = $1 ORDER BY document_id FOR UPDATE'
+            &&event.values.length===1&&event.values[0]===intentBefore!.admission.requestId){
+            assert.equal(b2Marker,undefined);assert.equal(event.result.command,'SELECT');
+            assert.deepEqual(event.result.rows.map(item=>item.document_id),expectedB2Targets);
+            const witness=(await event.raw('SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
+            assert(witness.xid);assert.equal(witness.schema,h.schema);assert.equal(witness.schema_oid,h.schemaOid);
+            b2Marker={client:event.client,pid:Number(witness.pid),start:witness.start,xid:witness.xid};return;
+          }
+          if(b2Marker&&event.client===b2Marker.client){
+            if(/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE|CREATE|ALTER|DROP)\b/iu.test(event.text))b2WritesAfterRead++;
+            if(/\bpg_notify\s*\(/iu.test(event.text))b2NotificationsAfterRead++;
+          }
+          if(revokedAfterRead)return;
+          if(!b2Marker||event.client!==b2Marker.client||!/^\s*SELECT\b/iu.test(event.text)||!event.text.includes('"'+h.schema+'".workspace_file_operation_delete_receipts')
+            ||!/\bFOR\s+SHARE\s+NOWAIT\s*$/iu.test(event.text)||event.values.length!==1||event.values[0]!==batchId)return;
+          assert.equal(event.result.rowCount,0);assert.equal(b2WritesAfterRead,0);assert.equal(b2NotificationsAfterRead,0);
+          const witness=(await event.raw('SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
+          assert.equal(Number(witness.pid),b2Marker.pid);assert.equal(witness.start,b2Marker.start);assert.equal(witness.xid,b2Marker.xid);
+          assert.equal(witness.schema,h.schema);assert.equal(witness.schema_oid,h.schemaOid);b2Client=event.client;
+          b2Baseline=await snapshot();delete b2Baseline.rows.workspace_file_operation_batches;
+          await absent(path.join(h.source.rootPath,seed.sourcePath));
+          assert.deepEqual(await fs.readFile(path.join(h.dataRoot,intentBefore!.physical.trashRelativePath)),seed.bytes);
+          process.env.CANVAS_MCP_DIRECT_TOOLS=originalTools!.split(',').filter(tool=>tool.trim()!=='delete_knowledge_source').join(',');
+          revokedAfterRead=true;
+        },()=>physicalCall('recover',seed,operationId,preview.planId)),rejected('MCP_READ_PRINCIPAL_ACCESS_DENIED'));
+      }finally{
+        process.env.CANVAS_MCP_DIRECT_TOOLS=originalTools;
+      }
+      assert(revokedAfterRead&&b2Baseline&&b2Client);assert.equal(b2WritesAfterRead,0);assert.equal(b2NotificationsAfterRead,0);
+      const deniedAfterRead=await snapshot();delete deniedAfterRead.rows.workspace_file_operation_batches;
+      assert.deepEqual(deniedAfterRead,b2Baseline);assert.deepEqual(await physicalRows(batchId),stageRows);
+      const old=await rotate();assert.notEqual(currentSession,sidA);
+      await assert.rejects(physicalPublicDelete(physicalDeleteRequest({api_version:1,action:'recover',workspace_id:h.source.workspaceId,path:seed.sourcePath,operation_id:operationId,plan_id:preview.planId}),authInfo(old)),rejected('invalid_token'));
+      // A later live occupant is never adopted as the original pending file.
+      const d2=Buffer.from('Independent D2 before pending Physical5 recovery\n');
+      await fs.writeFile(path.join(h.source.rootPath,seed.sourcePath),d2,{flag:'wx',mode:0o600});
+      const beforeD2=await snapshot(),d2Files=await filesystem();
+      const mutableRetryTables=['workspace_file_operation_batches','collaboration_admission_requests','collaboration_admission_scopes','collaboration_admission_targets'];
+      for(const table of mutableRetryTables)delete beforeD2.rows[table];
+      const originalAdmission=(await h.admin.query('SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests WHERE request_id=$1',[intentBefore.admission.requestId])).rows;
+      // The existing prepared source-vacancy contract reports source-changed;
+      // the exact original payload and all later-D2 bytes remain unchanged.
+      await assert.rejects(physicalCall('recover',seed,operationId,preview.planId),rejected('source-changed'));
+      const afterD2=await snapshot();for(const table of mutableRetryTables)delete afterD2.rows[table];
+      assert.deepEqual((await h.admin.query('SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests WHERE request_id=$1',[intentBefore.admission.requestId])).rows,originalAdmission);
+      assert.deepEqual(afterD2,beforeD2);assert.deepEqual(await filesystem(),d2Files);assert.deepEqual(await physicalRows(batchId),stageRows);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.sourcePath)),d2);await fs.unlink(path.join(h.source.rootPath,seed.sourcePath));
+      const recovered=await physicalCall('recover',seed,operationId,preview.planId);assert(recovered.action==='recover');
+      // Capture the complete state only after the real projector finalized its
+      // checkpoint; the historical retry must then preserve every field.
+      const checked=await withSettledProjectionReadBoundary(()=>checkPhysicalCompletion(seed,batchId));assert.deepEqual(checked.batch.authorization,original);assert.deepEqual(checked.rows.intent,stageRows.intent);
+      await withSettledProjectionReadBoundary(()=>noMutation(()=>physicalCall('apply',seed,operationId,preview.planId)));
+      assert.deepEqual(await physicalRows(batchId),checked.rows);assert.deepEqual(await load(h.connection,seed.incoming.documentId),checked.incomingAfter);
+    });
+    await check('Physical5 actual completion ACK loss and later physical D2 retain original SID and all receipt bytes',async()=>{
+      const seed=await seedPhysical('png',false),preview=await previewPhysical(seed),operationId=crypto.randomUUID();
+      const batchId=physicalBatchId({userId:'member',clientId,workspaceId:h.source.workspaceId,tool:'delete_knowledge_source',operationId});
+      let client:MetadataSqlEvent['client']|undefined,committed=false;
+      await assert.rejects(h.withProbe(async event=>{
+        if(!client&&/^\s*INSERT\s+INTO\b/iu.test(event.text)&&event.text.includes('workspace_file_operation_delete_receipts')&&event.values[0]===batchId&&event.result.rowCount===1)client=event.client;
+        if(committed||event.client!==client||!/^\s*COMMIT\s*$/iu.test(event.text))return;
+        assert.equal(event.result.command,'COMMIT');const witness=(await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid')).rows[0];assert.equal(witness.xid,null);
+        const rows=await physicalRows(batchId);assert.equal(rows.completion.length,1);assert.equal(rows.trash.length,1);committed=true;
+        throw Object.assign(new Error('Lost actual Physical5 completion acknowledgement.'),{code:'FIXTURE_PHYSICAL5_ACK_LOST'});
+      },()=>physicalCall('apply',seed,operationId,preview.planId)),rejected('JOB_LIFECYCLE_COMMIT_UNCONFIRMED'));
+      assert(committed);const rows=await physicalRows(batchId),batch=await store.get(batchId);assert(batch&&batch.authorization.mode==='direct-mcp');
+      const original=batch.authorization,oldSid=original.actorSessionId,replacement=Buffer.from('Later unrelated physical D2\n');
+      await fs.writeFile(path.join(h.source.rootPath,seed.sourcePath),replacement,{flag:'wx',mode:0o600});const replacementIdentity=await fs.lstat(path.join(h.source.rootPath,seed.sourcePath));
+      await rotate();assert.notEqual(currentSession,oldSid);
+      await physicalCall('recover',seed,operationId,preview.planId);
+      const historical=await store.get(batchId);assert(historical);assert.equal(historical.status,'applied');assert.deepEqual(historical.authorization,original);
+      await withSettledProjectionReadBoundary(async()=>{
+        const filesBefore=await filesystem();await noMutation(()=>physicalCall('apply',seed,operationId,preview.planId));
+        assert.deepEqual(await physicalRows(batchId),rows);assert.deepEqual(await filesystem(),filesBefore);assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.sourcePath)),replacement);
+      });
+      const after=await fs.lstat(path.join(h.source.rootPath,seed.sourcePath));assert.equal(after.dev,replacementIdentity.dev);assert.equal(after.ino,replacementIdentity.ino);
+      const intent=JSON.parse(JSON.parse(rows.intent[0].body).intent_text) as PhysicalIntent;
+      assert.deepEqual(await fs.readFile(path.join(h.dataRoot,intent.physical.trashRelativePath)),seed.bytes);
+      assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',[h.source.workspaceId,seed.sourcePath])).rows[0].n,1);
+    });
+    await check('Physical5 affected and opaque HTML block real public preview/apply with no SQL or FS effects',async()=>{
+      const seed=await seedPhysical('png',false),affected='physical5-affected-'+crypto.randomUUID()+'.md',opaque='physical5-opaque-'+crypto.randomUUID()+'.html';
+      await h.upload(affected,Buffer.from('<img src="'+seed.sourcePath+'">\n'));
+      await fs.writeFile(path.join(h.source.rootPath,opaque),Buffer.from('<iframe src="'+seed.sourcePath+'"></iframe>'),{flag:'wx',mode:0o600});
+      try{
+        const result=await withSettledProjectionReadBoundary(()=>noMutation(()=>physicalPublicDelete(physicalDeleteRequest({api_version:1,action:'preview',workspace_id:h.source.workspaceId,path:seed.sourcePath}),authInfo(currentToken))));
+        assert(result.action==='preview'&&result.preview.kind==='native-path-html-assessment');assert.equal(result.preview.version,3);assert.equal(result.preview.readiness,'blocked');
+        assert.equal(result.preview.coverage.complete,false);assert.equal(result.preview.linkAssessment.complete,false);
+        assert(result.preview.linkAssessment.blockers.some(issue=>issue.path===affected&&issue.code==='affected-html-link'));
+        assert(result.preview.linkAssessment.blockers.some(issue=>issue.path===opaque&&issue.code==='unevaluated-link'));
+        await withSettledProjectionReadBoundary(()=>noMutation(()=>assert.rejects(physicalCall('apply',seed,crypto.randomUUID(),result.preview.planId),rejected('PATH_NATIVE_REQUIRED'))));
+        assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.sourcePath)),seed.bytes);
+        assert.deepEqual(await load(h.connection,seed.incoming.documentId),seed.incomingBefore);assert.deepEqual(await load(h.connection,seed.html.documentId),seed.htmlBefore);
+      }finally{await fs.unlink(path.join(h.source.rootPath,opaque));}
+    });
     await check('HTML Delete4: affected native and opaque physical HTML block public preview/apply before every domain or FS mutation', async () => {
       const { runDirectMcpWorkspaceDeleteService: publicDelete } = await import('../app/lib/files/workspace-operation-mcp-path-service');
       const { decodeDirectMcpWorkspaceDeleteRequestV1: requestDelete } = await import('../app/lib/mcp/server/workspace-path-tool-contract');
@@ -3518,15 +3951,15 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
         await groupedReadRoom.close();
       }
     });
-    assert.equal(discoveredGroups, 31);
-    assert.equal(groups, selectedCaseName === undefined ? 31 : 1);
-    assert.equal(omittedCases.length, selectedCaseName === undefined ? 0 : 30);
+    assert.equal(discoveredGroups, 36);
+    assert.equal(groups, selectedCaseName === undefined ? 36 : 1);
+    assert.equal(omittedCases.length, selectedCaseName === undefined ? 0 : 35);
     console.log(JSON.stringify({ test: 'direct-mcp-job-owner-integration', groups,
       ...(selectedCaseName === undefined ? {} : { mode: 'focused', selectedCaseId, selectedCaseName,
         omitted: omittedCases.length, fullSuite: false, fullDefaultSuiteStillRequired: true }),
       scope: selectedCaseName === undefined
         ? 'actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD plus real room/socket/admission tickets and Web rename Request/Response; no OAuth issuance, file-route TCP, SDK or browser claim'
-        : 'one selected genuine HTML Delete owner case only; 30 cases omitted; no full 31-case acceptance claim' }));
+        : 'one selected genuine path-action owner case only; 35 cases omitted; no full 36-case acceptance claim' }));
   }); completed = true;
   } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
 }
