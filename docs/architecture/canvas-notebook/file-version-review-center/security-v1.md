@@ -185,7 +185,7 @@ Einziger V1-Kernschalter ist `FILE_VERSION_CENTER_MODE`:
 
 | Modus | Capture | sichtbare UI | History/Compare | Restore/Policy-Aenderung |
 | --- | ---: | ---: | ---: | ---: |
-| fehlt oder leer | ja | ja | ja | ja, jeweils nur bei bereitem Backend |
+| fehlt oder leer | nein | nein | nein | nein |
 | unbekannt oder `off` | nein | nein | nein | nein |
 | `shadow` | ja | nein | nein | nein |
 | `read_only` | ja | ja | ja | nein |

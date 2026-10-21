@@ -72,9 +72,10 @@ async function main(): Promise<void> {
   assert.equal(capabilities('read_only').restore, false);
 
   const full = resolveFileVersionRolloutV1('full');
-  assert.deepEqual(resolveFileVersionRolloutV1(undefined), full);
-  assert.deepEqual(resolveFileVersionRolloutV1(null), full);
-  assert.deepEqual(resolveFileVersionRolloutV1('  '), full);
+  assert.deepEqual(resolveFileVersionRolloutV1(undefined), off);
+  assert.deepEqual(resolveFileVersionRolloutV1(null), off);
+  assert.deepEqual(resolveFileVersionRolloutV1(''), off);
+  assert.deepEqual(resolveFileVersionRolloutV1('  '), off);
   assert.equal(full.restore, true);
   assert.equal(full.policyMutation, true);
   assert.equal(full.notifications, true);

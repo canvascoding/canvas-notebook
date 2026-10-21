@@ -67,7 +67,7 @@ export function resolveFileVersionRolloutModeV1(
   value: string | null | undefined,
 ): FileVersionRolloutModeV1 {
   const normalized = value?.trim();
-  if (!normalized) return 'full';
+  if (!normalized) return 'off';
   if (
     normalized === 'off'
     || normalized === 'shadow'
