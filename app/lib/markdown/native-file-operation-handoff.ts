@@ -395,8 +395,10 @@ export function nativeFileOperationReceiptSetProofOnConnection(database: SqlConn
       WHERE operation_id=$1 ORDER BY mutation_id COLLATE "C"`, [operationId]) as Row[]; assertActive();
     if (rows.length !== bound.bundle.mutations.length || rows.some((row, index) => row.mutation_id !== bound.bundle.mutations[index].mutationId)) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
     const mutated = new Set(bound.bundle.mutations.map((mutation) => mutation.source.documentId));
+    let capturedRequest: ReturnType<typeof captureCollaborationAdmissionRequest> | undefined;
     for (const guard of bound.request.expectedDocuments) if (!mutated.has(guard.documentId)) {
-      const inspected = await inspectCollaborationAdmissionQuiescence(database, captureCollaborationAdmissionRequest(bound.request), guard.documentId);
+      const inspected = await inspectCollaborationAdmissionQuiescence(database,
+        capturedRequest ??= captureCollaborationAdmissionRequest(bound.request), guard.documentId);
       assertActive(); if (!inspected.alreadyProven) return fail('NATIVE_FILE_RECEIPT_UNCONFIRMED');
     }
     return hash('canvas.native-file-receipt-set.v1\n' + rows.map((row) => `${row.mutation_id}\t${row.receipt_digest}`).join('\n'));
