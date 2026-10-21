@@ -11,6 +11,7 @@ import type * as StatusUi from '../app/components/file-browser/WorkspacePathOper
 import type { OpenedDocumentAuthScope } from '../app/lib/collaboration/opened-document-registry';
 import type { WorkspacePathOperationLegacyReviewStatus, WorkspacePathOperationStatusRequest, WorkspacePathOperationStatusResponse, WorkspacePathOperationStatusTarget } from '../app/store/workspace-path-operation-store';
 import type { WorkspacePathOperationProblem } from '../app/lib/files/workspace-path-operation-problems';
+import type { WorkspaceImplicitMovePreparationPublicV2 } from '../app/lib/files/workspace-implicit-move-public';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://canvas.test/en/notebook?workspaceId=workspace-ui' });
 for (const key of ['window', 'document', 'navigator', 'HTMLElement', 'CustomEvent', 'Event', 'MouseEvent'] as const) {
@@ -27,9 +28,10 @@ const result = (status: WorkspacePathOperationStatusResponse['operation']['statu
     errorCode: 'CURRENT_CONTENT_CHANGED', selections: [{ sourcePath: 'Docs/target.md', destinationPath: 'Archive/target.md' }] },
 });
 type State = { request: WorkspacePathOperationStatusRequest | null; response: WorkspacePathOperationStatusResponse | null;
+  preparation: WorkspaceImplicitMovePreparationPublicV2 | null;
   problem: WorkspacePathOperationProblem | null; review: WorkspacePathOperationLegacyReviewStatus | null; loading: boolean; busy: boolean; pendingAction: 'resume' | 'undo' | null;
   error: 'load' | 'action' | 'access' | 'identity' | null; errorCode: string | null };
-const empty = (): State => ({ request: null, response: null, problem: null, review: null, loading: false, busy: false, pendingAction: null, error: null, errorCode: null });
+const empty = (): State => ({ request: null, response: null, preparation: null, problem: null, review: null, loading: false, busy: false, pendingAction: null, error: null, errorCode: null });
 type Controls = { state: State; auth: OpenedDocumentAuthScope | null; workspace: string; params: URLSearchParams;
   listeners: Set<() => void>; opened: WorkspacePathOperationStatusTarget[]; recoveries: string[]; loads: number; closes: number };
 
@@ -82,6 +84,17 @@ async function compileUi(controls: Controls, locale: 'en' | 'de') {
 async function main() {
   const { fireEvent, render } = await import('@testing-library/react');
   const settle = async () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+
+  // Capture only the Host's existing 2s poll without wall-clock sleeps.
+  // Store tests separately assert that every passive load is an actual GET.
+  const originalSetInterval=window.setInterval, originalClearInterval=window.clearInterval;
+  const statusPolls=new Map<number,()=>void>(); let statusTimer=0;
+  window.setInterval=((handler:TimerHandler,timeout?:number)=>{
+    assert.equal(timeout,2000); assert.equal(typeof handler,'function');
+    const id=--statusTimer; statusPolls.set(id,handler as ()=>void); return id;
+  }) as typeof window.setInterval;
+  window.clearInterval=((id?:number)=>{ if(id!==undefined)statusPolls.delete(id); }) as typeof window.clearInterval;
+  try {
   for (const locale of ['en', 'de'] as const) {
     const controls: Controls = { state: { ...empty(), request, response: result() }, auth: scope, workspace: workspaceId,
       params: new URLSearchParams({ workspaceId }), listeners: new Set(), opened: [], recoveries: [], loads: 0, closes: 0 };
@@ -130,6 +143,46 @@ async function main() {
     fireEvent.click(screen.getByTestId('workspace-path-operation-undo'));
     assert.deepEqual(controls.recoveries, ['resume', 'undo']);
 
+
+    const preparationRequestId='11111111-2222-3333-4444-555555555555';
+    const preparationRequest:WorkspacePathOperationStatusRequest={workspaceId,preparationRequestId,authScope:scope};
+    const preparation:WorkspaceImplicitMovePreparationPublicV2={version:2,kind:'implicit-move-preparation',state:'pending',
+      actorUserId:scope.userId,workspaceId,operationId:'ui-original-selection',requestId:preparationRequestId,
+      selectionDigest:'d'.repeat(64),action:'rename',selections:[{sourcePath:'Pending/source.md',destinationPath:'Archive/source.md'}],
+      status:'reserved',canResume:true,statusUrl:'/api/files/operations/implicit-moves/'+preparationRequestId,
+      resumeUrl:'/api/files/operations/implicit-moves/'+preparationRequestId};
+    const beforePendingActions=controls.recoveries.length;
+    await update({request:preparationRequest,response:null,preparation,busy:false,pendingAction:null});
+    await settle();
+    assert.ok(screen.getByText(messages.preparation.status.reserved));
+    assert.ok(screen.getByText('Pending/source.md'));
+    assert.equal(screen.queryByText(messages.progress.replace('{completed}','0').replace('{total}','2')),null,'prebatch status invents no batch step counts');
+    assert.equal(screen.queryByTestId('workspace-path-operation-undo'),null);
+    assert.equal(controls.recoveries.length,beforePendingActions,'mounting pending preparation does not Continue');
+    assert.equal(statusPolls.size,1);
+    const beforePassivePoll=controls.loads;
+    await act(async()=>{for(const poll of statusPolls.values())poll();});
+    assert.equal(controls.loads,beforePassivePoll+1,'a passive poll only requests the existing status loader');
+    assert.equal(controls.recoveries.length,beforePendingActions,'polling never invokes recovery');
+    fireEvent.click(screen.getByTestId('workspace-path-operation-resume'));
+    assert.deepEqual(controls.recoveries.slice(beforePendingActions),['resume'],'Continue requires the explicit button');
+    await update({busy:true,pendingAction:'resume'});
+    assert.equal((screen.getByTestId('workspace-path-operation-resume') as HTMLButtonElement).disabled,true);
+    const beforeBusyPoll=controls.loads;
+    await act(async()=>{for(const poll of statusPolls.values())poll();});
+    assert.equal(controls.loads,beforeBusyPoll,'prebatch polling cannot race a pending explicit Continue');
+    await update({preparation:{...preparation,status:'recovery_required',canResume:false},busy:false,pendingAction:null});
+    assert.ok(screen.getByText(messages.preparation.status.recovery_required));
+    assert.equal(screen.queryByTestId('workspace-path-operation-resume'),null,'non-resumable preparation has no Continue control');
+    await update({preparation:{version:2,kind:'implicit-move-preparation',state:'aborted',actorUserId:scope.userId,workspaceId,
+      operationId:preparation.operationId,requestId:preparationRequestId,selectionDigest:preparation.selectionDigest,
+      action:'rename',selections:preparation.selections,reason:'precondition_failed'}});
+    assert.ok(screen.getByText(messages.preparation.status.aborted));
+    assert.equal(screen.queryByTestId('workspace-path-operation-resume'),null);
+    const beforeAbortedPoll=controls.loads;
+    await act(async()=>{for(const poll of statusPolls.values())poll();});
+    assert.equal(controls.loads,beforeAbortedPoll,'terminal abort is not polled as pending');
+    await update({preparation:null});
     const reviewId = 'legacy-ui-review-123456';
     await update({ request: { workspaceId, reviewId, authScope: scope }, response: null,
       review: { reviewId, kind: 'move', status: 'pending', selections: [{ sourcePath: 'stored.md' }], batchId: null, errorCode: null } });
@@ -174,7 +227,28 @@ async function main() {
   assert.equal(new URL(window.location.href).searchParams.has('workspacePathBatch'), false, 'one-shot link is consumed before asynchronous navigation');
   screen.rerender(<Host />); await settle();
   assert.equal(controls.opened.length, 1, 'delayed route snapshots cannot reopen a consumed target');
-  screen.unmount(); dom.window.close();
+
+  screen.unmount();
+  const preparationRequestId='11111111-2222-3333-4444-555555555555';
+  const pendingControls:Controls={state:empty(),auth:null,workspace:workspaceId,
+    params:new URLSearchParams({workspaceId,workspacePathPreparation:preparationRequestId}),
+    listeners:new Set(),opened:[],recoveries:[],loads:0,closes:0};
+  window.history.replaceState(null,'','/en/notebook?'+pendingControls.params);
+  const PendingHost=await compileUi(pendingControls,'en');
+  const pendingScreen=render(<PendingHost/>); await settle();
+  assert.equal(pendingControls.opened.length,0,'cold preparation deep link waits for auth');
+  await act(async()=>{pendingControls.auth=scope;for(const listener of pendingControls.listeners)listener();}); await settle();
+  assert.deepEqual(pendingControls.opened,[{workspaceId,preparationRequestId}]);
+  assert.equal(new URL(window.location.href).searchParams.has('workspacePathPreparation'),false);
+  assert.deepEqual(pendingControls.recoveries,[],'cold link navigation cannot Continue');
+  pendingScreen.rerender(<PendingHost/>); await settle();
+  assert.equal(pendingControls.opened.length,1,'a consumed preparation link cannot reopen from a delayed snapshot');
+  pendingScreen.unmount();
+  assert.equal(statusPolls.size,0,'all mounted Host poll callbacks are released');
+  } finally {
+    window.setInterval=originalSetInterval;window.clearInterval=originalClearInterval;dom.window.close();
+  }
+
   console.log('workspace path status UI: localized independent dialog, capability gates, truthful progress, auth/workspace isolation and cold links passed');
 }
 

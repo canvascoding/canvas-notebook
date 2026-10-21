@@ -6,15 +6,18 @@ import { openedDocumentAuthScope, type OpenedDocumentAuthScope } from '@/app/lib
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import type { WorkspacePathOperationResponse } from '@/app/lib/files/workspace-path-operation-public';
 import { readWorkspacePathOperation } from '@/app/lib/files/workspace-path-operation-parser';
-import { observeWorkspacePathOperationAttemptCompletion } from '@/app/lib/files/workspace-path-operation-attempts';
+import { observeWorkspacePathOperationAttemptCompletion, observeWorkspacePathOperationAttemptImplicitMapping, observeWorkspacePathOperationAttemptPreparationAbort } from '@/app/lib/files/workspace-path-operation-attempts';
 import type { WorkspacePathOperationProblem } from '@/app/lib/files/workspace-path-operation-problems';
 import { useWorkspaceStore } from './workspace-store';
+import type { WorkspaceImplicitMoveBindingPublic, WorkspaceImplicitMovePreparationPublicV2 } from '@/app/lib/files/workspace-implicit-move-public';
+import { readWorkspaceImplicitMoveBinding, readWorkspaceImplicitMovePreparation, workspaceImplicitMovePreparationBinding } from '@/app/lib/files/workspace-implicit-move-parser';
 
 export type WorkspacePathOperationStatusTarget = { workspaceId: string }
-  & ({ batchId: string; problemId?: never; reviewId?: never; documentReviewPaused?: never }
-    | { problemId: string; batchId?: never; reviewId?: never; documentReviewPaused?: never }
-    | { reviewId: string; batchId?: never; problemId?: never; documentReviewPaused?: never }
-    | { documentReviewPaused: true; batchId?: never; problemId?: never; reviewId?: never });
+  & ({ batchId: string; problemId?: never; reviewId?: never; preparationRequestId?: never; documentReviewPaused?: never }
+    | { problemId: string; batchId?: never; reviewId?: never; preparationRequestId?: never; documentReviewPaused?: never }
+    | { reviewId: string; batchId?: never; problemId?: never; preparationRequestId?: never; documentReviewPaused?: never }
+    | { preparationRequestId: string; batchId?: never; problemId?: never; reviewId?: never; documentReviewPaused?: never }
+    | { documentReviewPaused: true; batchId?: never; problemId?: never; reviewId?: never; preparationRequestId?: never });
 export type WorkspacePathOperationStatusRequest = WorkspacePathOperationStatusTarget & { authScope: OpenedDocumentAuthScope };
 export type WorkspacePathOperationStatusResponse = WorkspacePathOperationResponse & { recovery?: { canResume: boolean; canUndo: boolean } };
 export type WorkspacePathOperationLegacyReviewStatus = {
@@ -27,13 +30,14 @@ type State = {
   request: WorkspacePathOperationStatusRequest | null;
   response: WorkspacePathOperationStatusResponse | null;
   problem: WorkspacePathOperationProblem | null;
+  preparation: WorkspaceImplicitMovePreparationPublicV2 | null;
   review: WorkspacePathOperationLegacyReviewStatus | null;
   loading: boolean; busy: boolean;
   pendingAction: 'resume' | 'undo' | null;
   error: 'load' | 'action' | 'access' | 'identity' | null;
   errorCode: string | null;
 };
-const initial: State = { request: null, response: null, problem: null, review: null, loading: false, busy: false,
+const initial: State = { request: null, response: null, problem: null, preparation: null, review: null, loading: false, busy: false,
   pendingAction: null, error: null, errorCode: null };
 export const useWorkspacePathOperationStore = create<State>(() => initial);
 let generation = 0;
@@ -42,6 +46,8 @@ let controller: AbortController | null = null;
 let opener: HTMLElement | null = null;
 const pinnedPlans = new WeakMap<WorkspacePathOperationStatusRequest, string>();
 const resolvedBatches = new WeakMap<WorkspacePathOperationStatusRequest, string>();
+const preparationPins = new WeakMap<WorkspacePathOperationStatusRequest, WorkspaceImplicitMoveBindingPublic>();
+const preparationSelections = new WeakMap<WorkspacePathOperationStatusRequest, Pick<WorkspaceImplicitMovePreparationPublicV2, 'action' | 'selections'>>();
 const batchFor = (request: WorkspacePathOperationStatusRequest) => request.batchId ?? resolvedBatches.get(request);
 
 const validId = (value: unknown): value is string => typeof value === 'string' && /^[A-Za-z0-9_-]{16,128}$/u.test(value);
@@ -69,6 +75,18 @@ function readOperation(payload: unknown, request: WorkspacePathOperationStatusRe
     if (!batchFor(request)) throw new Error('identity');
     operation = readWorkspacePathOperation(value?.operation,
       { batchId: batchFor(request), workspaceId: request.workspaceId, planId: expectedPlan });
+    if (request.preparationRequestId) {
+      const pin = preparationPins.get(request);
+      const selected = preparationSelections.get(request);
+      if (!pin || !selected || operation.legacyImplicitReplay !== undefined || operation.kind !== selected.action
+        || JSON.stringify(operation.selections) !== JSON.stringify(selected.selections)) throw new Error('identity');
+      const binding = readWorkspaceImplicitMoveBinding(pin,{ actorUserId: request.authScope.userId,
+        workspaceId: request.workspaceId, requestId: request.preparationRequestId });
+      if (operation.implicitBinding !== undefined) readWorkspaceImplicitMoveBinding(operation.implicitBinding,binding);
+      // Ordinary batch GET omits the preparation mapping. Retain only the
+      // original verified pin, never a newly supplied or inferred binding.
+      operation = { ...operation, implicitBinding: binding };
+    }
   } catch { throw new Error('identity'); }
   if (!value || value.recovery && (typeof value.recovery.canResume !== 'boolean' || typeof value.recovery.canUndo !== 'boolean')) {
     throw new Error('identity');
@@ -105,7 +123,7 @@ function publishResult(request: WorkspacePathOperationStatusRequest, response: W
   const pendingAction = useWorkspacePathOperationStore.getState().pendingAction;
   const running = ['queued', 'applying'].includes(response.operation.status);
   const expected = pendingAction === 'undo' ? 'undone' : 'applied';
-  useWorkspacePathOperationStore.setState({ response, problem: null, review: null, loading: false,
+  useWorkspacePathOperationStore.setState({ response, problem: null, preparation: null, review: null, loading: false,
     busy: Boolean(pendingAction && running), pendingAction: running ? pendingAction : null,
     error: pendingAction && !running && response.operation.status !== expected ? 'action' : null,
     errorCode: response.operation.errorCode });
@@ -114,8 +132,10 @@ function publishResult(request: WorkspacePathOperationStatusRequest, response: W
 
 export async function openWorkspacePathOperationStatus(target: WorkspacePathOperationStatusTarget): Promise<boolean> {
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/u.test(target.workspaceId)
-    || [target.batchId, target.problemId, target.reviewId, target.documentReviewPaused].filter(Boolean).length !== 1
-    || !target.documentReviewPaused && !validId(target.batchId ?? target.problemId ?? target.reviewId)) return false;
+    || [target.batchId, target.problemId, target.reviewId, target.preparationRequestId, target.documentReviewPaused].filter(Boolean).length !== 1
+    || (target.preparationRequestId !== undefined
+      ? !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/u.test(target.preparationRequestId)
+      : !target.documentReviewPaused && !validId(target.batchId ?? target.problemId ?? target.reviewId))) return false;
   const authScope = openedDocumentAuthScope();
   if (!authScope) return false;
   const opening = ++navigationGeneration;
@@ -146,10 +166,56 @@ export function closeWorkspacePathOperationStatus(): void {
     if (url.searchParams.get('workspacePathBatch') === request.batchId) url.searchParams.delete('workspacePathBatch');
     if (url.searchParams.get('workspacePathProblem') === request.problemId) url.searchParams.delete('workspacePathProblem');
     if (url.searchParams.get('workspaceOperationReview') === request.reviewId) url.searchParams.delete('workspaceOperationReview');
+    if (url.searchParams.get('workspacePathPreparation') === request.preparationRequestId) url.searchParams.delete('workspacePathPreparation');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }
   const target = opener; opener = null;
   window.requestAnimationFrame(() => { if (target?.isConnected) target.focus({ preventScroll: true }); });
+}
+
+/** A preparation endpoint can reveal a batch only through its verified original
+ * binding. After that transition, existing batch GET/recovery keeps the exact
+ * batch/plan pins. These UI observations never replay file-store mutations. */
+function publishPreparationPayload(request: WorkspacePathOperationStatusRequest, payload: unknown): void {
+  if (!request.preparationRequestId) throw new Error('identity');
+  const value = payload as { preparation?: unknown; operation?: unknown } | null;
+  const pin = preparationPins.get(request);
+  const expected = { actorUserId: request.authScope.userId, workspaceId: request.workspaceId,
+    requestId: request.preparationRequestId, ...(pin ? { operationId: pin.operationId, selectionDigest: pin.selectionDigest } : {}),
+    ...preparationSelections.get(request) };
+  if (value?.preparation !== undefined && value.operation === undefined) {
+    let preparation: WorkspaceImplicitMovePreparationPublicV2;
+    try { preparation = readWorkspaceImplicitMovePreparation(value.preparation,expected); }
+    catch { throw new Error('identity'); }
+    preparationPins.set(request,workspaceImplicitMovePreparationBinding(preparation));
+    preparationSelections.set(request,{ action: preparation.action, selections: preparation.selections });
+    if (!requestCurrent(request)) return;
+    if (preparation.state === 'aborted') observeWorkspacePathOperationAttemptPreparationAbort(preparation,request.authScope);
+    useWorkspacePathOperationStore.setState({ preparation, response: null, problem: null, review: null,
+      loading: false, busy: false, pendingAction: null, error: null, errorCode: null });
+    return;
+  }
+  if (!value || value.preparation !== undefined || value.operation === undefined) throw new Error('identity');
+  let operation;
+  try {
+    operation = readWorkspacePathOperation(value.operation,{ workspaceId: request.workspaceId });
+    const binding = readWorkspaceImplicitMoveBinding(operation.implicitBinding,expected);
+    const selected = preparationSelections.get(request);
+    if (operation.kind === 'delete' || selected && (operation.kind !== selected.action
+      || JSON.stringify(operation.selections) !== JSON.stringify(selected.selections))) throw new Error('identity');
+    const selections = operation.selections.map(selection => {
+      if (typeof selection.destinationPath !== 'string') throw new Error('identity');
+      return { sourcePath: selection.sourcePath, destinationPath: selection.destinationPath };
+    });
+    preparationPins.set(request,binding);
+    // A cold UUID can reveal an already-bound batch on its first GET. Pin its
+    // exact original action/selection as well as the operation/UUID/digest.
+    preparationSelections.set(request,{ action: operation.kind, selections });
+  } catch { throw new Error('identity'); }
+  if (!requestCurrent(request)) return;
+  observeWorkspacePathOperationAttemptImplicitMapping(operation, request.authScope);
+  resolvedBatches.set(request,operation.batchId);
+  publishResult(request,readOperation(payload,request));
 }
 
 export async function reloadWorkspacePathOperationStatus(): Promise<void> {
@@ -162,6 +228,7 @@ export async function reloadWorkspacePathOperationStatus(): Promise<void> {
   try {
     const batchId = batchFor(request);
     const response = await fetch(batchId ? `/api/files/operations/batches/${encodeURIComponent(batchId)}`
+      : request.preparationRequestId ? `/api/files/operations/implicit-moves/${encodeURIComponent(request.preparationRequestId)}`
       : request.reviewId ? `/api/files/operation-reviews/${encodeURIComponent(request.reviewId)}`
       : `/api/files/operations/problems/${encodeURIComponent(request.problemId!)}`, {
       credentials: 'include', headers: { [WORKSPACE_ID_HEADER]: request.workspaceId }, cache: 'no-store', signal: controller.signal,
@@ -171,12 +238,17 @@ export async function reloadWorkspacePathOperationStatus(): Promise<void> {
     if (!response.ok) {
       const denied = [401, 403, 404].includes(response.status);
       useWorkspacePathOperationStore.setState({ loading: false, busy: false, pendingAction: null,
-        response: null, problem: null, review: null, error: denied ? 'access' : 'load', errorCode: safeCode(payload?.code) });
+        response: null, problem: null, preparation: null, review: null, error: denied ? 'access' : 'load', errorCode: safeCode(payload?.code) });
       return;
     }
     if (batchId) publishResult(request, readOperation(payload, request,
       useWorkspacePathOperationStore.getState().response?.operation.planId));
-    else if (request.reviewId) {
+    else if (request.preparationRequestId) {
+      publishPreparationPayload(request,payload);
+      // Resolve the server's existing batch recovery flags only after the
+      // implicit endpoint strictly proved the mapping. This is another GET.
+      if (requestCurrent(request) && batchFor(request)) await reloadWorkspacePathOperationStatus();
+    } else if (request.reviewId) {
       const review = readLegacyReview(payload, request);
       if (review.batchId && review.kind !== 'copy') {
         resolvedBatches.set(request, review.batchId);
@@ -188,7 +260,7 @@ export async function reloadWorkspacePathOperationStatus(): Promise<void> {
       review: null, loading: false, error: null, errorCode: null });
   } catch (error) {
     if (load !== generation || !requestCurrent(request)) return;
-    useWorkspacePathOperationStore.setState({ response: null, problem: null, review: null, loading: false, busy: false, pendingAction: null,
+    useWorkspacePathOperationStore.setState({ response: null, problem: null, preparation: null, review: null, loading: false, busy: false, pendingAction: null,
       error: error instanceof Error && error.message === 'identity' ? 'identity' : 'load', errorCode: null });
   }
 }
@@ -199,6 +271,10 @@ export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): 
   const request = state.request;
   const operation = state.response?.operation;
   const batchId = request ? batchFor(request) : undefined;
+  if (request?.preparationRequestId && !batchId) {
+    if (action === 'resume') await resumeWorkspacePathPreparation();
+    return;
+  }
   if (!request || !batchId || !requestCurrent(request) || !operation || state.busy || state.loading || state.error
     || !(action === 'undo' ? state.response?.recovery?.canUndo : state.response?.recovery?.canResume)) return;
   const mutation = ++generation;
@@ -225,5 +301,42 @@ export async function recoverWorkspacePathOperation(action: 'resume' | 'undo'): 
     const mismatched = error instanceof Error && error.message === 'identity';
     useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null,
       error: mismatched ? 'identity' : 'action', errorCode: null, ...(mismatched ? { response: null, problem: null, review: null } : {}) });
+  }
+}
+
+/** An explicit user action only. Mount, reload and polling never call this. */
+export async function resumeWorkspacePathPreparation(): Promise<void> {
+  const state = useWorkspacePathOperationStore.getState(), request = state.request;
+  const preparation = state.preparation;
+  if (!request?.preparationRequestId || batchFor(request) || !requestCurrent(request) || state.loading || state.busy || state.error
+    || !preparation || preparation.state !== 'pending' || !preparation.canResume
+    || preparation.requestId !== request.preparationRequestId) return;
+  const mutation = ++generation;
+  controller?.abort(); controller = new AbortController();
+  useWorkspacePathOperationStore.setState({ busy: true, pendingAction: 'resume', error: null, errorCode: null });
+  try {
+    const response = await fetch(preparation.resumeUrl,{ method: 'POST', credentials: 'include', cache: 'no-store',
+      headers: { [WORKSPACE_ID_HEADER]: request.workspaceId }, signal: controller.signal });
+    const payload = await response.json().catch(() => null) as { success?: unknown; code?: unknown; preparation?: unknown } | null;
+    if (mutation !== generation || !requestCurrent(request)) return;
+    // A proven terminal abort is a received result, including its deliberate 409.
+    if (!response.ok && !(response.status === 409 && payload?.success === false
+      && payload.code === 'IMPLICIT_MOVE_PREPARATION_ABORTED' && payload.preparation !== undefined)) {
+      const denied = [401,403,404].includes(response.status);
+      useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null,
+        error: denied ? 'access' : 'action', errorCode: safeCode(payload?.code),
+        ...(denied ? { response: null, problem: null, preparation: null, review: null } : {}) });
+      return;
+    }
+    publishPreparationPayload(request,payload);
+    if (!response.ok && useWorkspacePathOperationStore.getState().preparation?.state !== 'aborted') throw new Error('identity');
+    if (requestCurrent(request) && batchFor(request)) await reloadWorkspacePathOperationStatus();
+    if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+  } catch (error) {
+    if (mutation !== generation || !requestCurrent(request)) return;
+    const mismatched = error instanceof Error && error.message === 'identity';
+    useWorkspacePathOperationStore.setState({ busy: false, pendingAction: null,
+      error: mismatched ? 'identity' : 'action', errorCode: null,
+      ...(mismatched ? { response: null, problem: null, preparation: null, review: null } : {}) });
   }
 }

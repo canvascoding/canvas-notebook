@@ -22,7 +22,7 @@ import { prepareWorkspacePathImportOperation } from '@/app/lib/files/workspace-p
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from '@/app/lib/files/workspace-operation-batch-contract';
 import { prepareWorkspaceImplicitMoveOperation, WorkspaceImplicitMoveOperationError } from '@/app/lib/files/workspace-implicit-move-operation';
-import { workspaceImplicitMoveResponse } from '@/app/lib/files/workspace-implicit-move-response';
+import { workspaceImplicitMoveResponse, workspaceImplicitMoveOperationPublic } from '@/app/lib/files/workspace-implicit-move-response';
 
 interface RenameRequestBody {
   oldPath: string;
@@ -165,12 +165,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
     if (selected.mode === 'response') return selected.response;
     let result: { batch: WorkspaceOperationBatchRecord; scope: WorkspaceOperationBatchScope };
+    let implicitResult: Extract<Awaited<ReturnType<typeof prepareWorkspaceImplicitMoveOperation>>, { state: 'batch' }> | undefined;
     if (selected.mode === 'implicit-move') {
       const prepared = await prepareWorkspaceImplicitMoveOperation(original, {
         workspaceId: selected.workspaceId, operationId: selected.operationId, kind: selected.kind, selections: selected.selections,
       });
       if (prepared.state !== 'batch') return workspaceImplicitMoveResponse(prepared, false);
       historicalResult = prepared.historical;
+      implicitResult = prepared;
       result = { batch: prepared.batch, scope: prepared.scope };
     } else result = selected;
     // The worker acquires the same lock, so waiting begins after request preparation releases it.
@@ -178,6 +180,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     const batch = await waitForWorkspacePathOperation(result.batch);
     operation = { ...workspacePathOperationMetadata(batch), ...(preparation ? { preparation } : {}) };
     const payload = await workspacePathOperationResponse(batch, result.scope);
+    if (implicitResult) {
+      payload.operation = workspaceImplicitMoveOperationPublic(payload.operation, implicitResult);
+      operation = payload.operation;
+    }
     if (historicalResult) payload.historical = true;
     if (preparation) {
       payload.operation = { ...payload.operation, preparation };

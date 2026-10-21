@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import Module from 'node:module';
 import { NextRequest, NextResponse } from 'next/server';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
+import type { NotificationItem } from '../app/components/notifications/notification-summary';
 
 async function main() {
   const workspace: WorkspaceContext = { workspaceId: 'workspace-a', workspaceType: 'personal',
@@ -16,10 +17,10 @@ async function main() {
   let directAvailable = true;
   let updateFound = true;
   let dismissFailed = false;
-  const directItems = [{ id: `file-path-problem:${problemId}`, type: 'file.operation_attention',
-    title: 'File action needs attention', detail: 'EACCES', previewUrl: null,
+  const directItems: NotificationItem[] = [{ id: `file-path-problem:${problemId}`, type: 'file.operation_attention',
+    title: 'File action needs attention', detail: 'EACCES',
     deepLink: `/notebook?workspaceId=workspace-a&workspacePathProblem=${problemId}`, occurredAt: new Date(100).toISOString(),
-    unread: true, notificationRevision: '100', priority: 'high', workspaceId: workspace.workspaceId, workspaceName: workspace.displayName,
+    unread: true, notificationRevision: '100', priority: 'high', workspaceId: workspace.workspaceId, workspaceName: workspace.displayName ?? null,
     target: { kind: 'file_path_operation', workspaceId: workspace.workspaceId, operationKind: 'delete', status: 'failed', problemId } }];
   const internals = Module as typeof Module & { _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown };
   const originalLoad = internals._load;
@@ -134,6 +135,26 @@ async function main() {
       assert.equal(response.status, 404);
       updateFound = true;
     }
+
+    const preparationRequestId='11111111-2222-3333-4444-555555555555';
+    const preparationItemId='file-path-preparation:'+preparationRequestId;
+    const beforePreparationGet=calls.length;
+    directItems.push({...directItems[0],id:preparationItemId,title:'Pending preparation',detail:'Docs/target.md',priority:'normal',
+      deepLink:'/notebook?workspaceId=workspace-a&workspacePathPreparation='+preparationRequestId,
+      target:{kind:'file_path_operation',workspaceId:workspace.workspaceId,operationKind:'rename',status:'pending',preparationRequestId}});
+    response=await get(); assert.equal(response.status,200); payload=await response.json();
+    const pending=payload.data.sections.notifications.find((item:{id:string})=>item.id===preparationItemId);
+    assert(pending); assert.equal(pending.target.preparationRequestId,preparationRequestId);
+    assert.equal(calls.length,beforePreparationGet,'summary discovery never marks read, resumes or creates an operation');
+    response=await patch({action:'mark_item_read',itemId:preparationItemId,workspaceId:workspace.workspaceId});
+    assert.equal(response.status,200);
+    assert.deepEqual(calls.at(-1),{lane:'path',itemId:preparationItemId,workspaceId:workspace.workspaceId},'pending mark-read uses the central path source');
+    const afterPreparationRead=calls.length;
+    response=await patch({action:'mark_item_read',itemId:preparationItemId,workspaceId:'foreign-workspace'});
+    assert.equal(response.status,404); assert.equal(calls.length,afterPreparationRead);
+    response=await patch({action:'set_item_read_state',itemId:preparationItemId,workspaceId:workspace.workspaceId,read:true});
+    assert.equal(response.status,400); assert.equal(calls.length,afterPreparationRead);
+
     calls.length = 0;
     response = await patch({ action: 'mark_all_read' });
     assert.equal(response.status, 200);

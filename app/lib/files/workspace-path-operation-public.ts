@@ -1,5 +1,6 @@
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 import type { WorkspaceOperationBatchStatus } from './workspace-operation-batch-store';
+import type { WorkspaceImplicitMoveBindingPublic, WorkspaceImplicitMoveLegacyReplayPublic } from './workspace-implicit-move-public';
 import type { WorkspacePathRenameMutation } from './file-events';
 
 export type WorkspacePathOperationIssue = { code: string; path: string; targetLiteral?: string; line?: number };
@@ -39,6 +40,10 @@ export type WorkspacePathOperationPublic = WorkspaceOperationBatchProgress & {
   issues?: WorkspacePathOperationIssue[];
   /** Added only by a server that verified the immutable import/operation mapping. */
   preparation?: { previewPlanId: string };
+  /** Added only after strict implicit selection -> batch/P0/final admission history verification. */
+  implicitBinding?: WorkspaceImplicitMoveBindingPublic;
+  /** Verified original legacy null-plan replay. Contains no invented preparation identity. */
+  legacyImplicitReplay?: WorkspaceImplicitMoveLegacyReplayPublic;
 };
 
 export type WorkspacePathOperationResponse = {

@@ -3891,6 +3891,10 @@
       "license": "Team license event"
     },
     "filePathOperations": {
+      "pending": {
+        "title": "{action}: preparation pending",
+        "detail": "The original selection is saved. Open the preparation to check its status and explicitly continue it."
+      },
       "openFailed": "The file action could not be opened.",
       "kind_move": "Move",
       "kind_rename": "Rename",
@@ -3980,6 +3984,20 @@
     }
   },
   "workspacePathOperationStatus": {
+    "preparation": {
+      "status": {
+        "reserved": "Preparing the file action",
+        "draining": "Saving accepted document changes",
+        "recovery_required": "Preparation needs attention",
+        "aborted": "Preparation ended"
+      },
+      "guidance": {
+        "reserved": "The original selection is saved. A final file action has not been bound yet. Use Continue to advance this exact preparation.",
+        "draining": "Accepted edits are being saved. Refresh only reads the status; Continue advances this same preparation.",
+        "recovery_required": "The preparation could not finish safely. Check the current state and error; this dialog will not continue it automatically.",
+        "aborted": "This preparation will not run. Check the current files before making a new request."
+      }
+    },
     "openFile": "Open affected file",
     "recheck": "Check again",
     "openStatus": "View action status",

@@ -23,15 +23,19 @@ export function workspaceOperationReviewHref(target: Pick<WorkspaceOperationNoti
 
 export const WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX = 'file-path-operation:';
 export const WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX = 'file-path-problem:';
-export type WorkspacePathOperationAttentionStatus = 'queued' | 'applying' | 'blocked' | 'stale' | 'failed' | 'needs_recovery';
+export const WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX = 'file-path-preparation:';
+export type WorkspacePathOperationAttentionStatus = 'pending' | 'queued' | 'applying' | 'blocked' | 'stale' | 'failed' | 'needs_recovery';
 export type WorkspacePathOperationNotificationTarget = {
   kind: 'file_path_operation';
   workspaceId: string;
   operationKind: 'move' | 'rename' | 'delete';
   status: WorkspacePathOperationAttentionStatus;
-} & ({ batchId: string; problemId?: never } | { problemId: string; batchId?: never });
+} & ({ batchId: string; problemId?: never; preparationRequestId?: never }
+  | { problemId: string; batchId?: never; preparationRequestId?: never }
+  | { preparationRequestId: string; batchId?: never; problemId?: never });
 
 export function workspacePathOperationHref(target: WorkspacePathOperationNotificationTarget): string {
   return `/notebook?${new URLSearchParams({ workspaceId: target.workspaceId,
-    ...(target.batchId !== undefined ? { workspacePathBatch: target.batchId } : { workspacePathProblem: target.problemId! }) })}`;
+    ...(target.preparationRequestId !== undefined ? { workspacePathPreparation: target.preparationRequestId }
+      : target.batchId !== undefined ? { workspacePathBatch: target.batchId } : { workspacePathProblem: target.problemId! }) })}`;
 }

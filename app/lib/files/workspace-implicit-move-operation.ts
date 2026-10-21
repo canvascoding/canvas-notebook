@@ -1,5 +1,7 @@
 import 'server-only';
 
+import type { WorkspaceImplicitMoveSelectionPublic, WorkspaceImplicitMoveBindingPublic, WorkspaceImplicitMoveLegacyReplayPublic } from './workspace-implicit-move-public';
+
 import { NextRequest } from 'next/server';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -40,11 +42,10 @@ type Lookup = Readonly<{ workspaceId: string; requestId: string }>;
 type Saved = Readonly<{ request: CollaborationAdmissionRequest; selection: WorkspaceImplicitMoveSelectionV1;
   headerStatus: string; outcome: CollaborationAdmissionOutcome | null }>;
 type BatchResult = Readonly<{ state: 'batch'; operationId: string; requestId?: string;
-  batch: WorkspaceOperationBatchRecord; scope: WorkspaceOperationBatchScope; historical: boolean; legacy: boolean }>;
-type PendingResult = Readonly<{ state: 'pending'; workspaceId: string; operationId: string; requestId: string;
-  selectionDigest: string; statusUrl: string; resumeUrl: string }>;
-type AbortedResult = Readonly<{ state: 'aborted'; workspaceId: string; operationId: string; requestId: string;
-  reason: 'user_cancelled' | 'precondition_failed' }>;
+  batch: WorkspaceOperationBatchRecord; scope: WorkspaceOperationBatchScope; historical: boolean; legacy: boolean; implicitBinding?: WorkspaceImplicitMoveBindingPublic; legacyImplicitReplay?: WorkspaceImplicitMoveLegacyReplayPublic }>;
+type PendingResult = WorkspaceImplicitMoveSelectionPublic & Readonly<{ state: 'pending';
+  status: 'reserved' | 'draining' | 'recovery_required'; canResume: boolean; statusUrl: string; resumeUrl: string }>;
+type AbortedResult = WorkspaceImplicitMoveSelectionPublic & Readonly<{ state: 'aborted'; reason: 'user_cancelled' | 'precondition_failed' }>;
 export type WorkspaceImplicitMoveOperationResult = BatchResult | PendingResult | AbortedResult;
 type Snapshot = Readonly<{ saved: Saved; result: WorkspaceImplicitMoveOperationResult }>;
 type Progress = Readonly<{ documentId: string; proofText: string | null }>;
@@ -143,6 +144,20 @@ async function loadSaved(database: SqlConnection, access: WorkspaceRequestPrinci
   if (row.status === 'committed' && !outcome || row.status !== 'committed' && outcome) fail();
   return Object.freeze({ request: captured.request, selection, headerStatus: String(row.status), outcome });
 }
+/** Primitive permitted metadata from the decoded original selection. Callers have
+ * separately verified the actual current principal; this is never a grant. */
+function publicSelection(saved: Saved): WorkspaceImplicitMoveSelectionPublic {
+  const selection = saved.selection;
+  return Object.freeze({ actorUserId: selection.origin.userId, workspaceId: selection.scope.workspaceId,
+    operationId: selection.operationId, requestId: saved.request.requestId,
+    selectionDigest: getWorkspaceImplicitMoveSelectionDigest(selection), action: selection.action,
+    selections: Object.freeze(selection.selections.map(item => Object.freeze({ ...item }))) });
+}
+function publicBinding(saved: Saved): WorkspaceImplicitMoveBindingPublic {
+  const identity = publicSelection(saved);
+  return Object.freeze({ version: 1, kind: 'implicit-move-binding', actorUserId: identity.actorUserId,
+    workspaceId: identity.workspaceId, operationId: identity.operationId, requestId: identity.requestId, selectionDigest: identity.selectionDigest });
+}
 async function readFinalBatch(database: SqlConnection, access: WorkspaceRequestPrincipalAccess, saved: Saved): Promise<BatchResult> {
   const { selection, outcome } = saved;
   if (!outcome || outcome.version !== 1) fail();
@@ -203,17 +218,16 @@ async function readFinalBatch(database: SqlConnection, access: WorkspaceRequestP
   if (header.status === 'committed' && !await readHistoricalCollaborationAdmissionOutcomeOnConnection(database, final, { readOnly: true })) fail();
   await access.assertCurrent();
   return Object.freeze({ state: 'batch', operationId: selection.operationId, requestId: saved.request.requestId,
-    batch, scope: scope(access), historical: true, legacy: false });
+    batch, scope: scope(access), historical: true, legacy: false, implicitBinding: publicBinding(saved) });
 }
 async function snapshot(database: SqlConnection, access: WorkspaceRequestPrincipalAccess, saved: Saved): Promise<Snapshot> {
-  const selection = saved.selection;
-  if (saved.outcome?.version === 2) return { saved, result: { state: 'aborted', workspaceId: selection.scope.workspaceId,
-    operationId: selection.operationId, requestId: saved.request.requestId, reason: saved.outcome.reasonCode } };
+  if (saved.outcome?.version === 2) return { saved, result: { state: 'aborted', ...publicSelection(saved), reason: saved.outcome.reasonCode } };
   if (saved.outcome) return { saved, result: await readFinalBatch(database, access, saved) };
   if (saved.headerStatus === 'cancelled') fail('IMPLICIT_MOVE_PREPARATION_CANCELLED');
+  const status = saved.headerStatus;
+  if (status !== 'reserved' && status !== 'draining' && status !== 'recovery_required') fail();
   const url = `/api/files/operations/implicit-moves/${saved.request.requestId}`;
-  return { saved, result: { state: 'pending', workspaceId: selection.scope.workspaceId, operationId: selection.operationId,
-    requestId: saved.request.requestId, selectionDigest: getWorkspaceImplicitMoveSelectionDigest(selection), statusUrl: url, resumeUrl: url } };
+  return { saved, result: { state: 'pending', ...publicSelection(saved), status, canResume: status === 'reserved' || status === 'draining', statusUrl: url, resumeUrl: url } };
 }
 class UnconfirmedPhase extends Error {
   constructor(readonly attempted: PhaseResult, cause: unknown) { super('Implicit Move phase COMMIT is unconfirmed.', { cause }); }
@@ -295,7 +309,10 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
             selections: input.selections.map(selection => ({ ...selection })), idempotencyKey: input.operationId,
             actorUserId: access.userId, actorId: access.userId, actorDisplayName: access.userId, actorType: 'user' });
           if (!batch) fail(); await access.assertCurrent();
-          return { legacy: { state: 'batch', operationId: input.operationId, batch: batch!, scope: scope(access), historical: true, legacy: true } };
+          return { legacy: { state: 'batch', operationId: input.operationId, batch: batch!, scope: scope(access), historical: true, legacy: true,
+            // Only this strict historical lookup + actual current Principal may project the tag.
+            legacyImplicitReplay: Object.freeze({ version: 1, kind: 'implicit-move-legacy-replay', actorUserId: access.userId,
+              workspaceId, operationId: input.operationId, batchId: batch!.batchId, planId: batch!.planId }) } };
         }
         const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace, { physicalParserVersion: 3 });
         const actionId = hash(['workspace-path-action-v1', workspaceId, input.kind, input.selections, false, false]);

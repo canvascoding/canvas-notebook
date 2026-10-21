@@ -3890,6 +3890,10 @@
       "license": "Team-Lizenzereignis"
     },
     "filePathOperations": {
+      "pending": {
+        "title": "{action}: Vorbereitung wartet",
+        "detail": "Die ursprüngliche Auswahl ist gespeichert. Öffne die Vorbereitung, um ihren Status zu prüfen und sie ausdrücklich fortzusetzen."
+      },
       "openFailed": "Die Dateiaktion konnte nicht geöffnet werden.",
       "kind_move": "Verschieben",
       "kind_rename": "Umbenennen",
@@ -3979,6 +3983,20 @@
     }
   },
   "workspacePathOperationStatus": {
+    "preparation": {
+      "status": {
+        "reserved": "Dateiaktion wird vorbereitet",
+        "draining": "Ausstehende Dokumentänderungen werden gesichert",
+        "recovery_required": "Vorbereitung muss geprüft werden",
+        "aborted": "Vorbereitung beendet"
+      },
+      "guidance": {
+        "reserved": "Die ursprüngliche Auswahl ist gespeichert. Es gibt noch keinen fertig gebundenen Dateiaktionsauftrag. Nutze Fortsetzen, um genau diese Vorbereitung weiterzuführen.",
+        "draining": "Bereits angenommene Änderungen werden gesichert. Aktualisieren liest nur den Status; Fortsetzen führt dieselbe Vorbereitung weiter.",
+        "recovery_required": "Die Vorbereitung konnte nicht sicher abgeschlossen werden. Prüfe den aktuellen Stand und den Fehler; dieser Dialog setzt sie nicht automatisch fort.",
+        "aborted": "Diese Vorbereitung wird nicht ausgeführt. Prüfe die aktuellen Dateien vor einer neuen Anfrage."
+      }
+    },
     "openFile": "Betroffene Datei öffnen",
     "recheck": "Erneut prüfen",
     "openStatus": "Aktionsstatus ansehen",

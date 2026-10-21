@@ -8,6 +8,8 @@ import { WORKSPACE_OPERATION_NOTIFICATION_PREFIX, workspaceOperationReviewHref,
   type WorkspaceOperationAttentionStatus, type WorkspaceOperationNotificationTarget,
   type WorkspacePathOperationAttentionStatus, type WorkspacePathOperationNotificationTarget } from './workspace-operation-notification-contract';
 import { sanitizeWorkspacePathOperationSelections, workspacePathOperationProblemErrorCode } from './workspace-path-operation-problems';
+import { listWorkspaceImplicitMovePreparationNotificationFacts, markWorkspaceImplicitMovePreparationNotificationsRead } from './workspace-implicit-move-notification-source';
+import { WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX } from './workspace-operation-notification-contract';
 
 export type WorkspaceOperationNotificationItem = {
   id: string;
@@ -201,18 +203,24 @@ export function createWorkspacePathOperationNotificationSource(options: {
           priority: ['queued', 'applying'].includes(row.status) ? 'normal' : 'high', target,
           workspaceId: input.workspace.workspaceId, workspaceName: input.workspace.displayName ?? null }];
       });
-      return { items, unreadCount: Number(counts.rows[0]?.total ?? 0) };
+      const preparations = await listWorkspaceImplicitMovePreparationNotificationFacts(transaction, input);
+      return { items: [...items, ...preparations.map(fact => fact.item)]
+        .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id)),
+      unreadCount: Number(counts.rows[0]?.total ?? 0) + preparations.filter(fact => fact.item.unread).length };
     });
   };
 
   const markRead = async (input: Scope & { itemId?: string }): Promise<{ updated: number }> => {
     if (!canRead(input)) return { updated: 0 };
     if (input.itemId !== undefined) {
-      const prefix = [WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX]
+      const prefix = [WORKSPACE_PATH_OPERATION_NOTIFICATION_PREFIX, WORKSPACE_PATH_PROBLEM_NOTIFICATION_PREFIX, WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX]
         .find((candidate) => input.itemId!.startsWith(candidate));
       if (!prefix || !/^[A-Za-z0-9_-]{16,128}$/u.test(input.itemId.slice(prefix.length))) return { updated: 0 };
     }
     return database.transaction(async (transaction) => {
+      if (input.itemId?.startsWith(WORKSPACE_PATH_PREPARATION_NOTIFICATION_PREFIX)) {
+        return markWorkspaceImplicitMovePreparationNotificationsRead(transaction, input, now());
+      }
       const result = await transaction.query<{ item_key: string }>(`${PATH_OPERATION_ATTENTION}
         INSERT INTO mobile_inbox_read_states (user_id,workspace_id,item_key,read_at,dismissed_at,created_at,updated_at)
         SELECT $2,$1,attention.item_key,attention.updated_at,NULL,$3,$3 FROM attention
@@ -220,7 +228,9 @@ export function createWorkspacePathOperationNotificationSource(options: {
         ON CONFLICT (user_id,workspace_id,item_key) DO UPDATE SET read_at = EXCLUDED.read_at,updated_at = EXCLUDED.updated_at
         RETURNING item_key`, [input.workspace.workspaceId, input.userId, now(),
         ...(input.itemId === undefined ? [] : [input.itemId])]);
-      return { updated: result.rows.length };
+      const preparations = input.itemId === undefined
+        ? await markWorkspaceImplicitMovePreparationNotificationsRead(transaction, input, now()) : { updated: 0 };
+      return { updated: result.rows.length + preparations.updated };
     });
   };
 

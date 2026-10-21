@@ -7,9 +7,11 @@ import { WorkspacePathOperationPreviewError } from './workspace-path-operation-p
 import { waitForWorkspacePathOperationResult, WorkspacePathOperationClientError,
   WorkspacePathOperationOutcomeUnknownError } from './workspace-path-operation-client';
 import { readWorkspacePathOperation } from './workspace-path-operation-parser';
+import { waitForWorkspaceImplicitMoveResponse } from './workspace-implicit-move-client';
 import { reserveWorkspacePathOperationAttempt, settleWorkspacePathOperationAttempt,
   abandonWorkspacePathOperationAttempt, dispatchWorkspacePathOperationAttempt,
   bindWorkspacePathOperationAttempt, bindWorkspacePathOperationAttemptPreview, observeWorkspacePathOperationAttemptCompletion,
+  markWorkspacePathOperationAttemptImplicit,
   type WorkspacePathOperationAttempt } from './workspace-path-operation-attempts';
 import { joinWorkspacePath } from './path-utils';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
@@ -675,7 +677,7 @@ export async function renameWorkspacePath(
     kind: 'rename', selections: [{ sourcePath: oldPath, destinationPath: newPath }], overwrite, planId });
   try {
     if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
-    if (attempt.planId === undefined && !overwrite) {
+    if (attempt.planId === undefined && !overwrite && !attempt.implicit) {
       const preview = await previewWorkspaceRename(oldPath, newPath, requestedWorkspaceId);
       if (openedDocumentAuthScope() !== attempt.authScope) throw new Error('The signed-in session changed. Please retry.');
       if (preview.dryRun !== true || preview.requiresRevalidation !== true || !preview.plan
@@ -684,16 +686,35 @@ export async function renameWorkspacePath(
         workspaceId: requestedWorkspaceId!, sourcePath: oldPath, destinationPath: newPath, authScope: attempt.authScope,
       });
       if (!['ready', 'requires-import-rebinding'].includes(preview.plan.readiness)) throw new Error('Check the file action preview before applying it.');
-      bindWorkspacePathOperationAttemptPreview(attempt, preview.plan.planId);
+      if ('version' in preview.plan && preview.plan.version === 3 && preview.plan.kind === 'native-path-change') {
+        if (preview.plan.readiness !== 'ready' || preview.plan.workspaceId !== requestedWorkspaceId
+          || !preview.plan.linkAssessment || !preview.plan.linkAssessment.complete
+          || preview.plan.linkAssessment.blockers.length || preview.plan.issues.length) {
+          throw new Error('Check the file action preview before applying it.');
+        }
+        // Diagnostic automatic preview only. Final immutable plan binds after actual room drain.
+        markWorkspacePathOperationAttemptImplicit(attempt);
+      } else bindWorkspacePathOperationAttemptPreview(attempt, preview.plan.planId);
     }
     const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...workspaceHeaders(requestedWorkspaceId) },
       credentials: 'include',
-      body: JSON.stringify({ oldPath, newPath, overwrite, planId: attempt.planId, idempotencyKey: attempt.operationId }),
+      ...(attempt.implicitBinding ? { cache: 'no-store' as const } : {}),
+      body: attempt.implicitBinding ? '{}' : JSON.stringify({ oldPath, newPath, overwrite,
+        planId: attempt.planId, idempotencyKey: attempt.operationId }),
     };
+    if (attempt.implicit && (openedDocumentAuthScope() !== attempt.authScope
+      || useWorkspaceStore.getState().activeWorkspaceId !== requestedWorkspaceId)) {
+      throw new Error('The file action or signed-in workspace changed. Please retry.');
+    }
     dispatchWorkspacePathOperationAttempt(attempt);
-    const response = await fetch('/api/files/rename', init);
+    // A known preparation always resumes its original request. A lost first response
+    // may retry only the SAME original idempotency key; it never invents a new action.
+    const response = await fetch(attempt.implicitBinding
+      ? `/api/files/operations/implicit-moves/${attempt.implicitBinding.requestId}` : '/api/files/rename', init);
+    if (attempt.implicit) return await waitForWorkspaceImplicitMoveResponse(response, { attempt,
+      workspaceId: requestedWorkspaceId!, action: 'rename', selections: [{ sourcePath: oldPath, destinationPath: newPath }] });
 
     if (!response.ok) {
       const error = await readApiJson<ApiErrorPayload & {

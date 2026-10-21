@@ -40,16 +40,19 @@ export function WorkspacePathOperationStatusHost() {
     const workspaceId = params.get('workspaceId');
     const batchId = params.get('workspacePathBatch');
     const problemId = params.get('workspacePathProblem');
-    if (!workspaceId || Boolean(batchId) === Boolean(problemId)) return;
-    const navigation = JSON.stringify([workspaceId, batchId, problemId]);
+    const preparationRequestId = params.get('workspacePathPreparation');
+    if (!workspaceId || [batchId,problemId,preparationRequestId].filter(Boolean).length !== 1) return;
+    const navigation = JSON.stringify([workspaceId,batchId,problemId,preparationRequestId]);
     if (lastNavigation.current === navigation) return;
     lastNavigation.current = navigation;
     // Consume before hydration so a delayed route snapshot cannot reopen a dismissed dialog.
     const url = new URL(window.location.href);
     url.searchParams.delete('workspacePathBatch');
     url.searchParams.delete('workspacePathProblem');
+    url.searchParams.delete('workspacePathPreparation');
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
-    void openWorkspacePathOperationStatus(batchId ? { workspaceId, batchId } : { workspaceId, problemId: problemId! })
+    void openWorkspacePathOperationStatus(preparationRequestId ? { workspaceId, preparationRequestId }
+      : batchId ? { workspaceId, batchId } : { workspaceId, problemId: problemId! })
       .then((opened) => { if (!opened && openedDocumentAuthScope() === authScope) toast.error(t('openFailed')); });
   }, [authScope, params, t]);
 
@@ -65,7 +68,8 @@ export function WorkspacePathOperationStatusHost() {
     const poll = window.setInterval(() => {
       const current = useWorkspacePathOperationStore.getState();
       if (current.request === request && !current.loading
-        && ['queued', 'applying'].includes(current.response?.operation.status ?? '')) void reloadWorkspacePathOperationStatus();
+        && (['queued', 'applying'].includes(current.response?.operation.status ?? '')
+          || !current.busy && current.preparation?.state === 'pending')) void reloadWorkspacePathOperationStatus();
     }, 2000);
     return () => { window.clearTimeout(load); window.clearInterval(poll); };
   }, [request]);
@@ -73,14 +77,16 @@ export function WorkspacePathOperationStatusHost() {
   const operation = request ? state.response?.operation : null;
   const problem = request ? state.problem : null;
   const review = request ? state.review : null;
+  const preparation = request ? state.preparation : null;
   const documentPaused = Boolean(request?.documentReviewPaused);
   const running = Boolean(operation && ['queued', 'applying'].includes(operation.status));
   const settled = Boolean(operation && ['applied', 'undone'].includes(operation.status));
-  const selections = operation?.selections ?? problem?.selections ?? review?.selections ?? [];
+  const selections = operation?.selections ?? preparation?.selections ?? problem?.selections ?? review?.selections ?? [];
   const issues = operation?.issues ?? [];
   const code = state.errorCode ?? operation?.errorCode ?? problem?.errorCode ?? review?.errorCode;
   const status = operation?.status === 'needs_review' ? 'stale' : operation?.status === 'preview' ? 'blocked' : operation?.status;
-  const guidance = problem ? problem.errorCode === 'BATCH_AUDIT_FAILED' ? 'auditFailed' : 'problemGuidance'
+  const preparationKey = preparation?.state === 'aborted' ? 'aborted' : preparation?.status;
+  const guidance = preparationKey ? `preparation.guidance.${preparationKey}` : problem ? problem.errorCode === 'BATCH_AUDIT_FAILED' ? 'auditFailed' : 'problemGuidance'
     : documentPaused || review?.status === 'pending' ? 'reviewPausedGuidance'
     : review ? `legacyGuidance.${review.status}` : status ? `guidance.${status}` : null;
   const canRecover = Boolean(request && !state.loading && !state.busy && !state.error && !running);
@@ -97,12 +103,12 @@ export function WorkspacePathOperationStatusHost() {
       </div>
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 sm:p-6">
         <div aria-live="polite" aria-atomic="true" className="space-y-3">
-          {state.loading && !operation && !problem && !review ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</p> : null}
-          {operation || problem || review || documentPaused ? <div className="flex items-start gap-3 rounded-lg border p-4">
+          {state.loading && !operation && !problem && !review && !preparation ? <p className="flex items-center gap-2 text-sm"><Loader2 className="h-4 w-4 animate-spin" />{t('loading')}</p> : null}
+          {operation || problem || review || preparation || documentPaused ? <div className="flex items-start gap-3 rounded-lg border p-4">
             {running || state.busy ? <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-muted-foreground" />
               : settled ? <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-green-600" /> : <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />}
             <div className="min-w-0 space-y-2">
-              <p className="font-medium">{problem ? t('problemTitle') : documentPaused || review?.status === 'pending' ? t('reviewPausedTitle')
+              <p className="font-medium">{preparationKey ? t(`preparation.status.${preparationKey}`) : problem ? t('problemTitle') : documentPaused || review?.status === 'pending' ? t('reviewPausedTitle')
                 : review ? t(`legacyStatus.${review.status}`) : t(`status.${status}`)}</p>
               {guidance ? <p className="text-sm text-muted-foreground">{t(guidance)}</p> : null}
               {operation ? <p className="text-sm text-muted-foreground">{t('progress', { completed: operation.completedActions, total: operation.totalActions })}</p> : null}
@@ -137,7 +143,7 @@ export function WorkspacePathOperationStatusHost() {
         {!documentPaused ? <Button variant="outline" disabled={state.loading || state.busy} onClick={() => void reloadWorkspacePathOperationStatus()}><RefreshCw className="h-4 w-4" />{t('refresh')}</Button> : null}
         {state.response?.recovery?.canUndo && request ? <Button variant="outline" data-testid="workspace-path-operation-undo" disabled={!canRecover}
           onClick={() => void recoverWorkspacePathOperation('undo')}>{t('undo')}</Button> : null}
-        {state.response?.recovery?.canResume && request ? <Button data-testid="workspace-path-operation-resume" disabled={!canRecover}
+        {(state.response?.recovery?.canResume || preparation?.state === 'pending' && preparation.canResume) && request ? <Button data-testid="workspace-path-operation-resume" disabled={!canRecover}
           onClick={() => void recoverWorkspacePathOperation('resume')}>{t('resume')}</Button> : null}
         <Button variant="outline" onClick={closeWorkspacePathOperationStatus}>{t('close')}</Button>
       </div>
