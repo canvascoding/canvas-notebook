@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 import type { WorkspaceOperationBatchAction, WorkspaceOperationLegacyBatchPlan as WorkspaceOperationBatchPlan, WorkspaceOperationBatchScope } from '../app/lib/files/workspace-operation-batch-contract';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord, type WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { buildWorkspacePathOperationPlan, submitDirectWorkspacePathOperation, type WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
+import { createWorkspaceOperationNativeDeleteBatchPlanV4 } from '../app/lib/files/workspace-operation-native-delete-plan';
+import { workspaceOperationMixedSourceEvidenceV5Fixture } from './workspace-operation-mixed-source-evidence-v5-test';
 
 const planId = 'a'.repeat(64);
 type StoreCreateInput = Omit<Parameters<WorkspaceOperationBatchStore['createDirect']>[0], 'plan'> & { plan: WorkspaceOperationBatchPlan };
@@ -277,6 +279,35 @@ async function main(): Promise<void> {
   }), hasCode('PREVIEW_STALE', 409));
   assert.equal(htmlChecks, 1);
   assert.equal(changedHtml.creates.length, 0, 'a changed live HTML proof never queues a path mutation');
+  // Declared store/lock boundary, real E5/Plan4: this checks routing only,
+  // not actual current authorization, Owner execution or a durable receipt.
+  const htmlSource = workspaceOperationMixedSourceEvidenceV5Fixture({ native: [['target.md', '# Target\n'],
+    ['incoming.md', '[Target](target.md)\n\n<p>Unrelated HTML</p>\n']] });
+  const htmlWorkspace: WorkspaceOperationBatchScope['workspace'] = { ...htmlSource.scope,
+    rootRelativePath: htmlSource.scope.rootRelativePath ?? undefined, status: 'active',
+    permissions: { canRead: true, canWrite: true, canDelete: true, canRunAgent: true, canManageWorkspace: true, canCreatePublicLinks: false } };
+  const htmlScope: WorkspaceOperationBatchScope = { workspace: htmlWorkspace, fileOptions: { workspace: htmlWorkspace } };
+  const htmlPlan = createWorkspaceOperationNativeDeleteBatchPlanV4({ scope: htmlScope, actions: [{ reviewId: 'html-submit',
+    kind: 'delete', selections: [{ sourcePath: 'target.md' }] }], observation: htmlSource.observation });
+  assert.equal(htmlPlan.coverage.complete, false); assert.equal(htmlPlan.linkAssessment.complete, true);
+  let htmlNativeCreates = 0, htmlLegacyFences = 0;
+  const htmlStore = { get: async () => null, createDirect: async (input: Parameters<WorkspaceOperationBatchStore['createDirect']>[0]) => {
+    htmlNativeCreates++;
+    const record: WorkspaceOperationBatchRecord = { batchId: input.batchId, planId: input.plan.planId, workspaceId: input.plan.workspaceId,
+      plan: input.plan, authorization: input.authorization, reviewIds: [], reviewRefs: [], reviewerUserId: null, reviewerDisplayName: null,
+      status: 'queued', actionMode: 'apply', completedActions: 0, totalActions: 2, phase: 'preparing', errorCode: null,
+      trashEntryIds: [], leaseOwner: null, createdAt: 1, updatedAt: 1 };
+    return record;
+  } } as unknown as WorkspaceOperationBatchStore;
+  const htmlDependencies: Dependencies = { store: htmlStore, lock: async (_workspaceId, work) => work(), buildPlan: async () => htmlPlan,
+    htmlEvidenceCurrent: async () => { htmlLegacyFences++; throw new Error('Native Delete4 must reach its original Owner evidence gate.'); } };
+  const htmlInput = request({ scope: htmlScope, kind: 'delete', selections: [{ sourcePath: 'target.md' }], expectedPlanId: htmlPlan.planId });
+  const htmlQueued = await submitDirectWorkspacePathOperation(htmlInput, htmlDependencies);
+  assert.deepEqual(htmlQueued.plan, htmlPlan); assert.equal(htmlNativeCreates, 1); assert.equal(htmlLegacyFences, 0);
+  await assert.rejects(submitDirectWorkspacePathOperation({ ...htmlInput, expectedPlanId: 'f'.repeat(64) }, htmlDependencies),
+    hasCode('PREVIEW_STALE', 409));
+  assert.equal(htmlNativeCreates, 1, 'an explicit stale Delete4 preview never queues an Original job');
+  assert.equal(htmlLegacyFences, 0);
   const scopeCapture = harness();
   const scopeInput = request();
   const captured = await submitDirectWorkspacePathOperation(scopeInput, {

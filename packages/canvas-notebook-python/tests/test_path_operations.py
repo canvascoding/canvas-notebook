@@ -17,12 +17,22 @@ from mcp_types import CallToolResult, TextContent
 
 from canvas_notebook import CanvasMutationOutcomeUnknown, CanvasNotebook, CanvasToolError
 from canvas_notebook.models import (
+    WorkspaceDeleteHtmlLinkChanges,
+    WorkspaceDeleteHtmlPreviewV3,
     WorkspaceDeleteImportPreview,
     WorkspaceDeletePreview,
+    WorkspaceDeletePreviewPath,
     WorkspaceDeletePreviewResult,
     WorkspaceMoveImportPreview,
     WorkspaceMovePreview,
     WorkspaceMovePreviewResult,
+    WorkspacePathCoverage,
+    WorkspacePathHtmlBlocker,
+    WorkspacePathHtmlCoverage,
+    WorkspacePathHtmlLinkAssessment,
+    WorkspacePathHtmlWarning,
+    WorkspacePathImportIssue,
+    WorkspacePathImportRequirement,
     WorkspacePathOperation,
     WorkspacePathPreparation,
 )
@@ -190,7 +200,7 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(get_args(get_type_hints(WorkspaceMovePreviewResult)["preview"])),
                          {WorkspaceMovePreview, WorkspaceMoveImportPreview})
         self.assertEqual(set(get_args(get_type_hints(WorkspaceDeletePreviewResult)["preview"])),
-                         {WorkspaceDeletePreview, WorkspaceDeleteImportPreview})
+                         {WorkspaceDeletePreview, WorkspaceDeleteImportPreview, WorkspaceDeleteHtmlPreviewV3})
         self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["kind"]), ("native-path-import-preparation",))
         self.assertEqual(get_args(get_type_hints(WorkspaceDeleteImportPreview)["kind"]), ("native-path-import-preparation",))
         self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["operationKind"]), ("move",))
@@ -204,6 +214,77 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
             "operationId", "batchId", "planId", "workspaceId", "journal", "execution", "completion",
         }))
         self.assertIs(get_type_hints(WorkspacePathOperation)["preparation"], WorkspacePathPreparation)
+
+    async def test_declared_delete_html_types_match_public_v3_without_widening_legacy_coverage(self) -> None:
+        hints = get_type_hints(WorkspaceDeleteHtmlPreviewV3)
+        self.assertEqual(WorkspaceDeleteHtmlPreviewV3.__required_keys__, frozenset({
+            "version", "kind", "operationKind", "executionReady", "readiness", "workspaceId", "planId",
+            "paths", "linkChanges", "coverage", "linkAssessment", "issues", "imports",
+        }))
+        self.assertEqual(WorkspaceDeleteHtmlPreviewV3.__optional_keys__, frozenset())
+        self.assertEqual(get_args(hints["version"]), (3,))
+        self.assertEqual(get_args(hints["kind"]), ("native-path-html-assessment",))
+        self.assertEqual(get_args(hints["operationKind"]), ("delete",))
+        self.assertEqual(get_args(hints["executionReady"]), (False,))
+        self.assertEqual(set(get_args(hints["readiness"])), {"ready", "blocked"})
+        self.assertEqual(hints["paths"], list[WorkspaceDeletePreviewPath])
+        self.assertIs(hints["linkChanges"], WorkspaceDeleteHtmlLinkChanges)
+        self.assertIs(hints["coverage"], WorkspacePathHtmlCoverage)
+        self.assertIs(hints["linkAssessment"], WorkspacePathHtmlLinkAssessment)
+        self.assertEqual(hints["issues"], list[WorkspacePathImportIssue])
+        self.assertEqual(hints["imports"], list[WorkspacePathImportRequirement])
+        self.assertEqual(get_args(get_type_hints(WorkspaceDeleteHtmlLinkChanges)["rewrites"]), (0,))
+        self.assertIs(get_type_hints(WorkspacePathHtmlCoverage)["complete"], bool)
+        self.assertEqual(get_args(get_type_hints(WorkspacePathCoverage)["complete"]), (True,))
+        assessment = get_type_hints(WorkspacePathHtmlLinkAssessment)
+        self.assertIs(assessment["complete"], bool)
+        self.assertEqual(assessment["warnings"], list[WorkspacePathHtmlWarning])
+        self.assertEqual(assessment["blockers"], list[WorkspacePathHtmlBlocker])
+        self.assertEqual(get_args(get_type_hints(WorkspacePathHtmlWarning)["code"]),
+                         ("unaffected-explicit-html-link",))
+        self.assertEqual(set(get_args(get_type_hints(WorkspacePathHtmlBlocker)["code"])),
+                         {"affected-html-link", "unevaluated-link"})
+        for diagnostic in (WorkspacePathHtmlWarning, WorkspacePathHtmlBlocker):
+            self.assertEqual(diagnostic.__required_keys__, frozenset({"code", "path", "targets"}))
+            self.assertEqual(diagnostic.__optional_keys__, frozenset({"line"}))
+            self.assertIs(get_type_hints(diagnostic)["line"], int)
+            self.assertEqual(get_type_hints(diagnostic)["targets"], list[str])
+        self.assertEqual(WorkspaceDeletePreviewPath.__required_keys__, frozenset({"sourcePath"}))
+
+    async def test_delete_html_v3_preview_preserves_original_coverage_and_assessment_without_followups(self) -> None:
+        # Controlled wire transport only; these schema-shaped facts do not prove Owner/FS execution.
+        for readiness in ("ready", "blocked"):
+            for original_coverage in (False, True):
+                ready = readiness == "ready"
+                preview = {
+                    "version": 3, "kind": "native-path-html-assessment", "operationKind": "delete",
+                    "executionReady": False, "readiness": readiness, "workspaceId": "workspace", "planId": PLAN,
+                    "paths": [{"sourcePath": "source.md"}],
+                    "linkChanges": {"rewrites": 0, "unlinks": 2 if ready else 0,
+                                    "affectedDocuments": 2 if ready else 0},
+                    "coverage": {"complete": original_coverage},
+                    "linkAssessment": {"complete": ready, "warnings": [{
+                        "code": "unaffected-explicit-html-link", "path": "incoming ä.md", "line": 3,
+                        "targets": ["keep.md"],
+                    }], "blockers": [] if ready else [
+                        {"code": "affected-html-link", "path": "affected.html", "line": 1,
+                         "targets": ["source.md"]},
+                        {"code": "unevaluated-link", "path": "opaque.html", "targets": []},
+                    ]},
+                    "issues": [], "imports": [],
+                }
+                raw = envelope({"apiVersion": 1, "action": "preview", "preview": preview})
+                transport = RecordingTransport(raw)
+                result = await CanvasNotebook(transport).delete_preview("workspace", "source.md")
+                self.assertIs(result.raw, raw)
+                self.assertIs(result.require_success(), raw.structured_content)
+                self.assertEqual(result.require_success()["preview"], preview)
+                self.assertEqual(result.require_success()["preview"]["coverage"]["complete"], original_coverage)
+                self.assertEqual(result.require_success()["preview"]["linkAssessment"]["complete"], ready)
+                self.assertFalse(result.require_success()["preview"]["executionReady"])
+                self.assertEqual(transport.calls, [("delete_knowledge_source", {
+                    "api_version": 1, "action": "preview", "workspace_id": "workspace", "path": "source.md",
+                })])
 
     async def test_status_keeps_batch_distinct_and_does_not_infer_completion_from_applied_journal(self) -> None:
         for kind in ("move", "delete"):

@@ -29,13 +29,17 @@ import { readWorkspaceOperationNativePathAdmissionOnConnection } from './workspa
 import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
 import { parseIntent, assertOriginalDeleteIntentPlan, type WorkspaceOperationOriginalDeleteResult } from './workspace-operation-original-delete-evidence';
 import { readWorkspaceOperationOriginalDeleteObservationOnConnection } from './workspace-operation-original-delete-observation';
+import { archiveOriginalNativeDeleteTargetOnConnection } from './workspace-operation-original-delete-native';
+import type { NativeFileArchiveTransition } from '../collaboration/native-file-archive-transition';
+import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { completeWorkspaceOperationOriginalDeleteDomain } from './workspace-operation-original-delete-domain';
 import { readWorkspaceOperationOriginalDeleteAdmissionOnConnection,
   workspaceOperationOriginalDeleteAdmissionResult } from './workspace-operation-original-delete-admission';
 import { readPreparedWorkspaceSingleFileTrash, assertPreparedWorkspaceSingleFileTrashCurrent,
   type PreparedWorkspaceSingleFileTrash, type PreparedSingleFileTrashReceipt } from '../filesystem/prepared-single-file-trash';
+import { applyOriginalDeleteNativeHtmlLinksV4 } from './workspace-operation-original-delete-html-links';
 import { applyOriginalDeleteNativeLinks, assertOriginalDeleteNativeLinkPlan,
-  type OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
+  type AnyOriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 import { readWorkspaceLinkSourceAuthorityOnConnection,
   type WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import { reportWorkspaceOperationFailureDiagnostics } from './workspace-operation-failure-diagnostics';
@@ -85,7 +89,9 @@ export type WorkspaceOperationJobLifecycleOwner = Readonly<{ [ownerBrand]: true 
 export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJobPolicyAccess & {
   database: SqlConnection;
   /** Fixed claimed journal operation; never accepts SQL, prepared bytes or callbacks. */
-  applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => Promise<OriginalDeleteNativeLinkReceipt[]>;
+  applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => Promise<AnyOriginalDeleteNativeLinkReceipt[]>;
+  /** Fixed E6/Plan4 journal target only; no caller-selected D1, workspace or raw B. */
+  archiveOriginalNativeHtmlDeleteTarget: (expectedIntentDigest: string) => Promise<NativeFileArchiveTransition>;
   readOriginalNativeDeleteSources: () => Promise<WorkspaceLinkSourceAuthorityObservation>;
   readOriginalNativeDeleteAdmission: () => Promise<Readonly<{ requestId: string; requestDigest: string }>>;
 }>;
@@ -98,7 +104,7 @@ type Phase = { active: boolean; accepting: boolean; transaction: string; pending
   index: number; startedAt: number | null; startedMonotonic: number; queriesBefore: number;
   stage: 'preparation' | 'begin' | 'identity' | 'policy' | 'storage' | 'path-locks' | 'operation'
     | 'before-operation-check' | 'sql' | 'after-operation-check' | 'link-authority' | 'final-check' | 'commit' | 'after-commit';
-  operation: 'authority' | 'native-source-read' | 'native-link-write' | 'read' | 'write';
+  operation: 'authority' | 'native-source-read' | 'native-link-write' | 'native-archive-write' | 'read' | 'write';
   relation: string | null };
 type MovePrepared = Readonly<{ stepKey: string; cap: PreparedWorkspacePathMove; receipt?: PreparedWorkspacePathMoveReceipt }>;
 type MoveCapture = { context: WorkspaceOperationOriginalMoveContext; preparedSteps: readonly MovePrepared[]; guards: readonly string[];
@@ -467,7 +473,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
-              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 && intent.version !== 5 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
+              if (intent.version !== 2 && intent.version !== 3 && intent.version !== 4 && intent.version !== 5 && intent.version !== 6 || !intent.nativeLinks?.length) fail('JOB_LIFECYCLE_INVALID');
               assertOriginalDeleteIntentPlan(intent, binding.plan);
               assertOriginalDeleteNativeLinkPlan(binding.plan, intent.nativeLinks);
               // Keep current authority before every source (including receipt
@@ -475,11 +481,35 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               // does not recursively enter the public dispatch queue.
               const validate = async () => { phase.stage = 'link-authority'; checkPhase(captured, phase); await check();
                 checkPhase(captured, phase); phase.stage = 'sql'; };
+              if (intent.version === 6) return applyOriginalDeleteNativeHtmlLinksV4(database, access.workspace, intent.nativeLinks, validate, intent.currentWitness.nativeComponent);
               return applyOriginalDeleteNativeLinks(database, access.workspace, intent.nativeLinks, validate,
                 intent.version === 3 || intent.version === 4 || intent.version === 5
                   ? intent.version === 5 ? intent.currentWitness.nativeComponent : intent.currentWitness
                   : undefined);
             }, 'native-link-write'),
+            archiveOriginalNativeHtmlDeleteTarget: (expectedIntentDigest: string) => dispatch(undefined, async () => {
+              const { binding } = captured;
+              if (captured.move || binding.actionMode !== 'apply' || binding.plan.version !== 2
+                || binding.plan.kind !== 'native-original-delete' || binding.plan.planIdentityVersion !== 4
+                || typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
+              // This fixed operation rereads the immutable journal on the genuine
+              // owner B. The caller's digest chooses no target or authority facts.
+              const row = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
+                { schema: schemaName, batchId: binding.batchId, forShare: true });
+              if (!row || row.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
+              const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
+                workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
+              access.workspace, resolveWorkspaceDataRoot());
+              if (intent.version !== 6 || !intent.native) fail('JOB_LIFECYCLE_INVALID');
+              assertOriginalDeleteIntentPlan(intent, binding.plan);
+              // Coarser fixed operation boundaries, not per-SQL authority
+              // equivalence: retain a full check at every archive/CAS boundary.
+              const validate = async () => { phase.stage = 'before-operation-check'; checkPhase(captured, phase); await check();
+                checkPhase(captured, phase); phase.stage = 'sql'; };
+              return archiveOriginalNativeDeleteTargetOnConnection(database,
+                { schema: schemaName, workspace: access.workspace, expected: intent.native,
+                  trashEntryId: intent.physical.trashEntryId, archivedAt: intent.physical.deletedAtMs }, validate);
+            }, 'native-archive-write'),
             assertCurrent: () => dispatch(undefined, async () => undefined) });
             result = moveOperation ? await moveOperation(restrictedAccess, database, check) : await operation!(restrictedAccess);
           }
@@ -557,14 +587,14 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
     const physical = fields.physical as PreparedSingleFileTrashReceipt;
     const original = readPreparedWorkspaceSingleFileTrash(prepared);
     if (!equal(physical?.original, original)) fail('JOB_LIFECYCLE_CHANGED');
-    return runLifecycleTransaction(owner, undefined, async (access, database, check) => {
+    const complete = () => runLifecycleTransaction(owner, undefined, async (access, database, check) => {
       const { binding } = captured, schema = binding.source.schemaName;
       const evidenceContext = { batchId: binding.batchId, planId: binding.planId, workspaceId: binding.workspaceId,
         authorization: binding.authorization, sourcePath: captured.sourcePath };
       const durable = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database, { schema, batchId: binding.batchId, forShare: true });
       if (!durable || durable.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
       const intent = parseIntent(durable, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
-      if (intent.version !== 4 && intent.version !== 5 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
+      if (intent.version !== 4 && intent.version !== 5 && intent.version !== 6 || !equal(intent.physical, original) || binding.plan.version !== 2) fail('JOB_LIFECYCLE_CHANGED');
       assertOriginalDeleteIntentPlan(intent, binding.plan);
       const admission = await readWorkspaceOperationOriginalDeleteAdmissionOnConnection(database, { schema, intent });
       if (admission.outcome || !['reserved', 'draining'].includes(admission.status)) fail('JOB_LIFECYCLE_CHANGED');
@@ -580,8 +610,82 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
         mutate: async connection => {
           if (connection !== database) fail('JOB_LIFECYCLE_CHANGED');
           await check();
-          result = await completeWorkspaceOperationOriginalDeleteDomain(access, { binding, evidenceContext,
-            originalDurable: durable, originalIntent: intent, prepared, physical });
+          if (intent.version === 6) {
+            if (binding.plan.version !== 2 || binding.plan.kind !== 'native-original-delete'
+              || binding.plan.planIdentityVersion !== 4 || !intent.native) fail('JOB_LIFECYCLE_INVALID');
+            const domainPhase = captured.phase;
+            if (!domainPhase) fail('JOB_LIFECYCLE_REQUIRED');
+            let domainActive = true;
+            const quotedSchema = `"${schema.replaceAll('"', '""')}"`;
+            const readOnlyWriterScanSQL = `WITH
+    locks AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_locks WHERE workspace_id=$1 AND path=$2
+      AND status='active' AND expires_at>$3 FOR SHARE NOWAIT),
+    guests AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
+      AND status='active' FOR SHARE NOWAIT)
+    SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests`;
+            // Private to this exact awaited E6 algorithm. No raw B or grouped
+            // read result escapes; all fixed access methods keep their dispatch.
+            const assertDomainCurrent = () => {
+              try {
+                checkPhase(captured, domainPhase);
+                if (!domainActive || current(captured) !== database) fail('JOB_LIFECYCLE_REQUIRED');
+              } catch (error) { poison(captured, error); }
+            };
+            const dispatchDomainSql = <R>(sql: string, query: () => R | Promise<R>): Promise<R> => {
+              try {
+                assertDomainCurrent();
+                if (domainPhase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
+                if (typeof sql !== 'string' || sql.length > 32768 || /[;\u0000]/u.test(sql)
+                  || /\bpg_(?:try_)?advisory_/iu.test(sql) || !/^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/iu.test(sql)) fail('JOB_LIFECYCLE_INVALID');
+              } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+              const write = !/^\s*SELECT\b/iu.test(sql) && sql !== readOnlyWriterScanSQL;
+              domainPhase.operation = write ? 'write' : 'read';
+              domainPhase.relation = ['collaboration_documents', 'collaboration_yjs_states',
+                'file_collaboration_lineages', 'collaboration_file_projections', 'workspace_trash_entries',
+                'workspace_file_operation_delete_intents', 'workspace_file_operation_delete_receipts',
+                'workspace_file_operation_delete_trash_receipts'].find(name => new RegExp(`\\b${name}\\b`, 'u').test(sql)) ?? null;
+              // Install pending ownership before any actual SQL, including a
+              // synchronously implemented connection or reentrant test adapter.
+              const checked = Promise.resolve().then(async () => {
+                try {
+                  assertDomainCurrent();
+                  if (write) { domainPhase.stage = 'before-operation-check'; await check(); assertDomainCurrent(); }
+                  domainPhase.stage = 'sql'; const value = await query();
+                  domainPhase.stage = 'after-operation-check'; assertDomainCurrent();
+                  if (write) { await check(); assertDomainCurrent(); }
+                  return value;
+                } catch (error) { return poison(captured, error); }
+              });
+              domainPhase.pending.add(checked);
+              void checked.then(() => domainPhase.pending.delete(checked), () => domainPhase.pending.delete(checked));
+              return checked;
+            };
+            const domainDatabase: SqlConnection = Object.freeze({
+              get: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.get(sql, values)),
+              all: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.all(sql, values)),
+              run: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.run(sql, values)),
+              close: () => dispatchDomainSql('CLOSE', async () => undefined),
+            });
+            try {
+              result = await completeWorkspaceOperationOriginalDeleteDomain(Object.freeze({ ...access, database: domainDatabase,
+                readOriginalNativeDeleteAdmission: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteAdmission(); },
+                readOriginalNativeDeleteSources: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteSources(); },
+                applyOriginalNativeDeleteLinks: (digest: string) => { assertDomainCurrent(); return access.applyOriginalNativeDeleteLinks(digest); },
+                archiveOriginalNativeHtmlDeleteTarget: (digest: string) => { assertDomainCurrent(); return access.archiveOriginalNativeHtmlDeleteTarget(digest); },
+                assertCurrent: () => { assertDomainCurrent(); return access.assertCurrent(); } }),
+              { binding, evidenceContext, originalDurable: durable, originalIntent: intent, prepared, physical });
+            } catch (error) { poison(captured, error); }
+            finally {
+              domainActive = false;
+              if (domainPhase.pending.size) {
+                captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
+                await Promise.allSettled([...domainPhase.pending]);
+              }
+            }
+          } else {
+            result = await completeWorkspaceOperationOriginalDeleteDomain(access, { binding, evidenceContext,
+              originalDurable: durable, originalIntent: intent, prepared, physical });
+          }
           await check();
           return workspaceOperationOriginalDeleteAdmissionResult(result);
         },
@@ -592,6 +696,10 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
       await notifyWorkspaceFileInvalidationOnConnection(database, binding.workspaceId);
       return result;
     });
+    if (captured.binding.plan.kind !== 'native-original-delete' || captured.binding.plan.planIdentityVersion !== 4) return complete();
+    // E6 alone shares fixed grammar for this fully awaited B2 attempt, including
+    // rollback/drain. No document facts or current-authority results are cached.
+    return withNativeInspectionSchema(complete).catch(error => poison(captured, error));
   } catch (error) {
     if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
     return Promise.reject(error);
@@ -627,7 +735,7 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
         if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
         const witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
         conflict = !equal(witness, prepared.preparation.currentWitness);
-      } else if (plan.version === 2 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3)) {
+      } else if (plan.version === 2 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4)) {
         captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
       }
     } catch (error) {

@@ -1,11 +1,11 @@
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
-import type { OriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
+import type { AnyOriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
 
 export type WorkspaceOperationNativeDeleteEffect = Readonly<{
   documentId: string; path: string; updatedLinks: number;
 }>;
 type ExpectedEffect = WorkspaceOperationNativeDeleteEffect & { linkIds: string[] };
-type Completion = Readonly<{ version: 1 | 2 | 3 | 4 | 5; nativeLinks?: readonly OriginalDeleteNativeLinkReceipt[] }>;
+type Completion = Readonly<{ version: 1 | 2 | 3 | 4 | 5 | 6; nativeLinks?: readonly AnyOriginalDeleteNativeLinkReceipt[] }>;
 const unavailable = (): never => { throw new Error('BATCH_JOURNAL_UNAVAILABLE'); };
 const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
 const canonicalPath = (value: unknown): value is string => typeof value === 'string' && value.length > 0
@@ -62,19 +62,21 @@ export function workspaceOperationBatchTotalActions(plan: WorkspaceOperationBatc
 export function workspaceOperationNativeDeleteAppliedEffects(plan: WorkspaceOperationNativeDeleteBatchPlan,
   completion: Completion): readonly WorkspaceOperationNativeDeleteEffect[] {
   const expected = expectedEffects(plan);
-  if (plan.planIdentityVersion === 3 ? completion.version !== 5
-    : completion.version === 5 || (plan.planIdentityVersion === 2) !== (completion.version === 3 || completion.version === 4)) return unavailable();
+  if (plan.planIdentityVersion === 4 ? completion.version !== 6 : plan.planIdentityVersion === 3 ? completion.version !== 5
+    : completion.version === 5 || completion.version === 6 || (plan.planIdentityVersion === 2) !== (completion.version === 3 || completion.version === 4)) return unavailable();
   if (completion.version === 1) {
     if (expected.length || completion.nativeLinks !== undefined) return unavailable();
     return [];
   }
-  if (completion.version !== 2 && completion.version !== 3 && completion.version !== 4 && completion.version !== 5 || !Array.isArray(completion.nativeLinks)
+  if (completion.version !== 2 && completion.version !== 3 && completion.version !== 4 && completion.version !== 5 && completion.version !== 6 || !Array.isArray(completion.nativeLinks)
     || completion.nativeLinks.length !== expected.length) return unavailable();
-  const receipts = new Map<string, OriginalDeleteNativeLinkReceipt>(), paths = new Set<string>(), operations = new Set<string>();
+  const receipts = new Map<string, AnyOriginalDeleteNativeLinkReceipt>(), paths = new Set<string>(), operations = new Set<string>();
   for (const receipt of completion.nativeLinks) {
     if (!receipt || typeof receipt.operationId !== 'string' || !receipt.operationId || !receipt.source
       || receipt.source.workspaceId !== plan.workspaceId || receipts.has(receipt.source.documentId)
       || paths.has(receipt.source.path) || operations.has(receipt.operationId) || !Array.isArray(receipt.inverseRecipes)) return unavailable();
+    if (plan.planIdentityVersion === 4 && (receipt.resultEvidenceVersion !== 4 || !('parserVersion' in receipt)
+      || receipt.parserVersion !== 4 || !/^[a-f0-9]{64}$/u.test(receipt.htmlSourceProof))) return unavailable();
     receipts.set(receipt.source.documentId, receipt); paths.add(receipt.source.path); operations.add(receipt.operationId);
   }
   return Object.freeze(expected.map(effect => {

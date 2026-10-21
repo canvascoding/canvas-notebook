@@ -55,8 +55,11 @@ export type DirectMcpWorkspacePathHtmlPreviewV2 = Readonly<{ version: 2; kind: '
     blockers: readonly DirectMcpWorkspacePathHtmlDiagnosticV2[] }>;
   issues: readonly Readonly<{ code: string; path: string }>[];
   imports: readonly Readonly<{ path: string; reasons: readonly ('selected' | 'link-change')[] }>[] }>;
+export type DirectMcpWorkspacePathHtmlDeletePreviewV3 = Readonly<Omit<DirectMcpWorkspacePathHtmlPreviewV2, 'version' | 'operationKind' | 'paths'> & {
+  version: 3; operationKind: 'delete'; paths: readonly Readonly<{ sourcePath: string }>[];
+}>;
 export type DirectMcpWorkspacePathPreviewV1 = DirectMcpWorkspacePathNativePreviewV1 | DirectMcpWorkspacePathImportPreviewV1
-  | DirectMcpWorkspacePathHtmlPreviewV2;
+  | DirectMcpWorkspacePathHtmlPreviewV2 | DirectMcpWorkspacePathHtmlDeletePreviewV3;
 export type DirectMcpWorkspacePathExecutionV1 = Readonly<{ receiptStatus: 'available' | 'not_started' | 'unavailable';
   finalization: 'pending' | 'complete'; steps: readonly Readonly<{ key: string; phase: 'path' | 'link';
     kind: 'move' | 'rename' | 'delete' | 'link_update'; path: string; destinationPath?: string;
@@ -241,8 +244,63 @@ function htmlPreviewV2(value: Json | undefined, invalid: () => never): DirectMcp
   if (row.readiness === 'blocked' && (links.rewrites !== 0 || links.affectedDocuments !== 0)) return invalid();
   return row as unknown as DirectMcpWorkspacePathHtmlPreviewV2;
 }
+function htmlDeletePreviewV3(value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathHtmlDeletePreviewV3 {
+  const row = record(value, ['version', 'kind', 'operationKind', 'executionReady', 'readiness', 'workspaceId', 'planId',
+    'paths', 'linkChanges', 'coverage', 'linkAssessment', 'issues', 'imports'], [], invalid);
+  if (row.version !== 3 || row.kind !== 'native-path-html-assessment' || row.operationKind !== 'delete'
+    || row.executionReady !== false || row.readiness !== 'ready' && row.readiness !== 'blocked') return invalid();
+  workspace(row.workspaceId, invalid); planId(row.planId, invalid);
+  const paths = list(row.paths, MAX_SELECTIONS, invalid), sourcePaths = new Set<string>();
+  if (paths.length !== 1) return invalid();
+  for (const item of paths) {
+    const path = record(item, ['sourcePath'], [], invalid), source = pathname(path.sourcePath, invalid);
+    if (sourcePaths.has(source)) return invalid(); sourcePaths.add(source);
+  }
+  const links = record(row.linkChanges, ['rewrites', 'unlinks', 'affectedDocuments'], [], invalid);
+  for (const key of Object.keys(links)) integer(links[key], 100_000, invalid);
+  if (links.rewrites !== 0) return invalid();
+  const coverage = record(row.coverage, ['complete'], [], invalid);
+  if (typeof coverage.complete !== 'boolean') return invalid();
+  const assessment = record(row.linkAssessment, ['complete', 'warnings', 'blockers'], [], invalid);
+  if (typeof assessment.complete !== 'boolean') return invalid();
+  const warnings = list(assessment.warnings, MAX_STEPS, invalid), blockers = list(assessment.blockers, MAX_STEPS, invalid);
+  for (const [items, warning] of [[warnings, true], [blockers, false]] as const) for (const item of items) {
+    const diagnostic = record(item, ['code', 'path', 'targets'], ['line'], invalid);
+    if (warning ? diagnostic.code !== 'unaffected-explicit-html-link'
+      : diagnostic.code !== 'affected-html-link' && diagnostic.code !== 'unevaluated-link') return invalid();
+    pathname(diagnostic.path, invalid);
+    if (Object.hasOwn(diagnostic, 'line') && integer(diagnostic.line, Number.MAX_SAFE_INTEGER, invalid) < 1) return invalid();
+    const targets = list(diagnostic.targets, MAX_STEPS, invalid);
+    if ((warning || diagnostic.code === 'affected-html-link') && !targets.length) return invalid();
+    const uniqueTargets = new Set<string>();
+    for (const target of targets) {
+      const literal = text(target, 4096, invalid); if (uniqueTargets.has(literal)) return invalid(); uniqueTargets.add(literal);
+    }
+  }
+  if (assessment.complete && blockers.length) return invalid();
+  const imports = list(row.imports, MAX_STEPS, invalid), importedPaths = new Set<string>();
+  for (const item of imports) {
+    const imported = record(item, ['path', 'reasons'], [], invalid), file = pathname(imported.path, invalid);
+    if (!/\.(?:md|markdown)$/iu.test(file) || importedPaths.has(file)) return invalid(); importedPaths.add(file);
+    const reasons = list(imported.reasons, 2, invalid);
+    if (!reasons.length || reasons.some(reason => reason !== 'selected' && reason !== 'link-change')
+      || JSON.stringify(reasons) !== JSON.stringify(['selected', 'link-change'].filter(reason => reasons.includes(reason)))) return invalid();
+  }
+  const issues = list(row.issues, MAX_STEPS, invalid);
+  for (const item of issues) {
+    const issue = record(item, ['code', 'path'], [], invalid);
+    if (typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)) return invalid();
+    if (issue.path !== '') pathname(issue.path, invalid);
+  }
+  if (row.readiness === 'ready' ? !assessment.complete || blockers.length || issues.length || imports.length
+    : assessment.complete && !blockers.length && !issues.length && !imports.length) return invalid();
+  if (row.readiness === 'blocked' && (links.unlinks !== 0 || links.affectedDocuments !== 0)) return invalid();
+  return row as unknown as DirectMcpWorkspacePathHtmlDeletePreviewV3;
+}
 const preview = (value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathPreviewV1 => {
-  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-html-assessment') return htmlPreviewV2(value, invalid);
+  if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-html-assessment') {
+    return value.version === 3 ? htmlDeletePreviewV3(value, invalid) : htmlPreviewV2(value, invalid);
+  }
   if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-import-preparation') {
     const row = record(value, ['version', 'kind', 'operationKind', 'workspaceId', 'planId', 'executionReady', 'readiness', 'paths', 'imports', 'issues', 'coverage'], [], invalid);
     if (row.version !== 1 || row.executionReady !== false || typeof row.operationKind !== 'string' || !['move', 'delete'].includes(row.operationKind)
@@ -459,6 +517,21 @@ const htmlPreviewSchemaV2 = {
   ],
 };
 export const DIRECT_MCP_WORKSPACE_MOVE_HTML_PREVIEW_SCHEMA_V2 = frozen(htmlPreviewSchemaV2);
+const htmlDeletePreviewSchemaV3 = {
+  ...htmlPreviewSchemaV2,
+  properties: { ...htmlPreviewSchemaV2.properties, version: { const: 3, type: 'integer' },
+    operationKind: { const: 'delete', type: 'string' },
+    paths: { ...arraySchema(objectSchema({ sourcePath: pathSchema }), 1), minItems: 1 },
+    linkChanges: objectSchema({ rewrites: { const: 0, type: 'integer' }, unlinks: { ...integerSchema, maximum: 100_000 },
+      affectedDocuments: { ...integerSchema, maximum: 100_000 } }),
+  },
+  allOf: [...htmlPreviewSchemaV2.allOf, {
+    if: { properties: { readiness: { const: 'blocked' } } },
+    then: { properties: { linkChanges: { properties: { unlinks: { const: 0 } } } } },
+  }],
+};
+export const DIRECT_MCP_WORKSPACE_DELETE_HTML_PREVIEW_SCHEMA_V3 = frozen(htmlDeletePreviewSchemaV3);
+
 
 const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf: [
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({ kind: { const: kind, type: 'string' },
@@ -479,7 +552,8 @@ const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf
     operation: operationResultSchema, ...(action === 'status' ? {} : { alreadyKnown: booleanSchema }) })),
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, success: { const: false, type: 'boolean' }, code: codeSchema, operationId: operationSchema }, ['apiVersion', 'success', 'code']),
   ...(kind === 'move' ? [objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' },
-    preview: htmlPreviewSchemaV2 })] : []),
+    preview: htmlPreviewSchemaV2 })] : [objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' },
+    preview: htmlDeletePreviewSchemaV3 })]),
 ] });
 export const DIRECT_MCP_WORKSPACE_MOVE_OUTPUT_SCHEMA_V1 = outputSchema('move');
 export const DIRECT_MCP_WORKSPACE_DELETE_OUTPUT_SCHEMA_V1 = outputSchema('delete');

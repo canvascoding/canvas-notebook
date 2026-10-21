@@ -14,12 +14,15 @@ import { createWorkspacePathImportPreparationPlanV1,
   type WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import { createWorkspacePathHtmlNoImportPreparationPlanV2,
   type WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
+import { createWorkspacePathHtmlNativeDeletePreparationPlanV3,
+  type WorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
 import type { WorkspacePathImportPreparationPrincipal } from './workspace-path-import-preparation-phase';
 
 type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind: 'move' | 'rename' | 'delete';
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
-export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2;
+export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
+  | WorkspacePathHtmlNativeDeletePreparationPlanV3;
 export class WorkspacePathImportPreviewError extends Error {
   readonly status: 403 | 409 | 422 | 503;
   constructor(readonly code: 'PATH_IMPORT_PREVIEW_INVALID' | 'PATH_IMPORT_PREVIEW_BUSY' | 'PATH_IMPORT_PREVIEW_UNAVAILABLE'
@@ -97,8 +100,10 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
         if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
         const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
         const scope = captureWorkspaceOperationJobScope(workspace);
-        const plan = captured.kind !== 'delete' && !observation.stage.coverage.complete
-          ? createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,
+        const plan = !observation.stage.coverage.complete
+          ? captured.kind === 'delete' ? createWorkspacePathHtmlNativeDeletePreparationPlanV3({ scope, kind: 'delete',
+            selections: captured.selections.map(({ sourcePath }) => ({ sourcePath })), observation })
+          : createWorkspacePathHtmlNoImportPreparationPlanV2({ scope, kind: captured.kind,
             selections: captured.selections.map(value => ({ sourcePath: value.sourcePath, destinationPath: value.destinationPath! })), observation })
           : createWorkspacePathImportPreparationPlanV1({ scope, kind: captured.kind,
             selections: captured.selections.map(value => ({ ...value })), observation });

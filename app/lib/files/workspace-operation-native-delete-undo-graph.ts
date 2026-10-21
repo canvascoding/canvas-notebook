@@ -63,7 +63,7 @@ function compare(edges: NativeResolvedLink[], expected: NativeResolvedLink[], ta
 export function assertWorkspaceOperationNativeDeleteUndoGraphCurrent(input: WorkspaceOperationNativeDeleteBatchPlan,
   observation: WorkspaceLinkSourceAuthorityObservation, phase: 'before-restore' | 'after-restore' = 'before-restore'): void {
   const plan = decodeWorkspaceOperationNativeDeleteBatchPlan(input), target = plan.nativeTarget;
-  if (plan.planIdentityVersion === 3) return fail();
+  if (plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) return fail();
   if (phase !== 'before-restore' && phase !== 'after-restore') fail();
   const current = captureWorkspaceOperationNativeSourceEvidence(plan.sourceEvidence.workspaceScope, observation);
   const original = plan.sourceEvidence.stage;

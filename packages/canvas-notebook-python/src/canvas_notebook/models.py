@@ -404,6 +404,62 @@ class WorkspaceDeleteImportPreview(WorkspacePathImportPreviewRequired):
     paths: list[WorkspaceDeletePreviewPath]
 
 
+class WorkspacePathHtmlCoverage(TypedDict):
+    """Original source coverage; separate from operation-specific HTML safety."""
+
+    complete: bool
+
+
+class WorkspacePathHtmlDiagnosticOptional(TypedDict, total=False):
+    line: int
+
+
+class WorkspacePathHtmlWarning(WorkspacePathHtmlDiagnosticOptional):
+    code: Literal["unaffected-explicit-html-link"]
+    path: str
+    targets: list[str]
+
+
+class WorkspacePathHtmlBlocker(WorkspacePathHtmlDiagnosticOptional):
+    code: Literal["affected-html-link", "unevaluated-link"]
+    path: str
+    targets: list[str]
+
+
+class WorkspacePathHtmlLinkAssessment(TypedDict):
+    complete: bool
+    warnings: list[WorkspacePathHtmlWarning]
+    blockers: list[WorkspacePathHtmlBlocker]
+
+
+class WorkspaceDeleteHtmlLinkChanges(TypedDict):
+    rewrites: Literal[0]
+    unlinks: int
+    affectedDocuments: int
+
+
+class WorkspaceDeleteHtmlPreviewV3(TypedDict):
+    """Public Delete3 comparison facts, without source bytes or execution rights.
+
+    The server enforces one source path, finite counts and readiness consistency.
+    executionReady stays false even when the HTML assessment is ready.
+    """
+
+    version: Literal[3]
+    kind: Literal["native-path-html-assessment"]
+    operationKind: Literal["delete"]
+    executionReady: Literal[False]
+    readiness: Literal["ready", "blocked"]
+    workspaceId: str
+    planId: str
+    paths: list[WorkspaceDeletePreviewPath]
+    linkChanges: WorkspaceDeleteHtmlLinkChanges
+    coverage: WorkspacePathHtmlCoverage
+    linkAssessment: WorkspacePathHtmlLinkAssessment
+    issues: list[WorkspacePathImportIssue]
+    imports: list[WorkspacePathImportRequirement]
+
+
 class WorkspaceMovePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
@@ -413,7 +469,7 @@ class WorkspaceMovePreviewResult(TypedDict):
 class WorkspaceDeletePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceDeletePreview | WorkspaceDeleteImportPreview
+    preview: WorkspaceDeletePreview | WorkspaceDeleteImportPreview | WorkspaceDeleteHtmlPreviewV3
 
 
 class WorkspacePathJournal(TypedDict):

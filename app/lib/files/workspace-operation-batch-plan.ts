@@ -17,8 +17,8 @@ import type { WorkspaceOperationBatchPreviewPublic } from './workspace-operation
 import { stageWorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import { readWorkspaceFileLifecycleSourceAuthority } from './workspace-file-lifecycle-guard';
 import { computeWorkspaceOperationNativeDeleteBatchPlanId, createWorkspaceOperationNativeDeleteBatchPlan,
-  createWorkspaceOperationNativeDeleteBatchPlanV3,
-  WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
+  createWorkspaceOperationNativeDeleteBatchPlanV3, createWorkspaceOperationNativeDeleteBatchPlanV4,
+} from './workspace-operation-native-delete-plan';
 import { computeWorkspaceOperationNativeMoveBatchPlanId, createWorkspaceOperationNativeMoveBatchPlan,
   createWorkspaceOperationNativeMoveBatchPlanV3,
   createWorkspaceOperationNativeMoveBatchPlanV4,
@@ -314,7 +314,7 @@ export async function buildWorkspaceOperationBatchPlan(input: {
       if (input.actions.some(action => action.kind === 'move' || action.kind === 'rename')) {
         return createWorkspaceOperationNativeMoveBatchPlanV4({ ...input, observation });
       }
-      throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_UNSUPPORTED');
+      return createWorkspaceOperationNativeDeleteBatchPlanV4({ ...input, observation });
     }
     // A moved asset can have incoming native links even when no selected
     // source is itself a notebook. Classify the whole original workspace.

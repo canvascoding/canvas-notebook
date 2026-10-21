@@ -158,8 +158,8 @@ export async function mcpServerWorkspaceHtmlPathContractTest(): Promise<void> {
     groups++;
 
     // The old native and import preview branches keep their complete:true
-    // contract. Their six schemas remain first; Delete gains no HTML branch.
-    assert.equal(moveSchema.oneOf.length, 7); assert.equal(deleteSchema.oneOf.length, 6);
+    // contract. Their six schemas remain first; new HTML branches are separate.
+    assert.equal(moveSchema.oneOf.length, 7); assert.equal(deleteSchema.oneOf.length, 7);
     const nativeLegacy = { kind: 'move', workspaceId: 'workspace', planId: 'a'.repeat(64), readiness: 'ready',
       paths: [{ sourcePath: 'a.md', destinationPath: 'b.md' }], linkChanges: { rewrites: 0, unlinks: 0, affectedDocuments: 0 },
       coverage: { complete: true } };
@@ -176,6 +176,13 @@ export async function mcpServerWorkspaceHtmlPathContractTest(): Promise<void> {
     const validateOldArms = ajv.compile({ type: 'object', oneOf: oldArms });
     assert.equal(validateOldArms(envelope(nativeLegacy)), true); assert.equal(validateOldArms(envelope(importLegacy)), true);
     assert.equal(validateOldArms(envelope(ready)), false);
+    const htmlDelete = { ...ready, version: 3, operationKind: 'delete', paths: [{ sourcePath: 'Move.md' }],
+      linkChanges: { rewrites: 0, unlinks: 1, affectedDocuments: 1 } };
+    assert.deepEqual(encode(envelope(htmlDelete)), envelope(htmlDelete));
+    assert.equal(validDelete(envelope(htmlDelete)), true, JSON.stringify(validDelete.errors));
+    assert.equal(validMove(envelope(htmlDelete)), false);
+    const validateOldDeleteArms = ajv.compile({ type: 'object', oneOf: deleteSchema.oneOf.slice(0, 6) });
+    assert.equal(validateOldDeleteArms(envelope(htmlDelete)), false);
     groups++;
 
     // Projection requires a strictly decoded actual private new plan. A DTO,

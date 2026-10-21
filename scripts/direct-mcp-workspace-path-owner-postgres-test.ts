@@ -61,6 +61,22 @@ async function waitForNativePathRoomCondition(test: () => boolean | Promise<bool
 }
 
 export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
+  // Developer-only single-case iteration. The unchanged default suite remains
+  // mandatory: focused success never establishes all 31 owner cases.
+  const htmlDeleteCaseNames = {
+    'after-physical': 'HTML Delete4: after-physical retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
+    'grant-after-intent': 'HTML Delete4: grant-after-intent retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once',
+    'commit-ack-loss': 'HTML Delete E6: actual completion COMMIT ACK loss and genuine SID-B preserve Original, receipts and later same-path D2 exactly once',
+    'archive-negative': 'HTML Delete E6: actual archive CAS faults roll back all B2 effects and SID-B recovers the same Original exactly once',
+    'grouped-read-revocation': 'HTML Delete E6: current tool revocation after a genuine B2 domain read denies all effects and SID-B recovers the same Original exactly once',
+    public: 'HTML Delete4: real MCP preview, OriginalOwner archive/unlink and same original SID-B history preserve HTML/raw bytes',
+    blocked: 'HTML Delete4: affected native and opaque physical HTML block public preview/apply before every domain or FS mutation',
+  } as const;
+  const selectedCaseId = process.env.CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE;
+  assert(selectedCaseId === undefined || Object.hasOwn(htmlDeleteCaseNames, selectedCaseId),
+    'CANVAS_MCP_PATH_OWNER_HTML_DELETE_CASE must be absent or one of after-physical, grant-after-intent, commit-ack-loss, archive-negative, grouped-read-revocation, public, blocked.');
+  const selectedCaseName = selectedCaseId === undefined ? undefined
+    : htmlDeleteCaseNames[selectedCaseId as keyof typeof htmlDeleteCaseNames];
   const originalBase = process.env.BASE_URL; process.env.BASE_URL = 'http://localhost';
   try { await withNativeCopyMetadataOwnerFixture(async h => {
     Object.assign(process.env, { CANVAS_MCP_DIRECT_ENABLED: 'true', CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'environment',
@@ -580,7 +596,18 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.equal((await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1 RETURNING id', [previous])).rowCount, 1);
       currentSession = next; currentToken = token; currentRequestToken = requestToken; return old;
     };
-    const check = async (name: string, callback: () => Promise<void>) => { currentCase = name; await callback(); groups++; console.log(`MCP job owner case passed: ${name}`); };
+    let discoveredGroups = 0;
+    const omittedCases: string[] = [];
+    const check = async (name: string, callback: () => Promise<void>) => {
+      discoveredGroups++;
+      if (selectedCaseName !== undefined && name !== selectedCaseName) {
+        omittedCases.push(name);
+        console.log(JSON.stringify({ test: 'direct-mcp-job-owner-integration', status: 'omitted', case: name,
+          selectedCaseId, fullSuite: false }));
+        return;
+      }
+      currentCase = name; await callback(); groups++; console.log(`MCP job owner case passed: ${name}`);
+    };
     // Only the new live families construct this runtime. Existing cases below
     // retain their original genuine PG/FD setup and assertions.
     async function startNativePathRoomRuntime() {
@@ -2606,6 +2633,522 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       await assertComplete(job); await assertProofGroupOriginal(job,retained);
       const after=await load(h.connection,job.incomingId); assert(after); assert.equal(after.documentSequence,incoming.documentSequence+1);
     });
+    // The earlier owned live runtime has closed. These E6 cases now reach
+    // successful native-link writes and therefore need the genuine background
+    // projector alive until their existing historical-read barriers finish.
+    const htmlDeleteRooms = await startNativePathRoomRuntime();
+    let htmlDeleteRoomFailure: unknown;
+    try {
+    for (const fault of ['after-physical', 'grant-after-intent'] as const) {
+      await check(`HTML Delete4: ${fault} retains genuine E6 Original and SID-B completes Archive/unlinks/Trash exactly once`, async () => {
+        const { inspectPersistedDocumentLinksV4 } = await import('../app/lib/markdown/workspace-native-link-inventory');
+        const { inspectWorkspaceMarkdownHtmlV4 } = await import('../app/lib/markdown/workspace-local-link-parser');
+        const { authoritativeNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
+        const prefix = 'html-delete4-fault-' + crypto.randomUUID(), sourcePath = prefix + '-target.md';
+        const incomingPath = prefix + '-ordinary.md', htmlPath = prefix + '-html.md', pagePath = prefix + '.html';
+        const sourceBytes = Buffer.from('# Original projected Delete4 fault target\n');
+        const target = await h.upload(sourcePath, sourceBytes);
+        const incoming = await h.upload(incomingPath, Buffer.from('[Original](' + sourcePath + ')\n'));
+        const htmlRaw = '<p><a href="https://example.com">Unrelated HTML remains exact</a></p>';
+        const htmlDocument = await h.upload(htmlPath, Buffer.from('[Original HTML source](' + sourcePath + ')\n\n' + htmlRaw + '\n'));
+        const pageBytes = Buffer.from('<p>Unrelated physical HTML</p>\n');
+        await fs.writeFile(path.join(h.source.rootPath, pagePath), pageBytes, { mode: 0o600, flag: 'wx' });
+        const title = 'Original Delete4 fault ' + prefix;
+        await h.metadata(h.source, sourcePath, { title, isFavorite: true, pinned: true }, 'member', currentRequestToken);
+        const targetBefore = await load(h.connection, target.documentId), incomingBefore = await load(h.connection, incoming.documentId);
+        const htmlBefore = await load(h.connection, htmlDocument.documentId); assert(targetBefore && incomingBefore && htmlBefore);
+        const sourceIdentity = await fs.stat(path.join(h.source.rootPath, sourcePath)); assert(sourceIdentity.isFile());
+        const lineage = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows;
+        assert.equal(lineage.length, 1);
+        const job: Job = await run('delete', currentToken, h.source.workspaceId, async (live): Promise<Job> => {
+          const scope = await freshScope(live), plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{
+            reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath }] }] });
+          assert(plan.version === 2 && plan.planIdentityVersion === 4);
+          assert.equal(plan.sourceEvidence.evidenceVersion, 5); assert.equal(plan.coverage.complete, false);
+          assert.equal(plan.linkAssessment.complete, true); assert.deepEqual(plan.linkAssessment.blockers, []);
+          return { kind: 'delete', operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath: prefix + '-unused.md',
+            incomingPath, pdfPath: null, destinationPdf: null, pdf: null, targetId: target.documentId, incomingId: incoming.documentId,
+            lineageId: lineage[0].lineage_id, generation: target.lifecycleGeneration, title,
+            originalBinary: Buffer.from(targetBefore.yjsState), originalVector: Buffer.from(targetBefore.stateVector) };
+        });
+        const htmlFacts = (state: NonNullable<typeof htmlBefore>) => {
+          const snapshot = authoritativeNativeCollaborationSnapshot(state); assert(snapshot.content.kind === 'plain_text');
+          return inspectWorkspaceMarkdownHtmlV4(snapshot.content.text, state.path).occurrences
+            .map(({ raw, fullyInspected, explicitLocalTargets }) => ({ raw, fullyInspected, explicitLocalTargets }));
+        };
+        const originalHtml = htmlFacts(htmlBefore); assert.equal(originalHtml.length, 1); assert.equal(originalHtml[0].raw, htmlRaw);
+        type E6Intent = Extract<import('../app/lib/files/workspace-operation-original-delete-evidence').OriginalIntent, { version: 6 }>;
+        let intent: E6Intent | undefined, intentRows: Awaited<ReturnType<typeof row>> | undefined;
+        let original: Awaited<ReturnType<typeof immutableBatch>> | undefined;
+        let stageDomain: Awaited<ReturnType<typeof snapshot>> | undefined, stageFiles: Awaited<ReturnType<typeof filesystem>> | undefined;
+        let admissionIdentity: unknown, stageClient: MetadataSqlEvent['client'] | undefined;
+        let stageWitness: { pid: number; start: string; xid: string } | undefined, pendingIntent: Awaited<ReturnType<typeof row>> | undefined;
+        let stageCommitted = false, physicalFault = false, grantRemoved = false;
+        const captureStage = async () => {
+          assert(job.batch && job.original); intentRows = await row(intentTable(job), job.batch.batchId); assert.equal(intentRows.length, 1);
+          intent = JSON.parse(JSON.parse(intentRows[0].body).intent_text) as E6Intent;
+          assert.equal(intent.version, 6); assert.equal(intent.currentWitness.evidenceVersion, 5);
+          assert.equal(intent.physical.source.kind, 'regular_file'); assert.equal(intent.physical.canonicalPath, sourcePath);
+          assert(intent.physical.source.kind === 'regular_file'); assert.equal(intent.physical.source.sha256, sha(sourceBytes));
+          assert.equal(intent.nativeLinks.length, 2);
+          assert(intent.nativeLinks.every(item => item.prepared.contractVersion === 4 && item.prepared.parserVersion === 4));
+          original = await immutableBatch(job); stageDomain = await snapshot(); delete stageDomain.rows.workspace_file_operation_batches;
+          stageFiles = await filesystem();
+          admissionIdentity = (await h.admin.query(`SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests
+            WHERE request_id=$1`, [intent.admission.requestId])).rows;
+          assert.equal((admissionIdentity as unknown[]).length, 1);
+          assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, sourcePath)), sourceBytes);
+          await absent(path.join(h.dataRoot, intent.physical.trashRelativePath));
+          stageCommitted = true;
+        };
+        const removeGrant = async () => {
+          assert.equal((await h.admin.query(`DELETE FROM mcp_direct_workspace_grant
+            WHERE client_id=$1 AND user_id='member' AND workspace_id=$2 RETURNING client_id`, [clientId, h.source.workspaceId])).rowCount, 1);
+          grantRemoved = true;
+        };
+        const restoreGrant = async () => {
+          if (grantRemoved) {
+            assert.equal((await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+              VALUES($1,'member',$2,100,100) RETURNING client_id`, [clientId, h.source.workspaceId])).rowCount, 1);
+            grantRemoved = false;
+          }
+        };
+        try {
+          await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => {
+            await create(job, live);
+            if (fault === 'grant-after-intent') return afterActualCommit(job, intentTable(job), async () => {
+              await captureStage(); await removeGrant();
+            }, () => invoke(job, live, job.batch!));
+            return h.withProbe(async event => {
+              if (/^\s*INSERT\s+INTO\b/iu.test(event.text) && event.text.includes(intentTable(job))
+                && event.values[0] === job.batch!.batchId && event.result.rowCount === 1) {
+                assert.equal(stageClient, undefined); stageClient = event.client;
+                const witness = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                  pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                  pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                  FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                assert.equal(witness.schema, h.schema); assert.equal(witness.schema_oid, h.schemaOid); assert(witness.xid);
+                stageWitness = { pid: Number(witness.pid), start: witness.start, xid: witness.xid };
+                pendingIntent = (await event.raw(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+                  FROM workspace_file_operation_delete_intents t WHERE batch_id=$1`, [job.batch!.batchId])).rows;
+                assert.equal(pendingIntent.length, 1);
+                assert.equal((await row(intentTable(job), job.batch!.batchId)).length, 0);
+              }
+              if (event.client !== stageClient) return;
+              if (/^\s*COMMIT\s*$/iu.test(event.text) && !stageCommitted) {
+                assert(stageWitness); assert.equal(event.result.command, 'COMMIT');
+                const witness = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                  pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                assert.equal(Number(witness.pid), stageWitness.pid); assert.equal(witness.start, stageWitness.start); assert.equal(witness.xid, null);
+                assert(pendingIntent); assert.deepEqual(await row(intentTable(job), job.batch!.batchId), pendingIntent);
+                await captureStage(); return;
+              }
+              if (!stageCommitted || !intent || physicalFault || !/^\s*SELECT\b/iu.test(event.text)
+                || !event.text.includes(intentTable(job)) || !/\bFOR\s+SHARE\s+NOWAIT\s*$/iu.test(event.text)
+                || event.values[0] !== job.batch!.batchId || event.result.rowCount !== 1
+                || !Object.hasOwn(event.result.rows[0], 'intentText')) return;
+              const stillPresent = await fs.lstat(path.join(h.source.rootPath, sourcePath)).then(() => true,
+                error => { assert.equal((error as NodeJS.ErrnoException).code, 'ENOENT'); return false; });
+              if (stillPresent) return; // The genuine pre-rename read must remain completely unmodified.
+              assert(stageWitness && intentRows && intent.physical.source.kind === 'regular_file');
+              assert.equal(event.result.rows[0].intentText, JSON.parse(intentRows[0].body).intent_text);
+              const witness = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+              assert.equal(witness.schema, h.schema); assert.equal(witness.schema_oid, h.schemaOid);
+              assert.equal(Number(witness.pid), stageWitness.pid); assert.equal(witness.start, stageWitness.start);
+              assert(witness.xid); assert.notEqual(witness.xid, stageWitness.xid);
+              const payload = path.join(h.dataRoot, intent.physical.trashRelativePath), moved = await fs.stat(payload);
+              assert(moved.isFile()); assert.equal(moved.dev, sourceIdentity.dev); assert.equal(moved.ino, sourceIdentity.ino);
+              assert.deepEqual(await fs.readFile(payload), sourceBytes);
+              assert.equal((await row(receiptTable(job), job.batch!.batchId)).length, 0);
+              physicalFault = true;
+              throw Object.assign(new Error('Actual Delete4 physical rename completed before native B2 mutation.'), { code: 'FIXTURE_DELETE4_AFTER_PHYSICAL' });
+            }, () => invoke(job, live, job.batch!));
+          }), rejected(fault === 'after-physical' ? 'FIXTURE_DELETE4_AFTER_PHYSICAL' : 'MCP_READ_PRINCIPAL_ACCESS_DENIED'));
+          assert(stageCommitted && intent && intentRows && original && stageDomain && stageFiles && job.batch && job.original);
+          assert.equal(physicalFault, fault === 'after-physical');
+          assert.equal((await store.get(job.batch.batchId))?.status, 'needs_recovery');
+          assert.deepEqual(await immutableBatch(job), original); assert.deepEqual(await row(intentTable(job), job.batch.batchId), intentRows);
+          assert.equal((await row(receiptTable(job), job.batch.batchId)).length, 0);
+          assert.equal((await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId)).length, 0);
+          const afterFault = await snapshot(); delete afterFault.rows.workspace_file_operation_batches;
+          assert.deepEqual(afterFault, stageDomain, 'No archive, unlink, annotation, receipt or admission effect may escape the failed B2.');
+          assert.deepEqual(await load(h.connection, job.targetId), targetBefore);
+          assert.deepEqual(await load(h.connection, job.incomingId), incomingBefore);
+          assert.deepEqual(await load(h.connection, htmlDocument.documentId), htmlBefore);
+          const header = (await h.admin.query('SELECT request_digest,status,outcome_text FROM collaboration_admission_requests WHERE request_id=$1',
+            [intent.admission.requestId])).rows; assert.equal(header.length, 1);
+          assert.equal(header[0].request_digest, intent.admission.requestDigest);
+          assert(['reserved', 'draining'].includes(header[0].status)); assert.equal(header[0].outcome_text, null);
+          const payloadPath = path.join(h.dataRoot, intent.physical.trashRelativePath);
+          if (fault === 'after-physical') {
+            await absent(path.join(h.source.rootPath, sourcePath)); assert.deepEqual(await fs.readFile(payloadPath), sourceBytes);
+            // A real retained reservation and moved payload never replace a current MCP grant.
+            await removeGrant();
+            // This retained intent deliberately blocks projection publication
+            // until recovery. Hold both real workspace locks across the full
+            // NoMutation snapshots instead of waiting for that blocked queue.
+            const { withWorkspaceMutationLock } = await import('../app/lib/files/workspace-mutation-lock');
+            const readWorkspaces = [...new Set([h.source.workspaceId, h.destination.workspaceId])].sort();
+            assert.equal(readWorkspaces.length, 2);
+            await withWorkspaceMutationLock(readWorkspaces[0], () => withWorkspaceMutationLock(readWorkspaces[1], async () => {
+              const rows = (await h.admin.query(`SELECT DISTINCT workspace_id FROM collaboration_yjs_states
+                WHERE status='active' ORDER BY workspace_id LIMIT 513`)).rows;
+              assert(rows.length <= 512);
+              for (const row of rows) assert(readWorkspaces.includes(row.workspace_id),
+                'Every real projector workspace in the observed realm must be inside the read barrier.');
+              await noMutation(() => assert.rejects(run('delete', currentToken, h.source.workspaceId,
+                async live => { await existing(job, live); }), rejected('MCP_READ_PRINCIPAL_ACCESS_DENIED')));
+            }));
+          } else {
+            assert.deepEqual(await filesystem(), stageFiles, 'Grant loss after Stage COMMIT must precede every physical effect.');
+            assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, sourcePath)), sourceBytes); await absent(payloadPath);
+          }
+          await restoreGrant();
+          const sidA = job.original.actorSessionId, old = await rotate(); assert.notEqual(currentSession, sidA);
+          await assert.rejects(run('delete', old, h.source.workspaceId, async live => { await freshScope(live); }), rejected('invalid_token'));
+          await recover(job);
+          assert.equal(job.original.actorSessionId, sidA); assert.deepEqual(await immutableBatch(job), original);
+          assert.deepEqual(await row(intentTable(job), job.batch.batchId), intentRows);
+          assert.deepEqual((await h.admin.query(`SELECT request_id,request_digest,intent_text FROM collaboration_admission_requests
+            WHERE request_id=$1`, [intent.admission.requestId])).rows, admissionIdentity);
+          const final = await store.get(job.batch.batchId); assert(final);
+          assert.equal(final.status, 'applied'); assert.equal(final.completedActions, 3); assert.equal(final.totalActions, 3);
+          assert.deepEqual(final.authorization, job.original); assert.deepEqual(final.trashEntryIds, [intent.physical.trashEntryId]);
+          const completionRows = await row(receiptTable(job), job.batch.batchId), trashRows = await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId);
+          assert.equal(completionRows.length, 1); assert.equal(trashRows.length, 1);
+          const completion = JSON.parse(JSON.parse(completionRows[0].body).receipt_text);
+          assert.equal(completion.version, 6); assert.equal(completion.nativeLinks.length, 2);
+          assert.equal(completion.physical.observation.kind, 'moved'); assert.equal(completion.physical.observation.sha256, sha(sourceBytes));
+          assert(completion.nativeLinks.every((item: { contractVersion: number; resultEvidenceVersion: number; parserVersion: number }) =>
+            item.contractVersion === 2 && item.resultEvidenceVersion === 4 && item.parserVersion === 4));
+          const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId); assert.equal(new Set(mutationIds).size, 2);
+          const mutationRows = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+            FROM collaboration_native_link_mutation_receipts t WHERE operation_id=ANY($1::text[]) ORDER BY operation_id`, [mutationIds])).rows;
+          assert.equal(mutationRows.length, 2);
+          const archived = await load(h.connection, job.targetId, true), incomingAfter = await load(h.connection, job.incomingId);
+          const htmlAfter = await load(h.connection, htmlDocument.documentId); assert(archived && incomingAfter && htmlAfter);
+          assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, job.generation + 1);
+          assert.deepEqual(Buffer.from(archived.yjsState), job.originalBinary); assert.deepEqual(Buffer.from(archived.stateVector), job.originalVector);
+          assert.deepEqual((await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1', [job.targetId])).rows,
+            [{ id: job.targetId, lineage_id: job.lineageId, status: 'archived' }]);
+          assert.deepEqual((await h.admin.query('SELECT id,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1', [job.lineageId])).rows,
+            [{ id: job.lineageId, status: 'archived', trash_entry_id: intent.physical.trashEntryId }]);
+          assert.equal(incomingAfter.documentSequence, incomingBefore.documentSequence + 1);
+          assert.equal(htmlAfter.documentSequence, htmlBefore.documentSequence + 1);
+          assert.equal(inspectPersistedDocumentLinksV4(incomingAfter).links.length, 0);
+          assert.equal(inspectPersistedDocumentLinksV4(htmlAfter).links.length, 0); assert.deepEqual(htmlFacts(htmlAfter), originalHtml);
+          await absent(path.join(h.source.rootPath, sourcePath)); assert.deepEqual(await fs.readFile(payloadPath), sourceBytes);
+          const payloadIdentity = await fs.stat(payloadPath); assert.equal(payloadIdentity.dev, sourceIdentity.dev); assert.equal(payloadIdentity.ino, sourceIdentity.ino);
+          const trash = (await h.admin.query('SELECT id,status,original_path,metadata_json FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',
+            [h.source.workspaceId, sourcePath])).rows; assert.equal(trash.length, 1);
+          assert.equal(trash[0].id, intent.physical.trashEntryId); assert.equal(trash[0].status, 'trashed'); assert.equal(JSON.parse(trash[0].metadata_json).payloadKind, 'file');
+          assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2', [h.source.workspaceId, sourcePath])).rows, []);
+          assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2', [h.source.workspaceId, sourcePath])).rows, []);
+          assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, pagePath)), pageBytes);
+          const finalHeader = (await h.admin.query('SELECT status,outcome_text FROM collaboration_admission_requests WHERE request_id=$1', [intent.admission.requestId])).rows;
+          assert.equal(finalHeader.length, 1); assert.equal(finalHeader[0].status, 'committed'); assert(finalHeader[0].outcome_text);
+          await withSettledProjectionReadBoundary(() => run('delete', currentToken, h.source.workspaceId, live => noMutation(async () => {
+            const known = await existing(job, live); assert.equal(known.kind, 'historical-header'); assert(known.kind === 'historical-header');
+            assert.deepEqual(known.batch.authorization, job.original); const observed = await status(job, live); assert(observed);
+            assert.equal(observed.observation.apply, 'complete'); assert.deepEqual(observed.batch.authorization, job.original);
+          })));
+          assert.deepEqual(await row(receiptTable(job), job.batch.batchId), completionRows);
+          assert.deepEqual(await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId), trashRows);
+          assert.deepEqual((await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+            FROM collaboration_native_link_mutation_receipts t WHERE operation_id=ANY($1::text[]) ORDER BY operation_id`, [mutationIds])).rows, mutationRows);
+        } finally { await restoreGrant(); }
+      });
+    }
+    await check('HTML Delete E6: actual completion COMMIT ACK loss and genuine SID-B preserve Original, receipts and later same-path D2 exactly once', async () => {
+      const { inspectPersistedDocumentLinksV4 } = await import('../app/lib/markdown/workspace-native-link-inventory');
+      const { inspectWorkspaceMarkdownHtmlV4 } = await import('../app/lib/markdown/workspace-local-link-parser');
+      const { authoritativeNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
+      const prefix = 'html-delete-e6-ack-' + crypto.randomUUID(), sourcePath = prefix + '-target.md';
+      const incomingPath = prefix + '-ordinary.md', htmlPath = prefix + '-html.md', title = 'Original E6 ' + prefix;
+      const sourceBytes = Buffer.from('# Actual projected E6 target\n\nKeep the original in Trash.\n');
+      const target = await h.upload(sourcePath, sourceBytes);
+      const incoming = await h.upload(incomingPath, Buffer.from('[Original](' + sourcePath + ')\n'));
+      const htmlRaw = '<p><a href="' + incomingPath + '">Unrelated preserved HTML</a></p>';
+      const htmlDocument = await h.upload(htmlPath, Buffer.from('[Original HTML source](' + sourcePath + ')\n\n' + htmlRaw + '\n'));
+      await h.metadata(h.source, sourcePath, { title, isFavorite: true, pinned: true }, 'member', currentRequestToken);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, sourcePath)), sourceBytes);
+      const originalFileIdentity = await fs.stat(path.join(h.source.rootPath, sourcePath)); assert(originalFileIdentity.isFile());
+      const targetBefore = await load(h.connection, target.documentId), incomingBefore = await load(h.connection, incoming.documentId);
+      const htmlBefore = await load(h.connection, htmlDocument.documentId); assert(targetBefore && incomingBefore && htmlBefore);
+      const lineage = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows;
+      assert.equal(lineage.length, 1);
+      const job: Job = await run('delete', currentToken, h.source.workspaceId, async (live): Promise<Job> => {
+        const scope = await freshScope(live), plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{
+          reviewId: crypto.randomUUID(), kind: 'delete', selections: [{ sourcePath }] }] });
+        assert(plan.version === 2 && plan.planIdentityVersion === 4,
+          `Expected HTML Delete4 plan, got ${plan.version}/${plan.version === 2 ? plan.planIdentityVersion : 'other'}.`);
+        assert.equal(plan.sourceEvidence.evidenceVersion, 5); assert.equal(plan.coverage.complete, false);
+        assert.equal(plan.linkAssessment.complete, true); assert.deepEqual(plan.linkAssessment.blockers, []);
+        return { kind: 'delete', operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath: prefix + '-unused.md',
+          incomingPath, pdfPath: null, destinationPdf: null, pdf: null, targetId: target.documentId, incomingId: incoming.documentId,
+          lineageId: lineage[0].lineage_id, generation: target.lifecycleGeneration, title,
+          originalBinary: Buffer.from(targetBefore.yjsState), originalVector: Buffer.from(targetBefore.stateVector) };
+      });
+      const htmlFacts = (state: NonNullable<typeof htmlBefore>) => {
+        const snapshot = authoritativeNativeCollaborationSnapshot(state); assert(snapshot.content.kind === 'plain_text');
+        return inspectWorkspaceMarkdownHtmlV4(snapshot.content.text, state.path).occurrences
+          .map(({ raw, fullyInspected, explicitLocalTargets }) => ({ raw, fullyInspected, explicitLocalTargets }));
+      };
+      const originalHtml = htmlFacts(htmlBefore); assert.equal(originalHtml.length, 1); assert.equal(originalHtml[0].raw, htmlRaw);
+      let faulted = false;
+      await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => {
+        await create(job, live);
+        return afterActualCommit(job, receiptTable(job), async () => {
+          faulted = true;
+          throw Object.assign(new Error('Lost actual E6 completion COMMIT acknowledgement.'), { code: 'FIXTURE_MCP_JOB_ACK_LOST' });
+        }, () => invoke(job, live, job.batch!));
+      }), rejected('JOB_LIFECYCLE_COMMIT_UNCONFIRMED'));
+      assert(faulted && job.batch && job.original);
+      const original = await immutableBatch(job), intentRows = await row(intentTable(job), job.batch.batchId);
+      const completionRows = await row(receiptTable(job), job.batch.batchId);
+      const trashReceipts = await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId);
+      assert.equal(intentRows.length, 1); assert.equal(completionRows.length, 1); assert.equal(trashReceipts.length, 1);
+      const intent = JSON.parse(JSON.parse(intentRows[0].body).intent_text);
+      const completion = JSON.parse(JSON.parse(completionRows[0].body).receipt_text);
+      assert.equal(intent.version, 6); assert.equal(intent.currentWitness.evidenceVersion, 5);
+      assert.equal(intent.physical.source.kind, 'regular_file'); assert.equal(intent.physical.source.sha256, sha(sourceBytes));
+      assert.equal(intent.actor.actorSessionId, job.original.actorSessionId);
+      assert.equal(completion.version, 6); assert.equal(completion.nativeLinks.length, 2); assert.equal(intent.nativeLinks.length, 2);
+      assert.equal(completion.physical.observation.kind, 'moved'); assert.equal(completion.physical.observation.sha256, sha(sourceBytes));
+      assert(intent.nativeLinks.every((item: { prepared: { contractVersion: number; parserVersion: number } }) =>
+        item.prepared.contractVersion === 4 && item.prepared.parserVersion === 4));
+      assert(completion.nativeLinks.every((item: { contractVersion: number; resultEvidenceVersion: number; parserVersion: number;
+        htmlSourceProof: string }) => item.contractVersion === 2 && item.resultEvidenceVersion === 4
+        && item.parserVersion === 4 && typeof item.htmlSourceProof === 'string' && /^[a-f0-9]{64}$/u.test(item.htmlSourceProof)));
+      const mutationIds = intent.nativeLinks.map((item: { prepared: { operationId: string } }) => item.prepared.operationId);
+      assert.equal(new Set(mutationIds).size, 2);
+      const mutationRows = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+        FROM collaboration_native_link_mutation_receipts t WHERE operation_id=ANY($1::text[]) ORDER BY operation_id`, [mutationIds])).rows;
+      assert.equal(mutationRows.length, 2);
+      const archived = await load(h.connection, job.targetId, true), incomingAfterCommit = await load(h.connection, job.incomingId);
+      const htmlAfterCommit = await load(h.connection, htmlDocument.documentId); assert(archived && incomingAfterCommit && htmlAfterCommit);
+      assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, job.generation + 1);
+      assert.deepEqual((await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1',
+        [job.targetId])).rows, [{ id: job.targetId, lineage_id: job.lineageId, status: 'archived' }]);
+      assert.deepEqual((await h.admin.query('SELECT id,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1',
+        [job.lineageId])).rows, [{ id: job.lineageId, status: 'archived', trash_entry_id: completion.trashEntryId }]);
+      assert.deepEqual(Buffer.from(archived.yjsState), job.originalBinary); assert.deepEqual(Buffer.from(archived.stateVector), job.originalVector);
+      assert.equal(incomingAfterCommit.documentSequence, incomingBefore.documentSequence + 1);
+      assert.equal(htmlAfterCommit.documentSequence, htmlBefore.documentSequence + 1);
+      assert.equal(inspectPersistedDocumentLinksV4(incomingAfterCommit).links.length, 0);
+      assert.equal(inspectPersistedDocumentLinksV4(htmlAfterCommit).links.length, 0);
+      assert.deepEqual(htmlFacts(htmlAfterCommit), originalHtml);
+      await absent(path.join(h.source.rootPath, sourcePath));
+      assert.deepEqual(await fs.readFile(path.join(h.dataRoot, intent.physical.trashRelativePath)), sourceBytes);
+      const trashFileIdentity = await fs.stat(path.join(h.dataRoot, intent.physical.trashRelativePath));
+      assert(trashFileIdentity.isFile()); assert.equal(trashFileIdentity.dev, originalFileIdentity.dev);
+      assert.equal(trashFileIdentity.ino, originalFileIdentity.ino);
+      const trash = (await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_trash_entries WHERE id=$1',
+        [completion.trashEntryId])).rows; assert.equal(trash.length, 1);
+      assert.equal(trash[0].status, 'trashed'); assert.equal(trash[0].original_path, sourcePath);
+      assert.equal(JSON.parse(trash[0].metadata_json).payloadKind, 'file');
+      assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',
+        [h.source.workspaceId, sourcePath])).rows[0].n, 1);
+      assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2',
+        [h.source.workspaceId, sourcePath])).rows, []);
+      assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2',
+        [h.source.workspaceId, sourcePath])).rows, []);
+      const originalSession = job.original.actorSessionId, oldToken = await rotate(); assert.notEqual(currentSession, originalSession);
+      await assert.rejects(run('delete', oldToken, h.source.workspaceId, async live => {
+        await freshScope(live); assert.fail('Expired original SID-A cannot supply current E6 recovery authority.');
+      }), rejected('invalid_token'));
+      // A real central authenticated upload creates a distinct native D2 after
+      // the committed original effect, before SID-B recovers the original job.
+      const replacementBytes = Buffer.from('# Independent D2 at old E6 spelling\n\nDo not delete or adopt this later document.\n');
+      const replacement = await h.upload(sourcePath, replacementBytes); assert.notEqual(replacement.documentId, job.targetId);
+      await h.metadata(h.source, sourcePath, { title: 'Later E6 D2', isFavorite: true, pinned: true }, 'member', currentRequestToken);
+      const replacementBefore = await load(h.connection, replacement.documentId); assert(replacementBefore);
+      assert.equal(replacementBefore.status, 'active');
+      const replacementRegistry = (await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1',
+        [replacement.documentId])).rows; assert.equal(replacementRegistry.length, 1);
+      assert.equal(replacementRegistry[0].status, 'active'); assert.notEqual(replacementRegistry[0].lineage_id, job.lineageId);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, sourcePath)), replacementBytes);
+      const domainTables = ['collaboration_documents', 'collaboration_yjs_states', 'file_collaboration_lineages', 'collaboration_file_projections',
+        'collaboration_native_link_mutation_receipts', 'workspace_trash_entries', 'workspace_file_metadata', 'workspace_file_user_states',
+        'public_file_shares', 'file_guest_invitations', 'workspace_file_operation_delete_intents',
+        'workspace_file_operation_delete_trash_receipts', 'workspace_file_operation_delete_receipts',
+        'collaboration_admission_requests', 'collaboration_admission_scopes', 'collaboration_admission_targets'];
+      const domainRows = async () => {
+        const result: Record<string, unknown> = {};
+        for (const table of domainTables) {
+          const rows = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM "${table}" t
+            ORDER BY to_jsonb(t)::text,xmin::text LIMIT 10001`)).rows;
+          assert(rows.length <= 10000); result[table] = rows;
+        }
+        return result;
+      };
+      const filesBeforeRecovery = await filesystem(), domainBeforeRecovery = await domainRows();
+      const historicalWrites: Array<{ operation: string; table: string }> = [];
+      await h.withProbe(async event => {
+        const mutation = /^\s*(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+((?:"[^"]+"\.)?"?([a-z_]+)"?)/iu.exec(event.text);
+        if (mutation && domainTables.includes(mutation[3])) historicalWrites.push({ operation: mutation[1], table: mutation[3] });
+      }, () => recover(job));
+      assert.deepEqual(historicalWrites, []);
+      const domainAfterRecovery = await domainRows();
+      for (const table of domainTables) {
+        assert(Object.hasOwn(domainBeforeRecovery, table) && Object.hasOwn(domainAfterRecovery, table));
+        assert.deepEqual(domainAfterRecovery[table], domainBeforeRecovery[table], table + ': historical E6 recovery must preserve row bytes and xmin.');
+      }
+      assert.deepEqual(await filesystem(), filesBeforeRecovery);
+      assert.deepEqual(await immutableBatch(job), original); assert.equal(job.original.actorSessionId, originalSession);
+      assert.notEqual(currentSession, job.original.actorSessionId);
+      assert.deepEqual(await row(intentTable(job), job.batch.batchId), intentRows);
+      assert.deepEqual(await row(receiptTable(job), job.batch.batchId), completionRows);
+      assert.deepEqual(await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId), trashReceipts);
+      assert.deepEqual((await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+        FROM collaboration_native_link_mutation_receipts t WHERE operation_id=ANY($1::text[]) ORDER BY operation_id`, [mutationIds])).rows, mutationRows);
+      assert.deepEqual((await h.admin.query('SELECT *,xmin::text AS xmin FROM workspace_trash_entries WHERE id=$1', [completion.trashEntryId])).rows, trash);
+      assert.equal((await h.admin.query('SELECT count(*)::integer AS n FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',
+        [h.source.workspaceId, sourcePath])).rows[0].n, 1);
+      const replacementAfter = await load(h.connection, replacement.documentId); assert(replacementAfter);
+      assert.deepEqual(replacementAfter, replacementBefore); assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, sourcePath)), replacementBytes);
+      assert.deepEqual(await load(h.connection, job.targetId, true), archived);
+      assert.deepEqual(await load(h.connection, job.incomingId), incomingAfterCommit);
+      assert.deepEqual(await load(h.connection, htmlDocument.documentId), htmlAfterCommit);
+      assert.deepEqual(htmlFacts(htmlAfterCommit), originalHtml);
+      assert.deepEqual(await fs.readFile(path.join(h.dataRoot, intent.physical.trashRelativePath)), sourceBytes);
+      const final = await store.get(job.batch.batchId); assert(final);
+      assert.equal(final.status, 'applied'); assert.equal(final.phase, 'complete');
+      assert.equal(final.completedActions, 3); assert.equal(final.totalActions, 3);
+      assert.deepEqual(final.trashEntryIds, [completion.trashEntryId]); assert.deepEqual(final.authorization, job.original);
+    });
+    await check('HTML Delete4: real MCP preview, OriginalOwner archive/unlink and same original SID-B history preserve HTML/raw bytes', async () => {
+      const { runDirectMcpWorkspaceDeleteService: publicDelete } = await import('../app/lib/files/workspace-operation-mcp-path-service');
+      const { decodeDirectMcpWorkspaceDeleteRequestV1: requestDelete } = await import('../app/lib/mcp/server/workspace-path-tool-contract');
+      const { inspectWorkspaceMarkdownHtmlV4 } = await import('../app/lib/markdown/workspace-local-link-parser');
+      const { authoritativeNativeCollaborationSnapshot } = await import('../app/lib/collaboration/document-snapshot');
+      const prefix = 'html-delete-' + crypto.randomUUID(), sourcePath = prefix + '-target.md';
+      const target = await h.upload(sourcePath, Buffer.from('# Actual projected Delete4 target\n'));
+      const incoming = await h.upload(prefix + '-ordinary.md', Buffer.from('[Delete ordinary](' + sourcePath + ')\n'));
+      const lineage = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows;
+      assert.equal(lineage.length, 1);
+      const job = { sourcePath, targetId: target.documentId, incomingId: incoming.documentId,
+        lineageId: lineage[0].lineage_id, generation: target.lifecycleGeneration };
+      const sourceBytes = await fs.readFile(path.join(h.source.rootPath, job.sourcePath));
+      const keepPath = prefix + '-keep.md', htmlPath = prefix + '-incoming.md', pagePath = prefix + '.html', rawPath = prefix + '-raw.md';
+      await h.upload(keepPath, Buffer.from('# HTML keep target\n'));
+      const htmlRaw = '<p><a href="' + keepPath + '">Unrelated HTML</a></p>';
+      const htmlDoc = await h.upload(htmlPath, Buffer.from('[Delete ordinary](' + job.sourcePath + ')\n\n' + htmlRaw + '\n'));
+      const pageBytes = Buffer.from('<div><a href="' + keepPath + '">Physical unrelated HTML</a></div>\n');
+      const rawBytes = Buffer.from('[Keep raw](' + keepPath + ')\n');
+      await fs.writeFile(path.join(h.source.rootPath, pagePath), pageBytes, { mode: 0o600, flag: 'wx' });
+      await fs.writeFile(path.join(h.source.rootPath, rawPath), rawBytes, { mode: 0o600, flag: 'wx' });
+      const targetBefore = await load(h.connection, job.targetId), incomingBefore = await load(h.connection, job.incomingId);
+      const htmlBefore = await load(h.connection, htmlDoc.documentId); assert(targetBefore && incomingBefore && htmlBefore);
+      const htmlFacts = (state: NonNullable<typeof htmlBefore>) => {
+        const snapshot = authoritativeNativeCollaborationSnapshot(state);
+        assert.equal(snapshot.content.kind, 'plain_text'); assert(snapshot.content.kind === 'plain_text');
+        return inspectWorkspaceMarkdownHtmlV4(snapshot.content.text, state.path).occurrences
+          .map(({ raw, fullyInspected, explicitLocalTargets }) => ({ raw, fullyInspected, explicitLocalTargets }));
+      };
+      const beforeHtml = htmlFacts(htmlBefore); assert.equal(beforeHtml.length, 1); assert.equal(beforeHtml[0].raw, htmlRaw);
+      const preview = await withSettledProjectionReadBoundary(() => noMutation(() => publicDelete(requestDelete({ api_version: 1, action: 'preview',
+        workspace_id: h.source.workspaceId, path: job.sourcePath }), authInfo(currentToken))));
+      assert.equal(preview.action, 'preview'); assert(preview.action === 'preview');
+      assert.equal(preview.preview.kind, 'native-path-html-assessment'); assert(preview.preview.kind === 'native-path-html-assessment');
+      assert.equal(preview.preview.version, 3); assert.equal(preview.preview.operationKind, 'delete');
+      assert.equal(preview.preview.readiness, 'ready'); assert.equal(preview.preview.coverage.complete, false);
+      assert.equal(preview.preview.linkAssessment.complete, true); assert.deepEqual(preview.preview.linkAssessment.blockers, []);
+      assert(preview.preview.linkAssessment.warnings.some(item => item.path === htmlPath));
+      assert(preview.preview.linkAssessment.warnings.some(item => item.path === pagePath));
+      assert.deepEqual(preview.preview.paths, [{ sourcePath: job.sourcePath }]); assert.equal(preview.preview.linkChanges.unlinks, 2);
+      const operationId = crypto.randomUUID(), planId = preview.preview.planId;
+      const applyRequest = { api_version: 1, action: 'apply', workspace_id: h.source.workspaceId,
+        path: job.sourcePath, operation_id: operationId, plan_id: planId };
+      const result = await publicDelete(requestDelete(applyRequest), authInfo(currentToken));
+      assert.equal(result.action, 'apply'); assert(result.action === 'apply');
+      assert.equal(result.operation.journal.status, 'applied'); assert.equal(result.operation.execution.receiptStatus, 'available');
+      assert.equal(result.operation.execution.finalization, 'complete'); assert.equal(result.operation.journal.completedActions, 3);
+      assert.equal(result.operation.journal.totalActions, 3); assert.equal(result.operation.planId, planId);
+      const batch = await store.get(result.operation.batchId); assert(batch && batch.plan.version === 2);
+      assert.equal(batch.plan.planIdentityVersion, 4); assert.equal(batch.plan.sourceEvidence.evidenceVersion, 5);
+      const storedIntent = (await row('workspace_file_operation_delete_intents', batch.batchId)); assert.equal(storedIntent.length, 1);
+      const intent = JSON.parse(JSON.parse(storedIntent[0].body).intent_text);
+      assert.equal(intent.version, 6); assert.equal(intent.currentWitness.evidenceVersion, 5); assert.equal(intent.nativeLinks.length, 2);
+      assert.equal(intent.physical.source.kind, 'regular_file'); assert.equal(intent.physical.source.sha256, sha(sourceBytes));
+      assert(intent.nativeLinks.every((item: { prepared: { contractVersion: number; parserVersion: number } }) =>
+        item.prepared.contractVersion === 4 && item.prepared.parserVersion === 4));
+      const storedReceipt = await row('workspace_file_operation_delete_receipts', batch.batchId); assert.equal(storedReceipt.length, 1);
+      const receipt = JSON.parse(JSON.parse(storedReceipt[0].body).receipt_text);
+      assert.equal(receipt.version, 6); assert.equal(receipt.nativeLinks.length, 2);
+      assert.equal(receipt.physical.observation.kind, 'moved'); assert.equal(receipt.physical.observation.sha256, sha(sourceBytes));
+      assert.deepEqual(await fs.readFile(path.join(h.dataRoot, intent.physical.trashRelativePath)), sourceBytes);
+      assert(receipt.nativeLinks.every((item: { contractVersion: number; resultEvidenceVersion: number; parserVersion: number;
+        htmlSourceProof: string; afterBinaryHash: string; afterVectorHash: string }) => item.contractVersion === 2
+        && item.resultEvidenceVersion === 4 && item.parserVersion === 4 && /^[a-f0-9]{64}$/u.test(item.htmlSourceProof)
+        && /^[a-f0-9]{64}$/u.test(item.afterBinaryHash) && /^[a-f0-9]{64}$/u.test(item.afterVectorHash)));
+      const archived = (await h.admin.query('SELECT id,lineage_id,status FROM collaboration_documents WHERE id=$1', [job.targetId])).rows;
+      assert.equal(archived.length, 1); assert.equal(archived[0].id, job.targetId); assert.equal(archived[0].lineage_id, job.lineageId);
+      assert.equal(archived[0].status, 'archived');
+      const archivedLineage = (await h.admin.query('SELECT id,status FROM file_collaboration_lineages WHERE id=$1', [job.lineageId])).rows;
+      assert.deepEqual(archivedLineage, [{ id: job.lineageId, status: 'archived' }]);
+      const targetAfter = await load(h.connection, job.targetId, true), incomingAfter = await load(h.connection, job.incomingId);
+      const htmlAfter = await load(h.connection, htmlDoc.documentId); assert(targetAfter && incomingAfter && htmlAfter);
+      assert.deepEqual(Buffer.from(targetAfter.yjsState), Buffer.from(targetBefore.yjsState));
+      assert.equal(targetAfter.status, 'archived'); assert.equal(targetAfter.lifecycleGeneration, targetBefore.lifecycleGeneration + 1);
+      assert.equal(incomingAfter.documentSequence, incomingBefore.documentSequence + 1); assert.equal(htmlAfter.documentSequence, htmlBefore.documentSequence + 1);
+      assert.deepEqual(htmlFacts(htmlAfter), beforeHtml);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, pagePath)), pageBytes);
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, rawPath)), rawBytes);
+      await absent(path.join(h.source.rootPath, job.sourcePath));
+      const firstSession = currentSession; await rotate(); assert.notEqual(currentSession, firstSession);
+      const status = await withSettledProjectionReadBoundary(() => noMutation(() => publicDelete(requestDelete({ api_version: 1, action: 'status',
+        workspace_id: h.source.workspaceId, operation_id: operationId }), authInfo(currentToken))));
+      assert.equal(status.action, 'status'); assert(status.action === 'status');
+      assert.equal(status.operation.batchId, batch.batchId); assert.equal(status.operation.planId, planId);
+      assert.equal(status.operation.journal.status, 'applied'); assert.equal(status.operation.completion.status, 'confirmed');
+      const replay = await withSettledProjectionReadBoundary(() => noMutation(() => publicDelete(requestDelete(applyRequest), authInfo(currentToken))));
+      assert.equal(replay.action, 'apply'); assert(replay.action === 'apply');
+      assert.equal(replay.alreadyKnown, true); assert.equal(replay.operation.batchId, batch.batchId);
+      assert.deepEqual(await row('workspace_file_operation_delete_intents', batch.batchId), storedIntent);
+      assert.deepEqual(await row('workspace_file_operation_delete_receipts', batch.batchId), storedReceipt);
+      assert.equal((await load(h.connection, job.incomingId))!.documentSequence, incomingAfter.documentSequence);
+      assert.equal((await load(h.connection, htmlDoc.documentId))!.documentSequence, htmlAfter.documentSequence);
+    });
+    await check('HTML Delete4: affected native and opaque physical HTML block public preview/apply before every domain or FS mutation', async () => {
+      const { runDirectMcpWorkspaceDeleteService: publicDelete } = await import('../app/lib/files/workspace-operation-mcp-path-service');
+      const { decodeDirectMcpWorkspaceDeleteRequestV1: requestDelete } = await import('../app/lib/mcp/server/workspace-path-tool-contract');
+      const job = await seed('delete'), prefix = 'html-delete-block-' + crypto.randomUUID();
+      const affectedPath = prefix + '-affected.md', opaquePath = prefix + '.html';
+      await h.upload(affectedPath, Buffer.from('<p><a href="' + job.sourcePath + '">Affected</a></p>\n'));
+      await fs.writeFile(path.join(h.source.rootPath, opaquePath), Buffer.from('<iframe src="' + job.sourcePath + '"></iframe>\n'),
+        { mode: 0o600, flag: 'wx' });
+      const targetBefore = await load(h.connection, job.targetId); assert(targetBefore);
+      const preview = await withSettledProjectionReadBoundary(() => noMutation(() => publicDelete(requestDelete({ api_version: 1, action: 'preview',
+        workspace_id: h.source.workspaceId, path: job.sourcePath }), authInfo(currentToken))));
+      assert.equal(preview.action, 'preview'); assert(preview.action === 'preview');
+      assert.equal(preview.preview.kind, 'native-path-html-assessment'); assert(preview.preview.kind === 'native-path-html-assessment');
+      assert.equal(preview.preview.version, 3); assert.equal(preview.preview.readiness, 'blocked');
+      assert.equal(preview.preview.coverage.complete, false); assert.equal(preview.preview.linkAssessment.complete, false);
+      assert(preview.preview.linkAssessment.blockers.some(item => item.path === affectedPath && item.code === 'affected-html-link'));
+      assert(preview.preview.linkAssessment.blockers.some(item => item.path === opaquePath && item.code === 'unevaluated-link'));
+      const operationId = crypto.randomUUID();
+      await withSettledProjectionReadBoundary(() => noMutation(() => assert.rejects(publicDelete(requestDelete({ api_version: 1, action: 'apply',
+        workspace_id: h.source.workspaceId, path: job.sourcePath, operation_id: operationId, plan_id: preview.preview.planId }),
+      authInfo(currentToken)), rejected('PATH_NATIVE_REQUIRED'))));
+      assert.equal((await load(h.connection, job.targetId))!.status, 'active');
+      assert.deepEqual(Buffer.from((await load(h.connection, job.targetId))!.yjsState), Buffer.from(targetBefore.yjsState));
+      // This deliberately opaque fixture blocks every later operation. Retire
+      // only this case's wx-created file after every unchanged NoMutation check.
+      assert.deepEqual(await fs.readFile(path.join(h.source.rootPath, opaquePath)),
+        Buffer.from('<iframe src="' + job.sourcePath + '"></iframe>\n'));
+      await fs.unlink(path.join(h.source.rootPath, opaquePath));
+      await absent(path.join(h.source.rootPath, opaquePath));
+    });
+    } catch (error) { htmlDeleteRoomFailure = error; throw error; }
+    finally {
+      try { await htmlDeleteRooms.close(); }
+      catch (cleanup) { throw htmlDeleteRoomFailure === undefined ? cleanup
+        : new AggregateError([htmlDeleteRoomFailure, cleanup], 'HTML Delete assertion and owned runtime closure failed.'); }
+    }
     await check('current expired session denies historical status and existing claim with zero domain/FS changes', async () => {
       assert.equal((await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1 RETURNING id', [currentSession])).rowCount, 1);
       const before = await snapshot(), files = await filesystem();
@@ -2613,9 +3156,377 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => { await existing(deleted!, live); }), rejected('invalid_token'));
       assert.deepEqual(await snapshot(), before); assert.deepEqual(await filesystem(), files);
     });
-    assert.equal(groups, 24);
+    await check('HTML Delete E6: actual archive CAS faults roll back all B2 effects and SID-B recovers the same Original exactly once', async () => {
+      const { executeWorkspaceOperationOriginalDelete } = await import('../app/lib/files/workspace-operation-original-delete');
+      const { inspectPersistedDocumentLinksV4 } = await import('../app/lib/markdown/workspace-native-link-inventory');
+      // The last original family genuinely expires its session. A focused run
+      // omits it; both modes obtain their own real successor session here.
+      await rotate();
+      const archiveRoom = await startNativePathRoomRuntime();
+      try {
+        await withSettledProjectionReadBoundary(async () => undefined);
+        for (const stopAfter of [1, 4] as const) {
+          const prefix = 'archive-negative-' + crypto.randomUUID(), sourcePath = prefix + '-target.md';
+          const incomingPath = prefix + '-incoming.md', htmlPath = prefix + '-html.md', pagePath = prefix + '.html';
+          const sourceBytes = Buffer.from('# Original target\n\nActual native body.\n'), title = 'Archive negative ' + prefix;
+          const target = await h.upload(sourcePath, sourceBytes);
+          const incomingDocument = await h.upload(incomingPath, Buffer.from('[Original](' + sourcePath + ')\n'));
+          const html = await h.upload(htmlPath, Buffer.from('[Original](' + sourcePath + ')\n\n<p>Unrelated HTML remains exact</p>\n'));
+          await fs.writeFile(path.join(h.source.rootPath, pagePath), '<p>Unrelated physical HTML</p>\n', { mode: 0o600, flag: 'wx' });
+          await h.metadata(h.source, sourcePath, { title, isFavorite: true, pinned: true }, 'member', currentRequestToken);
+          await withSettledProjectionReadBoundary(async () => undefined);
+          const sourceIdentity = await fs.stat(path.join(h.source.rootPath, sourcePath)); assert(sourceIdentity.isFile());
+          const beforeTarget = await load(h.connection, target.documentId), beforeIncoming = await load(h.connection, incomingDocument.documentId);
+          const beforeHtml = await load(h.connection, html.documentId); assert(beforeTarget && beforeIncoming && beforeHtml);
+          const lineage = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows;
+          assert.equal(lineage.length, 1);
+          const job: Job = await run('delete', currentToken, h.source.workspaceId, async (live): Promise<Job> => {
+            const scope = await freshScope(live), plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(),
+              kind: 'delete', selections: [{ sourcePath }] }] });
+            assert(plan.version === 2 && plan.planIdentityVersion === 4);
+            assert.equal(plan.sourceEvidence.evidenceVersion, 5); assert.equal(plan.linkAssessment.complete, true);
+            return { kind: 'delete', operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath: prefix + '-unused.md',
+              incomingPath, pdfPath: null, destinationPdf: null, pdf: null, targetId: target.documentId, incomingId: incomingDocument.documentId,
+              lineageId: lineage[0].lineage_id, generation: target.lifecycleGeneration, title,
+              originalBinary: Buffer.from(beforeTarget.yjsState), originalVector: Buffer.from(beforeTarget.stateVector) };
+          });
+          type E6 = Extract<import('../app/lib/files/workspace-operation-original-delete-evidence').OriginalIntent, { version: 6 }>;
+          let intent: E6 | undefined, original: Awaited<ReturnType<typeof immutableBatch>> | undefined;
+          let committedIntent: Awaited<ReturnType<typeof row>> | undefined, baseline: Awaited<ReturnType<typeof snapshot>> | undefined;
+          let faultFiles: Awaited<ReturnType<typeof filesystem>> | undefined, ownerClient: MetadataSqlEvent['client'] | undefined;
+          let stageWitness: { pid: number; start: string; xid: string } | undefined;
+          let b2Witness: { pid: number; start: string; xid: string } | undefined;
+          let committed = false, injected = false, archiveWrites = 0, b2Notifications = 0;
+          const expectedTables = ['collaboration_yjs_states', 'collaboration_documents', 'file_collaboration_lineages', 'collaboration_file_projections'];
+          await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => {
+            await create(job, live); assert(job.batch);
+            return store.withClaim(job.batch, async claim => {
+              const ready = await advanceWorkspaceOperationNativePathAdmission(claim, { mcpPrincipal: live }); assert.equal(ready.status, 'ready');
+              try {
+                return await h.withProbe(async event => {
+                  if (/^\s*INSERT\s+INTO\b/iu.test(event.text) && event.text.includes(intentTable(job))
+                    && event.values[0] === job.batch!.batchId && event.result.rowCount === 1) {
+                    assert.equal(ownerClient, undefined); ownerClient = event.client;
+                    const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                      pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                      pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                      FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                    assert.equal(actual.schema, h.schema); assert.equal(actual.schema_oid, h.schemaOid); assert(actual.xid);
+                    stageWitness = { pid: Number(actual.pid), start: actual.start, xid: actual.xid };
+                    committedIntent = (await event.raw(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+                      FROM workspace_file_operation_delete_intents t WHERE batch_id=$1`, [job.batch!.batchId])).rows;
+                    assert.equal(committedIntent.length, 1); assert.equal((await row(intentTable(job), job.batch!.batchId)).length, 0);
+                  }
+                  if (event.client !== ownerClient) return;
+                  if (/^\s*COMMIT\s*$/iu.test(event.text) && !committed) {
+                    assert(stageWitness && committedIntent); assert.equal(event.result.command, 'COMMIT');
+                    const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                      pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                    assert.equal(Number(actual.pid), stageWitness.pid); assert.equal(actual.start, stageWitness.start); assert.equal(actual.xid, null);
+                    assert.deepEqual(await row(intentTable(job), job.batch!.batchId), committedIntent);
+                    intent = JSON.parse(JSON.parse(committedIntent[0].body).intent_text) as E6;
+                    assert.equal(intent.version, 6); assert.equal(intent.currentWitness.evidenceVersion, 5); assert.equal(intent.nativeLinks.length, 2);
+                    original = await immutableBatch(job); baseline = await snapshot(); delete baseline.rows.workspace_file_operation_batches;
+                    committed = true; return;
+                  }
+                  if (!committed || !intent || injected) return;
+                  if (/\bpg_notify\s*\(/iu.test(event.text)) b2Notifications++;
+                  const match = /^\s*(?:UPDATE|INSERT\s+INTO)\s+"[^"]+"\.(collaboration_yjs_states|collaboration_documents|file_collaboration_lineages|collaboration_file_projections)\b/iu.exec(event.text);
+                  if (!match || !event.values.includes(job.targetId) && !event.values.includes(job.lineageId)) return;
+                  assert.equal(match[1], expectedTables[archiveWrites]); assert.equal(event.result.rowCount, 1); archiveWrites++;
+                  if (archiveWrites !== stopAfter) return;
+                  assert(stageWitness && baseline);
+                  const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                    pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                    pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                    FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                  assert.equal(actual.schema, h.schema); assert.equal(actual.schema_oid, h.schemaOid);
+                  assert.equal(Number(actual.pid), stageWitness.pid); assert.equal(actual.start, stageWitness.start);
+                  assert(actual.xid); assert.notEqual(actual.xid, stageWitness.xid);
+                  b2Witness = { pid: Number(actual.pid), start: actual.start, xid: actual.xid };
+                  const states = (await event.raw(`SELECT s.status AS state_status,d.status AS registry_status,l.status AS lineage_status,
+                    s.lifecycle_generation,p.lifecycle_generation AS projection_generation FROM collaboration_yjs_states s
+                    JOIN collaboration_documents d ON d.id=s.document_id JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+                    LEFT JOIN collaboration_file_projections p ON p.document_id=d.id WHERE d.id=$1`, [job.targetId])).rows;
+                  assert.equal(states.length, 1); assert.equal(states[0].state_status, 'archived');
+                  assert.equal(Number(states[0].lifecycle_generation), job.generation + 1);
+                  assert.equal(states[0].registry_status, stopAfter === 4 ? 'archived' : 'active');
+                  assert.equal(states[0].lineage_status, stopAfter === 4 ? 'archived' : 'active');
+                  if (stopAfter === 4) assert.equal(Number(states[0].projection_generation), job.generation + 1);
+                  const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId);
+                  assert.equal(new Set(mutationIds).size, 2);
+                  assert.equal((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])', [mutationIds])).rowCount, 2);
+                  const visible = await snapshot(); delete visible.rows.workspace_file_operation_batches;
+                  assert.deepEqual(visible, baseline, 'The independent backend sees no uncommitted unlink or archive effects.');
+                  await absent(path.join(h.source.rootPath, job.sourcePath));
+                  const payload = path.join(h.dataRoot, intent.physical.trashRelativePath), physical = await fs.stat(payload);
+                  assert.equal(physical.dev, sourceIdentity.dev); assert.equal(physical.ino, sourceIdentity.ino);
+                  assert.deepEqual(await fs.readFile(payload), sourceBytes); faultFiles = await filesystem();
+                  injected = true; throw Object.assign(new Error('Owned fault after an actual E6 archive CAS.'), { code: 'FIXTURE_DELETE6_ARCHIVE_CAS' });
+                }, () => executeWorkspaceOperationOriginalDelete(claim, openDb, live));
+              } catch (error) {
+                assert(await store.finishClaim(job.batch!, { status: 'needs_recovery', phase: 'recovery', errorCode: code(error) ?? 'UNCLASSIFIED' }));
+                throw error;
+              }
+            });
+          }), rejected('FIXTURE_DELETE6_ARCHIVE_CAS'));
+          assert(injected && committed && intent && committedIntent && original && baseline && faultFiles && b2Witness && job.batch && job.original);
+          assert.equal(archiveWrites, stopAfter); assert.equal(b2Notifications, 0);
+          const after = await snapshot(); delete after.rows.workspace_file_operation_batches;
+          assert.deepEqual(after, baseline, 'All actual B2 writes, including native unlink receipts and partial archive, roll back.');
+          assert.deepEqual(await filesystem(), faultFiles); assert.deepEqual(await immutableBatch(job), original);
+          assert.deepEqual(await row(intentTable(job), job.batch.batchId), committedIntent);
+          assert.equal((await row(receiptTable(job), job.batch.batchId)).length, 0);
+          assert.equal((await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId)).length, 0);
+          assert.deepEqual(await load(h.connection, job.targetId), beforeTarget);
+          assert.deepEqual(await load(h.connection, job.incomingId), beforeIncoming); assert.deepEqual(await load(h.connection, html.documentId), beforeHtml);
+          const sidA = job.original.actorSessionId, old = await rotate(); assert.notEqual(currentSession, sidA);
+          await assert.rejects(run('delete', old, h.source.workspaceId, live => freshScope(live)), rejected('invalid_token'));
+          await recover(job);
+          // E6 has a genuine moved physical file; the legacy native_archive
+          // completion helper does not describe this payload profile.
+          const final = await store.get(job.batch.batchId); assert(final);
+          assert.equal(final.status, 'applied'); assert.equal(final.completedActions, 3); assert.equal(final.totalActions, 3);
+          assert.deepEqual(final.authorization, job.original); assert.deepEqual(final.trashEntryIds, [intent.physical.trashEntryId]);
+          assert(intent.physical.source.kind === 'regular_file'); assert.equal(intent.physical.source.sha256, sha(sourceBytes));
+          await absent(path.join(h.source.rootPath, job.sourcePath));
+          const payloadPath = path.join(h.dataRoot, intent.physical.trashRelativePath), payloadIdentity = await fs.stat(payloadPath);
+          assert(payloadIdentity.isFile()); assert.equal(payloadIdentity.dev, sourceIdentity.dev); assert.equal(payloadIdentity.ino, sourceIdentity.ino);
+          assert.deepEqual(await fs.readFile(payloadPath), sourceBytes);
+          assert.deepEqual((await h.admin.query('SELECT id,lineage_id,path,status FROM collaboration_documents WHERE id=$1', [job.targetId])).rows,
+            [{ id: job.targetId, lineage_id: job.lineageId, path: job.sourcePath, status: 'archived' }]);
+          assert.deepEqual((await h.admin.query('SELECT id,path,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1', [job.lineageId])).rows,
+            [{ id: job.lineageId, path: job.sourcePath, status: 'archived', trash_entry_id: intent.physical.trashEntryId }]);
+          const trash = (await h.admin.query('SELECT id,status,original_path,metadata_json FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',
+            [h.source.workspaceId, job.sourcePath])).rows; assert.equal(trash.length, 1);
+          assert.equal(trash[0].id, intent.physical.trashEntryId); assert.equal(trash[0].status, 'trashed');
+          assert.equal(trash[0].original_path, job.sourcePath); assert.equal(JSON.parse(trash[0].metadata_json).payloadKind, 'file');
+          assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2',
+            [h.source.workspaceId, job.sourcePath])).rows, []);
+          assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2',
+            [h.source.workspaceId, job.sourcePath])).rows, []);
+          assert.equal(job.original.actorSessionId, sidA); assert.deepEqual(await immutableBatch(job), original);
+          assert.deepEqual(await row(intentTable(job), job.batch.batchId), committedIntent);
+          const completedRows = await row(receiptTable(job), job.batch.batchId); assert.equal(completedRows.length, 1);
+          const completion = JSON.parse(JSON.parse(completedRows[0].body).receipt_text);
+          assert.equal(completion.version, 6); assert.equal(completion.nativeLinks.length, 2);
+          assert.equal(completion.batchId, job.batch.batchId); assert.equal(completion.trashEntryId, intent.physical.trashEntryId);
+          assert.equal(completion.physical.observation.kind, 'moved'); assert.equal(completion.physical.observation.sha256, sha(sourceBytes));
+          assert.equal((await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId)).length, 1);
+          const archived = await load(h.connection, job.targetId, true), incoming = await load(h.connection, job.incomingId);
+          const htmlAfter = await load(h.connection, html.documentId); assert(archived && incoming && htmlAfter);
+          assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, job.generation + 1);
+          assert.deepEqual(Buffer.from(archived.yjsState), job.originalBinary); assert.deepEqual(Buffer.from(archived.stateVector), job.originalVector);
+          assert.equal(incoming.documentSequence, beforeIncoming.documentSequence + 1); assert.equal(htmlAfter.documentSequence, beforeHtml.documentSequence + 1);
+          assert.equal(inspectPersistedDocumentLinksV4(incoming).links.length, 0); assert.equal(inspectPersistedDocumentLinksV4(htmlAfter).links.length, 0);
+          const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId);
+          assert.equal((await h.admin.query('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])', [mutationIds])).rowCount, 2);
+          await withSettledProjectionReadBoundary(() => run('delete', currentToken, h.source.workspaceId, live => noMutation(async () => {
+            const known = await existing(job, live); assert.equal(known.kind, 'historical-header');
+            const observed = await status(job, live); assert(observed); assert.equal(observed.observation.apply, 'complete');
+          })));
+          assert.deepEqual(await row(receiptTable(job), job.batch.batchId), completedRows);
+        }
+      } finally { await archiveRoom.close(); }
+    });
+    await check('HTML Delete E6: current tool revocation after a genuine B2 domain read denies all effects and SID-B recovers the same Original exactly once', async () => {
+      const { executeWorkspaceOperationOriginalDelete } = await import('../app/lib/files/workspace-operation-original-delete');
+      const { inspectPersistedDocumentLinksV4 } = await import('../app/lib/markdown/workspace-native-link-inventory');
+      const { getDirectMcpRuntimeSettings } = await import('../app/lib/mcp/server/runtime-settings');
+      const originalTools = process.env.CANVAS_MCP_DIRECT_TOOLS;
+      assert.equal(process.env.CANVAS_MCP_DIRECT_TOOLS_SOURCE, 'environment');
+      assert.equal(typeof originalTools, 'string');
+      assert((await getDirectMcpRuntimeSettings()).tools.includes('delete_knowledge_source'));
+      // The last original family genuinely expires its session. A focused run
+      // omits it; both modes obtain their own real successor session here.
+      await rotate();
+      const groupedReadRoom = await startNativePathRoomRuntime();
+      try {
+        await withSettledProjectionReadBoundary(async () => undefined);
+        const prefix = 'grouped-read-revocation-' + crypto.randomUUID(), sourcePath = prefix + '-target.md';
+        const incomingPath = prefix + '-incoming.md', htmlPath = prefix + '-html.md', pagePath = prefix + '.html';
+        const sourceBytes = Buffer.from('# Original target\n\nActual native body.\n'), title = 'Grouped read revocation ' + prefix;
+        const target = await h.upload(sourcePath, sourceBytes);
+        const incomingDocument = await h.upload(incomingPath, Buffer.from('[Original](' + sourcePath + ')\n'));
+        const html = await h.upload(htmlPath, Buffer.from('[Original](' + sourcePath + ')\n\n<p>Unrelated HTML remains exact</p>\n'));
+        await fs.writeFile(path.join(h.source.rootPath, pagePath), '<p>Unrelated physical HTML</p>\n', { mode: 0o600, flag: 'wx' });
+        await h.metadata(h.source, sourcePath, { title, isFavorite: true, pinned: true }, 'member', currentRequestToken);
+        await withSettledProjectionReadBoundary(async () => undefined);
+        const sourceIdentity = await fs.stat(path.join(h.source.rootPath, sourcePath)); assert(sourceIdentity.isFile());
+        const beforeTarget = await load(h.connection, target.documentId), beforeIncoming = await load(h.connection, incomingDocument.documentId);
+        const beforeHtml = await load(h.connection, html.documentId); assert(beforeTarget && beforeIncoming && beforeHtml);
+        const lineage = (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [target.documentId])).rows;
+        assert.equal(lineage.length, 1);
+        const job: Job = await run('delete', currentToken, h.source.workspaceId, async (live): Promise<Job> => {
+          const scope = await freshScope(live), plan = await buildWorkspaceOperationBatchPlan({ scope, actions: [{ reviewId: crypto.randomUUID(),
+            kind: 'delete', selections: [{ sourcePath }] }] });
+          assert(plan.version === 2 && plan.planIdentityVersion === 4);
+          assert.equal(plan.sourceEvidence.evidenceVersion, 5); assert.equal(plan.linkAssessment.complete, true);
+          return { kind: 'delete', operationId: crypto.randomUUID(), plan, scope, sourcePath, destinationPath: prefix + '-unused.md',
+            incomingPath, pdfPath: null, destinationPdf: null, pdf: null, targetId: target.documentId, incomingId: incomingDocument.documentId,
+            lineageId: lineage[0].lineage_id, generation: target.lifecycleGeneration, title,
+            originalBinary: Buffer.from(beforeTarget.yjsState), originalVector: Buffer.from(beforeTarget.stateVector) };
+        });
+        type E6 = Extract<import('../app/lib/files/workspace-operation-original-delete-evidence').OriginalIntent, { version: 6 }>;
+        let intent: E6 | undefined, original: Awaited<ReturnType<typeof immutableBatch>> | undefined;
+        let committedIntent: Awaited<ReturnType<typeof row>> | undefined, baseline: Awaited<ReturnType<typeof snapshot>> | undefined;
+        let faultFiles: Awaited<ReturnType<typeof filesystem>> | undefined, ownerClient: MetadataSqlEvent['client'] | undefined;
+        let stageWitness: { pid: number; start: string; xid: string } | undefined;
+        let b2Witness: { pid: number; start: string; xid: string } | undefined;
+        let committed = false, revoked = false, b2Writes = 0, b2Notifications = 0;
+        try {
+        await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => {
+          await create(job, live); assert(job.batch);
+          return store.withClaim(job.batch, async claim => {
+            const ready = await advanceWorkspaceOperationNativePathAdmission(claim, { mcpPrincipal: live }); assert.equal(ready.status, 'ready');
+            try {
+              return await h.withProbe(async event => {
+                if (/^\s*INSERT\s+INTO\b/iu.test(event.text) && event.text.includes(intentTable(job))
+                  && event.values[0] === job.batch!.batchId && event.result.rowCount === 1) {
+                  assert.equal(ownerClient, undefined); ownerClient = event.client;
+                  const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                    pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                    pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                    FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                  assert.equal(actual.schema, h.schema); assert.equal(actual.schema_oid, h.schemaOid); assert(actual.xid);
+                  stageWitness = { pid: Number(actual.pid), start: actual.start, xid: actual.xid };
+                  committedIntent = (await event.raw(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin
+                    FROM workspace_file_operation_delete_intents t WHERE batch_id=$1`, [job.batch!.batchId])).rows;
+                  assert.equal(committedIntent.length, 1); assert.equal((await row(intentTable(job), job.batch!.batchId)).length, 0);
+                }
+                if (event.client !== ownerClient) return;
+                if (/^\s*COMMIT\s*$/iu.test(event.text) && !committed) {
+                  assert(stageWitness && committedIntent); assert.equal(event.result.command, 'COMMIT');
+                  const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                    pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                  assert.equal(Number(actual.pid), stageWitness.pid); assert.equal(actual.start, stageWitness.start); assert.equal(actual.xid, null);
+                  assert.deepEqual(await row(intentTable(job), job.batch!.batchId), committedIntent);
+                  intent = JSON.parse(JSON.parse(committedIntent[0].body).intent_text) as E6;
+                  assert.equal(intent.version, 6); assert.equal(intent.currentWitness.evidenceVersion, 5); assert.equal(intent.nativeLinks.length, 2);
+                  original = await immutableBatch(job); baseline = await snapshot(); delete baseline.rows.workspace_file_operation_batches;
+                  committed = true; return;
+                }
+                if (!committed || !intent) return;
+                if (/\bpg_notify\s*\(/iu.test(event.text)) b2Notifications++;
+                if (/^\s*(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE|CREATE|ALTER|DROP)\b/iu.test(event.text)) b2Writes++;
+                if (revoked || !/^\s*SELECT\b/iu.test(event.text) || !event.text.includes('"' + h.schema + '".workspace_file_operation_delete_receipts')
+                  || !/\bFOR\s+SHARE\s+NOWAIT\s*$/iu.test(event.text)
+                  || event.values.length !== 1 || event.values[0] !== job.batch!.batchId) return;
+                assert.equal(event.result.command, 'SELECT'); assert.equal(event.result.rowCount, 0); assert.equal(b2Writes, 0);
+                assert(stageWitness && baseline);
+                const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+                  pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+                  pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid
+                  FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+                assert.equal(actual.schema, h.schema); assert.equal(actual.schema_oid, h.schemaOid);
+                assert.equal(Number(actual.pid), stageWitness.pid); assert.equal(actual.start, stageWitness.start);
+                assert(actual.xid); assert.notEqual(actual.xid, stageWitness.xid);
+                b2Witness = { pid: Number(actual.pid), start: actual.start, xid: actual.xid };
+                const states = (await event.raw(`SELECT s.status AS state_status,d.status AS registry_status,l.status AS lineage_status,
+                  s.lifecycle_generation FROM collaboration_yjs_states s JOIN collaboration_documents d ON d.id=s.document_id
+                  JOIN file_collaboration_lineages l ON l.id=d.lineage_id WHERE d.id=$1`, [job.targetId])).rows;
+                assert.equal(states.length, 1); assert.equal(states[0].state_status, 'active');
+                assert.equal(states[0].registry_status, 'active'); assert.equal(states[0].lineage_status, 'active');
+                assert.equal(Number(states[0].lifecycle_generation), job.generation);
+                const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId);
+                assert.equal(new Set(mutationIds).size, 2);
+                assert.equal((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])', [mutationIds])).rowCount, 0);
+                const visible = await snapshot(); delete visible.rows.workspace_file_operation_batches;
+                assert.deepEqual(visible, baseline, 'The genuine B2 read precedes every native unlink, archive, annotation, Trash and completion effect.');
+                await absent(path.join(h.source.rootPath, job.sourcePath));
+                const payload = path.join(h.dataRoot, intent.physical.trashRelativePath), physical = await fs.stat(payload);
+                assert.equal(physical.dev, sourceIdentity.dev); assert.equal(physical.ino, sourceIdentity.ino);
+                assert.deepEqual(await fs.readFile(payload), sourceBytes); faultFiles = await filesystem();
+                // Change the actual environment-managed tool setting. The next
+                // ordinary current-authority barrier must reread it; no fake
+                // principal, SQL result, authority callback or grant is supplied.
+                process.env.CANVAS_MCP_DIRECT_TOOLS = originalTools!.split(',')
+                  .filter(tool => tool.trim() !== 'delete_knowledge_source').join(',');
+                const settings = await getDirectMcpRuntimeSettings();
+                assert.equal(settings.enabled, true); assert.equal(settings.tools.includes('delete_knowledge_source'), false);
+                revoked = true;
+              }, () => executeWorkspaceOperationOriginalDelete(claim, openDb, live));
+            } catch (error) {
+              assert(await store.finishClaim(job.batch!, { status: 'needs_recovery', phase: 'recovery', errorCode: code(error) ?? 'UNCLASSIFIED' }));
+              throw error;
+            }
+          });
+        }), rejected('MCP_READ_PRINCIPAL_ACCESS_DENIED'));
+        } finally {
+          if (originalTools === undefined) delete process.env.CANVAS_MCP_DIRECT_TOOLS;
+          else process.env.CANVAS_MCP_DIRECT_TOOLS = originalTools;
+        }
+        assert(revoked && committed && intent && committedIntent && original && baseline && faultFiles && b2Witness && job.batch && job.original);
+        assert.equal(b2Writes, 0); assert.equal(b2Notifications, 0);
+        const after = await snapshot(); delete after.rows.workspace_file_operation_batches;
+        assert.deepEqual(after, baseline, 'Current tool revocation after a genuine grouped read cannot publish any B2 domain effect.');
+        assert.deepEqual(await filesystem(), faultFiles); assert.deepEqual(await immutableBatch(job), original);
+        assert.deepEqual(await row(intentTable(job), job.batch.batchId), committedIntent);
+        assert.equal((await row(receiptTable(job), job.batch.batchId)).length, 0);
+        assert.equal((await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId)).length, 0);
+        assert.deepEqual(await load(h.connection, job.targetId), beforeTarget);
+        assert.deepEqual(await load(h.connection, job.incomingId), beforeIncoming); assert.deepEqual(await load(h.connection, html.documentId), beforeHtml);
+        const sidA = job.original.actorSessionId, old = await rotate(); assert.notEqual(currentSession, sidA);
+        await assert.rejects(run('delete', old, h.source.workspaceId, live => freshScope(live)), rejected('invalid_token'));
+        await recover(job);
+        // E6 has a genuine moved physical file; the legacy native_archive
+        // completion helper does not describe this payload profile.
+        const final = await store.get(job.batch.batchId); assert(final);
+        assert.equal(final.status, 'applied'); assert.equal(final.completedActions, 3); assert.equal(final.totalActions, 3);
+        assert.deepEqual(final.authorization, job.original); assert.deepEqual(final.trashEntryIds, [intent.physical.trashEntryId]);
+        assert(intent.physical.source.kind === 'regular_file'); assert.equal(intent.physical.source.sha256, sha(sourceBytes));
+        await absent(path.join(h.source.rootPath, job.sourcePath));
+        const payloadPath = path.join(h.dataRoot, intent.physical.trashRelativePath), payloadIdentity = await fs.stat(payloadPath);
+        assert(payloadIdentity.isFile()); assert.equal(payloadIdentity.dev, sourceIdentity.dev); assert.equal(payloadIdentity.ino, sourceIdentity.ino);
+        assert.deepEqual(await fs.readFile(payloadPath), sourceBytes);
+        assert.deepEqual((await h.admin.query('SELECT id,lineage_id,path,status FROM collaboration_documents WHERE id=$1', [job.targetId])).rows,
+          [{ id: job.targetId, lineage_id: job.lineageId, path: job.sourcePath, status: 'archived' }]);
+        assert.deepEqual((await h.admin.query('SELECT id,path,status,trash_entry_id FROM file_collaboration_lineages WHERE id=$1', [job.lineageId])).rows,
+          [{ id: job.lineageId, path: job.sourcePath, status: 'archived', trash_entry_id: intent.physical.trashEntryId }]);
+        const trash = (await h.admin.query('SELECT id,status,original_path,metadata_json FROM workspace_trash_entries WHERE workspace_id=$1 AND original_path=$2',
+          [h.source.workspaceId, job.sourcePath])).rows; assert.equal(trash.length, 1);
+        assert.equal(trash[0].id, intent.physical.trashEntryId); assert.equal(trash[0].status, 'trashed');
+        assert.equal(trash[0].original_path, job.sourcePath); assert.equal(JSON.parse(trash[0].metadata_json).payloadKind, 'file');
+        assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_metadata WHERE workspace_id=$1 AND path=$2',
+          [h.source.workspaceId, job.sourcePath])).rows, []);
+        assert.deepEqual((await h.admin.query('SELECT path FROM workspace_file_user_states WHERE workspace_id=$1 AND path=$2',
+          [h.source.workspaceId, job.sourcePath])).rows, []);
+        assert.equal(job.original.actorSessionId, sidA); assert.deepEqual(await immutableBatch(job), original);
+        assert.deepEqual(await row(intentTable(job), job.batch.batchId), committedIntent);
+        const completedRows = await row(receiptTable(job), job.batch.batchId); assert.equal(completedRows.length, 1);
+        const completion = JSON.parse(JSON.parse(completedRows[0].body).receipt_text);
+        assert.equal(completion.version, 6); assert.equal(completion.nativeLinks.length, 2);
+        assert.equal(completion.batchId, job.batch.batchId); assert.equal(completion.trashEntryId, intent.physical.trashEntryId);
+        assert.equal(completion.physical.observation.kind, 'moved'); assert.equal(completion.physical.observation.sha256, sha(sourceBytes));
+        assert.equal((await row('workspace_file_operation_delete_trash_receipts', job.batch.batchId)).length, 1);
+        const archived = await load(h.connection, job.targetId, true), incoming = await load(h.connection, job.incomingId);
+        const htmlAfter = await load(h.connection, html.documentId); assert(archived && incoming && htmlAfter);
+        assert.equal(archived.status, 'archived'); assert.equal(archived.lifecycleGeneration, job.generation + 1);
+        assert.deepEqual(Buffer.from(archived.yjsState), job.originalBinary); assert.deepEqual(Buffer.from(archived.stateVector), job.originalVector);
+        assert.equal(incoming.documentSequence, beforeIncoming.documentSequence + 1); assert.equal(htmlAfter.documentSequence, beforeHtml.documentSequence + 1);
+        assert.equal(inspectPersistedDocumentLinksV4(incoming).links.length, 0); assert.equal(inspectPersistedDocumentLinksV4(htmlAfter).links.length, 0);
+        const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId);
+        assert.equal((await h.admin.query('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])', [mutationIds])).rowCount, 2);
+        await withSettledProjectionReadBoundary(() => run('delete', currentToken, h.source.workspaceId, live => noMutation(async () => {
+          const known = await existing(job, live); assert.equal(known.kind, 'historical-header');
+          const observed = await status(job, live); assert(observed); assert.equal(observed.observation.apply, 'complete');
+        })));
+        assert.deepEqual(await row(receiptTable(job), job.batch.batchId), completedRows);
+      } finally {
+        if (originalTools === undefined) delete process.env.CANVAS_MCP_DIRECT_TOOLS;
+        else process.env.CANVAS_MCP_DIRECT_TOOLS = originalTools;
+        await groupedReadRoom.close();
+      }
+    });
+    assert.equal(discoveredGroups, 31);
+    assert.equal(groups, selectedCaseName === undefined ? 31 : 1);
+    assert.equal(omittedCases.length, selectedCaseName === undefined ? 0 : 30);
     console.log(JSON.stringify({ test: 'direct-mcp-job-owner-integration', groups,
-      scope: 'actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD plus real room/socket/admission tickets and Web rename Request/Response; no OAuth issuance, file-route TCP, SDK or browser claim' }));
+      ...(selectedCaseName === undefined ? {} : { mode: 'focused', selectedCaseId, selectedCaseName,
+        omitted: omittedCases.length, fullSuite: false, fullDefaultSuiteStillRequired: true }),
+      scope: selectedCaseName === undefined
+        ? 'actual fixture JWT/current MCP/Store/OriginalMove/Delete/PG18/FD plus real room/socket/admission tickets and Web rename Request/Response; no OAuth issuance, file-route TCP, SDK or browser claim'
+        : 'one selected genuine HTML Delete owner case only; 30 cases omitted; no full 31-case acceptance claim' }));
   }); completed = true;
   } finally { if (originalBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = originalBase; }
 }

@@ -13,6 +13,7 @@ import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope
 import { decodeWorkspaceOperationNativeDeleteBatchPlan, WorkspaceOperationNativeDeletePlanError } from './workspace-operation-native-delete-plan';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import { decodeWorkspaceOperationNativeSourceEvidence } from './workspace-operation-native-source-evidence';
+import { decodeWorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { decodeWorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
 import { captureOriginalDeleteAdmissionBinding, WorkspaceOperationOriginalDeleteError,
@@ -126,7 +127,7 @@ Promise<WorkspaceOperationOriginalDeleteAdmissionRead> {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }
   const { schema, intent, result } = captured;
-  if (!intent || intent.version !== 4 && intent.version !== 5 || Reflect.ownKeys(intent).length !== 12
+  if (!intent || intent.version !== 4 && intent.version !== 5 && intent.version !== 6 || Reflect.ownKeys(intent).length !== 12
     || !['version', 'batchId', 'planId', 'requestHash', 'actor', 'jobScope', 'physical', 'native', 'publicShare',
       'nativeLinks', 'currentWitness', 'admission'].every(key => Object.hasOwn(intent, key))) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
@@ -146,9 +147,10 @@ Promise<WorkspaceOperationOriginalDeleteAdmissionRead> {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }
   const scope = parseWorkspaceOperationJobScope(intent.jobScope);
-  const witness = intent.version === 5 ? decodeWorkspaceOperationNativeSourceEvidenceV3(intent.currentWitness).nativeComponent
+  const witness = intent.version === 6 ? decodeWorkspaceOperationMixedSourceEvidenceV5(intent.currentWitness).nativeComponent
+    : intent.version === 5 ? decodeWorkspaceOperationNativeSourceEvidenceV3(intent.currentWitness).nativeComponent
     : decodeWorkspaceOperationNativeSourceEvidence(intent.currentWitness);
-  if (witness.evidenceVersion !== 2 || !equal(scope, witness.workspaceScope) || !intent.native
+  if ((intent.version === 6 ? witness.evidenceVersion !== 4 : witness.evidenceVersion !== 2) || !equal(scope, witness.workspaceScope) || !intent.native
     || !equal(witness.nativeBindings.find(item => item.expected.documentId === intent.native!.documentId)?.expected, intent.native)) {
     throw new WorkspaceOperationOriginalDeleteError('ORIGINAL_DELETE_UNPROVEN');
   }

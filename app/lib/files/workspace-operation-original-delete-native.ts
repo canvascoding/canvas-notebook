@@ -259,57 +259,88 @@ async function verifyArchived(database: SqlConnection, selected: Selection, orig
  * storage realm, lifecycle/admission quiescence and the SAME-TX trash/public/
  * immutable receipt. On any error the caller MUST roll back the whole TX.
  * No retry by path, already-archived adoption, SQL checkout, TX or cleanup here. */
-export async function archiveOriginalNativeDeleteTargetOnConnection(database: SqlConnection, input: ArchiveInput):
+export async function archiveOriginalNativeDeleteTargetOnConnection(database: SqlConnection, input: ArchiveInput,
+  assertCurrent?: () => Promise<void>):
 Promise<NativeFileArchiveTransition> {
-  const captured = data(input, ['schema', 'workspace', 'expected', 'trashEntryId', 'archivedAt']);
-  const expected = captureExpected(captured.expected as NativeFileArchiveExpected);
-  const selected = selection(captured.schema, captured.workspace, expected.documentId, expected.lineageId, expected.path);
-  const trashEntryId = captured.trashEntryId, archivedAt = captured.archivedAt;
-  if (expected.workspaceId !== selected.workspaceId || expected.organizationId !== selected.organizationId
-    || !id(trashEntryId) || typeof archivedAt !== 'number' || !safe(archivedAt) || archivedAt < expected.persistedAt) {
-    fail('ORIGINAL_NATIVE_DELETE_INVALID');
-  }
-  const original = await readActiveTarget(database, selected);
-  if (expectedKeys.some(key => original.expected[key] !== expected[key])) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-  // The frozen pure core additionally enforces its existing 16MiB archive bound
-  // before any write; the observation reader's 64MiB bound is not an archive grant.
-  const transition = prepareNativeFileArchiveTransition(original.state, expected, { trashEntryId, archivedAt });
-  const stateChanged = await database.get(`UPDATE ${selected.schema}.collaboration_yjs_states SET status='archived',lifecycle_generation=$1,
+  type DeleteArchiveTimingStage = 'enter' | 'original-read' | 'transition-prepared' | 'cas-complete' | 'postcondition-complete';
+  let deleteArchiveStartedAt = 0, deleteArchiveLastStage: DeleteArchiveTimingStage = 'enter';
+  const deleteArchiveMilestones: { stage: DeleteArchiveTimingStage; elapsedMs: number }[] = [];
+  const markDeleteArchive = (stage: DeleteArchiveTimingStage) => {
+    try {
+      deleteArchiveLastStage = stage;
+      const now = performance.now();
+      if (stage === 'enter') deleteArchiveStartedAt = now;
+      deleteArchiveMilestones.push({ stage, elapsedMs: Math.round(now - deleteArchiveStartedAt) });
+    } catch { /* Timing diagnostics never replace the original operation result. */ }
+  };
+  try {
+    markDeleteArchive('enter');
+    const captured = data(input, ['schema', 'workspace', 'expected', 'trashEntryId', 'archivedAt']);
+    const expected = captureExpected(captured.expected as NativeFileArchiveExpected);
+    const selected = selection(captured.schema, captured.workspace, expected.documentId, expected.lineageId, expected.path);
+    const trashEntryId = captured.trashEntryId, archivedAt = captured.archivedAt;
+    if (expected.workspaceId !== selected.workspaceId || expected.organizationId !== selected.organizationId
+      || !id(trashEntryId) || typeof archivedAt !== 'number' || !safe(archivedAt) || archivedAt < expected.persistedAt) {
+      fail('ORIGINAL_NATIVE_DELETE_INVALID');
+    }
+    if (assertCurrent !== undefined) await assertCurrent();
+    const original = await readActiveTarget(database, selected);
+    markDeleteArchive('original-read');
+    if (expectedKeys.some(key => original.expected[key] !== expected[key])) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    // The frozen pure core additionally enforces its existing 16MiB archive bound
+    // before any write; the observation reader's 64MiB bound is not an archive grant.
+    const transition = prepareNativeFileArchiveTransition(original.state, expected, { trashEntryId, archivedAt });
+    markDeleteArchive('transition-prepared');
+    if (assertCurrent !== undefined) await assertCurrent();
+    const stateChanged = await database.get(`UPDATE ${selected.schema}.collaboration_yjs_states SET status='archived',lifecycle_generation=$1,
     checkpoint_sequence=0,checkpointed_at=NULL,canonical_hash=NULL,serialized_hash=NULL,degraded=0,
     projection_error_code=NULL,projection_error_sequence=NULL,projection_error_generation=NULL,projection_error_phase=NULL,
     projection_error_cause=NULL,projection_error_permanent=0 WHERE document_id=$2 AND workspace_id=$3
     AND organization_id IS NOT DISTINCT FROM $4 AND path=$5 AND representation=$6 AND schema_version=$7
     AND lifecycle_generation=$8 AND status='active' AND document_sequence=$9 AND persisted_at=$10
     AND yjs_state=$11 AND state_vector=$12 RETURNING document_id`,
-  [transition.after.identity.lifecycleGeneration, expected.documentId, expected.workspaceId, expected.organizationId, expected.path,
-    expected.representation, expected.schemaVersion, expected.lifecycleGeneration, expected.documentSequence, expected.persistedAt,
-    original.raw.yjs_state, original.raw.state_vector]) as Row | undefined;
-  if (stateChanged?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-  const registryChanged = await database.get(`UPDATE ${selected.schema}.collaboration_documents SET status='archived',state_version=0,
+    [transition.after.identity.lifecycleGeneration, expected.documentId, expected.workspaceId, expected.organizationId, expected.path,
+      expected.representation, expected.schemaVersion, expected.lifecycleGeneration, expected.documentSequence, expected.persistedAt,
+      original.raw.yjs_state, original.raw.state_vector]) as Row | undefined;
+    if (stateChanged?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    if (assertCurrent !== undefined) await assertCurrent();
+    const registryChanged = await database.get(`UPDATE ${selected.schema}.collaboration_documents SET status='archived',state_version=0,
     snapshot_revision_id=NULL,updated_at=$1 WHERE id=$2 AND lineage_id=$3 AND provider='yjs' AND yjs_state_lifecycle='initialized'
     AND workspace_id=$4 AND workspace_type=$5 AND organization_id IS NOT DISTINCT FROM $6 AND path=$7
     AND status='active' AND state_version=$8 RETURNING id`,
-  [archivedAt, expected.documentId, expected.lineageId, expected.workspaceId, selected.workspaceType,
-    expected.organizationId, expected.path, expected.registryStateVersion]) as Row | undefined;
-  if (registryChanged?.id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-  const lineageChanged = await database.get(`UPDATE ${selected.schema}.file_collaboration_lineages SET status='archived',archived_at=$1,
+    [archivedAt, expected.documentId, expected.lineageId, expected.workspaceId, selected.workspaceType,
+      expected.organizationId, expected.path, expected.registryStateVersion]) as Row | undefined;
+    if (registryChanged?.id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    if (assertCurrent !== undefined) await assertCurrent();
+    const lineageChanged = await database.get(`UPDATE ${selected.schema}.file_collaboration_lineages SET status='archived',archived_at=$1,
     trash_entry_id=$2 WHERE id=$3 AND workspace_id=$4 AND workspace_type=$5 AND organization_id IS NOT DISTINCT FROM $6
     AND path=$7 AND status='active' RETURNING id`,
-  [archivedAt, trashEntryId, expected.lineageId, expected.workspaceId, selected.workspaceType, expected.organizationId, expected.path]) as Row | undefined;
-  if (lineageChanged?.id !== expected.lineageId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-  const projectionChanged = original.projection
-    ? await database.get(`UPDATE ${selected.schema}.collaboration_file_projections SET lifecycle_generation=$1,projected_sequence=$2,
+    [archivedAt, trashEntryId, expected.lineageId, expected.workspaceId, selected.workspaceType, expected.organizationId, expected.path]) as Row | undefined;
+    if (lineageChanged?.id !== expected.lineageId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    if (assertCurrent !== undefined) await assertCurrent();
+    const projectionChanged = original.projection
+      ? await database.get(`UPDATE ${selected.schema}.collaboration_file_projections SET lifecycle_generation=$1,projected_sequence=$2,
       revision_id=NULL,canonical_hash=NULL,serialized_hash=NULL,finalized=0,updated_at=$3 WHERE document_id=$4
       AND lifecycle_generation=$5 AND projected_sequence=$6 RETURNING document_id`,
-    [transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt, expected.documentId,
-      original.projection.lifecycle_generation, original.projection.projected_sequence])
-    : await database.get(`INSERT INTO ${selected.schema}.collaboration_file_projections
+      [transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt, expected.documentId,
+        original.projection.lifecycle_generation, original.projection.projected_sequence])
+      : await database.get(`INSERT INTO ${selected.schema}.collaboration_file_projections
       (document_id,lifecycle_generation,projected_sequence,revision_id,canonical_hash,serialized_hash,finalized,updated_at)
       VALUES($1,$2,$3,NULL,NULL,NULL,0,$4) ON CONFLICT(document_id) DO NOTHING RETURNING document_id`,
-    [expected.documentId, transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt]);
-  if ((projectionChanged as Row | undefined)?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-  await verifyArchived(database, selected, original, transition);
-  return transition;
+      [expected.documentId, transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt]);
+    if ((projectionChanged as Row | undefined)?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    markDeleteArchive('cas-complete');
+    if (assertCurrent !== undefined) await assertCurrent();
+    await verifyArchived(database, selected, original, transition);
+    if (assertCurrent !== undefined) await assertCurrent();
+    markDeleteArchive('postcondition-complete');
+    return transition;
+  } finally {
+    try { console.info('[File action owner] Delete B2 archive timings.', JSON.stringify({ version: 1,
+      elapsedMs: Math.round(performance.now() - deleteArchiveStartedAt), lastStage: deleteArchiveLastStage,
+      milestones: deleteArchiveMilestones })); }
+    catch { /* Timing diagnostics never replace the original operation result. */ }
+  }
 }
 
 type CapturedRestore = Readonly<{ selected: Selection; expected: NativeFileArchiveExpected;

@@ -7,6 +7,7 @@ import { workspaceOperationBatchPublicPreview } from './workspace-operation-batc
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import type { WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
+import type { WorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
 
 /** Native preview text is a display summary. No Markdown offsets, document
  * IDs, relative positions or native evidence are exposed or fabricated. */
@@ -43,11 +44,11 @@ export type WorkspacePathHtmlNoImportPreviewPublic = Omit<WorkspacePathImportPre
 };
 
 /** Display only: final native references and spellings do not exist before import. */
-export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3
 ): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic {
   if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
     'This file action uses its ordinary preview.');
-  if (plan.version === 2) return { version: 2, kind: plan.kind, executionReady: false,
+  if (plan.version === 2 || plan.version === 3) return { version: 2, kind: plan.kind, executionReady: false,
     workspaceId: plan.scope.workspaceId, planId: plan.planId, readiness: 'blocked',
     pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
     linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },

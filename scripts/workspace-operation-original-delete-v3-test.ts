@@ -15,6 +15,12 @@ import type { PreparedSingleFileTrashIdentity, PreparedSingleFileTrashOriginalFa
 import { trashRelativePathFor } from '../app/lib/filesystem/workspace-trash-layout';
 import type { WorkspaceOperationBatchScope, WorkspaceOperationNativeDeleteBatchPlanLegacy,
   WorkspaceOperationNativeDeleteBatchPlanV2 } from '../app/lib/files/workspace-operation-batch-contract';
+import { createWorkspaceOperationNativeDeleteBatchPlanV4, getWorkspaceOperationNativeDeleteLinkRecipes } from '../app/lib/files/workspace-operation-native-delete-plan';
+import { prepareOriginalDeleteNativeHtmlLinksV4, decodeOriginalDeleteNativeHtmlLinkIntentsV4,
+  assertOriginalDeleteNativeHtmlLinkReceiptsV4, type OriginalDeleteNativeLinkReceiptV4 } from '../app/lib/files/workspace-operation-original-delete-html-links';
+import { workspaceOperationMixedSourceEvidenceV5Fixture } from './workspace-operation-mixed-source-evidence-v5-test';
+import { createWorkspacePathHtmlNativeDeletePreparationPlanV3 } from '../app/lib/files/workspace-path-html-native-delete-preparation';
+import { encodeDirectMcpWorkspacePathResultV1 } from '../app/lib/mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationJobScope } from '../app/lib/files/workspace-operation-job-scope';
 import { createWorkspaceOperationNativeDeleteBatchPlanLegacy, createWorkspaceOperationNativeDeleteBatchPlanV2,
   captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness } from '../app/lib/files/workspace-operation-native-delete-plan';
@@ -164,9 +170,9 @@ function completion(f: Fixture, intent: OriginalIntent = f.intent) {
   const transition = prepareNativeFileArchiveTransition(f.current.privateNativeStates[0], intent.native,
     { trashEntryId, archivedAt: intent.physical.deletedAtMs });
   const trash = receipt(durable.intentDigest, physicalReceipt);
-  const value: Completion = { version: intent.version, batchId, intentDigest: durable.intentDigest, trashEntryId,
+  const value = { version: intent.version, batchId, intentDigest: durable.intentDigest, trashEntryId,
     physical: physicalReceipt, native: transition, publicShare: { kind: 'none' }, trashReceiptDigest: trash.receiptDigest,
-    ...(intent.version !== 1 ? { nativeLinks: linkReceipts(f, intent) } : {}) };
+    ...(intent.version !== 1 ? { nativeLinks: linkReceipts(f, intent) } : {}) } satisfies Completion;
   return { durable, trash, value, completed: receipt(durable.intentDigest, value) };
 }
 
@@ -433,4 +439,141 @@ test('Original Delete V4: fixed null-prototype result map and original actor/ses
   assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult({ ...actual, receiptDigest: `${actual.receiptDigest}\n` }), /ORIGINAL_DELETE_UNPROVEN/u);
   assert.throws(() => workspaceOperationOriginalDeleteAdmissionResult(Object.assign(Object.create(null), actual)), /ORIGINAL_DELETE_UNPROVEN/u);
   assert.equal(observed, 0); assert.deepEqual(actual, before);
+});
+
+// Additive pure E6/Profile4 cases. The old V1-V4 fixtures above remain exact.
+// These are declared journal/physical facts with real Yjs deltas, not a
+// genuine principal/Owner/FD/SQL/Admission or COMMIT acceptance result.
+function htmlDeleteJournalFixture() {
+  const actual = workspaceOperationMixedSourceEvidenceV5Fixture({ native: [['target.md','# Target\n'],
+    ['incoming.md','[Target](target.md)\n\n<p><a href="https://example.com">Safe</a></p>\n']], raw: [['page.html','<p>Page</p>']] });
+  const workspace = { ...actual.scope, rootRelativePath: actual.scope.rootRelativePath ?? undefined,
+    status: 'active' as const, permissions: { canRead: true,canWrite: true,canDelete: true,canRunAgent: true,canManageWorkspace: true,canCreatePublicLinks: false } };
+  const selectedScope: WorkspaceOperationBatchScope = { workspace,fileOptions:{ workspace } };
+  const plan = createWorkspaceOperationNativeDeleteBatchPlanV4({ scope: selectedScope,actions:[{reviewId:'html-journal6',kind:'delete',
+    selections:[{sourcePath:'target.md'}]}],observation:actual.observation });
+  const linkContext = {batchId,workspaceId:workspace.workspaceId,sourcePath:'target.md',requestHash,actor};
+  const links4 = prepareOriginalDeleteNativeHtmlLinksV4(getWorkspaceOperationNativeDeleteLinkRecipes(plan),actual.observation,linkContext);
+  const jobScope = actual.scope, root = '/data';
+  const originalPhysical: PreparedSingleFileTrashOriginalFacts = { ...physical(),canonicalPath:'target.md',
+    workspace:{workspaceId:workspace.workspaceId,workspaceType:workspace.workspaceType,organizationId:workspace.organizationId,
+      rootPath:workspace.rootPath,dataRoot:root},
+    trashRelativePath:trashRelativePathFor(workspace,trashEntryId,'target.md'),source:{kind:'projection_absent'},
+    filesystem:{...physical().filesystem,workspaceRoot:{...physical().filesystem.workspaceRoot,resolvedPath:workspace.rootPath},
+      dataRoot:{...physical().filesystem.dataRoot,resolvedPath:root}} };
+  const authorization = {mode:'direct' as const,actorUserId:actor.userId,actorId:actor.actorId,actorType:actor.actorType,
+    actorDisplayName:'Declared pure E6 fixture',actorSessionId:actor.actorSessionId,requestHash,jobScope};
+  const request = captureCollaborationAdmissionRequest(createWorkspaceOperationOriginalDeleteAdmissionRequest({
+    actionMode:'apply',batchId,planId:plan.planId,workspaceId:workspace.workspaceId,plan,authorization,
+  } as WorkspaceOperationBatchClaimBinding));
+  const intent: Extract<OriginalIntent,{version:6}> = {version:6,batchId,planId:plan.planId,requestHash,actor,jobScope,
+    physical:originalPhysical,native:plan.nativeTarget,publicShare:null,currentWitness:actual.evidence,nativeLinks:links4,
+    admission:{requestId:request.request.requestId,requestDigest:request.requestDigest}};
+  const selectedContext: WorkspaceOperationOriginalDeleteEvidenceContext = {batchId,planId:plan.planId,workspaceId:workspace.workspaceId,
+    sourcePath:'target.md',authorization};
+  const durable = row(intent,workspace.workspaceId), receipts: OriginalDeleteNativeLinkReceiptV4[] = links4.map(item => {
+    const state = actual.observation.privateNativeStates.find(value => value.documentId===item.prepared.source.documentId)!;
+    const doc = new Y.Doc();
+    try {
+      Y.applyUpdate(doc,state.yjsState);Y.applyUpdate(doc,Buffer.from(item.prepared.updateBase64,'base64'));
+      const snapshot = captureAgentStateSnapshot(doc,Y);assert(snapshot);
+      return {contractVersion:2,operationId:item.prepared.operationId,source:item.prepared.source,binding:item.binding,before:item.prepared.before,
+        after:{...item.prepared.after,documentSequence:item.prepared.before.documentSequence+1,persistedAt:201},
+        inverseRecipes:item.prepared.inverseRecipes,afterStateSnapshotBase64:Buffer.from(snapshot).toString('base64'),
+        resultEvidenceVersion:4,parserVersion:4,htmlSourceProof:item.prepared.htmlSourceProof,
+        afterBinaryHash:sha(Y.encodeStateAsUpdate(doc)),afterVectorHash:sha(Y.encodeStateVector(doc))};
+    } finally {doc.destroy();}
+  });
+  const physicalReceipt: PreparedSingleFileTrashReceipt = {version:1,original:originalPhysical,observation:{kind:'projection_absent'}};
+  const trash = receipt(durable.intentDigest,physicalReceipt);
+  const targetState=actual.observation.privateNativeStates.find(value=>value.documentId===plan.nativeTarget.documentId)!;
+  const value: Completion = {version:6,batchId,intentDigest:durable.intentDigest,trashEntryId,physical:physicalReceipt,
+    native:prepareNativeFileArchiveTransition(targetState,plan.nativeTarget,{trashEntryId,archivedAt:originalPhysical.deletedAtMs}),
+    publicShare:{kind:'none'},trashReceiptDigest:trash.receiptDigest,nativeLinks:receipts};
+  return {actual,workspace,selectedScope,plan,linkContext,intent,durable,selectedContext,receipts,value,trash,
+    completion:receipt(durable.intentDigest,value),dataRoot:root};
+}
+test('Original Delete E6: exact E5 witness, Prepared4 and genuine receipt2/result4 roundtrip without false coverage',()=>{
+  const f=htmlDeleteJournalFixture(), before=clone(f);
+  const parsed=parseIntent(f.durable,f.selectedContext,f.workspace,f.dataRoot);assert.equal(parsed.version,6);
+  assertOriginalDeleteIntentPlan(parsed,f.plan);assert.equal(f.plan.coverage.complete,false);assert(f.plan.linkAssessment.complete);
+  assert.equal(parsed.nativeLinks?.length,1);assert.equal(parsed.nativeLinks?.[0].prepared.contractVersion,4);
+  const result=completed(f.completion,f.trash,f.durable,parsed);
+  assert.equal(result.version,6);assert.equal(result.nativeLinks?.[0].contractVersion,2);
+  assert.equal(result.nativeLinks?.[0].resultEvidenceVersion,4);assert.deepEqual(f,before);
+});
+test('Original Delete E6: strict profile/key/witness discrimination rejects rehashed contradictory original data',()=>{
+  const f=htmlDeleteJournalFixture();
+  for(const change of [
+    (value:Mutable<typeof f.intent>)=>{Reflect.set(value,'version',5);},
+    (value:Mutable<typeof f.intent>)=>{Reflect.deleteProperty(value,'currentWitness');},
+    (value:Mutable<typeof f.intent>)=>{Reflect.deleteProperty(value,'admission');},
+    (value:Mutable<typeof f.intent>)=>{value.currentWitness.coverage.complete=true;},
+    (value:Mutable<typeof f.intent>)=>{value.nativeLinks[0].prepared.htmlSourceProof='f'.repeat(64);},
+    (value:Mutable<typeof f.intent>)=>{Reflect.set(value.nativeLinks[0].prepared,'contractVersion',2);},
+    (value:Mutable<typeof f.intent>)=>{value.nativeLinks=[];},
+  ]){
+    const value=clone(f.intent);change(value);
+    assert.throws(()=>{const parsed=parseIntent(row(value,f.workspace.workspaceId),f.selectedContext,f.workspace,f.dataRoot);
+      assertOriginalDeleteIntentPlan(parsed,f.plan);});
+  }
+  const old=fixture('plain_text',true);
+  assert.throws(()=>assertOriginalDeleteIntentPlan(f.intent,old.plan));
+  assert.throws(()=>assertOriginalDeleteIntentPlan(old.intent,f.plan));
+});
+test('Original Delete E6: completion keeps receipt2 but rejects wrong parser, HTML, clocks and hash coercion',()=>{
+  const f=htmlDeleteJournalFixture();
+  assertOriginalDeleteNativeHtmlLinkReceiptsV4(f.receipts,f.intent.nativeLinks);
+  for(const change of [
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value,'version',5);},
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value.nativeLinks![0],'contractVersion',4);},
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value.nativeLinks![0],'parserVersion',2);},
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value.nativeLinks![0],'resultEvidenceVersion',3);},
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value.nativeLinks![0],'htmlSourceProof','f'.repeat(64));},
+    (value:Mutable<typeof f.value>)=>{Reflect.set(value.nativeLinks![0],'afterBinaryHash',[value.nativeLinks![0].afterBinaryHash]);},
+    (value:Mutable<typeof f.value>)=>{value.nativeLinks![0].after.documentSequence++;},
+    (value:Mutable<typeof f.value>)=>{value.nativeLinks![0].before.documentSequence++;},
+    (value:Mutable<typeof f.value>)=>{value.nativeLinks=[];},
+  ]){
+    const value=clone(f.value);change(value);
+    assert.throws(()=>completed(receipt(f.durable.intentDigest,value),f.trash,f.durable,f.intent));
+  }
+  const forged=clone(f.receipts);Reflect.set(forged[0],'afterBinaryHash',[forged[0].afterBinaryHash]);
+  assert.throws(()=>assertOriginalDeleteNativeHtmlLinkReceiptsV4(forged,f.intent.nativeLinks));
+});
+test('HTML Delete preparation is readonly and rejects top-level accessors before they execute',()=>{
+  const f=htmlDeleteJournalFixture(), input={scope:f.actual.scope,kind:'delete' as const,selections:[{sourcePath:'target.md'}],observation:f.actual.observation};
+  const prepared=createWorkspacePathHtmlNativeDeletePreparationPlanV3(input);
+  assert.equal(prepared.version,3);assert.equal(prepared.readiness,'native-ready');assert.equal(prepared.coverage.complete,false);
+  assert.equal(prepared.requiredRawImports.length,0);let getters=0;
+  assert.throws(()=>createWorkspacePathHtmlNativeDeletePreparationPlanV3({...input,get scope(){getters++;return f.actual.scope;}}));
+  assert.equal(getters,0);
+  assert.throws(()=>decodeOriginalDeleteNativeHtmlLinkIntentsV4(f.intent.nativeLinks,{...f.linkContext,requestHash:'f'.repeat(64)}));
+});
+test('MCP HTML Delete3 preview reports real incomplete source coverage with complete separate policy',()=>{
+  const f=htmlDeleteJournalFixture();
+  // Declared public result data, tested through the real pure encoder. The
+  // genuine MCP service projector/Owner are separate actual PG acceptance.
+  const encoded=encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:{
+    version:3,kind:'native-path-html-assessment',operationKind:'delete',executionReady:false,readiness:'ready',
+    workspaceId:f.plan.workspaceId,planId:f.plan.planId,paths:[{sourcePath:'target.md'}],
+    linkChanges:{rewrites:0,unlinks:1,affectedDocuments:1},coverage:{complete:f.plan.coverage.complete},
+    linkAssessment:{complete:true,warnings:[],blockers:[]},issues:[],imports:[]}});
+  assert.equal(encoded.action,'preview');assert(encoded.action==='preview');
+  const preview=encoded.preview;assert.equal(preview.kind,'native-path-html-assessment');
+  assert(preview.kind==='native-path-html-assessment');
+  assert.equal(preview.version,3);assert.equal(preview.operationKind,'delete');assert.equal(preview.coverage.complete,false);
+  assert(preview.linkAssessment.complete);assert.equal(preview.linkChanges.unlinks,1);assert.equal(preview.linkChanges.rewrites,0);
+  assert.deepEqual(preview.paths,[{sourcePath:'target.md'}]);
+  assert.equal(JSON.stringify(preview).includes('htmlSourceProof'),false);assert.equal(JSON.stringify(preview).includes('yjsState'),false);
+  assert.equal(JSON.stringify(preview).includes('<p>'),false);
+  for(const change of [{version:2},{operationKind:'move'},{linkChanges:{...preview.linkChanges,rewrites:1}},
+    {paths:[{sourcePath:'target.md',destinationPath:'invented.md'}]}]){
+    assert.throws(()=>encodeDirectMcpWorkspacePathResultV1({apiVersion:1,action:'preview',preview:{...preview,...change}}));
+  }
+  const blocked=createWorkspacePathHtmlNativeDeletePreparationPlanV3({scope:f.actual.scope,kind:'delete',
+    selections:[{sourcePath:'page.html'}],observation:f.actual.observation});
+  assert.equal(blocked.readiness,'blocked');
+  assert(blocked.issues.some(issue=>issue.code==='unsupported-native-delete-selection'));
+  assert.equal(blocked.executionReady,false);
 });

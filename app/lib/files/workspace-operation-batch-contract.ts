@@ -4,7 +4,8 @@ import type { WorkspaceFileOperationPreview } from '@/app/lib/markdown/workspace
 import type { WorkspaceFileLinkEditV1, WorkspaceFilePathMappingV1, WorkspaceLinkCoverageV1,
   WorkspaceFileOperationLinkAssessmentV1 } from '@/app/lib/markdown/workspace-link-contract-v1';
 import type { NativeFileArchiveExpected } from '../collaboration/native-file-archive-transition';
-import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3 } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { NativeMixedBatchPlan, NativeMixedReadBatchPlanV3, NativeMixedHtmlBatchPlanV5 } from '../markdown/workspace-native-mixed-batch-compiler';
+import type { WorkspaceOperationMixedSourceEvidenceV5 } from './workspace-operation-mixed-source-evidence-v5';
 import type { WorkspaceOperationNativeSourceEvidence, WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import type { WorkspaceOperationNativeSourceEvidenceV3 } from './workspace-operation-native-source-evidence-v3';
 
@@ -102,7 +103,15 @@ export type WorkspaceOperationNativeDeleteBatchPlanV3 = Omit<WorkspaceOperationN
   nativeGraphPlan: NativeMixedReadBatchPlanV3;
 };
 export type WorkspaceOperationNativeDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlanLegacy
-  | WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3;
+  | WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3 | WorkspaceOperationNativeDeleteBatchPlanV4;
+/** Explicit ordinary-parser4 Delete arm. Original coverage remains factual;
+ * the separate exact-operation HTML assessment never grants write authority. */
+export type WorkspaceOperationNativeDeleteBatchPlanV4 = Omit<WorkspaceOperationNativeDeleteBatchPlanFields, 'nativeGraphPlan'> & {
+  planIdentityVersion: 4;
+  integrityProof: string;
+  sourceEvidence: WorkspaceOperationMixedSourceEvidenceV5;
+  nativeGraphPlan: NativeMixedHtmlBatchPlanV5;
+};
 export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationNativeDeleteBatchPlan
   | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {

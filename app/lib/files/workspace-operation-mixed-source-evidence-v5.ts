@@ -434,8 +434,55 @@ function validateHtmlBudgets(value: WorkspaceOperationMixedSourceEvidenceV5): vo
   for (const source of value.physicalSources4) for (const occurrence of source.htmlInspection.occurrences) charge(1, occurrence.explicitLocalTargets.length);
   for (const source of value.physicalHtmlSources4) charge(1, source.htmlInspection.explicitLocalTargets.length);
 }
+type HistoricalEvidenceValidation = Readonly<{ usedRichLinkAttributeKeys: readonly string[] }>;
+const historicalEvidenceValidations = new WeakMap<object, HistoricalEvidenceValidation>();
+
+/** Only exact immutable PlainJSON references may share historical validation.
+ * The complete capture/freeze and all its budgets run BEFORE this predicate. */
+function isRecursivelyFrozenEvidence(input: unknown): input is object {
+  const seen = new WeakSet<object>();
+  const visit = (value: unknown): boolean => {
+    if (!value || typeof value !== 'object') return true;
+    if (types.isProxy(value) || Object.getPrototypeOf(value) !== (Array.isArray(value) ? Array.prototype : Object.prototype)
+      || !Object.isFrozen(value)) return false;
+    if (seen.has(value)) return true;
+    seen.add(value);
+    return Object.values(Object.getOwnPropertyDescriptors(value)).every(descriptor =>
+      Object.hasOwn(descriptor, 'value') && visit(descriptor.value));
+  };
+  return !!input && typeof input === 'object' && visit(input);
+}
+function usedRichLinkAttributeKeys(value: WorkspaceOperationMixedSourceEvidenceV5): readonly string[] {
+  const keys = new Set<string>();
+  const inventories = [
+    ...value.nativeComponent.stage.sources.map(source => source.inventory),
+    ...value.nativeOrdinarySources4.map(source => source.inventory),
+  ];
+  for (const inventory of inventories) for (const link of inventory.links) {
+    if (link.ref.kind === 'link-mark') for (const key of Object.keys(link.ref.expected)) keys.add(key);
+  }
+  return [...keys].sort();
+}
+/** Historical Rich inventories depend on the live inspection grammar's
+ * lifetime and accepted attribute names. A miss/error uses the original cold
+ * decoder so its exact error category remains in force. */
+function historicalRichLinkAttributesCurrent(validation: HistoricalEvidenceValidation): boolean {
+  if (!validation.usedRichLinkAttributeKeys.length) return true;
+  try {
+    const current = Object.keys(getNativeInspectionSchema().marks.link.spec.attrs ?? {});
+    return validation.usedRichLinkAttributeKeys.every(key => current.includes(key));
+  } catch { return false; }
+}
+
 function inspectEvidence(input: unknown): WorkspaceOperationMixedSourceEvidenceV5 {
   const value = freeze(capture<WorkspaceOperationMixedSourceEvidenceV5>(input));
+  const cacheable = !!input && typeof input === 'object'
+    && (historicalEvidenceValidations.has(input) || isRecursivelyFrozenEvidence(input));
+  const cached = cacheable ? historicalEvidenceValidations.get(input) : undefined;
+  if (cached && historicalRichLinkAttributesCurrent(cached)) {
+    historicalEvidenceValidations.set(value, cached);
+    return value;
+  }
   record(value, ['evidenceVersion', 'workspaceScope', 'namespace', 'scope', 'coverage', 'observedStageProof', 'nativeComponent',
     'nativeOrdinarySources4', 'physicalSources4', 'physicalHtmlSources4', 'nativeHtmlSourceLocations', 'physicalHtmlSourceLocations', 'semanticProof', 'evidenceProof']);
   const component = decodeWorkspaceOperationNativeHtmlSourceEvidenceV4(value.nativeComponent);
@@ -501,6 +548,9 @@ function inspectEvidence(input: unknown): WorkspaceOperationMixedSourceEvidenceV
   validateHtmlBudgets(value); validateNamespace(value);
   const { evidenceProof, ...body } = value;
   if (value.semanticProof !== proof(semantic(value)) || evidenceProof !== proof(body)) return reject();
+  const validation = freeze({ usedRichLinkAttributeKeys: usedRichLinkAttributeKeys(value) });
+  if (cacheable) historicalEvidenceValidations.set(input, validation);
+  historicalEvidenceValidations.set(value, validation);
   return value;
 }
 

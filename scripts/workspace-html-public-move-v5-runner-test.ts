@@ -1,3 +1,5 @@
+import { workspaceOperationNativeDeleteHtmlPlanV4Test } from './workspace-operation-native-delete-html-plan-v4-test';
+import { workspaceOperationOriginalDeleteHtmlFinalGraphTest } from './workspace-operation-original-delete-html-final-graph-test';
 import { workspaceMixedHtmlPublicCoreV5Test } from './workspace-mixed-html-public-core-v5-test';
 import { workspaceNativeLinkMutationsV4Test } from './workspace-native-link-mutations-v4-test';
 import { workspacePathHtmlNoImportPreparationTest } from './workspace-path-html-no-import-preparation-test';
@@ -19,3 +21,6 @@ workspaceImplicitMoveSelectionTest();
 workspaceOperationNativeMoveHashParityTest();
 workspacePathHtmlWebPreviewTest();
 await mcpServerWorkspaceHtmlPathContractTest();
+
+await workspaceOperationNativeDeleteHtmlPlanV4Test();
+workspaceOperationOriginalDeleteHtmlFinalGraphTest();

@@ -10,6 +10,9 @@ import type { WorkspaceOperationJobLifecycleAccess } from './workspace-operation
 import { assertWorkspaceOperationNativeDeleteBatchPlanCurrent } from './workspace-operation-native-delete-plan';
 import { assertOriginalDeleteNativeFinalGraph } from './workspace-operation-original-delete-links';
 import { assertOriginalDeleteMixedFinalGraph } from './workspace-operation-original-delete-mixed-graph';
+import { assertOriginalDeleteHtmlFinalGraph } from './workspace-operation-original-delete-html-graph';
+import { assertOriginalDeleteNativeHtmlLinkReceiptsV4 } from './workspace-operation-original-delete-html-links';
+import { assertOriginalDeleteNativeLinkReceipts } from './workspace-operation-original-delete-links';
 import { archiveOriginalNativeDeleteTargetOnConnection } from './workspace-operation-original-delete-native';
 import { applyOriginalDeletePublicShareOnConnection } from './workspace-operation-original-delete-public';
 import { readWorkspaceOperationOriginalDeleteIntentOnConnection, readWorkspaceOperationOriginalDeleteReceiptOnConnection,
@@ -31,15 +34,18 @@ function freeze<T>(value: T): T {
 export async function assertNoCompetingWriter(access: WorkspaceOperationJobLifecycleAccess, prefix: string, source: string): Promise<void> {
   // This first closed runner does not adopt/release another writer's lock or a
   // Guest lifecycle. Those cases remain explicit unsupported/busy outcomes.
-  const locks = await access.database.all(`SELECT id FROM ${prefix}.file_locks WHERE workspace_id=$1 AND path=$2
-    AND status='active' AND expires_at>$3 FOR SHARE NOWAIT`, [access.workspace.workspaceId, source, Date.now()]);
-  const guests = await access.database.all(`SELECT id FROM ${prefix}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
-    AND status='active' FOR SHARE NOWAIT`, [access.workspace.workspaceId, source]);
+  const [busy] = await access.database.all(`WITH
+    locks AS MATERIALIZED (SELECT id FROM ${prefix}.file_locks WHERE workspace_id=$1 AND path=$2
+      AND status='active' AND expires_at>$3 FOR SHARE NOWAIT),
+    guests AS MATERIALIZED (SELECT id FROM ${prefix}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
+      AND status='active' FOR SHARE NOWAIT)
+    SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests`,
+  [access.workspace.workspaceId, source, Date.now()]) as Row[];
   const agents = await access.database.all(`SELECT o.operation_id FROM ${prefix}.collaboration_agent_operations o
     JOIN ${prefix}.collaboration_documents d ON d.id=o.document_id WHERE d.workspace_id=$1 AND d.path=$2
       AND o.status IN ('preparing','ready','applying','applied_to_ydoc','cancel_requested') FOR SHARE OF o NOWAIT`,
   [access.workspace.workspaceId, source]);
-  if (locks.length || guests.length || agents.length) fail('ORIGINAL_DELETE_BUSY');
+  if (busy.locks || busy.guests || agents.length) fail('ORIGINAL_DELETE_BUSY');
 }
 async function removeOriginalDeleteAnnotations(access: WorkspaceOperationJobLifecycleAccess, prefix: string,
   source: string, prepared: PreparedWorkspaceSingleFileTrash): Promise<void> {
@@ -104,53 +110,103 @@ export async function completeWorkspaceOperationOriginalDeleteDomain(access: Wor
     originalDurable: WorkspaceOperationOriginalDeleteIntent; originalIntent: OriginalIntent;
     prepared: PreparedWorkspaceSingleFileTrash; physical: PreparedSingleFileTrashReceipt }>
 ): Promise<WorkspaceOperationOriginalDeleteResult> {
-  const { binding, evidenceContext, originalDurable, originalIntent, prepared, physical } = input;
-  const schema = binding.source.schemaName, prefix = quote(schema);
-  const current = await readWorkspaceOperationOriginalDeleteIntentOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
-  if (!current || !equal(current, originalDurable) || !equal(physical.original, originalIntent.physical)) fail('ORIGINAL_DELETE_CHANGED');
-  parseIntent(current, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
-  await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
-  for (const item of originalIntent.nativeLinks ?? []) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
-  // Retain actual pre-archive facts on this same B2. The active catalogue
-  // omits the target after archive; no missing row may be reconstructed from
-  // a partial native binding or from a later document at the same path.
-  const beforeObservation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
-  if (binding.plan.version === 2 && beforeObservation) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
-    beforeObservation, originalIntent.jobScope);
-  if (!originalIntent.native) await assertStillPhysical(access, prefix, originalIntent.physical.canonicalPath);
-  const prior = await readWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
-  if (prior) fail('ORIGINAL_DELETE_UNPROVEN');
-  const nativeLinks = (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5) && originalIntent.nativeLinks?.length
-    ? await access.applyOriginalNativeDeleteLinks(current.intentDigest) : [];
-  const native = originalIntent.native ? await archiveOriginalNativeDeleteTargetOnConnection(access.database,
-    { schema, workspace: access.workspace, expected: originalIntent.native, trashEntryId: originalIntent.physical.trashEntryId,
-      archivedAt: originalIntent.physical.deletedAtMs }) : null;
-  const publicShare = await applyOriginalDeletePublicShareOnConnection(access.database,
-    { schema, workspace: access.workspace, original: originalIntent.publicShare, nowMs: originalIntent.physical.deletedAtMs });
-  if (binding.plan.version === 2 && binding.plan.planIdentityVersion === 3) {
-    if (originalIntent.version !== 5 || !beforeObservation) fail('ORIGINAL_DELETE_UNPROVEN');
-    assertOriginalDeleteMixedFinalGraph(binding.plan, await access.readOriginalNativeDeleteSources(),
-      { sourceEvidence: originalIntent.currentWitness, nativeLinks, beforeObservation });
-  } else if (binding.plan.version === 2 && (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4)) assertOriginalDeleteNativeFinalGraph(binding.plan,
-    await access.readOriginalNativeDeleteSources(), originalIntent.version === 3 || originalIntent.version === 4
-      ? { sourceEvidence: originalIntent.currentWitness, nativeLinks } : undefined);
-  await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
-  await removeOriginalDeleteAnnotations(access, prefix, originalIntent.physical.canonicalPath, prepared);
-  await insertTrash(access, prefix, originalIntent, current.intentDigest);
-  const trash = await insertWorkspaceOperationOriginalDeleteTrashReceiptOnConnection(access.database,
-    { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(physical) });
-  if (trash.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
-  const value: Completion = freeze({ version: originalIntent.version, batchId: binding.batchId, intentDigest: current.intentDigest,
-    trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest,
-    ...(originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 ? { nativeLinks } : {}) });
-  await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
-  await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
-  const receipt = await insertWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database,
-    { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(value) });
-  if (receipt.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
-  await access.assertCurrent();
-  await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
-  await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
-  await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
-  return completed(receipt.row, trash.row, current, originalIntent);
+  type DeleteDomainTimingStage = 'enter' | 'before-intent-parse' | 'intent-parsed' | 'before-writers' | 'writers-checked' | 'before-observation' | 'before-plan-check' | 'plan-checked' | 'before-prior-receipt' | 'prior-receipt-checked' | 'links-applied' | 'archive-returned' | 'share-applied' | 'final-graph-checked' | 'annotations-removed' | 'trash-inserted' | 'physical-receipt-written' | 'completion-prepared' | 'before-completion-receipt' | 'completion-receipt-written' | 'final-checks-done' | 'before-result-validation';
+  let deleteDomainStartedAt = 0, deleteDomainLastStage: DeleteDomainTimingStage = 'enter';
+  const deleteDomainMilestones: { stage: DeleteDomainTimingStage; elapsedMs: number }[] = [];
+  const markDeleteDomain = (stage: DeleteDomainTimingStage) => {
+    try {
+      deleteDomainLastStage = stage;
+      const now = performance.now();
+      if (stage === 'enter') deleteDomainStartedAt = now;
+      deleteDomainMilestones.push({ stage, elapsedMs: Math.round(now - deleteDomainStartedAt) });
+    } catch { /* Timing diagnostics never replace the original operation result. */ }
+  };
+  try {
+    markDeleteDomain('enter');
+    const { binding, evidenceContext, originalDurable, originalIntent, prepared, physical } = input;
+    const schema = binding.source.schemaName, prefix = quote(schema);
+    const current = await readWorkspaceOperationOriginalDeleteIntentOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
+    if (!current || !equal(current, originalDurable) || !equal(physical.original, originalIntent.physical)) fail('ORIGINAL_DELETE_CHANGED');
+    markDeleteDomain('before-intent-parse');
+    parseIntent(current, evidenceContext, access.workspace, resolveWorkspaceDataRoot());
+    markDeleteDomain('intent-parsed');
+    markDeleteDomain('before-writers');
+    await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+    for (const item of originalIntent.nativeLinks ?? []) await assertNoCompetingWriter(access, prefix, item.prepared.source.path);
+    markDeleteDomain('writers-checked');
+    // Retain actual pre-archive facts on this same B2. The active catalogue
+    // omits the target after archive; no missing row may be reconstructed from
+    // a partial native binding or from a later document at the same path.
+    markDeleteDomain('before-observation');
+    const beforeObservation = binding.plan.version === 2 ? await access.readOriginalNativeDeleteSources() : null;
+    markDeleteDomain('before-plan-check');
+    if (binding.plan.version === 2 && beforeObservation) assertWorkspaceOperationNativeDeleteBatchPlanCurrent(binding.plan,
+      beforeObservation, originalIntent.jobScope);
+    markDeleteDomain('plan-checked');
+    if (!originalIntent.native) await assertStillPhysical(access, prefix, originalIntent.physical.canonicalPath);
+    markDeleteDomain('before-prior-receipt');
+    const prior = await readWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database, { schema, batchId: binding.batchId, forShare: true });
+    if (prior) fail('ORIGINAL_DELETE_UNPROVEN');
+    markDeleteDomain('prior-receipt-checked');
+    const nativeLinks = (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6) && originalIntent.nativeLinks?.length
+      ? await access.applyOriginalNativeDeleteLinks(current.intentDigest) : [];
+    markDeleteDomain('links-applied');
+    const native = originalIntent.native ? originalIntent.version === 6
+      ? await access.archiveOriginalNativeHtmlDeleteTarget(current.intentDigest)
+      : await archiveOriginalNativeDeleteTargetOnConnection(access.database,
+        { schema, workspace: access.workspace, expected: originalIntent.native, trashEntryId: originalIntent.physical.trashEntryId,
+          archivedAt: originalIntent.physical.deletedAtMs }) : null;
+    markDeleteDomain('archive-returned');
+    const publicShare = await applyOriginalDeletePublicShareOnConnection(access.database,
+      { schema, workspace: access.workspace, original: originalIntent.publicShare, nowMs: originalIntent.physical.deletedAtMs });
+    markDeleteDomain('share-applied');
+    if (binding.plan.version === 2 && binding.plan.planIdentityVersion === 4) {
+      if (originalIntent.version !== 6 || !beforeObservation) fail('ORIGINAL_DELETE_UNPROVEN');
+      assertOriginalDeleteNativeHtmlLinkReceiptsV4(nativeLinks, originalIntent.nativeLinks);
+      assertOriginalDeleteHtmlFinalGraph(binding.plan, await access.readOriginalNativeDeleteSources(),
+        { sourceEvidence: originalIntent.currentWitness, nativeLinks, beforeObservation });
+    } else if (binding.plan.version === 2 && binding.plan.planIdentityVersion === 3) {
+      if (originalIntent.version !== 5 || !beforeObservation) fail('ORIGINAL_DELETE_UNPROVEN');
+      assertOriginalDeleteNativeLinkReceipts(nativeLinks, originalIntent.nativeLinks, 3);
+      assertOriginalDeleteMixedFinalGraph(binding.plan, await access.readOriginalNativeDeleteSources(),
+        { sourceEvidence: originalIntent.currentWitness, nativeLinks, beforeObservation });
+    } else if (binding.plan.version === 2 && (originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4)) {
+      assertOriginalDeleteNativeLinkReceipts(nativeLinks, originalIntent.nativeLinks ?? fail('ORIGINAL_DELETE_UNPROVEN'), originalIntent.version === 2 ? undefined : 3);
+      assertOriginalDeleteNativeFinalGraph(binding.plan, await access.readOriginalNativeDeleteSources(), originalIntent.version === 3 || originalIntent.version === 4
+        ? { sourceEvidence: originalIntent.currentWitness, nativeLinks } : undefined);
+    }
+    markDeleteDomain('final-graph-checked');
+    await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
+    await removeOriginalDeleteAnnotations(access, prefix, originalIntent.physical.canonicalPath, prepared);
+    markDeleteDomain('annotations-removed');
+    await insertTrash(access, prefix, originalIntent, current.intentDigest);
+    markDeleteDomain('trash-inserted');
+    const trash = await insertWorkspaceOperationOriginalDeleteTrashReceiptOnConnection(access.database,
+      { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(physical) });
+    if (trash.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
+    markDeleteDomain('physical-receipt-written');
+    const value: Completion = freeze({ version: originalIntent.version, batchId: binding.batchId, intentDigest: current.intentDigest,
+      trashEntryId: originalIntent.physical.trashEntryId, physical, native, publicShare, trashReceiptDigest: trash.row.receiptDigest,
+      ...(originalIntent.version === 2 || originalIntent.version === 3 || originalIntent.version === 4 || originalIntent.version === 5 || originalIntent.version === 6 ? { nativeLinks } : {}) });
+    markDeleteDomain('completion-prepared');
+    await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+    await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
+    markDeleteDomain('before-completion-receipt');
+    const receipt = await insertWorkspaceOperationOriginalDeleteReceiptOnConnection(access.database,
+      { schema, batchId: binding.batchId, intentDigest: current.intentDigest, receiptText: json(value) });
+    if (receipt.kind !== 'created') fail('ORIGINAL_DELETE_UNPROVEN');
+    markDeleteDomain('completion-receipt-written');
+    await access.assertCurrent();
+    await assertPreparedWorkspaceSingleFileTrashCurrent(prepared);
+    await assertNoCompetingWriter(access, prefix, originalIntent.physical.canonicalPath);
+    await assertPreparedWorkspaceSingleFileTrashSourceVacant(prepared);
+    markDeleteDomain('final-checks-done');
+    markDeleteDomain('before-result-validation');
+    return completed(receipt.row, trash.row, current, originalIntent);
+  } finally {
+    try { console.info('[File action owner] Delete B2 domain timings.', JSON.stringify({ version: 1,
+      elapsedMs: Math.round(performance.now() - deleteDomainStartedAt), lastStage: deleteDomainLastStage,
+      milestones: deleteDomainMilestones })); }
+    catch { /* Timing diagnostics never replace the original operation result. */ }
+  }
 }

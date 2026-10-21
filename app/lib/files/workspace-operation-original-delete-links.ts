@@ -17,9 +17,12 @@ import type { NativeLinkMutationRecipe, NativeWorkspaceLinkSnapshot } from '../m
 import type { WorkspaceLinkSourceAuthorityObservation } from '../markdown/workspace-source-authority-stage';
 import type { WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import { getWorkspaceOperationNativeDeleteLinkRecipes } from './workspace-operation-native-delete-plan';
+import { assertOriginalDeleteNativeLinkRecipeIntents } from './workspace-operation-original-delete-link-recipe-intents';
 import { captureWorkspaceOperationNativeSourceEvidenceV2,
   type WorkspaceOperationNativeSourceEvidenceV2 } from './workspace-operation-native-source-evidence';
 import { decodeWorkspaceOperationNativeOriginalSourceWitness } from './workspace-operation-native-original-source';
+import type { OriginalDeleteNativeLinkIntentV4, OriginalDeleteNativeLinkReceiptV4 } from './workspace-operation-original-delete-html-links';
+export type { OriginalDeleteNativeLinkIntentV4, OriginalDeleteNativeLinkReceiptV4 } from './workspace-operation-original-delete-html-links';
 
 /** Private immutable journal data, never an actor permission or a SQL capability. */
 export type OriginalDeleteNativeLinkIntent = {
@@ -34,6 +37,8 @@ export type OriginalDeleteNativeLinkReceipt = Omit<NativeLinkMutationReceipt, 'a
   afterBinaryHash?: string;
   afterVectorHash?: string;
 };
+export type AnyOriginalDeleteNativeLinkIntent = OriginalDeleteNativeLinkIntent | OriginalDeleteNativeLinkIntentV4;
+export type AnyOriginalDeleteNativeLinkReceipt = OriginalDeleteNativeLinkReceipt | OriginalDeleteNativeLinkReceiptV4;
 export type OriginalDeleteNativeLinkContext = {
   batchId: string; workspaceId: string; sourcePath: string; requestHash: string;
   actor: { userId: string; actorId: string; actorType: 'user' | 'agent'; actorSessionId: string | null };
@@ -87,19 +92,10 @@ export function decodeOriginalDeleteNativeLinkIntents(value: unknown,
   return value;
 }
 export function assertOriginalDeleteNativeLinkPlan(plan: WorkspaceOperationNativeDeleteBatchPlan,
-  intents: readonly OriginalDeleteNativeLinkIntent[]): void {
+  intents: readonly AnyOriginalDeleteNativeLinkIntent[]): void {
+  if (intents.some(item => item.prepared.contractVersion !== (plan.planIdentityVersion === 4 ? 4 : 2))) fail();
   const recipes = getWorkspaceOperationNativeDeleteLinkRecipes(plan);
-  const documents = [...new Set(recipes.map(recipe => recipe.source.documentId))].sort();
-  if (!equal(documents, intents.map(item => item.prepared.source.documentId).sort())) fail();
-  for (const item of intents) {
-    const selected = recipes.filter(recipe => recipe.source.documentId === item.prepared.source.documentId);
-    if (!selected.length || selected.some(recipe => !equal(recipe.source, item.prepared.source)
-      || recipe.sourceVersion.stateProof !== item.prepared.before.stateProof
-      || recipe.sourceVersion.stateVector !== item.prepared.before.stateVector
-      || recipe.sourceVersion.documentSequence !== item.prepared.before.documentSequence)
-      || !equal(selected.map(recipe => `${recipe.linkId}:${nativeLinkJsonProof(recipe)}`).sort(),
-        item.prepared.inverseRecipes.map(inverse => `${inverse.originalLinkId}:${inverse.authorizedForwardRecipeProof}`).sort())) fail();
-  }
+  assertOriginalDeleteNativeLinkRecipeIntents(recipes, intents);
 }
 export function prepareOriginalDeleteNativeLinks(plan: WorkspaceOperationNativeDeleteBatchPlan,
   observation: WorkspaceLinkSourceAuthorityObservation, context: OriginalDeleteNativeLinkContext): OriginalDeleteNativeLinkIntent[] {
@@ -213,7 +209,7 @@ export function assertOriginalDeleteNativeFinalGraph(plan: WorkspaceOperationNat
     nativeLinks: readonly OriginalDeleteNativeLinkReceipt[] }>): void {
   // Mixed read sources have a separate full-namespace comparison. This
   // historical V1/V2 entry never reduces a V3 graph to its native component.
-  if (plan.planIdentityVersion === 3) fail('ORIGINAL_DELETE_POSTCONDITION');
+  if (plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4) fail('ORIGINAL_DELETE_POSTCONDITION');
   if (plan.planIdentityVersion === 2) {
     if (!original) fail('ORIGINAL_DELETE_POSTCONDITION');
     assertOriginalDeleteNativeFinalBindings(plan, observation, original);

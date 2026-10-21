@@ -36,6 +36,7 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
   const files = ['scripts/workspace-operation-original-delete-metadata-postgres-test.ts',
     'scripts/helpers/native-copy-metadata-owner-fixture.ts', 'scripts/workspace-operation-original-delete-postgres-test.ts',
     'scripts/workspace-operation-native-copy-metadata-owner-postgres-test.ts',
+    'app/lib/files/workspace-operation-original-delete-domain.ts',
     'app/lib/files/workspace-operation-original-delete.ts', 'app/lib/filesystem/prepared-single-file-trash.ts',
     'app/lib/files/workspace-operation-original-delete-links.ts', 'app/lib/files/workspace-operation-original-delete-public.ts',
     'app/lib/files/workspace-operation-original-delete-evidence.ts', 'app/lib/files/workspace-operation-original-delete-repository.ts',
@@ -53,6 +54,7 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
     const { submitDirectWorkspacePathOperation } = await import('../app/lib/files/workspace-path-operation-service');
     const { WorkspaceOperationBatchStore } = await import('../app/lib/files/workspace-operation-batch-store');
     const { executeWorkspaceOperationOriginalDelete: executeDelete } = await import('../app/lib/files/workspace-operation-original-delete');
+    const { collaborationAdmissionLockKey } = await import('../app/lib/collaboration/room-admission-contract');
     const { loadCollaborationStateOnConnection } = await import('../app/lib/collaboration/persistence');
     const { inspectPersistedDocumentLinks } = await import('../app/lib/markdown/workspace-native-link-inventory');
     const store = new WorkspaceOperationBatchStore(), checkouts = new Set<SqlConnection>();
@@ -178,11 +180,35 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
       share: await rows('public_file_shares', 'id', target.shareId), links: await rows('collaboration_native_link_mutation_receipts', 'document_id', target.refId) });
     type Fault = 'none' | 'rollback-cleanup' | 'commit-ack' | 'source-replacement';
     const tracked = (value: Job, fault: Fault = 'none') => {
-      const observation = { opens: 0, closes: 0, deleted: [] as string[], injected: false, b2: null as { pid: string; xid: string } | null,
+      const observation = { opens: 0, closes: 0, ownerSessions: 0,
+        connections: [] as Array<{ ordinal: number; closeCalls: number; released: boolean; owner: boolean; pid: string | null; start: string | null }>,
+        deleted: [] as string[], injected: false, b2: null as { pid: string; xid: string } | null,
         replacement: null as { identity: Awaited<ReturnType<typeof lstat>>; annotations: Awaited<ReturnType<typeof annotations>> } | null };
+      const workspaceLeaseKey = collaborationAdmissionLockKey(value.target.workspace.workspaceId);
       return { observation, open: async (): Promise<SqlConnection> => {
         const externalBefore = fault === 'rollback-cleanup' ? await proof(value.target) : null;
         const raw = await openDb(); checkouts.add(raw); observation.opens++;
+        const connection = { ordinal: observation.opens, closeCalls: 0, released: false, owner: false,
+          pid: null as string | null, start: null as string | null };
+        observation.connections.push(connection);
+        const observeOwnerLease = async (sql: string, values: unknown[] | undefined, answer: unknown) => {
+          // The genuine native Owner acquires this exact workspace session
+          // lease on the same Raw used by all its later phases. History and
+          // admission checkouts do not become Owners merely by being opened.
+          if (sql !== 'SELECT pg_try_advisory_lock($1::bigint) AS locked' || values?.length !== 1
+            || values[0] !== workspaceLeaseKey || (answer as { locked?: boolean } | undefined)?.locked !== true) return;
+          assert.equal(connection.owner, false, 'One workspace lease acquisition per actual Owner checkout.');
+          const bits = BigInt.asUintN(64, BigInt(workspaceLeaseKey));
+          const held = await raw.get(`SELECT pg_backend_pid()::text AS pid,extract(epoch FROM a.backend_start)::text AS start,
+            EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=pg_backend_pid() AND l.locktype='advisory'
+              AND l.granted AND l.mode='ExclusiveLock' AND l.objsubid=1
+              AND l.database=(SELECT oid FROM pg_database WHERE datname=current_database())
+              AND l.classid::bigint=$1::bigint AND l.objid::bigint=$2::bigint) AS held
+            FROM pg_stat_activity a WHERE a.pid=pg_backend_pid()`,
+          [(bits >> BigInt(32)).toString(), (bits & BigInt(0xffffffff)).toString()]) as { pid: string; start: string; held: boolean };
+          assert.equal(held?.held, true); assert.match(held.pid, /^[1-9][0-9]*$/u); assert.equal(typeof held.start, 'string'); assert(held.start);
+          connection.owner = true; connection.pid = held.pid; connection.start = held.start; observation.ownerSessions++;
+        };
         const before = async (sql: string) => {
           if (fault !== 'source-replacement' || observation.injected || !/^DELETE FROM "[^"]+"\.workspace_file_metadata\b/u.test(sql)) return;
           assert.equal(await missing(value.target.fullPath), true);
@@ -216,21 +242,55 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
             observation.injected = true; throw Object.assign(new Error('Owned actual COMMIT acknowledgement loss.'), { code: 'FIXTURE_DELETE_METADATA_ACK_LOST' });
           }
         };
-        return { get: async (sql, values) => { await before(sql); const answer = await raw.get(sql, values); await after(sql); return answer; },
+        return { get: async (sql, values) => { await before(sql); const answer = await raw.get(sql, values); await observeOwnerLease(sql, values, answer); await after(sql); return answer; },
           all: async (sql, values) => { await before(sql); const answer = await raw.all(sql, values); await after(sql); return answer; },
           run: async (sql, values) => { await before(sql); const answer = await raw.run(sql, values); await after(sql); return answer; },
-          close: async cause => { observation.closes++; assert.equal(observation.closes, 1); assert(cause);
-            try { await raw.close(cause); } finally { checkouts.delete(raw); } } };
+          close: async cause => {
+            connection.closeCalls++;
+            const failures: unknown[] = [];
+            // Always forward the real release/discard BEFORE any fixture
+            // assertion. Successful history/admission closes may omit cause.
+            try {
+              await raw.close(cause); connection.released = true; observation.closes++; checkouts.delete(raw);
+            } catch (error) { failures.push(error); }
+            try {
+              assert.equal(connection.closeCalls, 1, 'Every actual checkout closes exactly once.');
+              if (connection.owner) assert(cause instanceof Error, 'The dedicated Owner session must be discarded.');
+            } catch (error) { failures.push(error); }
+            if (failures.length === 1) throw failures[0];
+            if (failures.length > 1) throw new AggregateError(failures, 'Real checkout release and fixture close invariant failed.');
+          } };
       } };
     };
     const run = async (value: Job, adapter = tracked(value)) => {
-      const result = await store.withClaim(value.claimed, async claim => {
-        const applied = await executeDelete(claim, adapter.open);
-        const finished = await store.finishClaim(value.claimed, { status: 'applied', trashEntryIds: [applied.trashEntryId],
-          completedActions: 1 + (applied.nativeLinks?.length ?? 0), phase: 'complete' });
-        assert.equal(finished?.status, 'applied'); return applied;
-      });
-      assert.equal(adapter.observation.opens, 1); assert.equal(adapter.observation.closes, 1); return result;
+      // A genuine durable completion takes the product's history-only path.
+      // Its single checkout is not a new lifecycle Owner session.
+      const receiptsAtEntry = (await durable(value)).receipts; assert(receiptsAtEntry.length <= 1);
+      let failed = false, primary: unknown;
+      try {
+        return await store.withClaim(value.claimed, async claim => {
+          const applied = await executeDelete(claim, adapter.open);
+          const finished = await store.finishClaim(value.claimed, { status: 'applied', trashEntryIds: [applied.trashEntryId],
+            completedActions: 1 + (applied.nativeLinks?.length ?? 0), phase: 'complete' });
+          assert.equal(finished?.status, 'applied'); return applied;
+        });
+      } catch (error) { failed = true; primary = error; throw error; }
+      finally {
+        const failures: unknown[] = [];
+        try {
+          assert.equal(adapter.observation.opens, adapter.observation.connections.length);
+          assert.equal(adapter.observation.opens, adapter.observation.closes);
+          for (const connection of adapter.observation.connections) {
+            assert.equal(connection.closeCalls, 1); assert.equal(connection.released, true);
+          }
+          const owners = adapter.observation.connections.filter(connection => connection.owner);
+          assert.equal(adapter.observation.ownerSessions, owners.length);
+          assert.equal(owners.length, receiptsAtEntry.length === 1 ? 0 : 1, 'Exactly one actual leased Owner, or zero for immutable completed history.');
+          if (receiptsAtEntry.length === 1) assert.equal(adapter.observation.opens, 1, 'History-only replay uses exactly one checkout.');
+          if (adapter.observation.b2) assert.equal(adapter.observation.b2.pid, owners[0]?.pid, 'B2 stays on the same genuinely leased Owner backend.');
+        } catch (error) { failures.push(error); }
+        if (failures.length) throw new AggregateError(failed ? [primary, ...failures] : failures, 'Original Delete checkout/Owner invariants failed.');
+      }
     };
     const resume = async (value: Job): Promise<Job> => {
       const failed = await store.finishClaim(value.claimed, { status: 'needs_recovery', phase: 'recovery', errorCode: 'FIXTURE_EXPECTED_FAILURE' });
@@ -364,7 +424,156 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
         assert.deepEqual(await readFile(target.fullPath), Buffer.from('Owned adversarial S2, preserve exactly.\n')); await unlink(target.fullPath);
         const retry = await resume(value), replay = tracked(retry); await assertApplied(retry, await run(retry, replay), replay);
       });
-      assert.equal(groups, 7); assert.equal(checkouts.size, 0);
+      assert.equal(groups, 7, 'The seven original metadata families completed unchanged.');
+
+      await group('direct SQL writer predicates and all three SHARE NOWAIT tuple-lock classes retain their exact semantics', async () => {
+        // Deliberate SQL fixture over the actual full-DDL schema. This calls
+        // only the existing guard, not a lifecycle/public/native owner or grant.
+        const { assertNoCompetingWriter } = await import('../app/lib/files/workspace-operation-original-delete-domain');
+        type Access = Parameters<typeof assertNoCompetingWriter>[0];
+        type Kind = 'locks' | 'guests' | 'agents';
+        const tables = { locks: 'file_locks', guests: 'file_guest_invitations', agents: 'collaboration_agent_operations' } as const;
+        const key = (kind: Kind) => kind === 'agents' ? 'operation_id' : 'id';
+        const own: Array<{ kind: Kind; id: string }> = [];
+        const source = (await h.admin.query(`SELECT d.id,d.path,d.lineage_id,s.lifecycle_generation,s.document_sequence,s.state_vector
+          FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+          WHERE d.workspace_id=$1 AND d.status='active' ORDER BY d.path COLLATE "C" LIMIT 1`, [h.source.workspaceId])).rows[0];
+        assert(source);
+        const foreignWorkspace = (await h.admin.query(`SELECT d.id,d.path,d.lineage_id,s.lifecycle_generation,s.document_sequence,s.state_vector
+          FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+          WHERE d.workspace_id=$1 AND d.path=$2 AND d.status='active'`, [h.destination.workspaceId, source.path])).rows[0];
+        assert(foreignWorkspace);
+        const otherPath = `writer-guard-other-${crypto.randomUUID()}.md`;
+        await h.upload(otherPath, Buffer.from('# Independent SQL guard source\n'));
+        const foreignPath = (await h.admin.query(`SELECT d.id,d.path,d.lineage_id,s.lifecycle_generation,s.document_sequence,s.state_vector
+          FROM collaboration_documents d JOIN collaboration_yjs_states s ON s.document_id=d.id
+          WHERE d.workspace_id=$1 AND d.path=$2 AND d.status='active'`, [h.source.workspaceId, otherPath])).rows[0];
+        assert(foreignPath);
+        const reader = await openDb(); checkouts.add(reader);
+        let blocker: SqlConnection | undefined, forwarded = 0, failed = false, primary: unknown;
+        let beforeAgentRead: (() => Promise<void>) | undefined;
+        const database: SqlConnection = { ...reader, all: async (sql, values) => {
+          forwarded++;
+          if (forwarded === 2 && beforeAgentRead) {
+            const hook = beforeAgentRead; beforeAgentRead = undefined; await hook();
+          }
+          return reader.all(sql, values);
+        } };
+        // Only database and workspace are consumed by this SQL-only guard.
+        // This structural adapter is never passed to a genuine phase/API.
+        const fixtureAccess = { database, workspace: h.source } as Access;
+        const seed = async (kind: Kind, status: string, selected = source, workspace = h.source, expired = false) => {
+          const id = crypto.randomUUID(), now = Date.now(); own.push({ kind, id });
+          if (kind === 'locks') await h.admin.query(`INSERT INTO file_locks
+            (id,workspace_id,workspace_type,path,locked_by_user_id,lock_type,status,expires_at,created_at,updated_at)
+            VALUES($1,$2,$3,$4,'owner','edit',$5,$6,1,1)`,
+          [id, workspace.workspaceId, workspace.workspaceType, selected.path, status, expired ? 2 : now + 60000]);
+          else if (kind === 'guests') await h.admin.query(`INSERT INTO file_guest_invitations
+            (id,workspace_id,path,document_id,lifecycle_generation,lineage_id,email,permission,status,created_by_user_id,expires_at,created_at,updated_at)
+            VALUES($1,$2,$3,$4,$5,$6,$7,'read',$8,'owner',$9,1,1)`,
+          [id, workspace.workspaceId, selected.path, selected.id, selected.lifecycle_generation, selected.lineage_id,
+            `${id}@writer-guard.test`, status, expired ? 2 : now + 60000]);
+          else await h.admin.query(`INSERT INTO collaboration_agent_operations
+            (operation_id,document_id,workspace_id,organization_id,initiated_by_user_id,actor_id,idempotency_key,payload_hash,
+              status,base_state_vector,base_document_sequence,created_at,updated_at)
+            VALUES($1,$2,$3,$4,'owner','owner',$1,$5,$6,$7,$8,1,1)`,
+          [id, selected.id, workspace.workspaceId, workspace.organizationId, sha(id), status, selected.state_vector, selected.document_sequence]);
+          return id;
+        };
+        const clear = async () => {
+          for (const row of own) await h.admin.query(`DELETE FROM "${h.schema}".${tables[row.kind]} WHERE ${key(row.kind)}=$1`, [row.id]);
+        };
+        const snapshot = async () => {
+          const result: unknown[] = [];
+          for (const row of own) result.push((await h.admin.query(`SELECT to_jsonb(t) AS row,xmin::text AS fixture_xmin
+            FROM "${h.schema}".${tables[row.kind]} t WHERE ${key(row.kind)}=$1`, [row.id])).rows);
+          return result;
+        };
+        const guard = () => assertNoCompetingWriter(fixtureAccess, `"${h.schema}"`, source.path);
+        const attempt = async (code?: string) => {
+          const before = await snapshot(); forwarded = 0; await reader.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+          try { if (code) await assert.rejects(guard(), hasCode(code)); else await guard();
+            assert.equal(forwarded, 2, 'One complete lock/guest SELECT and one fresh final agent SELECT per guard invocation.');
+          } finally { await reader.run('ROLLBACK'); }
+          assert.deepEqual(await snapshot(), before, 'The SELECT-only guard cannot mutate fixture rows.');
+        };
+        try {
+          blocker = await openDb(); checkouts.add(blocker);
+          const readerPid = await reader.get('SELECT pg_backend_pid() AS pid') as Row;
+          const blockerPid = await blocker.get('SELECT pg_backend_pid() AS pid') as Row;
+          assert.notEqual(readerPid.pid, blockerPid.pid);
+          await attempt();
+          for (const kind of ['locks', 'guests', 'agents'] as const) {
+            for (const inactive of kind === 'locks' ? ['released', 'expired', 'force_released']
+              : kind === 'guests' ? ['revoked', 'expired'] : ['persisted', 'failed', 'cancelled']) {
+              await seed(kind, inactive); await attempt(); await clear();
+            }
+            if (kind === 'locks') { await seed(kind, 'active', source, h.source, true); await attempt(); await clear(); }
+            await seed(kind, kind === 'agents' ? 'preparing' : 'active', foreignPath);
+            await attempt(); await clear();
+            await seed(kind, kind === 'agents' ? 'preparing' : 'active', foreignWorkspace, h.destination);
+            await attempt(); await clear();
+            for (const status of kind === 'agents' ? ['preparing', 'ready', 'applying', 'applied_to_ydoc', 'cancel_requested'] : ['active']) {
+              await seed(kind, status); await attempt('ORIGINAL_DELETE_BUSY'); await clear();
+            }
+          }
+          // Actual fixture COMMIT on the independent admin backend AFTER
+          // the lock/guest SELECT, BEFORE the original final agent SELECT.
+          // This is a SQL freshness probe, not an agent approval/auth proof.
+          let afterAgentCommit: unknown[] | undefined;
+          beforeAgentRead = async () => { await seed('agents', 'applying'); afterAgentCommit = await snapshot(); };
+          forwarded = 0; await reader.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+          try {
+            await assert.rejects(guard(), hasCode('ORIGINAL_DELETE_BUSY'));
+            assert.equal(forwarded, 2); assert(afterAgentCommit);
+          } finally { beforeAgentRead = undefined; await reader.run('ROLLBACK'); }
+          assert.deepEqual(await snapshot(), afterAgentCommit); await clear();
+          // Guest expiry is intentionally NOT a predicate in the original
+          // guard: an active expired invitation still blocks.
+          await seed('guests', 'active', source, h.source, true); await attempt('ORIGINAL_DELETE_BUSY'); await clear();
+          const ids = { locks: await seed('locks', 'active'), guests: await seed('guests', 'active'), agents: await seed('agents', 'preparing') };
+          const before = await snapshot();
+          forwarded = 0; await reader.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+          try {
+            await assert.rejects(guard(), hasCode('ORIGINAL_DELETE_BUSY')); assert.equal(forwarded, 2);
+            // Even with a matching first category, BOTH statements and all three category scans
+            // must have acquired their real row locks on this still-held B.
+            for (const kind of ['locks', 'guests', 'agents'] as const) {
+              await blocker.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+              try { await assert.rejects(Promise.resolve(blocker.all(`SELECT ${key(kind)} FROM "${h.schema}".${tables[kind]}
+                WHERE ${key(kind)}=$1 FOR UPDATE NOWAIT`, [ids[kind]])), hasCode('55P03')); }
+              finally { await blocker.run('ROLLBACK'); }
+            }
+            await blocker.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+            try {
+              const documents = await blocker.all(`SELECT id FROM "${h.schema}".collaboration_documents WHERE id=$1 FOR UPDATE NOWAIT`, [source.id]);
+              assert.equal(documents.length, 1, 'FOR SHARE OF o must not acquire a tuple lock on joined d.');
+            } finally { await blocker.run('ROLLBACK'); }
+          } finally { await reader.run('ROLLBACK'); }
+          assert.deepEqual(await snapshot(), before);
+          for (const kind of ['locks', 'guests', 'agents'] as const) {
+            forwarded = 0; await blocker.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+            try {
+              const locked = await blocker.all(`SELECT ${key(kind)} FROM "${h.schema}".${tables[kind]}
+                WHERE ${key(kind)}=$1 FOR UPDATE NOWAIT`, [ids[kind]]); assert.equal(locked.length, 1);
+              await reader.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');
+              try { await assert.rejects(guard(), hasCode('55P03')); assert.equal(forwarded, kind === 'agents' ? 2 : 1); }
+              finally { await reader.run('ROLLBACK'); }
+            } finally { await blocker.run('ROLLBACK'); }
+            assert.deepEqual(await snapshot(), before);
+          }
+        } catch (error) { failed = true; primary = error; throw error; }
+        finally {
+          const failures: unknown[] = [];
+          for (const connection of [reader, blocker]) if (connection) {
+            try { await connection.run('ROLLBACK'); } catch (error) { failures.push(error); }
+            try { await connection.close(); checkouts.delete(connection); } catch (error) { failures.push(error); }
+          }
+          try { await clear(); } catch (error) { failures.push(error); }
+          if (failures.length) throw new AggregateError(failed ? [primary, ...failures] : failures, 'SQL-only writer-guard fixture closure failed.');
+        }
+      });
+      assert.equal(groups, 8); assert.equal(checkouts.size, 0);
     } finally { assert.equal(checkouts.size, 0, 'Every actual OriginalDelete owner checkout must close.'); }
   }); }
   finally {
@@ -372,7 +581,7 @@ async function originalDeleteMetadataPostgresTest(): Promise<void> {
     assert.deepEqual(after, pins, 'All direct sources and untouched original20/Metadata13 tests must retain their initial bytes.');
     console.log(JSON.stringify({ suite: 'original-delete-metadata', sourcesUnchanged: true, sourcePins: after }));
   }
-  assert.equal(groups, 7); completed = true; console.log(JSON.stringify({ suite: 'original-delete-metadata', groups, passed: true }));
+  assert.equal(groups, 8); completed = true; console.log(JSON.stringify({ suite: 'original-delete-metadata', groups, passed: true }));
 }
 originalDeleteMetadataPostgresTest().catch(error => {
   console.error(JSON.stringify({ suite: 'original-delete-metadata', currentCase, groups, passed: false, error: failure(error) })); process.exitCode = 1;

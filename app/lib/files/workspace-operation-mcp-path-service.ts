@@ -11,7 +11,7 @@ import { withDirectMcpWorkspaceMovePrincipal, withDirectMcpWorkspaceDeletePrinci
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { encodeDirectMcpWorkspacePathResultV1, WorkspacePathToolError,
   type DecodedDirectMcpWorkspaceMoveRequestV1, type DecodedDirectMcpWorkspaceDeleteRequestV1,
-  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1, type DirectMcpWorkspacePathHtmlPreviewV2,
+  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1, type DirectMcpWorkspacePathHtmlPreviewV2, type DirectMcpWorkspacePathHtmlDeletePreviewV3,
   WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES } from '../mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
@@ -45,6 +45,8 @@ import { readWorkspacePathImportPreparationPlan } from './workspace-path-import-
 import { prepareWorkspacePathImportOperation } from './workspace-path-import-operation';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import { decodeWorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
+import { decodeWorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
+import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
 type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan;
@@ -105,7 +107,8 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
   if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2)) {
     throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
   }
-  const html = plan.version === 3 && plan.planIdentityVersion === 4 ? decodeWorkspaceOperationNativeMoveBatchPlan(plan) : null;
+  const html = (plan.version === 2 || plan.version === 3) && plan.planIdentityVersion === 4 ? plan.version === 3 ? decodeWorkspaceOperationNativeMoveBatchPlan(plan)
+    : plan.version === 2 ? decodeWorkspaceOperationNativeDeleteBatchPlan(plan) : null : null;
   if (html && (html.planIdentityVersion !== 4 || html.sourceEvidence.evidenceVersion !== 5 || !html.linkAssessment.complete
     || html.linkAssessment.blockers.length || html.issues.length || html.coverage.complete !== html.sourceEvidence.coverage.complete)) {
     throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.action === 'preview' ? undefined : input.operationId);
@@ -216,6 +219,7 @@ function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
 }
 
 function pathPreview(plan: NativePlan) {
+  if (plan.version === 2 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlDeletePreviewV3(plan);
   if (plan.version === 3 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlPreviewV2(plan);
   const effects = plan.version === 3 ? workspaceOperationNativeMoveEffects(plan) : workspaceOperationNativeDeleteEffects(plan);
   const links = effects.reduce((count, effect) => count + effect.updatedLinks, 0);
@@ -269,12 +273,47 @@ export function workspaceOperationMcpHtmlPreviewV2(input: unknown): DirectMcpWor
     })).values()], imports: imports.map(item => ({ path: item.path, reasons: [...item.reasons] })),
   };
   const encoded = encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: projection });
-  if (encoded.action !== 'preview' || encoded.preview.kind !== 'native-path-html-assessment') throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  if (encoded.action !== 'preview' || encoded.preview.kind !== 'native-path-html-assessment' || encoded.preview.version !== 2) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
   return encoded.preview;
 }
 
 /** Actual Store claims and existing native executor only. The shared renewal
  * controller is drained before each Owner B by the existing scheduler. */
+/** Explicit new Delete display shape. The historical Move2 projection stays unchanged. */
+export function workspaceOperationMcpHtmlDeletePreviewV3(input: unknown): DirectMcpWorkspacePathHtmlDeletePreviewV3 {
+  if (!input || typeof input !== 'object' || types.isProxy(input)) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  const version = Object.getOwnPropertyDescriptor(input, 'version');
+  if (!version?.enumerable || !Object.hasOwn(version, 'value')) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  const early = version.value === 3 ? decodeWorkspacePathHtmlNativeDeletePreparationPlanV3(input) : null;
+  const decoded = early ? null : decodeWorkspaceOperationNativeDeleteBatchPlan(input);
+  const native = decoded?.planIdentityVersion === 4 ? decoded : null;
+  if (early ? early.readiness !== 'blocked' : !native || !native.linkAssessment.complete
+    || native.linkAssessment.blockers.length || native.issues.length) throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED');
+  const assessment = early ? early.linkAssessment : native!.linkAssessment;
+  const issues = early ? early.issues : native!.issues, imports = early ? early.requiredRawImports : [];
+  const selections = early ? early.request.selections : native!.actions[0].selections;
+  if (selections.length !== 1 || assessment.warnings.length > 10000 || assessment.blockers.length > 10000
+    || issues.length > 10000 || imports.length > 10000) throw new WorkspacePathToolError('PATH_OUTPUT_TOO_LARGE');
+  const diagnostics = (items: typeof assessment.warnings | typeof assessment.blockers) => items.map(item => ({
+    code: item.reason, path: item.sourcePath, ...('line' in item && item.line !== undefined ? { line: item.line } : {}),
+    targets: [...(item.htmlTargets ?? [])],
+  }));
+  const effects = native ? workspaceOperationNativeDeleteEffects(native) : [];
+  const result = { version: 3 as const, kind: 'native-path-html-assessment' as const, operationKind: 'delete' as const,
+    executionReady: false as const, readiness: early ? 'blocked' as const : 'ready' as const,
+    workspaceId: early ? early.scope.workspaceId : native!.workspaceId, planId: early ? early.planId : native!.planId,
+    paths: selections.map(selection => ({ sourcePath: selection.sourcePath })),
+    linkChanges: { rewrites: 0, unlinks: effects.reduce((count,effect) => count + effect.updatedLinks, 0), affectedDocuments: effects.length },
+    coverage: { complete: early ? early.coverage.complete : native!.sourceEvidence.coverage.complete },
+    linkAssessment: { complete: assessment.complete, warnings: diagnostics(assessment.warnings), blockers: diagnostics(assessment.blockers) },
+    issues: [...new Map(issues.map(item => { const issue = { code: /^[a-z][a-z0-9-]{0,99}$/u.test(item.code) ? item.code : 'unknown', path: item.path };
+      return [JSON.stringify(issue),issue] as const; })).values()], imports: imports.map(item => ({ path: item.path,reasons:[...item.reasons] })),
+  };
+  const encoded = encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1,action: 'preview',preview: result });
+  if (encoded.action !== 'preview' || encoded.preview.kind !== 'native-path-html-assessment' || encoded.preview.version !== 3) throw new WorkspacePathToolError('PATH_UNAVAILABLE');
+  return encoded.preview;
+}
+
 async function executePathClaim(store: WorkspaceOperationBatchStore, batch: WorkspaceOperationBatchRecord,
   live: WorkspaceOperationMcpJobPrincipal, scope: WorkspaceOperationBatchScope): Promise<void> {
   return store.withClaim(batch, async jobClaim => {
@@ -343,7 +382,8 @@ async function runDirectMcpWorkspacePathService(input: Request,
     const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
     await capturePathAuthority(live, undefined, initial);
     if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
-      preview: preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
+      preview: preparation.version === 3 ? workspaceOperationMcpHtmlDeletePreviewV3(preparation)
+        : preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
     const plan = await buildPathPlan(live, input, initial);
     return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview', preview: pathPreview(plan) });
   }
