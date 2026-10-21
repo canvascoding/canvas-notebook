@@ -700,3 +700,166 @@ test('DECLARED P0 insert RETURNING parity retains full current-row validation an
   assert.equal(transportThenReads, 2, 'Each of the two declared async proxy row returns performs only its Promise transport probe.');
   assert.deepEqual(prepared, createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle }));
 });
+
+// Public borrowed-reader parity only. Real Yjs/compiler data and DECLARED SQL
+// replies below prove no PG locks, authority, filesystem work or COMMIT.
+test('DECLARED P0 reader retains exact public decoding across versioned witnesses, null bundles and borrowed read modes', async () => {
+  const cases: Array<{ name: string; selected: codec.WorkspaceOperationOriginalMoveContext; prepared: ReturnType<typeof createP0> }> = [];
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    for (const present of [false, true]) {
+      const value = fixture(representation, present);
+      cases.push({ name: `${representation}/${present}`, selected: value.context,
+        prepared: createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle }) });
+    }
+  }
+  const { createWorkspaceOperationNativeMoveBatchPlanV3, createWorkspaceOperationNativeMoveBatchPlanV4 } =
+    await import('../app/lib/files/workspace-operation-native-move-plan');
+  const original3 = observation('plain_text'), current3 = checkpoint(original3, true);
+  const plan3 = createWorkspaceOperationNativeMoveBatchPlanV3({ scope,
+    actions: [{ kind: 'move', reviewId: 'p0_read_v3', selections }], observation: original3 });
+  const selected3 = context(plan3), witness3 = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan3, current3, jobScope);
+  const bundle3 = codec.prepareWorkspaceOperationOriginalMoveNativeBundleData(selected3, current3, witness3);
+  assert(bundle3);
+  const prepared3 = createP0(selected3, { currentWitness: witness3, nativeBundleData: bundle3 });
+  assert.equal(prepared3.preparation.version, 2); cases.push({ name: 'witness3', selected: selected3, prepared: prepared3 });
+  const { workspaceOperationMixedSourceEvidenceV5Fixture } = await import('./workspace-operation-mixed-source-evidence-v5-test');
+  const actual5 = workspaceOperationMixedSourceEvidenceV5Fixture({ raw: [],
+    native: [['a.md', '# A\n[Peer](peer.md)'], ['incoming.md', '[Move](a.md)'], ['peer.md', 'Peer']] });
+  const workspace5: WorkspaceOperationBatchScope['workspace'] = { workspaceId: actual5.scope.workspaceId,
+    workspaceType: 'personal', organizationId: null, ownerUserId: actual5.scope.ownerUserId!,
+    rootPath: actual5.scope.rootPath, rootRelativePath: actual5.scope.rootRelativePath!, legacy: false,
+    status: 'active', permissions: scope.workspace.permissions };
+  const plan5 = createWorkspaceOperationNativeMoveBatchPlanV4({ scope: { workspace: workspace5, fileOptions: {} },
+    actions: [{ kind: 'move', reviewId: 'p0_read_e5', selections }], observation: actual5.observation });
+  const selected5 = context(plan5), witness5 = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan5, actual5.observation, actual5.scope);
+  const bundle5 = codec.prepareWorkspaceOperationOriginalMoveNativeBundleData(selected5, actual5.observation, witness5);
+  assert(bundle5);
+  const prepared5 = createP0(selected5, { currentWitness: witness5, nativeBundleData: bundle5 });
+  assert.equal(prepared5.preparation.version, 3); cases.push({ name: 'witness5', selected: selected5, prepared: prepared5 });
+  const physicalOnly = observation('plain_text');
+  physicalOnly.stage.namespace.push({ workspaceId: jobScope.workspaceId, path: 'a.pdf', kind: 'file',
+    identity: '1:100:3:100:100', filesystemIdentity: '1:100:3:100:100', documentId: null, lifecycleGeneration: null });
+  refresh(physicalOnly);
+  const nullPlan = createWorkspaceOperationNativeMoveBatchPlanV2({ scope, actions: [{ kind: 'move', reviewId: 'p0_read_null',
+    selections: [{ sourcePath: 'a.pdf', destinationPath: 'b.pdf' }] }], observation: physicalOnly });
+  const nullContext = context(nullPlan), nullWitness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(nullPlan, physicalOnly, jobScope);
+  const nullPrepared = createP0(nullContext, { currentWitness: nullWitness, nativeBundleData: null });
+  assert.equal(nullPrepared.preparation.nativeBundle, null); cases.push({ name: 'physical-null', selected: nullContext, prepared: nullPrepared });
+
+  for (const item of cases) for (const readOnly of [false, true]) {
+    const prepared = item.prepared, p = prepared.preparation, before = clone(prepared);
+    const row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId, requestHash: p.requestHash,
+      requestId: p.requestId, requestDigest: p.requestDigest, preparationText: prepared.preparationText,
+      preparationDigest: prepared.preparationDigest, createdAt: readOnly ? 100 : '100' };
+    const native = p.nativeBundle && { operationId: p.nativeBundle.operationId, requestId: p.nativeBundle.requestId,
+      changesBundleProof: prepared.nativeBundleData!.changesBundleProof, privateText: prepared.nativeBundleData!.privateText };
+    const strict = decodeP0(row.preparationText, item.selected, prepared.nativeBundleData);
+    const callerContext = clone(item.selected), calls: string[] = []; let otherMethods = 0;
+    const borrowedReadSpy = { get: async (sql: string, params: unknown[] = []) => {
+      calls.push(sql); assert.match(sql, /^SELECT /u);
+      assert.equal(sql.endsWith(' FOR SHARE NOWAIT'), !readOnly);
+      if (calls.length === 1) {
+        assert(sql.includes('"p0_reader_parity".workspace_file_operation_move_preparations WHERE batch_id=$1'));
+        assert.match(sql, /CASE WHEN octet_length\(preparation_text\) BETWEEN 1 AND 16777216 THEN preparation_text ELSE NULL/u);
+        assert.deepEqual(params, [p.batchId]);
+        // The public read captured its own context before this await.
+        callerContext.actor.actorSessionId = 'caller-mutated-after-read-start'; return row;
+      }
+      assert.equal(calls.length, 2); assert(native);
+      assert(sql.includes('"p0_reader_parity".collaboration_native_file_operation_intents WHERE operation_id=$1'));
+      assert.match(sql, /CASE WHEN octet_length\(intent_text\) BETWEEN 1 AND 8388608 THEN intent_text ELSE NULL/u);
+      assert.deepEqual(params, [native.operationId]); return native;
+    }, all: async () => { otherMethods++; assert.fail('No alternate read shape.'); },
+    run: async () => { otherMethods++; assert.fail('No transaction or write authority.'); },
+    close: async () => { otherMethods++; assert.fail('The caller retains the borrowed connection.'); } };
+    let result: Awaited<ReturnType<typeof readP0>>;
+    try { result = await readP0(borrowedReadSpy, { schema: 'p0_reader_parity', context: callerContext,
+      ...(readOnly ? { readOnly: true as const } : {}) }); }
+    finally { assert.equal(calls.length, native ? 2 : 1, item.name); assert.equal(otherMethods, 0);
+      assert(calls.every(sql => !/\b(?:BEGIN|COMMIT|ROLLBACK)\b/u.test(sql))); }
+    assert(result); assert.deepEqual(result, { ...strict, createdAt: 100 });
+    assert.equal(result.preparationText, row.preparationText); assert.equal(result.preparationDigest, row.preparationDigest);
+    assert.deepEqual(result.preparation.actor, item.selected.actor); assert.deepEqual(result.preparation.jobScope, item.selected.plan.sourceEvidence.workspaceScope);
+    assert.deepEqual(captureCollaborationAdmissionRequest(result.request), captureCollaborationAdmissionRequest(
+      createWorkspaceOperationOriginalMoveAdmissionRequestFromBundle(item.selected, prepared.nativeBundleData, prepared.preparation.currentWitness)));
+    assert(Object.isFrozen(result) && Object.isFrozen(result.preparation) && Object.isFrozen(result.preparation.currentWitness));
+    assert(Object.isFrozen(result.request) && Object.isFrozen(result.request.expectedDocuments));
+    assert.notEqual(result.preparation, prepared.preparation); assert.deepEqual(prepared, before);
+  }
+});
+
+test('DECLARED P0 reader preserves malformed-row, early-witness and native-before-final-row error order without closing the caller', async () => {
+  const value = fixture(), prepared = createP0(value.context, { currentWitness: value.currentWitness, nativeBundleData: value.nativeBundle });
+  const p = prepared.preparation, row: Row = { batchId: p.batchId, planId: p.planId, workspaceId: p.workspaceId,
+    requestHash: p.requestHash, requestId: p.requestId, requestDigest: p.requestDigest,
+    preparationText: prepared.preparationText, preparationDigest: prepared.preparationDigest, createdAt: '100' };
+  const native: Row = { operationId: p.nativeBundle!.operationId, requestId: p.nativeBundle!.requestId,
+    changesBundleProof: value.nativeBundle.changesBundleProof, privateText: value.nativeBundle.privateText };
+  const code = (expected: string) => (error: unknown) => error instanceof Error
+    && Object.getOwnPropertyDescriptor(error, 'code')?.value === expected;
+  const saved = (body: unknown, headers: Row = {}): Row => { const text = json(body);
+    return { ...row, preparationText: text, preparationDigest: hash(text), ...headers }; };
+  let getters = 0, traps = 0, transportThenReads = 0;
+  const read = async (preparationRow: unknown, nativeRow: unknown, expectedReads: number, nativeError?: Error) => {
+    const calls: string[] = []; let otherMethods = 0;
+    const borrowedReadSpy = { get: async (sql: string, params: unknown[] = []) => {
+      calls.push(sql); assert.match(sql, /^SELECT /u); assert.match(sql, / FOR SHARE NOWAIT$/u);
+      if (calls.length === 1) { assert(sql.includes('"p0_reader_order".workspace_file_operation_move_preparations'));
+        assert.deepEqual(params, [p.batchId]); return preparationRow; }
+      assert.equal(calls.length, 2); assert(sql.includes('"p0_reader_order".collaboration_native_file_operation_intents'));
+      assert.deepEqual(params, [p.nativeBundle!.operationId]); if (nativeError) throw nativeError; return nativeRow;
+    }, all: async () => { otherMethods++; assert.fail('No alternate SQL read.'); },
+    run: async () => { otherMethods++; assert.fail('No write or transaction control.'); },
+    close: async () => { otherMethods++; assert.fail('No borrowed connection close.'); } };
+    try { return await readP0(borrowedReadSpy, { schema: 'p0_reader_order', context: value.context }); }
+    finally { assert.equal(calls.length, expectedReads); assert.equal(otherMethods, 0);
+      assert(calls.every(sql => !/\b(?:BEGIN|COMMIT|ROLLBACK)\b/u.test(sql))); assert.equal(getters, 0); assert.equal(traps, 0); }
+  };
+  assert.equal(await read(undefined, undefined, 1), null);
+  for (const preparationText of ['', '{', null]) await assert.rejects(read({ ...row, preparationText }, undefined, 1), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  for (const preparationText of [` ${prepared.preparationText}`, `${prepared.preparationText}\n`]) {
+    await assert.rejects(read({ ...row, preparationText, preparationDigest: hash(preparationText) }, undefined, 1), code('ORIGINAL_MOVE_PREPARATION_CHANGED'));
+  }
+  for (const field of ['batchId', 'planId', 'workspaceId', 'requestHash', 'requestId', 'requestDigest', 'preparationDigest']) {
+    await assert.rejects(read({ ...row, [field]: 'wrong-header' }, undefined, 1), code('ORIGINAL_MOVE_PREPARATION_CHANGED'));
+  }
+  const badWitness = { ...clone(p.currentWitness), evidenceProof: hash('invalid-actual-witness') };
+  // Early witness failure precedes both native IO and the late exact-row test.
+  await assert.rejects(read(saved({ ...clone(p), currentWitness: badWitness }, { extra: true }), undefined, 1), code('NATIVE_SOURCE_EVIDENCE_INVALID'));
+  for (const patch of [{ requestDigest: hash('different-request') }, { actionPayloadText: json({ arbitrary: 'payload' }) }]) {
+    const body = { ...clone(p), ...patch };
+    await assert.rejects(read(saved(body, { requestDigest: body.requestDigest }), native, 2), code('ORIGINAL_MOVE_PREPARATION_CHANGED'));
+  }
+  await assert.rejects(read(row, undefined, 2), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  for (const wrongNative of [{ ...native, requestId: '11111111-1111-4111-8111-111111111111' },
+    { ...native, changesBundleProof: hash('wrong-reference') }, { ...native, privateText: null }]) {
+    await assert.rejects(read(row, wrongNative, 2), code('ORIGINAL_MOVE_PREPARATION_CHANGED'));
+  }
+  const nativeFailure = new Error('Declared native read failure');
+  await assert.rejects(read({ ...row, extra: true }, native, 2, nativeFailure), error => error === nativeFailure);
+  const brokenProof = hash('{');
+  const brokenRow = saved({ ...clone(p), nativeBundle: { ...p.nativeBundle!, changesBundleProof: brokenProof } }, { extra: true });
+  await assert.rejects(read(brokenRow, { ...native, changesBundleProof: brokenProof, privateText: '{' }, 2), code('NATIVE_FILE_INTENT_CONFLICT'));
+  const foreign = withBundle(value, raw => { raw.actor = { ...(raw.actor as Row), actorSessionId: 'foreign-original' }; }).nativeBundle!;
+  const foreignRow = saved({ ...clone(p), nativeBundle: { ...p.nativeBundle!, changesBundleProof: foreign.changesBundleProof }, actionPayloadText: foreign.actionPayloadText });
+  const foreignNative = { ...native, changesBundleProof: foreign.changesBundleProof, privateText: foreign.privateText };
+  await assert.rejects(read({ ...foreignRow, extra: true }, foreignNative, 2), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  await assert.rejects(read(foreignRow, foreignNative, 2), code('ORIGINAL_MOVE_CHANGED'));
+  await assert.rejects(read(saved({ ...clone(p), nativeBundle: null }), undefined, 1), code('ORIGINAL_MOVE_CHANGED'));
+  for (const createdAt of [-1, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER, '-1', '01', '1e2', '', null, undefined, BigInt(100)]) {
+    const rejectedDuringOwnDataCapture = createdAt === undefined || typeof createdAt === 'bigint'
+      || typeof createdAt === 'number' && (!Number.isFinite(createdAt) || Object.is(createdAt, -0));
+    await assert.rejects(read({ ...row, createdAt }, native, rejectedDuringOwnDataCapture ? 1 : 2), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  }
+  await assert.rejects(read({ ...row, extra: true }, native, 2), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  const getter = Object.defineProperty({ ...row }, 'createdAt', { enumerable: true, get() { getters++; return '100'; } });
+  const nativeGetter = Object.defineProperty({ ...native }, 'privateText', { enumerable: true, get() { getters++; return native.privateText; } });
+  await assert.rejects(read(getter, native, 1), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  await assert.rejects(read(row, nativeGetter, 2), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  const proxy = new Proxy(row, { get(_target, key) { if (key === 'then') { transportThenReads++; return undefined; }
+    traps++; throw new Error('Unexpected proxy read'); }, ownKeys() { traps++; throw new Error('Unexpected keys'); },
+  getPrototypeOf() { traps++; throw new Error('Unexpected prototype'); }, getOwnPropertyDescriptor() { traps++; throw new Error('Unexpected descriptor'); } });
+  await assert.rejects(read(proxy, native, 1), code('ORIGINAL_MOVE_PREPARATION_INVALID'));
+  assert.equal(transportThenReads, 1); assert.equal(getters, 0); assert.equal(traps, 0);
+  assert.deepEqual(await read(row, native, 2), { ...decodeP0(prepared.preparationText, value.context, value.nativeBundle), createdAt: 100 });
+});

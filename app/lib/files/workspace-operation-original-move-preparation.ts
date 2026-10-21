@@ -145,7 +145,16 @@ export function createWorkspaceOperationOriginalMovePreparation(context: Workspa
   for (const name of ['currentWitness', 'nativeBundleData']) if (!fields[name]?.enumerable || !Object.hasOwn(fields[name], 'value')) originalMovePreparationFailure();
   const currentWitness = decodeWorkspaceOperationMixedOriginalSourceWitness(selected.plan.sourceEvidence,
     captureOriginalMovePreparationJson(fields.currentWitness.value, nativeBundleLimit));
-  const nativeBundleData = captureOriginalMovePreparationJson(fields.nativeBundleData.value, 8 * nativeBundleLimit) as WorkspaceOperationOriginalMoveNativeBundleData | null;
+  return originalMovePreparationFromCapturedWitness(selected, currentWitness, fields.nativeBundleData.value);
+}
+
+/** Module-private pure construction only. Both callers strictly validate their
+ * detached context and witness in this same invocation; no fact grants current
+ * access, a Claim, a reservation or a reusable validation/authority handle. */
+function originalMovePreparationFromCapturedWitness(selected: WorkspaceOperationOriginalMoveContext,
+  currentWitness: WorkspaceOperationOriginalMovePreparation['currentWitness'], nativeBundleInput: unknown
+): WorkspaceOperationOriginalMovePrepared {
+  const nativeBundleData = captureOriginalMovePreparationJson(nativeBundleInput, 8 * nativeBundleLimit) as WorkspaceOperationOriginalMoveNativeBundleData | null;
   const { bundle, capturedRequest } = captureWorkspaceOperationOriginalMoveAdmissionBundleData(selected, nativeBundleData, currentWitness);
   const { request, requestDigest } = capturedRequest;
   if (typeof request.actionPayloadText !== 'string') originalMovePreparationFailure();
@@ -247,7 +256,7 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
     || stored.requestHash !== body.requestHash || stored.requestId !== body.requestId || stored.requestDigest !== body.requestDigest) {
     originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
   }
-  decodeWorkspaceOperationMixedOriginalSourceWitness(context.plan.sourceEvidence, body.currentWitness);
+  const currentWitness = decodeWorkspaceOperationMixedOriginalSourceWitness(context.plan.sourceEvidence, body.currentWitness);
   let nativeBundleData: WorkspaceOperationOriginalMoveNativeBundleData | null = null;
   if (body.nativeBundle !== null) {
     const reference = body.nativeBundle as PreparationRow;
@@ -277,7 +286,16 @@ export async function readWorkspaceOperationOriginalMovePreparationOnConnection(
     nativeBundleData = Object.freeze({ privateText: bundle.privateText, changesBundleProof: bundle.changesBundleProof,
       actionPayloadText: bundle.actionPayloadText });
   }
-  return originalMovePreparationStoredRow(stored, context, nativeBundleData);
+  // Retain the old final-row/error order: exact row shape follows the actual
+  // native read/codec, while witness-specific P0 byte limits precede semantic
+  // bundle validation. The body/context were already detached and bounded;
+  // the witness above was strictly decoded before the native SQL await.
+  if (Object.keys(stored).length !== 9) originalMovePreparationFailure();
+  captureOriginalMovePreparationJson(body.currentWitness, nativeBundleLimit);
+  const prepared = originalMovePreparationFromCapturedWitness(context, currentWitness, nativeBundleData);
+  if (prepared.preparationText !== stored.preparationText) originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
+  return originalMovePreparationStoredMatchingPrepared(stored, prepared)
+    ?? originalMovePreparationFailure('ORIGINAL_MOVE_PREPARATION_CHANGED');
 }
 
 /** Borrowed write only. Bundle staging and admission reserve must be in this
