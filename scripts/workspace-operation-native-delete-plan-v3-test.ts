@@ -201,7 +201,59 @@ export function workspaceOperationNativeDeletePlanV3Test(): void {
     assert.throws(() => createWorkspaceOperationNativeDeleteBatchPlan(fixture.input), WorkspaceOperationNativeSourceEvidenceError);
   }
   passed++;
-  assert.equal(passed, 8);
+  // Public hash/Current parity: every wire arm keeps its exact bytes and
+  // detached decode result; invalid plans fail before touching an observation.
+  {
+    const fixture = deleteV3Fixture(), nativeInput = structuredClone(fixture.input);
+    nativeInput.observation.stage.sources = nativeInput.observation.stage.sources.filter(source => source.kind === 'native');
+    nativeInput.observation.stage.namespace = nativeInput.observation.stage.namespace.filter(entry => entry.path !== 'raw.md');
+    refreshDeleteV3Fixture(nativeInput.observation);
+    const cases = [
+      { plan: createWorkspaceOperationNativeDeleteBatchPlanLegacy(nativeInput), observation: nativeInput.observation },
+      { plan: createWorkspaceOperationNativeDeleteBatchPlanV2(nativeInput), observation: nativeInput.observation },
+      { plan: createWorkspaceOperationNativeDeleteBatchPlanV3(fixture.input), observation: fixture.input.observation },
+    ];
+    for (const { plan, observation } of cases) {
+      const before = JSON.stringify(plan), beforeObservation = structuredClone(observation);
+      const wire = JSON.parse(before) as typeof plan, decoded = decodeWorkspaceOperationNativeDeleteBatchPlan(wire);
+      assert.equal(JSON.stringify(decoded), before); assert.notEqual(decoded, wire);
+      assert.notEqual(decoded.sourceEvidence, wire.sourceEvidence);
+      assert.equal(computeWorkspaceOperationNativeDeleteBatchPlanId(wire), plan.planId);
+      assert.equal(computeWorkspaceOperationNativeDeleteBatchPlanId(decoded), plan.planId);
+      if (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3) {
+        assert.equal(computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof(plan), plan.integrityProof);
+        assert.deepEqual(captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, fixture.jobScope), plan.sourceEvidence);
+      }
+      assertWorkspaceOperationNativeDeleteBatchPlanCurrent(decoded, observation, fixture.jobScope);
+      assert(Reflect.set(wire.nativeTarget, 'path', 'changed-after-decode.md'));
+      assert.equal(JSON.stringify(decoded), before); assert.equal(JSON.stringify(plan), before);
+      let callbacks = 0;
+      const accessor = { ...plan };
+      Object.defineProperty(accessor, 'sourceEvidence', { enumerable: true, get() { callbacks++; return plan.sourceEvidence; } });
+      const proxy = new Proxy(plan, { get() { callbacks++; throw new Error('unexpected read'); },
+        getOwnPropertyDescriptor() { callbacks++; throw new Error('unexpected descriptor'); },
+        ownKeys() { callbacks++; throw new Error('unexpected keys'); },
+        getPrototypeOf() { callbacks++; throw new Error('unexpected prototype'); } });
+      for (const hostile of [accessor, proxy]) {
+        assert.throws(() => computeWorkspaceOperationNativeDeleteBatchPlanId(hostile), error =>
+          error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_INVALID');
+        assert.throws(() => computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof(hostile as never), error =>
+          error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_INVALID');
+      }
+      const hostileObservation = new Proxy(observation, { get() { callbacks++; throw new Error('unexpected observation'); },
+        getOwnPropertyDescriptor() { callbacks++; throw new Error('unexpected observation descriptor'); },
+        ownKeys() { callbacks++; throw new Error('unexpected observation keys'); },
+        getPrototypeOf() { callbacks++; throw new Error('unexpected observation prototype'); } });
+      const invalid = { ...structuredClone(plan), planId: '0'.repeat(64) };
+      assert.throws(() => assertWorkspaceOperationNativeDeleteBatchPlanCurrent(invalid, hostileObservation, fixture.jobScope), error =>
+        error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_INVALID');
+      assert.throws(() => captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(invalid as never, hostileObservation, fixture.jobScope), error =>
+        error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_INVALID');
+      assert.equal(callbacks, 0); assert.deepEqual(observation, beforeObservation);
+    }
+  }
+  passed++;
+  assert.equal(passed, 9);
   console.log(JSON.stringify({ suite: 'native-delete-plan-v3', passed, pureFactsOnly: true }));
 }
 

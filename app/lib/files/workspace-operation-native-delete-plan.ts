@@ -168,12 +168,10 @@ function compatibility(nativeSnapshot: NativeWorkspaceLinkSnapshot): Pick<Worksp
       status: edge.resolution.status as Exclude<typeof edge.resolution.status, 'resolved'> })) },
   linkAssessment: { version: 1, complete: true, warnings: [], blockers: [] } };
 }
-/** Original raw identity remains unchanged. The explicit new arm identifies
- * semantics while its separate integrity proof binds every historical fact. */
-export function computeWorkspaceOperationNativeDeleteBatchPlanId(plan: Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'>): string {
-  const mixed = plan && typeof plan === 'object' && !types.isProxy(plan)
-    && Object.getOwnPropertyDescriptor(plan, 'planIdentityVersion')?.value === 3;
-  const { planId: _historical, ...body } = (mixed ? captureDeleteV3(plan) : capture(plan)) as WorkspaceOperationNativeDeleteBatchPlan;
+/** Only immediately own-data-captured local values enter these synchronous
+ * hash helpers. No plan, proof, current result or authority is cached. */
+function nativeDeletePlanIdFromCapturedData(plan: WorkspaceOperationNativeDeleteBatchPlan): string {
+  const { planId: _historical, ...body } = plan;
   if (body.planIdentityVersion === 3) return nativeLinkJsonProof({ version: body.version, kind: body.kind,
     planIdentityVersion: 3, workspaceId: body.workspaceId, readiness: body.readiness, actions: body.actions,
     workspaceScope: body.sourceEvidence.workspaceScope, sourceSemanticProof: body.sourceEvidence.semanticProof });
@@ -182,13 +180,25 @@ export function computeWorkspaceOperationNativeDeleteBatchPlanId(plan: Omit<Work
     sourceSemanticProof: body.sourceEvidence.semanticProof });
   return nativeLinkJsonProof(body);
 }
+/** Original raw identity remains unchanged. The explicit new arm identifies
+ * semantics while its separate integrity proof binds every historical fact. */
+export function computeWorkspaceOperationNativeDeleteBatchPlanId(plan: Omit<WorkspaceOperationNativeDeleteBatchPlan, 'planId'>): string {
+  const mixed = plan && typeof plan === 'object' && !types.isProxy(plan)
+    && Object.getOwnPropertyDescriptor(plan, 'planIdentityVersion')?.value === 3;
+  return nativeDeletePlanIdFromCapturedData((mixed ? captureDeleteV3(plan) : capture(plan)) as WorkspaceOperationNativeDeleteBatchPlan);
+}
 /** Historical integrity only; neither this proof nor a semantic ID is current
  * actor authority, original-target ownership or an execution capability. */
 export function computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof(
   plan: Omit<WorkspaceOperationNativeDeleteBatchPlanV2, 'integrityProof'> | Omit<WorkspaceOperationNativeDeleteBatchPlanV3, 'integrityProof'>): string {
   const mixed = plan && typeof plan === 'object' && !types.isProxy(plan)
     && Object.getOwnPropertyDescriptor(plan, 'planIdentityVersion')?.value === 3;
-  const { integrityProof: _historical, ...body } = (mixed ? captureDeleteV3(plan) : capture(plan)) as WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3;
+  return nativeDeletePlanIntegrityProofFromCapturedData((mixed ? captureDeleteV3(plan) : capture(plan)) as WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3);
+}
+function nativeDeletePlanIntegrityProofFromCapturedData(
+  plan: WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3,
+): string {
+  const { integrityProof: _historical, ...body } = plan;
   if (body.planIdentityVersion === 3) return nativeLinkJsonProof({ integrityVersion: 3, plan: body });
   return nativeLinkJsonProof({ integrityVersion: 2, plan: body });
 }
@@ -202,7 +212,7 @@ export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): W
     if (!value || !exactKeys(value, expectedKeys) || semantic && value.planIdentityVersion !== 2 && value.planIdentityVersion !== 3
       || value.version !== 2 || value.kind !== 'native-original-delete' || value.readiness !== 'ready') fail();
     if (semantic && (!proofString(value.integrityProof)
-      || computeWorkspaceOperationNativeDeleteBatchPlanIntegrityProof(value as WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3) !== value.integrityProof)) fail();
+      || nativeDeletePlanIntegrityProofFromCapturedData(value as WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3) !== value.integrityProof)) fail();
     if (value.planIdentityVersion === 3) {
       const evidence = decodeWorkspaceOperationNativeSourceEvidenceV3(value.sourceEvidence);
       const scope = parseWorkspaceOperationJobScope(evidence.workspaceScope), selected = action(value.actions);
@@ -221,7 +231,7 @@ export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): W
       validateDeleteGraphV3(value.nativeGraphPlan, originalSnapshot, source);
       const diagnostic = deleteCompatibilityV3(originalSnapshot);
       if (!isDeepStrictEqual(value.coverage, diagnostic.coverage) || !isDeepStrictEqual(value.linkAssessment, diagnostic.linkAssessment)
-        || computeWorkspaceOperationNativeDeleteBatchPlanId(value) !== value.planId) fail();
+        || nativeDeletePlanIdFromCapturedData(value) !== value.planId) fail();
       return freeze(value);
     }
     const evidence = decodeWorkspaceOperationNativeSourceEvidence(value.sourceEvidence);
@@ -243,7 +253,7 @@ export function decodeWorkspaceOperationNativeDeleteBatchPlan(input: unknown): W
     const diagnostic = compatibility(originalSnapshot);
     if (!isDeepStrictEqual(value.coverage, diagnostic.coverage) || !isDeepStrictEqual(value.linkAssessment, diagnostic.linkAssessment)) fail();
     const { planId, ...body } = value;
-    if (computeWorkspaceOperationNativeDeleteBatchPlanId(body) !== planId) fail();
+    if (nativeDeletePlanIdFromCapturedData(body as WorkspaceOperationNativeDeleteBatchPlan) !== planId) fail();
     return freeze(value);
   } catch (error) {
     if (error instanceof WorkspaceOperationNativeDeletePlanError || error instanceof WorkspaceOperationNativeSourceEvidenceError) throw error;
@@ -315,6 +325,12 @@ export function captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(pla
 export function captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan: WorkspaceOperationNativeDeleteBatchPlanV2 | WorkspaceOperationNativeDeleteBatchPlanV3,
   observation: WorkspaceLinkSourceAuthorityObservation, scopeSnapshot: WorkspaceOperationJobScope): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 {
   const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
+  return captureNativeDeleteCurrentWitnessFromDecodedPlan(original, observation, scopeSnapshot);
+}
+/** Only the immediate strict decoder result enters here. Fresh observation,
+ * catalogue, private-byte and compiler checks remain inside this call. */
+function captureNativeDeleteCurrentWitnessFromDecodedPlan(original: WorkspaceOperationNativeDeleteBatchPlan,
+  observation: WorkspaceLinkSourceAuthorityObservation, scopeSnapshot: WorkspaceOperationJobScope): WorkspaceOperationNativeSourceEvidenceV2 | WorkspaceOperationNativeSourceEvidenceV3 {
   if (original.planIdentityVersion === 3) return replayDeleteCurrentV3(original, observation, scopeSnapshot);
   if (original.planIdentityVersion !== 2) fail();
   const witness = captureWorkspaceOperationNativeSourceEvidenceV2(scopeSnapshot, observation);
@@ -340,11 +356,11 @@ export function assertWorkspaceOperationNativeDeleteBatchPlanCurrent(plan: Works
   observation: WorkspaceLinkSourceAuthorityObservation, scopeSnapshot: WorkspaceOperationJobScope): void {
   const original = decodeWorkspaceOperationNativeDeleteBatchPlan(plan);
   if (original.planIdentityVersion === 3) {
-    captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(original, observation, scopeSnapshot);
+    captureNativeDeleteCurrentWitnessFromDecodedPlan(original, observation, scopeSnapshot);
     return;
   }
   if (original.planIdentityVersion === 2) {
-    captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(original, observation, scopeSnapshot);
+    captureNativeDeleteCurrentWitnessFromDecodedPlan(original, observation, scopeSnapshot);
     return;
   }
   assertWorkspaceOperationNativeSourceEvidenceCurrent(original.sourceEvidence, observation, scopeSnapshot);
