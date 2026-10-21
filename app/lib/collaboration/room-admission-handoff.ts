@@ -126,10 +126,23 @@ async function executeCapturedHandoffOnConnection(
   }
   const before = await captureCollaborationAdmissionScopeTargets(transaction, captured);
   const proofs: CollaborationAdmissionQuiescenceProof[] = [];
-  for (const document of captured.request.expectedDocuments) {
+  // Only this invocation's actual, fully decoded VACANT inspection can prove
+  // an unchanged post-row. Never reuse a caller DTO, prior TX or release proof.
+  const validatedVacant = new Map<string, CollaborationAdmissionTarget>();
+  for (const [index, document] of captured.request.expectedDocuments.entries()) {
     const inspected = await inspectCollaborationAdmissionQuiescence(transaction, captured, document.documentId);
     if (!inspected.alreadyProven) throw new CollaborationAdmissionError('ADMISSION_RECOVERY_REQUIRED');
-    proofs.push(inspected.proof);
+    const proof = inspected.proof;
+    proofs.push(proof);
+    if (domain.kind === 'apply' && proof.kind === 'vacant' && proof.requestId === captured.request.requestId
+      && proof.requestDigest === captured.requestDigest && proof.documentId === document.documentId
+      && proof.releaseId === null && proof.sourceOutcomeRequestId === undefined) {
+      const facts = JSON.parse(proof.proofText) as Row, original = before[index];
+      if (facts?.version === 1 && facts.kind === 'vacant' && facts.requestId === proof.requestId
+        && facts.requestDigest === proof.requestDigest && facts.receipt === null
+        && !Object.hasOwn(facts, 'sourceOutcome') && original.ownerEpoch === 0 && original.ownerToken === null
+        && JSON.stringify(facts.current) === JSON.stringify(original)) validatedVacant.set(document.documentId, original);
+    }
   }
   let result = captureCollaborationAdmissionOutcomeResult({});
   if (domain.kind === 'apply') {
@@ -151,7 +164,18 @@ async function executeCapturedHandoffOnConnection(
     const row = await transaction.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 FOR UPDATE',
       [proof.documentId]) as Row | undefined;
     if (!row) throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');
-    const snapshot = captureCollaborationAdmissionOutcomeSnapshot(row, captured);
+    let snapshot: CollaborationAdmissionTarget | undefined;
+    const originalVacant = validatedVacant.get(proof.documentId);
+    if (originalVacant) {
+      try {
+        // Actual FOR UPDATE reread, all scope/owner metadata and both byte
+        // hashes remain mandatory. Only exact same facts avoid a second Yjs
+        // decode; any drift retains the ordinary full outcome validation.
+        const observed = captureCollaborationAdmissionTargetRow(row, originalVacant.document);
+        if (JSON.stringify(observed) === JSON.stringify(originalVacant)) snapshot = observed;
+      } catch { /* Changed identity/scope may be valid; the full parser decides. */ }
+    }
+    snapshot ??= captureCollaborationAdmissionOutcomeSnapshot(row, captured);
     if (snapshot.ownerEpoch !== before[index].ownerEpoch || snapshot.documentSequence < before[index].documentSequence
       || snapshot.document.lifecycleGeneration < before[index].document.lifecycleGeneration) {
       throw new CollaborationAdmissionError('ADMISSION_SCOPE_CHANGED');

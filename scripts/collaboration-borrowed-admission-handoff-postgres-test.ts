@@ -142,6 +142,9 @@ async function main(): Promise<void> {
     }
     dataRoot = await mkdtemp(path.join(tmpdir(), 'canvas-borrowed-handoff-'));
     await chmod(dataRoot, 0o700); dataBirth = await lstat(dataRoot);
+    console.log(JSON.stringify({ diagnostic: 'borrowed-handoff-fixture', processId: process.pid,
+      applicationPrefix: application, databaseOid: realm.oid, schemas: Array.from(ownedSchemas, ([name, binding]) => ({ name, ...binding })),
+      dataRoot, dataDevice: dataBirth.dev, dataInode: dataBirth.ino }));
     Object.assign(process.env, { DATABASE_URL: connectionString, CANVAS_DATABASE_PROVIDER: 'postgres',
       CANVAS_POSTGRES_MODE: 'external', CANVAS_DATABASE_MIGRATIONS_COMPLETED: 'true', CANVAS_POSTGRES_VECTOR_ENABLED: 'false',
       CANVAS_MCP_DIRECT_ENABLED: 'false', DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot,
@@ -329,6 +332,76 @@ async function main(): Promise<void> {
         assert.equal(after.room_owner_epoch, originalRows[index].room_owner_epoch);
       }
       assert.throws(() => retainedAssert!(), admissionError('ADMISSION_RECOVERY_REQUIRED'));
+    });
+
+    await check('fresh vacant 52 unchanged and 2 changed rows retain full actual-B outcomes', async () => {
+      const scenario = await seed('vacant-postrow', 54);
+      const destinations = new Map(scenario.documents.map((document, index) => [document.documentId, scenario.destinations[index]]));
+      scenario.documents.sort((left, right) => Buffer.compare(Buffer.from(left.documentId), Buffer.from(right.documentId)));
+      scenario.destinations.splice(0, scenario.destinations.length, ...scenario.documents.map(document => destinations.get(document.documentId)!));
+      scenario.request = { ...scenario.request, scopes: [{ workspaceId: scenario.workspaceId, organizationId: null, path: '', kind: 'subtree' }] };
+      const originals = await Promise.all(scenario.documents.map(document => row(document.documentId)));
+      const { captureCollaborationAdmissionRequest } = await import('../app/lib/collaboration/room-admission-contract');
+      const { captureCollaborationAdmissionOutcomeSnapshot } = await import('../app/lib/collaboration/room-admission-outcome');
+      const canonical = captureCollaborationAdmissionRequest(scenario.request);
+      const outcome = await guarded(scenario, async captured => {
+        await begin(captured.client); const before = await identity(captured.client);
+        const startedAt = performance.now();
+        const observed = await invoke(captured, scenario, apply(scenario, { mutate: async (database, proofs) => {
+          assert.equal(proofs.length, 54);
+          for (const [index, proof] of proofs.entries()) {
+            assert.equal(proof.kind, 'vacant'); assert(Object.isFrozen(proof));
+            const facts = JSON.parse(proof.proofText);
+            assert.equal(facts.current.document.documentId, scenario.documents[index].documentId);
+            assert.equal(facts.current.ownerEpoch, 0); assert.equal(facts.current.ownerToken, null);
+          }
+          for (const index of [0, 1]) await database.run('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1',
+            [scenario.documents[index].documentId, scenario.destinations[index]]);
+          return { destinationPath: scenario.destinations[0] };
+        } }));
+        console.log(JSON.stringify({ diagnostic: 'vacant-postrow-actual', targets: 54, unchanged: 52, changed: 2, elapsedMs: Math.round(performance.now() - startedAt) }));
+        assert.deepEqual(await identity(captured.client), before);
+        const rereads = captured.trace.filter(sql => sql === 'SELECT * FROM COLLABORATION_YJS_STATES WHERE DOCUMENT_ID = $1 FOR UPDATE');
+        assert.equal(rereads.length, 108, 'All 54 genuine proof reads and all 54 genuine post-mutation row reads remain.');
+        for (const [index, document] of scenario.documents.entries()) {
+          const actual = await row(document.documentId, captured.client);
+          assert.deepEqual(JSON.parse(observed.targets[index].snapshotText), captureCollaborationAdmissionOutcomeSnapshot(actual, canonical),
+            'The optimized outcome equals the full existing parser over actual same-B bytes.');
+          if (index >= 2) assert.deepEqual(actual, originals[index]);
+        }
+        assert.equal((await row(scenario.documents[0].documentId, captured.client)).path, scenario.destinations[0]);
+        assert.equal((await row(scenario.documents[1].documentId, captured.client)).path, scenario.destinations[1]);
+        assert.equal((await header(scenario)).status, 'draining');
+        await captured.client.query('COMMIT'); return observed;
+      });
+      assert.equal((await header(scenario)).status, 'committed'); assert.equal(outcome.targets.length, 54);
+      for (const [index, document] of scenario.documents.entries()) if (index >= 2) assert.deepEqual(await row(document.documentId), originals[index]);
+    });
+
+    for (const drift of ['update', 'vector', 'scope', 'owner'] as const) await check(`fresh vacant post-row ${drift} drift retains full rejection and caller rollback`, async () => {
+      const scenario = await seed('vacant-drift-' + drift), original = await row(scenario.documents[0].documentId);
+      let mutations = 0;
+      await guarded(scenario, async captured => {
+        await begin(captured.client); const before = await identity(captured.client);
+        await assert.rejects(invoke(captured, scenario, apply(scenario, { mutate: async (database, proofs) => {
+          mutations++; assert.equal(proofs.length, 1); assert.equal(proofs[0].kind, 'vacant');
+          assert.equal(JSON.parse(proofs[0].proofText).current.documentSequence, Number(original.document_sequence));
+          if (drift === 'update' || drift === 'vector') {
+            const column = drift === 'update' ? 'yjs_state' : 'state_vector';
+            await database.run(`UPDATE collaboration_yjs_states SET ${column}=$2 WHERE document_id=$1`,
+              [scenario.documents[0].documentId, Buffer.from([255])]);
+          } else if (drift === 'scope') await database.run('UPDATE collaboration_yjs_states SET path=$2 WHERE document_id=$1',
+            [scenario.documents[0].documentId, 'outside-reserved-scope.md']);
+          else await database.run('UPDATE collaboration_yjs_states SET room_owner_epoch=1 WHERE document_id=$1',
+            [scenario.documents[0].documentId]);
+          return {};
+        } })), admissionError(drift === 'scope' ? 'ADMISSION_INVALID_REQUEST' : 'ADMISSION_SCOPE_CHANGED'));
+        assert.equal(mutations, 1, 'Fault follows the genuine same-B vacant inspection, not an invented proof.');
+        assert.deepEqual(await identity(captured.client), before);
+        assert.deepEqual(await row(scenario.documents[0].documentId), original);
+        await captured.client.query('ROLLBACK'); await assertPending(scenario);
+      });
+      assert.deepEqual(await row(scenario.documents[0].documentId), original);
     });
 
     await check('historical retry reauthorizes without prepare, guards, mutation or owner displacement', async () => {
