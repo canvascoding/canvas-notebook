@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
-import { useFileStore, type CurrentCollaborationLocationScope } from '../app/store/file-store';
+import { useFileStore, type CurrentCollaborationLocationScope, type CurrentCollaborationLocationConfirmation } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 import { useEditorStore } from '../app/store/editor-store';
 import { FileWatcherClient } from '../app/lib/file-watcher/client';
 import { registerDocumentTransitionGuard } from '../app/lib/files/document-transition';
+import { observeOpenedDocumentAuth, openedDocumentAuthScope } from '../app/lib/collaboration/opened-document-registry';
 
 class FakeEventSource extends EventTarget {
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
@@ -23,7 +24,13 @@ async function main() {
   const watcher = new FileWatcherClient(() => new FakeEventSource());
   globalThis.fetch = async (input) => {
     const url = new URL(String(input), 'https://canvas.test'); calls.push(url.pathname);
-    if (url.pathname === '/api/files/rename' || url.pathname === '/api/files/watch') return Response.json({ success: true });
+    if (url.pathname === '/api/files/watch') return Response.json({ success: true });
+    if (url.pathname === '/api/files/rename') return Response.json({ success: true,
+      operation: { batchId: 'fixture-folder-rename-0001', workspaceId: 'workspace', planId: '1'.repeat(64),
+        kind: 'rename', selections: [{ sourcePath: 'folder', destinationPath: 'renamed' }],
+        status: 'applied', phase: 'complete', completedActions: 1, totalActions: 1, errorCode: null },
+      mutation: { type: 'rename', operationId: 'fixture-folder-rename-0001', workspaceId: 'workspace',
+        oldPath: 'folder', newPath: 'renamed' } });
     assert.equal(url.pathname, '/api/files/read');
     const path = url.searchParams.get('path');
     return Response.json({ success: true, data: { path, content: 'Original', collaboration: {
@@ -33,6 +40,9 @@ async function main() {
     } } });
   };
   try {
+    // Controlled client/store identity only, not a genuine server authorization.
+    observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'adoption-test-session' } } });
+    const authScope = openedDocumentAuthScope(); assert(authScope);
     useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
     useFileStore.getState().resetWorkspaceView('workspace');
     assert.equal((await useFileStore.getState().loadFile('folder/before.txt')).status, 'loaded');
@@ -40,7 +50,7 @@ async function main() {
     const unregister = registerDocumentTransitionGuard('workspace', 'folder/before.txt', {
       prepare: async () => {}, hasPendingChanges: () => false,
     });
-    try { await useFileStore.getState().renamePath('folder', 'renamed', false, false); }
+    try { await useFileStore.getState().renamePath('folder', 'renamed', false, false, undefined, '1'.repeat(64)); }
     finally { unregister(); }
     assert.equal(useFileStore.getState().currentFile?.collaboration?.path, 'renamed/before.txt');
     useEditorStore.getState().updateDraft('Local and peer edits');
@@ -91,6 +101,55 @@ async function main() {
     assert.equal(exactState.adoptCurrentCollaborationLocation({ ...movedScope, workspaceId: 'foreign' }, ' wrong.md'), false);
     assert.equal(exactState.adoptCurrentCollaborationLocation(movedScope, '../invalid.md'), false);
 
+    // A committed ID-location adoption may precede the original HTTP/SSE
+    // mutation. The latter must stay conservative until a fresh same-ID read.
+    useFileStore.getState().applyPathRename({ type: 'rename', workspaceId: 'workspace',
+      oldPath: ' literal.md', newPath: ' moved.markdown', operationId: 'late-original-mutation' });
+    const replacement = useFileStore.getState().currentFile!;
+    assert.equal(replacement.unavailable, 'replaced');
+    const confirmation: CurrentCollaborationLocationConfirmation = { file: replacement,
+      fileLoadRequestId: useFileStore.getState().fileLoadRequestId, authScope,
+      lifecycleGeneration: 1, representation: 'plain_text', location: { workspaceId: 'workspace',
+        documentId: 'stable-document', path: replacement.path, lifecycleGeneration: 1, representation: 'plain_text' } };
+    const currentSessionId = useEditorStore.getState().sessionId, confirmedDraft = useEditorStore.getState().draft;
+    assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(movedScope, replacement.path), false,
+      'A path or healthy-looking current file alone cannot remove replacement recovery.');
+    assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(movedScope, replacement.path, confirmation), true);
+    const confirmed = useFileStore.getState().currentFile!;
+    assert.equal(confirmed.unavailable, undefined);
+    assert.equal(confirmed.editorIdentity, replacement.editorIdentity); assert.equal(confirmed.viewId, replacement.viewId);
+    assert.equal(confirmed.collaboration?.document, replacement.collaboration?.document);
+    assert.equal(confirmed.content, replacement.content); assert.equal(useEditorStore.getState().draft, confirmedDraft);
+    assert.equal(useEditorStore.getState().sessionId, currentSessionId, 'Confirmation never remounts or changes the editor session.');
+    const invalidConfirmations: Array<[string, (value: CurrentCollaborationLocationConfirmation) => CurrentCollaborationLocationConfirmation]> = [
+      ['earlier read', value => ({ ...value, fileLoadRequestId: value.fileLoadRequestId - 1 })],
+      ['different view snapshot', value => ({ ...value, file: { ...value.file } })],
+      ['different auth epoch', value => ({ ...value, authScope: { ...value.authScope } })],
+      ['unmounted generation', value => ({ ...value, lifecycleGeneration: 0 })],
+      ['changed generation', value => ({ ...value, location: { ...value.location, lifecycleGeneration: 2 } })],
+      ['uninitialized generation', value => ({ ...value, location: { ...value.location, lifecycleGeneration: null } })],
+      ['changed representation', value => ({ ...value, location: { ...value.location, representation: 'tiptap_xml' } })],
+      ['different document', value => ({ ...value, location: { ...value.location, documentId: 'D2' } })],
+      ['different workspace', value => ({ ...value, location: { ...value.location, workspaceId: 'foreign' } })],
+      ['different path', value => ({ ...value, location: { ...value.location, path: 'elsewhere.md' } })],
+    ];
+    for (const [label, change] of invalidConfirmations) {
+      const retained = { ...replacement }; useFileStore.setState({ currentFile: retained });
+      const candidate = change({ ...confirmation, file: retained });
+      assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(movedScope, retained.path, candidate), false, label);
+      assert.equal(useFileStore.getState().currentFile, retained, label);
+      assert.equal(retained.unavailable, 'replaced', label);
+    }
+    const deleted = { ...replacement, unavailable: 'deleted' as const }; useFileStore.setState({ currentFile: deleted });
+    assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(movedScope, deleted.path,
+      { ...confirmation, file: deleted }), false, 'A real deletion retains recovery.');
+    const destinationD2 = { ...replacement, collaboration: { ...replacement.collaboration!,
+      document: { ...replacement.collaboration!.document!, id: 'D2' } } };
+    useFileStore.setState({ currentFile: destinationD2 });
+    assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(movedScope, destinationD2.path,
+      { ...confirmation, file: destinationD2 }), false, 'A reused destination never becomes the original D1.');
+    useFileStore.setState({ currentFile: confirmed });
+
     watcher.acquire();
     const oldSource = FakeEventSource.instances.at(-1)!;
     let connections = 0; let changes = 0;
@@ -115,6 +174,7 @@ async function main() {
     assert.equal(watcher.isConnected, true);
     console.log('Collaboration location adoption retains open identity/draft, revokes stale scopes, and ignores old watcher transports.');
   } finally {
+    observeOpenedDocumentAuth(null);
     watcher.disconnect();
     globalThis.fetch = originalFetch;
     useEditorStore.getState().clear();

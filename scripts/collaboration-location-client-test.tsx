@@ -4,7 +4,7 @@ import { act, StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import type { CurrentFile } from '../app/lib/files/types';
-import type { CollaborationSessionResponse } from '../app/lib/collaboration/types';
+import type { CollaborationSessionResponse, TextCollaborationRepresentation } from '../app/lib/collaboration/types';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -43,6 +43,7 @@ async function main() {
   const { getNotebookQueryClient } = await import('../app/lib/queries/client');
   const { useCollaborationDocumentLocation } = await import('../app/lib/collaboration/document-location-client');
   const { useTextCollaborationSession } = await import('../app/lib/collaboration/client');
+  const authRegistry = await import('../app/lib/collaboration/opened-document-registry');
   const requests: { gate: ReturnType<typeof deferred<Response>>; signal: AbortSignal; url: URL }[] = [];
   let sessionDocumentId = 'reused-path-document';
   let sessionAttempts = 0;
@@ -85,6 +86,8 @@ async function main() {
     refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
   useEditorStore.getState().setActiveFile(file.path, file.content);
   useEditorStore.getState().updateDraft('Local + peer draft');
+  let mountedGeneration: number | undefined = 1;
+  let mountedRepresentation: TextCollaborationRepresentation | undefined = 'plain_text';
   let connection: 'live' | 'reconnecting' = 'live';
   let requestAdmissionRejoin: (() => Promise<void>) | undefined;
   function Probe() {
@@ -92,7 +95,7 @@ async function main() {
     const issue = useCollaborationDocumentLocation({ workspaceId: state.currentFileWorkspaceId,
       documentId: state.currentFile?.collaboration?.document?.id ?? null,
       documentKey: state.currentFile?.editorIdentity, path: state.currentFile?.path ?? null,
-      lifecycleGeneration: 1, representation: 'plain_text', connection, requestAdmissionRejoin });
+      lifecycleGeneration: mountedGeneration, representation: mountedRepresentation, connection, requestAdmissionRejoin });
     return <output>{issue ?? 'ok'}</output>;
   }
   let session: CollaborationSessionResponse | null = null;
@@ -365,6 +368,77 @@ async function main() {
       await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
       assert.equal(requests.length, lateDeadline + 1, 'deadline exhaustion is terminal');
     } finally { Date.now = originalNow; }
+    // Existing isolated hook/fetch fixture: no real server or grant is claimed.
+    await act(async () => root.render(null));
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'replacement-session' } } });
+    requestAdmissionRejoin = undefined; mountedGeneration = 1; mountedRepresentation = 'plain_text';
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    useFileStore.setState({ currentFile: { ...file, editorIdentity: 'replacement-open' }, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content); useEditorStore.getState().updateDraft('Retained native draft');
+    const replacementStart = requests.length;
+    await render(); await until(() => requests.length === replacementStart + 1);
+    const originalScope = { workspaceId: 'workspace', documentId: 'document', editorIdentity: 'replacement-open',
+      path: file.path, treeGeneration: useFileStore.getState().treeGeneration };
+    await act(async () => {
+      assert.equal(useFileStore.getState().adoptCurrentCollaborationLocation(originalScope, 'moved/recovered.txt'), true);
+    });
+    await until(() => requests.length === replacementStart + 2);
+    await act(async () => useFileStore.getState().applyPathRename({ type: 'rename', workspaceId: 'workspace',
+      oldPath: file.path, newPath: 'moved/recovered.txt', operationId: 'actual-original-rename' }));
+    const retainedReplacement = useFileStore.getState().currentFile!;
+    const retainedEditorSession = useEditorStore.getState().sessionId;
+    assert.equal(retainedReplacement.unavailable, 'replaced');
+    assert.equal(requests[replacementStart + 1].signal.aborted, true);
+    await reply(replacementStart, file.path);
+    await reply(replacementStart + 1, 'moved/recovered.txt');
+    assert.equal(useFileStore.getState().currentFile, retainedReplacement,
+      'Neither a pre-adoption nor a pre-replacement response can clear recovery.');
+    await until(() => requests.length === replacementStart + 3);
+    await reply(replacementStart + 2, 'moved/recovered.txt');
+    const confirmedReplacement = useFileStore.getState().currentFile!;
+    assert.equal(confirmedReplacement.unavailable, undefined);
+    assert.equal(confirmedReplacement.path, 'moved/recovered.txt');
+    assert.equal(confirmedReplacement.editorIdentity, retainedReplacement.editorIdentity);
+    assert.equal(confirmedReplacement.collaboration?.document, retainedReplacement.collaboration?.document);
+    assert.equal(useEditorStore.getState().draft, 'Retained native draft');
+    assert.equal(useEditorStore.getState().sessionId, retainedEditorSession);
+
+    for (const negative of ['unavailable-id', 'different-id', 'changed-generation', 'changed-representation', 'uninitialized',
+      'deleted', 'missing-mounted-generation', 'missing-mounted-representation', 'stale-read-id', 'new-view', 'new-tree', 'new-auth'] as const) {
+      await act(async () => root.render(null));
+      authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'negative-' + negative } } });
+      mountedGeneration = negative === 'missing-mounted-generation' ? undefined : 1;
+      mountedRepresentation = negative === 'missing-mounted-representation' ? undefined : 'plain_text';
+      useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+      useFileStore.getState().resetWorkspaceView('workspace');
+      const retained: CurrentFile = { ...file, editorIdentity: 'negative-' + negative,
+        unavailable: negative === 'deleted' ? 'deleted' : 'replaced' };
+      useFileStore.setState({ currentFile: retained, currentFileWorkspaceId: 'workspace',
+        refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+      useEditorStore.getState().setActiveFile(file.path, file.content);
+      const index = requests.length;
+      await render(); await until(() => requests.length === index + 1);
+      if (negative === 'stale-read-id') await act(async () => useFileStore.setState({
+        fileLoadRequestId: useFileStore.getState().fileLoadRequestId + 1 }));
+      if (negative === 'new-view') await act(async () => useFileStore.setState({ currentFile: { ...retained, editorIdentity: 'new-lifetime' } }));
+      if (negative === 'new-tree') await act(async () => useFileStore.setState({ treeGeneration: useFileStore.getState().treeGeneration + 1 }));
+      if (negative === 'new-auth') await act(async () => authRegistry.invalidateOpenedDocumentAuth());
+      if (negative === 'unavailable-id') {
+        await act(async () => requests[index].gate.resolve(Response.json({ success: false, code: 'document_unavailable' }, { status: 404 })));
+      } else {
+        await reply(index, file.path, negative === 'different-id' ? { documentId: 'D2' }
+          : negative === 'changed-generation' ? { lifecycleGeneration: 2 }
+            : negative === 'changed-representation' ? { representation: 'tiptap_xml' }
+              : negative === 'uninitialized' ? { lifecycleGeneration: null, representation: null } : {});
+      }
+      assert.equal(useFileStore.getState().currentFile?.unavailable, retained.unavailable, negative);
+      assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'document', negative);
+      assert.equal(useFileStore.getState().currentFile?.path, file.path, negative);
+    }
+    await act(async () => root.render(null));
+    authRegistry.observeOpenedDocumentAuth(null);
     console.log('Location hook handles rename bursts, both reconnects, recovery errors, stale lifetimes, and reused-path session identity.');
   } finally {
     await act(async () => { root.unmount(); sessionRoot.unmount(); });
@@ -372,6 +446,7 @@ async function main() {
     for (const request of requests) request.gate.resolve(Response.json({ success: false }, { status: 404 }));
     await getNotebookQueryClient().cancelQueries();
     getNotebookQueryClient().clear();
+    authRegistry.observeOpenedDocumentAuth(null);
     globalThis.fetch = originalFetch;
     internal._load = originalLoad;
     useFileStore.getState().resetWorkspaceView(null);

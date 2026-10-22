@@ -36,7 +36,11 @@ function isCurrentLocationScope(scope: CurrentCollaborationLocationScope): boole
 /** Watcher paths are invalidations only. Identity, never text or a reused name, resolves the new location. */
 export function useCollaborationDocumentLocation(input: LocationInput): CollaborationLocationIssue | null {
   const { workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, connection } = input;
-  const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation]);
+  const unavailable = useFileStore(state => state.currentFile?.unavailable);
+  const fileLoadRequestId = useFileStore(state => state.fileLoadRequestId);
+  const replacementRequestId = unavailable === 'replaced' ? fileLoadRequestId : null;
+  const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation,
+    unavailable, replacementRequestId]);
   const [issue, setIssue] = useState<{ key: string; value: CollaborationLocationIssue | null } | null>(null);
   const refresh = useRef<(() => void) | null>(null);
   const admissionRejoin = useRef(input.requestAdmissionRejoin);
@@ -92,13 +96,16 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       requested = false;
       budget.attempts++;
       const requestRevision = revision;
+      const requestFile = useFileStore.getState().currentFile;
+      const requestFileLoadRequestId = useFileStore.getState().fileLoadRequestId;
       const controller = new AbortController();
       active = controller;
       lastStarted = Date.now();
       requestTimeout = setTimeout(() => controller.abort(new CollaborationDocumentLocationRequestError(
         'Location lookup timed out.', { code: 'LOCATION_TIMEOUT', retryable: true })), Math.min(10_000, budget.deadline - lastStarted));
       const canApply = () => isCurrent() && revision === requestRevision && retryBudget === budget
-        && retryAuthScope === authScope && openedDocumentAuthScope() === authScope;
+        && retryAuthScope === authScope && openedDocumentAuthScope() === authScope
+        && useFileStore.getState().fileLoadRequestId === requestFileLoadRequestId;
       try {
         const location = await requestCollaborationDocumentLocation(workspaceId, documentId, controller.signal);
         if (!canApply()) return;
@@ -122,7 +129,16 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
           // it unless that entire lifetime fits within this refresh deadline.
           if (admissionRejoin.current && Date.now() + 10_000 >= budget.deadline) throw new Error('Document refresh deadline exhausted.');
           await admissionRejoin.current?.();
-          if (canApply()) { retryBudget = null; requested = false; }
+          if (canApply()) {
+            if (requestFile?.unavailable === 'replaced' && authScope
+              && lifecycleGeneration !== undefined && representation !== undefined) {
+              useFileStore.getState().adoptCurrentCollaborationLocation(scope, location.path, {
+                file: requestFile, fileLoadRequestId: requestFileLoadRequestId, authScope,
+                lifecycleGeneration, representation, location,
+              });
+            }
+            retryBudget = null; requested = false;
+          }
         }
       } catch (error) {
         if (canApply()) {
@@ -180,7 +196,7 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       document.removeEventListener('visibilitychange', onVisible);
       watcher.releaseConnection();
     };
-  }, [workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, key]);
+  }, [workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, unavailable, replacementRequestId, key]);
 
   useEffect(() => { refresh.current?.(); }, [connection]);
   return issue?.key === key ? issue.value : null;

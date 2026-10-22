@@ -6,6 +6,8 @@ import { documentCapabilities } from '@/app/lib/files/document-capabilities';
 import { findOpenedLiveDocument, invalidateOpenedLiveDocument, LiveDocumentNetworkError,
   isOpenedDocumentAuthCurrent, openedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
 import type { OpenedDocumentAuthScope } from '@/app/lib/collaboration/opened-document-registry';
+import type { CollaborationDocumentLocation } from '@/app/lib/collaboration/document-location';
+import type { TextCollaborationRepresentation } from '@/app/lib/collaboration/types';
 import { create } from 'zustand';
 import { recordOpenedWorkspaceFile } from '@/app/lib/files/quick-access-client';
 import type {
@@ -318,6 +320,16 @@ export type CurrentCollaborationLocationScope = {
   path: string;
 };
 
+/** A fresh identity read for this exact retained view, never a write grant. */
+export type CurrentCollaborationLocationConfirmation = {
+  file: CurrentFile;
+  fileLoadRequestId: number;
+  authScope: OpenedDocumentAuthScope;
+  lifecycleGeneration: number;
+  representation: TextCollaborationRepresentation;
+  location: CollaborationDocumentLocation;
+};
+
 interface FileStoreState {
   // File tree
   fileTree: FileNode[];
@@ -443,7 +455,7 @@ interface FileStoreState {
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean, workspaceId?: string | null, planId?: string) => Promise<WorkspaceRenameResult | void>;
   applyPathRename: (mutation: WorkspacePathRenameMutation) => boolean;
   applyPathsDeleted: (paths: string[], workspaceId: string | null, local?: boolean) => void;
-  adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string) => boolean;
+  adoptCurrentCollaborationLocation: (scope: CurrentCollaborationLocationScope, path: string, confirmation?: CurrentCollaborationLocationConfirmation) => boolean;
   uploadFile: (
     file: File | File[],
     targetDir: string,
@@ -1639,15 +1651,32 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     return result;
   },
 
-  adoptCurrentCollaborationLocation: (scope, path) => {
+  adoptCurrentCollaborationLocation: (scope, path, confirmation) => {
     const state = get();
     const file = state.currentFile;
-    if (path === scope.path || normalizeWorkspacePathParam(path) !== path
+    if (normalizeWorkspacePathParam(path) !== path
       || useWorkspaceStore.getState().activeWorkspaceId !== scope.workspaceId
       || state.currentFileWorkspaceId !== scope.workspaceId || state.treeGeneration !== scope.treeGeneration
       || !file || file.path !== scope.path || file.editorIdentity !== scope.editorIdentity
       || !file.collaboration?.crdtCapable || file.collaboration.document?.id !== scope.documentId
       || useEditorStore.getState().activePath !== scope.path) return false;
+
+    if (path === scope.path) {
+      // A same-name destination is not enough. Only a fresh active native ID
+      // read matching the mounted session may clear the retained-view warning.
+      const location = confirmation?.location;
+      if (!confirmation || file.unavailable !== 'replaced' || file !== confirmation.file
+        || state.fileLoadRequestId !== confirmation.fileLoadRequestId
+        || !isOpenedDocumentAuthCurrent(confirmation.authScope)
+        || !Number.isSafeInteger(confirmation.lifecycleGeneration) || confirmation.lifecycleGeneration < 1
+        || !['plain_text', 'tiptap_xml', 'tiptap_blocks'].includes(confirmation.representation)
+        || file.collaboration.document?.provider !== 'yjs' || file.collaboration.document?.status !== 'active'
+        || !location || location.workspaceId !== scope.workspaceId || location.documentId !== scope.documentId
+        || location.path !== path || location.lifecycleGeneration !== confirmation.lifecycleGeneration
+        || location.representation !== confirmation.representation) return false;
+      set({ currentFile: { ...file, unavailable: undefined } });
+      return true;
+    }
 
     return get().applyPathRename({ type: 'rename', workspaceId: scope.workspaceId,
       oldPath: scope.path, newPath: path, operationId: crypto.randomUUID() });
