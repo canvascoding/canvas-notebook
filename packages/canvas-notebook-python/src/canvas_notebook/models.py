@@ -294,10 +294,46 @@ class WorkspaceCopyHtmlPreviewV5(TypedDict):
     issues: list[NoReturn]
 
 
+class WorkspaceCopyRawImportLinkTarget(TypedDict):
+    sourcePathBefore: str
+    sourcePathAfter: str
+    previousTargetLiteral: str
+    targetPathAfter: str
+    fragment: str | None
+    alias: str | None
+    embed: bool
+
+
+class WorkspaceCopyRawImportLinkBindings(TypedDict):
+    status: Literal["requires-native-import-rebinding"]
+    targets: list[WorkspaceCopyRawImportLinkTarget]
+
+
+class WorkspaceCopyRawHtmlPreviewV6(TypedDict):
+    """C1 display facts, including truthful gaps and future native rebinding.
+
+    These fields are neither an import receipt nor permission to execute.
+    """
+
+    version: Literal[6]
+    kind: Literal["native-copy"]
+    sourceWorkspaceId: str
+    destinationWorkspaceId: str
+    planId: str
+    readiness: Literal["ready"]
+    pathMappings: list[WorkspaceCopyPathMapping]
+    linkEdits: list[WorkspaceCopyLinkEdit]
+    coverage: WorkspaceCopyCoverage
+    linkAssessment: WorkspaceCopyHtmlLinkAssessment
+    sourceCoverage: list[WorkspaceCopySourceCoverage]
+    importLinkBindings: WorkspaceCopyRawImportLinkBindings
+    issues: list[NoReturn]
+
+
 class WorkspaceCopyPreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceCopyPreview | WorkspaceCopyHtmlPreviewV5
+    preview: WorkspaceCopyPreview | WorkspaceCopyHtmlPreviewV5 | WorkspaceCopyRawHtmlPreviewV6
 
 
 class WorkspaceCopyExecution(TypedDict):
@@ -506,16 +542,59 @@ class WorkspaceDeleteHtmlPreviewV3(TypedDict):
     imports: list[WorkspacePathImportRequirement]
 
 
+class WorkspacePathHtmlImportWarningV4(WorkspacePathHtmlDiagnosticOptional):
+    code: Literal["unaffected-existing-link", "unaffected-explicit-html-link"]
+    path: str
+    targets: list[str]
+
+
+class WorkspacePathHtmlImportBlockerV4(WorkspacePathHtmlDiagnosticOptional):
+    code: Literal["affected-unresolved-link", "uninspected-source", "unevaluated-link", "affected-html-link", "resolution-changed"]
+    path: str
+    targets: list[str]
+
+
+class WorkspacePathHtmlImportLinkAssessmentV4(TypedDict):
+    complete: bool
+    warnings: list[WorkspacePathHtmlImportWarningV4]
+    blockers: list[WorkspacePathHtmlImportBlockerV4]
+
+
+class WorkspacePathHtmlImportPreviewRequiredV4(TypedDict):
+    """MCP C1 preparation, distinct from both Import1 and the Web Path4 DTO."""
+
+    version: Literal[4]
+    kind: Literal["native-path-import-preparation"]
+    workspaceId: str
+    planId: str
+    executionReady: Literal[False]
+    readiness: Literal["requires-import-rebinding", "blocked"]
+    imports: list[WorkspacePathImportRequirement]
+    issues: list[WorkspacePathImportIssue]
+    coverage: WorkspacePathHtmlCoverage
+    linkAssessment: WorkspacePathHtmlImportLinkAssessmentV4
+
+
+class WorkspaceMoveHtmlImportPreviewV4(WorkspacePathHtmlImportPreviewRequiredV4):
+    operationKind: Literal["move"]
+    paths: list[WorkspaceMovePreviewPath]
+
+
+class WorkspaceDeleteHtmlImportPreviewV4(WorkspacePathHtmlImportPreviewRequiredV4):
+    operationKind: Literal["delete"]
+    paths: list[WorkspaceDeletePreviewPath]
+
+
 class WorkspaceMovePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceMovePreview | WorkspaceMoveImportPreview
+    preview: WorkspaceMovePreview | WorkspaceMoveImportPreview | WorkspaceMoveHtmlImportPreviewV4
 
 
 class WorkspaceDeletePreviewResult(TypedDict):
     apiVersion: Literal[1]
     action: Literal["preview"]
-    preview: WorkspaceDeletePreview | WorkspaceDeleteImportPreview | WorkspaceDeleteHtmlPreviewV3
+    preview: WorkspaceDeletePreview | WorkspaceDeleteImportPreview | WorkspaceDeleteHtmlPreviewV3 | WorkspaceDeleteHtmlImportPreviewV4
 
 
 class WorkspacePathJournal(TypedDict):

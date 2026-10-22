@@ -183,7 +183,7 @@ export async function workspacePathImportPublicPostgresTest(): Promise<void> {
       assert.equal(body.representation, state.representation);
       assert.deepEqual(body.content, JSON.parse(JSON.stringify(authoritativeNativeCollaborationSnapshot(state).content)));
     };
-    const publicPathAssertApplied = async (job: Job, preview: DirectMcpWorkspacePathImportPreviewV1, result: DirectMcpWorkspacePathResultV1) => {
+    const publicPathAssertApplied = async (job: Job, preview: Pick<DirectMcpWorkspacePathImportPreviewV1, 'planId'>, result: DirectMcpWorkspacePathResultV1) => {
       assert(result.action !== 'preview'); const record = await publicPathRecord(job);
       assert.equal(record.previewPlan.planId, preview.planId); assert.equal(result.operation.batchId, record.batchId);
       assert.equal(result.operation.planId, record.nativePlan.planId); assert.notEqual(result.operation.planId, preview.planId);
@@ -306,7 +306,57 @@ export async function workspacePathImportPublicPostgresTest(): Promise<void> {
       if (result.action !== 'status') assert.equal(result.alreadyKnown, true);
     }
     assert.deepEqual((await h.admin.query('SELECT record_text,record_digest,xmin::text FROM workspace_path_import_preparations WHERE batch_id=$1', [moveRecord.batchId])).rows, originalRows); groups++;
-    assert.equal(groups, 6); console.log(JSON.stringify({ suite: 'workspace-path-import-public', groups, passed: true,
+    assert.equal(groups, 6);
+    // The original invalid D2 history was fully checked above; remove only that
+    // deliberate fixture before the new fresh-source C1 families.
+    await fs.unlink(path.join(h.source.rootPath, moved.raw));
+    phase = 'C1 actual public Move/Delete imports beside unrelated HTML with full versioned Record2 history';
+    const c1html = `c1-public-${crypto.randomUUID()}.html`, c1htmlBytes = Buffer.from('<a href="unaffected.md">unrelated</a>\n');
+    await fs.writeFile(path.join(h.source.rootPath, c1html), c1htmlBytes, { flag: 'wx', mode: 0o600 });
+    const htmlBefore = await publicPathFile(path.join(h.source.rootPath, c1html));
+    const { decodeWorkspacePathAnyImportPreparationRecord } = await import('../app/lib/files/workspace-path-import-preparation-record');
+    for (const kind of ['move', 'delete'] as const) {
+      const stem = `c1-public-${crypto.randomUUID()}`, raw = stem + '.md', incoming = stem + '-incoming.md', destination = stem + '-moved.md';
+      const bytes = new Map([[raw, Buffer.from(`# C1\n\n[Self](${raw})\n`)], [incoming, Buffer.from(`[Target](${raw})\n`)]]);
+      for (const [file, body] of bytes) await fs.writeFile(path.join(h.source.rootPath, file), body, { flag: 'wx', mode: 0o600 });
+      const job: Job = { kind, raw, incoming, destination, bytes, operationId: `c1_public_${crypto.randomUUID().replaceAll('-', '')}` };
+      const preview = await publicPathNoWrite(h, () => publicPathCall(job, 'preview'));
+      assert(preview.action === 'preview' && 'version' in preview.preview && preview.preview.version === 4);
+      assert.equal(preview.preview.coverage.complete, false); assert.equal(preview.preview.readiness, 'requires-import-rebinding');
+      assert(preview.preview.linkAssessment.complete); assert.deepEqual(preview.preview.imports.map(item => item.path).sort(), [raw,incoming].sort());
+      const result = await publicPathCall(job, 'apply', preview.preview.planId); assert(result.action === 'apply');
+      assert.equal(result.operation.completion.status, 'confirmed');
+      const rows = (await h.admin.query('SELECT version,record_text,record_digest,xmin::text FROM workspace_path_import_preparations WHERE workspace_id=$1 AND operation_id=$2',
+        [h.source.workspaceId, job.operationId])).rows; assert.equal(rows.length, 1); assert.equal(rows[0].version, 2);
+      assert.equal(publicPathSha(rows[0].record_text), rows[0].record_digest);
+      const record = decodeWorkspacePathAnyImportPreparationRecord(rows[0].record_text); assert(record.version === 2);
+      assert.equal(record.nativePlan.planIdentityVersion, 4); assert.equal(record.previewPlan.planId, preview.preview.planId);
+      assert.equal(result.operation.planId, record.nativePlan.planId); assert.equal(record.imports.length, 2);
+      const target = record.imports.find(item => item.receipt.target.path === raw), source = record.imports.find(item => item.receipt.target.path === incoming); assert(target && source);
+      const current = await load(h.connection, source.receipt.target.documentId); assert(current);
+      const native = (await import('../app/lib/markdown/workspace-native-link-inventory')).inspectPersistedDocumentLinksV4(current);
+      assert.equal(native.links.length, kind === 'move' ? 1 : 0);
+      if (kind === 'move') { assert(native.links[0].literal.includes(destination));
+        const original = await load(h.connection, target.receipt.target.documentId); assert(original); assert.equal(original.path, destination); }
+      else assert.equal(await load(h.connection, target.receipt.target.documentId), null);
+      assert.deepEqual(await publicPathFile(path.join(h.source.rootPath, c1html)), htmlBefore);
+      for (const action of ['status','recover'] as const) {
+        const historical: DirectMcpWorkspacePathResultV1 = await publicPathNoWrite(h, (): Promise<DirectMcpWorkspacePathResultV1> => publicPathCall(job, action, preview.preview.planId), true);
+        assert(historical.action !== 'preview'); assert.equal(historical.operation.completion.status, 'confirmed');
+        assert.equal(historical.operation.batchId, record.batchId);
+      }
+      assert.deepEqual((await h.admin.query('SELECT version,record_text,record_digest,xmin::text FROM workspace_path_import_preparations WHERE workspace_id=$1 AND operation_id=$2',
+        [h.source.workspaceId, job.operationId])).rows, rows);
+    }
+    groups++;
+    phase = 'C2 affected or opaque HTML Raw source remains blocked with complete NoWrite';
+    const c2 = await publicPathSeed('move');
+    await fs.writeFile(path.join(h.source.rootPath, c2.raw), `<a href="${c2.raw}">affected</a>\n`, { mode: 0o600 });
+    const blockedC2 = await publicPathNoWrite(h, () => publicPathCall(c2, 'preview')); assert(blockedC2.action === 'preview');
+    assert('version' in blockedC2.preview && blockedC2.preview.version === 4); assert.equal(blockedC2.preview.readiness, 'blocked');
+    assert(blockedC2.preview.issues.some(item => item.code === 'raw-markdown-html-import-unsupported'));
+    await assert.rejects(publicPathNoWrite(h, () => publicPathCall(c2, 'apply', blockedC2.preview.planId)), publicPathReject('PATH_NATIVE_REQUIRED', c2.operationId));
+    groups++; assert.equal(groups, 8); console.log(JSON.stringify({ suite: 'workspace-path-import-public', groups, passed: true,
       scope: 'actual decode/MCP services/encode + genuine PG/current JWT/native owners; no HTTP/TCP/browser, OAuth sign-in or deployment claim' }));
   }); } catch (error) {
     console.error(JSON.stringify({ suite: 'workspace-path-import-public', phase, groups, code: publicPathCode(error), name: error instanceof Error ? error.name : 'UnknownError',

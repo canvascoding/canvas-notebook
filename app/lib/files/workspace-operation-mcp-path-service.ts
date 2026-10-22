@@ -15,7 +15,7 @@ import { withDirectMcpWorkspaceMovePrincipal, withDirectMcpWorkspaceDeletePrinci
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { encodeDirectMcpWorkspacePathResultV1, WorkspacePathToolError,
   type DecodedDirectMcpWorkspaceMoveRequestV1, type DecodedDirectMcpWorkspaceDeleteRequestV1,
-  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1, type DirectMcpWorkspacePathHtmlPreviewV2, type DirectMcpWorkspacePathHtmlDeletePreviewV3,
+  type DirectMcpWorkspacePathResultV1, type DirectMcpWorkspacePathImportPreviewV1, type DirectMcpWorkspacePathHtmlImportPreviewV4, type DirectMcpWorkspacePathHtmlPreviewV2, type DirectMcpWorkspacePathHtmlDeletePreviewV3,
   WORKSPACE_PATH_TOOL_RESULT_MAX_BYTES } from '../mcp/server/workspace-path-tool-contract';
 import { captureWorkspaceOperationMcpJobPrincipal,
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
@@ -47,6 +47,7 @@ import { isCanonicalWorkspacePath } from '../workspaces/path-identity';
 import { readWorkspacePathImportOperationHistory } from './workspace-path-import-operation-history';
 import { readWorkspacePathImportPreparationPlan } from './workspace-path-import-operation-preview';
 import { prepareWorkspacePathImportOperation } from './workspace-path-import-operation';
+import type { WorkspacePathHtmlImportPreparationPlanV4 } from './workspace-path-html-import-preparation';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import { decodeWorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 import { decodeWorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
@@ -208,7 +209,7 @@ function assertPathPreparationHistory(status: NativeStatus, history: ImportHisto
 
 /** Bounded public facts only; no source evidence, FD, actor, native refs or
  * guessed rendered link edits. Preparation never claims execution readiness. */
-function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1): DirectMcpWorkspacePathImportPreviewV1 {
+function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlImportPreparationPlanV4): DirectMcpWorkspacePathImportPreviewV1 | DirectMcpWorkspacePathHtmlImportPreviewV4 {
   if (plan.request.kind !== 'move' && plan.request.kind !== 'delete'
     || plan.readiness !== 'blocked' && plan.readiness !== 'requires-import-rebinding') throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED');
   let bytes = 1024;
@@ -223,15 +224,24 @@ function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
   if (plan.request.selections.length > 1000 || plan.importRequirements.length > 10000 || plan.issues.length > 10000) {
     throw new WorkspacePathToolError('PATH_OUTPUT_TOO_LARGE');
   }
-  return { version: 1, kind: 'native-path-import-preparation', operationKind: plan.request.kind, workspaceId: plan.scope.workspaceId,
-    planId: plan.planId, executionReady: false, readiness: plan.readiness,
+  const diagnostics = (items: WorkspacePathHtmlImportPreparationPlanV4['linkAssessment']['warnings']
+    | WorkspacePathHtmlImportPreparationPlanV4['linkAssessment']['blockers']) => items.map(item => add({
+      code: item.reason, path: selected(item.sourcePath), ...('line' in item && item.line !== undefined ? { line: item.line } : {}),
+      targets: [...(item.htmlTargets ?? [])],
+    }));
+  const html = plan.version === 4 ? { version: 4 as const, linkAssessment: { complete: plan.linkAssessment.complete,
+    warnings: diagnostics(plan.linkAssessment.warnings), blockers: diagnostics(plan.linkAssessment.blockers) } } : null;
+  const common = { kind: 'native-path-import-preparation' as const, operationKind: plan.request.kind, workspaceId: plan.scope.workspaceId,
+    planId: plan.planId, executionReady: false as const, readiness: plan.readiness,
     paths: plan.request.selections.map(item => add({ sourcePath: selected(item.sourcePath),
       ...(item.destinationPath === undefined ? {} : { destinationPath: selected(item.destinationPath) }) })),
     imports: plan.importRequirements.map(item => add({ path: selected(item.path), reasons: [...item.reasons] })),
     issues: [...new Map(plan.issues.map(item => {
       const issue = { code: /^[a-z][a-z0-9-]{0,99}$/u.test(item.code) ? item.code : 'unknown', path: safe(item.path) ? item.path : '' };
       return [JSON.stringify(issue), add(issue)] as const;
-    })).values()], coverage: { complete: true } };
+    })).values()] };
+  return html ? { ...common, ...html, coverage: { complete: plan.coverage.complete } }
+    : { ...common, version: 1, coverage: { complete: true } };
 }
 
 function pathPreview(plan: NativePlan) {

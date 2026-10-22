@@ -5,6 +5,7 @@ import { openDb } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import { decodeWorkspacePathHtmlImportPreparationPlanV4 } from './workspace-path-html-import-preparation';
 import { decodeWorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import { prepareWorkspacePathImportOperationOnConnection, type WorkspacePathImportPreparationInput,
   type WorkspacePathImportOperationPreparation, type WorkspacePathImportPreparationPrincipal } from './workspace-path-import-preparation-phase';
@@ -36,7 +37,13 @@ function captureWorkspacePathImportOperationInput(supplied: WorkspacePathImportP
   if (selected.kind !== 'request' && selected.kind !== 'move' && selected.kind !== 'delete'
     || typeof fields.operationId !== 'string' || !fields.operationId || fields.operationId.length > 512
     || /[\u0000-\u001f\u007f]/u.test(fields.operationId) || Buffer.from(fields.operationId).toString('utf8') !== fields.operationId) return invalid();
-  const plan = decodeWorkspacePathImportPreparationPlanV1(fields.plan);
+  if (!fields.plan || typeof fields.plan !== 'object' || types.isProxy(fields.plan)
+    || Object.getPrototypeOf(fields.plan) !== Object.prototype) return invalid();
+  const versionField = Object.getOwnPropertyDescriptor(fields.plan, 'version');
+  if (!versionField?.enumerable || !Object.hasOwn(versionField, 'value')) return invalid();
+  const planVersion = versionField.value;
+  const plan = planVersion === 4 ? decodeWorkspacePathHtmlImportPreparationPlanV4(fields.plan)
+    : decodeWorkspacePathImportPreparationPlanV1(fields.plan);
   if (plan.readiness !== 'requires-import-rebinding' || !plan.importRequirements.length
     || selected.kind !== 'request' && plan.request.kind !== selected.kind) return invalid();
   return Object.freeze({ principal: Object.freeze({ kind: selected.kind, principal: selected.principal }) as WorkspacePathImportPreparationPrincipal,

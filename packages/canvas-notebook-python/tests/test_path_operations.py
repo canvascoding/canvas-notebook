@@ -19,11 +19,13 @@ from canvas_notebook import CanvasMutationOutcomeUnknown, CanvasNotebook, Canvas
 from canvas_notebook.models import (
     WorkspaceDeleteHtmlLinkChanges,
     WorkspaceDeleteHtmlPreviewV3,
+    WorkspaceDeleteHtmlImportPreviewV4,
     WorkspaceDeleteImportPreview,
     WorkspaceDeletePreview,
     WorkspaceDeletePreviewPath,
     WorkspaceDeletePreviewResult,
     WorkspaceMoveImportPreview,
+    WorkspaceMoveHtmlImportPreviewV4,
     WorkspaceMovePreview,
     WorkspaceMovePreviewResult,
     WorkspacePathCoverage,
@@ -198,9 +200,9 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_declared_path_types_include_import_union_and_optional_mapping(self) -> None:
         self.assertEqual(set(get_args(get_type_hints(WorkspaceMovePreviewResult)["preview"])),
-                         {WorkspaceMovePreview, WorkspaceMoveImportPreview})
+                         {WorkspaceMovePreview, WorkspaceMoveImportPreview, WorkspaceMoveHtmlImportPreviewV4})
         self.assertEqual(set(get_args(get_type_hints(WorkspaceDeletePreviewResult)["preview"])),
-                         {WorkspaceDeletePreview, WorkspaceDeleteImportPreview, WorkspaceDeleteHtmlPreviewV3})
+                         {WorkspaceDeletePreview, WorkspaceDeleteImportPreview, WorkspaceDeleteHtmlPreviewV3, WorkspaceDeleteHtmlImportPreviewV4})
         self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["kind"]), ("native-path-import-preparation",))
         self.assertEqual(get_args(get_type_hints(WorkspaceDeleteImportPreview)["kind"]), ("native-path-import-preparation",))
         self.assertEqual(get_args(get_type_hints(WorkspaceMoveImportPreview)["operationKind"]), ("move",))
@@ -546,6 +548,87 @@ class WorkspacePathTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValueError):
                 await getattr(CanvasNotebook(denied), "move_" + action)("workspace", oversized, **options)
             self.assertEqual(denied.calls, [])
+
+
+    def test_html_import_v4_types_keep_literal_v1_and_separate_mcp_selectors(self) -> None:
+        from typing import Literal
+        from canvas_notebook import models
+
+        self.assertEqual(get_type_hints(models.WorkspacePathImportPreviewRequired)["version"], Literal[1])
+        self.assertEqual(get_type_hints(models.WorkspacePathCoverage)["complete"], Literal[True])
+        self.assertNotIn("linkAssessment", get_type_hints(models.WorkspacePathImportPreviewRequired))
+        self.assertEqual(get_type_hints(models.WorkspacePathHtmlWarning)["code"], Literal["unaffected-explicit-html-link"])
+        self.assertEqual(get_type_hints(models.WorkspacePathHtmlBlocker)["code"], Literal["affected-html-link", "unevaluated-link"])
+        for kind, new, old, paths in (
+            ("move", models.WorkspaceMoveHtmlImportPreviewV4, models.WorkspaceMoveImportPreview, models.WorkspaceMovePreviewPath),
+            ("delete", models.WorkspaceDeleteHtmlImportPreviewV4, models.WorkspaceDeleteImportPreview, models.WorkspaceDeletePreviewPath),
+        ):
+            with self.subTest(kind=kind):
+                previous, actual = get_type_hints(old), get_type_hints(new)
+                self.assertEqual(set(actual), set(previous) | {"linkAssessment"})
+                self.assertEqual(actual["version"], Literal[4])
+                self.assertEqual(get_args(actual["operationKind"]), (kind,))
+                self.assertEqual(actual["paths"], list[paths])
+                self.assertEqual(actual["coverage"], models.WorkspacePathHtmlCoverage)
+                self.assertEqual(get_type_hints(models.WorkspacePathHtmlCoverage)["complete"], bool)
+                self.assertEqual(actual["linkAssessment"], models.WorkspacePathHtmlImportLinkAssessmentV4)
+                self.assertEqual(new.__required_keys__, frozenset(actual))
+                self.assertEqual(new.__optional_keys__, frozenset())
+                self.assertNotIn("pathMappings", actual)
+                self.assertNotIn("physicalLinkChanges", actual)
+                self.assertNotIn("linkChanges", actual)
+                for field in set(previous) - {"version", "coverage"}:
+                    self.assertEqual(actual[field], previous[field])
+        assessment = get_type_hints(models.WorkspacePathHtmlImportLinkAssessmentV4)
+        self.assertEqual(assessment, {"complete": bool, "warnings": list[models.WorkspacePathHtmlImportWarningV4],
+                                      "blockers": list[models.WorkspacePathHtmlImportBlockerV4]})
+        warning = get_type_hints(models.WorkspacePathHtmlImportWarningV4)
+        blocker = get_type_hints(models.WorkspacePathHtmlImportBlockerV4)
+        self.assertEqual(warning["code"], Literal["unaffected-existing-link", "unaffected-explicit-html-link"])
+        self.assertEqual(set(get_args(blocker["code"])), {"affected-unresolved-link", "uninspected-source", "unevaluated-link", "affected-html-link", "resolution-changed"})
+        for model, hints in ((models.WorkspacePathHtmlImportWarningV4, warning), (models.WorkspacePathHtmlImportBlockerV4, blocker)):
+            self.assertEqual(hints["path"], str)
+            self.assertEqual(hints["targets"], list[str])
+            self.assertEqual(hints["line"], int)
+            self.assertEqual(model.__required_keys__, frozenset({"code", "path", "targets"}))
+            self.assertEqual(model.__optional_keys__, frozenset({"line"}))
+
+    async def test_html_import_v4_response_fixtures_are_lossless_with_exact_existing_calls(self) -> None:
+        # Controlled envelopes prove response preservation only, never B0/Auth.
+        for kind in ("move", "delete"):
+            for readiness in ("requires-import-rebinding", "blocked"):
+                with self.subTest(kind=kind, readiness=readiness):
+                    warnings = [{"code": "unaffected-existing-link", "path": "existing.md", "targets": []},
+                                {"code": "unaffected-explicit-html-link", "path": "unrelated.html", "targets": ["stable.pdf"]}]
+                    blockers = [{"code": "affected-html-link", "path": "affected.html", "line": 3, "targets": ["source.md"]}] if readiness == "blocked" else []
+                    preview = {"version": 4, "kind": "native-path-import-preparation", "operationKind": kind,
+                        "workspaceId": "workspace", "planId": PLAN, "executionReady": False, "readiness": readiness,
+                        "paths": [{"sourcePath": "source.md", **({"destinationPath": "moved.md"} if kind == "move" else {})}],
+                        "imports": [{"path": "source.md", "reasons": ["selected"]}, {"path": "incoming ä.md", "reasons": ["link-change"]}],
+                        "issues": [{"code": "affected-html-link", "path": "affected.html"}] if readiness == "blocked" else [],
+                        "coverage": {"complete": False}, "linkAssessment": {"complete": readiness != "blocked", "warnings": warnings, "blockers": blockers}}
+                    payload = {"apiVersion": 1, "action": "preview", "preview": preview}
+                    original = copy.deepcopy(payload)
+                    raw = envelope(payload)
+                    raw.meta = {"sdk-unit": {"opaque": "path-html-import-c1-fixture"}}
+                    transport = RecordingTransport(raw)
+                    result = await getattr(CanvasNotebook(transport), kind + "_preview")("workspace", ROOTS if kind == "move" else "source.md")
+                    self.assertIs(result.raw, raw)
+                    self.assertIs(result.content, raw.content)
+                    self.assertIs(result.structured_content, raw.structured_content)
+                    self.assertIs(result.require_success(), raw.structured_content)
+                    self.assertEqual(result.require_success(), original)
+                    self.assertEqual(result.raw.meta, {"sdk-unit": {"opaque": "path-html-import-c1-fixture"}})
+                    self.assertFalse(result.require_success()["preview"]["coverage"]["complete"])
+                    self.assertFalse(result.require_success()["preview"]["executionReady"])
+                    self.assertEqual(result.require_success()["preview"]["linkAssessment"]["warnings"], warnings)
+                    self.assertEqual(result.require_success()["preview"]["linkAssessment"]["blockers"], blockers)
+                    self.assertNotIn("pathMappings", result.require_success()["preview"])
+                    self.assertNotIn("physicalLinkChanges", result.require_success()["preview"])
+                    self.assertEqual(transport.calls, [(kind + "_knowledge_source", {"api_version": 1, "action": "preview",
+                        "workspace_id": "workspace", **({"selections": ROOTS} if kind == "move" else {"path": "source.md"})})])
+                    self.assertEqual(transport.responses, [])
+                    self.assertEqual(payload, original)
 
 
 if __name__ == "__main__":

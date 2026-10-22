@@ -5,7 +5,8 @@ import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { SqlConnection } from '../db';
 import { captureNativeCopyPhaseStage } from '../files/workspace-operation-native-copy-phase-contract';
 import { captureWorkspaceOperationNativePlanData } from '../files/workspace-operation-native-plan-data';
-import type { WorkspaceOperationManagedCopyStageV6 } from '../files/workspace-operation-managed-copy-stage';
+import type { WorkspaceOperationRawHtmlCopyStageV8 } from '../files/workspace-operation-raw-html-copy-stage';
+import type { WorkspaceOperationManagedCopyStageV6 as LegacyRawStageV6 } from '../files/workspace-operation-managed-copy-stage';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { decodeWorkspaceOperationCopyOrigin, type WorkspaceOperationCopyOrigin } from '../files/workspace-operation-copy-origin';
 import { NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS } from '../db/native-copy-markdown-birth-migration';
@@ -17,13 +18,14 @@ import { loadCollaborationStateOnConnection } from './persistence';
 import { decodeNativeCopyMarkdownBirthV1, nativeCopyMarkdownBirthText, nativeCopyMarkdownImportIds,
   NATIVE_COPY_MARKDOWN_BIRTH_LIMIT, rejectNativeCopyMarkdownBirth as fail, type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
 
+type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8;
 type Row = Record<string, unknown>;
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 function stage6(stage:WorkspaceOperationManagedCopyStageV6):void {
   if (!stage || types.isProxy(stage) || Object.getPrototypeOf(stage)!==Object.prototype) fail();
   const discriminator=Object.getOwnPropertyDescriptor(stage,'version');
-  if (!discriminator?.enumerable || !Object.hasOwn(discriminator,'value') || discriminator.value!==6) fail();
-  if (captureNativeCopyPhaseStage(stage).payloadSha256!==stage.payloadSha256 || stage.plan.version!==5
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator,'value') || (discriminator.value!==6 && discriminator.value!==8)) fail();
+  if (captureNativeCopyPhaseStage(stage).payloadSha256!==stage.payloadSha256 || (stage.version===6 ? stage.plan.version!==5 : stage.plan.version!==7)
     || stage.rawOriginals.length!==stage.plan.rawImportRequirements.length) fail();
 }
 async function realm(database:SqlConnection):Promise<void> {

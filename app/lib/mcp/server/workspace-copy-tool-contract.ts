@@ -234,7 +234,75 @@ function htmlPreview(value: Json | undefined, invalid: () => never): WorkspaceOp
   if (expected.size || coverage.complete !== (complete && unresolved.length === 0) || list(row.issues, 0, invalid).length) return invalid();
   return row as unknown as WorkspaceOperationNativeCopyPreviewPublic;
 }
+function rawHtmlPreviewV6(value: Json | undefined, invalid: () => never): WorkspaceOperationNativeCopyPreviewPublic {
+  const row = record(value, ['version', 'kind', 'sourceWorkspaceId', 'destinationWorkspaceId', 'planId', 'readiness',
+    'pathMappings', 'linkEdits', 'coverage', 'linkAssessment', 'sourceCoverage', 'issues', 'importLinkBindings'], [], invalid);
+  if (row.version !== 6 || row.kind !== 'native-copy' || row.readiness !== 'ready') return invalid();
+  const source = workspace(row.sourceWorkspaceId, invalid), destination = workspace(row.destinationWorkspaceId, invalid);
+  planId(row.planId, invalid);
+  for (const item of list(row.pathMappings, 100_000, invalid)) {
+    const mapping = record(item, ['sourceWorkspaceId', 'sourcePath', 'destinationWorkspaceId', 'destinationPath', 'sourceKind', 'sourceIdentity'], [], invalid);
+    if (mapping.sourceWorkspaceId !== source || mapping.destinationWorkspaceId !== destination
+      || mapping.sourceKind !== 'file' && mapping.sourceKind !== 'directory'
+      || typeof mapping.sourceIdentity !== 'string' || !/^native-copy-preview:[a-f0-9]{64}$/u.test(mapping.sourceIdentity)) return invalid();
+    pathname(mapping.sourcePath, invalid); pathname(mapping.destinationPath, invalid);
+  }
+  for (const item of list(row.linkEdits, 100_000, invalid)) {
+    const edit = record(item, ['sourcePathBefore', 'sourcePathAfter', 'previousTargetLiteral', 'nextTargetLiteral'], [], invalid);
+    pathname(edit.sourcePathBefore, invalid); pathname(edit.sourcePathAfter, invalid);
+    text(edit.previousTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+    text(edit.nextTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+  }
+    const bindings = record(row.importLinkBindings, ['status', 'targets'], [], invalid);
+    if (bindings.status !== 'requires-native-import-rebinding') return invalid();
+    for (const item of list(bindings.targets, 100_000, invalid)) {
+      const target = record(item, ['sourcePathBefore', 'sourcePathAfter', 'previousTargetLiteral', 'targetPathAfter', 'fragment', 'alias', 'embed'], [], invalid);
+      pathname(target.sourcePathBefore, invalid); pathname(target.sourcePathAfter, invalid); pathname(target.targetPathAfter, invalid);
+      text(target.previousTargetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+      for (const field of ['fragment', 'alias']) if (target[field] !== null) text(target[field], WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+      boolean(target.embed, invalid);
+    }
+  const coverage = record(row.coverage, ['complete', 'omittedSources', 'unresolvedLinks'], [], invalid);
+  boolean(coverage.complete, invalid); list(coverage.omittedSources, 0, invalid);
+  const unresolved = list(coverage.unresolvedLinks, 100_000, invalid);
+  for (const item of unresolved) {
+    const link = record(item, ['sourcePath', 'targetLiteral', 'status'], [], invalid);
+    pathname(link.sourcePath, invalid); text(link.targetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+    if (typeof link.status !== 'string' || !unresolvedStatuses.includes(link.status)) return invalid();
+  }
+  const assessment = record(row.linkAssessment, ['version', 'complete', 'warnings', 'blockers'], [], invalid);
+  if (assessment.version !== 1 || assessment.complete !== true) return invalid();
+  list(assessment.blockers, 0, invalid);
+  for (const item of list(assessment.warnings, 100_000, invalid)) {
+    const warning = record(item, ['workspaceId', 'sourcePath', 'targetLiteral', 'status', 'reason'], ['htmlTargets'], invalid);
+    if (workspace(warning.workspaceId, invalid) !== source && warning.workspaceId !== destination
+      || warning.reason !== 'unaffected-existing-link' && warning.reason !== 'unaffected-explicit-html-link'
+      || typeof warning.status !== 'string' || !unresolvedStatuses.includes(warning.status)) return invalid();
+    pathname(warning.sourcePath, invalid); text(warning.targetLiteral, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+    if (warning.reason === 'unaffected-explicit-html-link') {
+      if (warning.status !== 'not-evaluated') return invalid();
+      for (const target of list(warning.htmlTargets, 100_000, invalid)) text(target, WORKSPACE_COPY_TOOL_RESULT_MAX_BYTES, invalid, true);
+    } else if (Object.hasOwn(warning, 'htmlTargets')) return invalid();
+  }
+  const sources = list(row.sourceCoverage, 2, invalid), expected = new Set([source, destination]);
+  let complete = true;
+  for (const item of sources) {
+    const sourceRow = record(item, ['workspaceId', 'coverage'], [], invalid);
+    if (!expected.delete(workspace(sourceRow.workspaceId, invalid))) return invalid();
+    const original = record(sourceRow.coverage, ['complete', 'gaps'], [], invalid), gaps = list(original.gaps, 100_000, invalid);
+    const originalComplete = boolean(original.complete, invalid);
+    if (originalComplete !== (gaps.length === 0)) return invalid();
+    complete = complete && originalComplete;
+    for (const item of gaps) {
+      const gap = record(item, ['code', 'path'], [], invalid);
+      text(gap.code, 256, invalid); pathname(gap.path, invalid);
+    }
+  }
+  if (expected.size || coverage.complete !== (complete && unresolved.length === 0) || list(row.issues, 0, invalid).length) return invalid();
+  return row as unknown as WorkspaceOperationNativeCopyPreviewPublic;
+}
 function preview(value: Json | undefined, invalid: () => never): WorkspaceOperationNativeCopyPreviewPublic {
+  if (value && typeof value === 'object' && !Array.isArray(value) && value.version === 6) return rawHtmlPreviewV6(value, invalid);
   if (value && typeof value === 'object' && !Array.isArray(value) && value.version === 5) return htmlPreview(value, invalid);
   const row = record(value, ['version', 'kind', 'sourceWorkspaceId', 'destinationWorkspaceId', 'planId', 'readiness',
     'pathMappings', 'linkEdits', 'coverage', 'linkAssessment', 'issues'], ['importLinkBindings'], invalid);
@@ -483,7 +551,13 @@ const previewSchemaV5 = objectSchema({ version: { const: 5, type: 'integer' }, k
   sourceCoverage: arraySchema(objectSchema({ workspaceId: workspaceSchema, coverage: objectSchema({ complete: { type: 'boolean' },
     gaps: arraySchema(objectSchema({ code: { type: 'string', maxLength: 256 }, path: pathSchema })) }) }), 2),
   issues: { type: 'array', maxItems: 0 } });
-const previewSchema = { oneOf: [previewSchemaV4, previewSchemaV5] };
+const rawImportBindingsSchema = objectSchema({ status: { const: 'requires-native-import-rebinding', type: 'string' },
+  targets: arraySchema(objectSchema({ sourcePathBefore: pathSchema, sourcePathAfter: pathSchema,
+    previousTargetLiteral: literalSchema, targetPathAfter: pathSchema,
+    fragment: { anyOf: [literalSchema, { type: 'null' }] }, alias: { anyOf: [literalSchema, { type: 'null' }] }, embed: { type: 'boolean' } })) });
+const previewSchemaV6 = objectSchema({ ...previewSchemaV5.properties, version: { const: 6, type: 'integer' },
+  importLinkBindings: rawImportBindingsSchema });
+const previewSchema = { oneOf: [previewSchemaV4, previewSchemaV5, previewSchemaV6] };
 const stepSchema = { type: 'string', pattern: '^[A-Za-z0-9:_-]{1,256}$' };
 const executionSchema = objectSchema({ operationId: operationSchema, planId: planSchema,
   status: { type: 'string', enum: ['complete', 'needs_recovery', 'failed'] }, completedSteps: arraySchema(stepSchema, MAX_STEPS),

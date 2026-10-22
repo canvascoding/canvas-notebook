@@ -58,8 +58,12 @@ export type DirectMcpWorkspacePathHtmlPreviewV2 = Readonly<{ version: 2; kind: '
 export type DirectMcpWorkspacePathHtmlDeletePreviewV3 = Readonly<Omit<DirectMcpWorkspacePathHtmlPreviewV2, 'version' | 'operationKind' | 'paths'> & {
   version: 3; operationKind: 'delete'; paths: readonly Readonly<{ sourcePath: string }>[];
 }>;
+export type DirectMcpWorkspacePathHtmlImportPreviewV4 = Readonly<Omit<DirectMcpWorkspacePathImportPreviewV1, 'version' | 'coverage'> & {
+  version: 4; coverage: Readonly<{ complete: boolean }>;
+  linkAssessment: DirectMcpWorkspacePathHtmlPreviewV2['linkAssessment'];
+}>;
 export type DirectMcpWorkspacePathPreviewV1 = DirectMcpWorkspacePathNativePreviewV1 | DirectMcpWorkspacePathImportPreviewV1
-  | DirectMcpWorkspacePathHtmlPreviewV2 | DirectMcpWorkspacePathHtmlDeletePreviewV3;
+  | DirectMcpWorkspacePathHtmlPreviewV2 | DirectMcpWorkspacePathHtmlDeletePreviewV3 | DirectMcpWorkspacePathHtmlImportPreviewV4;
 export type DirectMcpWorkspacePathExecutionV1 = Readonly<{ receiptStatus: 'available' | 'not_started' | 'unavailable';
   finalization: 'pending' | 'complete'; steps: readonly Readonly<{ key: string; phase: 'path' | 'link';
     kind: 'move' | 'rename' | 'delete' | 'link_update'; path: string; destinationPath?: string;
@@ -297,11 +301,58 @@ function htmlDeletePreviewV3(value: Json | undefined, invalid: () => never): Dir
   if (row.readiness === 'blocked' && (links.unlinks !== 0 || links.affectedDocuments !== 0)) return invalid();
   return row as unknown as DirectMcpWorkspacePathHtmlDeletePreviewV3;
 }
+function htmlImportPreviewV4(value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathHtmlImportPreviewV4 {
+    const row = record(value, ['version', 'kind', 'operationKind', 'workspaceId', 'planId', 'executionReady', 'readiness', 'paths', 'imports', 'issues', 'coverage', 'linkAssessment'], [], invalid);
+    if (row.version !== 4 || row.executionReady !== false || typeof row.operationKind !== 'string' || !['move', 'delete'].includes(row.operationKind)
+      || row.readiness !== 'requires-import-rebinding' && row.readiness !== 'blocked') return invalid();
+    workspace(row.workspaceId, invalid); planId(row.planId, invalid);
+    const paths = list(row.paths, MAX_SELECTIONS, invalid); if (!paths.length || row.operationKind === 'delete' && paths.length !== 1) return invalid();
+    for (const value of paths) {
+      const selected = record(value, ['sourcePath', ...(row.operationKind === 'move' ? ['destinationPath'] : [])], [], invalid);
+      pathname(selected.sourcePath, invalid); if (row.operationKind === 'move') pathname(selected.destinationPath, invalid);
+    }
+    const imports = list(row.imports, MAX_STEPS, invalid), seen = new Set<string>();
+    for (const value of imports) {
+      const imported = record(value, ['path', 'reasons'], [], invalid), file = pathname(imported.path, invalid);
+      if (seen.has(file)) return invalid(); seen.add(file);
+      const reasons = list(imported.reasons, 2, invalid);
+      if (!reasons.length || reasons.some(reason => reason !== 'selected' && reason !== 'link-change')
+        || JSON.stringify(reasons) !== JSON.stringify(['selected', 'link-change'].filter(reason => reasons.includes(reason)))) return invalid();
+    }
+    const issues = list(row.issues, MAX_STEPS, invalid);
+    for (const value of issues) {
+      const issue = record(value, ['code', 'path'], [], invalid);
+      if (typeof issue.code !== 'string' || !/^[a-z][a-z0-9-]{0,99}$/u.test(issue.code)) return invalid();
+      if (issue.path !== '') pathname(issue.path, invalid);
+    }
+    if (row.readiness === 'blocked' ? !issues.length : issues.length || !imports.length) return invalid();
+    const coverage = record(row.coverage, ['complete'], [], invalid); if (typeof coverage.complete !== 'boolean') return invalid();
+  const assessment = record(row.linkAssessment, ['complete', 'warnings', 'blockers'], [], invalid);
+  if (typeof assessment.complete !== 'boolean') return invalid();
+  const warnings = list(assessment.warnings, MAX_STEPS, invalid), blockers = list(assessment.blockers, MAX_STEPS, invalid);
+  for (const [items, warning] of [[warnings, true], [blockers, false]] as const) for (const item of items) {
+    const diagnostic = record(item, ['code', 'path', 'targets'], ['line'], invalid);
+    if (warning ? !['unaffected-existing-link','unaffected-explicit-html-link'].includes(String(diagnostic.code))
+      : !['affected-unresolved-link','uninspected-source','unevaluated-link','affected-html-link','resolution-changed'].includes(String(diagnostic.code))) return invalid();
+    pathname(diagnostic.path, invalid);
+    if (Object.hasOwn(diagnostic, 'line') && integer(diagnostic.line, Number.MAX_SAFE_INTEGER, invalid) < 1) return invalid();
+    const targets = list(diagnostic.targets, MAX_STEPS, invalid);
+    if ((diagnostic.code === 'unaffected-explicit-html-link' || diagnostic.code === 'affected-html-link') && !targets.length) return invalid();
+    const uniqueTargets = new Set<string>();
+    for (const target of targets) {
+      const literal = text(target, 4096, invalid); if (uniqueTargets.has(literal)) return invalid(); uniqueTargets.add(literal);
+    }
+  }
+  if (assessment.complete && blockers.length) return invalid();
+  if (row.readiness === 'requires-import-rebinding' && (!assessment.complete || blockers.length)) return invalid();
+    return row as unknown as DirectMcpWorkspacePathHtmlImportPreviewV4;
+}
 const preview = (value: Json | undefined, invalid: () => never): DirectMcpWorkspacePathPreviewV1 => {
   if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-html-assessment') {
     return value.version === 3 ? htmlDeletePreviewV3(value, invalid) : htmlPreviewV2(value, invalid);
   }
   if (value && typeof value === 'object' && !Array.isArray(value) && value.kind === 'native-path-import-preparation') {
+    if (value.version === 4) return htmlImportPreviewV4(value, invalid);
     const row = record(value, ['version', 'kind', 'operationKind', 'workspaceId', 'planId', 'executionReady', 'readiness', 'paths', 'imports', 'issues', 'coverage'], [], invalid);
     if (row.version !== 1 || row.executionReady !== false || typeof row.operationKind !== 'string' || !['move', 'delete'].includes(row.operationKind)
       || row.readiness !== 'requires-import-rebinding' && row.readiness !== 'blocked') return invalid();
@@ -533,6 +584,14 @@ const htmlDeletePreviewSchemaV3 = {
 export const DIRECT_MCP_WORKSPACE_DELETE_HTML_PREVIEW_SCHEMA_V3 = frozen(htmlDeletePreviewSchemaV3);
 
 
+const htmlImportDiagnosticSchemaV4 = (warning: boolean) => objectSchema({
+  code: { type: 'string', enum: warning ? ['unaffected-existing-link','unaffected-explicit-html-link']
+    : ['affected-unresolved-link','uninspected-source','unevaluated-link','affected-html-link','resolution-changed'] },
+  path: pathSchema, line: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+  targets: arraySchema({ type: 'string', minLength: 1, maxLength: 4096 }),
+}, ['code','path','targets']);
+const htmlImportAssessmentSchemaV4 = objectSchema({ complete: booleanSchema,
+  warnings: arraySchema(htmlImportDiagnosticSchemaV4(true)), blockers: arraySchema(htmlImportDiagnosticSchemaV4(false)) });
 const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf: [
   objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({ kind: { const: kind, type: 'string' },
     workspaceId: workspaceSchema, planId: planSchema, readiness: { const: 'ready', type: 'string' },
@@ -547,6 +606,16 @@ const outputSchema = (kind: 'move' | 'delete') => frozen({ type: 'object', oneOf
     imports: arraySchema(objectSchema({ path: pathSchema, reasons: { type: 'array', items: { type: 'string', enum: ['selected', 'link-change'] }, minItems: 1, maxItems: 2, uniqueItems: true } })),
     issues: arraySchema(objectSchema({ code: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,99}$' }, path: { anyOf: [pathSchema, { const: '', type: 'string' }] } })),
     coverage: objectSchema({ complete: { const: true, type: 'boolean' } }),
+  }) }),
+  objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: 'preview', type: 'string' }, preview: objectSchema({
+    version: { const: 4, type: 'integer' }, kind: { const: 'native-path-import-preparation', type: 'string' },
+    operationKind: { const: kind, type: 'string' }, workspaceId: workspaceSchema, planId: planSchema,
+    executionReady: { const: false, type: 'boolean' }, readiness: { type: 'string', enum: ['requires-import-rebinding', 'blocked'] },
+    paths: { ...arraySchema(objectSchema({ sourcePath: pathSchema, ...(kind === 'move' ? { destinationPath: pathSchema } : {}) }), kind === 'move' ? MAX_SELECTIONS : 1), minItems: 1 },
+    imports: arraySchema(objectSchema({ path: pathSchema, reasons: { type: 'array', items: { type: 'string', enum: ['selected', 'link-change'] }, minItems: 1, maxItems: 2, uniqueItems: true } })),
+    issues: arraySchema(objectSchema({ code: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,99}$' }, path: { anyOf: [pathSchema, { const: '', type: 'string' }] } })),
+    coverage: objectSchema({ complete: booleanSchema }),
+    linkAssessment: htmlImportAssessmentSchemaV4,
   }) }),
   ...(['apply', 'recover', 'status'] as const).map(action => objectSchema({ apiVersion: { const: 1, type: 'integer' }, action: { const: action, type: 'string' },
     operation: operationResultSchema, ...(action === 'status' ? {} : { alreadyKnown: booleanSchema }) })),

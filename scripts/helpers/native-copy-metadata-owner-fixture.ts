@@ -11,7 +11,7 @@ import { serializeSignedCookie } from 'better-call';
 import type { SqlConnection } from '../../app/lib/db';
 import type { WorkspaceContext } from '../../app/lib/workspaces/types';
 
-export type MetadataSqlEvent = Readonly<{ text: string; values: unknown[]; client: PoolClient; result: QueryResult;
+export type MetadataSqlEvent = Readonly<{ text: string; values: unknown[]; queryForm: 'text' | 'native-adapter' | 'drizzle'; client: PoolClient; result: QueryResult;
   raw: (text: string, values?: unknown[]) => Promise<QueryResult> }>;
 export type MetadataSqlProbe = (event: MetadataSqlEvent) => Promise<void>;
 // This helper owns only private configuration/schema/data. Real request
@@ -169,7 +169,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
         const callback = args.length === 3 && typeof args[2] === 'function' && Array.isArray(args[1])
           && args[0] !== null && typeof args[0] === 'object' ? args[2] as (...values: unknown[]) => unknown : undefined;
         if (typeof args.at(-1) === 'function' && !callback) return Reflect.apply(original, client, args);
-        let text: string, values: unknown[] | undefined;
+        let text: string, values: unknown[] | undefined, queryForm: MetadataSqlEvent['queryForm'] = 'text';
         if (typeof args[0] === 'string') {
           text = args[0]; values = args[1] as unknown[] | undefined;
         } else {
@@ -190,6 +190,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
             && (fields.name.value === undefined || typeof fields.name.value === 'string')
             && (!Object.hasOwn(fields, 'rowMode') || fields.rowMode.value === 'array');
           if (!adapter && !drizzle) return Reflect.apply(original, client, args);
+          queryForm = adapter ? 'native-adapter' : 'drizzle';
           text = fields.text.value; values = adapter ? fields.values.value : args[1] as unknown[];
         }
         const reportSqlFailure = (error: unknown) => {
@@ -221,7 +222,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
             // while its pool callback still retains this exact acquired client.
             // Both Promise branches terminate; callback throws follow pg's own
             // nextTick policy instead of becoming an unhandled rejection.
-            void Promise.resolve().then(() => currentProbe({ text, values: values ?? [], client,
+            void Promise.resolve().then(() => currentProbe({ text, values: values ?? [], queryForm, client,
               result: callbackArgs[1] as QueryResult, raw })).then(
               () => deliver(callbackArgs),
               error => deliver([error instanceof Error ? error : new Error('Metadata SQL probe failed.', { cause: error }),
@@ -235,7 +236,7 @@ export async function withNativeCopyMetadataOwnerFixture<T>(operation: (fixture:
           try { answer = await Reflect.apply(original, client, args) as QueryResult; }
           catch (error) { reportSqlFailure(error); throw error; }
           if (probe && !activeProbe) { activeProbe = true;
-            try { await probe({ text, values: values ?? [], client, result: answer, raw }); } finally { activeProbe = false; } }
+            try { await probe({ text, values: values ?? [], queryForm, client, result: answer, raw }); } finally { activeProbe = false; } }
           return answer;
         })();
       } });

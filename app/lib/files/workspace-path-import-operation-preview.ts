@@ -17,13 +17,14 @@ import { createWorkspacePathHtmlNoImportPreparationPlanV2,
   type WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 import { createWorkspacePathHtmlNativeDeletePreparationPlanV3,
   type WorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
+import { createWorkspacePathHtmlImportPreparationPlanV4, type WorkspacePathHtmlImportPreparationPlanV4 } from './workspace-path-html-import-preparation';
 import type { WorkspacePathImportPreparationPrincipal } from './workspace-path-import-preparation-phase';
 
 type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind: 'move' | 'rename' | 'delete';
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
 export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
-  | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5;
+  | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5 | WorkspacePathHtmlImportPreparationPlanV4;
 export class WorkspacePathImportPreviewError extends Error {
   readonly status: 403 | 409 | 422 | 503;
   constructor(readonly code: 'PATH_IMPORT_PREVIEW_INVALID' | 'PATH_IMPORT_PREVIEW_BUSY' | 'PATH_IMPORT_PREVIEW_UNAVAILABLE'
@@ -107,7 +108,11 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           && physicalNode.filesystemIdentity && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(physicalNode.path)
           && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
           && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
-        const plan = physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
+        const htmlImport = !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
+          selections: captured.selections.map(value => ({ ...value })), observation }) : null;
+        const plan = htmlImport && (htmlImport.importRequirements.length > 0
+          || htmlImport.issues.some(issue => issue.code === 'raw-markdown-html-import-unsupported')) ? htmlImport
+          : physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
           selections: captured.selections.map(({sourcePath}) => ({sourcePath})), observation }) : !observation.stage.coverage.complete
           ? captured.kind === 'delete' ? createWorkspacePathHtmlNativeDeletePreparationPlanV3({ scope, kind: 'delete',
             selections: captured.selections.map(({ sourcePath }) => ({ sourcePath })), observation })

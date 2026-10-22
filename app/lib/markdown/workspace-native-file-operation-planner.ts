@@ -13,7 +13,7 @@ import type { NativeLinkMutationRecipe,
   NativeResolvedLink, NativeWorkspaceFileOperationPlan, NativeWorkspaceLinkSnapshot } from './workspace-link-contract-v2';
 import type { FilePlanV3, MixedReadResolvedLinkV3, WorkspaceMixedReadLinkSnapshotV3 } from './workspace-link-contract-v3';
 import type { NativeMixedImportCopyBatchPlanV4, NativeMixedPhysicalLinkIntentV4,
-  NativeMixedRawImportRequirementV4 } from './workspace-native-mixed-batch-compiler';
+  NativeMixedRawImportRequirementV4, NativeMixedHtmlImportCopyBatchPlanV6, NativeMixedRawImportRequirementV6 } from './workspace-native-mixed-batch-compiler';
 
 export type WorkspaceMixedImportCopyFilePlanV4 = Omit<NativeWorkspaceFileOperationPlan, 'contractVersion'> & {
   contractVersion: 4; physicalLinkIntents: NativeMixedPhysicalLinkIntentV4[];
@@ -63,6 +63,54 @@ export function createWorkspaceMixedImportCopyFileOperationPlanV4(input: {
     issues: compiled.issues.map(({ requestIndex: _request, ...issue }) => issue) };
   return { ...body, planId: nativeLinkJsonProof(body) };
 }
+
+export type WorkspaceMixedHtmlImportCopyFilePlanV6 = Omit<WorkspaceMixedImportCopyFilePlanV4, 'contractVersion' | 'rawImportRequirements'> & {
+  contractVersion: 6; rawImportRequirements: NativeMixedRawImportRequirementV6[];
+} & Pick<FilePlanV5, 'htmlAssessment' | 'htmlAssessmentProof' | 'sourceCoverage'>;
+
+/** C1 projection of the genuine Compiler6; actual HTML safety facts are retained. */
+export function createWorkspaceMixedHtmlImportCopyFileOperationPlanV6(input: {
+  snapshots: readonly WorkspaceMixedHtmlLinkSnapshotV5[]; compilation: NativeMixedHtmlImportCopyBatchPlanV6;
+}): WorkspaceMixedHtmlImportCopyFilePlanV6 {
+  const compiled = input.compilation, request = compiled.requests[0], step = compiled.steps[0];
+  if (compiled.contractVersion !== 6 || compiled.compilerVersion !== 1 || compiled.requests.length !== 1
+    || request?.kind !== 'copy' || compiled.steps.length !== (compiled.issues.length ? 0 : 1)
+    || compiled.snapshotProofs.length !== input.snapshots.length
+    || compiled.snapshotProofs.some(pin => !input.snapshots.some(snapshot => snapshot.workspaceId === pin.workspaceId && snapshot.snapshotProof === pin.proof))) {
+    throw new Error('MIXED_COPY_IMPORT_PLAN_INVALID');
+  }
+  const originals = input.snapshots.flatMap(snapshot => snapshot.namespace);
+  const pathMappings = (step?.namespaceEffects ?? []).map(effect => {
+    const source = originals.find(entry => nativeLinkJsonProof({ workspaceId: entry.workspaceId, identity: entry.identity }) === effect.sourceEntityKey);
+    if (!source || effect.sourceWorkspaceId !== request.sourceWorkspaceId || effect.destinationWorkspaceId !== request.destinationWorkspaceId
+      || effect.sourcePath !== source.path || !effect.destinationPath
+      || effect.entityKey !== nativeLinkJsonProof({ requestIndex: 0, sourceEntityKey: effect.sourceEntityKey,
+        destinationWorkspaceId: effect.destinationWorkspaceId, destinationPath: effect.destinationPath })) throw new Error('MIXED_COPY_IMPORT_PLAN_INVALID');
+    return { source, destinationPath: effect.destinationPath, destinationWorkspaceId: effect.destinationWorkspaceId };
+  }).sort((a, b) => a.source.path.localeCompare(b.source.path));
+  const mutations: NativeLinkMutationRecipe[] = (step?.linkIntents ?? []).map(intent => {
+    const sourcePath = step.namespaceEffects.find(effect => effect.entityKey === intent.entityKey)?.sourcePath;
+    const inventory = input.snapshots.find(snapshot => snapshot.workspaceId === request.sourceWorkspaceId)?.documents.find(value => value.document.path === sourcePath);
+    const link = inventory?.links.find(value => value.id === intent.originEvidenceLinkId);
+    const mapping = pathMappings.find(value => value.source.path === sourcePath);
+    const target = originals.find(entry => nativeLinkJsonProof({ workspaceId: entry.workspaceId, identity: entry.identity }) === intent.expectedTargetEntityKey);
+    const selected = request.selections.find(value => sourcePath === value.sourcePath || sourcePath?.startsWith(value.sourcePath + '/'));
+    if (!inventory || !link || !mapping || !target || !selected || intent.action !== 'rewrite' || intent.nextValue === null
+      || intent.expectedValue !== String(link.ref.kind === 'link-mark' ? link.ref.expected.href : link.ref.expected)) throw new Error('MIXED_COPY_IMPORT_PLAN_INVALID');
+    return { linkId: link.id, source: inventory.document, sourceVersion: inventory.version, reference: link.ref,
+      destinationWorkspaceId: request.destinationWorkspaceId, sourcePathAfter: mapping.destinationPath,
+      cloneSelection: selected.sourcePath,
+      action: 'rewrite', nextValue: intent.nextValue, expectedTargetIdentity: target.identity };
+  });
+  const body = { contractVersion: 6 as const, kind: 'copy' as const, sourceWorkspaceId: request.sourceWorkspaceId,
+    destinationWorkspaceId: request.destinationWorkspaceId, snapshotProofs: compiled.snapshotProofs, pathMappings, mutations,
+    physicalLinkIntents: step?.physicalLinkIntents ?? [], rawImportRequirements: compiled.rawImportRequirements,
+    readiness: compiled.issues.length ? 'blocked' as const : 'ready' as const,
+    htmlAssessment: compiled.htmlAssessment, htmlAssessmentProof: compiled.htmlAssessmentProof, sourceCoverage: compiled.sourceCoverage,
+    issues: compiled.issues.map(({ requestIndex: _request, ...issue }) => issue) };
+  return { ...body, planId: nativeLinkJsonProof(body) };
+}
+
 
 export type NativeWorkspaceFileOperationRequest = {
   kind: NativeWorkspaceFileOperationPlan['kind'];

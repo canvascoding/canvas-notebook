@@ -1,4 +1,8 @@
 import 'server-only';
+import { nativeRawHtmlCopyLinkTargets } from '../markdown/workspace-native-raw-html-copy-link-updates';
+import { readNativeCopyMarkdownHtmlInitialRecordsOnConnection } from '../collaboration/native-copy-markdown-html-initial-records';
+import type { WorkspaceOperationRawHtmlCopyStageV8 } from './workspace-operation-raw-html-copy-stage';
+import { nativeCopyPhaseRawHtmlTargetHistoryStep, type NativeCopyPhaseRawTargetStepV2 } from './workspace-operation-native-copy-phase-contract';
 import { nativeCopyHtmlLinkResultEvidenceV4, type NativeCopyHtmlLinkResultEvidenceV4 } from './workspace-operation-native-copy-html-link-receipt';
 
 import { isDeepStrictEqual as equal } from 'node:util';
@@ -12,7 +16,7 @@ import type { NativeCopyReceipt } from '../collaboration/native-copy-persistence
 import type { NativeLinkMutationReceipt } from '../markdown/native-link-mutation-persistence';
 import { serializeWorkspaceOperationRequest, readWorkspaceOperationJournalOnConnection,
   type WorkspaceOperationWithSteps } from './workspace-operation-journal';
-import type { WorkspaceOperationOwnedCopyStage, WorkspaceOperationManagedCopyStageV6 } from './workspace-operation-managed-copy-stage';
+import type { WorkspaceOperationOwnedCopyStage, WorkspaceOperationManagedCopyStageV6 as LegacyRawStageV6 } from './workspace-operation-managed-copy-stage';
 import { assertNativeCopyPhaseReceipt, copyPhaseChanged, NativeCopyPhaseError, nativeCopyPhaseExpectedLinks,
   nativeCopyPhaseSha, nativeCopyPhaseStepCount } from './workspace-operation-native-copy-phase-contract';
 import { NATIVE_COPY_COMPLETION_STEP_KEY, nativeCopyPhaseReceiptProof, nativeCopyPhaseCompletionFence } from './workspace-operation-native-copy-phase-contract';
@@ -28,6 +32,7 @@ import { nativeCopyPhaseRawTargetStep, nativeCopyPhaseRawTargetHistoryStep, nati
   type NativeCopyPhaseRawTargetStepV1 } from './workspace-operation-native-copy-phase-contract';
 import { NATIVE_LINK_MUTATION_RECEIPT_STATEMENTS } from '../db/native-link-mutation-migration';
 
+type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8;
 type Row = Record<string, unknown>;
 const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
 const bounded = (value: unknown, maximum: number) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= maximum;
@@ -227,7 +232,7 @@ export async function readNativeCopyPhaseLinkReceiptsOnConnection(database: SqlC
       after: { stateProof: row.after_state_proof as string, stateVector: Buffer.from(row.after_state_vector).toString('base64'), documentSequence: 1,
         persistedAt: Number(row.persisted_at) }, afterStateSnapshot: Buffer.from(row.after_state_snapshot),
       inverseRecipes: row.inverse_recipes as NativeLinkMutationReceipt['inverseRecipes'] };
-    if (stage.version === 7) {
+    if (stage.version === 7 || stage.version === 8) {
       const result = nativeCopyHtmlLinkResultEvidenceV4(original, native);
       return { stepKey: link.stepKey, mutationId: link.mutationId, receipt: native,
         receiptProof: result.receiptProof, htmlEvidence: result.evidence };
@@ -237,7 +242,7 @@ export async function readNativeCopyPhaseLinkReceiptsOnConnection(database: SqlC
 }
 
 export type NativeCopyPhaseRawLinkReceipt = Readonly<{
-  birth: NativeCopyMarkdownBirthV1; receipt: NativeLinkMutationReceipt | null; confirmation: NativeCopyPhaseRawTargetStepV1;
+  birth: NativeCopyMarkdownBirthV1; receipt: NativeLinkMutationReceipt | null; confirmation: NativeCopyPhaseRawTargetStepV1 | NativeCopyPhaseRawTargetStepV2;
 }>;
 
 /** Complete immutable SQL receipt cohort. This grants no authority and loads
@@ -320,14 +325,19 @@ export async function readNativeCopyPhaseRawLinkReceiptsOnConnection(database: S
   const births = nativeCopyPhaseRawBirths(stage, nativeReceipt, suppliedBirths);
   await assertNativeCopySessionOnConnection(database, stage.origin);
   const pinned = await journalHeaderWitness(database);
-  const targets = nativeRawCopyLinkTargets({ plan: stage.plan, parent: { operationId: stage.identity.operationId,
-    stageDigest: stage.payloadSha256, requestHash: stage.identity.canonicalRequestHash }, births, nativeReceipt });
+  const targets = stage.version === 8 ? nativeRawHtmlCopyLinkTargets({ plan: stage.plan, parent: { operationId: stage.identity.operationId,
+    stageDigest: stage.payloadSha256, requestHash: stage.identity.canonicalRequestHash }, births, nativeReceipt })
+    : nativeRawCopyLinkTargets({ plan: stage.plan, parent: { operationId: stage.identity.operationId,
+      stageDigest: stage.payloadSha256, requestHash: stage.identity.canonicalRequestHash }, births, nativeReceipt });
+  const initial = stage.version === 8 ? await readNativeCopyMarkdownHtmlInitialRecordsOnConnection(database,births) : null;
   const rows = await readRawCopyLinkRows(database, births);
   const result = targets.map((target, index) => {
     const receipt = rows.get(target.mutationId) ?? null;
     if (!!receipt !== !!target.recipes.length) copyPhaseChanged();
     rows.delete(target.mutationId);
-    return { birth: births[index], receipt, confirmation: nativeCopyPhaseRawTargetStep(stage, births[index], receipt) };
+    return { birth: births[index], receipt, confirmation: stage.version === 8 ? nativeCopyPhaseRawHtmlTargetHistoryStep({
+      operationId:stage.identity.operationId,planId:stage.plan.planId,stageDigest:stage.payloadSha256,requestHash:stage.identity.canonicalRequestHash,origin:stage.origin
+    },births[index],receipt,initial!.certificates[index]) : nativeCopyPhaseRawTargetStep(stage,births[index],receipt) };
   });
   if (rows.size || pinned !== await journalHeaderWitness(database)) copyPhaseChanged();
   await assertNativeCopySessionOnConnection(database, stage.origin);
@@ -338,13 +348,15 @@ export async function readNativeCopyPhaseRawLinkReceiptsOnConnection(database: S
  * Stage reconstruction, current state/seq0, FD reads or native rebinding. */
 async function readRawCopyHistoryConfirmations(database: SqlConnection,
   parent: Parameters<typeof nativeCopyPhaseRawTargetHistoryStep>[0],
-  births: readonly NativeCopyMarkdownBirthV1[]): Promise<readonly NativeCopyPhaseRawLinkReceipt[]> {
+  births: readonly NativeCopyMarkdownBirthV1[], html = false, mode: 'owner'|'mcp-status' = 'owner'): Promise<readonly NativeCopyPhaseRawLinkReceipt[]> {
+  const initial = html ? await readNativeCopyMarkdownHtmlInitialRecordsOnConnection(database,births,mode) : null;
   const rows = await readRawCopyLinkRows(database, births), result: NativeCopyPhaseRawLinkReceipt[] = [];
   for (const birth of births) {
     const mutationId = nativeRawCopyLinkMutationId({ operationId: parent.operationId, stageDigest: parent.stageDigest,
       entityKey: birth.parent.entityKey });
     const receipt = rows.get(mutationId) ?? null;
-    const confirmation = nativeCopyPhaseRawTargetHistoryStep(parent, birth, receipt);
+    const confirmation = html ? nativeCopyPhaseRawHtmlTargetHistoryStep(parent,birth,receipt,initial!.certificates[birth.parent.requirementIndex])
+      : nativeCopyPhaseRawTargetHistoryStep(parent,birth,receipt);
     const step = await database.get(`SELECT phase,status,before_fence,after_fence,backup_ref,
       CASE WHEN octet_length(receipt_json)<=16384 THEN receipt_json END AS receipt_json
       FROM workspace_file_operation_steps WHERE operation_id=$1 AND step_key=$2`,
@@ -394,7 +406,7 @@ async function historyRelations(database: SqlConnection, storage: NativeCopyRece
  * published receipt and original completion never authorize another mutation. */
 export async function readCompletedNativeCopyHistoryOnConnection(database: SqlConnection,
   input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4 | 5 | 6 | 7; managedReceipt?: ExcalidrawCopyBirthReceipt;
+    stageVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8; managedReceipt?: ExcalidrawCopyBirthReceipt;
     rawBirths?: readonly NativeCopyMarkdownBirthV1[]; rawTargets?: readonly NativeCopyPhaseRawLinkReceipt[] }> | null> {
   return readCompletedCopyHistory(database, input, 'owner');
 }
@@ -403,7 +415,7 @@ export async function readCompletedNativeCopyHistoryOnConnection(database: SqlCo
  * establish its private RR/RO frame; this is not a mutation-owner adapter. */
 export async function readCompletedMcpNativeCopyHistoryOnConnection(database: SqlConnection,
   input: CompletedNativeCopyHistoryInput): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4 | 5 | 6 | 7; managedReceipt?: ExcalidrawCopyBirthReceipt;
+    stageVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8; managedReceipt?: ExcalidrawCopyBirthReceipt;
     rawBirths?: readonly NativeCopyMarkdownBirthV1[]; rawTargets?: readonly NativeCopyPhaseRawLinkReceipt[] }> | null> {
   return readCompletedCopyHistory(database, input, 'mcp-status');
 }
@@ -416,7 +428,7 @@ async function assertCompletedCopyHistorySession(database: SqlConnection, origin
 
 async function readCompletedCopyHistory(database: SqlConnection, input: CompletedNativeCopyHistoryInput,
   mode: 'owner' | 'mcp-status'): Promise<Readonly<{ operation: WorkspaceOperationRecord; nativeReceipt: NativeCopyReceipt;
-    stageVersion: 2 | 3 | 4 | 5 | 6 | 7; managedReceipt?: ExcalidrawCopyBirthReceipt;
+    stageVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8; managedReceipt?: ExcalidrawCopyBirthReceipt;
     rawBirths?: readonly NativeCopyMarkdownBirthV1[]; rawTargets?: readonly NativeCopyPhaseRawLinkReceipt[] }> | null> {
   const captured = captureWorkspaceOperationNativePlanData(input, copyPhaseChanged);
   const value = object(captured, ['operationId', 'origin', 'requestHash', 'planId', 'storage',
@@ -461,13 +473,13 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
   const completed = object(parsed, ['version', 'kind', 'canonicalRequestHash', 'planId', 'stageDigest',
     'nativeRequestFingerprint', 'copyReceiptProof', 'admissionsProof', ...(version === 2 ? ['coreV2StageDigest', 'metadata'] : []),
     ...((version === 3 || version === 4 || version === 5) ? ['metadata', 'sceneIntentProof', 'sceneBirthProof', 'assetReceiptProof'] : []),
-    ...(version === 5 ? ['rawBirthsProof', 'rawBirthCount'] : []),
-    ...(version === 6 ? ['metadata', 'htmlAssessmentProof'] : [])]);
-  if (![1, 2, 3, 4, 5, 6].includes(completed.version as number) || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
+    ...((version === 5 || version === 7) ? ['rawBirthsProof', 'rawBirthCount'] : []),
+    ...((version === 6 || version === 7) ? ['metadata', 'htmlAssessmentProof'] : [])]);
+  if (![1, 2, 3, 4, 5, 6, 7].includes(completed.version as number) || completed.kind !== 'native-copy-completion' || completed.canonicalRequestHash !== value.requestHash
     || completed.planId !== value.planId || completed.stageDigest !== step.after_fence
     || ![completed.stageDigest, completed.nativeRequestFingerprint, completed.copyReceiptProof, completed.admissionsProof].every(hash)) copyPhaseChanged();
-  const metadata = completed.version === 2 || completed.version === 3 || completed.version === 4 || completed.version === 5 || completed.version === 6 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
-  if (completed.version === 6 && !hash(completed.htmlAssessmentProof)) copyPhaseChanged();
+  const metadata = completed.version === 2 || completed.version === 3 || completed.version === 4 || completed.version === 5 || completed.version === 6 || completed.version === 7 ? decodeNativeCopyMetadataCompletionWitness(completed.metadata) : null;
+  if ((completed.version === 6 || completed.version === 7) && !hash(completed.htmlAssessmentProof)) copyPhaseChanged();
   if (completed.version === 2 && metadata && (!hash(completed.coreV2StageDigest)
     || nativeCopyMetadataCompositeDigest(completed.coreV2StageDigest, { version: metadata.version, kind: metadata.kind,
       snapshotProof: metadata.snapshotProof, sourceRowCount: metadata.sourceRowCount, copiedTitleCount: metadata.copiedTitleCount }) !== completed.stageDigest)) copyPhaseChanged();
@@ -493,13 +505,13 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
     managedReceipt = scene;
   }
   let rawBirths: readonly NativeCopyMarkdownBirthV1[] | undefined, rawTargets: readonly NativeCopyPhaseRawLinkReceipt[] | undefined;
-  if (completed.version === 5) {
+  if (completed.version === 5 || completed.version === 7) {
     if (!hash(completed.rawBirthsProof) || !bounded(completed.rawBirthCount, 10000)) copyPhaseChanged();
     const parent = { operationId: value.operationId, planId: value.planId, stageDigest: completed.stageDigest as string,
       requestHash: value.requestHash, origin };
     rawBirths = await readHistoricalNativeCopyMarkdownBirthsOnConnection(database, { ...parent,
       expectedBirthsProof: completed.rawBirthsProof, expectedBirthCount: completed.rawBirthCount as number });
-    rawTargets = await readRawCopyHistoryConfirmations(database, parent, rawBirths);
+    rawTargets = await readRawCopyHistoryConfirmations(database,parent,rawBirths,completed.version===7,mode);
   }
   const scopes = await database.get(`SELECT CASE WHEN octet_length(scope_paths::text)<=131072 THEN scope_paths END AS scopes${metadata ? ',created_at' : ''}
     FROM collaboration_native_copy_receipts WHERE workspace_id=$1 AND operation_id=$2`,
@@ -512,6 +524,6 @@ async function readCompletedCopyHistory(database: SqlConnection, input: Complete
     actor: { type: origin.actor.type, id: origin.actor.userId }, sourceWorkspaceId: origin.sourceScope.workspaceId,
     destinationWorkspaceId: origin.destinationScope.workspaceId, expectedStepCount: Number(header.expected_step_count), status: 'completed', phase: 'completed',
     revision: Number(header.revision), errorCode: header.error_code as string | null, createdAt: Number(header.created_at), updatedAt: Number(header.updated_at) }, nativeReceipt,
-    stageVersion: completed.version === 6 ? 7 : completed.version === 5 ? 6 : completed.version === 4 ? 5 : completed.version === 3 ? 4 : completed.version === 2 ? 3 : 2,
+    stageVersion: completed.version === 7 ? 8 : completed.version === 6 ? 7 : completed.version === 5 ? 6 : completed.version === 4 ? 5 : completed.version === 3 ? 4 : completed.version === 2 ? 3 : 2,
     ...(managedReceipt ? { managedReceipt } : {}), ...(rawBirths ? { rawBirths, rawTargets } : {}) };
 }

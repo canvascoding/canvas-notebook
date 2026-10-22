@@ -590,7 +590,7 @@ class CopyBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
         preview = get_type_hints(models.WorkspaceCopyPreviewResult)["preview"]
         self.assertEqual(set(get_args(preview)),
-                         {models.WorkspaceCopyPreview, models.WorkspaceCopyHtmlPreviewV5})
+                         {models.WorkspaceCopyPreview, models.WorkspaceCopyHtmlPreviewV5, models.WorkspaceCopyRawHtmlPreviewV6})
         original = get_type_hints(models.WorkspaceCopyPreview)
         html = get_type_hints(models.WorkspaceCopyHtmlPreviewV5)
         self.assertEqual(original["version"], Literal[4])
@@ -669,7 +669,79 @@ class CopyBoundaryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(transport.calls, [(TOOL, {
                     "api_version": 1, "action": "preview", "source_workspace_id": "source",
                     "destination_workspace_id": destination, "selections": SELECTIONS, "rename_on_collision": False})])
+    def test_raw_html_v6_types_preserve_both_old_arms_and_require_real_binding_fields(self) -> None:
+        from typing import Literal, NoReturn, get_args, get_type_hints
+        from canvas_notebook import models
 
+        old = get_type_hints(models.WorkspaceCopyPreview)
+        html = get_type_hints(models.WorkspaceCopyHtmlPreviewV5)
+        raw = get_type_hints(models.WorkspaceCopyRawHtmlPreviewV6)
+        self.assertEqual(old["version"], Literal[4])
+        self.assertEqual(html["version"], Literal[5])
+        self.assertNotIn("importLinkBindings", old)
+        self.assertNotIn("importLinkBindings", html)
+        self.assertEqual(raw["version"], Literal[6])
+        self.assertEqual(set(raw), set(html) | {"importLinkBindings"})
+        for name in set(html) - {"version"}:
+            self.assertEqual(raw[name], html[name])
+        self.assertEqual(models.WorkspaceCopyRawHtmlPreviewV6.__required_keys__, frozenset(raw))
+        self.assertEqual(models.WorkspaceCopyRawHtmlPreviewV6.__optional_keys__, frozenset())
+        self.assertEqual(raw["issues"], list[NoReturn])
+        self.assertEqual(raw["importLinkBindings"], models.WorkspaceCopyRawImportLinkBindings)
+        binding = get_type_hints(models.WorkspaceCopyRawImportLinkBindings)
+        self.assertEqual(binding, {"status": Literal["requires-native-import-rebinding"],
+                                   "targets": list[models.WorkspaceCopyRawImportLinkTarget]})
+        target = get_type_hints(models.WorkspaceCopyRawImportLinkTarget)
+        self.assertEqual(target, {"sourcePathBefore": str, "sourcePathAfter": str, "previousTargetLiteral": str,
+                                  "targetPathAfter": str, "fragment": str | None, "alias": str | None, "embed": bool})
+        self.assertEqual(models.WorkspaceCopyRawImportLinkTarget.__required_keys__, frozenset(target))
+        self.assertEqual(set(get_args(get_type_hints(models.WorkspaceCopyPreviewResult)["preview"])),
+                         {models.WorkspaceCopyPreview, models.WorkspaceCopyHtmlPreviewV5, models.WorkspaceCopyRawHtmlPreviewV6})
+
+    async def test_raw_html_v6_response_fixture_is_lossless_and_dispatches_only_original_preview(self) -> None:
+        # Synthetic wire/transport fixtures only; no import, auth or Owner proof.
+        for destination in ("source", "destination"):
+            with self.subTest(destination=destination):
+                source_coverage = [{"workspaceId": "source", "coverage": {"complete": False,
+                    "gaps": [{"code": "uninspected-html", "path": "unrelated.html"}]}}]
+                if destination != "source":
+                    source_coverage.append({"workspaceId": destination, "coverage": {"complete": True, "gaps": []}})
+                targets = [{"sourcePathBefore": "source.md", "sourcePathAfter": "copy.md",
+                            "previousTargetLiteral": "source.md#Heading", "targetPathAfter": "copy.md",
+                            "fragment": "Heading", "alias": None, "embed": False},
+                           {"sourcePathBefore": "source.md", "sourcePathAfter": "copy.md",
+                            "previousTargetLiteral": "picture.png", "targetPathAfter": "picture.png",
+                            "fragment": None, "alias": "🧪", "embed": True}]
+                payload = {"apiVersion": 1, "action": "preview", "preview": {
+                    "version": 6, "kind": "native-copy", "sourceWorkspaceId": "source",
+                    "destinationWorkspaceId": destination, "planId": PLAN, "readiness": "ready",
+                    "pathMappings": [{"sourceWorkspaceId": "source", "sourcePath": "source.md",
+                        "destinationWorkspaceId": destination, "destinationPath": "copy.md", "sourceKind": "file",
+                        "sourceIdentity": "native-copy-preview:" + "b" * 64}], "linkEdits": [],
+                    "coverage": {"complete": False, "omittedSources": [], "unresolvedLinks": []},
+                    "linkAssessment": {"version": 1, "complete": True, "warnings": [{"workspaceId": "source",
+                        "sourcePath": "unrelated.html", "targetLiteral": '<a href="stable.pdf">Stable</a>',
+                        "status": "not-evaluated", "reason": "unaffected-explicit-html-link", "htmlTargets": ["stable.pdf"]}],
+                        "blockers": []}, "sourceCoverage": source_coverage,
+                    "importLinkBindings": {"status": "requires-native-import-rebinding", "targets": targets}, "issues": []}}
+                before = copy.deepcopy(payload)
+                raw = copy_result(payload)
+                raw.meta = {"sdk-unit": {"opaque": "raw-html-c1-fixture"}}
+                transport = CopyRecordingTransport(raw)
+                response = await CanvasNotebook(transport).copy_preview("source", destination, SELECTIONS)
+                self.assertIs(response.raw, raw)
+                self.assertIs(response.content, raw.content)
+                self.assertIs(response.structured_content, raw.structured_content)
+                self.assertIs(response.require_success(), raw.structured_content)
+                self.assertEqual(response.require_success(), before)
+                self.assertEqual(response.raw.meta, {"sdk-unit": {"opaque": "raw-html-c1-fixture"}})
+                self.assertEqual(response.require_success()["preview"]["importLinkBindings"]["targets"], targets)
+                self.assertFalse(response.require_success()["preview"]["coverage"]["complete"])
+                self.assertEqual(transport.calls, [(TOOL, {"api_version": 1, "action": "preview",
+                    "source_workspace_id": "source", "destination_workspace_id": destination,
+                    "selections": SELECTIONS, "rename_on_collision": False})])
+                self.assertEqual(transport.outcomes, [])
+                self.assertEqual(payload, before)
 
 
 if __name__ == "__main__":

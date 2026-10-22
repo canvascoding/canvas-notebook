@@ -22,8 +22,8 @@ import type { WorkspaceOperationBatchAuthorization, WorkspaceOperationDirectAuth
   WorkspaceOperationBatchPlan, WorkspaceOperationBatchProgress } from './workspace-operation-batch-contract';
 import type { WorkspaceContext } from '../workspaces/types';
 import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
-import { decodeWorkspacePathImportPreparationRecordV1, readWorkspacePathImportPreparationRecordOnConnection,
-  type WorkspacePathImportPreparationRecordV1 } from './workspace-path-import-preparation-record';
+import { decodeWorkspacePathAnyImportPreparationRecord, readWorkspacePathImportPreparationRecordOnConnection,
+  type WorkspacePathImportPreparationRecord } from './workspace-path-import-preparation-record';
 import { captureCollaborationAdmissionRequest } from '../collaboration/room-admission-contract';
 import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
 import { createWorkspaceOperationOriginalDeleteAdmissionRequest } from './workspace-operation-original-delete-admission';
@@ -1008,7 +1008,7 @@ export async function insertWorkspacePathImportOperationBatchOnConnection(databa
   }>> {
   const { assertWorkspacePathImportOperationPreparationOnConnection } = await import('./workspace-path-import-preparation-phase');
   const frame = await assertWorkspacePathImportOperationPreparationOnConnection(database, handle);
-  const original = decodeWorkspacePathImportPreparationRecordV1(frame.record), { access } = frame;
+  const original = decodeWorkspacePathAnyImportPreparationRecord(frame.record), { access } = frame;
   const { origin, nativePlan } = original, workspace = access.workspace;
   const scope = captureWorkspaceOperationJobScope(workspace);
   const clientId = 'clientId' in access ? access.clientId : null;
@@ -1097,14 +1097,14 @@ export async function insertWorkspacePathImportOperationBatchOnConnection(databa
  * header alone cannot replace its original P0. No current native/FD read or
  * new planning, claim, lease, reservation, transaction or COMMIT is performed. */
 export async function readWorkspacePathImportOperationBatchOnConnection(database: SqlConnection,
-  supplied: Readonly<{ record: WorkspacePathImportPreparationRecordV1; workspace: WorkspaceContext }>
+  supplied: Readonly<{ record: WorkspacePathImportPreparationRecord; workspace: WorkspaceContext }>
 ): Promise<WorkspaceOperationBatchRecord | null> {
   if (!supplied || typeof supplied !== 'object' || types.isProxy(supplied) || Object.getPrototypeOf(supplied) !== Object.prototype
     || Reflect.ownKeys(supplied).length !== 2) throw claimError('BATCH_CLAIM_CHANGED');
   const recordField = Object.getOwnPropertyDescriptor(supplied, 'record'), workspaceField = Object.getOwnPropertyDescriptor(supplied, 'workspace');
   if (!recordField?.enumerable || !Object.hasOwn(recordField, 'value')
     || !workspaceField?.enumerable || !Object.hasOwn(workspaceField, 'value')) throw claimError('BATCH_CLAIM_CHANGED');
-  const original = decodeWorkspacePathImportPreparationRecordV1(recordField.value);
+  const original = decodeWorkspacePathAnyImportPreparationRecord(recordField.value);
   const workspace: unknown = workspaceField.value;
   if (!workspace || typeof workspace !== 'object' || types.isProxy(workspace)
     || Object.getPrototypeOf(workspace) !== Object.prototype) throw claimError('BATCH_SCOPE_CHANGED');

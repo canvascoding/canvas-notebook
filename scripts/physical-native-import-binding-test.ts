@@ -1,20 +1,26 @@
 import assert from 'node:assert/strict';
-import { authoritativeNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
+import { createHash } from 'node:crypto';
+import { Y } from '../app/lib/collaboration/server-runtime';
+import { decodeNativeCopyMarkdownBirthV1 } from '../app/lib/collaboration/native-copy-markdown-birth-contract';
+import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import { prepareMarkdownFileImport } from '../app/lib/collaboration/markdown-file-import';
 import type { MarkdownFileImportReceipt } from '../app/lib/collaboration/markdown-file-import-persistence';
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { bindPhysicalNativeImportLinks, PhysicalNativeImportBindingError,
   type PhysicalNativeImportBindingInput } from '../app/lib/markdown/physical-native-import-binding';
+import { captureRawHtmlCopyNativeBindingV2, nativeCopyMarkdownHtmlInitialCertificate } from '../app/lib/markdown/workspace-raw-html-copy-binding';
 import { MAX_INDEXED_MARKDOWN_BYTES } from '../app/lib/markdown/workspace-link-limits';
 import { inspectPersistedDocumentLinks, inspectPersistedDocumentLinksV3,
   nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
-import { inspectOriginalPhysicalLinks } from '../app/lib/markdown/workspace-physical-link-inventory';
+import { captureRawHtmlSourceBindingV1, captureRawHtmlNativeBindingV1, decodeRawHtmlSourceBindingV1, decodeRawHtmlNativeBindingV1 } from '../app/lib/markdown/workspace-raw-html-source-binding';
+import { inspectOriginalPhysicalLinksV3, inspectOriginalPhysicalLinksV4, inspectOriginalPhysicalLinks } from '../app/lib/markdown/workspace-physical-link-inventory';
 
 // Actual parser/import/native/forward+inverse helpers, with explicitly declared
 // receipt/lineage facts. This pure suite proves neither SQL receipts nor rights,
 // actual inode ownership, CopyOwner integration, recovery or filesystem work.
 function fixture(source: string, representation: PersistedCollaborationState['representation'] = 'plain_text',
-  targetPath = 'source/original.md', targetWorkspaceId = 'source-workspace', registered = false): PhysicalNativeImportBindingInput {
+  targetPath = 'source/original.md', targetWorkspaceId = 'source-workspace', registered = false,
+  expectedCoverageComplete = true): PhysicalNativeImportBindingInput {
   const bytes = Buffer.from(source, 'utf8'), prepared = prepareMarkdownFileImport(bytes, { representation });
   const sameTarget = targetPath === 'source/original.md' && targetWorkspaceId === 'source-workspace';
   const state: PersistedCollaborationState = { documentId: registered && sameTarget ? 'registered-pristine-document' : 'actual-import-document',
@@ -34,7 +40,7 @@ function fixture(source: string, representation: PersistedCollaborationState['re
       registeredDocumentId: 'registered-pristine-document', lineageId: 'pristine-original-lineage' }
       : { kind: 'unregistered', catalogueProof: 'a'.repeat(64) }, bytes,
     filesystemIdentity: `1:42:${bytes.byteLength}:100:101` });
-  assert.equal(original.coverage.complete, true);
+  assert.equal(original.coverage.complete, expectedCoverageComplete);
   return { original, receipt, state, lineageId };
 }
 function expectReject(input: PhysicalNativeImportBindingInput, code?: PhysicalNativeImportBindingError['code']): void {
@@ -201,6 +207,122 @@ export function physicalNativeImportBindingTest(): void {
   }
   passed++;
   assert.equal(passed, 9);
+  // C1 uses two genuine parsers on the identical original bytes. These are
+  // explicitly pure facts; no SQL receipt/Owner/permission is fabricated.
+  for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+    const input = fixture('# C1\n\n😀 [one](target.md) [[target.md#Heading|Label]]\n', representation);
+    const observed = { workspaceId: input.original.workspaceId, organizationId: input.original.organizationId,
+      path: input.original.path, authority: input.original.authority, filesystemIdentity: input.original.physical.filesystemIdentity,
+      bytes: input.original.originalBytes };
+    const original = inspectOriginalPhysicalLinksV3(observed), { originalBytes: _private, ...source4 } = inspectOriginalPhysicalLinksV4(observed);
+    const certificate = captureRawHtmlSourceBindingV1({ original, source4 }), binding = bindPhysicalNativeImportLinks({ ...input, original });
+    assert.equal(certificate.original3.parserVersion, 3); assert.equal(source4.parserVersion, 4);
+    assert.notEqual(certificate.original3.physicalSourceProof, certificate.ordinarySourceProof4);
+    assert.deepEqual(certificate.original3.links.map(item => item.physicalLinkId), source4.links.map(item => item.physicalLinkId));
+    assert.deepEqual(decodeRawHtmlSourceBindingV1(certificate, source4), certificate);
+    const native = captureRawHtmlNativeBindingV1({ source: certificate, binding, state: input.state });
+    assert.equal(binding.nativeInventory.parserVersion, 3); assert.equal(native.inventory4.parserVersion, 4);
+    assert.deepEqual(decodeRawHtmlNativeBindingV1(native, certificate, binding), native);
+    const changed = structuredClone(certificate); changed.original3.links[0].targetLiteral += '-changed';
+    assert.throws(() => decodeRawHtmlSourceBindingV1(changed, source4));
+  }
+  passed++;
+  {
+    const input = fixture('<a href="target.md">affected</a>\n', 'plain_text',
+      'source/original.md', 'source-workspace', false, false);
+    const observed = { workspaceId: input.original.workspaceId, organizationId: input.original.organizationId,
+      path: input.original.path, authority: input.original.authority, filesystemIdentity: input.original.physical.filesystemIdentity,
+      bytes: input.original.originalBytes };
+    const original = inspectOriginalPhysicalLinksV3(observed), { originalBytes: _private, ...source4 } = inspectOriginalPhysicalLinksV4(observed);
+    assert(source4.htmlInspection.occurrences.length > 0);
+    assert.throws(() => captureRawHtmlSourceBindingV1({ original, source4 }));
+  }
+  passed++;
+  assert.equal(passed, 11);
+
+  // Real initial Snapshot bytes differ from a document update. The original
+  // immutable certificate must remain readable after a genuine later edit.
+  const initialBirth = (input: PhysicalNativeImportBindingInput) => {
+    const binding = bindPhysicalNativeImportLinks(input);
+    const sourceScope = { version: 1 as const, workspaceId: 'source-workspace', workspaceType: 'personal' as const,
+      organizationId: null, customerId: null, projectId: null, ownerUserId: 'fixture-owner',
+      rootPath: '/data/users/source-workspace/files', rootRelativePath: null, legacy: false };
+    const destinationScope = { ...sourceScope, workspaceId: input.state.workspaceId,
+      rootPath: `/data/users/${input.state.workspaceId}/files` };
+    const body = { version: 1 as const, parent: { operationId: 'declared-copy-parent', planId: 'a'.repeat(64), stageDigest: 'b'.repeat(64),
+      requestHash: 'c'.repeat(64), requirementIndex: 0, entityKey: 'declared-raw-source', requirementProof: 'd'.repeat(64) },
+      origin: { version: 1 as const, actor: { type: 'user' as const, userId: 'fixture-owner', actorId: 'fixture-owner', sessionId: 'fixture-session' },
+        sourceScope, destinationScope }, binding, b1TransactionId: '42' };
+    return decodeNativeCopyMarkdownBirthV1({ ...body, birthProof: nativeLinkJsonProof(body) });
+  };
+  const initialSnapshot = (state: PersistedCollaborationState) => inspectPersistedNativeCollaborationSnapshot(state,
+    doc => Buffer.from(Y.encodeSnapshot(Y.snapshot(doc))));
+  const sha = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+  {
+    for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+      const input = fixture('# Original certificate\n\n[one](target.md)\n', representation, 'copies/new.md', 'different-workspace');
+      const before = structuredClone(input), birth = initialBirth(input), snapshot = initialSnapshot(input.state);
+      assert.notEqual(sha(snapshot), sha(input.state.yjsState), 'a Snapshot is not the original full update');
+      assert.equal(`yjs-snapshot-sha256-v1:${sha(snapshot)}`, birth.binding.receipt.target.initialStateProof);
+      const expected = captureRawHtmlCopyNativeBindingV2(birth, input.state).certificate;
+      const certificate = nativeCopyMarkdownHtmlInitialCertificate(birth, snapshot, birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash);
+      assert.deepEqual(certificate, expected);
+      const later = new Y.Doc();
+      try {
+        Y.applyUpdate(later, input.state.yjsState);
+        later.getText(representation === 'plain_text' ? 'content' : 'frontmatter').insert(0, 'Later edit\n');
+        const laterState = { ...input.state, documentSequence: 1, persistedAt: input.state.persistedAt + 1,
+          yjsState: Y.encodeStateAsUpdate(later), stateVector: Y.encodeStateVector(later) };
+        assert.notEqual(authoritativeNativeCollaborationSnapshot(laterState).version.stateProof, birth.binding.receipt.target.initialStateProof);
+        assert.throws(() => captureRawHtmlCopyNativeBindingV2(birth, laterState));
+        assert.deepEqual(nativeCopyMarkdownHtmlInitialCertificate(birth, snapshot, birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash), expected,
+          'historical commitment uses the original Snapshot/Birth, without substituting later state');
+      } finally { later.destroy(); }
+      assert.deepEqual(input, before, 'original target identity, path, update, receipt and inventory stay unchanged');
+    }
+  }
+  passed++;
+  {
+    const input = fixture('[one](target.md)\n'), birth = initialBirth(input), snapshot = initialSnapshot(input.state);
+    for (const mode of ['snapshot-flip', 'snapshot-trailing', 'full-update', 'binary-hash', 'vector-hash'] as const) {
+      const changed = Buffer.from(snapshot);
+      if (mode === 'snapshot-flip') changed[changed.length - 1] ^= 1;
+      const supplied = mode === 'snapshot-trailing' ? Buffer.concat([snapshot, Buffer.from([0])])
+        : mode === 'full-update' ? input.state.yjsState : changed;
+      assert.throws(() => nativeCopyMarkdownHtmlInitialCertificate(birth, supplied,
+        mode === 'binary-hash' ? '0'.repeat(64) : birth.binding.nativeBinaryHash,
+        mode === 'vector-hash' ? '0'.repeat(64) : birth.binding.nativeVectorHash));
+    }
+    // Even internally rehashed declared vector facts cannot replace the
+    // Snapshot's actual original state vector.
+    const later = new Y.Doc();
+    try {
+      Y.applyUpdate(later, input.state.yjsState); later.getText('content').insert(0, 'later');
+      const wrongVector = Y.encodeStateVector(later), changed = structuredClone(birth);
+      assert.notDeepEqual(wrongVector, input.state.stateVector);
+      Reflect.set(changed.binding.nativeInventory.version, 'stateVector', Buffer.from(wrongVector).toString('base64'));
+      Reflect.set(changed.binding, 'nativeVectorHash', sha(wrongVector));
+      const { bindingProof: _bindingProof, ...bindingBody } = changed.binding;
+      Reflect.set(changed.binding, 'bindingProof', nativeLinkJsonProof(bindingBody));
+      const { birthProof: _birthProof, ...birthBody } = changed;
+      Reflect.set(changed, 'birthProof', nativeLinkJsonProof(birthBody));
+      assert.throws(() => nativeCopyMarkdownHtmlInitialCertificate(changed, snapshot, changed.binding.nativeBinaryHash, changed.binding.nativeVectorHash));
+    } finally { later.destroy(); }
+    let calls = 0;
+    assert.throws(() => nativeCopyMarkdownHtmlInitialCertificate(birth, new Proxy(snapshot, {
+      getPrototypeOf() { calls++; throw new Error('must not run'); }, get() { calls++; throw new Error('must not run'); },
+    }), birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash));
+    assert.equal(calls, 0);
+    // Empty originals have valid compact Snapshots; content-free is not an
+    // error and cannot be confused with reconstructible document content.
+    const empty = fixture(''), emptyBirth = initialBirth(empty), emptySnapshot = initialSnapshot(empty.state);
+    assert.equal(Y.decodeSnapshot(emptySnapshot).sv.size, 0);
+    assert.deepEqual(nativeCopyMarkdownHtmlInitialCertificate(emptyBirth, emptySnapshot, emptyBirth.binding.nativeBinaryHash, emptyBirth.binding.nativeVectorHash),
+      captureRawHtmlCopyNativeBindingV2(emptyBirth, empty.state).certificate);
+  }
+  passed++;
+  assert.equal(passed, 13);
+
   console.log(JSON.stringify({ suite: 'physical-native-import-binding', passed, pureFactsOnly: true,
     realParserAndNativeRehearsal: true, databaseOrAuthorityAcceptance: false }));
 }

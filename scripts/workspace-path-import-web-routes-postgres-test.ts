@@ -8,12 +8,12 @@ import { NextRequest } from 'next/server';
 import type { NativeCollaborationContent } from '../app/lib/collaboration/document-snapshot';
 import type { getNativeInspectionSchema } from '../app/lib/collaboration/native-inspection-schema';
 import type { WorkspacePathOperationResponse } from '../app/lib/files/workspace-path-operation-public';
-import type { WorkspacePathImportPreparationPreviewPublic } from '../app/lib/files/workspace-path-operation-preview';
+import type { WorkspacePathImportPreparationPreviewPublic, WorkspacePathHtmlImportPreviewPublicV4 } from '../app/lib/files/workspace-path-operation-preview';
 import { withNativeCopyMetadataOwnerFixture } from './helpers/native-copy-metadata-owner-fixture';
 
 type Fixture = Parameters<Parameters<typeof withNativeCopyMetadataOwnerFixture>[0]>[0];
 type Job = { kind: 'rename' | 'delete'; source: string; destination: string; incoming: string;
-  operationId: string; preview: WorkspacePathImportPreparationPreviewPublic; originalSessionId: string };
+  operationId: string; preview: WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4; originalSessionId: string };
 
 async function webPathRouteFile(file: string) {
   const before = await fs.lstat(file, { bigint: true }); assert(!before.isSymbolicLink());
@@ -74,19 +74,31 @@ async function webPathRouteSnapshot(h: Fixture) {
   return { rows: checks[0].value, files: checks[1].value };
 }
 
-async function webPathRouteNoWrite<T>(h: Fixture, operation: () => Promise<T>, historical = false, noNativeAdapterSql = false): Promise<T> {
+async function webPathRouteNoWrite<T>(h: Fixture, operation: () => Promise<T>, historical = false,
+  expectedAuthLookup?: Readonly<{ sql: string; params: unknown[] }>): Promise<T> {
   const before = await webPathRouteSnapshot(h); let statements = 0, writes = 0, forbidden = 0, result: T | undefined, failure: unknown;
+  let nativeAdapterStatements = 0, authStatements = 0;
   try { result = await h.withProbe(async event => {
     statements++; if (statements > 6000) throw new Error('Web route SQL observation budget exceeded.');
     if (['INSERT','UPDATE','DELETE','MERGE','CREATE','ALTER','DROP','TRUNCATE','NOTIFY'].includes(event.result.command)
       || /\b(?:INSERT\s+INTO|DELETE\s+FROM|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|UPDATE\s+[\s\S]*?\bSET\b|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX)|NOTIFY)\b/iu.test(event.text)
       || /\bpg_notify\s*\(/iu.test(event.text)) writes++;
     if (historical && /\b(?:FROM|JOIN)\s+(?:"?[a-z0-9_]+"?\s*\.\s*)?"?(?:collaboration_documents|collaboration_yjs_states|file_collaboration_lineages)"?\b/iu.test(event.text)) forbidden++;
+    if (expectedAuthLookup) {
+      if (event.queryForm !== 'drizzle') nativeAdapterStatements++;
+      else {
+        authStatements++; assert.equal(event.result.command, 'SELECT');
+        assert.equal(event.text, expectedAuthLookup.sql); assert.deepEqual(event.values, expectedAuthLookup.params);
+        assert.equal(event.result.rowCount, 0); assert.deepEqual(event.result.rows, []);
+      }
+    }
   }, operation); } catch (error) { failure = error; }
   const checks = await Promise.allSettled([(async () => assert(isDeepStrictEqual(await webPathRouteSnapshot(h), before),
     'Complete owned-schema rows/xmins/OIDs or full DATA FD census changed.'))(),
     (async () => { assert.equal(writes, 0); assert.equal(forbidden, 0, 'Historical B0 must not read current source/native rows.');
-      if (noNativeAdapterSql) assert.equal(statements, 0); else assert(statements > 0); })()]);
+      if (expectedAuthLookup) {
+        assert.equal(nativeAdapterStatements, 0); assert.equal(authStatements, 1); assert.equal(statements, 1);
+      } else assert(statements > 0); })()]);
   const errors = [...(failure === undefined ? [] : [failure]), ...checks.flatMap(check => check.status === 'rejected' ? [check.reason as unknown] : [])];
   if (errors.length === 1) throw errors[0]; if (errors.length) throw new AggregateError(errors, 'Web route no-write checks failed.'); return result as T;
 }
@@ -284,6 +296,11 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
     phase = 'real SID-B, original preview/key and historical status without current old D2 parsing or DML';
     const oldRequest = await webPathRouteRequest('/api/files/rename', 'POST', { oldPath: moved.source, newPath: moved.destination,
       idempotencyKey: moved.operationId, planId: moved.preview.planId });
+    const expiredToken = (await h.admin.query('SELECT token FROM "session" WHERE id=$1', [sessionId])).rows[0]?.token;
+    assert.equal(typeof expiredToken, 'string');
+    const { db } = await import('../app/lib/db'), { session: authSession } = await import('../app/lib/db/schema');
+    const { eq } = await import('drizzle-orm');
+    const expiredSessionLookup = db.select().from(authSession).where(eq(authSession.token, expiredToken)).toSQL();
     const nextId = `web-session-${crypto.randomUUID()}`, nextToken = crypto.randomBytes(32).toString('hex'), now = Date.now();
     await h.admin.query('INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at) VALUES($1,$2,\'member\',$3,$4,$4)', [nextId, nextToken, now + 3600000, now]);
     assert.equal((await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1 RETURNING id', [sessionId])).rowCount, 1);
@@ -292,10 +309,10 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
     // Better Auth may remove its expired session on first observation. Complete
     // that real authentication housekeeping before the strict route oracle.
     assert.equal(await auth.api.getSession({ headers: oldRequest.headers }), null);
-    // Expect zero native adapter events: this real401 precedes any native phase.
-    // Drizzle Auth QueryConfig+params calls are not observed by this probe;
-    // complete schema/row/xmin and DATA/FD snapshots still apply unchanged.
-    await webPathRouteNoWrite(h, async () => { assert.equal((await rename(oldRequest)).status, 401); }, false, true);
+    // This real401 precedes every native phase. The expanded observer also
+    // sees exactly the genuine, empty Auth lookup for the original token.
+    // All SQL writes and complete schema/xmin/DATA/FD oracles remain active.
+    await webPathRouteNoWrite(h, async () => { assert.equal((await rename(oldRequest)).status, 401); }, false, expiredSessionLookup);
     for (const [job, result] of [[moved, movedResult], [deleted, deletedResult]] as const) {
       await fs.writeFile(path.join(h.source.rootPath, job.source), Buffer.from([0xff, 0xfe]), { flag: 'wx', mode: 0o600 });
       const replacement = await webPathRouteFile(path.join(h.source.rootPath, job.source));
@@ -345,7 +362,44 @@ export async function workspacePathImportWebRoutesPostgresTest(): Promise<void> 
     assert.equal(overwrite.status, 409); assert.equal(overwrite.body.code, 'PATH_IMPORT_OVERWRITE_UNSUPPORTED');
     const ignore = await webPathRouteNoWrite(h, () => webPathRouteCall('delete', { path: options.source, ignoreMissing: true, idempotencyKey: crypto.randomUUID() }));
     assert.equal(ignore.status, 422); assert.equal(ignore.body.code, 'PATH_IMPORT_OPTIONS_UNSUPPORTED'); groups++;
-    assert.equal(groups, 7); console.log(JSON.stringify({ suite: 'workspace-path-import-web-routes', groups, passed: true,
+    assert.equal(groups, 7);
+    phase = 'C1 real Web Rename/Delete route + existing worker imports beside unrelated HTML';
+    const c1html = `c1-web-${crypto.randomUUID()}.html`;
+    await fs.writeFile(path.join(h.source.rootPath, c1html), '<a href="unaffected.md">unrelated</a>\n', { flag: 'wx', mode: 0o600 });
+    const htmlBefore = await webPathRouteFile(path.join(h.source.rootPath, c1html));
+    const { decodeWorkspacePathAnyImportPreparationRecord } = await import('../app/lib/files/workspace-path-import-preparation-record');
+    for (const kind of ['rename', 'delete'] as const) {
+      const stem = `c1-web-${crypto.randomUUID()}`, source = stem + '.md', incoming = stem + '-incoming.md', destination = stem + '-moved.md';
+      await fs.writeFile(path.join(h.source.rootPath, source), `# C1\n\n[Self](${source})\n`, { flag: 'wx', mode: 0o600 });
+      await fs.writeFile(path.join(h.source.rootPath, incoming), `[Target](${source})\n`, { flag: 'wx', mode: 0o600 });
+      const preview = await webPathRouteNoWrite(h, () => webPathRouteCall(kind, { ...(kind === 'rename'
+        ? { oldPath: source, newPath: destination } : { path: source }), dryRun: true }));
+      const c1plan = preview.body.plan as WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4 | undefined;
+      assert.equal(preview.status, 200); assert(c1plan?.version === 4);
+      assert.equal(c1plan.coverage.complete, false); assert.equal(c1plan.readiness, 'requires-import-rebinding');
+      const job: Job = { kind, source, incoming, destination, operationId: crypto.randomUUID(), preview: c1plan,
+        originalSessionId: sessionId };
+      const applied = await webPathRouteApply(job); assert.equal(applied.status, 200); assert.equal(applied.body.operation.status, 'applied');
+      const rows = (await h.admin.query('SELECT version,record_text,record_digest,xmin::text FROM workspace_path_import_preparations WHERE workspace_id=$1 AND operation_id=$2',
+        [h.source.workspaceId, job.operationId])).rows; assert.equal(rows.length, 1); assert.equal(rows[0].version, 2);
+      const record = decodeWorkspacePathAnyImportPreparationRecord(rows[0].record_text); assert(record.version === 2);
+      assert.equal(record.nativePlan.planIdentityVersion, 4); assert.equal(record.imports.length, 2); assert.equal(record.batchId, applied.body.operation.batchId);
+      assert.deepEqual(await webPathRouteFile(path.join(h.source.rootPath, c1html)), htmlBefore);
+      const repeat = await webPathRouteNoWrite(h, () => webPathRouteCall(kind, { ...(kind === 'rename'
+        ? { oldPath: source, newPath: destination } : { path: source }), planId: job.preview.planId, idempotencyKey: job.operationId }), true);
+      assert.equal(repeat.status, 200); assert.equal(repeat.body.historical, true); assert.deepEqual(repeat.body.operation, applied.body.operation);
+    }
+    groups++;
+    phase = 'C2 Web preview and Apply remain NoEffect for affected Raw HTML';
+    const c2 = `c1-web-c2-${crypto.randomUUID()}.md`, c2target = c2 + '-copy.md';
+    await fs.writeFile(path.join(h.source.rootPath, c2), `<a href="${c2}">affected</a>\n`, { flag: 'wx', mode: 0o600 });
+    const c2preview = await webPathRouteNoWrite(h, () => webPathRouteCall('rename', { oldPath: c2, newPath: c2target, dryRun: true }));
+    const c2plan = c2preview.body.plan as WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4 | undefined;
+    assert.equal(c2preview.status, 200); assert(c2plan?.version === 4); assert.equal(c2plan.readiness, 'blocked');
+    const c2apply = await webPathRouteNoWrite(h, () => webPathRouteCall('rename', { oldPath: c2, newPath: c2target,
+      planId: c2plan.planId, idempotencyKey: crypto.randomUUID() }));
+    assert.equal(c2apply.status, 409); assert.equal(c2apply.body.code, 'PREVIEW_BLOCKED');
+    groups++; assert.equal(groups, 9); console.log(JSON.stringify({ suite: 'workspace-path-import-web-routes', groups, passed: true,
       scope: 'actual HTTP Request/Response route functions plus genuine Cookie session/default PG/FD worker; no TCP/browser/deployment' }));
   }); } catch (error) {
     console.error(JSON.stringify({ suite: 'workspace-path-import-web-routes', phase, groups,

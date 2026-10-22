@@ -7,6 +7,7 @@ import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import type { MarkdownFileImportReceipt } from '../app/lib/collaboration/markdown-file-import-persistence';
 import type { WorkspaceOperationManagedCopyStageV6 } from '../app/lib/files/workspace-operation-managed-copy-stage';
 import type { NativeCopyMarkdownBirthV1 } from '../app/lib/collaboration/native-copy-markdown-birth-contract';
+import type { WorkspaceOperationNativeCopyPreviewPublicV4 } from '../app/lib/files/workspace-operation-native-copy-public';
 import { withNativeCopyMetadataOwnerFixture, type MetadataSqlEvent } from './helpers/native-copy-metadata-owner-fixture';
 
 // Genuine JWT/current MCP policy -> public service -> actual Raw Copy Owner.
@@ -348,7 +349,7 @@ export async function workspaceOperationSelectedRawCopyPostgresTest(): Promise<v
     assert(preview.action === 'preview'); assert.equal(preview.preview.readiness, 'ready'); assert(preview.preview.coverage.complete);
     assert.deepEqual(preview.preview.pathMappings.map(mapping => [mapping.sourcePath, mapping.destinationPath]).sort(),
       sources.map((source, index) => [source, targets[index]]).sort());
-    const importBindings = preview.preview.importLinkBindings; assert(importBindings);
+    const importBindings = (preview.preview as Pick<WorkspaceOperationNativeCopyPreviewPublicV4, 'importLinkBindings'>).importLinkBindings; assert(importBindings);
     assert.equal(importBindings.status, 'requires-native-import-rebinding'); assert.equal(importBindings.targets.length, 6);
     assert(importBindings.targets.every(target => !Object.hasOwn(target, 'nextTargetLiteral')));
     assert.deepEqual(await rawCopySourceSnapshot(), sourceBefore); groups++;
@@ -509,6 +510,81 @@ export async function workspaceOperationSelectedRawCopyPostgresTest(): Promise<v
     assert.deepEqual(await rawCopyImportRows(recoveryTargets), born); assert.deepEqual(await rawCopyCohort(recoveryCommand.operation_id), bornCohort);
     assert.deepEqual(await rawCopySourceSnapshot(), sourceBefore); groups++;
     assert.equal(groups, 8);
+    phase = 'C1 genuine same/cross workspace Raw+asset folder beside unrelated HTML preserves original source and external incoming';
+    const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+    const { upsertPostgresWorkspaceMemberForActor } = await import('../app/lib/workspaces/postgres-runtime');
+    await upsertPostgresWorkspaceMemberForActor(resolveWorkspaceActor({ id: 'owner', role: 'admin', email: 'owner@principal.test' }),
+      h.source.workspaceId, { userId: 'member', canRead: true, canWrite: true, canManage: false });
+    const html = 'c1-unaffected.html', htmlBytes = Buffer.from('<a href="stable-raw.md">unaffected</a>\n');
+    await fs.writeFile(path.join(h.source.rootPath, html), htmlBytes, { flag: 'wx', mode: 0o600 });
+    const htmlBefore = await rawCopyFilesystem(path.join(h.source.rootPath, html));
+    for (const same of [false, true]) {
+      const folder = `c1-${same ? 'same' : 'cross'}-${crypto.randomUUID()}`, copied = folder + '-copied';
+      await fs.mkdir(path.join(h.source.rootPath, folder));
+      const raw = folder + '/note.md', asset = folder + '/picture.png', incoming = folder + '-incoming.md';
+      const rawBytes = Buffer.from('# C1\n\n[Self](note.md) [Asset](picture.png)\n'), assetBytes = Buffer.from([137,80,78,71,13,10,26,10]);
+      await fs.writeFile(path.join(h.source.rootPath, raw), rawBytes, { flag: 'wx', mode: 0o600 });
+      await fs.writeFile(path.join(h.source.rootPath, asset), assetBytes, { flag: 'wx', mode: 0o600 });
+      await fs.writeFile(path.join(h.source.rootPath, incoming), `[Original](${raw})\n`, { flag: 'wx', mode: 0o600 });
+      const before = await rawCopyFilesystem(path.join(h.source.rootPath, folder)), incomingBefore = await rawCopyFilesystem(path.join(h.source.rootPath, incoming));
+      const destination = same ? h.source : h.destination;
+      const call = (body: Record<string, unknown>) => service(decode({ api_version: 1, source_workspace_id: h.source.workspaceId,
+        destination_workspace_id: destination.workspaceId, ...body }), { token: currentToken, clientId: 'ignored', scopes: [] });
+      const preview = await call({ action: 'preview', selections: [{ source_path: folder, destination_path: copied }] });
+      assert(preview.action === 'preview'); assert.equal(preview.preview.version, 6);
+      assert.equal(preview.preview.coverage.complete, false); assert(preview.preview.linkAssessment!.complete);
+      const command = { operation_id: `c1_copy_${crypto.randomUUID().replaceAll('-', '')}`, plan_id: preview.preview.planId,
+        selections: [{ source_path: folder, destination_path: copied }] };
+      const observed: { stage?: import('../app/lib/files/workspace-operation-raw-html-copy-stage').WorkspaceOperationRawHtmlCopyStageV8 } = {};
+      const applied = await h.withProbe(async event => {
+        if (!observed.stage && /^\s*INSERT\s+INTO\s+workspace_file_operations\b/iu.test(event.text) && event.values[0] === command.operation_id) {
+          const stage = await staging.loadOwnedCopyByOperationId(command.operation_id); assert(stage?.version === 8); observed.stage = stage;
+          assert.equal(stage.version, 8); assert.equal(stage.plan.version, 7); assert.equal(stage.plan.compilation.contractVersion, 6);
+          assert.equal(stage.rawOriginals.length, 1); assert.equal(stage.rawOriginals[0].parserVersion, 3);
+        }
+      }, () => call({ action: 'apply', ...command }));
+      assert(observed.stage); assert(applied.action === 'apply'); assert.equal(applied.execution.status, 'complete');
+      assert.deepEqual(await fs.readFile(path.join(destination.rootPath, copied, 'note.md')), rawBytes);
+      assert.deepEqual(await fs.readFile(path.join(destination.rootPath, copied, 'picture.png')), assetBytes);
+      const births = (await h.admin.query(`SELECT birth_text FROM collaboration_native_copy_markdown_births
+        WHERE workspace_id=$1 AND parent_operation_id=$2 ORDER BY requirement_index`, [destination.workspaceId, command.operation_id])).rows;
+      assert.equal(births.length, 1); const birth = decodeNativeCopyMarkdownBirthV1(JSON.parse(births[0].birth_text));
+      assert.equal(birth.binding.receipt.target.path, copied + '/note.md'); assert.equal(birth.binding.nativeInventory.parserVersion, 3);
+      const actual = await load(h.connection, birth.binding.receipt.target.documentId); assert(actual);
+      const { inspectPersistedDocumentLinksV4 } = await import('../app/lib/markdown/workspace-native-link-inventory');
+      const links = inspectPersistedDocumentLinksV4(actual); assert.equal(links.links.length, 2);
+      const { readWorkspaceHtmlCopyObservationOnConnection } = await import('../app/lib/files/workspace-operation-html-copy-observation');
+      const { captureWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedSourceSnapshotV5 } = await import('../app/lib/files/workspace-operation-mixed-source-evidence-v5');
+      const { buildWorkspaceMixedHtmlLinkGraphV5 } = await import('../app/lib/markdown/workspace-native-link-graph');
+      const graph = buildWorkspaceMixedHtmlLinkGraphV5(workspaceOperationMixedSourceSnapshotV5(captureWorkspaceOperationMixedSourceEvidenceV5(
+        captureWorkspaceOperationJobScope(destination), await readWorkspaceHtmlCopyObservationOnConnection(h.connection, destination))));
+      const edges = graph.edges.filter(edge => edge.sourceKind === 'native' && edge.source.documentId === actual.documentId);
+      assert.equal(edges.length, 2); assert(edges.every(edge => edge.resolution.status === 'resolved'));
+      const self = edges.find(edge => edge.resolution.target?.documentId === actual.documentId); assert(self);
+      assert.equal(self.resolution.target!.path, copied + '/note.md');
+      assert(edges.some(edge => edge.resolution.target?.path === copied + '/picture.png' && edge.resolution.target.documentId === null));
+      assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=ANY($2::text[])',
+        [h.source.workspaceId, [raw, incoming]])).rows[0].n, 0);
+      assert.deepEqual(await rawCopyFilesystem(path.join(h.source.rootPath, folder)), before);
+      assert.deepEqual(await rawCopyFilesystem(path.join(h.source.rootPath, incoming)), incomingBefore);
+      assert.deepEqual(await rawCopyFilesystem(path.join(h.source.rootPath, html)), htmlBefore);
+      const completion = (await h.admin.query(`SELECT receipt_json FROM workspace_file_operation_steps WHERE operation_id=$1
+        AND step_key='copy-completion' AND status='applied'`, [command.operation_id])).rows; assert.equal(completion.length, 1);
+      assert.equal(JSON.parse(completion[0].receipt_json).version, 7);
+      assert.equal(await staging.loadOwnedCopyByOperationId(command.operation_id), null);
+      await rawCopyNoWrites(async () => { const repeated = await call({ action: 'recover', ...command });
+        assert(repeated.action === 'recover'); assert.equal(repeated.execution.status, 'complete'); assert.equal(repeated.alreadyKnown, true); });
+      groups++;
+    }
+    phase = 'C2 selected Raw HTML is rejected with full unchanged source/DB/files';
+    const c2 = `c1-c2-${crypto.randomUUID()}.md`;
+    await fs.writeFile(path.join(h.source.rootPath, c2), '<a href="stable-raw.md">explicit HTML</a>\n', { flag: 'wx', mode: 0o600 });
+    const { workspaceCopyFailureV1 } = await import('../app/lib/mcp/server/workspace-copy-tool-contract');
+    await assert.rejects(rawCopyNoWrites(() => rawCopyCall({ action: 'preview',
+      selections: [{ source_path: c2, destination_path: c2 + '-copy.md' }] })), error => {
+      assert.equal(workspaceCopyFailureV1(error).body.code, 'COPY_NATIVE_REQUIRED'); return true;
+    });
+    groups++; assert.equal(groups, 11);
     assert.equal(projectionPendingTargets, 2); assert.equal(projectionReleasedTargets, 2);
   }); complete = true; console.log(JSON.stringify({ test: 'workspace-operation-selected-raw-copy-postgres', groups, originalExit: 0,
     projectionPendingTargets, projectionReleasedTargets, releasedProjectionGuardReadOnly: true })); }

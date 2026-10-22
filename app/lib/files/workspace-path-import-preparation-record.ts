@@ -15,6 +15,8 @@ import { parseWorkspaceOperationJobScope } from './workspace-operation-job-scope
 import { workspaceOperationMcpBatchId } from './workspace-operation-mcp-authorization';
 import { workspaceOperationSourceNativeEvidence } from './workspace-operation-mixed-source-evidence';
 import { decodeWorkspacePathImportPreparationPlanV1, type WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
+import { decodeWorkspacePathHtmlImportPreparationRecordV2, serializeWorkspacePathHtmlImportPreparationRecordV2,
+  type WorkspacePathHtmlImportPreparationRecordV2 } from './workspace-path-html-import-record';
 import type { WorkspacePathImportPreparationHandle } from './workspace-path-import-preparation-phase';
 
 /** Immutable original B0 facts only. This data never authenticates a request,
@@ -216,6 +218,22 @@ export function decodeWorkspacePathImportPreparationRecordV1(input: unknown): Wo
 export function serializeWorkspacePathImportPreparationRecordV1(input: WorkspacePathImportPreparationRecordV1): string {
   return workspacePathRecordCanonical(decodeWorkspacePathImportPreparationRecordV1(input));
 }
+/** Explicit historical discriminator; malformed V2 is never retried as V1. */
+export type WorkspacePathImportPreparationRecord = WorkspacePathImportPreparationRecordV1 | WorkspacePathHtmlImportPreparationRecordV2;
+export function decodeWorkspacePathAnyImportPreparationRecord(input: unknown): WorkspacePathImportPreparationRecord {
+  let value = input;
+  if (typeof value === 'string') {
+    if (Buffer.byteLength(value) < 1 || Buffer.byteLength(value) > recordLimit) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_TOO_LARGE');
+    try { value = JSON.parse(value); } catch { return workspacePathRecordFailure(); }
+  }
+  const captured = workspacePathRecordObject(captureWorkspacePathRecordData(value), recordKeys);
+  return captured.version === 1 ? decodeWorkspacePathImportPreparationRecordV1(input)
+    : captured.version === 2 ? decodeWorkspacePathHtmlImportPreparationRecordV2(input) : workspacePathRecordFailure();
+}
+function serializeWorkspacePathAnyImportPreparationRecord(input: WorkspacePathImportPreparationRecord): string {
+  return input.version === 1 ? serializeWorkspacePathImportPreparationRecordV1(input)
+    : serializeWorkspacePathHtmlImportPreparationRecordV2(input);
+}
 function workspacePathRecordQuote(value: string): string { return `"${value.replaceAll('"', '""')}"`; }
 function workspacePathRecordReadInput(input: Locator): Locator {
   const value = workspacePathRecordObject(captureWorkspacePathRecordData(input, 16384), ['schema', 'workspaceId', 'batchId']);
@@ -277,7 +295,7 @@ export async function assertWorkspacePathImportPreparationStorageOnConnection(da
 /** The complete original receipt cohort, including exact immutable binary and
  * vector certifications. Deliberately never reads today's native tables. */
 async function workspacePathRecordReceiptsOnConnection(database: SqlConnection, schema: string,
-  record: WorkspacePathImportPreparationRecordV1): Promise<void> {
+  record: WorkspacePathImportPreparationRecord): Promise<void> {
   const ids = record.imports.map(item => item.receipt.operationId), expectedIds = new Set(ids), prefix = workspacePathRecordQuote(schema);
   const sizes = await database.all(`SELECT operation_id,pg_catalog.octet_length(private_result::text) AS bytes
     FROM ${prefix}.collaboration_markdown_file_import_receipts WHERE workspace_id=$1 AND operation_id=ANY($2::text[])
@@ -315,7 +333,7 @@ async function workspacePathRecordReceiptsOnConnection(database: SqlConnection, 
 /** Data/history read only. A later moved/archived document or D2 at the same
  * path is irrelevant; every caller still needs its genuine current policy. */
 export async function readWorkspacePathImportPreparationRecordOnConnection(database: SqlConnection,
-  supplied: Locator): Promise<WorkspacePathImportPreparationRecordV1 | null> {
+  supplied: Locator): Promise<WorkspacePathImportPreparationRecord | null> {
   const input = workspacePathRecordReadInput(supplied), realm = await assertWorkspacePathImportPreparationStorageOnConnection(database, input);
   const row = await database.get(`SELECT workspace_id,batch_id,operation_id,version,preview_plan_id,native_plan_id,record_digest,b0_xid,created_at,
     pg_catalog.octet_length(record_text) AS bytes,xmin::text AS xmin,
@@ -323,12 +341,12 @@ export async function readWorkspacePathImportPreparationRecordOnConnection(datab
     FROM ${workspacePathRecordQuote(input.schema)}.workspace_path_import_preparations WHERE workspace_id=$1 AND batch_id=$2`,
   [input.workspaceId, input.batchId]) as Row | undefined;
   if (!row) return null;
-  if (row.workspace_id !== input.workspaceId || row.batch_id !== input.batchId || row.version !== 1
+  if (row.workspace_id !== input.workspaceId || row.batch_id !== input.batchId || ![1, 2].includes(Number(row.version))
     || !workspacePathRecordInteger(Number(row.bytes), 1, recordLimit) || typeof row.record_text !== 'string'
     || Buffer.byteLength(row.record_text) !== Number(row.bytes) || !workspacePathRecordDigest(row.record_digest)
     || createHash('sha256').update(row.record_text).digest('hex') !== row.record_digest) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_CHANGED');
-  const record = decodeWorkspacePathImportPreparationRecordV1(row.record_text);
-  if (record.origin.scope.workspaceId !== input.workspaceId || record.batchId !== input.batchId || record.operationId !== row.operation_id
+  const record = decodeWorkspacePathAnyImportPreparationRecord(row.record_text);
+  if (record.version !== row.version || record.origin.scope.workspaceId !== input.workspaceId || record.batchId !== input.batchId || record.operationId !== row.operation_id
     || !equal(record.origin.realm, realm) || record.previewPlan.planId !== row.preview_plan_id || record.nativePlan.planId !== row.native_plan_id
     || record.b0TransactionId !== row.b0_xid || record.preparedAt !== Number(row.created_at)
     || row.xmin !== String(BigInt(record.b0TransactionId) & BigInt('4294967295'))) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_CHANGED');
@@ -339,8 +357,8 @@ export async function readWorkspacePathImportPreparationRecordOnConnection(datab
 /** Only the Root-owned fixed B0 completion phase may insert. No callback,
  * supplied actor/bytes or decoded record can install that private capability. */
 export async function insertWorkspacePathImportPreparationRecordOnConnection(database: SqlConnection, supplied: Readonly<{
-  handle: WorkspacePathImportPreparationHandle; record: WorkspacePathImportPreparationRecordV1;
-}>): Promise<WorkspacePathImportPreparationRecordV1> {
+  handle: WorkspacePathImportPreparationHandle; record: WorkspacePathImportPreparationRecord;
+}>): Promise<WorkspacePathImportPreparationRecord> {
   // The handle is opaque and cannot be copied by JSON capture. Read only its
   // own top-level data descriptors, then let the fixed owner verify provenance.
   if (!supplied || typeof supplied !== 'object' || types.isProxy(supplied) || Object.getPrototypeOf(supplied) !== Object.prototype
@@ -348,19 +366,19 @@ export async function insertWorkspacePathImportPreparationRecordOnConnection(dat
     || ['handle', 'record'].some(key => { const field = Object.getOwnPropertyDescriptor(supplied, key);
       return !field?.enumerable || !Object.hasOwn(field, 'value'); })) return workspacePathRecordFailure();
   const handle = Object.getOwnPropertyDescriptor(supplied, 'handle')!.value as WorkspacePathImportPreparationHandle;
-  const record = decodeWorkspacePathImportPreparationRecordV1(Object.getOwnPropertyDescriptor(supplied, 'record')!.value);
+  const record = decodeWorkspacePathAnyImportPreparationRecord(Object.getOwnPropertyDescriptor(supplied, 'record')!.value);
   const { assertWorkspacePathImportRecordPreparationOnConnection } = await import('./workspace-path-import-preparation-phase');
   await assertWorkspacePathImportRecordPreparationOnConnection(database, handle, record);
   const locator = { schema: record.origin.realm.schemaName, workspaceId: record.origin.scope.workspaceId, batchId: record.batchId };
   const realm = await assertWorkspacePathImportPreparationStorageOnConnection(database, locator);
   if (!equal(realm, record.origin.realm)) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_CHANGED');
   await workspacePathRecordReceiptsOnConnection(database, locator.schema, record);
-  const text = serializeWorkspacePathImportPreparationRecordV1(record), digest = createHash('sha256').update(text).digest('hex');
+  const text = serializeWorkspacePathAnyImportPreparationRecord(record), digest = createHash('sha256').update(text).digest('hex');
   await assertWorkspacePathImportRecordPreparationOnConnection(database, handle, record);
   const inserted = await database.get(`INSERT INTO ${workspacePathRecordQuote(locator.schema)}.workspace_path_import_preparations
     (workspace_id,batch_id,operation_id,version,preview_plan_id,native_plan_id,record_text,record_digest,b0_xid,created_at)
-    VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9) ON CONFLICT(workspace_id,batch_id) DO NOTHING RETURNING record_digest`,
-  [locator.workspaceId, record.batchId, record.operationId, record.previewPlan.planId, record.nativePlan.planId, text, digest, record.b0TransactionId, record.preparedAt]) as Row | undefined;
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(workspace_id,batch_id) DO NOTHING RETURNING record_digest`,
+  [locator.workspaceId, record.batchId, record.operationId, record.version, record.previewPlan.planId, record.nativePlan.planId, text, digest, record.b0TransactionId, record.preparedAt]) as Row | undefined;
   if (inserted && inserted.record_digest !== digest) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_CHANGED');
   const actual = await readWorkspacePathImportPreparationRecordOnConnection(database, locator);
   if (!actual || !equal(actual, record)) return workspacePathRecordFailure('PATH_IMPORT_PREPARATION_RECORD_CHANGED');

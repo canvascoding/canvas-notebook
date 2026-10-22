@@ -1,4 +1,5 @@
 import 'server-only';
+import { createWorkspaceOperationManagedCopyPlanV7, type WorkspaceOperationManagedCopyPlanV7 } from './workspace-operation-managed-copy-plan-v7';
 import { createWorkspaceOperationManagedCopyPlanV6, WorkspaceOperationManagedCopyPlanV6Error,
   type WorkspaceOperationManagedCopyPlanV6 } from './workspace-operation-managed-copy-plan-v6';
 
@@ -407,10 +408,11 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
       const selected = source.stage.namespace.find(node => node.path === selection.sourcePath);
       return selected?.kind === 'directory' && entry.inventory.path.startsWith(selection.sourcePath + '/');
     }));
-    const htmlCohort = !selectedRaw && [source, destination].some(observation => observation.stage.coverage.gaps
+    const htmlCohort = [source, destination].some(observation => observation.stage.coverage.gaps
       .some(gap => gap.code === 'uninspected-html'));
     if (htmlCohort && sceneIds.size) throw new WorkspaceOperationManagedCopyPlanV6Error('MANAGED_COPY_PLAN_UNSUPPORTED');
-    const createPlan = htmlCohort ? createWorkspaceOperationManagedCopyPlanV6 : selectedRaw ? createWorkspaceOperationManagedCopyPlanV5
+    const createPlan = htmlCohort && selectedRaw ? createWorkspaceOperationManagedCopyPlanV7
+      : htmlCohort ? createWorkspaceOperationManagedCopyPlanV6 : selectedRaw ? createWorkspaceOperationManagedCopyPlanV5
       : [source, destination].some(observation => observation.stage.sources.some(source => source.kind === 'physical'))
         ? createWorkspaceOperationManagedCopyPlanV4 : createWorkspaceOperationManagedCopyPlan;
     const plan = createPlan({ sourceScope: { workspace: current.sourceWorkspace, fileOptions: {} },
@@ -426,7 +428,7 @@ async function observe(owner: Owner, selections: readonly WorkspaceOperationNati
 
 /** Server-side preview through genuine current Web/PI/MCP principals on the same
  * actual dedicated B. Private plan data must be projected before an HTTP reply. */
-export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPreviewInput): Promise<WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6> {
+export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPreviewInput): Promise<WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7> {
   const invocation = captureInvocation(supplied), selections = captureSelections(supplied), renameOnCollision = supplied.renameOnCollision === true;
   const destinationDirectory = captureDestinationDirectory(supplied);
   return withSession(invocation, owner => transaction(owner, 'write', async () => (await observe(owner, selections, renameOnCollision, destinationDirectory)).plan));
@@ -434,7 +436,7 @@ export async function previewWorkspaceNativeCopyOperation(supplied: NativeCopyPr
 
 export type NativeCopyExecutionInput = NativeCopyPreviewInput & Readonly<{ operationId: string; expectedPlanId?: string }>;
 export type NativeCopyExecutionResult = Readonly<{
-  execution: WorkspaceOperationExecutionResult; plan: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | null;
+  execution: WorkspaceOperationExecutionResult; plan: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7 | null;
   copied: string[]; alreadyKnown: boolean;
 }>;
 const copyViewOutcomes = new WeakMap<object, NativeCopyViewOutcome>();
@@ -500,7 +502,7 @@ function executionResult(operationId: string, planId: string, complete: boolean,
     completedSteps: [...completed], pendingSteps: [...pending], errorCode };
 }
 async function completedHistory(owner: Owner, header: WorkspaceOperationRecord, request: WorkspaceOperationRequest): Promise<Readonly<{
-  result: NativeCopyExecutionResult; stageVersion: 2 | 3 | 4 | 5 | 6 | 7; managedReceipt?: ExcalidrawCopyBirthReceipt;
+  result: NativeCopyExecutionResult; stageVersion: 2 | 3 | 4 | 5 | 6 | 7 | 8; managedReceipt?: ExcalidrawCopyBirthReceipt;
 }>> {
   const storage = await transaction(owner, 'write', () => principal(owner, async () => {
     const schema = await owner.database.get('SELECT pg_catalog.current_schema() AS name') as { name?: string } | undefined;
@@ -550,10 +552,10 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
   try {
     for (const [selectionIndex, selected] of observed.plan.selections.entries()) {
       await transaction(owner, 'write', () => principal(owner, async () => undefined));
-      const entry = (observed.plan.version === 6 ? observed.plan.sourceEvidence.namespace : observed.plan.sourceEvidence.stage.namespace).find(entry => entry.path === selected.sourcePath);
+      const entry = ((observed.plan.version === 6 || observed.plan.version === 7) ? observed.plan.sourceEvidence.namespace : observed.plan.sourceEvidence.stage.namespace).find(entry => entry.path === selected.sourcePath);
       if (!entry) problem('NATIVE_COPY_INVALID_REQUEST');
       const sourceKind = entry.filesystemIdentity === null ? 'projection_absent' : entry.kind === 'directory' ? 'directory' : 'regular_file';
-      const projectionPaths = (observed.plan.version === 6 ? observed.plan.sourceEvidence.nativeComponent.nativeBindings : observed.plan.sourceEvidence.nativeBindings).map(binding => binding.expected.path)
+      const projectionPaths = ((observed.plan.version === 6 || observed.plan.version === 7) ? observed.plan.sourceEvidence.nativeComponent.nativeBindings : observed.plan.sourceEvidence.nativeBindings).map(binding => binding.expected.path)
         .filter(path => path === selected.sourcePath || entry.kind === 'directory' && path.startsWith(selected.sourcePath + '/'));
       const derivedFiles = [];
       for (const row of observed.sceneRecords) {
@@ -587,7 +589,13 @@ async function createStage(owner: Owner, store: WorkspaceOperationStaging, opera
       () => captureNativeCopyMetadataSnapshotOnConnection(owner.database, { plan: observed.plan, physical })));
     const input = { operationId, request: { kind: 'copy' as const, origin: owner.invocation.origin, selections: observed.plan.selections },
       physical, nativeRecords, sceneRecords: observed.sceneRecords, sceneAssets: observed.sceneAssets, metadata };
-    const stage = observed.plan.version === 6 ? await store.stageHtmlCopy({ operationId, request: input.request, plan: observed.plan,
+    const stage = observed.plan.version === 7 ? await store.stageRawHtmlCopy({ operationId,request:input.request,plan:observed.plan,
+      physical:physical.map(value=>{if(value.original.version!==3)problem();return {...value,original:value.original};}),nativeRecords,metadata,
+      rawOriginals:observed.plan.rawImportRequirements.map(requirement=>{
+        const entry=observed.source.stage.sources.find(entry=>entry.kind==='physical'&&entry.inventory.path===requirement.sourcePath);
+        if(entry?.kind!=='physical'||entry.inventory.physicalSourceProof!==requirement.physicalSourceProof)problem('NATIVE_COPY_PLAN_CHANGED');
+        return entry.inventory;
+      }) }) : observed.plan.version === 6 ? await store.stageHtmlCopy({ operationId, request: input.request, plan: observed.plan,
       physical: physical.map(value => { if (value.original.version !== 3) problem(); return { ...value, original: value.original }; }), nativeRecords, metadata }) : observed.plan.version === 5 ? await store.stageRawCopy({ ...input, plan: observed.plan,
       rawOriginals: observed.plan.rawImportRequirements.map(requirement => {
         const entry = observed.source.stage.sources.find(entry => entry.kind === 'physical' && entry.inventory.path === requirement.sourcePath);
@@ -769,7 +777,8 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
           if (retained.identity.canonicalRequestHash !== header.requestHash || retained.plan.planId !== header.planId
             || !equal(retained.origin, owner.invocation.origin)) problem();
           if (retained.version !== history.stageVersion) problem();
-          if (retained.version === 7) await store.removeCompletedHtmlCopy(retained.identity);
+          if (retained.version === 8) await store.removeCompletedRawHtmlCopy(retained.identity);
+          else if (retained.version === 7) await store.removeCompletedHtmlCopy(retained.identity);
           else if (retained.version === 6) await store.removeCompletedRawCopy(retained.identity);
           else if ((retained.version === 4 || retained.version === 5)) await store.removeCompletedManagedCopy(retained.identity);
           else await store.removeCompletedNativeCopy(retained.identity);
@@ -839,7 +848,8 @@ async function runWorkspaceNativeCopyOperation(supplied: NativeCopyExecutionInpu
           await retireConfirmedAssets(owner, result.managedReceipt);
           if (stage.version === 6) await store.removeCompletedRawCopy(stage.identity);
           else await store.removeCompletedManagedCopy(stage.identity);
-        } else if (stage.version === 7) await store.removeCompletedHtmlCopy(stage.identity);
+        } else if (stage.version === 8) await store.removeCompletedRawHtmlCopy(stage.identity);
+        else if (stage.version === 7) await store.removeCompletedHtmlCopy(stage.identity);
         else await store.removeCompletedNativeCopy(stage.identity);
         return { execution: executionResult(operationId, stage.plan.planId, true, completedSteps, [], null), plan: stage.plan,
           copied: stage.plan.selections.map(selection => selection.destinationPath), alreadyKnown };

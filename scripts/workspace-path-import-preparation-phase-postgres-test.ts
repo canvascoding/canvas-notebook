@@ -348,7 +348,67 @@ export async function workspacePathImportPreparationPhasePostgresTest(): Promise
     assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
       [h.source.workspaceId, untouched])).rows[0].n, 0);
     groups++;
-    assert.equal(groups, 9); console.log(JSON.stringify({ suite: 'workspace-path-import-preparation-phase', groups, passed: true,
+    assert.equal(groups, 9);
+    phase = 'C1 Prep4/Record2 uses actual B0 bytes and rolls back wholly beside unrelated HTML';
+    const { readWorkspacePathImportPreparationPlan } = await import('../app/lib/files/workspace-path-import-operation-preview');
+    const { assertWorkspacePathHtmlImportsCurrentGraphV4 } = await import('../app/lib/files/workspace-path-html-import-graph');
+    const { inspectWorkspaceMarkdownHtmlV4 } = await import('../app/lib/markdown/workspace-local-link-parser');
+    const c1raw = `c1-prep-${crypto.randomUUID()}.md`, c1incoming = c1raw + '-incoming.md', c1destination = c1raw + '-moved.md';
+    const c1html = `c1-prep-${crypto.randomUUID()}.html`;
+    await fs.writeFile(path.join(h.source.rootPath, c1raw), `# C1\n\n[Self](${c1raw})\n`, { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(path.join(h.source.rootPath, c1incoming), `[Target](${c1raw})\n`, { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(path.join(h.source.rootPath, c1html), '<a href="unaffected.md">unrelated</a>\n', { flag: 'wx', mode: 0o600 });
+    const c1plan = await pathPrepWithPrincipal('move', live => pathPrepNoWrite(h, () => readWorkspacePathImportPreparationPlan({
+      principal: live, kind: 'move', selections: [{ sourcePath: c1raw, destinationPath: c1destination }] })));
+    assert.equal(c1plan.version, 4); assert(c1plan.version === 4); assert.equal(c1plan.readiness, 'requires-import-rebinding');
+    assert.equal(c1plan.coverage.complete, false); assert(c1plan.linkAssessment.complete);
+    assert.deepEqual(c1plan.importRequirements.map(item => item.path).sort(), [c1raw, c1incoming].sort());
+    const c1before = await pathPrepSnapshot(h);
+    await pathPrepWithPrincipal('move', live => withWorkspaceFileLifecycleGuard({ workspaceId: h.source.workspaceId, paths: [''] }, async () => {
+      const db = await openDb(); let begun = false, failure: Error | undefined;
+      try { await db.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
+        const record = await prepare(db, { principal: live, operationId: `c1_prep_${crypto.randomUUID().replaceAll('-', '')}`, plan: c1plan });
+        assert.equal(record.version, 2); assert(record.version === 2); assert.equal(record.nativePlan.planIdentityVersion, 4);
+        assert.equal(record.imports.length, 2); assert.deepEqual(record.previewPlan, c1plan);
+        assert(record.nativePlan.version === 3 && record.nativePlan.planIdentityVersion === 4);
+        const currentEvidence = record.nativePlan.sourceEvidence; assert(currentEvidence.evidenceVersion === 5);
+        const bindings = record.imports.map(imported => imported.legacyBinding);
+        const bornIds = new Set(bindings.map(binding => binding.receipt.target.documentId));
+        assert.deepEqual(currentEvidence.nativeHtmlSourceLocations.filter(row => !bornIds.has(row.documentId)), c1plan.sourceEvidence.nativeHtmlSourceLocations);
+        for (const binding of bindings) {
+          const rows = currentEvidence.nativeHtmlSourceLocations.filter(row => row.documentId === binding.receipt.target.documentId);
+          assert.equal(rows.length, 1); assert.equal(rows[0].path, binding.receipt.target.path); assert.deepEqual(rows[0].locations, []);
+        }
+        assert.doesNotThrow(() => assertWorkspacePathHtmlImportsCurrentGraphV4(c1plan, bindings, currentEvidence));
+        const born = currentEvidence.nativeHtmlSourceLocations.find(row => row.documentId === bindings[0].receipt.target.documentId);
+        const existing = c1plan.sourceEvidence.nativeHtmlSourceLocations[0]; assert(born && existing);
+        const htmlBytes = await fs.readFile(path.join(h.source.rootPath, c1html), 'utf8');
+        const htmlLocations = inspectWorkspaceMarkdownHtmlV4(htmlBytes, c1html).occurrences.map(occurrence => {
+          assert.equal(htmlBytes.slice(occurrence.start, occurrence.end), occurrence.raw);
+          assert(!/[\r\n]/u.test(htmlBytes.slice(0, occurrence.start)));
+          return { start: occurrence.start, end: occurrence.end, line: 1 };
+        });
+        assert(htmlLocations.length > 0);
+        const corruptions: ReadonlyArray<readonly [string, typeof currentEvidence.nativeHtmlSourceLocations]> = [
+          ['missing genuine birth', currentEvidence.nativeHtmlSourceLocations.filter(row => row.documentId !== born.documentId)],
+          ['duplicate genuine birth', [...currentEvidence.nativeHtmlSourceLocations, born]],
+          ['HTML location on genuine birth', currentEvidence.nativeHtmlSourceLocations.map(row => row.documentId === born.documentId ? { ...row, locations: htmlLocations } : row)],
+          ['wrong genuine birth path', currentEvidence.nativeHtmlSourceLocations.map(row => row.documentId === born.documentId ? { ...row, path: row.path + '.changed' } : row)],
+          ['changed existing locations', currentEvidence.nativeHtmlSourceLocations.map(row => row.documentId === existing.documentId ? { ...row, locations: [...row.locations, ...htmlLocations] } : row)],
+        ];
+        for (const [label, nativeHtmlSourceLocations] of corruptions) assert.throws(() => assertWorkspacePathHtmlImportsCurrentGraphV4(c1plan, bindings,
+          { ...currentEvidence, nativeHtmlSourceLocations }), error => { assert.equal(pathPrepCode(error), 'PATH_IMPORT_PREPARATION_PHASE_CHANGED'); return true; }, label);
+        const identity = await pathPrepIdentity(db); assert.equal(identity.xid, record.b0TransactionId);
+        for (const imported of record.imports) {
+          assert.equal(imported.legacyBinding.nativeInventory.parserVersion, 3); assert.equal(imported.ordinaryBinding.inventory4.parserVersion, 4);
+          assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE id=$1', [imported.receipt.target.documentId])).rows[0].n, 0);
+        }
+        await db.run('ROLLBACK'); begun = false;
+      } catch (error) { failure = error instanceof Error ? error : new Error('C1 B0 failed.'); throw error; }
+      finally { try { if (begun) await db.run('ROLLBACK'); } finally { await db.close(failure); } }
+    }));
+    assert.deepEqual(await pathPrepSnapshot(h), c1before); groups++;
+    assert.equal(groups, 10); console.log(JSON.stringify({ suite: 'workspace-path-import-preparation-phase', groups, passed: true,
       scope: 'genuine PG18 B0; existing native Move establishes later state; no prepared public Apply, browser or projector acceptance' }));
   }); complete = true; }
   finally { if (previousBase === undefined) delete process.env.BASE_URL; else process.env.BASE_URL = previousBase; }

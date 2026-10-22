@@ -136,6 +136,17 @@ export type NativeMixedImportCopyBatchPlanV4 = Omit<NativeMixedBatchPlan,
   finalNamespace: Array<NativeMixedBatchVirtualEntity | ImportVirtualEntityV4>;
 };
 
+/** C1 is an independent HTML-aware raw-copy contract. Actual parser4 facts
+ * remain parser4; the durable importer binds its original parser3 separately. */
+export type NativeMixedRawImportRequirementV6 = Omit<NativeMixedRawImportRequirementV4, 'importPolicy'> & {
+  importPolicy: { version: 1; initialRepresentation: 'auto'; parserVersion: 4 };
+};
+export type NativeMixedHtmlImportCopyBatchPlanV6 = Omit<NativeMixedImportCopyBatchPlanV4,
+  'contractVersion' | 'documentEvidence' | 'rawImportRequirements'> & {
+  contractVersion: 6; documentEvidence: Array<{ evidenceKey: string; inventory: NativeDocumentLinkInventoryV4 }>;
+  rawImportRequirements: NativeMixedRawImportRequirementV6[];
+} & WorkspaceMixedHtmlAssessmentBindingV5;
+
 type LogicalLink = { key: string; originEvidenceLinkId: string; current: NativeDocumentLink };
 type Entity = Omit<NativeMixedBatchVirtualEntity, 'metadata' | 'binding'> & {
   binding: NativeMixedBatchVirtualEntity['binding'] | ImportVirtualEntityV4['binding'];
@@ -326,22 +337,53 @@ export function compileWorkspaceMixedHtmlBatchV5(input: {
   return compileMixedBatch({ snapshots, states: input.states, requests: input.requests }, 5, plan) as NativeMixedHtmlBatchPlanV5;
 }
 
+/** Exact C1: selected ordinary raw Markdown is importable, but its own HTML
+ * syntax is not. Unrelated HTML is still assessed by the complete E5 planner;
+ * no affected/opaque HTML issue is removed or rewritten here. */
+export function compileWorkspaceMixedHtmlImportCopyBatchV6(input: {
+  sourceEvidence: WorkspaceOperationMixedSourceEvidenceV5;
+  destinationEvidence?: WorkspaceOperationMixedSourceEvidenceV5;
+  states: readonly PersistedCollaborationState[];
+  requests: readonly NativeMixedBatchRequest[];
+}): NativeMixedHtmlImportCopyBatchPlanV6 {
+  if (input.requests.length !== 1 || input.requests[0]?.kind !== 'copy') throw new Error('HTML_IMPORT_COPY_SINGLE_REQUEST_REQUIRED');
+  const source = decodeWorkspaceOperationMixedSourceEvidenceV5(input.sourceEvidence);
+  const destination = input.destinationEvidence === undefined ? source : decodeWorkspaceOperationMixedSourceEvidenceV5(input.destinationEvidence);
+  const request = input.requests[0], selected = (pathname: string) => request.selections.some(selection =>
+    pathname === selection.sourcePath || pathname.startsWith(selection.sourcePath + '/'));
+  const supported = new Set(source.physicalSources4.filter(value => selected(value.path)
+    && value.htmlInspection.occurrences.length === 0 && value.coverage.complete && value.coverage.gaps.length === 0).map(value => value.path));
+  const original = createWorkspaceMixedHtmlFileOperationPlanV5({ ...request, sourceEvidence: source,
+    ...(input.destinationEvidence === undefined ? {} : { destinationEvidence: destination }) });
+  const plan = { ...original, issues: original.issues.filter(issue => !(issue.code === 'physical-source-import-required'
+    && issue.workspaceId === source.workspaceScope.workspaceId && supported.has(issue.path))) };
+  for (const value of source.physicalSources4) if (selected(value.path) && !supported.has(value.path)) plan.issues.push({
+    code: 'raw-markdown-html-copy-unsupported', workspaceId: source.workspaceScope.workspaceId, path: value.path });
+  for (const value of source.physicalHtmlSources4) if (selected(value.path)) plan.issues.push({
+    code: 'selected-html-copy-unsupported', workspaceId: source.workspaceScope.workspaceId, path: value.path });
+  if ([source, destination].some(value => value.namespace.some(entry => entry.provider === 'excalidraw'))) plan.issues.push({
+    code: 'scene-copy-profile-required', workspaceId: source.workspaceScope.workspaceId, path: '' });
+  const evidence = request.sourceWorkspaceId === request.destinationWorkspaceId ? [source] : [source, destination];
+  return compileMixedBatch({ snapshots: evidence.map(workspaceOperationMixedSourceSnapshotV5), states: input.states,
+    requests: input.requests }, 6, plan) as NativeMixedHtmlImportCopyBatchPlanV6;
+}
+
 function compileMixedBatch(input: {
   snapshots: readonly (NativeWorkspaceLinkSnapshot | WorkspaceMixedReadLinkSnapshotV3 | WorkspaceMixedHtmlLinkSnapshotV5)[];
   states: readonly PersistedCollaborationState[];
   requests: readonly NativeMixedBatchRequest[];
-}, contractVersion: 2 | 3 | 4 | 5, htmlPlan?: FilePlanV5): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 {
+}, contractVersion: 2 | 3 | 4 | 5 | 6, htmlPlan?: FilePlanV5): NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 | NativeMixedHtmlImportCopyBatchPlanV6 {
   const issues: NativeMixedBatchPlan['issues'] = [];
   const issue = (code: string, requestIndex: number | null, workspaceId: string, pathValue: string, linkId?: string) =>
     issues.push({ code, requestIndex, workspaceId, path: pathValue, ...(linkId ? { linkId } : {}) });
   const entities: Entity[] = []; const allEntities: Entity[] = []; const evidence: Array<{ evidenceKey: string; inventory: AnyCompilerInventory }> = [];
-  if (contractVersion === 5) {
+  if (contractVersion >= 5) {
     if (!htmlPlan || htmlPlan.contractVersion !== 5) throw new Error('HTML_MIXED_BATCH_PLAN_REQUIRED');
     for (const value of htmlPlan.issues) issue(value.code, null, value.workspaceId, value.path, value.linkId);
     if (!htmlPlan.htmlAssessment.complete && !htmlPlan.issues.length) issue('incomplete-html-assessment', null, htmlPlan.sourceWorkspaceId, '');
   }
   const steps: NativeMixedBatchPlan['steps'] = []; const clones: NativeMixedBatchPlan['cloneRequirements'] = [];
-  const imports: NativeMixedRawImportRequirementV4[] = [];
+  const imports: (NativeMixedRawImportRequirementV4 | NativeMixedRawImportRequirementV6)[] = [];
   const undo: UndoCheck[] = []; const workspaceIds = new Set<string>(); const documentIds = new Set<string>();
   const states = new Map<string, PersistedCollaborationState>(); const usedStates = new Set<string>();
   for (const state of input.states) {
@@ -355,20 +397,20 @@ function compileMixedBatch(input: {
       if (workspaceIds.has(snapshot.workspaceId)) issue('duplicate-workspace', null, snapshot.workspaceId, '');
       workspaceIds.add(snapshot.workspaceId);
       const { snapshotProof, ...body } = snapshot;
-      if (snapshot.contractVersion !== (contractVersion === 4 ? 3 : contractVersion) || proof(body) !== snapshotProof) issue('snapshot-proof-mismatch', null, snapshot.workspaceId, '');
-      const blockingGaps = contractVersion === 5 && snapshot.contractVersion === 5
+      if (snapshot.contractVersion !== (contractVersion === 6 ? 5 : contractVersion === 4 ? 3 : contractVersion) || proof(body) !== snapshotProof) issue('snapshot-proof-mismatch', null, snapshot.workspaceId, '');
+      const blockingGaps = contractVersion >= 5 && snapshot.contractVersion === 5
         ? workspaceMixedHtmlBlockingCoverageV5(snapshot) : snapshot.coverage.gaps;
       if (blockingGaps.length || !snapshot.coverage.complete && !snapshot.coverage.gaps.length) issue('incomplete-coverage', null, snapshot.workspaceId, '');
       for (const gap of blockingGaps) issue(gap.code, null, snapshot.workspaceId, gap.path);
       const paths = new Set<string>(); const identities = new Set<string>(); const inventories = new Map<string, AnyCompilerInventory>();
       const physical = new Map<string, AnyCompilerPhysical>();
-      if (contractVersion >= 3 && snapshot.contractVersion === 3 || contractVersion === 5 && snapshot.contractVersion === 5) for (const source of snapshot.physicalSources) {
+      if (contractVersion >= 3 && snapshot.contractVersion === 3 || contractVersion >= 5 && snapshot.contractVersion === 5) for (const source of snapshot.physicalSources) {
         const { physicalSourceProof, ...physicalBody } = source;
         if (physical.has(source.path) || source.workspaceId !== snapshot.workspaceId
-          || (contractVersion === 5 ? source.parserVersion !== 4 : source.parserVersion !== undefined && source.parserVersion !== 2 && source.parserVersion !== 3)
+          || (contractVersion >= 5 ? source.parserVersion !== 4 : source.parserVersion !== undefined && source.parserVersion !== 2 && source.parserVersion !== 3)
           || source.physicalSourceVersion !== 1 || source.source !== 'original-physical-bytes' || source.encoding !== 'utf8'
           || !/\.(?:md|markdown)$/iu.test(source.path) || source.metadata.path !== source.path
-          || (contractVersion === 5 ? source.coverage.gaps.some(gap => gap.code !== 'uninspected-html')
+          || (contractVersion >= 5 ? source.coverage.gaps.some(gap => gap.code !== 'uninspected-html')
             || !source.coverage.complete && !source.coverage.gaps.length : !source.coverage.complete || source.coverage.gaps.length) || source.executionReady !== false
           || source.applicability !== 'requires-import-and-rebinding'
           || !/^[a-f0-9]{64}$/u.test(source.physical.byteHash) || !Number.isSafeInteger(source.physical.byteLength) || source.physical.byteLength < 0
@@ -392,7 +434,7 @@ function compileMixedBatch(input: {
         paths.add(entry.path); identities.add(entry.identity);
         if (entry.kind === 'file' && /\.mdx$/iu.test(entry.path)) issue('unsupported-source', null, snapshot.workspaceId, entry.path);
         if (entry.kind === 'file' && /\.html?$/iu.test(entry.path) && !inventory
-          && !(contractVersion === 5 && snapshot.contractVersion === 5 && snapshot.physicalHtmlSources.some(source => source.path === entry.path))) issue('uninspected-html', null, snapshot.workspaceId, entry.path);
+          && !(contractVersion >= 5 && snapshot.contractVersion === 5 && snapshot.physicalHtmlSources.some(source => source.path === entry.path))) issue('uninspected-html', null, snapshot.workspaceId, entry.path);
         if (entry.kind === 'file' && (entry.documentId !== null || /\.(?:md|markdown)$/iu.test(entry.path)) && !inventory && !physicalSource) {
           issue('uninspected-source', null, snapshot.workspaceId, entry.path);
         }
@@ -408,14 +450,14 @@ function compileMixedBatch(input: {
         if (!inventory) continue;
         const key = stateKey(inventory.document); const state = states.get(key); usedStates.add(key);
         if (entry.kind !== 'file' || entry.documentId !== inventory.document.documentId || entry.lifecycleGeneration !== inventory.document.lifecycleGeneration
-          || inventory.document.workspaceId !== snapshot.workspaceId || (contractVersion === 5
+          || inventory.document.workspaceId !== snapshot.workspaceId || (contractVersion >= 5
             ? inventory.coverage.gaps.some(gap => gap.code !== 'uninspected-html') || !inventory.coverage.complete && !inventory.coverage.gaps.length
             : !inventory.coverage.complete || inventory.coverage.gaps.length)) {
           issue('identity-conflict', null, snapshot.workspaceId, entry.path); continue;
         }
         if (!state) { issue('missing-native-state', null, snapshot.workspaceId, entry.path); continue; }
         try {
-          const actual = contractVersion === 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state);
+          const actual = contractVersion >= 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state);
           if (proof(actual) !== proof(inventory) || new Set(actual.links.map((link) => link.id)).size !== actual.links.length) {
             issue('native-state-mismatch', null, snapshot.workspaceId, entry.path); continue;
           }
@@ -438,7 +480,7 @@ function compileMixedBatch(input: {
     }
     for (const [key, state] of states) if (!usedStates.has(key)) issue('unbound-native-state', null, state.workspaceId, state.path);
     if (!input.requests.length) issue('empty-batch', null, '', '');
-    if (contractVersion === 4 && (input.requests.length !== 1 || input.requests[0]?.kind !== 'copy')) issue('import-copy-only', null, '', '');
+    if ((contractVersion === 4 || contractVersion === 6) && (input.requests.length !== 1 || input.requests[0]?.kind !== 'copy')) issue('import-copy-only', null, '', '');
     for (const [requestIndex, originalRequest] of input.requests.entries()) {
       if (issues.length) break;
       const request = structuredClone(originalRequest); const beforeEdges = graph(entities); const beforeGraphProof = graphProof(entities, beforeEdges);
@@ -457,7 +499,7 @@ function compileMixedBatch(input: {
         if (kind !== 'delete' && kind !== 'copy' && selection.sourcePath === selection.destinationPath) issue('unchanged-source-path', requestIndex, sourceWorkspaceId, selection.sourcePath);
         if (kind !== 'delete' && sourceWorkspaceId === destinationWorkspaceId && selection.destinationPath?.startsWith(`${selection.sourcePath}/`)) issue('destination-inside-source', requestIndex, sourceWorkspaceId, selection.sourcePath);
         for (const entity of selected) {
-          if (entity.physical && contractVersion !== 4) issue('physical-source-import-required', requestIndex, sourceWorkspaceId, entity.path);
+          if (entity.physical && contractVersion !== 4 && contractVersion !== 6) issue('physical-source-import-required', requestIndex, sourceWorkspaceId, entity.path);
           if (mapped.has(entity.entityKey)) issue('overlapping-selection', requestIndex, sourceWorkspaceId, entity.path);
           mapped.set(entity.entityKey, { source: entity, destinationPath: kind === 'delete' ? null : `${selection.destinationPath}${entity.path.slice(selection.sourcePath.length)}`, copy: null });
         }
@@ -479,21 +521,21 @@ function compileMixedBatch(input: {
         if (kind === 'copy') {
           const entityKey = proof({ requestIndex, sourceEntityKey: source.entityKey, destinationWorkspaceId, destinationPath: mapping.destinationPath });
           const copy: Entity = { ...source, entityKey, workspaceId: destinationWorkspaceId, path: mapping.destinationPath!,
-            binding: { kind: contractVersion === 4 && source.physical ? 'unbound-import' : 'unbound-copy', sourceEntityKey: source.entityKey, createdAtRequest: requestIndex },
+            binding: { kind: (contractVersion === 4 || contractVersion === 6) && source.physical ? 'unbound-import' : 'unbound-copy', sourceEntityKey: source.entityKey, createdAtRequest: requestIndex },
             baseState: source.baseState && scratchState(source), doc: source.doc ? new Y.Doc() : null,
             inventory: source.inventory && structuredClone(source.inventory),
             links: source.links.map((link) => ({ ...link, key: proof({ entityKey, sourceVirtualLinkKey: link.key }), current: structuredClone(link.current) })) };
           if (copy.doc) Y.applyUpdate(copy.doc, copy.baseState!.yjsState);
           mapping.copy = copy; allEntities.push(copy); entities.push(copy);
-          if (contractVersion === 4 && source.physical) {
+          if ((contractVersion === 4 || contractVersion === 6) && source.physical) {
             if (!/\.(?:md|markdown)$/iu.test(copy.path)) issue('unsupported-import-destination', requestIndex, destinationWorkspaceId, copy.path);
             imports.push({ entityKey, sourceEntityKey: source.entityKey, requestIndex, sourceWorkspaceId, sourcePath: source.path,
               destinationWorkspaceId, destinationPath: copy.path, physicalSourceProof: source.physical.physicalSourceProof,
-              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: (source.physical.parserVersion as 2 | 3 | undefined) ?? 2 },
+              physical: { ...source.physical.physical }, importPolicy: { version: 1, initialRepresentation: 'auto', parserVersion: (source.physical.parserVersion as 2 | 3 | 4 | undefined) ?? 2 },
               linkBindings: source.physical.links.map(link => ({ physicalLinkId: link.physicalLinkId,
                 sourceVirtualLinkKey: proof({ entityKey: source.entityKey, physicalLinkId: link.physicalLinkId }),
                 virtualLinkKey: proof({ entityKey, physicalLinkId: link.physicalLinkId }) })),
-              applicability: 'requires-fresh-destination-import-and-occurrence-binding' });
+              applicability: 'requires-fresh-destination-import-and-occurrence-binding' } as NativeMixedRawImportRequirementV4 | NativeMixedRawImportRequirementV6);
           }
           if (copy.doc) clones.push({ entityKey, sourceEntityKey: source.entityKey, requestIndex, sourceWorkspaceId, sourcePath: source.path,
             sourceContentBasisProof: source.contentBasisProof, applicability: 'requires-fresh-clone-receipt-and-inventory',
@@ -518,7 +560,7 @@ function compileMixedBatch(input: {
         }
         if (!sourceMap && !targetMap) continue;
         if (edge.provider === 'physical-read') {
-          if (contractVersion === 4 && kind === 'copy' && sourceMap?.copy?.binding.kind === 'unbound-import') {
+          if ((contractVersion === 4 || contractVersion === 6) && kind === 'copy' && sourceMap?.copy?.binding.kind === 'unbound-import') {
             const owner = sourceMap.copy, target = entities.find(entity => entity.entityKey === edge.resolution.targetEntityKey)!;
             // Native rich clones receive fresh structural block IDs. This
             // first Raw-import contract does not yet bind those fragments to
@@ -570,15 +612,15 @@ function compileMixedBatch(input: {
       for (const [entityKey, values] of grouped) {
         const entity = entities.find((candidate) => candidate.entityKey === entityKey)!;
         try {
-          const state = scratchState(entity); const inventory = contractVersion === 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state); const beforeContentProof = contentProof(state);
+          const state = scratchState(entity); const inventory = contractVersion >= 5 ? inspectPersistedDocumentLinksV4(state) : inspectPersistedDocumentLinks(state); const beforeContentProof = contentProof(state);
           const recipes: NativeLinkMutationRecipe[] = values.map(({ logical, intent }) => ({ linkId: logical.current.id,
             source: inventory.document, sourceVersion: inventory.version, reference: logical.current.ref,
             destinationWorkspaceId: inventory.document.workspaceId, sourcePathAfter: inventory.document.path, cloneSelection: null,
             action: intent.action, nextValue: intent.nextValue, expectedTargetIdentity: intent.expectedTargetEntityKey }));
           const mutationInput = { state, recipes, operationId: `mixed-batch-rehearsal:${requestIndex}:${entityKey}` };
-          const prepared = contractVersion === 5 ? prepareNativeLinkMutationsV4(mutationInput) : prepareNativeLinkMutations(mutationInput);
+          const prepared = contractVersion >= 5 ? prepareNativeLinkMutationsV4(mutationInput) : prepareNativeLinkMutations(mutationInput);
           Y.applyUpdate(entity.doc!, prepared.update);
-          const afterState = scratchState(entity); const after = contractVersion === 5 ? inspectPersistedDocumentLinksV4(afterState) : inspectPersistedDocumentLinks(afterState);
+          const afterState = scratchState(entity); const after = contractVersion >= 5 ? inspectPersistedDocumentLinksV4(afterState) : inspectPersistedDocumentLinks(afterState);
           const retained = entity.links.filter((link) => !values.some((value) => value.logical.key === link.key && value.intent.action === 'unlink'));
           if (retained.length !== after.links.length) throw new Error('link-shape-changed');
           for (const [ordinal, link] of retained.entries()) {
@@ -591,7 +633,7 @@ function compileMixedBatch(input: {
           entity.links = retained; entity.inventory = after; entity.contentBasisProof = contentProof(afterState);
           // Rehearse the targeted inverse now and the whole ordered chain below.
           const inverseInput = { state: afterState, inverseRecipes: prepared.inverseRecipes, operationId: `mixed-batch-inverse:${requestIndex}:${entityKey}` };
-          const inverse = contractVersion === 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
+          const inverse = contractVersion >= 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
           const check = new Y.Doc();
           try {
             Y.applyUpdate(check, afterState.yjsState); Y.applyUpdate(check, inverse.update);
@@ -616,7 +658,7 @@ function compileMixedBatch(input: {
       if (kind === 'copy') for (const mapping of mapped.values()) {
         for (const old of beforeEdges.filter((edge) => edge.sourceEntityKey === mapping.source.entityKey)) {
           const copied = mapping.copy!.links.find((link) => link.originEvidenceLinkId === old.originEvidenceLinkId);
-          const after = contractVersion === 4 && mapping.copy!.binding.kind === 'unbound-import'
+          const after = (contractVersion === 4 || contractVersion === 6) && mapping.copy!.binding.kind === 'unbound-import'
             ? afterByKey.get(proof({ entityKey: mapping.copy!.entityKey, physicalLinkId: old.originEvidenceLinkId }))
             : copied && afterByKey.get(copied.key);
           const targetMap = old.resolution.targetEntityKey ? mapped.get(old.resolution.targetEntityKey) : undefined;
@@ -626,31 +668,31 @@ function compileMixedBatch(input: {
         }
       }
       steps.push({ requestIndex, request, beforeGraphProof, afterGraphProof: graphProof(entities, afterEdges), namespaceEffects, linkIntents: intents,
-        ...(contractVersion === 4 ? { physicalLinkIntents: physicalIntents } : {}) });
+        ...((contractVersion === 4 || contractVersion === 6) ? { physicalLinkIntents: physicalIntents } : {}) });
     }
     if (!issues.length) { finalEdges = graph(entities); finalGraphProof = graphProof(entities, finalEdges); }
     if (!issues.length) for (const check of [...undo].reverse()) {
       try {
         const inverseInput = { state: scratchState(check.entity), inverseRecipes: check.recipes,
           operationId: `mixed-batch-chain-inverse:${check.requestIndex}:${check.entity.entityKey}` };
-        const inverse = contractVersion === 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
+        const inverse = contractVersion >= 5 ? prepareNativeLinkInverseV4(inverseInput) : prepareNativeLinkInverse(inverseInput);
         Y.applyUpdate(check.entity.doc!, inverse.update);
         if (contentProof(scratchState(check.entity)) !== check.beforeContentProof) throw new Error('inverse-effect-changed');
       } catch { issue('batch-inverse-unavailable', check.requestIndex, check.entity.workspaceId, check.entity.path); break; }
     }
     const body = { contractVersion, compilerVersion: 1 as const,
-      ...(contractVersion === 5 ? { htmlAssessment: htmlPlan!.htmlAssessment, htmlAssessmentProof: htmlPlan!.htmlAssessmentProof,
+      ...(contractVersion >= 5 ? { htmlAssessment: htmlPlan!.htmlAssessment, htmlAssessmentProof: htmlPlan!.htmlAssessmentProof,
         sourceCoverage: htmlPlan!.sourceCoverage } : {}),
       readiness: issues.length ? 'blocked' as const : imports.length ? 'requires-import-rebinding' as const : clones.length ? 'requires-clone-rebinding' as const : 'ready' as const, executionReady: false as const,
       requests: structuredClone([...input.requests]),
       snapshotProofs: input.snapshots.map((snapshot) => ({ workspaceId: snapshot.workspaceId, proof: snapshot.snapshotProof })).sort((a, b) => a.workspaceId.localeCompare(b.workspaceId)),
       documentEvidence: evidence.sort((a, b) => a.evidenceKey.localeCompare(b.evidenceKey)), steps, cloneRequirements: clones,
-      ...(contractVersion === 4 ? { rawImportRequirements: imports } : {}),
+      ...((contractVersion === 4 || contractVersion === 6) ? { rawImportRequirements: imports } : {}),
       finalNamespace: issues.length ? [] : entities.map(publicEntity).sort((a, b) => a.entityKey.localeCompare(b.entityKey)),
       finalEdges: issues.length ? [] : finalEdges.map(publicEdge), finalGraphProof: issues.length ? null : finalGraphProof, issues,
       requiredCoordinatorBindings: ['actor-session-request-review-and-current-authority', 'complete-current-namespace-and-native-graph',
         'kernel-lifecycle-fence-and-exact-registry-path-receipts', 'fresh-durable-native-states-and-targeted-inverse-receipts',
         'fresh-copy-identities-block-id-map-and-link-rebinding'] as const };
-    return { ...body, planId: proof(body) } as NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5;
+    return { ...body, planId: proof(body) } as NativeMixedBatchPlan | NativeMixedReadBatchPlanV3 | NativeMixedImportCopyBatchPlanV4 | NativeMixedHtmlBatchPlanV5 | NativeMixedHtmlImportCopyBatchPlanV6;
   } finally { for (const entity of allEntities) entity.doc?.destroy(); }
 }

@@ -116,7 +116,7 @@ export async function DELETE(request: NextRequest): Promise<Response> {
               requiresRevalidation: true, plan: workspacePathImportPreparationPreview(preview) }) };
             if (preview.readiness === 'blocked') throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
               'The deletion has unresolved link or path conflicts.');
-            if (preview.version !== 1) throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
+            if (preview.version !== 1 && preview.version !== 4) throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
               'This file cannot be imported through this action. Refresh its preview.');
             // Preserve the existing review requirement; import preparation must never bypass it.
             if (readDocumentReviewAvailability().documentReviewEnabled) return null;

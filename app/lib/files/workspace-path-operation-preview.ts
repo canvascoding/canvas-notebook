@@ -7,6 +7,7 @@ import type { WorkspaceOperationBatchPlan } from './workspace-operation-batch-co
 import { WorkspaceOperationBatchError } from './workspace-operation-batch-store';
 import { workspaceOperationBatchPublicPreview } from './workspace-operation-batch-plan';
 import type { WorkspaceOperationNativeCopyPreviewPublic } from './workspace-operation-native-copy-public';
+import type { WorkspacePathHtmlImportPreparationPlanV4 } from './workspace-path-html-import-preparation';
 import type { WorkspacePathImportPreparationPlanV1 } from './workspace-path-import-preparation-plan';
 import type { WorkspacePathHtmlNoImportPreparationPlanV2 } from './workspace-path-html-no-import-preparation';
 import type { WorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspace-path-html-native-delete-preparation';
@@ -23,7 +24,7 @@ export type WorkspaceOperationNativeMovePreviewPublic = {
 };
 export type WorkspacePathOperationPreviewPublic = Omit<WorkspaceFileOperationPreview, 'previewContents'>
   | WorkspaceOperationNativeMovePreviewPublic | WorkspaceOperationNativeCopyPreviewPublic
-  | WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic | WorkspaceOperationNativeDeletePreviewPublic;
+  | WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4 | WorkspaceOperationNativeDeletePreviewPublic;
 
 export type WorkspaceOperationNativeDeletePreviewPublic = Omit<WorkspaceOperationNativeMovePreviewPublic,
   'version' | 'kind' | 'readiness'> & { version: 2; kind: 'native-original-delete'; readiness: 'ready' | 'blocked' };
@@ -45,11 +46,25 @@ export type WorkspacePathHtmlNoImportPreviewPublic = Omit<WorkspacePathImportPre
   linkAssessment: WorkspaceFileOperationPreview['linkAssessment'];
 };
 
+export type WorkspacePathHtmlImportPreviewPublicV4 = Omit<WorkspacePathImportPreparationPreviewPublic, 'version' | 'linkAssessment'> & {
+  version: 4; linkAssessment: WorkspaceFileOperationPreview['linkAssessment'];
+};
+
 /** Display only: final native references and spellings do not exist before import. */
-export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5
-): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic {
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathHtmlImportPreparationPlanV4 | WorkspacePathPhysicalDeletePreparationPlanV5
+): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4 {
   if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
     'This file action uses its ordinary preview.');
+  if (plan.version === 4) return { version: 4, kind: plan.kind, executionReady: false, workspaceId: plan.scope.workspaceId,
+    planId: plan.planId, readiness: plan.readiness,
+    pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
+    linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },
+    linkAssessment: structuredClone(plan.linkAssessment),
+    issues: plan.issues.map(({ code, path }) => ({ code, path })),
+    imports: plan.importRequirements.map(({ path, reasons }) => ({ path, reasons: [...reasons] })),
+    physicalLinkChanges: plan.physicalLinkIntents.map(intent => ({ sourcePathBefore: intent.sourcePath,
+      sourcePathAfter: intent.sourcePathAfter, previousTargetLiteral: intent.expectedSourceLiteral,
+      targetPathAfter: intent.targetPathAfter, action: intent.action })) };
   if (plan.version === 2 || plan.version === 3 || plan.version === 5) return { version: 2, kind: plan.kind, executionReady: false,
     workspaceId: plan.scope.workspaceId, planId: plan.planId, readiness: 'blocked',
     pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),

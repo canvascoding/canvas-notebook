@@ -438,7 +438,36 @@ export async function workspacePathImportAtomicPostgresTest(): Promise<void> {
     }
     assert.deepEqual((await h.admin.query(`SELECT record_text,record_digest,b0_xid::text,xmin::text FROM workspace_path_import_preparations
       WHERE batch_id=$1`, [originalRecord.batchId])).rows, historical); groups++;
-    assert.equal(groups, 7); console.log(JSON.stringify({ suite: 'workspace-path-import-atomic', groups, passed: true,
+    assert.equal(groups, 7);
+    await fs.unlink(path.join(h.source.rootPath, moved.raw)); // Original invalid D2 history above is complete.
+    phase = 'C1 atomic Record2/header/P0 same-B births and explicit genuine recovery beside unrelated HTML';
+    const c1html = `c1-atomic-${crypto.randomUUID()}.html`, c1raw = `c1-atomic-${crypto.randomUUID()}.md`, c1incoming = c1raw + '-incoming.md', c1target = c1raw + '-moved.md';
+    await fs.writeFile(path.join(h.source.rootPath, c1html), '<a href="unaffected.md">unrelated</a>\n', { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(path.join(h.source.rootPath, c1raw), `# C1\n\n[Self](${c1raw})\n`, { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(path.join(h.source.rootPath, c1incoming), `[Target](${c1raw})\n`, { flag: 'wx', mode: 0o600 });
+    const htmlBefore = await atomicPathFile(path.join(h.source.rootPath, c1html));
+    const { readWorkspacePathImportPreparationPlan } = await import('../app/lib/files/workspace-path-import-operation-preview');
+    const c1plan = await atomicPathWithPrincipal('move', live => atomicPathNoWrite(h, () => readWorkspacePathImportPreparationPlan({ principal: live,
+      kind: 'move', selections: [{ sourcePath: c1raw, destinationPath: c1target }] })));
+    assert(c1plan.version === 4); assert.equal(c1plan.readiness, 'requires-import-rebinding'); assert(c1plan.linkAssessment.complete);
+    const operationId = `c1_atomic_${crypto.randomUUID().replaceAll('-', '')}`;
+    let sameB = false;
+    const prepared = await atomicPathWithPrincipal('move', live => h.withProbe(async event => {
+      if (!/\bINSERT\s+INTO\s+(?:"?[a-z0-9_]+"?\s*\.\s*)?"?workspace_file_operation_batches"?(?=\s|\()/iu.test(event.text)) return;
+      const own = (await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid')).rows[0]; assert(own.xid);
+      const rows = (await event.raw(`SELECT p.b0_xid::text AS xid,p.xmin::text AS parent_xmin,b.xmin::text AS header_xmin,p.version
+        FROM workspace_path_import_preparations p JOIN workspace_file_operation_batches b ON b.batch_id=p.batch_id
+        WHERE p.operation_id=$1`, [operationId])).rows; assert.equal(rows.length, 1);
+      assert.equal(rows[0].version, 2); assert.equal(rows[0].xid, own.xid); assert.equal(rows[0].parent_xmin, rows[0].header_xmin);
+      assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM workspace_path_import_preparations WHERE operation_id=$1', [operationId])).rows[0].n, 0);
+      sameB = true;
+    }, () => prepareWorkspacePathImportOperation({ principal: live, operationId, plan: c1plan })));
+    assert(sameB); assert(prepared.record.version === 2); assert.equal(prepared.record.nativePlan.planIdentityVersion, 4); assert.equal(prepared.record.imports.length, 2);
+    const result = await runDirectMcpWorkspaceMoveService({ apiVersion: 1, action: 'recover', workspaceId: h.source.workspaceId,
+      operationId, planId: c1plan.planId, selections: [{ sourcePath: c1raw, destinationPath: c1target }] }, await atomicPathIssue());
+    assert(result.action === 'recover'); assert.equal(result.operation.completion.status, 'confirmed'); assert.equal(result.operation.batchId, prepared.record.batchId);
+    assert.deepEqual(await atomicPathFile(path.join(h.source.rootPath, c1html)), htmlBefore);
+    groups++; assert.equal(groups, 8); console.log(JSON.stringify({ suite: 'workspace-path-import-atomic', groups, passed: true,
       scope: 'genuine borrowed B0 plus ordinary existing native claim/owner/worker; no Original-Preview mapping, HTTP/browser or deployment claim' }));
   }); } catch (error) {
     console.error(JSON.stringify({ suite: 'workspace-path-import-atomic', phase, groups, code: atomicPathCode(error),

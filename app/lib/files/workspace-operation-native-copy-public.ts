@@ -1,3 +1,5 @@
+import { workspaceOperationNativeCopyRawHtmlPublicPreview, type WorkspaceOperationNativeCopyPreviewPublicV6 } from './workspace-operation-native-copy-raw-html-public';
+import type { WorkspaceOperationManagedCopyPlanV7 } from './workspace-operation-managed-copy-plan-v7';
 import 'server-only';
 import { workspaceOperationNativeCopyHtmlPublicPreview, type WorkspaceOperationNativeCopyPreviewPublicV5 } from './workspace-operation-native-copy-html-public';
 import type { WorkspaceOperationManagedCopyPlanV6 } from './workspace-operation-managed-copy-plan-v6';
@@ -45,9 +47,11 @@ export type WorkspaceOperationNativeCopyPreviewPublicV4 = {
   issues: [];
 };
 
-export type WorkspaceOperationNativeCopyPreviewPublic = WorkspaceOperationNativeCopyPreviewPublicV4 | WorkspaceOperationNativeCopyPreviewPublicV5;
+export type WorkspaceOperationNativeCopyPreviewPublic = WorkspaceOperationNativeCopyPreviewPublicV4 | WorkspaceOperationNativeCopyPreviewPublicV5 | WorkspaceOperationNativeCopyPreviewPublicV6;
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6): WorkspaceOperationNativeCopyPreviewPublic {
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7): WorkspaceOperationNativeCopyPreviewPublic {
+  if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
+    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 7) return workspaceOperationNativeCopyRawHtmlPublicPreview(input as WorkspaceOperationManagedCopyPlanV7);
   if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
     && Object.getOwnPropertyDescriptor(input, 'version')?.value === 6) return workspaceOperationNativeCopyHtmlPublicPreview(input as WorkspaceOperationManagedCopyPlanV6);
   const managed = input !== null && typeof input === 'object' && !types.isProxy(input)

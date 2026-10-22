@@ -5,7 +5,7 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
     workspace_id text NOT NULL CHECK (length(workspace_id) BETWEEN 1 AND 256),
     batch_id text NOT NULL CHECK (batch_id ~ '^[A-Za-z0-9_-]{16,128}$'),
     operation_id text NOT NULL CHECK (length(operation_id) BETWEEN 1 AND 512 AND octet_length(operation_id)<=2048),
-    version integer NOT NULL CHECK (version=1),
+    version integer NOT NULL CHECK (version IN (1,2)),
     preview_plan_id text NOT NULL CHECK (preview_plan_id ~ '^[a-f0-9]{64}$'),
     native_plan_id text NOT NULL CHECK (native_plan_id ~ '^[a-f0-9]{64}$'),
     record_text text NOT NULL CHECK (octet_length(record_text) BETWEEN 1 AND 16777216),
@@ -14,12 +14,14 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
     created_at bigint NOT NULL CHECK (created_at BETWEEN 0 AND 9007199254740991),
     PRIMARY KEY(workspace_id,batch_id)
   )`,
+  `ALTER TABLE workspace_path_import_preparations DROP CONSTRAINT IF EXISTS workspace_path_import_preparations_version_check`,
+  `ALTER TABLE workspace_path_import_preparations ADD CONSTRAINT workspace_path_import_preparations_version_check CHECK (version IN (1,2))`,
   `CREATE OR REPLACE FUNCTION validate_workspace_path_import_preparation() RETURNS trigger LANGUAGE plpgsql AS $$
     DECLARE original jsonb; origin jsonb; scope jsonb; realm jsonb; preview jsonb; native_plan jsonb; native_evidence jsonb;
       imports jsonb; requirements jsonb; item jsonb; requirement jsonb; receipt jsonb; target jsonb; native_binding jsonb;
       actual_receipt record; actual_native record; actual_workspace record; indexed record; value text; child_digest text;
       current_xid text; current_xmin text; schema_oid oid; database_oid oid; bound_count bigint;
-      expected_review text; selection_bytes text; expected_batch text;
+      expected_review text; selection_bytes text; expected_batch text; proof_suffix text;
     BEGIN
       IF TG_OP <> 'INSERT' THEN
         RAISE EXCEPTION 'Workspace path import preparations are immutable' USING ERRCODE='55000';
@@ -27,7 +29,7 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
       PERFORM pg_catalog.set_config('search_path',pg_catalog.quote_ident(TG_TABLE_SCHEMA)||', pg_catalog, pg_temp',true);
       current_xid:=pg_catalog.pg_current_xact_id()::text;
       current_xmin:=(current_xid::numeric % 4294967296)::text;
-      IF NEW.version<>1 OR NEW.workspace_id IS NULL OR length(NEW.workspace_id) NOT BETWEEN 1 AND 256
+      IF NEW.version NOT IN (1,2) OR NEW.workspace_id IS NULL OR length(NEW.workspace_id) NOT BETWEEN 1 AND 256
         OR NEW.workspace_id<>btrim(NEW.workspace_id) OR NEW.workspace_id ~ '[[:cntrl:]]'
         OR NEW.batch_id IS NULL OR NEW.batch_id !~ '^[A-Za-z0-9_-]{16,128}$'
         OR NEW.operation_id IS NULL OR length(NEW.operation_id) NOT BETWEEN 1 AND 512
@@ -50,7 +52,7 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
       IF (SELECT count(*) FROM pg_catalog.jsonb_object_keys(original))<>10
         OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(original) k WHERE k NOT IN
           ('version','operationId','batchId','origin','previewPlan','imports','nativePlan','b0TransactionId','preparedAt','recordProof'))
-        OR original->'version' IS DISTINCT FROM '1'::jsonb
+        OR original->'version' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.version)
         OR original->'operationId' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.operation_id)
         OR original->'batchId' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.batch_id)
         OR original->'b0TransactionId' IS DISTINCT FROM pg_catalog.to_jsonb(current_xid)
@@ -68,9 +70,10 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
       -- It is never an authority token. Historical readers repeat the codec.
       -- Anchor the canonical root suffix: a similarly named nested attr must
       -- never be mistaken for this envelope's proof field.
-      IF NEW.record_text !~ ',"recordProof":"[a-f0-9]{64}","version":1[}]$'
+      proof_suffix:=',"recordProof":"[a-f0-9]{64}","version":'||NEW.version::text||'[}]$';
+      IF NEW.record_text !~ proof_suffix
         OR original->>'recordProof' IS DISTINCT FROM pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-          pg_catalog.regexp_replace(NEW.record_text,',"recordProof":"[a-f0-9]{64}","version":1[}]$',',"version":1}'),'UTF8')),'hex')
+          pg_catalog.regexp_replace(NEW.record_text,proof_suffix,',"version":'||NEW.version::text||'}'),'UTF8')),'hex')
         OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(origin))<>8
         OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(origin) k WHERE k NOT IN
           ('version','kind','userId','sessionId','clientId','tool','scope','realm'))
@@ -81,7 +84,8 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
         OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(realm) k WHERE k NOT IN ('schemaName','schemaOid','databaseOid'))
         OR scope->'version' IS DISTINCT FROM '1'::jsonb OR scope->'workspaceId' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.workspace_id)
         OR scope->'legacy' IS DISTINCT FROM 'false'::jsonb
-        OR origin->'tool' IS DISTINCT FROM preview#>'{request,kind}' OR preview->'version' IS DISTINCT FROM '1'::jsonb
+        OR origin->'tool' IS DISTINCT FROM preview#>'{request,kind}'
+        OR preview->'version' IS DISTINCT FROM pg_catalog.to_jsonb(CASE WHEN NEW.version=1 THEN 1 ELSE 4 END)
         OR preview->'kind' IS DISTINCT FROM '"native-path-import-preparation"'::jsonb
         OR preview->'executionReady' IS DISTINCT FROM 'false'::jsonb
         OR preview->'readiness' IS DISTINCT FROM '"requires-import-rebinding"'::jsonb
@@ -89,14 +93,16 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
         OR native_plan->'planId' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.native_plan_id)
         OR native_plan->'workspaceId' IS DISTINCT FROM pg_catalog.to_jsonb(NEW.workspace_id)
         OR native_plan->'readiness' IS DISTINCT FROM '"ready"'::jsonb
-        OR native_plan->'planIdentityVersion' NOT IN ('2'::jsonb,'3'::jsonb)
+        OR (NEW.version=1 AND native_plan->'planIdentityVersion' NOT IN ('2'::jsonb,'3'::jsonb))
+        OR (NEW.version=2 AND native_plan->'planIdentityVersion' NOT IN ('4'::jsonb,'5'::jsonb))
         OR pg_catalog.jsonb_typeof(native_plan->'planIdentityVersion') IS DISTINCT FROM 'number'
         OR native_plan#>'{sourceEvidence,workspaceScope}' IS DISTINCT FROM scope
         OR pg_catalog.jsonb_typeof(native_plan->'actions') IS DISTINCT FROM 'array'
         OR pg_catalog.jsonb_array_length(native_plan->'actions')<>1
         OR native_plan#>'{actions,0,kind}' IS DISTINCT FROM origin->'tool'
         OR native_plan#>'{actions,0,selections}' IS DISTINCT FROM preview#>'{request,selections}'
-        OR (origin->>'tool'='delete' AND native_plan->'version' IS DISTINCT FROM '2'::jsonb)
+        OR (origin->>'tool'='delete' AND native_plan->'version' IS DISTINCT FROM
+          CASE WHEN native_plan->'planIdentityVersion'='5'::jsonb THEN '5'::jsonb ELSE '2'::jsonb END)
         OR (origin->>'tool'<>'delete' AND native_plan->'version' IS DISTINCT FROM '3'::jsonb)
         OR pg_catalog.jsonb_array_length(imports) NOT BETWEEN 1 AND 10000
         OR pg_catalog.jsonb_array_length(imports)<>pg_catalog.jsonb_array_length(requirements) THEN
@@ -151,9 +157,9 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
         OR scope->'rootRelativePath' IS DISTINCT FROM pg_catalog.to_jsonb(actual_workspace.root_relative_path) THEN
         RAISE EXCEPTION 'Workspace path import preparation actual workspace is unavailable' USING ERRCODE='23514';
       END IF;
-      native_evidence:=CASE WHEN native_plan#>'{sourceEvidence,evidenceVersion}'='3'::jsonb
+      native_evidence:=CASE WHEN native_plan#>'{sourceEvidence,evidenceVersion}' IN ('3'::jsonb,'5'::jsonb)
         THEN native_plan#>'{sourceEvidence,nativeComponent}' ELSE native_plan->'sourceEvidence' END;
-      IF native_evidence->'evidenceVersion' IS DISTINCT FROM '2'::jsonb
+      IF native_evidence->'evidenceVersion' IS DISTINCT FROM pg_catalog.to_jsonb(CASE WHEN NEW.version=1 THEN 2 ELSE 4 END)
         OR pg_catalog.jsonb_typeof(native_evidence->'nativeBindings') IS DISTINCT FROM 'array' THEN
         RAISE EXCEPTION 'Workspace path import preparation native witness is unavailable' USING ERRCODE='23514';
       END IF;
@@ -164,13 +170,26 @@ export const WORKSPACE_PATH_IMPORT_PREPARATION_MIGRATION_STATEMENTS = [
       END IF;
       FOR indexed IN SELECT e.value,e.ordinality FROM pg_catalog.jsonb_array_elements(imports) WITH ORDINALITY e(value,ordinality) LOOP
         item:=indexed.value; requirement:=requirements->((indexed.ordinality-1)::integer); receipt:=item->'receipt'; target:=receipt->'target';
-        IF pg_catalog.jsonb_typeof(item) IS DISTINCT FROM 'object' OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(item))<>5
+        IF pg_catalog.jsonb_typeof(item) IS DISTINCT FROM 'object' OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(item))<>(CASE WHEN NEW.version=1 THEN 5 ELSE 7 END)
           OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(item) k WHERE k NOT IN
-            ('requirementIndex','receipt','bindingProof','initialBinaryHash','initialVectorHash'))
+            ('requirementIndex','receipt','bindingProof','initialBinaryHash','initialVectorHash')
+              AND NOT (NEW.version=2 AND k IN ('legacyBinding','ordinaryBinding')))
           OR item->'requirementIndex' IS DISTINCT FROM pg_catalog.to_jsonb(indexed.ordinality-1)
           OR pg_catalog.jsonb_typeof(receipt) IS DISTINCT FROM 'object' OR pg_catalog.jsonb_typeof(target) IS DISTINCT FROM 'object'
           OR pg_catalog.jsonb_typeof(requirement) IS DISTINCT FROM 'object' THEN
           RAISE EXCEPTION 'Workspace path import preparation ordered import is unavailable' USING ERRCODE='23514';
+        END IF;
+        IF NEW.version=2 AND (item#>'{legacyBinding,receipt}' IS DISTINCT FROM receipt
+          OR item#>'{legacyBinding,bindingProof}' IS DISTINCT FROM item->'bindingProof'
+          OR item#>'{legacyBinding,nativeBinaryHash}' IS DISTINCT FROM item->'initialBinaryHash'
+          OR item#>'{legacyBinding,nativeVectorHash}' IS DISTINCT FROM item->'initialVectorHash'
+          OR item#>'{ordinaryBinding,version}' IS DISTINCT FROM '1'::jsonb
+          OR item#>'{ordinaryBinding,legacyBindingProof}' IS DISTINCT FROM item->'bindingProof'
+          OR item#>'{ordinaryBinding,sourceBindingProof}' IS DISTINCT FROM preview#>ARRAY['sourceBindings',(indexed.ordinality-1)::text,'bindingProof']
+          OR item#>'{ordinaryBinding,inventory4}' IS DISTINCT FROM (SELECT x->'inventory'
+            FROM pg_catalog.jsonb_array_elements(native_plan#>'{sourceEvidence,nativeOrdinarySources4}') x
+            WHERE x->'documentId'=target->'documentId')) THEN
+          RAISE EXCEPTION 'Workspace HTML import preparation actual grammar binding differs' USING ERRCODE='23514';
         END IF;
         FOREACH value IN ARRAY ARRAY['bindingProof','initialBinaryHash','initialVectorHash'] LOOP
           IF pg_catalog.jsonb_typeof(item->value) IS DISTINCT FROM 'string' OR item->>value !~ '^[a-f0-9]{64}$' THEN
