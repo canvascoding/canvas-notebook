@@ -671,7 +671,8 @@ test.describe('native path operations through ordinary UI, durable jobs and orig
       const targetViewer = await fixture.context.newPage(), backlinkViewer = await fixture.context.newPage();
       const folder = 'owned-yjs-restart-' + randomUUID();
       const nativeNames = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'] as const;
-      const nativePaths = nativeNames.map(name => multiple ? folder + '-' + name + '.md' : folder + '/' + name + '.md');
+      const nativePaths = nativeNames.map((_, index) => (multiple ? '' : folder + '/')
+        + folder + '-' + String(index + 1).padStart(2, '0') + '.md');
       const [first, second] = nativePaths;
       const selections = multiple ? nativePaths : [folder], backlink = fileName(), keep = fileName();
       if (!multiple) {
@@ -711,10 +712,14 @@ test.describe('native path operations through ordinary UI, durable jobs and orig
       }
       const removedPaths = [...nativePaths, ...assets.map(asset => asset.path)];
       const backlinkInitial = await createInUi(backlinkViewer, fixture, backlink);
-      const markdown = '# Shared cohort backlink\n\nRead [**First**](' + first + ') and [**Second**](' + second + ').\n\n'
-        + nativePaths.slice(2).map((file, index) => '[**Native ' + (index + 3) + '**](' + file + ')').join(' ') + '\n\n'
-        + assets.map((asset, index) => '[**Asset ' + (index + 1) + '**](' + asset.path + ')').join(' ')
-        + '\n\nPreserve [Keep](' + keep + ').\n\n| Label | Value |\n| --- | --- |\n| Alpha | Beta |\n';
+      const markdown = [
+        '# Shared cohort backlink',
+        'Read [**First**](' + first + ') and [**Second**](' + second + ').',
+        nativePaths.slice(2).map((file, index) => '[**Native ' + (index + 3) + '**](' + file + ')').join(' '),
+        assets.map((asset, index) => '[**Asset ' + (index + 1) + '**](' + asset.path + ')').join(' '),
+        'Preserve [Keep](' + keep + ').',
+        '| Label | Value |\n| --- | --- |\n| Alpha | Beta |',
+      ].filter(section => section.length > 0).join('\n\n') + '\n';
       await pasteMarkdown(backlinkViewer, fixture, markdown);
       const backlinkBefore = await persisted(backlinkViewer, fixture, backlink, backlinkInitial);
       const expected = removedPaths.reduce((document, file) => withoutOpenNativeTargetLink(document, file), backlinkBefore.candidate.document);
