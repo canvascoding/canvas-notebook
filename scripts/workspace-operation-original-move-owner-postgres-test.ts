@@ -260,6 +260,8 @@ async function main(): Promise<void> {
     const { executeWorkspaceOperationOriginalMove: execute } = await import('../app/lib/files/workspace-operation-original-move-runner');
     const ownerApi = await import('../app/lib/files/workspace-operation-job-lifecycle-owner');
     const { waitForWorkspaceOperationNativePathAdmission } = await import('../app/lib/files/workspace-operation-native-path-admission');
+    const { withWorkspaceOperationJobClaimScheduling } = await import('../app/lib/files/workspace-operation-job-phase-scheduling');
+    const { WorkspaceRequestPrincipalError } = await import('../app/lib/workspaces/request-principal');
     const pins = ['app/lib/files/workspace-operation-job-lifecycle-owner.ts','app/lib/files/workspace-operation-original-move-storage.ts',
       'app/lib/files/workspace-operation-original-move-handoff-storage.ts','app/lib/files/workspace-operation-original-move-runner.ts',
       'app/lib/files/workspace-operation-original-move.ts','app/lib/files/workspace-operation-original-move-sources.ts',
@@ -278,7 +280,9 @@ async function main(): Promise<void> {
       'app/api/files/upload/route.ts','app/lib/files/workspace-upload-flow.ts','app/lib/filesystem/workspace-files.ts',
       'app/lib/files/collaboration-policy.ts','app/lib/files/collaboration-repository/document-repository.ts',
       'app/lib/files/collaboration-repository/lineage-revision-repository.ts','app/lib/file-version-center/history-service.ts',
-      'app/lib/collaboration/workspace-document-catalogue.ts','app/lib/collaboration/markdown-file-import-persistence.ts'];
+      'app/lib/collaboration/workspace-document-catalogue.ts','app/lib/collaboration/markdown-file-import-persistence.ts',
+      'app/lib/files/workspace-operation-native-path-admission.ts','app/lib/files/workspace-operation-job-phase-scheduling.ts',
+      'app/lib/workspaces/request-principal.ts'];
     const sourcePins = await Promise.all(pins.map(async filename => [filename,sha(await readFile(filename))] as const));
     console.log('Original Move pinned sources:',JSON.stringify(sourcePins));
     const seedNative = async (filename:string,content:string,physical=false) => {
@@ -963,7 +967,96 @@ async function main(): Promise<void> {
       assert.equal((await admin.query('SELECT count(*)::integer AS n FROM workspace_file_operation_move_receipts WHERE batch_id=$1',[job.claimed.batchId])).rows[0].n,0);
       await abort(job);
     });
-    assert.equal(passed,21);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
+    await check('clean pre-owner Principal Busy settles before Scheduler resume and a fresh original attempt',async()=>{
+      // A real independent row lock makes the genuine policy FOR SHARE NOWAIT
+      // fail. No SQL result, Principal, Claim, owner or admission is substituted.
+      for(const boundary of ['history','admission'] as const)for(const rejectResume of [false,true]){
+        const name=`preowner-${boundary}-${crypto.randomUUID()}.pdf`,destination=`preowner-moved/${name}`;
+        const bytes=Buffer.from('%PDF-1.7\npre-owner retry original bytes\n');
+        await writeFile(path.join(workspace.rootPath,name),bytes,{flag:'wx',mode:0o600});
+        const peer=await seedNative(`preowner-peer-${crypto.randomUUID()}.md`,`[PDF](${name})\n`);
+        const job=await freshHtmlJob([{sourcePath:name,destinationPath:destination}]);
+        const beforeRows=await originalDataFacts(),beforeFs=await workspacePhysicalFacts();
+        const holder=await ownClient();let holderActive=false,revokedToken:string|undefined;
+        const lease=(await admin.query('SELECT lease_token FROM workspace_file_operation_batches WHERE batch_id=$1',[job.claimed.batchId])).rows[0];
+        assert.equal(typeof lease?.lease_token,'string');
+        type Attempt={events:string[];closed:boolean;sqlBusy:number;closeError?:Error};
+        const attempts:Attempt[]=[];let pauses=0,resumes=0,pathCallbacks=0;
+        const resumeAbort=Object.assign(new Error('The owned Scheduler resume was deliberately aborted.'),{code:'FIXTURE_RESUME_ABORT'});
+        const release=async()=>{if(holderActive){await holder.query('ROLLBACK');holderActive=false;}};
+        const observedOpen=async():Promise<SqlConnection>=>{
+          assert(attempts.every(attempt=>attempt.closed),'The preceding real B must close before a fresh checkout.');
+          const actual=await database.openDb();checkouts.add(actual);
+          const attempt:Attempt={events:[],closed:false,sqlBusy:0};attempts.push(attempt);
+          const observe=async<T>(sql:string,operation:()=>T|Promise<T>):Promise<T>=>{
+            try{const value=await operation();if(/^ROLLBACK\b/iu.test(sql))attempt.events.push('rollback');
+              if(/^COMMIT\b/iu.test(sql))attempt.events.push('commit');return value;
+            }catch(error){if(code(error)==='55P03'){attempt.sqlBusy++;attempt.events.push('sql55P03');}throw error;}
+          };
+          return {get:(sql,values)=>observe(sql,()=>actual.get(sql,values)),
+            all:(sql,values)=>observe(sql,()=>actual.all(sql,values)),run:(sql,values)=>observe(sql,()=>actual.run(sql,values)),
+            close:async error=>{attempt.closeError=error;await actual.close(error);checkouts.delete(actual);attempt.closed=true;attempt.events.push('closed');}};
+        };
+        try{
+          await holder.query('BEGIN');holderActive=true;
+          assert.equal((await holder.query(`SELECT id FROM "${schema}"."user" WHERE id='member' FOR UPDATE`)).rows[0]?.id,'member');
+          const operation=()=>store.withClaim(job.claimed,async claim=>{
+            const completion=await withWorkspaceOperationJobClaimScheduling(claim,{
+              pauseAndDrain:async()=>{pauses++;assert(attempts.every(attempt=>attempt.closed));},
+              resume:async()=>{
+                resumes++;assert(attempts.every(attempt=>attempt.closed));
+                if(resumes===1){
+                  const first=attempts[0];assert(first);assert.equal(first.sqlBusy,1);
+                  assert.deepEqual(first.events,['sql55P03','rollback','closed']);
+                  if(boundary==='history'){
+                    assert(first.closeError instanceof WorkspaceRequestPrincipalError);
+                    assert.equal(first.closeError.code,'PRINCIPAL_BUSY');
+                  }
+                  assert.deepEqual(await originalDataFacts(),beforeRows);assert.deepEqual(await workspacePhysicalFacts(),beforeFs);
+                  assert.equal(pathCallbacks,0);await release();
+                  if(rejectResume){
+                    if(boundary==='history')throw resumeAbort;
+                    revokedToken=crypto.randomUUID();
+                    assert.equal((await admin.query('UPDATE workspace_file_operation_batches SET lease_token=$2 WHERE batch_id=$1 RETURNING batch_id',
+                      [job.claimed.batchId,revokedToken])).rows.length,1);
+                  }
+                }
+                // This is the real A heartbeat, after B rollback/close. A stale
+                // lease must abort here, before any fresh policy or owner phase.
+                assert.equal(await store.heartbeatClaim(job.claimed),true);
+              },
+            },async()=>{
+              const deadline=performance.now()+10_000;
+              if(boundary==='history')assert.equal(await ownerApi.readWorkspaceOperationOriginalMoveJobHistory(claim,observedOpen,undefined,deadline),null);
+              else await waitForWorkspaceOperationNativePathAdmission(claim,observedOpen,undefined,deadline);
+              assert(attempts.length>=2,'The public entry must take a genuinely fresh phase after clean Busy.');
+              assert.equal(attempts.reduce((sum,attempt)=>sum+attempt.sqlBusy,0),1);
+              return execute({claim,workspace:job.workspace,onPathCommitted:async()=>{pathCallbacks++;}});
+            });
+            assert(await store.finishClaim(job.claimed,{status:'applied',completedActions:job.claimed.totalActions,phase:'complete'}));
+            return completion;
+          });
+          if(rejectResume){
+            await assert.rejects(operation(),error=>boundary==='history'?error===resumeAbort:code(error)==='BATCH_CLAIM_CHANGED');
+            assert.equal(attempts.length,1);assert.equal(resumes,1);assert.equal(pauses,2);
+            assert.equal(pathCallbacks,0);assert.deepEqual(await originalDataFacts(),beforeRows);assert.deepEqual(await workspacePhysicalFacts(),beforeFs);
+            assert.equal(await nativeContent(peer.documentId),`[PDF](${name})\n`);
+          }else{
+            const completion=await operation();assert.equal(completion.pathReceipts.length,1);
+            assert.equal(pathCallbacks,1);assert(resumes>=2);assert.equal(pauses,resumes+1);
+            assert(await absent(path.join(workspace.rootPath,name)));assert.deepEqual(await readFile(path.join(workspace.rootPath,destination)),bytes);
+            assert.equal(await nativeContent(peer.documentId),`[PDF](${destination})\n`);
+          }
+        }finally{
+          await release();await endClient(holder);
+          if(revokedToken){assert.equal((await admin.query('UPDATE workspace_file_operation_batches SET lease_token=$3 WHERE batch_id=$1 AND lease_token=$2 RETURNING batch_id',
+            [job.claimed.batchId,revokedToken,lease.lease_token])).rows.length,1);}
+        }
+        if(rejectResume)await abort(job);
+        assert(attempts.every(attempt=>attempt.closed));assert.equal(checkouts.size,0);
+      }
+    });
+    assert.equal(passed,22);assert.equal(fetches,0);await own();assert.equal(await sourceHash(),pinned);
     for(const [filename,hash] of sourcePins)assert.equal(sha(await readFile(filename)),hash,`Source changed during original Move fixture: ${filename}`);
     console.log('Original Move genuine owner assertions finished:',JSON.stringify({passed,sourcePins,fetches}));
   } catch(error) {failures.push(error);}

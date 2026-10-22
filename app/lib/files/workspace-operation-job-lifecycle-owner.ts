@@ -13,6 +13,8 @@ import { captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5, WorkspaceOpera
 import { assertOriginalPhysicalDeleteLinkPlanV5 } from './workspace-operation-original-physical-delete-links-v5';
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
+import { WorkspaceRequestPrincipalError } from '../workspaces/request-principal';
 import { constants, promises as fs, type Stats } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
@@ -30,7 +32,7 @@ import { captureWorkspaceOperationMcpJobPrincipal, assertWorkspaceOperationMcpJo
   type WorkspaceOperationMcpJobPrincipal } from '../workspaces/workspace-operation-mcp-job-principal';
 import { readWorkspaceOperationBatchClaimBinding, type WorkspaceOperationBatchClaim,
   type WorkspaceOperationBatchClaimBinding } from './workspace-operation-batch-store';
-import { withWorkspaceFileLifecycleGuard } from './workspace-file-lifecycle-guard';
+import { withWorkspaceFileLifecycleGuard, WorkspaceFileLifecycleBusyError } from './workspace-file-lifecycle-guard';
 import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
@@ -1614,14 +1616,17 @@ async function readOriginalDeleteJobRows(database: SqlConnection, binding: Works
 }
 
 /** Authorized historical Move proof, without current-path or room lookup. */
-export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOperationBatchClaim,
-  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<WorkspaceOperationOriginalMoveJobReceipts|null> {
+export async function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOperationBatchClaim,
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal,
+  admissionDeadline?: number): Promise<WorkspaceOperationOriginalMoveJobReceipts|null> {
   if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), captured = {binding,move:captureMove(binding)};
   const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, true);
-  return withWorkspaceOperationJobClaimPhase(claim,async () => {
+  if (admissionDeadline !== undefined && (!Number.isFinite(admissionDeadline) || admissionDeadline > performance.now() + 10_000)) fail('JOB_LIFECYCLE_INVALID');
+  const attempt = () => withWorkspaceOperationJobClaimPhase(claim,async () => {
     const policy = mcpPrincipal ? undefined : await captureWorkspaceOperationJobPolicy(), database = await openConnection();
-    let begun = false, commitAttempted = false, failure: Error|undefined;
+    let begun = false, commitAttempted = false, rolledBack = false, failure: Error|undefined;
+    let value: WorkspaceOperationOriginalMoveJobReceipts|null = null;
     try {
       const first = await identity(database,true), second = await identity(database,false);
       if (!sameIdentity(first.identity,second.identity) || second.transaction !== null
@@ -1638,7 +1643,7 @@ export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOpe
       const authorize = (operation: (access: WorkspaceOperationJobPolicyAccess) => Promise<WorkspaceOperationOriginalMoveJobReceipts|null>) => mcpPrincipal
         ? withWorkspaceOperationMcpJobPolicyOnConnection(database,{claim,principal:mcpPrincipal},operation)
         : withWorkspaceOperationJobPolicyOnConnection(database,{claim,policy:policy!},operation);
-      const result = await authorize(async access => {
+      value = await authorize(async access => {
         const {schemaName,schemaOid,databaseOid} = binding.source;
         const storage = await bindWorkspaceOperationOriginalMoveStorageOnConnection(database,{schemaName,schemaOid,databaseOid});
         await access.assertCurrent(); await check();
@@ -1661,18 +1666,35 @@ export function readWorkspaceOperationOriginalMoveJobHistory(claim: WorkspaceOpe
         }
         await access.assertCurrent(); await storage.assertCurrent(); await check(); return rows;
       });
-      await check(); commitAttempted = true; await database.run('COMMIT'); begun = false; return result;
+      await check(); commitAttempted = true; await database.run('COMMIT'); begun = false;
     } catch (error) {
       failure = asError(error);
-      if (begun) try { await database.run('ROLLBACK'); } catch (rollback) { failure = new AggregateError([failure,asError(rollback)]); }
+      if (begun) try { await database.run('ROLLBACK'); rolledBack = true; } catch (rollback) { failure = new AggregateError([failure,asError(rollback)]); }
       if (commitAttempted) failure = new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_COMMIT_UNCONFIRMED',{cause:failure});
-      throw failure;
     } finally {
       try { await database.close(failure ?? new Error('Discarding original Move historical proof session.')); }
       catch (close) { throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DISPOSAL_UNCONFIRMED',{
         cause:failure ? new AggregateError([failure,asError(close)]) : close}); }
     }
+    // Only a direct human policy lock timeout with confirmed rollback and close
+    // settles normally inside the phase. Scheduler resume and Claim checks must
+    // finish before the outer loop may sleep or enter a fresh policy/SQL phase.
+    if (failure) {
+      if (rolledBack && !commitAttempted && binding.authorization.mode === 'direct' && binding.authorization.actorType === 'user'
+        && failure instanceof WorkspaceRequestPrincipalError && failure.code === 'PRINCIPAL_BUSY') {
+        return { kind: 'busy' as const, error: failure };
+      }
+      throw failure;
+    }
+    return { kind: 'value' as const, value };
   });
+  for (;;) {
+    if (admissionDeadline !== undefined && performance.now() >= admissionDeadline) throw new WorkspaceFileLifecycleBusyError();
+    const settled = await attempt();
+    if (settled.kind === 'value') return settled.value;
+    if (admissionDeadline === undefined || performance.now() >= admissionDeadline) throw settled.error;
+    await delay(Math.min(50, Math.max(0, admissionDeadline - performance.now())));
+  }
 }
 
 function rejectMoveBoundary(owner: WorkspaceOperationNativeMoveJobOwner, error: unknown): Promise<never> {

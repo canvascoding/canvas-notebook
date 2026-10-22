@@ -41,9 +41,12 @@ export async function executeWorkspaceOperationOriginalMove(input: {
   }
   // A completed retry never requires a filesystem object to remain at the old
   // or new path. Current rights and exact historical SQL receipts are checked.
-  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, mcpPrincipal);
+  // One existing admission budget covers fresh historical policy attempts and
+  // room draining. It never retries an Owner phase or physical operation.
+  const admissionDeadline = performance.now() + 10_000;
+  const history = await readWorkspaceOperationOriginalMoveJobHistory(claim, openDb, mcpPrincipal, admissionDeadline);
   if (history?.completion) return history.completion;
-  await waitForWorkspaceOperationNativePathAdmission(claim, openDb, mcpPrincipal);
+  await waitForWorkspaceOperationNativePathAdmission(claim, openDb, mcpPrincipal, admissionDeadline);
   return withWorkspaceOperationNativeMoveJobOwner(claim, async owner => {
     let rows = await readWorkspaceOperationOriginalMoveJobReceipts(owner);
     if (rows.completion) return rows.completion;

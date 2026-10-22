@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual as equal, types } from 'node:util';
 import { openDb, type SqlConnection } from '../db';
+import { WorkspaceRequestPrincipalError } from '../workspaces/request-principal';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { captureCollaborationAdmissionRequest, CollaborationAdmissionError,
   type CollaborationAdmissionRequest, type CollaborationAdmissionStatus } from '../collaboration/room-admission-contract';
@@ -63,6 +64,9 @@ export type WorkspaceOperationNativePathAdmissionRead = Readonly<{
 export type WorkspaceOperationNativePathAdmissionResult = Readonly<{ status: 'ready' | 'pending'; requestId: string }>;
 type NativePathRequest = Readonly<{ request: CollaborationAdmissionRequest; requiresHeader: boolean; legacy: boolean }>;
 type Row = Record<string, unknown>;
+// Private settlement provenance only, never authority or a current fact cache.
+// Scheduler/Schema disposal failures cannot acquire this marker.
+const settledNativePathBusy = new WeakSet<WorkspaceFileLifecycleBusyError>();
 export { createWorkspaceOperationOriginalDeleteAdmissionRequest } from './workspace-operation-original-delete-admission';
 
 
@@ -277,22 +281,34 @@ export function advanceWorkspaceOperationNativePathAdmission(claim: WorkspaceOpe
  * guard or workspace mutation lock is retained while a real room drains.
  * A timeout leaves the original request available to explicit recovery. */
 export async function waitForWorkspaceOperationNativePathAdmission(claim: WorkspaceOperationBatchClaim,
-  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal): Promise<void> {
+  openConnection: () => Promise<SqlConnection> = openDb, mcp?: WorkspaceOperationMcpJobPrincipal,
+  admissionDeadline = performance.now() + 10_000): Promise<void> {
   const original = nativePathBinding(claim);
   const documentIds = workspaceOperationSourceNativeEvidence(original.plan.sourceEvidence).nativeBindings.map(item => item.expected.documentId);
   const options = Object.freeze({ openConnection,
     ...(mcp === undefined ? {} : { mcpPrincipal: captureWorkspaceOperationMcpJobPrincipal(mcp) }) });
-  const deadline = performance.now() + 10_000;
+  const deadline = admissionDeadline;
+  if (!Number.isFinite(deadline) || deadline > performance.now() + 10_000) {
+    throw new WorkspaceOperationBatchError('BATCH_CLAIM_CHANGED', 409, 'The bounded native path admission deadline is required.');
+  }
   let requestId: string | undefined;
   for (;;) {
-    const result = await advanceWorkspaceOperationNativePathAdmission(claim, options);
+    if (performance.now() >= deadline) throw new WorkspaceFileLifecycleBusyError();
+    let result: WorkspaceOperationNativePathAdmissionResult;
+    try { result = await advanceWorkspaceOperationNativePathAdmission(claim, options); }
+    catch (error) {
+      if (!(error instanceof WorkspaceFileLifecycleBusyError) || !settledNativePathBusy.delete(error)) throw error;
+      if (performance.now() >= deadline) throw error;
+      await delay(Math.min(50, Math.max(0, deadline - performance.now())));
+      continue;
+    }
     if (requestId !== undefined && result.requestId !== requestId) throw new CollaborationAdmissionError('ADMISSION_REQUEST_CHANGED');
     requestId = result.requestId;
     // The durable release precedes the server's final local room unload. A
     // proven PG snapshot cannot substitute for that final local retirement.
     if (result.status === 'ready' && documentIds.every(id => getCollaborationRoomConnectionCount(id) === 0)) return;
     if (performance.now() >= deadline) throw new WorkspaceFileLifecycleBusyError();
-    await delay(50);
+    await delay(Math.min(50, Math.max(0, deadline - performance.now())));
   }
 }
 
@@ -301,11 +317,11 @@ async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, 
   operation: (database: SqlConnection, access: WorkspaceOperationJobPolicyAccess) => Promise<T>): Promise<T> {
   // Fixed editor grammar only, scoped through confirmed disposal of this one
   // attempt. No document facts or current authorization are cached.
-  return withNativeInspectionSchema(() => withWorkspaceOperationJobClaimPhase(claim, async () => {
+  const settled = await withNativeInspectionSchema(() => withWorkspaceOperationJobClaimPhase(claim, async () => {
     const policy = mcp ? undefined : await captureWorkspaceOperationJobPolicy();
     let executed = false, closed = false;
     try {
-      return await executeLifecycleTransaction({
+      const value = await executeLifecycleTransaction({
         openConnection: async () => {
           const actual = await openConnection();
           // Forward the same actual B. Only awaited disposal uncertainty is
@@ -349,17 +365,31 @@ async function withNativePathClaimPhase<T>(claim: WorkspaceOperationBatchClaim, 
         recoverCommitted: async (_value, cause) => { throw Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_COMMIT_UNCONFIRMED', 503,
           'Native path admission COMMIT is unconfirmed.'), { cause }); },
       });
+      return { kind: 'value' as const, value };
     } catch (error) {
+      if (error instanceof AggregateError) throw Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_DISPOSAL_UNCONFIRMED', 503,
+        'Native path admission transaction cleanup is unconfirmed.'), { cause: error });
+      if (executed && closed && original.authorization.mode === 'direct' && original.authorization.actorType === 'user'
+        && (error instanceof WorkspaceFileLifecycleBusyError
+          || error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
+          || error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === '55P03')) {
+        // executeLifecycleTransaction returns these direct failures only after
+        // confirmed rollback and close. Keep them out of Scheduler poisoning.
+        return { kind: 'busy' as const, error: new WorkspaceFileLifecycleBusyError() };
+      }
       if (executed && closed && error && typeof error === 'object' && Object.getOwnPropertyDescriptor(error, 'code')?.value === '55P03') {
         // The lifecycle helper returned the original SQL error only after its
         // rollback and awaited close; never continue an aborted transaction.
         throw new WorkspaceFileLifecycleBusyError();
       }
-      if (error instanceof AggregateError) throw Object.assign(new WorkspaceOperationBatchError('BATCH_CLAIM_DISPOSAL_UNCONFIRMED', 503,
-        'Native path admission transaction cleanup is unconfirmed.'), { cause: error });
       throw error;
     }
   }));
+  if (settled.kind === 'busy') {
+    settledNativePathBusy.add(settled.error);
+    throw settled.error;
+  }
+  return settled.value;
 }
 
 async function prepareNativePathRequest(database: SqlConnection, original: NativePathBinding, mode: 'read' | 'prepare',
