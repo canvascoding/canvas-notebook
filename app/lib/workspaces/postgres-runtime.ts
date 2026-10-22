@@ -2377,6 +2377,130 @@ export async function removePostgresWorkspaceMemberForActor(
   }
 }
 
+/** Internal fixed current read on the caller's actual connection. No bootstrap,
+ * pool, transaction, cache or authority. Scalar aliases preserve the ordinary
+ * PG wire values; presence flags distinguish a missing optional joined row. */
+export async function readPostgresWorkspaceForActorInSingleSnapshotOnConnection(
+  database: Pick<PostgresRuntimeDb, 'get'>,
+  actor: WorkspaceActor,
+  workspaceId: string,
+): Promise<WorkspaceContext | null> {
+  const row = await database.get(`
+    SELECT w.*,
+      p.present AS permission_present,
+      p.role AS permission_role,
+      p.status AS permission_status,
+      p.can_write_team_workspace AS permission_can_write_team_workspace,
+      p.can_create_public_links AS permission_can_create_public_links,
+      p.can_create_team_automations AS permission_can_create_team_automations,
+      p.can_share_plugins_and_skills AS permission_can_share_plugins_and_skills,
+      p.can_export AS permission_can_export,
+      p.can_delete_team_files AS permission_can_delete_team_files,
+      p.can_delete_studio_assets AS permission_can_delete_studio_assets,
+      p.can_manage_backups AS permission_can_manage_backups,
+      p.can_manage_organization_memory AS permission_can_manage_organization_memory,
+      p.can_migrate_database AS permission_can_migrate_database,
+      p.can_enable_knowledge AS permission_can_enable_knowledge,
+      p.can_recover_workspaces AS permission_can_recover_workspaces,
+      t.present AS team_present,
+      t.workspace_id AS team_workspace_id,
+      t.role AS team_role,
+      t.status AS team_status,
+      t.can_read AS team_can_read,
+      t.can_write AS team_can_write,
+      t.can_manage AS team_can_manage,
+      j.present AS project_present,
+      j.role AS project_role,
+      j.status AS project_status,
+      j.can_read AS project_can_read,
+      j.can_write AS project_can_write,
+      j.can_manage AS project_can_manage
+    FROM (
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path,
+        display_name, description, workspace_icon, workspace_color, status, is_default, created_at, updated_at
+      FROM canvas_workspaces WHERE id=$1 LIMIT 1
+    ) w
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, status, can_write_team_workspace, can_create_public_links, can_create_team_automations,
+        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
+        can_manage_backups, can_manage_organization_memory, can_migrate_database, can_enable_knowledge, can_recover_workspaces
+      FROM organization_user_permissions WHERE organization_id=w.organization_id AND user_id=$2 LIMIT 1
+    ) p ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, workspace_id, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_workspace_members WHERE w.type='team' AND workspace_id=w.id AND user_id=$2 LIMIT 1
+    ) t ON true
+    LEFT JOIN LATERAL (
+      SELECT true AS present, role, COALESCE(status, 'active') AS status, can_read, can_write, can_manage
+      FROM canvas_project_members WHERE w.project_id IS NOT NULL AND w.project_id<>''
+        AND organization_id=w.organization_id AND project_id=w.project_id AND user_id=$2 LIMIT 1
+    ) j ON true`, [workspaceId, actor.userId]) as (WorkspaceRow & {
+    permission_present: boolean | null;
+    permission_role: PermissionRow['role'];
+    permission_status: PermissionRow['status'];
+    permission_can_write_team_workspace: PermissionRow['can_write_team_workspace'];
+    permission_can_create_public_links: PermissionRow['can_create_public_links'];
+    permission_can_create_team_automations: PermissionRow['can_create_team_automations'];
+    permission_can_share_plugins_and_skills: PermissionRow['can_share_plugins_and_skills'];
+    permission_can_export: PermissionRow['can_export'];
+    permission_can_delete_team_files: PermissionRow['can_delete_team_files'];
+    permission_can_delete_studio_assets: PermissionRow['can_delete_studio_assets'];
+    permission_can_manage_backups: PermissionRow['can_manage_backups'];
+    permission_can_manage_organization_memory: PermissionRow['can_manage_organization_memory'];
+    permission_can_migrate_database: PermissionRow['can_migrate_database'];
+    permission_can_enable_knowledge: PermissionRow['can_enable_knowledge'];
+    permission_can_recover_workspaces: PermissionRow['can_recover_workspaces'];
+    team_present: boolean | null;
+    team_workspace_id: TeamWorkspacePermissionRow['workspace_id'];
+    team_role: TeamWorkspacePermissionRow['role'];
+    team_status: TeamWorkspacePermissionRow['status'];
+    team_can_read: TeamWorkspacePermissionRow['can_read'];
+    team_can_write: TeamWorkspacePermissionRow['can_write'];
+    team_can_manage: TeamWorkspacePermissionRow['can_manage'];
+    project_present: boolean | null;
+    project_role: ProjectPermissionRow['role'];
+    project_status: ProjectPermissionRow['status'];
+    project_can_read: ProjectPermissionRow['can_read'];
+    project_can_write: ProjectPermissionRow['can_write'];
+    project_can_manage: ProjectPermissionRow['can_manage'];
+  }) | undefined;
+  if (!row) return null;
+  const record = rowToWorkspaceRecord(row);
+  const permission = row.permission_present === true ? {
+    role: row.permission_role,
+    status: row.permission_status,
+    can_write_team_workspace: row.permission_can_write_team_workspace,
+    can_create_public_links: row.permission_can_create_public_links,
+    can_create_team_automations: row.permission_can_create_team_automations,
+    can_share_plugins_and_skills: row.permission_can_share_plugins_and_skills,
+    can_export: row.permission_can_export,
+    can_delete_team_files: row.permission_can_delete_team_files,
+    can_delete_studio_assets: row.permission_can_delete_studio_assets,
+    can_manage_backups: row.permission_can_manage_backups,
+    can_manage_organization_memory: row.permission_can_manage_organization_memory,
+    can_migrate_database: row.permission_can_migrate_database,
+    can_enable_knowledge: row.permission_can_enable_knowledge,
+    can_recover_workspaces: row.permission_can_recover_workspaces,
+  } : null;
+  const teamPermission = row.team_present === true ? {
+    workspace_id: row.team_workspace_id,
+    role: row.team_role,
+    status: row.team_status,
+    can_read: row.team_can_read,
+    can_write: row.team_can_write,
+    can_manage: row.team_can_manage,
+  } : null;
+  const projectPermission = row.project_present === true ? {
+    role: row.project_role,
+    status: row.project_status,
+    can_read: row.project_can_read,
+    can_write: row.project_can_write,
+    can_manage: row.project_can_manage,
+  } : null;
+  if (!canReadWorkspace(record, actor, permission, teamPermission, projectPermission)) return null;
+  return workspaceContextFromRecord(record, actor, permission, teamPermission, projectPermission);
+}
+
 /** Recheck existing access without rerunning account/workspace bootstrap. */
 export async function readPostgresWorkspaceForActorOnConnection(
   database: PostgresRuntimeDb,

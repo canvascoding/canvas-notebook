@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { getSchema } from '@tiptap/core';
 import { ARCHIVED_NATIVE_BINARY_LIMIT, inspectArchivedNativeSnapshot } from './archived-native-snapshot';
 import { inspectPersistedNativeCollaborationSnapshot } from './document-snapshot';
 import { isCollaborationStateQuarantined } from './failure';
-import { richMarkdownSchemaExtensions } from './markdown-state';
+import { getNativeInspectionSchema } from './native-inspection-schema';
 import { assertNativeDocumentSchema } from './native-document-schema';
 import type { PersistedCollaborationState } from './persistence';
 import { isCanonicalAdmissionPath } from './room-admission-contract';
@@ -131,7 +130,7 @@ export function prepareNativeFileArchiveTransition(state: PersistedCollaboration
   const beforeError = diagnostics(state);
   if (hash(state.yjsState) !== bound.binaryHash || hash(state.stateVector) !== bound.vectorHash) fail('NATIVE_FILE_ARCHIVE_SOURCE_CHANGED');
   const snapshot = inspectPersistedNativeCollaborationSnapshot(state,(doc, native) => {
-    assertNativeDocumentSchema(doc,state.representation,getSchema(richMarkdownSchemaExtensions()));
+    assertNativeDocumentSchema(doc,state.representation,getNativeInspectionSchema());
     return native;
   });
   if (snapshot.version.stateProof !== bound.stateProof) fail('NATIVE_FILE_ARCHIVE_SOURCE_CHANGED');

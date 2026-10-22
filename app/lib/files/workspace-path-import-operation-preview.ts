@@ -1,5 +1,6 @@
 import { createWorkspacePathPhysicalDeletePreparationPlanV5, type WorkspacePathPhysicalDeletePreparationPlanV5 } from './workspace-path-physical-delete-preparation-v5';
 import 'server-only';
+import { isWorkspaceCohortDeleteRequest, createWorkspacePathCohortDeletePreparation, type WorkspacePathCohortDeletePreparation } from './workspace-path-cohort-delete-preparation';
 
 import { types } from 'node:util';
 import { openDb } from '../db';
@@ -24,7 +25,7 @@ type Input = Readonly<{ principal: WorkspacePathImportPreparationPrincipal; kind
   selections: readonly Readonly<{ sourcePath: string; destinationPath?: string }>[] }>;
 type Access = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
 export type WorkspacePathImportPreparationPreviewPlan = WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2
-  | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5 | WorkspacePathHtmlImportPreparationPlanV4;
+  | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathPhysicalDeletePreparationPlanV5 | WorkspacePathHtmlImportPreparationPlanV4 | WorkspacePathCohortDeletePreparation;
 export class WorkspacePathImportPreviewError extends Error {
   readonly status: 403 | 409 | 422 | 503;
   constructor(readonly code: 'PATH_IMPORT_PREVIEW_INVALID' | 'PATH_IMPORT_PREVIEW_BUSY' | 'PATH_IMPORT_PREVIEW_UNAVAILABLE'
@@ -108,9 +109,11 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           && physicalNode.filesystemIdentity && !/\.(?:md|markdown|mdx|html?|excalidraw)$/iu.test(physicalNode.path)
           && !observation.nativeBindings.some(binding => binding.expected.path === physicalNode.path)
           && !observation.stage.sources.some(source => source.kind === 'physical' && source.inventory.path === physicalNode.path);
-        const htmlImport = !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
+        const cohortDelete = captured.kind==='delete' && isWorkspaceCohortDeleteRequest(observation,captured.selections);
+        const htmlImport = !cohortDelete && !observation.stage.coverage.complete ? createWorkspacePathHtmlImportPreparationPlanV4({ scope, kind: captured.kind,
           selections: captured.selections.map(value => ({ ...value })), observation }) : null;
-        const plan = htmlImport && (htmlImport.importRequirements.length > 0
+        const plan = cohortDelete ? createWorkspacePathCohortDeletePreparation({workspace,selections:captured.selections,observation})
+          : htmlImport && (htmlImport.importRequirements.length > 0
           || htmlImport.issues.some(issue => issue.code === 'raw-markdown-html-import-unsupported')) ? htmlImport
           : physicalDelete ? createWorkspacePathPhysicalDeletePreparationPlanV5({ scope, kind: 'delete',
           selections: captured.selections.map(({sourcePath}) => ({sourcePath})), observation }) : !observation.stage.coverage.complete

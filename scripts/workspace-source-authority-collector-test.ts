@@ -13,6 +13,7 @@ import { CollaborationBlockTree } from '../app/lib/collaboration/block-tree';
 import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownSchemaExtensions,
   validateRichMarkdownYDoc } from '../app/lib/collaboration/markdown-state';
 import { mapValidatedNativeStateRow } from '../app/lib/collaboration/native-session-state-reader';
+import { withNativeInspectionSchema } from '../app/lib/collaboration/native-inspection-schema';
 import { COLLABORATION_FAILURE_CODES } from '../app/lib/collaboration/failure';
 import { nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
 import { previewStagedWorkspaceLinkEffects } from '../app/lib/markdown/workspace-physical-link-inventory';
@@ -126,6 +127,92 @@ test('strict source authority collector with caller-owned embedded SQL and genui
         assert.equal(binding.expected.binaryHash, digest(target.binary)); assert.equal(binding.expected.vectorHash, digest(target.vector));
         assert.equal(binding.expected.path, target.filePath);
       }
+    });
+    await fixture('unchanged native bytes still perform both fresh SQL passes and legacy hooks; evaluation results do not cross observations', async () => {
+      const targets: Awaited<ReturnType<typeof seed>>[] = [];
+      for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+        targets.push(await seed(`same-${representation}.md`, representation));
+      }
+      const loads: Array<{ documentId: string; binaryHash: string; vectorHash: string }> = [];
+      const loadState: NonNullable<Parameters<typeof readWorkspaceLinkSourceAuthorityOnConnection>[2]>['loadState'] = async (database, documentId) => {
+        const raw = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1', [documentId]) as Record<string, unknown>;
+        const state = await mapValidatedNativeStateRow(raw, documentId); assert(state);
+        loads.push({ documentId, binaryHash: digest(state.yjsState), vectorHash: digest(state.stateVector) });
+        return state;
+      };
+      const observed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, { loadState }));
+      assert.equal(observed.stage.coverage.complete, true, JSON.stringify(observed.stage.coverage.gaps));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+      assert.equal(loads.length, 6);
+      for (const target of targets) {
+        assert.deepEqual(loads.filter(load => load.documentId === target.documentId),
+          [0, 1].map(() => ({ documentId: target.documentId, binaryHash: digest(target.binary), vectorHash: digest(target.vector) })));
+      }
+      const first = observed.privateNativeStates.find(state => state.documentId === targets[0].documentId); assert(first);
+      first.yjsState[0] ^= 1;
+      const again = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, { loadState }));
+      assert.equal(again.stage.coverage.complete, true, JSON.stringify(again.stage.coverage.gaps));
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 4);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 4);
+      assert.equal(loads.length, 12);
+      for (const target of targets) {
+        const current = again.privateNativeStates.find(state => state.documentId === target.documentId); assert(current);
+        assert.equal(digest(current.yjsState), digest(target.binary)); assert.equal(digest(current.stateVector), digest(target.vector));
+        assert.equal(loads.filter(load => load.documentId === target.documentId).length, 4);
+      }
+      assert.notEqual(again.privateNativeStates.find(state => state.documentId === first.documentId), first);
+      assert.deepEqual((await sql.query<{ yjs_state: Uint8Array }>('SELECT yjs_state FROM collaboration_yjs_states WHERE document_id=$1', [targets[0].documentId])).rows[0].yjs_state, targets[0].binary);
+    });
+    await fixture('genuine Delete-only Yjs change with an identical statevector after the physical fingerprint discards the complete observation', async () => {
+      const target = await seed('native-delete-only.md', 'plain_text', { text: '[Target](target.md)' });
+      await fs.writeFile(path.join(root, 'incoming.md'), '[Source](native-delete-only.md)');
+      const doc = new Y.Doc(); let deletedBinary: Uint8Array, unchangedVector: Uint8Array;
+      try {
+        Y.applyUpdate(doc, target.binary);
+        const content = doc.getText('content'); assert.equal(content.toString(), '[Target](target.md)');
+        content.delete(0, content.length); assert.equal(content.toString(), '');
+        deletedBinary = Y.encodeStateAsUpdate(doc); unchangedVector = Y.encodeStateVector(doc);
+        assert.deepEqual(unchangedVector, target.vector, 'Deleting existing Yjs items must leave the client clocks unchanged.');
+        assert.notEqual(digest(deletedBinary), digest(target.binary), 'The full Yjs update must contain the real changed DeleteSet.');
+      } finally { doc.destroy(); }
+      let fingerprints = 0;
+      const observed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, { afterSourceFingerprint: async relativePath => {
+        assert.equal(relativePath, 'incoming.md'); fingerprints++;
+        await sql.query('UPDATE collaboration_yjs_states SET yjs_state=$1,state_vector=$2 WHERE document_id=$3',
+          [deletedBinary!, unchangedVector!, target.documentId]);
+      } }));
+      assert.equal(fingerprints, 1);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+      assert.equal(observed.stage.coverage.complete, false); assert.equal(observed.stage.sources.length, 0);
+      assert.equal(observed.nativeBindings.length, 0); assert.equal(observed.privateNativeStates.length, 0);
+      assert.equal(observed.privateCatalogue, undefined);
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'native-source-changed'));
+      const actual = (await sql.query<{ yjs_state: Uint8Array; state_vector: Uint8Array; document_sequence: number | string; persisted_at: number | string }>(
+        'SELECT yjs_state,state_vector,document_sequence,persisted_at FROM collaboration_yjs_states WHERE document_id=$1', [target.documentId])).rows[0];
+      assert.deepEqual(actual.state_vector, target.vector); assert.deepEqual(actual.yjs_state, deletedBinary!);
+      assert.equal(Number(actual.document_sequence), 7); assert.equal(Number(actual.persisted_at), 100);
+    });
+    await fixture('a legacy loader mutation only on the second fresh pass rejects even when native bytes are unchanged', async () => {
+      const target = await seed('second-hook.md', 'plain_text'); let loads = 0;
+      const observed = await withNativeInspectionSchema(() => readWorkspaceLinkSourceAuthorityOnConnection(connection, workspace, { loadState: async (database, documentId) => {
+        assert.equal(documentId, target.documentId); loads++;
+        const raw = await database.get('SELECT * FROM collaboration_yjs_states WHERE document_id = $1 LIMIT 1', [documentId]) as Record<string, unknown>;
+        const state = await mapValidatedNativeStateRow(raw, documentId); assert(state);
+        assert.equal(digest(state.yjsState), digest(target.binary)); assert.equal(digest(state.stateVector), digest(target.vector));
+        return loads === 2 ? { ...state, documentSequence: state.documentSequence + 1 } : state;
+      } }));
+      assert.equal(loads, 2, 'A pure-evaluation reuse must not bypass the second legacy fault hook.');
+      assert.equal(trace.filter(entry => entry.sql.startsWith('SELECT requested.document_id')).length, 2);
+      assert.equal(trace.filter(entry => entry.sql.startsWith('WITH expected AS MATERIALIZED')).length, 2);
+      assert.equal(observed.stage.coverage.complete, false); assert.equal(observed.stage.sources.length, 0);
+      assert.equal(observed.nativeBindings.length, 0); assert.equal(observed.privateNativeStates.length, 0);
+      assert.equal(observed.privateCatalogue, undefined);
+      assert(observed.stage.coverage.gaps.some(gap => gap.code === 'native-source-changed'));
+      const actual = (await sql.query<{ yjs_state: Uint8Array; document_sequence: number | string }>(
+        'SELECT yjs_state,document_sequence FROM collaboration_yjs_states WHERE document_id=$1', [target.documentId])).rows[0];
+      assert.deepEqual(actual.yjs_state, target.binary); assert.equal(Number(actual.document_sequence), 7);
     });
     await fixture('N5 aggregate budget is checked for the whole collection before any binary query', async () => {
       let bytes = 0;

@@ -1,6 +1,8 @@
 import type { WorkspacePathPhysicalDeletePreparationPlanV5 } from './workspace-path-physical-delete-preparation-v5';
 import { workspaceOperationPhysicalDeleteWebPreviewV5 } from './workspace-operation-physical-delete-public-v5';
 import 'server-only';
+import { workspaceOperationCohortDeleteWebPreview } from './workspace-operation-cohort-delete-public';
+import type { WorkspacePathCohortDeletePreparation } from './workspace-path-cohort-delete-preparation';
 
 import type { WorkspaceFileOperationPreview } from '../markdown/workspace-file-operation-planner';
 import type { WorkspaceOperationBatchPlan } from './workspace-operation-batch-contract';
@@ -51,7 +53,7 @@ export type WorkspacePathHtmlImportPreviewPublicV4 = Omit<WorkspacePathImportPre
 };
 
 /** Display only: final native references and spellings do not exist before import. */
-export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathHtmlImportPreparationPlanV4 | WorkspacePathPhysicalDeletePreparationPlanV5
+export function workspacePathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1 | WorkspacePathHtmlNoImportPreparationPlanV2 | WorkspacePathHtmlNativeDeletePreparationPlanV3 | WorkspacePathHtmlImportPreparationPlanV4 | WorkspacePathPhysicalDeletePreparationPlanV5 | WorkspacePathCohortDeletePreparation
 ): WorkspacePathImportPreparationPreviewPublic | WorkspacePathHtmlNoImportPreviewPublic | WorkspacePathHtmlImportPreviewPublicV4 {
   if (plan.readiness === 'native-ready') throw new WorkspaceOperationBatchError('BATCH_INVALID_PLAN', 409,
     'This file action uses its ordinary preview.');
@@ -65,7 +67,7 @@ export function workspacePathImportPreparationPreview(plan: WorkspacePathImportP
     physicalLinkChanges: plan.physicalLinkIntents.map(intent => ({ sourcePathBefore: intent.sourcePath,
       sourcePathAfter: intent.sourcePathAfter, previousTargetLiteral: intent.expectedSourceLiteral,
       targetPathAfter: intent.targetPathAfter, action: intent.action })) };
-  if (plan.version === 2 || plan.version === 3 || plan.version === 5) return { version: 2, kind: plan.kind, executionReady: false,
+  if (plan.version === 2 || plan.version === 3 || plan.version === 5 || plan.version === 6) return { version: 2, kind: plan.kind, executionReady: false,
     workspaceId: plan.scope.workspaceId, planId: plan.planId, readiness: 'blocked',
     pathMappings: plan.pathMappings.map(mapping => ({ sourcePath: mapping.source.path, destinationPath: mapping.destinationPath })),
     linkEdits: [], coverage: { complete: plan.coverage.complete, omittedSources: [], unresolvedLinks: [] },
@@ -83,6 +85,7 @@ export function workspacePathImportPreparationPreview(plan: WorkspacePathImportP
 }
 
 export function workspacePathOperationPreview(plan: WorkspaceOperationBatchPlan): WorkspacePathOperationPreviewPublic {
+  if (plan.version === 6) return workspaceOperationCohortDeleteWebPreview(plan);
   if (plan.version === 1) {
     const { previewContents: _privateContents, ...publicPlan } = plan.linkPlan;
     return { ...publicPlan, planId: plan.planId, readiness: plan.readiness };

@@ -14,6 +14,8 @@ import { createFixtureWorkspaceOperationLegacyLinkPlan } from './helpers/workspa
 import { createWorkspaceOperationPhysicalDeleteBatchPlanV5, decodeWorkspaceOperationPhysicalDeleteBatchPlanV5 }
   from '../app/lib/files/workspace-operation-physical-delete-html-plan-v5';
 import { workspaceOperationMixedSourceEvidenceV5Fixture } from './workspace-operation-mixed-source-evidence-v5-test';
+import { createWorkspaceOperationCohortDeletePlan, decodeWorkspaceOperationCohortDeletePlan }
+  from '../app/lib/files/workspace-operation-cohort-delete-plan';
 
 // Actual SQL proves claim provenance here. Injected scope/execute/kernel in the
 // worker cases do not prove current principal rights, FS effects or Owner-B.
@@ -69,6 +71,20 @@ async function main(): Promise<void> {
       permissions: fixtureScope(actual.scope.workspaceId).workspace.permissions };
     const plan = createWorkspaceOperationPhysicalDeleteBatchPlanV5({ scope: { workspace, fileOptions: {} }, observation: actual.observation,
       actions: [{ reviewId: 'claim-physical', kind: 'delete', selections: [{ sourcePath: 'claim.png' }] }] });
+    const record = await store.createDirect({ batchId: randomUUID(), plan, authorization: { mode: 'direct', actorUserId: 'claim-user',
+      actorId: 'claim-user', actorType: 'user', actorDisplayName: 'Claim user', requestHash: 'b'.repeat(64),
+      jobScope: captureWorkspaceOperationJobScope(workspace) } });
+    const original = await store.claim(randomUUID(), 90_000); assert(original); assert.equal(original.batchId, record.batchId);
+    return { original };
+  };
+  const cohortClaim = async () => {
+    const actual = workspaceOperationMixedSourceEvidenceV5Fixture({ workspaceId: `claim-cohort-${randomUUID()}`,
+      native: [['folder/note.md', "# Unicode \ud83d\ude00 \"null\" \\ \u2028 \u2029\n\n[Asset](claim.png)"]], raw: [], extra: [{ path: 'folder/claim.png', kind: 'file' }, { path: 'folder/report.pdf', kind: 'file' }] });
+    const workspace: WorkspaceOperationBatchScope['workspace'] = { ...actual.scope,
+      rootRelativePath: actual.scope.rootRelativePath ?? undefined, legacy: false, status: 'active',
+      permissions: fixtureScope(actual.scope.workspaceId).workspace.permissions };
+    const plan = createWorkspaceOperationCohortDeletePlan({ scope: { workspace, fileOptions: {} }, observation: actual.observation,
+      actions: [{ reviewId: 'claim-cohort', kind: 'delete', selections: [{ sourcePath: 'folder' }] }] });
     const record = await store.createDirect({ batchId: randomUUID(), plan, authorization: { mode: 'direct', actorUserId: 'claim-user',
       actorId: 'claim-user', actorType: 'user', actorDisplayName: 'Claim user', requestHash: 'b'.repeat(64),
       jobScope: captureWorkspaceOperationJobScope(workspace) } });
@@ -303,141 +319,146 @@ async function main(): Promise<void> {
       await assert.rejects(worker.tick(), code('BATCH_CLAIM_CHANGED')); assert.equal(afterGateMutations, 0);
       assert.notEqual((await store.get(fixture.record.batchId))?.status, 'applied');
     });
-    await family('genuine Physical5 original remains frozen with actual SQL claim provenance', async () => {
-      const { original } = await physicalClaim(), plan = original.plan;
-      const frozenPlan = (value: unknown): void => {
-        if (value && typeof value === 'object') { assert(Object.isFrozen(value)); for (const child of Object.values(value)) frozenPlan(child); }
-      };
-      frozenPlan(plan);
-      await store.withClaim(original, async capability => {
-        const first = readWorkspaceOperationBatchClaimBinding(capability), second = readWorkspaceOperationBatchClaimBinding(capability);
-        assert.equal(original.plan, plan); assert.deepEqual(first.plan, plan); assert.equal(second, first);
-        assert.equal((await inspect(capability)).batchId, original.batchId); assert.equal(original.plan, plan);
-      });
-    });
-    await family('Physical5 mutable original headers authorization and reviews still reject without SQL changes', async () => {
-      const mutations: Array<(row: WorkspaceOperationBatchRecord) => void> = [
-        ...['batchId', 'planId', 'workspaceId', 'actionMode', 'totalActions', 'createdAt', 'leaseOwner', 'reviewerUserId', 'reviewerDisplayName']
-          .map(field => (row: WorkspaceOperationBatchRecord) => {
-            const value = Reflect.get(row, field); Reflect.set(row, field, typeof value === 'number' ? value + 1 : `${value}-changed`);
-          }),
-        row => { Reflect.set(row.authorization, 'requestHash', 'f'.repeat(64)); },
-        row => { assert.equal(row.authorization.mode, 'direct'); if (row.authorization.mode === 'direct')
-          Reflect.set(row.authorization, 'jobScope', { ...row.authorization.jobScope, rootPath: '/changed-root' }); },
-        row => { row.reviewIds.push('changed-review'); },
-        row => { row.reviewRefs.push({ reviewId: 'changed-review', planId: 'f'.repeat(64), status: 'queued' }); },
-      ];
-      for (const mutate of mutations) {
-        const { original } = await physicalClaim(), id = original.batchId, before = await raw(id);
-        await assert.rejects(store.withClaim(original, async capability => {
-          mutate(original); assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
-        }), code('BATCH_CLAIM_CHANGED'));
-        assert.deepEqual(await raw(id), before);
-      }
-    });
-    await family('Physical5 mutable toJSON keeps keys 4 9 10 and rejects after exactly one callback', async () => {
-      const { original } = await physicalClaim();
-      await store.withClaim(original, async capability => {
-        const subjects = [original.authorization, original.reviewIds, original.reviewRefs];
-        const baseline = subjects.map(value => JSON.parse(JSON.stringify(value)) as unknown), calls: string[] = [];
-        try {
-          for (const [index, subject] of subjects.entries()) Object.defineProperty(subject, 'toJSON', {
-            configurable: true, value(key: string) { calls.push(key); return baseline[index]; },
-          });
-          readWorkspaceOperationBatchClaimBinding(capability);
-        } finally { for (const subject of subjects) Reflect.deleteProperty(subject, 'toJSON'); }
-        assert.deepEqual(calls, ['4', '9', '10']);
-      });
-      const changed = await physicalClaim(), id = changed.original.batchId, before = await raw(id);
-      const baseline = JSON.parse(JSON.stringify(changed.original.authorization)) as Record<string, unknown>;
-      let calls = 0;
-      await assert.rejects(store.withClaim(changed.original, async capability => {
-        try {
-          Object.defineProperty(changed.original.authorization, 'toJSON', { configurable: true, value(key: string) {
-            assert.equal(key, '4'); return ++calls === 1 ? { ...baseline, requestHash: 'e'.repeat(64) } : baseline;
-          } });
-          assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
-        } finally { Reflect.deleteProperty(changed.original.authorization, 'toJSON'); }
-        assert.equal(calls, 1);
-      }), code('BATCH_CLAIM_CHANGED'));
-      assert.equal(calls, 1); assert.deepEqual(await raw(id), before);
-    });
-    await family('Physical5 replacement mutable and foreign frozen plans remain cold and detect later changes', async () => {
-      for (const kind of ['json', 'structured', 'foreign-frozen'] as const) {
-        const { original } = await physicalClaim(), id = original.batchId, before = await raw(id);
-        const replacement = kind === 'json' ? JSON.parse(JSON.stringify(original.plan)) as WorkspaceOperationBatchPlan
-          : kind === 'structured' ? structuredClone(original.plan) : decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(original.plan);
-        original.plan = replacement;
-        await assert.rejects(store.withClaim(original, async capability => {
-          assert.deepEqual(readWorkspaceOperationBatchClaimBinding(capability).plan, replacement);
-          const changed = kind === 'foreign-frozen' ? structuredClone(replacement) : replacement;
-          Reflect.set(changed.pathSteps[0], 'sourcePath', 'different.png'); original.plan = changed;
-          assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
-        }), code('BATCH_CLAIM_CHANGED'));
-        assert.deepEqual(await raw(id), before);
-      }
-    });
-    await family('Physical5 inherited Object and Array toJSON stay cold with genuine plan callbacks', async () => {
-      for (const prototype of [Object.prototype, Array.prototype]) for (const changed of [false, true]) {
-        const { original } = await physicalClaim(), plan = original.plan, prior = Object.getOwnPropertyDescriptor(prototype, 'toJSON');
-        const calls: string[] = [];
-        const operation = store.withClaim(original, async capability => {
-          try {
-            Object.defineProperty(prototype, 'toJSON', { configurable: true, value(this: object, key: string) {
-              if (this === (prototype === Object.prototype ? plan : plan.pathSteps)) {
-                calls.push(key);
-                if (changed) return prototype === Object.prototype ? { ...plan, planId: 'e'.repeat(64) }
-                  : [{ ...plan.pathSteps[0], sourcePath: 'different.png' }];
-              }
-              return this;
-            } });
-            if (changed) assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
-            else readWorkspaceOperationBatchClaimBinding(capability);
-          } finally { if (prior) Object.defineProperty(prototype, 'toJSON', prior); else Reflect.deleteProperty(prototype, 'toJSON'); }
-          assert.deepEqual(calls, [prototype === Object.prototype ? '3' : 'pathSteps']);
+    for (const profile of [
+      { label: 'Physical5', claim: physicalClaim, decode: decodeWorkspaceOperationPhysicalDeleteBatchPlanV5 },
+      { label: 'Cohort6', claim: cohortClaim, decode: decodeWorkspaceOperationCohortDeletePlan },
+    ] as const) {
+      await family(`genuine ${profile.label} original remains frozen with actual SQL claim provenance`, async () => {
+        const { original } = await profile.claim(), plan = original.plan;
+        const frozenPlan = (value: unknown): void => {
+          if (value && typeof value === 'object') { assert(Object.isFrozen(value)); for (const child of Object.values(value)) frozenPlan(child); }
+        };
+        frozenPlan(plan);
+        await store.withClaim(original, async capability => {
+          const first = readWorkspaceOperationBatchClaimBinding(capability), second = readWorkspaceOperationBatchClaimBinding(capability);
+          assert.equal(original.plan, plan); assert.deepEqual(first.plan, plan); assert.equal(second, first);
+          assert.equal((await inspect(capability)).batchId, original.batchId); assert.equal(original.plan, plan);
         });
-        if (changed) await assert.rejects(operation, code('BATCH_CLAIM_CHANGED')); else await operation;
-      }
-    });
-    await family('Physical5 held JSON lookup precedes headers and unusual descriptors use the cold original', async () => {
-      const fields = ['batchId', 'planId', 'workspaceId', 'plan', 'authorization', 'actionMode', 'totalActions', 'createdAt',
-        'leaseOwner', 'reviewIds', 'reviewRefs', 'reviewerUserId', 'reviewerDisplayName'] as const;
-      for (const changed of [false, true]) {
-        const { original } = await physicalClaim();
-        const operation = store.withClaim(original, async capability => {
-          const descriptors = Object.getOwnPropertyDescriptors(original), values = fields.map(field => original[field]);
-          const prior = Object.getOwnPropertyDescriptor(JSON, 'stringify')!, held = JSON.stringify, events: string[] = [];
+      });
+      await family(`${profile.label} mutable original headers authorization and reviews still reject without SQL changes`, async () => {
+        const mutations: Array<(row: WorkspaceOperationBatchRecord) => void> = [
+          ...['batchId', 'planId', 'workspaceId', 'actionMode', 'totalActions', 'createdAt', 'leaseOwner', 'reviewerUserId', 'reviewerDisplayName']
+            .map(field => (row: WorkspaceOperationBatchRecord) => {
+              const value = Reflect.get(row, field); Reflect.set(row, field, typeof value === 'number' ? value + 1 : `${value}-changed`);
+            }),
+          row => { Reflect.set(row.authorization, 'requestHash', 'f'.repeat(64)); },
+          row => { assert.equal(row.authorization.mode, 'direct'); if (row.authorization.mode === 'direct')
+            Reflect.set(row.authorization, 'jobScope', { ...row.authorization.jobScope, rootPath: '/changed-root' }); },
+          row => { row.reviewIds.push('changed-review'); },
+          row => { row.reviewRefs.push({ reviewId: 'changed-review', planId: 'f'.repeat(64), status: 'queued' }); },
+        ];
+        for (const mutate of mutations) {
+          const { original } = await profile.claim(), id = original.batchId, before = await raw(id);
+          await assert.rejects(store.withClaim(original, async capability => {
+            mutate(original); assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
+          }), code('BATCH_CLAIM_CHANGED'));
+          assert.deepEqual(await raw(id), before);
+        }
+      });
+      await family(`${profile.label} mutable toJSON keeps keys 4 9 10 and rejects after exactly one callback`, async () => {
+        const { original } = await profile.claim();
+        await store.withClaim(original, async capability => {
+          const subjects = [original.authorization, original.reviewIds, original.reviewRefs];
+          const baseline = subjects.map(value => JSON.parse(JSON.stringify(value)) as unknown), calls: string[] = [];
           try {
-            Object.defineProperty(JSON, 'stringify', { configurable: true, get() { events.push('lookup'); return held; } });
-            for (const [index, field] of fields.entries()) Object.defineProperty(original, field, { configurable: true, enumerable: true,
-              get() { events.push(field); if (field === 'reviewerDisplayName') Object.defineProperty(JSON, 'stringify', {
-                ...prior, value() { throw new Error('A second JSON function lookup is forbidden.'); },
-              }); return changed && field === 'totalActions' ? Number(values[index]) + 1 : values[index]; },
+            for (const [index, subject] of subjects.entries()) Object.defineProperty(subject, 'toJSON', {
+              configurable: true, value(key: string) { calls.push(key); return baseline[index]; },
             });
-            if (changed) assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
-            else readWorkspaceOperationBatchClaimBinding(capability);
-          } finally {
-            Object.defineProperty(JSON, 'stringify', prior);
-            for (const field of fields) Object.defineProperty(original, field, descriptors[field]);
-          }
-          assert.deepEqual(events, ['lookup', ...fields]);
+            readWorkspaceOperationBatchClaimBinding(capability);
+          } finally { for (const subject of subjects) Reflect.deleteProperty(subject, 'toJSON'); }
+          assert.deepEqual(calls, ['4', '9', '10']);
         });
-        if (changed) await assert.rejects(operation, code('BATCH_CLAIM_CHANGED')); else await operation;
-      }
-      const { original } = await physicalClaim();
-      await store.withClaim(original, async capability => {
-        const prior = Object.getOwnPropertyDescriptor(globalThis, 'JSON')!, held = JSON, native = JSON.stringify;
-        let lookups = 0, descriptorTraps = 0;
-        try {
-          Object.defineProperty(globalThis, 'JSON', { ...prior, value: new Proxy(held, {
-            get(target, key, receiver) { if (key === 'stringify') { lookups++; return native; } return Reflect.get(target, key, receiver); },
-            getOwnPropertyDescriptor() { descriptorTraps++; throw new Error('A foreign JSON descriptor must not be inspected.'); },
-          }) });
-          readWorkspaceOperationBatchClaimBinding(capability);
-        } finally { Object.defineProperty(globalThis, 'JSON', prior); }
-        assert.equal(lookups, 1); assert.equal(descriptorTraps, 0);
+        const changed = await profile.claim(), id = changed.original.batchId, before = await raw(id);
+        const baseline = JSON.parse(JSON.stringify(changed.original.authorization)) as Record<string, unknown>;
+        let calls = 0;
+        await assert.rejects(store.withClaim(changed.original, async capability => {
+          try {
+            Object.defineProperty(changed.original.authorization, 'toJSON', { configurable: true, value(key: string) {
+              assert.equal(key, '4'); return ++calls === 1 ? { ...baseline, requestHash: 'e'.repeat(64) } : baseline;
+            } });
+            assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
+          } finally { Reflect.deleteProperty(changed.original.authorization, 'toJSON'); }
+          assert.equal(calls, 1);
+        }), code('BATCH_CLAIM_CHANGED'));
+        assert.equal(calls, 1); assert.deepEqual(await raw(id), before);
       });
-    });
+      await family(`${profile.label} replacement mutable and foreign frozen plans remain cold and detect later changes`, async () => {
+        for (const kind of ['json', 'structured', 'foreign-frozen'] as const) {
+          const { original } = await profile.claim(), id = original.batchId, before = await raw(id);
+          const replacement = kind === 'json' ? JSON.parse(JSON.stringify(original.plan)) as WorkspaceOperationBatchPlan
+            : kind === 'structured' ? structuredClone(original.plan) : profile.decode(original.plan);
+          original.plan = replacement;
+          await assert.rejects(store.withClaim(original, async capability => {
+            assert.deepEqual(readWorkspaceOperationBatchClaimBinding(capability).plan, replacement);
+            const changed = kind === 'foreign-frozen' ? structuredClone(replacement) : replacement;
+            Reflect.set(changed.pathSteps[0], 'sourcePath', 'different.png'); original.plan = changed;
+            assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
+          }), code('BATCH_CLAIM_CHANGED'));
+          assert.deepEqual(await raw(id), before);
+        }
+      });
+      await family(`${profile.label} inherited Object and Array toJSON stay cold with genuine plan callbacks`, async () => {
+        for (const prototype of [Object.prototype, Array.prototype]) for (const changed of [false, true]) {
+          const { original } = await profile.claim(), plan = original.plan, prior = Object.getOwnPropertyDescriptor(prototype, 'toJSON');
+          const calls: string[] = [];
+          const operation = store.withClaim(original, async capability => {
+            try {
+              Object.defineProperty(prototype, 'toJSON', { configurable: true, value(this: object, key: string) {
+                if (this === (prototype === Object.prototype ? plan : plan.pathSteps)) {
+                  calls.push(key);
+                  if (changed) return prototype === Object.prototype ? { ...plan, planId: 'e'.repeat(64) }
+                    : [{ ...plan.pathSteps[0], sourcePath: 'different.png' }];
+                }
+                return this;
+              } });
+              if (changed) assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
+              else readWorkspaceOperationBatchClaimBinding(capability);
+            } finally { if (prior) Object.defineProperty(prototype, 'toJSON', prior); else Reflect.deleteProperty(prototype, 'toJSON'); }
+            assert.deepEqual(calls, [prototype === Object.prototype ? '3' : 'pathSteps']);
+          });
+          if (changed) await assert.rejects(operation, code('BATCH_CLAIM_CHANGED')); else await operation;
+        }
+      });
+      await family(`${profile.label} held JSON lookup precedes headers and unusual descriptors use the cold original`, async () => {
+        const fields = ['batchId', 'planId', 'workspaceId', 'plan', 'authorization', 'actionMode', 'totalActions', 'createdAt',
+          'leaseOwner', 'reviewIds', 'reviewRefs', 'reviewerUserId', 'reviewerDisplayName'] as const;
+        for (const changed of [false, true]) {
+          const { original } = await profile.claim();
+          const operation = store.withClaim(original, async capability => {
+            const descriptors = Object.getOwnPropertyDescriptors(original), values = fields.map(field => original[field]);
+            const prior = Object.getOwnPropertyDescriptor(JSON, 'stringify')!, held = JSON.stringify, events: string[] = [];
+            try {
+              Object.defineProperty(JSON, 'stringify', { configurable: true, get() { events.push('lookup'); return held; } });
+              for (const [index, field] of fields.entries()) Object.defineProperty(original, field, { configurable: true, enumerable: true,
+                get() { events.push(field); if (field === 'reviewerDisplayName') Object.defineProperty(JSON, 'stringify', {
+                  ...prior, value() { throw new Error('A second JSON function lookup is forbidden.'); },
+                }); return changed && field === 'totalActions' ? Number(values[index]) + 1 : values[index]; },
+              });
+              if (changed) assert.throws(() => readWorkspaceOperationBatchClaimBinding(capability), code('BATCH_CLAIM_CHANGED'));
+              else readWorkspaceOperationBatchClaimBinding(capability);
+            } finally {
+              Object.defineProperty(JSON, 'stringify', prior);
+              for (const field of fields) Object.defineProperty(original, field, descriptors[field]);
+            }
+            assert.deepEqual(events, ['lookup', ...fields]);
+          });
+          if (changed) await assert.rejects(operation, code('BATCH_CLAIM_CHANGED')); else await operation;
+        }
+        const { original } = await profile.claim();
+        await store.withClaim(original, async capability => {
+          const prior = Object.getOwnPropertyDescriptor(globalThis, 'JSON')!, held = JSON, native = JSON.stringify;
+          let lookups = 0, descriptorTraps = 0;
+          try {
+            Object.defineProperty(globalThis, 'JSON', { ...prior, value: new Proxy(held, {
+              get(target, key, receiver) { if (key === 'stringify') { lookups++; return native; } return Reflect.get(target, key, receiver); },
+              getOwnPropertyDescriptor() { descriptorTraps++; throw new Error('A foreign JSON descriptor must not be inspected.'); },
+            }) });
+            readWorkspaceOperationBatchClaimBinding(capability);
+          } finally { Object.defineProperty(globalThis, 'JSON', prior); }
+          assert.equal(lookups, 1); assert.equal(descriptorTraps, 0);
+        });
+      });
+    }
     console.log(`claim fixture: ${families} genuine SQL families passed; no principal or lifecycle-owner authority claimed`);
   } finally {
     try { await database.close(); } finally { assert.equal(await sourceHash(), pinned); }

@@ -1,4 +1,5 @@
 import 'server-only';
+import { createCohortDeleteAdmissionRequest } from './workspace-operation-cohort-delete-admission';
 import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
 import { captureOriginalPhysicalDeleteRegistryFactsV1 } from './workspace-operation-original-physical-delete-registry-v5';
 
@@ -48,10 +49,12 @@ function deleteAdmissionRequest(originalFields: DeleteAdmissionOriginal,
 
 /** Pure original request data, never current authority or an archive grant. */
 export function createWorkspaceOperationOriginalDeleteAdmissionRequest(binding: WorkspaceOperationBatchClaimBinding): CollaborationAdmissionRequest {
+  if (binding.plan.version === 6) return createCohortDeleteAdmissionRequest(binding);
   const auth = binding.authorization;
   if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope
     || binding.plan.version !== 2 && binding.plan.version !== 5) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_INVALID');
   const plan = decodeWorkspaceOperationDeleteBatchPlan(binding.plan);
+  if (plan.version===6) throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_INVALID');
   if (binding.planId !== plan.planId || binding.workspaceId !== plan.workspaceId || !equal(plan.sourceEvidence.workspaceScope, auth.jobScope)) {
     throw new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
   }
@@ -83,7 +86,7 @@ export function workspaceOperationOriginalDeleteAdmissionResult(result: Workspac
 
 /** Bind every unqualified Admission read to the same actual permanent tables.
  * No transaction, lock, checkout, session, principal or Claim is created here. */
-async function readOriginalDeleteAdmissionNamespace(database: SqlConnection, schema: string) {
+export async function readOriginalDeleteAdmissionNamespace(database: SqlConnection, schema: string) {
   const realm = await database.get(`SELECT pg_catalog.current_schema() AS schema_name,
     pg_catalog.to_regnamespace(pg_catalog.current_schema())::oid::bigint AS schema_oid,
     (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid,

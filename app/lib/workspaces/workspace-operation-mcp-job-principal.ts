@@ -54,7 +54,7 @@ export function assertWorkspaceOperationMcpJobPrincipalCaptured(input: Workspace
   const original = decodeWorkspaceOperationMcpAuthorization(binding.authorization);
   if (original.jobScope.workspaceId !== binding.workspaceId || binding.plan.workspaceId !== binding.workspaceId
     || original.tool !== (live.kind === 'move' ? 'move_knowledge_source' : 'delete_knowledge_source')
-    || (live.kind === 'move' ? binding.plan.version !== 3 : binding.plan.version !== 2 && binding.plan.version !== 5)) fail('MCP_JOB_PRINCIPAL_CHANGED');
+    || (live.kind === 'move' ? binding.plan.version !== 3 : binding.plan.version !== 2 && binding.plan.version !== 5 && binding.plan.version !== 6)) fail('MCP_JOB_PRINCIPAL_CHANGED');
   const options = { workspaceId: binding.workspaceId };
   if (live.kind === 'move') assertDirectMcpWorkspaceMovePrincipalCaptured(live.principal, options);
   else assertDirectMcpWorkspaceDeletePrincipalCaptured(live.principal, options);

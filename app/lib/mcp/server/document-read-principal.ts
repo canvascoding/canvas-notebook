@@ -7,7 +7,7 @@ import { getPostgresRuntimeQueryable, type SqlConnection } from '@/app/lib/db';
 import { normalizeDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { getLicenseStatus } from '@/app/lib/license';
 import type { LicenseStatus } from '@/app/lib/license/types';
-import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
+import { assertUserSeatAccessInSingleSnapshotOnConnection } from '@/app/lib/license/seat-limit';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { readPostgresWorkspaceForActorOnConnection } from '@/app/lib/workspaces/postgres-runtime';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -178,6 +178,16 @@ async function sourceRealm(): Promise<OriginalRealm> {
   const pool = getPostgresRuntimeQueryable(); if (!pool) fail('MCP_READ_PRINCIPAL_REQUIRED');
   return parseRealm((await pool.query(realmSql)).rows[0]);
 }
+function captureCurrentPhaseIdentity(phase: Phase, row: Row | undefined): Identity {
+  const realm = parseRealm(row);
+  if (!row || !isDeepStrictEqual(realm, phase.writeRealm ?? phase.capture.realm) || !integer(row.backend)
+    || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
+    || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)
+    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  const result = Object.freeze({ ...realm, backend: Number(row.backend), start: row.start, xid: row.xid });
+  if (phase.identity && !isDeepStrictEqual(result, phase.identity)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
+  return result;
+}
 async function identity(phase: Phase): Promise<Identity> {
   alive(phase);
   const row = await phase.connection.get(`SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
@@ -187,14 +197,7 @@ async function identity(phase: Phase): Promise<Identity> {
     pg_catalog.current_setting('transaction_isolation') AS isolation,pg_catalog.current_setting('transaction_read_only') AS read_only,
     pg_catalog.current_setting('session_replication_role') AS replication
     FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`) as Row | undefined;
-  alive(phase); const realm = parseRealm(row);
-  if (!row || !isDeepStrictEqual(realm, phase.writeRealm ?? phase.capture.realm) || !integer(row.backend)
-    || typeof row.start !== 'string' || !/^[0-9]+\.[0-9]+$/u.test(row.start)
-    || typeof row.xid !== 'string' || !/^[1-9][0-9]{0,31}$/u.test(row.xid)
-    || row.isolation !== 'read committed' || row.read_only !== 'off' || row.replication !== 'origin') fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
-  const result = Object.freeze({ ...realm, backend: Number(row.backend), start: row.start, xid: row.xid });
-  if (phase.identity && !isDeepStrictEqual(result, phase.identity)) fail('MCP_READ_PRINCIPAL_SCOPE_CHANGED');
-  return result;
+  alive(phase); return captureCurrentPhaseIdentity(phase, row);
 }
 /** Copy begins in its factory realm or the owner's exact fixed receipt realm.
  * Pin that one initial transition before a consumer or phase identity exists.
@@ -260,11 +263,25 @@ async function pinCreateReceiptRealm(phase: Phase): Promise<void> {
   await identity(phase); await schema(phase);
 }
 async function schema(phase: Phase): Promise<void> {
-  await identity(phase);
-  const rows = await phase.connection.all(`SELECT name,
-    pg_catalog.to_regclass(name)::oid=pg_catalog.to_regclass($1||'.'||pg_catalog.quote_ident(name))::oid AS same_relation
-    FROM pg_catalog.unnest($2::text[]) names(name)`, [quote(phase.capture.realm.schema), tables]) as Row[];
   alive(phase);
+  const row = await phase.connection.get(`SELECT r.*,pg_catalog.pg_backend_pid() AS backend,
+    extract(epoch FROM a.backend_start)::text AS start,
+    CASE WHEN pg_catalog.current_setting('transaction_isolation')='read committed'
+      AND pg_catalog.current_setting('transaction_read_only')='off' THEN pg_catalog.pg_current_xact_id()::text END AS xid,
+    pg_catalog.current_setting('transaction_isolation') AS isolation,pg_catalog.current_setting('transaction_read_only') AS read_only,
+    pg_catalog.current_setting('session_replication_role') AS replication,
+    (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.to_jsonb(facts)),'[]'::jsonb)
+      FROM (SELECT name,
+    pg_catalog.to_regclass(name)::oid=pg_catalog.to_regclass($1||'.'||pg_catalog.quote_ident(name))::oid AS same_relation
+    FROM pg_catalog.unnest($2::text[]) names(name) LIMIT 17) facts) AS schema_relations
+    FROM (${realmSql}) r JOIN pg_catalog.pg_stat_activity a ON a.pid=pg_catalog.pg_backend_pid()`, [quote(phase.capture.realm.schema), tables]) as Row | undefined;
+  alive(phase); captureCurrentPhaseIdentity(phase, row);
+  const rows = row?.schema_relations;
+  alive(phase);
+  if (!Array.isArray(rows) || rows.length > tables.length + 1 || rows.some(value => !value || typeof value !== 'object'
+    || Array.isArray(value) || Object.keys(value).length !== 2 || !Object.hasOwn(value, 'name') || !Object.hasOwn(value, 'same_relation'))) {
+    fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
+  }
   if (rows.length !== tables.length || new Set(rows.map(row => row.name)).size !== tables.length
     || rows.some(row => !tables.includes(row.name as typeof tables[number]) || row.same_relation !== true)) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
 }
@@ -347,7 +364,7 @@ async function currentSlot(phase: Phase, slot: WorkspaceSlot): Promise<Workspace
     || organizations.length > 16 || permissions.length > 1024
     || organizations.some(row => !row || typeof row !== 'object' || !flag(row.team_features_enabled))
     || permissions.some(row => !row || typeof row !== 'object' || Object.values(row).some(value => !flag(value)))) fail('MCP_READ_PRINCIPAL_SCHEMA_INVALID');
-  await assertUserSeatAccess({ userId: capture.claims.subject, database: connection, licenseStatus: capture.license }); alive(phase);
+  await assertUserSeatAccessInSingleSnapshotOnConnection(connection, capture.claims.subject, capture.license); alive(phase);
   const workspace = await readPostgresWorkspaceForActorOnConnection(connection,
     resolveWorkspaceActor({ id: capture.claims.subject, email: raw.email, role: raw.role as string | null }), slot.workspaceId);
   const requiresWrite = slots.kind === 'single' ? capture.policy.kind !== 'read' : slot === slots.destination;

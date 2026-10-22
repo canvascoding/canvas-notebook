@@ -1,4 +1,7 @@
 import 'server-only';
+import { readPreparedWorkspacePathTrash, readPreparedWorkspacePathTrashReceipt,
+  assertPreparedWorkspacePathTrashCurrent, assertPreparedWorkspacePathTrashSourceVacant,
+  type PreparedWorkspacePathTrash, type PreparedWorkspacePathTrashReceipt } from '../filesystem/prepared-workspace-path-trash';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -319,7 +322,7 @@ function gapMultiset(gaps: readonly PhysicalSourceGap[]): string[] { return gaps
 
 /** All binary budgets are charged BEFORE any clone, parse or hash. Capture
  * accesses own plain DATA descriptors and actual typed-array slots exclusively. */
-function captureObservation(input: unknown, afterTrash?: PhysicalDeleteAfterTrashCaptureContext) {
+function captureObservation(input: unknown, afterTrash?: PhysicalDeleteAfterTrashCaptureContext, cohortTrash?: CohortDeleteAfterTrashCaptureContext) {
   const raw = record(input, ['stage', 'nativeBindings', 'privateNativeStates', 'privateCatalogue']);
   const stageRow = record(raw.stage, ['stageVersion', 'workspaceId', 'organizationId', 'catalogueProof', 'namespace',
     'sources', 'scope', 'coverage', 'readiness', 'executionReady', 'stageProof']);
@@ -391,7 +394,8 @@ function captureObservation(input: unknown, afterTrash?: PhysicalDeleteAfterTras
   }
   const stage: WorkspaceSourceAuthorityStage = { ...facts.stage, sources };
   if (stage.stageVersion !== 1 || stage.executionReady !== false || stage.coverage.complete !== (stage.coverage.gaps.length === 0)
-    || !isDeepStrictEqual(gapMultiset(stage.coverage.gaps), gapMultiset(afterTrash === undefined ? coverageGaps(stage.sources)
+    || !isDeepStrictEqual(gapMultiset(stage.coverage.gaps), gapMultiset(cohortTrash ? [...coverageGaps(stage.sources), ...captureCohortDeleteAfterTrashGapFacts(cohortTrash, stage, facts.privateCatalogue, facts.nativeBindings)]
+      : afterTrash === undefined ? coverageGaps(stage.sources)
       : [...coverageGaps(stage.sources), ...capturePhysicalDeleteAfterTrashGapFacts(afterTrash, stage,
         facts.privateCatalogue, facts.nativeBindings)]))
     || stage.readiness !== (stage.coverage.gaps.length ? 'blocked' : sources.some(source => source.kind === 'physical')
@@ -774,8 +778,8 @@ function capturePhysicalDeleteAfterTrashReceipt(input: unknown,
   return freeze(value);
 }
 
-function capturePhysicalDeleteAfterTrashProfile(scope: WorkspaceOperationJobScope,
-  observation: ReturnType<typeof captureObservation>): WorkspaceOperationPhysicalDeleteAfterTrashEvidenceV1 {
+function captureDeleteAfterTrashFacts(scope: WorkspaceOperationJobScope,
+  observation: ReturnType<typeof captureObservation>): WorkspaceOperationMixedSourceEvidenceV5 {
   const component = nativeComponent(scope, observation);
   if (observation.stage.workspaceId !== component.workspaceScope.workspaceId
     || observation.stage.organizationId !== component.workspaceScope.organizationId) return reject();
@@ -856,11 +860,81 @@ function capturePhysicalDeleteAfterTrashProfile(scope: WorkspaceOperationJobScop
   // Reuse full historical fact validation internally. The verified DTO contains
   // the actual ABSENT namespace and actual unchanged blocked coverage; no source
   // is inserted and no completeness claim is changed. It does not escape here.
-  const verified = inspectEvidence({ ...body, evidenceProof: proof(body) });
+  return inspectEvidence({ ...body, evidenceProof: proof(body) });
+}
+function capturePhysicalDeleteAfterTrashProfile(scope: WorkspaceOperationJobScope,
+  observation: ReturnType<typeof captureObservation>): WorkspaceOperationPhysicalDeleteAfterTrashEvidenceV1 {
+  const verified = captureDeleteAfterTrashFacts(scope, observation);
   const { evidenceVersion: _e5Version, semanticProof: _e5Semantic, evidenceProof: _e5Proof, ...actualFacts } = verified;
   const profileBody = { evidenceProfile: 'physical-delete-after-trash-v1' as const, ...actualFacts,
     actualSemanticProof: proof({ evidenceProfile: 'physical-delete-after-trash-v1', semantics: semantic(verified) }) };
   return freeze({ ...profileBody, actualEvidenceProof: proof(profileBody) });
+}
+
+/** Cohort facts are an actual post-rename observation. This profile is neither
+ * a source-present E5 nor a relabelled singleton AfterTrash observation. */
+export type WorkspaceOperationCohortDeleteAfterTrashEvidence = Readonly<Omit<WorkspaceOperationMixedSourceEvidenceV5,
+  'evidenceVersion'|'semanticProof'|'evidenceProof'> & {
+  evidenceProfile:'cohort-delete-after-trash'; actualSemanticProof:string; actualEvidenceProof:string;
+}>;
+export type WorkspaceOperationCohortDeleteAfterTrashObservation = Readonly<{
+  observationVersion:1; kind:'cohort-delete-after-trash'; originalSourceSemanticProof:string;
+  actualEvidence:WorkspaceOperationCohortDeleteAfterTrashEvidence;
+  physical:readonly Readonly<{stepKey:string;receipt:PreparedWorkspacePathTrashReceipt}>[]; observationProof:string;
+}>;
+type CohortDeleteAfterTrashCaptureContext = Readonly<{scope:WorkspaceOperationJobScope; roots:readonly string[];
+  originalSemanticCatalogueProof:string; originalNativeBindings:readonly WorkspaceNativeSourceBinding[]}>;
+const cohortDeleteAfterTrashContexts=new WeakSet<CohortDeleteAfterTrashCaptureContext>();
+function captureCohortDeleteAfterTrashGapFacts(context:CohortDeleteAfterTrashCaptureContext,
+  stage:WorkspaceSourceAuthorityStage, privateCatalogue:unknown, nativeBindings:readonly WorkspaceNativeSourceBinding[]):PhysicalSourceGap[]{
+  const selected=(file:string)=>context.roots.some(root=>file===root||file.startsWith(root+'/'));
+  if(!cohortDeleteAfterTrashContexts.has(context)||stage.workspaceId!==context.scope.workspaceId
+    ||stage.organizationId!==context.scope.organizationId||!isDeepStrictEqual(nativeBindings,context.originalNativeBindings)
+    ||stage.namespace.some(entry=>selected(entry.path)&&entry.documentId===null&&entry.kind==='file')
+    ||stage.sources.some(source=>source.kind==='physical'&&selected(source.inventory.path)))return reject();
+  const catalogue=captureWorkspaceOperationNativeCatalogueWitness(privateCatalogue,context.scope,stage.catalogueProof!,nativeBindings,reject);
+  if(catalogue.semanticCatalogueProof!==context.originalSemanticCatalogueProof)return reject();
+  return catalogue.entries.filter(entry=>selected(entry.path)&&entry.authority==='pristine')
+    .map(entry=>({code:'missing-physical-source' as const,path:entry.path}));
+}
+export async function captureWorkspaceOperationCohortDeleteAfterTrashObservation(input:Readonly<{
+  scope:WorkspaceOperationJobScope;observation:WorkspaceLinkSourceAuthorityObservation;
+  originalSourceEvidence:WorkspaceOperationMixedSourceEvidenceV5;
+  prepared:readonly Readonly<{stepKey:string;cap:PreparedWorkspacePathTrash;receipt:PreparedWorkspacePathTrashReceipt}>[];
+}>):Promise<WorkspaceOperationCohortDeleteAfterTrashObservation>{
+  let context:CohortDeleteAfterTrashCaptureContext|undefined;
+  try{
+    const raw=record(input,['scope','observation','originalSourceEvidence','prepared']);
+    const original=decodeWorkspaceOperationMixedSourceEvidenceV5(raw.originalSourceEvidence),scope=capture<WorkspaceOperationJobScope>(raw.scope);
+    if(!isDeepStrictEqual(scope,original.workspaceScope)||!Array.isArray(raw.prepared)||!raw.prepared.length||raw.prepared.length>1000)return reject();
+    const prepared=raw.prepared as typeof input.prepared;
+    const roots:string[]=[],physical:Array<{stepKey:string;receipt:PreparedWorkspacePathTrashReceipt}>=[];
+    for(const [index,item] of prepared.entries()){
+      record(item,['stepKey','cap','receipt']);
+      if(typeof item.stepKey!=='string'||!/^path:[0-9]{4}$/u.test(item.stepKey)||prepared.some((other,otherIndex)=>otherIndex!==index&&other.stepKey===item.stepKey))return reject();
+      const facts=readPreparedWorkspacePathTrash(item.cap),target=original.namespace.find(entry=>entry.path===facts.canonicalPath);
+      if(!target||facts.workspace.workspaceId!==scope.workspaceId||facts.workspace.workspaceType!==scope.workspaceType
+        ||facts.workspace.organizationId!==scope.organizationId||facts.workspace.rootPath!==scope.rootPath
+        ||roots.some(root=>root===facts.canonicalPath||root.startsWith(facts.canonicalPath+'/')||facts.canonicalPath.startsWith(root+'/')))return reject();
+      await assertPreparedWorkspacePathTrashCurrent(item.cap);await assertPreparedWorkspacePathTrashSourceVacant(item.cap);
+      const receipt=await readPreparedWorkspacePathTrashReceipt(item.cap);
+      if(!isDeepStrictEqual(receipt,item.receipt)||!isDeepStrictEqual(receipt.original,facts))return reject();
+      roots.push(facts.canonicalPath);physical.push({stepKey:item.stepKey,receipt});
+    }
+    context=Object.freeze({scope,roots:Object.freeze(roots),originalSemanticCatalogueProof:original.nativeComponent.semanticCatalogueProof,
+      originalNativeBindings:original.nativeComponent.nativeBindings});cohortDeleteAfterTrashContexts.add(context);
+    const actual=captureObservation(raw.observation,undefined,context),verified=captureDeleteAfterTrashFacts(scope,actual);
+    cohortDeleteAfterTrashContexts.delete(context);context=undefined;
+    const {evidenceVersion:_version,semanticProof:_semantic,evidenceProof:_proof,...actualFacts}=verified;
+    const profile={evidenceProfile:'cohort-delete-after-trash' as const,...actualFacts,
+      actualSemanticProof:proof({evidenceProfile:'cohort-delete-after-trash',semantics:semantic(verified)})};
+    const actualEvidence=freeze({...profile,actualEvidenceProof:proof(profile)});
+    for(const item of prepared){if(!isDeepStrictEqual(await readPreparedWorkspacePathTrashReceipt(item.cap),item.receipt))return reject();
+      await assertPreparedWorkspacePathTrashSourceVacant(item.cap);}
+    const body={observationVersion:1 as const,kind:'cohort-delete-after-trash' as const,originalSourceSemanticProof:original.semanticProof,actualEvidence,physical};
+    return freeze(capture<WorkspaceOperationCohortDeleteAfterTrashObservation>({...body,observationProof:proof(body)}));
+  }catch(error){if(error instanceof WorkspaceOperationNativeSourceEvidenceError)throw error;return reject(error instanceof RangeError?'too-large':'invalid');}
+  finally{if(context)cohortDeleteAfterTrashContexts.delete(context);}
 }
 
 /** A distinct actual-after-trash phase, never a Source-PRESENT E5 witness. The

@@ -1,3 +1,4 @@
+import { workspaceOperationCohortDeleteEffects } from './workspace-operation-cohort-delete-public';
 import { workspaceOperationPhysicalDeleteEffectsV5 } from './workspace-operation-physical-delete-effects-v5';
 import type { WorkspaceOperationBatchPlan, WorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-batch-contract';
 import type { AnyOriginalDeleteNativeLinkReceipt } from './workspace-operation-original-delete-links';
@@ -52,6 +53,7 @@ export function workspaceOperationNativeDeleteEffects(plan: WorkspaceOperationNa
 
 /** V1 retains its original count; native source documents are real link steps. */
 export function workspaceOperationBatchTotalActions(plan: WorkspaceOperationBatchPlan): number {
+  if (plan.version === 6) return plan.pathSteps.length + workspaceOperationCohortDeleteEffects(plan).length;
   if (plan.version === 5) return 1 + workspaceOperationPhysicalDeleteEffectsV5(plan).length;
   if (plan.version === 2) return 1 + workspaceOperationNativeDeleteEffects(plan).length;
   if (plan.version === 3) return plan.pathSteps.length

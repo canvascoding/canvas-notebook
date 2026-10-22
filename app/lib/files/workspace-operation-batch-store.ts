@@ -1,3 +1,4 @@
+import type { WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
 import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
 import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import 'server-only';
@@ -91,7 +92,7 @@ function frozen<T>(value: T): T {
   }
   return value;
 }
-// Only genuine registered Physical5 originals may reuse immutable JSON data.
+// Only genuine registered Physical5/Cohort6 originals may reuse immutable JSON data.
 // These are bytes, never a Claim, SQL, permission, expiry or current-state proof.
 const fingerprintJson = JSON, fingerprintStringify = JSON.stringify, fingerprintApply = Reflect.apply;
 const fingerprintSlice = String.prototype.slice, fingerprintDescriptor = Object.getOwnPropertyDescriptor;
@@ -147,7 +148,9 @@ function rememberOriginalPlanFragment(batch: WorkspaceOperationBatchRecord, full
     batch.reviewIds, batch.reviewRefs, batch.reviewerUserId, batch.reviewerDisplayName];
   const plan = values[3];
   if (!fingerprintHooksCurrent(json, stringify) || !fingerprintHeadersCurrent(batch, values)
-    || !plan || typeof plan !== 'object' || fingerprintDescriptor(plan, 'version')?.value !== 5 || !immutableFingerprintPlan(plan)) return;
+    || !plan || typeof plan !== 'object') return;
+  const version = fingerprintDescriptor(plan, 'version')?.value;
+  if (version !== 5 && version !== 6 || !immutableFingerprintPlan(plan)) return;
   const fragment = fingerprintApply(stringify, json, [plan]) as string;
   const prefix = fingerprintApply(stringify, json, [[values[0], values[1], values[2]]]) as string;
   values[3] = null;
@@ -392,7 +395,7 @@ function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
       throw claimError('BATCH_INVALID_PLAN');
     }
   } catch { throw claimError('BATCH_INVALID_PLAN'); }
-  if (version === 5) return decodeWorkspaceOperationDeleteBatchPlan(input);
+  if (version === 6 || version === 5) return decodeWorkspaceOperationDeleteBatchPlan(input);
   if (version === 2) return decodeWorkspaceOperationNativeDeleteBatchPlan(input);
   if (version === 3) return decodeWorkspaceOperationNativeMoveBatchPlan(input);
   // Never reinterpret a downgraded/unknown native envelope as historical V1.
@@ -421,19 +424,92 @@ function decodeStoredPlan(input: unknown): WorkspaceOperationBatchPlan {
   return input as WorkspaceOperationBatchPlan;
 }
 
+// Only exact stored Cohort6 text reuses a historical parse; every return still
+// passes the unchanged strict decoder. No row, Claim or current authority is held.
+const storedCohortPlans = new Map<string, { plan: WorkspaceOperationBatchPlan; bytes: number }>();
+let storedCohortPlanBytes = 0;
+let storedCohortPlanLogging = false;
+const storedCohortPlanParseDescriptor = fingerprintDescriptor(fingerprintJson, 'parse');
+const storedCohortPlanGlobalDescriptor = fingerprintDescriptor(globalThis, 'JSON');
+const storedCohortPlanToStringDescriptor = fingerprintDescriptor(Function.prototype, 'toString');
+const storedCohortPlanClock = process.hrtime.bigint;
+function storedCohortPlanHooksCurrent(json: typeof JSON, parse: typeof JSON.parse): boolean {
+  if (json !== fingerprintJson || parse !== storedCohortPlanParseDescriptor?.value
+    || typeof parse !== 'function' || types.isProxy(parse)) return false;
+  const current = fingerprintDescriptor(json, 'parse'), global = fingerprintDescriptor(globalThis, 'JSON');
+  const toString = fingerprintDescriptor(Function.prototype, 'toString');
+  if (!current || !Object.hasOwn(current, 'value') || current.value !== parse
+    || current.writable !== storedCohortPlanParseDescriptor?.writable
+    || current.enumerable !== storedCohortPlanParseDescriptor?.enumerable
+    || current.configurable !== storedCohortPlanParseDescriptor?.configurable
+    || !global || !Object.hasOwn(global, 'value') || global.value !== json
+    || global.writable !== storedCohortPlanGlobalDescriptor?.writable
+    || global.enumerable !== storedCohortPlanGlobalDescriptor?.enumerable
+    || global.configurable !== storedCohortPlanGlobalDescriptor?.configurable
+    || !toString || !Object.hasOwn(toString, 'value') || typeof toString.value !== 'function'
+    || toString.value !== storedCohortPlanToStringDescriptor?.value) return false;
+  try {
+    return fingerprintApply(toString.value, parse, []) === 'function parse() { [native code] }'
+      && fingerprintHooksCurrent(json, fingerprintStringify);
+  } catch { return false; }
+}
+function storedCohortPlanTiming(cache: 'cold' | 'hit', start: bigint | undefined, parsed: bigint | undefined, decoded: bigint | undefined): void {
+  if (storedCohortPlanLogging) return;
+  try {
+    if (start === undefined || parsed === undefined || decoded === undefined) return;
+    const parseMs = Number(parsed - start) / 1e6, decodeMs = Number(decoded - parsed) / 1e6;
+    if (!Number.isFinite(parseMs) || parseMs < 0 || !Number.isFinite(decodeMs) || decodeMs < 0) return;
+    // Fixed labels/numbers only; diagnostics must never replace a decode result.
+    storedCohortPlanLogging = true;
+    try {
+      console.info(`[workspace_operation_stored_cohort_plan] {"cache":"${cache}","parseMs":${parseMs},"decodeMs":${decodeMs}}`);
+    } finally { storedCohortPlanLogging = false; }
+  } catch { /* Diagnostic sinks and clocks are outside the decoding contract. */ }
+}
+function decodeStoredPlanText(planText: string): WorkspaceOperationBatchPlan {
+  // Preserve exactly one ordinary parse lookup and the original method receiver.
+  // Accessors/replacements stay cold; descriptor checks never invoke them again.
+  const json = JSON, parse = json.parse;
+  const reusable = storedCohortPlanHooksCurrent(json, parse);
+  const previous = reusable ? storedCohortPlans.get(planText) : undefined;
+  let start: bigint | undefined, parsed: bigint | undefined, decoded: bigint | undefined;
+  try { start = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
+  const input: unknown = previous ? previous.plan : fingerprintApply(parse, json, [planText]);
+  try { parsed = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
+  const plan = decodeStoredPlan(input);
+  if (reusable && plan.version === 6) {
+    try { decoded = storedCohortPlanClock(); } catch { /* Optional monotonic diagnostics. */ }
+    if (!previous && reusable && storedCohortPlanHooksCurrent(json, parse) && immutableFingerprintPlan(plan)) {
+      const bytes = Buffer.byteLength(planText), maximum = 16 * 1024 * 1024;
+      if (bytes <= maximum) {
+        while (storedCohortPlans.size >= 4 || storedCohortPlanBytes + bytes > maximum) {
+          const oldest = storedCohortPlans.keys().next().value;
+          if (oldest === undefined) break;
+          storedCohortPlanBytes -= storedCohortPlans.get(oldest)!.bytes;
+          storedCohortPlans.delete(oldest);
+        }
+        storedCohortPlans.set(planText, { plan, bytes });
+        storedCohortPlanBytes += bytes;
+      }
+    }
+    storedCohortPlanTiming(previous ? 'hit' : 'cold', start, parsed, decoded);
+  }
+  return plan;
+}
+
 function record(row: Record<string, unknown>): WorkspaceOperationBatchRecord {
   const planText = String(row.plan_json);
   // Existing V1 content budgets can legitimately exceed the native DTO budget.
   // Bound the initial JSON allocation, then strictly decode V2 before minting
   // any genuine claim or returning stored native plan data.
   if (Buffer.byteLength(planText) > 256 * 1024 * 1024) throw claimError('BATCH_INVALID_PLAN');
-  const plan = decodeStoredPlan(JSON.parse(planText));
+  const plan = decodeStoredPlanText(planText);
   const parsedAuthorization = authorization(row.authorization_json);
   if (plan?.version !== 1 && (plan.planId !== row.plan_id || plan.workspaceId !== row.workspace_id)) throw claimError('BATCH_INVALID_PLAN');
   if (plan?.version !== 1 && parsedAuthorization.mode !== 'review'
     && !isDeepStrictEqual(plan.sourceEvidence.workspaceScope, parsedAuthorization.jobScope)) throw claimError('BATCH_INVALID_PLAN');
   if (parsedAuthorization.mode === 'direct-mcp' && (row.action_mode !== 'apply'
-    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5)
+    || (parsedAuthorization.tool === 'move_knowledge_source' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5 && plan.version !== 6)
     || String(row.review_ids_json) !== '[]' || String(row.review_refs_json) !== '[]'
     || row.reviewer_user_id !== null || row.reviewer_display_name !== null
     || workspaceOperationBatchTotalActions(plan) !== Number(row.total_actions))) throw claimError('BATCH_INVALID_PLAN');
@@ -495,7 +571,7 @@ export type WorkspaceOperationMcpClaimResult = Readonly<
 type McpSelection = Readonly<{ kind: 'move'; principal: DirectMcpWorkspaceMovePrincipal }>
   | Readonly<{ kind: 'delete'; principal: DirectMcpWorkspaceDeletePrincipal }>;
 type McpCommand = Readonly<{ operationId: string; workspaceId: string }> & (
-  Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan }>
+  Readonly<{ mode: 'create'; plan: WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan }>
   | Readonly<{ mode: 'existing'; planId: string }>
 );
 type McpAccess = DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
@@ -746,7 +822,7 @@ export class WorkspaceOperationBatchStore {
   }
 
   async createMcpDeleteAndClaim(principal: DirectMcpWorkspaceDeletePrincipal,
-    input: { operationId: string; plan: WorkspaceOperationDeleteBatchPlan }): Promise<WorkspaceOperationMcpClaimResult> {
+    input: { operationId: string; plan: WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan }): Promise<WorkspaceOperationMcpClaimResult> {
     return runMcpClaim(this, { kind: 'delete', principal }, captureMcpCreateInput('delete', input));
   }
 

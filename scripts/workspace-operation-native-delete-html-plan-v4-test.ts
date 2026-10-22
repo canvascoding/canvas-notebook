@@ -1,4 +1,10 @@
+import { decodeWorkspaceOperationBatchRecord } from '../app/lib/files/workspace-operation-batch-store';
+import { workspaceOperationBatchTotalActions } from '../app/lib/files/workspace-operation-native-delete-effects';
+import {createWorkspaceOperationCohortDeletePlan,decodeWorkspaceOperationCohortDeletePlan,captureWorkspaceOperationCohortDeleteCurrent,getWorkspaceOperationCohortDeleteRecipes} from '../app/lib/files/workspace-operation-cohort-delete-plan';
+import {createWorkspacePathCohortDeletePreparation} from '../app/lib/files/workspace-path-cohort-delete-preparation';
+import {workspaceOperationCohortDeleteEffects,workspaceOperationMcpCohortDeletePreview} from '../app/lib/files/workspace-operation-cohort-delete-public';
 import assert from 'node:assert/strict';
+import { WorkspaceOperationNativeSourceEvidenceError } from '../app/lib/files/workspace-operation-native-source-evidence';
 import { createWorkspaceOperationPhysicalDeleteBatchPlanV5, decodeWorkspaceOperationPhysicalDeleteBatchPlanV5,
   computeWorkspaceOperationPhysicalDeleteBatchPlanIdV5, computeWorkspaceOperationPhysicalDeleteBatchPlanIntegrityProofV5,
   captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5, getWorkspaceOperationPhysicalDeleteLinkRecipesV5 } from '../app/lib/files/workspace-operation-physical-delete-html-plan-v5';
@@ -586,6 +592,7 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
     const folder=fixture({extra:[{path:'folder',kind:'directory'}]});folder.input.actions[0].selections[0].sourcePath='folder';
     assert.throws(()=>createWorkspaceOperationPhysicalDeleteBatchPlanV5(folder.input));
   });
+
   await asyncFamily('Physical5 immutable historical details retain cold, detached, hostile, Current and grammar parity', async () => {
     const make = (representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks') => {
       const value = physicalFixture('historical.png');
@@ -701,6 +708,226 @@ export async function workspaceOperationNativeDeleteHtmlPlanV4Test(): Promise<vo
       assert.deepEqual(captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan, actual.input.observation, actual.jobScope), plan.sourceEvidence);
     }
   });
-  assert.equal(families, 25);
+  family('Cohort6 native folder and PNG/PDF compile one recursive Delete over genuine V5 evidence',()=>{
+    const value=fixture({native:[['folder/a.md','[Other](sub/b.md)'],['folder/sub/b.md','# B'],['incoming.md','[A](folder/a.md) [B](folder/sub/b.md) ![PNG](folder/picture.png) [PDF](folder/report.pdf)']],
+      raw:[['page.html','<p>Unaffected HTML</p>']],extra:[{path:'folder/picture.png',kind:'file'},{path:'folder/report.pdf',kind:'file'}]});
+    value.input.actions[0].selections=[{sourcePath:'folder'}];
+    const plan=createWorkspaceOperationCohortDeletePlan(value.input);assert.equal(plan.version,6);assert.equal(plan.kind,'native-cohort-delete');assert.equal(plan.sourceEvidence.evidenceVersion,5);
+    assert.equal(plan.nativeGraphPlan.contractVersion,5);assert.equal(plan.pathSteps.length,1);assert.equal(plan.targets.filter(target=>target.documentId).length,2);
+    assert(plan.targets.some(target=>target.path==='folder/sub'&&target.kind==='directory'));
+    assert.deepEqual(workspaceOperationCohortDeleteEffects(plan),[{documentId:value.input.observation.nativeBindings.find(binding=>binding.expected.path==='incoming.md')!.expected.documentId,path:'incoming.md',updatedLinks:4}]);
+    assert(plan.nativeGraphPlan.finalNamespace.every(entity=>!entity.path.startsWith('folder/')));
+    assert.deepEqual(decodeWorkspaceOperationCohortDeletePlan(structuredClone(plan)),plan);
+    assert.throws(()=>decodeWorkspaceOperationNativeDeleteBatchPlan(plan));assert.throws(()=>decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan));
+    const preview=workspaceOperationMcpCohortDeletePreview(plan);assert.equal(preview.version,3);assert.equal(preview.linkChanges.unlinks,4);
+    assert.equal(preview.linkChanges.affectedDocuments,1);assert.equal(Object.hasOwn(preview,'targets'),false);assert.equal(Object.hasOwn(preview,'sourceEvidence'),false);
+  });
+  family('Cohort6 multiple roots, Current evidence and graph tampering preserve exact original target membership',()=>{
+    const value=fixture({native:[['a/note.md','# A'],['b/note.md','# B'],['incoming.md','[A](a/note.md) [B](b/note.md)']],raw:[],extra:[]});
+    value.input.actions[0].selections=[{sourcePath:'b'},{sourcePath:'a'}];const plan=createWorkspaceOperationCohortDeletePlan(value.input);
+    assert.deepEqual(plan.pathSteps.map(step=>step.sourcePath),['b','a']);assert.equal(workspaceOperationCohortDeleteEffects(plan)[0].updatedLinks,2);
+    assert.equal(captureWorkspaceOperationCohortDeleteCurrent(plan,value.input.observation,value.jobScope).semanticProof,plan.sourceEvidence.semanticProof);
+    const forged=structuredClone(plan);forged.targets.pop();assert.throws(()=>decodeWorkspaceOperationCohortDeletePlan(forged));
+    const wrongScope={...value.jobScope,workspaceId:'foreign'};assert.throws(()=>captureWorkspaceOperationCohortDeleteCurrent(plan,value.input.observation,wrongScope));
+    const overlapping=structuredClone(value.input);overlapping.actions[0].selections=[{sourcePath:'a'},{sourcePath:'a/note.md'}];assert.throws(()=>createWorkspaceOperationCohortDeletePlan(overlapping));
+  });
+  await asyncFamily('Cohort6 raw/MDX/HTML/custom selections are precisely blocked and hostile or retagged envelopes reject',async()=>{
+    for(const [path,raw]of [['folder/raw.md','# Raw'],['folder/page.html','<p>HTML</p>']] as const){
+      const value=fixture({native:[['folder/note.md','# Native']],raw:[[path,raw]],extra:[]});value.input.actions[0].selections=[{sourcePath:'folder'}];
+      const preparation=createWorkspacePathCohortDeletePreparation({workspace:value.input.scope.workspace,selections:value.input.actions[0].selections,observation:value.input.observation});
+      assert.equal(preparation.readiness,'blocked');assert(preparation.issues.some(issue=>issue.path===path&&issue.code==='unsupported-cohort-delete-source'));
+      assert.throws(()=>createWorkspaceOperationCohortDeletePlan(value.input));}
+    assert.throws(()=>fixture({native:[['folder/note.md','# Native']],raw:[],extra:[{path:'folder/custom.mdx',kind:'file'}]}),error=>{
+      assert(error instanceof WorkspaceOperationNativeSourceEvidenceError);
+      assert.equal(error.code,'NATIVE_SOURCE_IMPORT_REQUIRED');assert.equal(error.status,409);return true;
+    });
+    for(const path of ['folder/scene.excalidraw']){const value=fixture({native:[['folder/note.md','# Native']],raw:[],extra:[{path,kind:'file'}]});
+      value.input.actions[0].selections=[{sourcePath:'folder'}];assert.throws(()=>createWorkspaceOperationCohortDeletePlan(value.input));}
+    const value=fixture({native:[['folder/note.md','# Native']],raw:[],extra:[]});value.input.actions[0].selections=[{sourcePath:'folder'}];const plan=createWorkspaceOperationCohortDeletePlan(value.input);
+    let reads=0;const hostile={...plan};Object.defineProperty(hostile,'sourceEvidence',{enumerable:true,get(){reads++;throw Error('must not invoke');}});
+    assert.throws(()=>decodeWorkspaceOperationCohortDeletePlan(hostile));assert.equal(reads,0);
+    for(const version of [1,2,3,5])assert.throws(()=>decodeWorkspaceOperationCohortDeletePlan({...plan,version}));
+    // Additive historical-details regression; all original negative assertions above remain.
+    const make = (representation: 'plain_text' | 'tiptap_xml' | 'tiptap_blocks') => {
+      const actual = fixture({ native: [['folder/note.md', '# Original'], ['incoming.md', '[**Target**](folder/note.md)\n\nUnchanged']], raw: [], extra: [] });
+      actual.input.actions[0].selections = [{ sourcePath: 'folder' }];
+      if (representation !== 'plain_text') {
+        const state = actual.input.observation.privateNativeStates.find(row => row.path === 'incoming.md')!;
+        const doc = createRichMarkdownYDoc('[**Target**](folder/note.md)\n\nUnchanged', representation);
+        try { state.representation = representation; state.yjsState = Y.encodeStateAsUpdate(doc); state.stateVector = Y.encodeStateVector(doc); }
+        finally { doc.destroy(); }
+        const inventory = inspectPersistedDocumentLinks(state);
+        const binding = actual.input.observation.nativeBindings.find(row => row.expected.documentId === state.documentId)!;
+        binding.expected.representation = representation; binding.expected.binaryHash = sha(state.yjsState);
+        binding.expected.vectorHash = sha(state.stateVector); binding.expected.stateProof = inventory.version.stateProof; binding.inventoryProof = proof(inventory);
+        actual.input.observation.stage.sources = actual.input.observation.stage.sources.map(source => source.kind === 'native'
+          && source.inventory.document.documentId === state.documentId ? { kind: 'native', inventory } : source);
+        refresh(actual.actual);
+      }
+      return actual;
+    };
+    for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) {
+      const actual = make(representation), originalObservation = structuredClone(actual.input.observation);
+      const original = createWorkspaceOperationCohortDeletePlan(actual.input);
+      const first = decodeWorkspaceOperationCohortDeletePlan(original), second = decodeWorkspaceOperationCohortDeletePlan(original);
+      assert.deepEqual(first, original); assert.deepEqual(second, original); assert.notEqual(first, original); assert.notEqual(first, second);
+      assert.notEqual(first.sourceEvidence, second.sourceEvidence); assert.notEqual(first.nativeGraphPlan, second.nativeGraphPlan);
+      assert(Object.isFrozen(first)); assert(Object.isFrozen(first.sourceEvidence)); assert(Object.isFrozen(first.nativeGraphPlan));
+      assert.equal(Reflect.set(first.coverage, 'complete', false), false);
+      const foreign = freezeHtmlPlanFixture(structuredClone(original)); assert.deepEqual(decodeWorkspaceOperationCohortDeletePlan(foreign), original);
+      const recipes = getWorkspaceOperationCohortDeleteRecipes(original), expectedRecipes = structuredClone(recipes);
+      assert.equal(recipes.length, 1); const copiedRecipes = getWorkspaceOperationCohortDeleteRecipes(original);
+      assert.deepEqual(copiedRecipes, expectedRecipes); assert.notEqual(copiedRecipes, recipes); assert.notEqual(copiedRecipes[0], recipes[0]);
+      Reflect.set(copiedRecipes[0], 'nextValue', 'caller-owned mutation');
+      assert.deepEqual(getWorkspaceOperationCohortDeleteRecipes(original), expectedRecipes); assert.deepEqual(getWorkspaceOperationCohortDeleteRecipes(foreign), expectedRecipes);
+      const mutable = structuredClone(original); assert.deepEqual(decodeWorkspaceOperationCohortDeletePlan(mutable), original);
+      mutable.targets.pop(); mutable.integrityProof = proof({ kind: 'native-cohort-delete-integrity',
+        plan: Object.fromEntries(Object.entries(mutable).filter(([key]) => key !== 'integrityProof')) });
+      const failure = htmlPlanFailureFacts(() => decodeWorkspaceOperationCohortDeletePlan(mutable));
+      const frozenForgery = freezeHtmlPlanFixture(structuredClone(mutable));
+      assert.deepEqual(htmlPlanFailureFacts(() => decodeWorkspaceOperationCohortDeletePlan(frozenForgery)), failure);
+      assert.deepEqual(htmlPlanFailureFacts(() => getWorkspaceOperationCohortDeleteRecipes(frozenForgery)), failure);
+      let traps = 0;
+      const handler: ProxyHandler<object> = { get() { traps++; throw Error('Cohort proxy get'); }, ownKeys() { traps++; throw Error('Cohort proxy keys'); },
+        getPrototypeOf() { traps++; throw Error('Cohort proxy prototype'); }, getOwnPropertyDescriptor() { traps++; throw Error('Cohort proxy descriptor'); } };
+      const getter = { ...original }; Object.defineProperty(getter, 'sourceEvidence', { enumerable: true, get() { traps++; return original.sourceEvidence; } }); Object.freeze(getter);
+      const nested = structuredClone(original); Object.defineProperty(nested.sourceEvidence, 'nativeOrdinarySources4', { enumerable: true, get() { traps++; throw Error('Cohort nested getter'); } });
+      Object.freeze(nested.sourceEvidence); Object.freeze(nested);
+      for (const hostile of [getter, new Proxy(original, handler), nested]) {
+        assert.throws(() => decodeWorkspaceOperationCohortDeletePlan(hostile)); assert.throws(() => getWorkspaceOperationCohortDeleteRecipes(hostile as typeof original));
+        assert.throws(() => captureWorkspaceOperationCohortDeleteCurrent(hostile as typeof original, actual.input.observation, actual.jobScope));
+      }
+      assert.equal(traps, 0);
+      const state = actual.input.observation.privateNativeStates.find(row => row.path === 'incoming.md')!, bytes = state.yjsState.slice();
+      try {
+        state.yjsState[0] ^= 0xff;
+        const currentFailure = htmlPlanFailureFacts(() => captureWorkspaceOperationCohortDeleteCurrent(original, actual.input.observation, actual.jobScope));
+        assert.deepEqual(htmlPlanFailureFacts(() => captureWorkspaceOperationCohortDeleteCurrent(
+          freezeHtmlPlanFixture(structuredClone(original)), actual.input.observation, actual.jobScope)), currentFailure);
+      } finally { state.yjsState.set(bytes); }
+      assert.deepEqual(actual.input.observation, originalObservation);
+      assert.deepEqual(captureWorkspaceOperationCohortDeleteCurrent(original, actual.input.observation, actual.jobScope), original.sourceEvidence);
+      if (representation === 'plain_text') {
+        const oversized = structuredClone(original); Reflect.set(oversized, 'oversized', 'x'.repeat(16 * 1024 * 1024));
+        const tooLarge = htmlPlanFailureFacts(() => decodeWorkspaceOperationCohortDeletePlan(oversized)); assert.equal(tooLarge.code, 'COHORT_DELETE_TOO_LARGE');
+        assert.deepEqual(htmlPlanFailureFacts(() => decodeWorkspaceOperationCohortDeletePlan(freezeHtmlPlanFixture(oversized))), tooLarge);
+      }
+    }
+    // Pure stored-row decoding must keep every current row field outside the
+    // exact-text historical Plan6 reuse. This supplies no Claim or actor rights.
+    for (const representation of ['plain_text', 'tiptap_xml', 'tiptap_blocks'] as const) await withNativeInspectionSchema(async () => {
+      const actual = make(representation), original = createWorkspaceOperationCohortDeletePlan(actual.input);
+      const planText = JSON.stringify(original);
+      const actor = { mode: 'direct', actorType: 'user', actorUserId: 'stored-fixture-user', actorId: 'stored-fixture-user',
+        actorDisplayName: 'Stored fixture', requestHash: proof({ planId: original.planId }), jobScope: actual.jobScope };
+      const row: Record<string, unknown> = { batch_id: proof({ storedPlan: original.planId }), plan_id: original.planId,
+        workspace_id: original.workspaceId, plan_json: planText, authorization_json: JSON.stringify(actor),
+        review_ids_json: '[]', review_refs_json: '[]', reviewer_user_id: null, reviewer_display_name: null,
+        status: 'queued', action_mode: 'apply', completed_actions: 0, total_actions: workspaceOperationBatchTotalActions(original),
+        phase: 'preparing', error_code: null, trash_entry_ids_json: '[]', lease_owner: null, created_at: 100, updated_at: 100 };
+      const firstRecord = decodeWorkspaceOperationBatchRecord(row), secondRecord = decodeWorkspaceOperationBatchRecord(row);
+      assert(firstRecord.plan.version === 6 && secondRecord.plan.version === 6);
+      assert.deepEqual(firstRecord.plan, original); assert.deepEqual(secondRecord.plan, original);
+      assert.notEqual(firstRecord.plan, secondRecord.plan); assert.notEqual(firstRecord.plan.sourceEvidence, secondRecord.plan.sourceEvidence);
+      assert(Object.isFrozen(firstRecord.plan)); assert(Object.isFrozen(secondRecord.plan));
+      assert(Object.isFrozen(secondRecord.plan.sourceEvidence));
+      assert.equal(Reflect.set(secondRecord.plan.coverage, 'complete', false), false);
+      assert.equal(firstRecord.status, 'queued');
+      const freshActor = { ...actor, actorUserId: 'fresh-row-user', actorId: 'fresh-row-user', actorDisplayName: 'Fresh row' };
+      const fresh = decodeWorkspaceOperationBatchRecord({ ...row, status: 'applied', authorization_json: JSON.stringify(freshActor),
+        completed_actions: row.total_actions, phase: 'complete', updated_at: 200, error_code: 'FRESH_ROW_CODE',
+        trash_entry_ids_json: '["fresh-trash"]', lease_owner: 'fresh-lease' });
+      assert.equal(fresh.status, 'applied'); assert.deepEqual(fresh.authorization, freshActor);
+      assert.equal(fresh.completedActions, row.total_actions); assert.equal(fresh.phase, 'complete'); assert.equal(fresh.updatedAt, 200);
+      assert.equal(fresh.errorCode, 'FRESH_ROW_CODE'); assert.deepEqual(fresh.trashEntryIds, ['fresh-trash']); assert.equal(fresh.leaseOwner, 'fresh-lease');
+      assert.deepEqual(fresh.plan, original); assert.notEqual(fresh.plan, firstRecord.plan);
+      for (const change of [{ plan_id: 'f'.repeat(64) }, { workspace_id: 'foreign-workspace' },
+        { authorization_json: JSON.stringify({ ...actor, requestHash: 'invalid' }) },
+        { authorization_json: JSON.stringify({ ...actor, jobScope: { ...actor.jobScope, workspaceId: 'foreign-workspace' } }) }]) {
+        const failure = htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord({ ...row, ...change }));
+        assert(['BATCH_INVALID_PLAN', 'BATCH_INVALID_AUTHORIZATION'].includes(String(failure.code)));
+      }
+      const whitespace = decodeWorkspaceOperationBatchRecord({ ...row, plan_json: planText + ' ' });
+      assert.deepEqual(whitespace.plan, original, 'A different valid JSON encoding remains valid; it cannot reuse a mismatching text key.');
+      const changedProof = JSON.stringify({ ...original, integrityProof: (original.integrityProof[0] === 'a' ? 'b' : 'a') + original.integrityProof.slice(1) });
+      const originalBytes = Buffer.from(planText), corruptBytes = Buffer.from(changedProof);
+      assert.equal(corruptBytes.byteLength, originalBytes.byteLength);
+      assert.equal(corruptBytes.filter((byte, index) => byte !== originalBytes[index]).length, 1);
+      htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord({ ...row, plan_json: changedProof }));
+      htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord({ ...row, plan_json: planText.slice(0, -1) }));
+      assert.deepEqual(decodeWorkspaceOperationBatchRecord(row).plan, original, 'Invalid text must not contaminate the original successful entry.');
+      const parseDescriptor = Object.getOwnPropertyDescriptor(JSON, 'parse'); assert(parseDescriptor && typeof parseDescriptor.value === 'function');
+      const originalParse = JSON.parse; let lookups = 0;
+      try {
+        Object.defineProperty(JSON, 'parse', { configurable: true, enumerable: parseDescriptor.enumerable,
+          get() { lookups++; return originalParse; } });
+        assert.deepEqual(decodeWorkspaceOperationBatchRecord(row).plan, original);
+        assert.equal(lookups, 5, 'Preserve one original JSON.parse lookup for each stored JSON field.');
+      } finally { Object.defineProperty(JSON, 'parse', parseDescriptor); }
+      let replacements = 0;
+      try {
+        JSON.parse = (text, reviver) => {
+          replacements++;
+          const value = originalParse(text, reviver);
+          return text === planText ? { ...value, integrityProof: '0'.repeat(64) } : value;
+        };
+        htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord(row));
+        assert.equal(replacements, 1, 'A foreign parser must execute for the warm plan text before its actual result is validated.');
+      } finally { Object.defineProperty(JSON, 'parse', parseDescriptor); }
+      assert.deepEqual(decodeWorkspaceOperationBatchRecord(row).plan, original);
+      if (representation === 'plain_text') {
+        const legacyPlan = { version: 1, linkPlan: { contractVersion: 1, status: 'planned', kind: 'delete',
+          planId: '1'.repeat(64), readiness: 'ready', recoveryReady: false,
+          pathMappings: [], linkEdits: [], expectedPathState: [], collisions: [], issues: [], previewContents: [],
+          coverage: { complete: true, omittedSources: [], unresolvedLinks: [] } } };
+        const legacyText = JSON.stringify(legacyPlan); let legacyVersionReads = 0;
+        const legacyProxy = new Proxy(legacyPlan, { get(target, key, receiver) {
+          if (key === 'version') legacyVersionReads++;
+          return Reflect.get(target, key, receiver);
+        } });
+        try {
+          JSON.parse = (text, reviver) => text === legacyText ? legacyProxy : originalParse(text, reviver);
+          const legacyRecord = decodeWorkspaceOperationBatchRecord({ ...row, plan_json: legacyText });
+          assert.equal(legacyVersionReads, 2, 'A foreign parser returning LegacyV1 must retain exactly the two original record version reads.');
+          assert.equal(Object.getOwnPropertyDescriptor(legacyRecord.plan, 'version')?.value, 1);
+          assert.equal(legacyRecord.plan, legacyProxy);
+        } finally { Object.defineProperty(JSON, 'parse', parseDescriptor); }
+      }
+      if (representation !== 'plain_text') {
+        const schema = getNativeInspectionSchema(), attributes = schema.marks.link.spec.attrs; assert(attributes);
+        const href = Object.getOwnPropertyDescriptor(attributes, 'href'); assert(href); assert(Reflect.deleteProperty(attributes, 'href'));
+        try {
+          const warmFailure = htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord(row));
+          const coldFailure = htmlPlanFailureFacts(() => decodeWorkspaceOperationBatchRecord({ ...row, plan_json: planText + '\n' }));
+          assert.deepEqual(warmFailure, coldFailure, 'A warm exact Plan6 text must still reject the currently missing used rich-link attribute.');
+        } finally { Object.defineProperty(attributes, 'href', href); }
+        assert.deepEqual(decodeWorkspaceOperationBatchRecord(row).plan, original);
+      }
+    });
+    const plain = make('plain_text'), plainPlan = createWorkspaceOperationCohortDeletePlan(plain.input);
+    for (const representation of ['tiptap_xml', 'tiptap_blocks'] as const) {
+      const actual = make(representation), original = createWorkspaceOperationCohortDeletePlan(actual.input);
+      decodeWorkspaceOperationCohortDeletePlan(original); getWorkspaceOperationCohortDeleteRecipes(original);
+      const reads = [decodeWorkspaceOperationCohortDeletePlan, getWorkspaceOperationCohortDeleteRecipes] as const;
+      let release!: () => void, child: Promise<void> | undefined; const gate = new Promise<void>(resolve => { release = resolve; });
+      const operation = withNativeInspectionSchema(async () => {
+        const schema = getNativeInspectionSchema(), attributes = schema.marks.link.spec.attrs; assert(attributes);
+        const href = Object.getOwnPropertyDescriptor(attributes, 'href'); assert(href); assert(Reflect.deleteProperty(attributes, 'href'));
+        try { for (const read of reads) { const failure = htmlPlanFailureFacts(() => read(original));
+          assert.deepEqual(htmlPlanFailureFacts(() => read(freezeHtmlPlanFixture(structuredClone(original)))), failure); } }
+        finally { Object.defineProperty(attributes, 'href', href); }
+        assert.deepEqual(decodeWorkspaceOperationCohortDeletePlan(original), original);
+        child = gate.then(() => { for (const read of reads) { const failure = htmlPlanFailureFacts(() => read(original));
+          assert.deepEqual(htmlPlanFailureFacts(() => read(freezeHtmlPlanFixture(structuredClone(original)))), failure);
+          assert.deepEqual(read(plainPlan), read(freezeHtmlPlanFixture(structuredClone(plainPlan)))); } });
+        await Promise.resolve(); assert.equal(getNativeInspectionSchema(), schema);
+      });
+      try { await operation; } finally { release(); }
+      assert(child); await child;
+      assert.deepEqual(decodeWorkspaceOperationCohortDeletePlan(original), original);
+      assert.deepEqual(captureWorkspaceOperationCohortDeleteCurrent(original, actual.input.observation, actual.jobScope), original.sourceEvidence);
+    }
+  });
+  assert.equal(families, 28);
   console.log(JSON.stringify({ suite: 'native-delete-html-plan-v4', families, pureFactsOnly: true, executionAuthority: false }));
 }

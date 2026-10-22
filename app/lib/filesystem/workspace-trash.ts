@@ -340,6 +340,11 @@ export async function restoreWorkspaceTrashEntry(params: {
   });
   if (!row) throw new Error('Trash entry not found.');
   if (row.originalPath !== initial.originalPath) throw new Error('Trash entry changed before restoration.');
+  const payload=(()=>{try{return row.metadataJson?JSON.parse(row.metadataJson):null;}catch{return null;}})();
+  if(payload && typeof payload==='object' && (payload.payloadKind==='cohort' || Object.hasOwn(payload,'cohortBatchId') || Object.hasOwn(payload,'rootStep'))) {
+    throw Object.assign(new Error('Restoration of this central folder deletion is unavailable.'),{code:'COHORT_DELETE_RESTORE_UNSUPPORTED',status:409});
+  }
+
   await assertNoActiveOfficeLeases(params.workspace, [row.originalPath]);
 
   const trashPath = absoluteDataPath(row.trashRelativePath);

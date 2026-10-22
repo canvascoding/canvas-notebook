@@ -1,11 +1,10 @@
 import 'server-only';
 
 import { createHash } from 'node:crypto';
-import { getSchema } from '@tiptap/core';
 import type { SqlConnection } from '../db';
 import { ARCHIVED_NATIVE_BINARY_LIMIT, inspectArchivedNativeSnapshot } from '../collaboration/archived-native-snapshot';
 import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
-import { richMarkdownSchemaExtensions } from '../collaboration/markdown-state';
+import { getNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { assertNativeDocumentSchema } from '../collaboration/native-document-schema';
 import { captureNativeFileArchiveRestoreData, prepareNativeFileArchiveTransition, prepareNativeFileRestoreTransition,
   type NativeFileArchiveExpected, type NativeFileArchiveTransition,
@@ -194,7 +193,7 @@ async function readActiveTarget(database: SqlConnection, selected: Selection): P
   if (Number(registry.state_version) > state.documentSequence) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
   assertProjection(rows.projection, state);
   const native = inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => {
-    assertNativeDocumentSchema(doc, state.representation, getSchema(richMarkdownSchemaExtensions()));
+    assertNativeDocumentSchema(doc, state.representation, getNativeInspectionSchema());
     return snapshot;
   });
   const expected: NativeFileArchiveExpected = Object.freeze({ documentId: selected.documentId, lineageId: selected.lineageId,

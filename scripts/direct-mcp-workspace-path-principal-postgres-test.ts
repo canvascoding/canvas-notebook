@@ -208,6 +208,190 @@ export async function directMcpWorkspacePathPrincipalPostgresTest(): Promise<voi
         }), expectedCode(mutation.code)); await absent(id);
         await route.run(async access => { await access.assertCurrent(); });
       }
+
+      // Both Seat services consume the same real PG rows. Explicit service-only
+      // policy variants below do not claim a newly signed Solo/Team license.
+      const { assertUserSeatAccess, assertUserSeatAccessInSingleSnapshotOnConnection, SeatLimitGuardError } = await import('../app/lib/license/seat-limit');
+      const { getLicenseStatus } = await import('../app/lib/license');
+      const actualSeatLicense = await getLicenseStatus();
+      assert.equal(actualSeatLicense.licensed, true); assert.equal(actualSeatLicense.edition, 'team'); assert.equal(actualSeatLicense.seatLimit, 2);
+      type SeatAccess = Awaited<ReturnType<typeof assertUserSeatAccess>>;
+      type SeatPolicy = Parameters<typeof assertUserSeatAccessInSingleSnapshotOnConnection>[2];
+      type SeatOutcome = { kind: 'allowed'; value: SeatAccess }
+        | { kind: 'denied'; code: InstanceType<typeof SeatLimitGuardError>['code']; status: number; message: string; details: Record<string, unknown> };
+      type ExpectedSeat = { kind: 'allowed'; mode: SeatAccess['mode']; seatLimit: number; observedQuantity: number; organizationId: string | null }
+        | { kind: 'denied'; code: InstanceType<typeof SeatLimitGuardError>['code'] };
+      const seatRowsSQL = `SELECT
+        (SELECT jsonb_agg(to_jsonb(u) ORDER BY u.id) FROM (SELECT id,banned,created_at FROM "user") u) AS users,
+        (SELECT jsonb_agg(to_jsonb(o) ORDER BY o.organization_id) FROM canvas_organization_settings o) AS organizations,
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.id) FROM team_memberships m) AS memberships,
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.organization_id,p.user_id) FROM organization_user_permissions p) AS permissions,
+        (SELECT jsonb_agg(to_jsonb(s) ORDER BY s.organization_id) FROM team_membership_sync_state s) AS sync`;
+      const captureSeatParityOutcome = async (operation: () => Promise<SeatAccess>): Promise<SeatOutcome> => {
+        try { return { kind: 'allowed', value: await operation() }; }
+        catch (error) {
+          assert(error instanceof SeatLimitGuardError);
+          return { kind: 'denied', code: error.code, status: error.status, message: error.message, details: error.details };
+        }
+      };
+      const assertSeatReaderParity = async (db: SqlConnection, sql: string[], userId: string, licenseStatus: SeatPolicy,
+        expected: ExpectedSeat): Promise<void> => {
+        const before = await db.get(seatRowsSQL);
+        const ordinary = await captureSeatParityOutcome(() => assertUserSeatAccess({ database: db, userId, licenseStatus }));
+        const queriesBefore = sql.length;
+        const batched = await captureSeatParityOutcome(() => assertUserSeatAccessInSingleSnapshotOnConnection(db, userId, licenseStatus));
+        assert.equal(sql.length - queriesBefore, 1, 'The new Seat path must read one fresh actual SQL statement.');
+        assert.deepEqual(batched, ordinary, 'Full Seat success/error data must agree on the same genuine B.');
+        assert.equal(ordinary.kind, expected.kind);
+        if (expected.kind === 'allowed') {
+          assert(ordinary.kind === 'allowed');
+          assert.deepEqual(ordinary.value, { userId, organizationId: expected.organizationId, mode: expected.mode,
+            seatLimit: expected.seatLimit, observedQuantity: expected.observedQuantity, overallocated: expected.observedQuantity > expected.seatLimit });
+        } else { assert(ordinary.kind === 'denied'); assert.equal(ordinary.code, expected.code); assert.equal(ordinary.status, 403); }
+        assert.deepEqual(await db.get(seatRowsSQL), before, 'Neither Seat reader may mutate its real input rows.');
+      };
+      const team2 = actualSeatLicense, team1: SeatPolicy = { ...actualSeatLicense, seatLimit: 1 };
+      const solo: SeatPolicy = { ...actualSeatLicense, edition: 'solo', seatLimit: 1 };
+      const allowSeatParity = (mode: SeatAccess['mode'], seatLimit: number, observedQuantity: number,
+        organizationId: string | null = 'tool-dispatch-org'): ExpectedSeat => ({ kind: 'allowed', mode, seatLimit, observedQuantity, organizationId });
+      const denySeatParity = (code: InstanceType<typeof SeatLimitGuardError>['code']): ExpectedSeat => ({ kind: 'denied', code });
+      const seedExtra = [
+        `INSERT INTO "user"(id,name,email,email_verified,role,banned,created_at,updated_at) VALUES('parity-extra','Extra','extra@parity.test',1,'user',0,100,100)`,
+        `INSERT INTO organization_user_permissions(organization_id,user_id,role,status,created_at,updated_at) VALUES('tool-dispatch-org','parity-extra','member','active',100,100)`,
+        `INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at)
+          VALUES('parity-extra-seat','tool-dispatch-org','a@parity.test','parity-extra','member','active',100,100,100,100)`,
+      ];
+      const variants: ReadonlyArray<{ name: string; changes: readonly string[]; userId: string; policy: SeatPolicy; expected: ExpectedSeat }> = [
+        { name: 'signed-team2-owner', changes: [], userId: 'owner', policy: team2, expected: allowSeatParity('team', 2, 2) },
+        { name: 'signed-team2-reader', changes: [], userId: 'reader', policy: team2, expected: allowSeatParity('team', 2, 2) },
+        { name: 'service-team1-owner-overallocated', changes: [], userId: 'owner', policy: team1, expected: allowSeatParity('team', 1, 2) },
+        { name: 'service-team1-member-over-limit', changes: [], userId: 'reader', policy: team1, expected: denySeatParity('SEAT_LIMIT_EXCEEDED') },
+        { name: 'service-solo-owner', changes: [], userId: 'owner', policy: solo, expected: allowSeatParity('solo', 1, 2) },
+        { name: 'service-solo-member', changes: [], userId: 'reader', policy: solo, expected: denySeatParity('SEAT_LIMIT_EXCEEDED') },
+        { name: 'missing-account', changes: [], userId: 'parity-missing', policy: team2, expected: denySeatParity('SEAT_ACCESS_INACTIVE') },
+        { name: 'banned-account', changes: [`UPDATE "user" SET banned=1 WHERE id='reader'`], userId: 'reader', policy: team2, expected: denySeatParity('SEAT_ACCESS_INACTIVE') },
+        { name: 'suspended-membership', changes: [`UPDATE team_memberships SET status='suspended' WHERE id='reader-seat'`], userId: 'reader', policy: team2, expected: denySeatParity('SEAT_MEMBERSHIP_REQUIRED') },
+        { name: 'pending-candidate', changes: [`UPDATE team_memberships SET status='approval_required',user_id=NULL,accepted_at=NULL,activated_at=NULL WHERE id='reader-seat'`], userId: 'reader', policy: team2, expected: denySeatParity('SEAT_MEMBERSHIP_REQUIRED') },
+        { name: 'inactive-permission', changes: [`UPDATE organization_user_permissions SET status='suspended' WHERE organization_id='tool-dispatch-org' AND user_id='reader'`], userId: 'reader', policy: team2, expected: denySeatParity('SEAT_MEMBERSHIP_REQUIRED') },
+        { name: 'count-includes-banned-other', changes: [...seedExtra, `UPDATE "user" SET banned=1 WHERE id='parity-extra'`], userId: 'reader', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        { name: 'owner-id-priority-before-role', changes: [...seedExtra, `UPDATE team_memberships SET role='external',activated_at=9999 WHERE id='owner-seat'`], userId: 'owner', policy: team1, expected: allowSeatParity('team', 1, 3) },
+        { name: 'admin-before-member-despite-later-activation', changes: [...seedExtra, `UPDATE team_memberships SET role='admin',activated_at=9999 WHERE id='parity-extra-seat'`], userId: 'parity-extra', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        { name: 'admin-rank-excludes-member', changes: [...seedExtra, `UPDATE team_memberships SET role='admin',activated_at=9999 WHERE id='parity-extra-seat'`], userId: 'reader', policy: team2, expected: denySeatParity('SEAT_LIMIT_EXCEEDED') },
+        { name: 'member-before-external', changes: [...seedExtra, `UPDATE team_memberships SET role='external',activated_at=1 WHERE id='parity-extra-seat'`], userId: 'reader', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        { name: 'earlier-activation-before-email', changes: [...seedExtra, `UPDATE team_memberships SET activated_at=99,candidate_email='z@parity.test' WHERE id='parity-extra-seat'`], userId: 'parity-extra', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        { name: 'equal-activation-email-order', changes: [...seedExtra, `UPDATE team_memberships SET activated_at=200 WHERE id='parity-extra-seat'`], userId: 'parity-extra', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        { name: 'null-activation-sorts-last', changes: [...seedExtra, `UPDATE team_memberships SET activated_at=NULL WHERE id='reader-seat'`], userId: 'parity-extra', policy: team2, expected: allowSeatParity('team', 2, 3) },
+        ...[null, '1', '2', '9', '9007199254740993'].map(limit => ({ name: `reconciliation-${limit ?? 'null'}`,
+          changes: [`UPDATE team_membership_sync_state SET reconciliation_seat_limit=${limit === null ? 'NULL' : `'${limit}'::bigint`} WHERE organization_id='tool-dispatch-org'`],
+          userId: 'reader', policy: team2, expected: limit === '1' ? denySeatParity('SEAT_LIMIT_EXCEEDED') : allowSeatParity('team', 2, 2) })),
+        { name: 'no-organization-team', changes: ['DELETE FROM canvas_organization_settings'], userId: 'owner', policy: team2, expected: denySeatParity('SEAT_MEMBERSHIP_REQUIRED') },
+        { name: 'no-organization-solo-id-fallback', changes: ['DELETE FROM canvas_organization_settings'], userId: 'owner', policy: solo, expected: allowSeatParity('solo', 1, 2, null) },
+        { name: 'no-organization-solo-created-order', changes: ['DELETE FROM canvas_organization_settings', `UPDATE "user" SET created_at=1 WHERE id='reader'`], userId: 'reader', policy: solo, expected: allowSeatParity('solo', 1, 2, null) },
+        { name: 'primary-org-and-independent-sync-join', changes: [
+          `INSERT INTO canvas_organization_settings(organization_id,owner_user_id,deployment_mode,team_features_enabled,created_at,updated_at) VALUES('parity-first','reader','team',1,1,1)`,
+          `INSERT INTO organization_user_permissions(organization_id,user_id,role,status,created_at,updated_at) VALUES('parity-first','reader','owner','active',1,1),('parity-first','owner','member','active',1,1)`,
+          `INSERT INTO team_memberships(id,organization_id,candidate_email,user_id,role,status,accepted_at,activated_at,created_at,updated_at)
+            VALUES('parity-first-reader','parity-first','reader@parity.test','reader','owner','active',1,1,1,1),('parity-first-owner','parity-first','owner@parity.test','owner','member','active',1,1,1,1)`,
+          `UPDATE team_membership_sync_state SET reconciliation_seat_limit=1 WHERE organization_id='tool-dispatch-org'`,
+        ], userId: 'owner', policy: team2, expected: denySeatParity('SEAT_LIMIT_EXCEEDED') },
+      ];
+      const seatBaseline = (await admin.query(seatRowsSQL)).rows;
+      for (const variant of variants) {
+        const rollback = new Error(`Expected Seat parity rollback: ${variant.name}`);
+        await assert.rejects(transaction(async (db, _client, sql) => {
+          for (const change of variant.changes) await db.run(change);
+          await assertSeatReaderParity(db, sql, variant.userId, variant.policy, variant.expected);
+          throw rollback;
+        }), error => error === rollback);
+        assert.deepEqual((await admin.query(seatRowsSQL)).rows, seatBaseline, `Seat variant must roll back: ${variant.name}`);
+      }
+
+      // Workspace services read the same genuine rows on one caller-owned B.
+      // These are service parity checks, not new actor/principal authority.
+      const { readPostgresWorkspaceForActorOnConnection: readWorkspace,
+        readPostgresWorkspaceForActorInSingleSnapshotOnConnection: readWorkspaceSnapshot } = await import('../app/lib/workspaces/postgres-runtime');
+      const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+      const workspaceRowsSQL = `SELECT
+        (SELECT jsonb_agg(to_jsonb(w) ORDER BY w.id) FROM canvas_workspaces w) AS workspaces,
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.organization_id,p.user_id) FROM organization_user_permissions p) AS permissions,
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.workspace_id,m.user_id) FROM canvas_workspace_members m) AS members,
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM canvas_projects p) AS projects,
+        (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.project_id,m.user_id) FROM canvas_project_members m) AS project_members`;
+      const workspaceBaseline = (await admin.query(workspaceRowsSQL)).rows;
+      const workspaceVariants: ReadonlyArray<{ name: string; kind: 'organization' | 'team' | 'personal' | 'project' | 'missing';
+        userId: 'owner' | 'reader'; changes: readonly string[]; allowed: boolean }> = [
+        { name: 'organization-owner', kind: 'organization', userId: 'owner', changes: [], allowed: true },
+        { name: 'organization-member', kind: 'organization', userId: 'reader', changes: [], allowed: true },
+        { name: 'organization-no-permission', kind: 'organization', userId: 'reader', changes: [
+          `DELETE FROM organization_user_permissions WHERE organization_id='tool-dispatch-org' AND user_id='reader'`], allowed: false },
+        { name: 'organization-disabled', kind: 'organization', userId: 'reader', changes: [
+          `UPDATE canvas_workspaces SET status='disabled' WHERE id=$1`], allowed: false },
+        { name: 'team-owner-without-member-row', kind: 'team', userId: 'owner', changes: [], allowed: true },
+        { name: 'team-member', kind: 'team', userId: 'reader', changes: [], allowed: true },
+        { name: 'team-without-organization-permission', kind: 'team', userId: 'reader', changes: [
+          `DELETE FROM organization_user_permissions WHERE organization_id='tool-dispatch-org' AND user_id='reader'`], allowed: false },
+        { name: 'team-without-member-row', kind: 'team', userId: 'reader', changes: [
+          `DELETE FROM canvas_workspace_members WHERE workspace_id=$1 AND user_id='reader'`], allowed: false },
+        { name: 'team-external-member', kind: 'team', userId: 'reader', changes: [
+          `UPDATE canvas_workspace_members SET role='external' WHERE workspace_id=$1 AND user_id='reader'`], allowed: false },
+        { name: 'team-write-only-member', kind: 'team', userId: 'reader', changes: [
+          `UPDATE canvas_workspace_members SET can_read=0,can_write=1 WHERE workspace_id=$1 AND user_id='reader'`], allowed: true },
+        { name: 'personal-owner-null-related-bindings', kind: 'personal', userId: 'reader', changes: [], allowed: true },
+        { name: 'personal-other-user', kind: 'personal', userId: 'owner', changes: [], allowed: false },
+        { name: 'personal-null-owner', kind: 'personal', userId: 'reader', changes: [
+          `UPDATE canvas_workspaces SET owner_user_id=NULL WHERE id=$1`], allowed: false },
+        { name: 'project-member', kind: 'project', userId: 'reader', changes: [], allowed: true },
+        { name: 'project-owner-without-member-row', kind: 'project', userId: 'owner', changes: [], allowed: true },
+        { name: 'project-without-member-row', kind: 'project', userId: 'reader', changes: [
+          `DELETE FROM canvas_project_members WHERE project_id='workspace-parity-project' AND user_id='reader'`], allowed: false },
+        { name: 'project-disabled-membership', kind: 'project', userId: 'reader', changes: [
+          `UPDATE canvas_project_members SET status='disabled' WHERE project_id='workspace-parity-project' AND user_id='reader'`], allowed: false },
+        { name: 'project-external-without-organization-permission', kind: 'project', userId: 'reader', changes: [
+          `DELETE FROM organization_user_permissions WHERE organization_id='tool-dispatch-org' AND user_id='reader'`,
+          `UPDATE canvas_project_members SET role='external' WHERE project_id='workspace-parity-project' AND user_id='reader'`], allowed: true },
+        { name: 'missing-workspace', kind: 'missing', userId: 'reader', changes: [], allowed: false },
+      ];
+      assert.equal(workspaceVariants.length, 19);
+      for (const variant of workspaceVariants) {
+        const rollback = new Error(`Expected Workspace parity rollback: ${variant.name}`);
+        await assert.rejects(transaction(async (db, client, sql) => {
+          await db.run(`INSERT INTO canvas_projects(id,organization_id,name,slug,status,created_at,updated_at)
+            VALUES('workspace-parity-project','tool-dispatch-org','Workspace parity','workspace-parity','active',100,100)`);
+          await db.run(`INSERT INTO canvas_workspaces(id,organization_id,type,owner_user_id,project_id,display_name,description,root_relative_path,status,created_at,updated_at)
+            VALUES('workspace-parity-team','tool-dispatch-org','team',NULL,NULL,'Team parity','Exact team fields','organizations/tool-dispatch-org/parity-team','active',100,100),
+            ('workspace-parity-personal','tool-dispatch-org','personal','reader',NULL,'Personal parity','Exact personal fields','users/reader/parity-personal','active',100,100),
+            ('workspace-parity-project-workspace','tool-dispatch-org','project',NULL,'workspace-parity-project','Project parity','Exact project fields','organizations/tool-dispatch-org/parity-project','active',100,100)`);
+          await db.run(`INSERT INTO canvas_workspace_members(organization_id,workspace_id,user_id,role,status,can_read,can_write,can_manage,created_at,updated_at)
+            VALUES('tool-dispatch-org','workspace-parity-team','reader','member','active',1,1,0,100,100)`);
+          await db.run(`INSERT INTO canvas_project_members(organization_id,project_id,user_id,role,status,can_read,can_write,can_manage,created_at,updated_at)
+            VALUES('tool-dispatch-org','workspace-parity-project','reader','member','active',1,1,0,100,100)`);
+          const selectedWorkspaceId = variant.kind === 'organization' ? workspaceId : variant.kind === 'project'
+            ? 'workspace-parity-project-workspace' : `workspace-parity-${variant.kind}`;
+          for (const change of variant.changes) await db.run(change, change.includes('$1') ? [selectedWorkspaceId] : []);
+          const account = await db.get('SELECT id,email,role FROM "user" WHERE id=$1', [variant.userId]) as
+            { id: string; email: string | null; role: string | null } | undefined;
+          assert(account); assert.equal(account.id, variant.userId);
+          const actor = resolveWorkspaceActor(account);
+          const before = await db.get(workspaceRowsSQL), beforeIdentity = await facts(client);
+          const ordinaryBefore = sql.length;
+          const ordinary = await readWorkspace(db, actor, selectedWorkspaceId);
+          assert.equal(sql.length - ordinaryBefore, variant.kind === 'missing' ? 1
+            : variant.kind === 'team' || variant.kind === 'project' ? 3 : 2);
+          const snapshotBefore = sql.length;
+          const snapshot = await readWorkspaceSnapshot(db, actor, selectedWorkspaceId);
+          assert.equal(sql.length - snapshotBefore, 1, 'The fixed Workspace reader must use exactly one fresh actual SQL statement.');
+          assert.deepEqual(snapshot, ordinary, `Complete WorkspaceContext/null parity: ${variant.name}`);
+          assert.equal(ordinary !== null, variant.allowed);
+          if (ordinary) { assert.equal(ordinary.workspaceId, selectedWorkspaceId); assert.equal(ordinary.workspaceType, variant.kind);
+            assert.equal(ordinary.actor?.userId, variant.userId); assert.equal(ordinary.legacy, false);
+            assert.equal(ordinary.customerId, null);
+            assert.equal(ordinary.projectId, variant.kind === 'project' ? 'workspace-parity-project' : null); }
+          assert.deepEqual(await facts(client), beforeIdentity, 'Both readers must retain the same genuine B/XID/settings.');
+          assert.deepEqual(await db.get(workspaceRowsSQL), before, 'Neither Workspace reader may mutate its input rows.');
+          throw rollback;
+        }), error => error === rollback);
+        assert.deepEqual((await admin.query(workspaceRowsSQL)).rows, workspaceBaseline, `Workspace variant must roll back: ${variant.name}`);
+      }
     });
 
     await check('automatic final checks reject without explicit assertCurrent and exact tool disable remains fatal', async () => {

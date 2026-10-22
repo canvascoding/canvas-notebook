@@ -116,6 +116,7 @@ export type { WorkspaceOperationPhysicalDeleteBatchPlanV5 } from './workspace-op
 export type WorkspaceOperationDeleteBatchPlan = WorkspaceOperationNativeDeleteBatchPlan
   | import('./workspace-operation-physical-delete-html-plan-v5').WorkspaceOperationPhysicalDeleteBatchPlanV5;
 export type WorkspaceOperationBatchPlan = WorkspaceOperationLegacyBatchPlan | WorkspaceOperationDeleteBatchPlan
+  | import('./workspace-operation-cohort-delete-plan').WorkspaceOperationCohortDeletePlan
   | import('./workspace-operation-native-move-plan').WorkspaceOperationNativeMoveBatchPlan;
 export type WorkspaceOperationBatchProgress = {
   completedActions: number;

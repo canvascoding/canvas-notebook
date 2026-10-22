@@ -1,4 +1,13 @@
 import 'server-only';
+import { decodeWorkspaceOperationCohortDeletePlan, captureWorkspaceOperationCohortDeleteCurrent,
+  WorkspaceOperationCohortDeleteError, failCohortDelete } from './workspace-operation-cohort-delete-plan';
+import { parseCohortDeleteIntent, type CohortDeleteIntent, type CohortDeleteResult } from './workspace-operation-cohort-delete-evidence';
+import { completeCohortDeleteDomain, readCohortDeleteObservationOnConnection, prepareCohortDeleteIntent, assertCohortDeletePending,
+  type CohortDeleteObservation, type CohortDeletePrepared, type CohortDeletePhysical } from './workspace-operation-cohort-delete-domain';
+import { readCohortDeleteAdmissionOnConnection, cohortDeleteAdmissionResult } from './workspace-operation-cohort-delete-admission';
+import { readPreparedWorkspacePathTrash, readPreparedWorkspacePathTrashReceipt,
+  assertPreparedWorkspacePathTrashCurrent, assertPreparedWorkspacePathTrashSourceVacant } from '../filesystem/prepared-workspace-path-trash';
+
 import { decodeWorkspaceOperationDeleteBatchPlan, getWorkspaceOperationDeleteLinkRecipes } from './workspace-operation-delete-plan-dispatch';
 import { captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5, WorkspaceOperationPhysicalDeleteHtmlPlanError } from './workspace-operation-physical-delete-html-plan-v5';
 import { assertOriginalPhysicalDeleteLinkPlanV5 } from './workspace-operation-original-physical-delete-links-v5';
@@ -26,7 +35,8 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { bindWorkspaceOperationOriginalDeleteStorageOnConnection } from './workspace-operation-original-delete-storage';
 import { withWorkspaceOperationJobClaimPhase } from './workspace-operation-job-phase-scheduling';
 import { lockFileCollaborationPaths } from './collaboration-repository';
-import { readWorkspaceOperationOriginalDeleteIntentOnConnection } from './workspace-operation-original-delete-repository';
+import { readWorkspaceOperationOriginalDeleteIntentOnConnection, insertWorkspaceOperationOriginalDeleteIntentOnConnection,
+  type WorkspaceOperationOriginalDeleteIntent } from './workspace-operation-original-delete-repository';
 import { readWorkspaceOperationNativePathAdmissionOnConnection } from './workspace-operation-native-path-admission';
 import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
 import { parseIntent, assertOriginalDeleteIntentPlan, type WorkspaceOperationOriginalDeleteResult } from './workspace-operation-original-delete-evidence';
@@ -94,6 +104,7 @@ export type WorkspaceOperationJobLifecycleAccess = Readonly<WorkspaceOperationJo
   applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => Promise<AnyOriginalDeleteNativeLinkReceipt[]>;
   /** Fixed E6/Plan4 journal target only; no caller-selected D1, workspace or raw B. */
   archiveOriginalNativeHtmlDeleteTarget: (expectedIntentDigest: string) => Promise<NativeFileArchiveTransition>;
+  archiveOriginalNativeCohortDeleteTargets?: (expectedIntentDigest:string) => Promise<readonly Readonly<{path:string;transition:NativeFileArchiveTransition}>[]>;
   readOriginalNativeDeleteSources: () => Promise<WorkspaceLinkSourceAuthorityObservation>;
   readOriginalNativeDeleteAdmission: () => Promise<Readonly<{ requestId: string; requestDigest: string }>>;
 }>;
@@ -144,7 +155,7 @@ function captureMcpJobPrincipal(binding: WorkspaceOperationBatchClaimBinding,
     if (input !== undefined) fail('JOB_LIFECYCLE_INVALID');
     return undefined;
   }
-  if (binding.actionMode !== 'apply' || (move ? binding.plan.version !== 3 : binding.plan.version !== 2 && binding.plan.version !== 5)) fail('JOB_LIFECYCLE_INVALID');
+  if (binding.actionMode !== 'apply' || (move ? binding.plan.version !== 3 : binding.plan.version !== 2 && binding.plan.version !== 5 && binding.plan.version !== 6)) fail('JOB_LIFECYCLE_INVALID');
   const captured = captureWorkspaceOperationMcpJobPrincipal(input);
   if (captured.kind !== (move ? 'move' : 'delete')) fail('JOB_LIFECYCLE_INVALID');
   assertWorkspaceOperationMcpJobPrincipalCaptured(captured, binding);
@@ -255,7 +266,7 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
   const plan = binding.plan, step = plan.pathSteps[0], jobScope = authorization.mode === 'direct' || authorization.mode === 'direct-mcp' ? authorization.jobScope : undefined;
   if (authorization.mode !== 'direct' && authorization.mode !== 'direct-mcp' || !(move ? binding.actionMode === 'apply' : ['apply','undo'].includes(binding.actionMode)) || !jobScope || jobScope.legacy
     || binding.workspaceId !== jobScope.workspaceId || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId
-    || plan.readiness !== 'ready' || (move ? plan.version !== 3 || !plan.pathSteps.length : plan.pathSteps.length !== 1 || step?.kind !== 'delete' || step.destinationPath != null)
+    || plan.readiness !== 'ready' || (move ? plan.version !== 3 || !plan.pathSteps.length : (plan.version===6 ? !plan.pathSteps.length : plan.pathSteps.length !== 1) || step?.kind !== 'delete' || step.destinationPath != null)
     || !isCanonicalAdmissionPath(step?.sourcePath) || typeof operation !== 'function' || typeof jobScope.rootRelativePath !== 'string'
     || workspaceAbsoluteRoot(jobScope.rootRelativePath) !== jobScope.rootPath) fail('JOB_LIFECYCLE_INVALID');
   const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, move);
@@ -266,7 +277,7 @@ async function withLifecycleOwner<T>(claim: WorkspaceOperationBatchClaim,
     const captured: Capture = { owner, claim, binding, mcp: mcpPrincipal, sourcePath: step.sourcePath, active: false, accepting: true,
       disposed: false, directories: [], pending: new Set(), phaseCount: 0, forwardedQueries: 0 };
     if (move) captured.move = captureMove(binding);
-    const nativePlan = captured.move?.context.plan ?? (binding.actionMode === 'apply' && (plan.version === 2 || plan.version === 5)
+    const nativePlan = captured.move?.context.plan ?? (binding.actionMode === 'apply' && (plan.version === 2 || plan.version === 5 || plan.version === 6)
       ? decodeWorkspaceOperationDeleteBatchPlan(plan) : null);
     if (nativePlan) {
       const nativeBindings = workspaceOperationSourceNativeEvidence(nativePlan.sourceEvidence).nativeBindings;
@@ -385,7 +396,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
   } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
   const phase: Phase = { active: true, accepting: true, transaction: '', pending: new Set(), index: ++captured.phaseCount,
     startedAt: null, startedMonotonic: 0, queriesBefore: 0, stage: 'preparation', operation: 'authority', relation: null };
-  const checkTimings = captured.binding.plan.version === 5
+  const checkTimings = captured.binding.plan.version === 5 || captured.binding.plan.version === 6
     ? { started: 0, completed: 0, owner: 0, policy: 0, storage: 0, handoffStorage: 0 } : null;
   captured.phase = phase;
   const pending = withWorkspaceOperationJobClaimPhase(captured.claim, async () => {
@@ -414,10 +425,11 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           ? await bindWorkspaceOperationOriginalMoveHandoffStorageOnConnection(database, { schemaName, schemaOid, databaseOid }) : null;
         // A fixed internal path set from the genuinely claimed native plan. Keep
         // advisory SQL on the actual owner B, outside the restricted facade.
-        if (captured.binding.plan.version === 2 || captured.binding.plan.version === 5) {
+        if (captured.binding.plan.version === 2 || captured.binding.plan.version === 5 || captured.binding.plan.version === 6) {
           phase.stage = 'path-locks';
           const sources = getWorkspaceOperationDeleteLinkRecipes(captured.binding.plan).map(recipe => recipe.source.path);
-          if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
+          if (captured.binding.plan.version===6) await lockFileCollaborationPaths(database,captured.binding.workspaceId,[...captured.binding.plan.pathSteps.map(step=>step.sourcePath),...sources]);
+          else if (sources.length) await lockFileCollaborationPaths(database, captured.binding.workspaceId, [captured.sourcePath, ...sources]);
         }
         const check = async () => {
           let segment: 'owner' | 'policy' | 'storage' | 'handoffStorage' | null = null, since = 0;
@@ -443,7 +455,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
         // check, as do entry/final/COMMIT. No result escapes before completion.
         const lockedHumanDeleteReads = !captured.move && !captured.mcp && captured.binding.actionMode === 'apply'
           && captured.binding.authorization.mode === 'direct' && captured.binding.authorization.actorType === 'user'
-          && (captured.binding.plan.version === 5 || captured.binding.plan.version === 2
+          && (captured.binding.plan.version === 5 || captured.binding.plan.version === 6 || captured.binding.plan.version === 2
             && captured.binding.plan.kind === 'native-original-delete' && captured.binding.plan.planIdentityVersion === 4);
         // One exact closed read-only writer scan; byte drift falls back to
         // full checks. Never classify arbitrary WITH or caller SQL as read-only.
@@ -479,6 +491,25 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
             catch (error) { return poison(captured, error); } });
           phase.pending.add(checked); void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked)); return checked;
         };
+        // An explicit current assertion has no operation between its fences.
+        // Keep its own pending/phase/poison boundary and perform the complete
+        // current check once. Ordinary SQL and fixed methods retain dispatch.
+        const assertCurrentBoundary = (): Promise<void> => {
+          try {
+            checkPhase(captured, phase);
+            if (phase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
+          } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+          phase.operation = 'authority'; phase.relation = null;
+          const checked = Promise.resolve().then(async () => {
+            try {
+              phase.stage = 'before-operation-check'; await check();
+              phase.stage = 'after-operation-check'; checkPhase(captured, phase);
+            } catch (error) { return poison(captured, error); }
+          });
+          phase.pending.add(checked);
+          void checked.then(() => phase.pending.delete(checked), () => phase.pending.delete(checked));
+          return checked;
+        };
         const facade: SqlConnection = Object.freeze({ get: (sql: string, values?: unknown[]) => dispatch(sql, () => database.get(sql, values)),
           all: (sql: string, values?: unknown[]) => dispatch(sql, () => database.all(sql, values)),
           run: (sql: string, values?: unknown[]) => dispatch(sql, () => database.run(sql, values)),
@@ -490,14 +521,14 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
           try {
             const restrictedAccess: WorkspaceOperationJobLifecycleAccess = Object.freeze({ ...access, database: facade,
             readOriginalNativeDeleteAdmission: () => dispatch(undefined, async () => {
-              if (captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5) fail('JOB_LIFECYCLE_INVALID');
+              if (captured.move || captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5 && captured.binding.plan.version !== 6) fail('JOB_LIFECYCLE_INVALID');
               const admission = await readWorkspaceOperationNativePathAdmissionOnConnection(database, captured.claim);
               if (!admission || !['reserved', 'draining'].includes(admission.status) || admission.outcome) fail('JOB_LIFECYCLE_CHANGED');
               const original = captureCollaborationAdmissionRequest(admission.request);
               return Object.freeze({ requestId: original.request.requestId, requestDigest: original.requestDigest });
             }),
             readOriginalNativeDeleteSources: () => dispatch(undefined, async () => {
-              if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5) fail('JOB_LIFECYCLE_INVALID');
+              if (captured.binding.actionMode !== 'apply' || captured.binding.plan.version !== 2 && captured.binding.plan.version !== 5 && captured.binding.plan.version !== 6) fail('JOB_LIFECYCLE_INVALID');
               // Fixed read of this claimed workspace only. The ordinary SQL
               // facade remains restricted and every method boundary is checked.
               return readWorkspaceLinkSourceAuthorityOnConnection(database, access.workspace,
@@ -505,13 +536,19 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
             }, 'native-source-read'),
             applyOriginalNativeDeleteLinks: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;
-              if (binding.actionMode !== 'apply' || binding.plan.version !== 2 && binding.plan.version !== 5
+              if (binding.actionMode !== 'apply' || binding.plan.version !== 2 && binding.plan.version !== 5 && binding.plan.version !== 6
                 || typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)) fail('JOB_LIFECYCLE_INVALID');
               // Read the actual immutable journal on this owner B. The caller's
               // digest selects no actor, workspace, source, recipe or Yjs bytes.
               const row = await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
                 { schema: schemaName, batchId: binding.batchId, forShare: true });
               if (!row || row.intentDigest !== expectedIntentDigest) fail('JOB_LIFECYCLE_CHANGED');
+              if (binding.plan.version === 6) {
+                const intent=parseCohortDeleteIntent(row,binding,access.workspace,resolveWorkspaceDataRoot());
+                if(!intent.nativeLinks.length)fail('JOB_LIFECYCLE_INVALID');
+                const validate=async()=>{phase.stage='link-authority';checkPhase(captured,phase);await check();checkPhase(captured,phase);phase.stage='sql';};
+                return applyOriginalDeleteNativeHtmlLinksV4(database,access.workspace,intent.nativeLinks,validate,intent.currentWitness.nativeComponent);
+              }
               const intent = parseIntent(row, { batchId: binding.batchId, planId: binding.planId,
                 workspaceId: binding.workspaceId, authorization: binding.authorization, sourcePath: captured.sourcePath },
               access.workspace, resolveWorkspaceDataRoot());
@@ -532,6 +569,21 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
                   ? intent.version === 5 ? intent.currentWitness.nativeComponent : intent.currentWitness
                   : undefined);
             }, 'native-link-write'),
+            archiveOriginalNativeCohortDeleteTargets: (expectedIntentDigest:string) => dispatch(undefined,async()=>{
+              const {binding}=captured;
+              if(captured.move||binding.actionMode!=='apply'||binding.plan.version!==6||typeof expectedIntentDigest!=='string'||!/^[a-f0-9]{64}$/u.test(expectedIntentDigest))fail('JOB_LIFECYCLE_INVALID');
+              const row=await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,{schema:schemaName,batchId:binding.batchId,forShare:true});
+              if(!row||row.intentDigest!==expectedIntentDigest)fail('JOB_LIFECYCLE_CHANGED');
+              const intent=parseCohortDeleteIntent(row,binding,access.workspace,resolveWorkspaceDataRoot());
+              const validate=async()=>{phase.stage='before-operation-check';checkPhase(captured,phase);await check();checkPhase(captured,phase);phase.stage='sql';};
+              const result:Array<{path:string;transition:NativeFileArchiveTransition}>=[];
+              for(const target of intent.targets){if(!target.native)continue;
+                const root=intent.roots.find(root=>root.stepKey===target.rootStep);if(!root)fail('JOB_LIFECYCLE_CHANGED');
+                const transition=await archiveOriginalNativeDeleteTargetOnConnection(database,{schema:schemaName,workspace:access.workspace,
+                  expected:target.native,trashEntryId:root.physical.trashEntryId,archivedAt:root.physical.deletedAtMs},validate);
+                result.push({path:target.path,transition});}
+              return Object.freeze(result);
+            },'native-archive-write'),
             archiveOriginalNativeHtmlDeleteTarget: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;
               if (captured.move || binding.actionMode !== 'apply' || binding.plan.version !== 2
@@ -555,7 +607,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
                 { schema: schemaName, workspace: access.workspace, expected: intent.native,
                   trashEntryId: intent.physical.trashEntryId, archivedAt: intent.physical.deletedAtMs }, validate);
             }, 'native-archive-write'),
-            assertCurrent: () => dispatch(undefined, async () => undefined) });
+            assertCurrent: () => assertCurrentBoundary() });
             result = moveOperation ? await moveOperation(restrictedAccess, database, check) : await operation!(restrictedAccess);
           }
           catch (error) { captured.failure ??= asError(error); }
@@ -600,7 +652,7 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
       return poison(captured, failure);
     } finally {
       if (checkTimings && phase.startedAt !== null) console.info('[File action owner] Physical Delete current-check timings.', JSON.stringify({
-        version: 1, phaseIndex: phase.index, phaseElapsedMs: Math.round(performance.now() - phase.startedMonotonic),
+        version: 1, planVersion: captured.binding.plan.version, phaseIndex: phase.index, phaseElapsedMs: Math.round(performance.now() - phase.startedMonotonic),
         forwardedQueries: captured.forwardedQueries - phase.queriesBefore, startedChecks: checkTimings.started,
         completedChecks: checkTimings.completed, ownerMs: Math.round(checkTimings.owner), policyMs: Math.round(checkTimings.policy),
         storageMs: Math.round(checkTimings.storage), handoffStorageMs: Math.round(checkTimings.handoffStorage) }));
@@ -622,6 +674,7 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
   if (captured?.move) { try { poison(captured, new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID')); }
     catch (error) { return Promise.reject(error); } }
   if (captured && captured.binding.actionMode === 'apply' && (captured.binding.plan.version === 5
+    || captured.binding.plan.version === 6
     || captured.binding.plan.version === 2 && captured.binding.plan.planIdentityVersion === 4)) {
     // Preparation and preflight inspect the same fixed grammar as B2. Keep
     // its lifetime within this fully awaited transaction; current data and
@@ -630,6 +683,89 @@ export function withWorkspaceOperationJobLifecycleTransaction<T>(owner: Workspac
       .catch(error => poison(captured, error));
   }
   return runLifecycleTransaction(owner, operation);
+}
+
+/** Private SQL read group for the fixed original Delete algorithms below.
+ * Current facts are always read on this B; every write and fixed access method
+ * keeps its complete current check. No raw connection or callback API escapes. */
+async function withOriginalDeleteDomainAccess<T>(captured: Capture, database: SqlConnection,
+  access: WorkspaceOperationJobLifecycleAccess, check: () => Promise<void>,
+  operation: (domainAccess: WorkspaceOperationJobLifecycleAccess) => Promise<T>): Promise<T> {
+  const schema = captured.binding.source.schemaName;
+  const domainPhase = captured.phase;
+  if (!domainPhase) fail('JOB_LIFECYCLE_REQUIRED');
+  let domainActive = true;
+  const quotedSchema = `"${schema.replaceAll('"', '""')}"`;
+  const readOnlyWriterScanSQL = `WITH
+    locks AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_locks WHERE workspace_id=$1 AND path=$2
+      AND status='active' AND expires_at>$3 FOR SHARE NOWAIT),
+    guests AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
+      AND status='active' FOR SHARE NOWAIT)
+    SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests`;
+  // Private to these exact awaited original Delete algorithms. No raw B or grouped
+  // read result escapes; all fixed access methods keep their dispatch.
+  const assertDomainCurrent = () => {
+    try {
+      checkPhase(captured, domainPhase);
+      if (!domainActive || current(captured) !== database) fail('JOB_LIFECYCLE_REQUIRED');
+    } catch (error) { poison(captured, error); }
+  };
+  const dispatchDomainSql = <R>(sql: string, query: () => R | Promise<R>): Promise<R> => {
+    try {
+      assertDomainCurrent();
+      if (domainPhase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
+      if (typeof sql !== 'string' || sql.length > 32768 || /[;\u0000]/u.test(sql)
+        || /\bpg_(?:try_)?advisory_/iu.test(sql) || !/^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/iu.test(sql)) fail('JOB_LIFECYCLE_INVALID');
+    } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+    const write = !/^\s*SELECT\b/iu.test(sql) && sql !== readOnlyWriterScanSQL;
+    domainPhase.operation = write ? 'write' : 'read';
+    domainPhase.relation = ['collaboration_documents', 'collaboration_yjs_states',
+      'file_collaboration_lineages', 'collaboration_file_projections', 'workspace_trash_entries',
+      'workspace_file_operation_delete_intents', 'workspace_file_operation_delete_receipts',
+      'workspace_file_operation_delete_trash_receipts'].find(name => new RegExp(`\\b${name}\\b`, 'u').test(sql)) ?? null;
+    // Install pending ownership before any actual SQL, including a
+    // synchronously implemented connection or reentrant test adapter.
+    const checked = Promise.resolve().then(async () => {
+      try {
+        assertDomainCurrent();
+        if (write) { domainPhase.stage = 'before-operation-check'; await check(); assertDomainCurrent(); }
+        domainPhase.stage = 'sql'; const value = await query();
+        domainPhase.stage = 'after-operation-check'; assertDomainCurrent();
+        if (write) { await check(); assertDomainCurrent(); }
+        return value;
+      } catch (error) { return poison(captured, error); }
+    });
+    domainPhase.pending.add(checked);
+    void checked.then(() => domainPhase.pending.delete(checked), () => domainPhase.pending.delete(checked));
+    return checked;
+  };
+  const domainDatabase: SqlConnection = Object.freeze({
+    get: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.get(sql, values)),
+    all: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.all(sql, values)),
+    run: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.run(sql, values)),
+    close: () => dispatchDomainSql('CLOSE', async () => undefined),
+  });
+
+  const archiveCohort = access.archiveOriginalNativeCohortDeleteTargets;
+  try {
+    return await operation(Object.freeze({ ...access, database: domainDatabase,
+      readOriginalNativeDeleteAdmission: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteAdmission(); },
+      readOriginalNativeDeleteSources: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteSources(); },
+      applyOriginalNativeDeleteLinks: (digest: string) => { assertDomainCurrent(); return access.applyOriginalNativeDeleteLinks(digest); },
+      archiveOriginalNativeHtmlDeleteTarget: (digest: string) => { assertDomainCurrent(); return access.archiveOriginalNativeHtmlDeleteTarget(digest); },
+      assertCurrent: () => { assertDomainCurrent(); return access.assertCurrent(); },
+      ...(archiveCohort ? { archiveOriginalNativeCohortDeleteTargets: (digest: string) => {
+        assertDomainCurrent(); return archiveCohort(digest);
+      } } : {}),
+    }));
+  } catch (error) { return poison(captured, error); }
+  finally {
+    domainActive = false;
+    if (domainPhase.pending.size) {
+      captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
+      await Promise.allSettled([...domainPhase.pending]);
+    }
+  }
 }
 
 /** Fixed native Delete B2. Only the real Owner selects its immutable intent,
@@ -679,75 +815,9 @@ export function completeWorkspaceOperationOriginalDeleteJob(owner: WorkspaceOper
                 || binding.plan.planIdentityVersion !== 5 || intent.native !== null
               : binding.plan.version !== 2 || binding.plan.kind !== 'native-original-delete'
                 || binding.plan.planIdentityVersion !== intent.version - 2 || !intent.native) fail('JOB_LIFECYCLE_INVALID');
-            const domainPhase = captured.phase;
-            if (!domainPhase) fail('JOB_LIFECYCLE_REQUIRED');
-            let domainActive = true;
-            const quotedSchema = `"${schema.replaceAll('"', '""')}"`;
-            const readOnlyWriterScanSQL = `WITH
-    locks AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_locks WHERE workspace_id=$1 AND path=$2
-      AND status='active' AND expires_at>$3 FOR SHARE NOWAIT),
-    guests AS MATERIALIZED (SELECT id FROM ${quotedSchema}.file_guest_invitations WHERE workspace_id=$1 AND path=$2
-      AND status='active' FOR SHARE NOWAIT)
-    SELECT (SELECT count(*) FROM locks)>0 AS locks, (SELECT count(*) FROM guests)>0 AS guests`;
-            // Private to these exact awaited original Delete algorithms. No raw B or grouped
-            // read result escapes; all fixed access methods keep their dispatch.
-            const assertDomainCurrent = () => {
-              try {
-                checkPhase(captured, domainPhase);
-                if (!domainActive || current(captured) !== database) fail('JOB_LIFECYCLE_REQUIRED');
-              } catch (error) { poison(captured, error); }
-            };
-            const dispatchDomainSql = <R>(sql: string, query: () => R | Promise<R>): Promise<R> => {
-              try {
-                assertDomainCurrent();
-                if (domainPhase.pending.size) fail('JOB_LIFECYCLE_REENTRANT');
-                if (typeof sql !== 'string' || sql.length > 32768 || /[;\u0000]/u.test(sql)
-                  || /\bpg_(?:try_)?advisory_/iu.test(sql) || !/^\s*(?:SELECT|INSERT|UPDATE|DELETE|WITH)\b/iu.test(sql)) fail('JOB_LIFECYCLE_INVALID');
-              } catch (error) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
-              const write = !/^\s*SELECT\b/iu.test(sql) && sql !== readOnlyWriterScanSQL;
-              domainPhase.operation = write ? 'write' : 'read';
-              domainPhase.relation = ['collaboration_documents', 'collaboration_yjs_states',
-                'file_collaboration_lineages', 'collaboration_file_projections', 'workspace_trash_entries',
-                'workspace_file_operation_delete_intents', 'workspace_file_operation_delete_receipts',
-                'workspace_file_operation_delete_trash_receipts'].find(name => new RegExp(`\\b${name}\\b`, 'u').test(sql)) ?? null;
-              // Install pending ownership before any actual SQL, including a
-              // synchronously implemented connection or reentrant test adapter.
-              const checked = Promise.resolve().then(async () => {
-                try {
-                  assertDomainCurrent();
-                  if (write) { domainPhase.stage = 'before-operation-check'; await check(); assertDomainCurrent(); }
-                  domainPhase.stage = 'sql'; const value = await query();
-                  domainPhase.stage = 'after-operation-check'; assertDomainCurrent();
-                  if (write) { await check(); assertDomainCurrent(); }
-                  return value;
-                } catch (error) { return poison(captured, error); }
-              });
-              domainPhase.pending.add(checked);
-              void checked.then(() => domainPhase.pending.delete(checked), () => domainPhase.pending.delete(checked));
-              return checked;
-            };
-            const domainDatabase: SqlConnection = Object.freeze({
-              get: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.get(sql, values)),
-              all: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.all(sql, values)),
-              run: (sql: string, values?: unknown[]) => dispatchDomainSql(sql, () => database.run(sql, values)),
-              close: () => dispatchDomainSql('CLOSE', async () => undefined),
-            });
-            try {
-              result = await completeWorkspaceOperationOriginalDeleteDomain(Object.freeze({ ...access, database: domainDatabase,
-                readOriginalNativeDeleteAdmission: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteAdmission(); },
-                readOriginalNativeDeleteSources: () => { assertDomainCurrent(); return access.readOriginalNativeDeleteSources(); },
-                applyOriginalNativeDeleteLinks: (digest: string) => { assertDomainCurrent(); return access.applyOriginalNativeDeleteLinks(digest); },
-                archiveOriginalNativeHtmlDeleteTarget: (digest: string) => { assertDomainCurrent(); return access.archiveOriginalNativeHtmlDeleteTarget(digest); },
-                assertCurrent: () => { assertDomainCurrent(); return access.assertCurrent(); } }),
-              { binding, evidenceContext, originalDurable: durable, originalIntent: intent, prepared, physical });
-            } catch (error) { poison(captured, error); }
-            finally {
-              domainActive = false;
-              if (domainPhase.pending.size) {
-                captured.failure ??= new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DETACHED');
-                await Promise.allSettled([...domainPhase.pending]);
-              }
-            }
+            result = await withOriginalDeleteDomainAccess(captured, database, access, check,
+              domainAccess => completeWorkspaceOperationOriginalDeleteDomain(domainAccess,
+                { binding, evidenceContext, originalDurable: durable, originalIntent: intent, prepared, physical }));
           }
           await check();
           return workspaceOperationOriginalDeleteAdmissionResult(result);
@@ -786,7 +856,7 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
     if (plan.version === 3) {
       const rows = await readMoveRows(captured, database);
       if (rows.intent) return true; // Descriptor recovery must use its existing overlay.
-    } else if (plan.version === 2 || plan.version === 5) {
+    } else if (plan.version === 2 || plan.version === 5 || plan.version === 6) {
       if (await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,
         { schema: binding.source.schemaName, batchId: binding.batchId, forShare: true })) return true;
     } else fail('JOB_LIFECYCLE_INVALID');
@@ -801,13 +871,16 @@ async function prepareWorkspaceOperationNativePathOwner(owner: WorkspaceOperatio
         if (!prepared) fail('JOB_LIFECYCLE_CHANGED');
         const witness = captureWorkspaceOperationNativeMoveBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
         conflict = !equal(witness, prepared.preparation.currentWitness);
+      } else if (plan.version === 6) {
+        captureWorkspaceOperationCohortDeleteCurrent(plan,observation,plan.sourceEvidence.workspaceScope);
       } else if (plan.version === 5) {
         captureWorkspaceOperationPhysicalDeleteCurrentWitnessV5(plan,observation,plan.sourceEvidence.workspaceScope);
       } else if (plan.version === 2 && (plan.planIdentityVersion === 2 || plan.planIdentityVersion === 3 || plan.planIdentityVersion === 4)) {
         captureWorkspaceOperationNativeDeleteBatchPlanCurrentWitness(plan, observation, plan.sourceEvidence.workspaceScope);
       }
     } catch (error) {
-      if (error instanceof WorkspaceOperationNativeMovePlanError && error.code === 'NATIVE_MOVE_PLAN_CHANGED'
+      if (error instanceof WorkspaceOperationCohortDeleteError && error.code === 'COHORT_DELETE_CHANGED'
+        || error instanceof WorkspaceOperationNativeMovePlanError && error.code === 'NATIVE_MOVE_PLAN_CHANGED'
         || error instanceof WorkspaceOperationNativeDeletePlanError && error.code === 'NATIVE_DELETE_PLAN_CHANGED'
         || error instanceof WorkspaceOperationPhysicalDeleteHtmlPlanError && error.code === 'PHYSICAL_DELETE_PLAN_CHANGED'
         || error instanceof WorkspaceOperationNativeSourceEvidenceError && error.code === 'NATIVE_SOURCE_EVIDENCE_CHANGED') conflict = true;
@@ -983,7 +1056,7 @@ async function withMoveLifecycleGuard<T>(captured: Capture, input: {workspaceId:
       ? new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_CHANGED') : new WorkspaceOperationNativeDeletePlanError('NATIVE_DELETE_PLAN_CHANGED');
     if (admission && !['reserved','draining'].includes(admission.status)
       && !(captured.move && intent && admission.status === 'committed' && admission.outcome?.version === 1)) fail('JOB_LIFECYCLE_CHANGED');
-    if ((captured.binding.plan.version === 5 || (captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
+    if ((captured.binding.plan.version === 6 || captured.binding.plan.version === 5 || (captured.binding.plan.version === 2 || captured.binding.plan.version === 3)
       && (captured.binding.plan.planIdentityVersion === 2 || captured.binding.plan.planIdentityVersion === 3
         || captured.binding.plan.version === 3 && captured.binding.plan.planIdentityVersion === 4)) && !admission && !intent) {
       const historical = !captured.move && await database.get(`SELECT 1 AS present FROM ${prefix}.workspace_file_operation_delete_intents WHERE batch_id=$1`,[captured.binding.batchId]);
@@ -1486,7 +1559,7 @@ export function readWorkspaceOperationOriginalDeleteJobHistory(claim: WorkspaceO
   if (context.getStore() || hasCollaborationHandoffExecutionContext()) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
   const binding = readWorkspaceOperationBatchClaimBinding(claim), auth = binding.authorization, plan = binding.plan;
   if (binding.actionMode !== 'apply' || auth.mode !== 'direct' && auth.mode !== 'direct-mcp' || !auth.jobScope || auth.jobScope.legacy
-    || plan.version === 3 || plan.pathSteps.length !== 1 || plan.pathSteps[0].kind !== 'delete'
+    || plan.version === 3 || plan.version === 6 || plan.pathSteps.length !== 1 || plan.pathSteps[0].kind !== 'delete'
     || plan.workspaceId !== binding.workspaceId || plan.planId !== binding.planId) return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
   const mcpPrincipal = captureMcpJobPrincipal(binding, mcp, false);
   return withWorkspaceOperationJobClaimPhase(claim, async () => {
@@ -1619,4 +1692,169 @@ function buildMoveNativeBundle(selected: WorkspaceOperationOriginalMoveContext, 
     if (error instanceof WorkspaceOperationOriginalMoveCodecError && error.code === 'ORIGINAL_MOVE_CHANGED') fail('JOB_LIFECYCLE_CHANGED');
     throw error;
   }
+}
+
+
+/** Fixed current Cohort observation, including pending recovery. No caller can
+ * select journal SQL, a workspace, a binding or historical/current authority. */
+export function readWorkspaceOperationCohortDeleteObservationJob(owner: WorkspaceOperationJobLifecycleOwner): Promise<CohortDeleteObservation> {
+  const captured = owners.get(owner);
+  try {
+    if (!captured || captured.move || captured.binding.plan.version !== 6 || captured.binding.actionMode !== 'apply') fail('JOB_LIFECYCLE_REQUIRED');
+    current(captured);
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, undefined, (access, database, check) =>
+      withOriginalDeleteDomainAccess(captured, database, access, check, domainAccess => {
+        const binding = captured.binding;
+        return readCohortDeleteObservationOnConnection(domainAccess.database,
+          { schema: binding.source.schemaName, binding, workspace: domainAccess.workspace, dataRoot: resolveWorkspaceDataRoot() });
+      }))).catch(error => poison(captured, error));
+  } catch (error) {
+    if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+    return Promise.reject(error);
+  }
+}
+
+/** Fixed Cohort B1. The real Owner supplies the claimed binding, workspace and
+ * actual transaction; callers supply only the genuine prepared descriptors. */
+export function prepareWorkspaceOperationCohortDeleteJob(owner: WorkspaceOperationJobLifecycleOwner,
+  input: Readonly<{ prepared: readonly CohortDeletePrepared[] }>):
+Promise<Readonly<{ intent: CohortDeleteIntent; durable: WorkspaceOperationOriginalDeleteIntent }>> {
+  const captured = owners.get(owner);
+  try {
+    if (!captured || captured.move || captured.binding.plan.version !== 6 || captured.binding.actionMode !== 'apply') fail('JOB_LIFECYCLE_REQUIRED');
+    current(captured);
+    const fields = moveFields(input, ['prepared']), prepared = fields.prepared as readonly CohortDeletePrepared[];
+    const plan = captured.binding.plan;
+    if (!Array.isArray(prepared) || prepared.length !== plan.pathSteps.length) fail('JOB_LIFECYCLE_INVALID');
+    for (const [index, item] of prepared.entries()) {
+      if (item.stepKey !== `path:${String(index).padStart(4, '0')}`
+        || readPreparedWorkspacePathTrash(item.cap).canonicalPath !== plan.pathSteps[index].sourcePath) fail('JOB_LIFECYCLE_CHANGED');
+    }
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, undefined, (access, database, check) =>
+      withOriginalDeleteDomainAccess(captured, database, access, check, async domainAccess => {
+        const binding = captured.binding, schema = binding.source.schemaName;
+        const intent = await prepareCohortDeleteIntent(domainAccess, binding, prepared);
+        const inserted = await insertWorkspaceOperationOriginalDeleteIntentOnConnection(domainAccess.database,
+          { schema, batchId: binding.batchId, planId: binding.planId, workspaceId: binding.workspaceId,
+            requestHash: intent.requestHash, intentText: JSON.stringify(intent) });
+        if (inserted.kind !== 'created') return failCohortDelete('COHORT_DELETE_UNPROVEN');
+        return { intent, durable: inserted.row };
+      }))).catch(error => poison(captured, error));
+  } catch (error) {
+    if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+    return Promise.reject(error);
+  }
+}
+
+/** Fixed pending proof before every remaining Cohort filesystem effect. The
+ * original row and digest are expectations; the actual immutable journal selects
+ * all intent facts afresh on the Owner transaction. */
+export function assertWorkspaceOperationCohortDeletePendingJob(owner: WorkspaceOperationJobLifecycleOwner,
+  input: Readonly<{ expectedIntentDigest: string; originalDurable: WorkspaceOperationOriginalDeleteIntent; prepared: readonly CohortDeletePrepared[];
+    physical: readonly CohortDeletePhysical[] }>): Promise<void> {
+  const captured = owners.get(owner);
+  try {
+    if (!captured || captured.move || captured.binding.plan.version !== 6 || captured.binding.actionMode !== 'apply') fail('JOB_LIFECYCLE_REQUIRED');
+    current(captured);
+    const fields = moveFields(input, ['expectedIntentDigest', 'originalDurable', 'prepared', 'physical']);
+    const expectedIntentDigest = fields.expectedIntentDigest, originalDurable = fields.originalDurable as WorkspaceOperationOriginalDeleteIntent;
+    const prepared = fields.prepared as readonly CohortDeletePrepared[];
+    const physical = fields.physical as readonly CohortDeletePhysical[], plan = captured.binding.plan;
+    if (typeof expectedIntentDigest !== 'string' || !/^[a-f0-9]{64}$/u.test(expectedIntentDigest)
+      || !Array.isArray(prepared) || prepared.length !== plan.pathSteps.length || !Array.isArray(physical)
+      || physical.length > prepared.length || new Set(physical.map(item => item.stepKey)).size !== physical.length) fail('JOB_LIFECYCLE_INVALID');
+    for (const [index, item] of prepared.entries()) {
+      if (item.stepKey !== `path:${String(index).padStart(4, '0')}`
+        || readPreparedWorkspacePathTrash(item.cap).canonicalPath !== plan.pathSteps[index].sourcePath) fail('JOB_LIFECYCLE_CHANGED');
+    }
+    for (const item of physical) {
+      if (!prepared.some(original => original.stepKey === item.stepKey && original.cap === item.cap)
+        || !equal(readPreparedWorkspacePathTrash(item.cap), item.receipt.original)) fail('JOB_LIFECYCLE_CHANGED');
+    }
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner, undefined, (access, database, check) =>
+      withOriginalDeleteDomainAccess(captured, database, access, check, async domainAccess => {
+        const binding = captured.binding;
+        const observed = await readCohortDeleteObservationOnConnection(domainAccess.database,
+          { schema: binding.source.schemaName, binding, workspace: domainAccess.workspace, dataRoot: resolveWorkspaceDataRoot() });
+        if (!observed.durable || observed.durable.intentDigest !== expectedIntentDigest || !equal(observed.durable, originalDurable) || observed.result) return failCohortDelete('COHORT_DELETE_CHANGED');
+        const intent = parseCohortDeleteIntent(observed.durable, binding, domainAccess.workspace, resolveWorkspaceDataRoot());
+        await assertCohortDeletePending(domainAccess, binding, intent, prepared, physical);
+      }))).catch(error => poison(captured, error));
+  } catch (error) {
+    if (captured) { try { poison(captured, error); } catch (failure) { return Promise.reject(failure); } }
+    return Promise.reject(error);
+  }
+}
+
+/** The real shared lifecycle owner supplies B2, current policy, the complete
+ * immutable cohort and actual prepared descriptors. No raw B escapes this API. */
+export function completeWorkspaceOperationCohortDeleteJob(owner:WorkspaceOperationJobLifecycleOwner,
+  input:Readonly<{expectedIntentDigest:string;prepared:readonly CohortDeletePhysical[]}>):Promise<CohortDeleteResult>{
+  const captured=owners.get(owner);
+  try{
+    if(!captured||captured.move||captured.binding.plan.version!==6||captured.binding.actionMode!=='apply')fail('JOB_LIFECYCLE_REQUIRED');
+    current(captured);
+    if(typeof input.expectedIntentDigest!=='string'||!/^[a-f0-9]{64}$/u.test(input.expectedIntentDigest)
+      ||!Array.isArray(input.prepared)||input.prepared.length!==captured.binding.plan.pathSteps.length)fail('JOB_LIFECYCLE_INVALID');
+    for(const[index,item]of input.prepared.entries()){
+      if(item.stepKey!==`path:${String(index).padStart(4,'0')}`||!equal(readPreparedWorkspacePathTrash(item.cap),item.receipt.original))fail('JOB_LIFECYCLE_CHANGED');}
+    return withNativeInspectionSchema(() => runLifecycleTransaction(owner,undefined,async(access,database,check)=>{
+      const binding=captured.binding,schema=binding.source.schemaName;
+      const durable=await readWorkspaceOperationOriginalDeleteIntentOnConnection(database,{schema,batchId:binding.batchId,forShare:true});
+      if(!durable||durable.intentDigest!==input.expectedIntentDigest)fail('JOB_LIFECYCLE_CHANGED');
+      const intent=parseCohortDeleteIntent(durable,binding,access.workspace,resolveWorkspaceDataRoot());
+      const admission=await readCohortDeleteAdmissionOnConnection(database,{schema,binding,intent}),claimed=await readWorkspaceOperationNativePathAdmissionOnConnection(database,captured.claim);
+      if(admission.outcome||!['reserved','draining'].includes(admission.status)||!claimed
+        ||!equal(captureCollaborationAdmissionRequest(claimed.request),captureCollaborationAdmissionRequest(admission.request)))fail('JOB_LIFECYCLE_CHANGED');
+      let result:CohortDeleteResult|undefined;
+      const outcome=await executeCollaborationAdmissionHandoffOnConnection(database,admission.request,{
+        kind:'apply',authorize:async()=>{await check();},prepare:async connection=>{
+          if(connection!==database)fail('JOB_LIFECYCLE_CHANGED');await check();
+          for(const item of input.prepared){await assertPreparedWorkspacePathTrashCurrent(item.cap);await assertPreparedWorkspacePathTrashSourceVacant(item.cap);
+            if(!equal(await readPreparedWorkspacePathTrashReceipt(item.cap),item.receipt))fail('JOB_LIFECYCLE_CHANGED');}await check();},
+        mutate:async connection=>{if(connection!==database)fail('JOB_LIFECYCLE_CHANGED');await check();
+          result=await withOriginalDeleteDomainAccess(captured,database,access,check,
+            domainAccess=>completeCohortDeleteDomain(domainAccess,{binding,durable,intent,prepared:input.prepared}));
+          await check();return cohortDeleteAdmissionResult(result);},
+      });
+      if(!result||outcome.version!==1||!equal(outcome.result,cohortDeleteAdmissionResult(result)))fail('JOB_LIFECYCLE_CHANGED');
+      await readCohortDeleteAdmissionOnConnection(database,{schema,binding,intent,result});await check();
+      await notifyWorkspaceFileInvalidationOnConnection(database,binding.workspaceId);return result;
+    })).catch(error=>poison(captured,error));
+  }catch(error){if(captured){try{poison(captured,error);}catch(failure){return Promise.reject(failure);}}return Promise.reject(error);}
+}
+
+/** Current authorized original cohort history. Confirmed completion performs no
+ * FS inspection, workspace reservation or lookup/adoption of a later D2. */
+export function readWorkspaceOperationCohortDeleteJobHistory(claim:WorkspaceOperationBatchClaim,
+  openConnection:()=>Promise<SqlConnection>=openDb,mcp?:WorkspaceOperationMcpJobPrincipal):Promise<CohortDeleteResult|null>{
+  if(context.getStore()||hasCollaborationHandoffExecutionContext())return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_REENTRANT'));
+  const binding=readWorkspaceOperationBatchClaimBinding(claim),auth=binding.authorization,plan=binding.plan;
+  if(binding.actionMode!=='apply'||auth.mode!=='direct'&&auth.mode!=='direct-mcp'||!auth.jobScope||auth.jobScope.legacy
+    ||plan.version!==6||plan.workspaceId!==binding.workspaceId||plan.planId!==binding.planId)return Promise.reject(new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_INVALID'));
+  decodeWorkspaceOperationCohortDeletePlan(plan);const principal=captureMcpJobPrincipal(binding,mcp,false);
+  return withWorkspaceOperationJobClaimPhase(claim,async()=>{
+    const policy=principal?undefined:await captureWorkspaceOperationJobPolicy(),database=await openConnection();
+    let begun=false,commitAttempted=false,failure:Error|undefined;
+    try{
+      await database.run("SET statement_timeout='5s'");await database.run("SET lock_timeout='50ms'");
+      const first=await identity(database,true),second=await identity(database,false);
+      if(!sameIdentity(first.identity,second.identity)||second.transaction!==null||second.identity.database!==binding.source.databaseOid
+        ||second.identity.schema!==binding.source.schemaOid||second.identity.searchPath!==binding.source.searchPath)fail('JOB_LIFECYCLE_CHANGED');
+      await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE');begun=true;const started=await identity(database,true);
+      if(!sameIdentity(started.identity,second.identity)||!started.transaction)fail('JOB_LIFECYCLE_CHANGED');
+      const check=async()=>{const now=await identity(database,false);if(!sameIdentity(now.identity,second.identity)||now.transaction!==started.transaction
+        ||readWorkspaceOperationBatchClaimBinding(claim)!==binding)fail('JOB_LIFECYCLE_CHANGED');};
+      const authorize=(operation:(access:WorkspaceOperationJobPolicyAccess)=>Promise<CohortDeleteResult|null>)=>principal
+        ?withWorkspaceOperationMcpJobPolicyOnConnection(database,{claim,principal},operation):withWorkspaceOperationJobPolicyOnConnection(database,{claim,policy:policy!},operation);
+      const result=await authorize(async access=>{const{schemaName,schemaOid,databaseOid}=binding.source;
+        const storage=await bindWorkspaceOperationOriginalDeleteStorageOnConnection(database,{schemaName,schemaOid,databaseOid});await access.assertCurrent();await check();
+        const observed=await readCohortDeleteObservationOnConnection(database,{schema:schemaName,binding,workspace:access.workspace,dataRoot:resolveWorkspaceDataRoot()});
+        await access.assertCurrent();await storage.assertCurrent();await check();return observed.result;});
+      await check();commitAttempted=true;await database.run('COMMIT');begun=false;return result;
+    }catch(error){failure=asError(error);if(begun)try{await database.run('ROLLBACK');}catch(rollback){failure=new AggregateError([failure,asError(rollback)]);}
+      if(commitAttempted)failure=new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_COMMIT_UNCONFIRMED',{cause:failure});throw failure;
+    }finally{try{await database.close(failure??new Error('Discarding original cohort Delete history session.'));}catch(close){throw new WorkspaceOperationJobLifecycleError('JOB_LIFECYCLE_DISPOSAL_UNCONFIRMED',{
+      cause:failure?new AggregateError([failure,asError(close)]):close});}}
+  });
 }

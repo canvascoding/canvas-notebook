@@ -3,6 +3,9 @@ import { readWorkspaceOperationPhysicalDeleteBatchStatusV5, type WorkspaceOperat
 import { workspaceOperationPhysicalDeleteExecutionResultV5, projectWorkspaceOperationPhysicalDeleteExecutionV5 } from './workspace-operation-physical-delete-execution-public-v5';
 import { workspaceOperationMcpPhysicalHtmlDeletePreviewV3 } from './workspace-operation-physical-delete-public-v5';
 import 'server-only';
+import { decodeWorkspaceOperationCohortDeletePlan, type WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
+import { readWorkspaceOperationCohortDeleteStatus, type WorkspaceOperationCohortDeleteStatus } from './workspace-operation-cohort-delete-status';
+import { workspaceOperationCohortDeleteExecutionResult, projectWorkspaceOperationCohortDeleteExecution, workspaceOperationMcpCohortDeletePreview } from './workspace-operation-cohort-delete-public';
 
 import { isDeepStrictEqual, types } from 'node:util';
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
@@ -54,11 +57,12 @@ import { decodeWorkspacePathHtmlNativeDeletePreparationPlanV3 } from './workspac
 import { decodeWorkspaceOperationNativeDeleteBatchPlan } from './workspace-operation-native-delete-plan';
 
 type Request = DecodedDirectMcpWorkspaceMoveRequestV1 | DecodedDirectMcpWorkspaceDeleteRequestV1;
-type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5;
+type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationNativeDeleteBatchPlan | WorkspaceOperationPhysicalDeleteBatchPlanV5 | WorkspaceOperationCohortDeletePlan;
 type SelectedRequest = Exclude<Request, { action: 'status' }>;
 type Authority = Readonly<{ userId: string; clientId: string; sessionId: string;
   tool: 'move_knowledge_source' | 'delete_knowledge_source'; scope: WorkspaceOperationBatchScope }>;
 type NativeStatus = Readonly<{ kind: 'move'; value: WorkspaceOperationNativeMoveBatchStatus }>
+  | Readonly<{kind:'cohort-delete';value:WorkspaceOperationCohortDeleteStatus}>
   | Readonly<{ kind: 'delete'; value: WorkspaceOperationNativeDeleteBatchStatus | WorkspaceOperationPhysicalDeleteBatchStatusV5 }>;
 type ImportHistory = NonNullable<Awaited<ReturnType<typeof readWorkspacePathImportOperationHistory>>>;
 
@@ -109,9 +113,10 @@ async function buildPathPlan(live: WorkspaceOperationMcpJobPrincipal, input: Sel
   const plan = await buildWorkspacePathOperationPlan({ scope: initial.scope, kind: live.kind,
     selections: selectedPaths(live.kind, input) });
   await capturePathAuthority(live, input.action === 'preview' ? undefined : input.operationId, initial);
-  if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5)) {
+  if (plan.readiness !== 'ready' || (live.kind === 'move' ? plan.version !== 3 : plan.version !== 2 && plan.version !== 5 && plan.version !== 6)) {
     throw new WorkspacePathToolError('PATH_NATIVE_REQUIRED', input.action === 'preview' ? undefined : input.operationId);
   }
+  if(plan.version===6){const cohort=decodeWorkspaceOperationCohortDeletePlan(plan);if(!isDeepStrictEqual(cohort.sourceEvidence.workspaceScope,captureWorkspaceOperationJobScope(initial.scope.workspace)))throw new WorkspacePathToolError('PATH_SCOPE_CHANGED');return cohort;}
   if (plan.version === 5) {
     const physical = decodeWorkspaceOperationPhysicalDeleteBatchPlanV5(plan);
     if (!physical.linkAssessment.complete || physical.linkAssessment.blockers.length || physical.issues.length
@@ -139,6 +144,8 @@ async function readPathStatus(live: WorkspaceOperationMcpJobPrincipal,
     const value = await readWorkspaceOperationNativeMoveBatchStatus({ batchId, scope, mcpPrincipal: live });
     return value ? Object.freeze({ kind: 'move', value }) : null;
   }
+  const cohort=await readWorkspaceOperationCohortDeleteStatus({batchId,scope,mcpPrincipal:live});
+  if(cohort)return Object.freeze({kind:'cohort-delete',value:cohort});
   const value = await readWorkspaceOperationNativeDeleteBatchStatus({ batchId, scope, mcpPrincipal: live });
   if (value) return Object.freeze({ kind: 'delete', value });
   const physical = await readWorkspaceOperationPhysicalDeleteBatchStatusV5({ batchId, scope, mcpPrincipal: live });
@@ -149,7 +156,7 @@ function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobP
   input: Exclude<Request, { action: 'preview' | 'status' }>, history: ImportHistory | null = null): void {
   const { batch, plan } = status.value;
   const originalId = history?.record.previewPlan.planId;
-  if (status.kind !== live.kind || input.planId !== batch.planId && input.planId !== originalId
+  if ((status.kind==='cohort-delete'?'delete':status.kind) !== live.kind || input.planId !== batch.planId && input.planId !== originalId
     || history && (batch.planId !== history.record.nativePlan.planId
       || !isDeepStrictEqual(history.record.previewPlan.request, { kind: live.kind, selections: selectedPaths(live.kind, input) }))
     || plan.actions.length !== 1 || plan.actions[0].kind !== live.kind
@@ -159,6 +166,7 @@ function assertPathRequest(status: NativeStatus, live: WorkspaceOperationMcpJobP
 }
 
 function pathExecution(status: NativeStatus): WorkspaceOperationBatchExecutionResult | null {
+  if(status.kind==='cohort-delete')return workspaceOperationCohortDeleteExecutionResult(status.value.plan,status.value.observation);
   return status.kind === 'move'
     ? workspaceOperationNativeMoveExecutionResult(status.value.plan, status.value.observation)
     : status.value.plan.version === 5 ? workspaceOperationPhysicalDeleteExecutionResultV5(status.value.plan, status.value.observation)
@@ -171,7 +179,7 @@ function pathOperation(status: NativeStatus, operationId: string, history: Impor
   const { batch, plan } = status.value;
   const summary = { actionMode: 'apply' as const, status: batch.status,
     completedActions: batch.completedActions, phase: batch.phase };
-  const execution = status.kind === 'move'
+  const execution = status.kind === 'cohort-delete' ? projectWorkspaceOperationCohortDeleteExecution({...summary,plan:status.value.plan},status.value.observation) : status.kind === 'move'
     ? projectWorkspaceOperationNativeMoveExecution({ ...summary, plan: status.value.plan }, status.value.observation)
     : status.value.plan.version === 5 ? projectWorkspaceOperationPhysicalDeleteExecutionV5({ ...summary, plan: status.value.plan }, status.value.observation)
       : projectWorkspaceOperationNativeDeleteExecution({ ...summary, plan: status.value.plan }, status.value.observation);
@@ -245,6 +253,7 @@ function pathImportPreparationPreview(plan: WorkspacePathImportPreparationPlanV1
 }
 
 function pathPreview(plan: NativePlan) {
+  if (plan.version === 6) return workspaceOperationMcpCohortDeletePreview(plan);
   if (plan.version === 5) return workspaceOperationMcpPhysicalHtmlDeletePreviewV3(plan);
   if (plan.version === 2 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlDeletePreviewV3(plan);
   if (plan.version === 3 && plan.planIdentityVersion === 4) return workspaceOperationMcpHtmlPreviewV2(plan);
@@ -409,7 +418,7 @@ async function runDirectMcpWorkspacePathService(input: Request,
     const preparation = await readWorkspacePathImportPreparationPlan({ principal: live, kind: live.kind, selections: selectedPaths(live.kind, input) });
     await capturePathAuthority(live, undefined, initial);
     if (preparation.readiness !== 'native-ready') return encodeDirectMcpWorkspacePathResultV1({ apiVersion: 1, action: 'preview',
-      preview: preparation.version === 5 ? workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)
+      preview: preparation.version === 6 ? workspaceOperationMcpCohortDeletePreview(preparation) : preparation.version === 5 ? workspaceOperationMcpPhysicalHtmlDeletePreviewV3(preparation)
         : preparation.version === 3 ? workspaceOperationMcpHtmlDeletePreviewV3(preparation)
         : preparation.version === 2 ? workspaceOperationMcpHtmlPreviewV2(preparation) : pathImportPreparationPreview(preparation) });
     const plan = await buildPathPlan(live, input, initial);
@@ -462,7 +471,7 @@ async function runDirectMcpWorkspacePathService(input: Request,
         if (plan.planId !== input.planId) throw new WorkspacePathToolError('PATH_PLAN_CHANGED', input.operationId);
         if (live.kind === 'move' && plan.version === 3) {
           selected = await store.createMcpMoveAndClaim(live.principal, { operationId: input.operationId, plan });
-        } else if (live.kind === 'delete' && (plan.version === 2 || plan.version === 5)) {
+        } else if (live.kind === 'delete' && (plan.version === 2 || plan.version === 5 || plan.version === 6)) {
           selected = await store.createMcpDeleteAndClaim(live.principal, { operationId: input.operationId, plan });
         } else throw new WorkspacePathToolError('PATH_SCOPE_CHANGED', input.operationId);
       }

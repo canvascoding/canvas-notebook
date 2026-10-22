@@ -9,7 +9,7 @@ import { getLicenseStatus } from '../license';
 import { requireTeamRuntimeLicense } from '../license/entitlements';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
 import { isFileGuestId } from '../file-guests/types';
-import { assertUserSeatAccess } from '../license/seat-limit';
+import { assertUserSeatAccess, assertUserSeatAccessInSingleSnapshotOnConnection } from '../license/seat-limit';
 import type { LicenseStatus } from '../license/types';
 import { captureCurrentAgentToolInvocation, assertCurrentAgentToolInvocation, withCapturedAgentToolInvocation,
   type AgentToolInvocation, type AgentToolInvocationOrigin } from '../pi/agent-tool-invocation';
@@ -20,7 +20,7 @@ import { resolveWorkspaceActor } from './context';
 import { assertWorkspaceOperationBatchClaimOnConnection, readWorkspaceOperationBatchClaimBinding,
   type WorkspaceOperationBatchClaim, type WorkspaceOperationBatchClaimBinding } from '../files/workspace-operation-batch-store';
 import { workspaceOperationJobScopeMatches } from '../files/workspace-operation-job-scope';
-import { readPostgresWorkspaceForActorOnConnection } from './postgres-runtime';
+import { readPostgresWorkspaceForActorOnConnection, readPostgresWorkspaceForActorInSingleSnapshotOnConnection } from './postgres-runtime';
 import { requireExistingSelectedRequestWorkspace } from './request';
 import type { WorkspaceContext } from './types';
 
@@ -477,10 +477,16 @@ async function lockMemberSession(phase: Phase, request: RequestCapture): Promise
  * not mint a Principal, a member session, admission or a general actor grant. */
 async function currentUserWorkspace(phase: Phase, row: Row): Promise<WorkspaceContext> {
   const request = phase.request;
-  await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
+  if (request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6) {
+    // This actual B already holds the seat tables in SHARE. Reuse the same
+    // decision bodies with one fresh snapshot at every retained Current fence.
+    await assertUserSeatAccessInSingleSnapshotOnConnection(phase.database, request.userId, request.license);
+  } else await assertUserSeatAccess({ userId: request.userId, database: phase.database, licenseStatus: request.license });
   active(phase);
   const actor = resolveWorkspaceActor({ id: request.userId, email: row.email as string | null, role: row.role as string | null });
-  const workspace = await readPostgresWorkspaceForActorOnConnection(phase.database,actor,request.workspace.workspaceId);
+  const workspace = request.kind === 'job_user' && request.binding.actionMode === 'apply' && request.binding.plan.version === 6
+    ? await readPostgresWorkspaceForActorInSingleSnapshotOnConnection(phase.database,actor,request.workspace.workspaceId)
+    : await readPostgresWorkspaceForActorOnConnection(phase.database,actor,request.workspace.workspaceId);
   active(phase);
   if (!workspace || !scope(workspace,request.workspace) || !workspace.permissions.canRead || !workspace.permissions[request.permission]) fail('PRINCIPAL_ACCESS_DENIED');
   await checkIdentity(phase);

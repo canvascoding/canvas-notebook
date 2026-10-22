@@ -158,8 +158,8 @@ export async function mcpServerWorkspaceHtmlPathContractTest(): Promise<void> {
     groups++;
 
     // The old native and import preview branches keep their complete:true
-    // contract. Their six schemas remain first; new HTML branches are separate.
-    assert.equal(moveSchema.oneOf.length, 7); assert.equal(deleteSchema.oneOf.length, 7);
+    // contract. Their original six arms exclude the separate V4 import at index2.
+    assert.equal(moveSchema.oneOf.length, 8); assert.equal(deleteSchema.oneOf.length, 8);
     const nativeLegacy = { kind: 'move', workspaceId: 'workspace', planId: 'a'.repeat(64), readiness: 'ready',
       paths: [{ sourcePath: 'a.md', destinationPath: 'b.md' }], linkChanges: { rewrites: 0, unlinks: 0, affectedDocuments: 0 },
       coverage: { complete: true } };
@@ -172,7 +172,7 @@ export async function mcpServerWorkspaceHtmlPathContractTest(): Promise<void> {
       invalid(envelope({ ...legacy, coverage: { complete: false } }));
       invalid(envelope({ ...legacy, linkAssessment: ready.linkAssessment }));
     }
-    const oldArms = moveSchema.oneOf.slice(0, 6);
+    const oldArms = [...moveSchema.oneOf.slice(0, 2), ...moveSchema.oneOf.slice(3, 7)];
     const validateOldArms = ajv.compile({ type: 'object', oneOf: oldArms });
     assert.equal(validateOldArms(envelope(nativeLegacy)), true); assert.equal(validateOldArms(envelope(importLegacy)), true);
     assert.equal(validateOldArms(envelope(ready)), false);
@@ -181,8 +181,25 @@ export async function mcpServerWorkspaceHtmlPathContractTest(): Promise<void> {
     assert.deepEqual(encode(envelope(htmlDelete)), envelope(htmlDelete));
     assert.equal(validDelete(envelope(htmlDelete)), true, JSON.stringify(validDelete.errors));
     assert.equal(validMove(envelope(htmlDelete)), false);
-    const validateOldDeleteArms = ajv.compile({ type: 'object', oneOf: deleteSchema.oneOf.slice(0, 6) });
+    const validateOldDeleteArms = ajv.compile({ type: 'object', oneOf: [...deleteSchema.oneOf.slice(0, 2), ...deleteSchema.oneOf.slice(3, 7)] });
     assert.equal(validateOldDeleteArms(envelope(htmlDelete)), false);
+    // V4 import is a bounded display DTO, with false source coverage retained.
+    // Codec acceptance and schema matching confer no import or write authority.
+    const importHtml = { ...importLegacy, version: 4, coverage: { complete: false },
+      linkAssessment: { complete: true, warnings: [], blockers: [] } };
+    const importHtmlDelete = { ...importHtml, operationKind: 'delete', paths: [{ sourcePath: 'a.md' }] };
+    for (const preview of [importHtml, importHtmlDelete]) {
+      assert.deepEqual(encode(envelope(preview)), envelope(preview));
+      assert.equal((preview.operationKind === 'move' ? validMove : validDelete)(envelope(preview)), true);
+      assert.equal((preview.operationKind === 'move' ? validDelete : validMove)(envelope(preview)), false);
+      assert.equal(validateOldArms(envelope(preview)), false); assert.equal(validateOldDeleteArms(envelope(preview)), false);
+      for (const changed of [{ ...preview, executionReady: true }, { ...preview, readiness: 'ready' },
+        { ...preview, coverage: { complete: 'false' } }]) {
+        invalid(envelope(changed)); assert.equal(validMove(envelope(changed)), false); assert.equal(validDelete(envelope(changed)), false);
+      }
+      invalid(envelope({ ...preview, imports: [] }));
+      invalid(envelope({ ...preview, linkAssessment: { ...preview.linkAssessment, complete: false } }));
+    }
     groups++;
 
     // Projection requires a strictly decoded actual private new plan. A DTO,

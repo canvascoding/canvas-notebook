@@ -1,4 +1,5 @@
 import { decodeWorkspaceOperationDeleteBatchPlan } from './workspace-operation-delete-plan-dispatch';
+import type { WorkspaceOperationCohortDeletePlan } from './workspace-operation-cohort-delete-plan';
 import type { WorkspaceOperationDeleteBatchPlan } from './workspace-operation-batch-contract';
 import 'server-only';
 import { WorkspaceOperationPhysicalDeleteHtmlPlanError } from './workspace-operation-physical-delete-html-plan-v5';
@@ -16,7 +17,7 @@ import { WorkspaceOperationNativeDeletePlanError } from './workspace-operation-n
 import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
 
 type Tool = WorkspaceOperationDirectMcpAuthorization['tool'];
-type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan;
+type NativePlan = WorkspaceOperationNativeMoveBatchPlan | WorkspaceOperationDeleteBatchPlan | WorkspaceOperationCohortDeletePlan;
 export type WorkspaceOperationMcpAuthorizationCurrent = Readonly<{
   userId: string; clientId: string; sessionId: string; workspace: WorkspaceContext; tool: Tool;
 }>;
@@ -85,7 +86,7 @@ function plan(input: unknown, selectedTool: Tool, jobScope: WorkspaceOperationJo
   let selected: NativePlan;
   try {
     if (version === 3 && selectedTool === 'move_knowledge_source') selected = decodeWorkspaceOperationNativeMoveBatchPlan(data);
-    else if ((version === 2 || version === 5) && selectedTool === 'delete_knowledge_source') selected = decodeWorkspaceOperationDeleteBatchPlan(data);
+    else if ((version === 2 || version === 5 || version === 6) && selectedTool === 'delete_knowledge_source') selected = decodeWorkspaceOperationDeleteBatchPlan(data);
     else return fail();
   } catch (error) {
     if ((error instanceof WorkspaceOperationNativeMovePlanError || error instanceof WorkspaceOperationNativeDeletePlanError
