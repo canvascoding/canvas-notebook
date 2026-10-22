@@ -298,6 +298,8 @@ async function assertSameOpenDocuments(fixture: SharedFixture, filePath: string,
     await expect.poll(() => sessionPaths.get(page)?.at(-1), { timeout: 45_000 }).toBe(filePath);
     const state = await assertHealthyClient(page, current, index === 0 ? 'write' : peerPermission);
     expect(state.documentSequence).toBe(current.documentSequence);
+    await expect(page.getByTestId('unavailable-document-recovery'),
+      'The same healthy open document has no unavailable recovery banner after the move settles').toBeHidden();
     expect(await page.evaluate(() => performance.timeOrigin), 'The mounted document must recover without a page reload').toBe(origins[index]);
     if (index === 0 || peerPermission === 'write') {
       const editor = page.locator(before.representation === 'plain_text' ? '.cm-content' : '.tiptap-editor-shell .ProseMirror');
@@ -495,9 +497,9 @@ test.describe('shared workspace HTML move safety', () => {
         expect(response.request().postDataJSON()).toEqual({ oldPath: source, newPath: `Ziel/${source}`, dryRun: true });
         const blocked = await response.json();
         expect(blocked).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: {
+          version: 2, kind: 'native-path-import-preparation', workspaceId: fixture.workspaceId,
           readiness: 'blocked', pathMappings: expect.arrayContaining([expect.objectContaining({
-            sourceWorkspaceId: fixture.workspaceId, sourcePath: source,
-            destinationWorkspaceId: fixture.workspaceId, destinationPath: `Ziel/${source}`,
+            sourcePath: source, destinationPath: `Ziel/${source}`,
           })]), linkAssessment: { blockers: expect.arrayContaining([expect.objectContaining({
             reason: 'affected-html-link', sourcePath: localHtmlPath, targetLiteral: localImagePath, line: 5,
           })]) },
@@ -818,9 +820,9 @@ test.describe('shared workspace HTML move safety', () => {
         expect(blocked.request().postDataJSON()).toEqual({ oldPath: source, newPath: `Ziel/${source}`, dryRun: true });
         const failure = await blocked.json();
         expect(failure).toMatchObject({ dryRun: true, requiresRevalidation: true, plan: {
+          version: 2, kind: 'native-path-import-preparation', workspaceId: fixture.workspaceId,
           readiness: 'blocked', pathMappings: expect.arrayContaining([expect.objectContaining({
-            sourceWorkspaceId: fixture.workspaceId, sourcePath: source,
-            destinationWorkspaceId: fixture.workspaceId, destinationPath: `Ziel/${source}`,
+            sourcePath: source, destinationPath: `Ziel/${source}`,
           })]), linkAssessment: { blockers: expect.arrayContaining([expect.objectContaining({
             reason: 'affected-html-link', sourcePath: issueFile, targetLiteral: source,
           })]) },
