@@ -756,7 +756,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       await reviewOff(active);
       const binding = object(JSON.parse((await privateBytes(path.join(owned.fixtureRoot, 'python-sdk-binding.json'))).toString('utf8')));
       assert.equal(binding.version, 1); assert.equal(typeof binding.python, 'string'); assert(path.isAbsolute(binding.python as string));
-      assert.equal(binding.wheelSha256, 'a49b1910b15a915fb1059fe184c28e6db436f7c7a68418e10fe794ac8ad82b7c');
+      assert.equal(binding.wheelSha256, 'd7ffd8c29d059791b2d0fa3cce591449d4d647f9749dc5bedb42ef389b103a99');
       assert.equal(typeof binding.wheelUri, 'string');
       const wheelUrl = new URL(binding.wheelUri as string); assert.equal(wheelUrl.protocol, 'file:');
       assert(!wheelUrl.host && !wheelUrl.search && !wheelUrl.hash);
