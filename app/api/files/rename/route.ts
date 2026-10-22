@@ -133,8 +133,12 @@ export async function POST(request: NextRequest): Promise<Response> {
             if (preview.readiness === 'native-ready') return null;
             if (dryRun) return { mode: 'response' as const, response: jsonSuccess({ dryRun: true,
               requiresRevalidation: true, plan: workspacePathImportPreparationPreview(preview) }) };
-            if (preview.readiness === 'blocked') throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
-              'The file action has unresolved link or path conflicts.');
+            if (preview.readiness === 'blocked') {
+              if (planId && planId !== preview.planId) throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409,
+                'The file action preview changed.');
+              throw new WorkspaceOperationBatchError('PREVIEW_BLOCKED', 409,
+                'The file action has unresolved link or path conflicts.');
+            }
             if (preview.version !== 1 && preview.version !== 4) throw new WorkspaceOperationBatchError('PREVIEW_UNSUPPORTED_APPLY', 409,
               'This file action preview does not support importing Markdown.');
             if (overwrite) throw new WorkspaceOperationBatchError('PATH_IMPORT_OVERWRITE_UNSUPPORTED', 409,

@@ -7,6 +7,7 @@ import { withWorkspaceMutationLock } from './workspace-mutation-lock';
 import { buildWorkspaceOperationBatchPlan } from './workspace-operation-batch-plan';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { WorkspaceOperationNativeSourceEvidenceError } from './workspace-operation-native-source-evidence';
+import { WorkspaceOperationNativeMovePlanError } from './workspace-operation-native-move-plan';
 import { assertWorkspaceHtmlLinkEvidenceCurrent } from './workspace-html-link-evidence-fence';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
 import { WorkspaceOperationBatchError, WorkspaceOperationBatchStore,
@@ -111,7 +112,16 @@ export async function submitDirectWorkspacePathOperation(input: WorkspacePathOpe
     // An acknowledged retry must return the original outcome, even if its source has moved already.
     const known = await store.get(batchId);
     if (known) return store.createDirect({ batchId, plan: known.plan, authorization });
-    const plan = await buildWorkspacePathOperationPlan({ ...input, selections }, dependencies);
+    let plan: Awaited<ReturnType<typeof buildWorkspacePathOperationPlan>>;
+    try {
+      plan = await buildWorkspacePathOperationPlan({ ...input, selections }, dependencies);
+    } catch (error) {
+      if (input.expectedPlanId && error instanceof WorkspaceOperationNativeMovePlanError
+        && (error.code === 'NATIVE_MOVE_PLAN_UNSUPPORTED' || error.code === 'NATIVE_MOVE_PLAN_CHANGED')) {
+        throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
+      }
+      throw error;
+    }
     if (input.expectedPlanId && input.expectedPlanId !== plan.planId) {
       throw new WorkspaceOperationBatchError('PREVIEW_STALE', 409, 'The file action preview changed.');
     }

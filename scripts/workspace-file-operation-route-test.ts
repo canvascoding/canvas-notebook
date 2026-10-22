@@ -19,6 +19,10 @@ async function main() {
   let auditUnavailable = false;
   let recorderUnavailable = false;
   let directError: Error | null = null;
+  let nativeEnabled = false;
+  let nativeReadiness: 'blocked' | 'native-ready' = 'blocked';
+  let nativePreviewCalls = 0;
+  const nativePrincipal = Object.freeze({ fixture: 'declared-route-response-boundary' });
   const problems: WorkspacePathOperationProblemInput[] = [];
   let previewError: Error | null = null;
   let status = 'applied';
@@ -52,6 +56,35 @@ async function main() {
     },
   } });
 
+  // Declared route-response seams: these do not claim a genuine principal or Owner execution.
+  mock.module('@/app/lib/collaboration/native-text-session-activation', { exports: {
+    authenticatedNativeTextSessionEnabled: () => nativeEnabled,
+  } });
+  mock.module('@/app/lib/workspaces/request-principal', { exports: {
+    withWorkspaceRequestPrincipal: async (request: Request, input: { permission: string; workspaceId: string },
+      work: (principal: typeof nativePrincipal) => Promise<unknown>) => {
+      assert.ok(request instanceof NextRequest);
+      assert.deepEqual(input, { permission: 'canWrite', workspaceId: 'ws' });
+      assert.equal(lockDepth, 1);
+      return work(nativePrincipal);
+    },
+  } });
+  mock.module('@/app/lib/files/workspace-path-import-operation-preview', { exports: {
+    readWorkspacePathImportPreparationPlan: async (input: { principal: { kind: string; principal: unknown };
+      kind: string; selections: unknown }) => {
+      assert.equal(input.principal.kind, 'request'); assert.equal(input.principal.principal, nativePrincipal);
+      assert.equal(input.kind, 'rename');
+      assert.deepEqual(input.selections, [{ sourcePath: 'Notes/chart.png', destinationPath: 'Notes/new.png' }]);
+      assert.equal(lockDepth, 1); nativePreviewCalls += 1;
+      return { version: 2, kind: 'native-path-import-preparation', executionReady: false,
+        readiness: nativeReadiness, planId: currentPlanId, scope: { workspaceId: 'ws' },
+        pathMappings: [{ source: { path: 'Notes/chart.png' }, destinationPath: 'Notes/new.png' }],
+        coverage: { complete: false }, issues: [{ code: 'affected-html-link', path: 'Notes/Ref.md' }],
+        linkAssessment: { version: 1, complete: false, blockers: [{ workspaceId: 'ws', sourcePath: 'Notes/Ref.md',
+          targetLiteral: './chart.png', status: 'not-evaluated', reason: 'affected-html-link', line: 5,
+          htmlTargets: ['Notes/chart.png'] }], warnings: [] }, requiredRawImports: [] };
+    },
+  } });
   mock.module('@/app/lib/auth', { exports: { auth: { api: { getSession: async () =>
     authenticated ? { user: { id: 'user' } } : null } } } });
   mock.module('@/app/lib/workspaces/request', { exports: {
@@ -124,6 +157,7 @@ async function main() {
     },
   } });
   mock.module('@/app/lib/files/workspace-path-operation-service', { exports: {
+    getExistingDirectWorkspacePathOperation: async () => null,
     buildWorkspacePathOperationPlan: async () => {
       assert.equal(lockDepth, 1);
       const linkPlan = { ...preview(), planId: 'b'.repeat(64) };
@@ -296,6 +330,40 @@ async function main() {
     assert.equal(releasedCopy.status, 200);
     assert.equal(copyCalls, 1, 'closed ordinary copy resumes once lifecycle admission is released');
     assert.equal(lifecycleDepth, 0);
+    nativeEnabled = true; status = 'applied';
+    const beforeNative = directCalls;
+    // Earlier ordering: the import prearm already sees the changed, now blocked evidence.
+    for (const [body, code] of [
+      [{ planId: 'b'.repeat(64) }, 'PREVIEW_STALE'],
+      [{ planId: currentPlanId }, 'PREVIEW_BLOCKED'],
+      [{ overwrite: true }, 'PREVIEW_BLOCKED'],
+    ] as const) {
+      const response = await rename(body);
+      const payload = await response.json();
+      assert.equal(response.status, 409); assert.equal(payload.code, code);
+      assert.equal(payload.operation, undefined); assert.equal(payload.mutation, undefined);
+      assert.equal(directCalls, beforeNative, 'the blocked prearm cannot submit any batch');
+    }
+    const nativeDryRun = await rename({ dryRun: true, planId: 'b'.repeat(64) });
+    const nativeDryRunBody = await nativeDryRun.json();
+    assert.equal(nativeDryRun.status, 200, 'dryRun retains the current precise blocked preview despite an old supplied ID');
+    assert.equal(nativeDryRunBody.plan.planId, currentPlanId);
+    assert.equal(nativeDryRunBody.plan.readiness, 'blocked');
+    assert.deepEqual(nativeDryRunBody.plan.issues, [{ code: 'affected-html-link', path: 'Notes/Ref.md' }]);
+    assert.equal(nativeDryRunBody.plan.linkAssessment.blockers[0].reason, 'affected-html-link');
+    assert.equal(nativeDryRunBody.plan.linkAssessment.blockers[0].sourcePath, 'Notes/Ref.md');
+    assert.equal(nativeDryRunBody.requiresRevalidation, true);
+    assert.equal(nativeDryRunBody.operation, undefined); assert.equal(directCalls, beforeNative);
+    // Later ordering: the prearm was still native-ready, then the common fresh builder rejects.
+    nativeReadiness = 'native-ready';
+    directError = Object.assign(new Error('The file action preview changed.'), { status: 409, code: 'PREVIEW_STALE' });
+    const late = await rename({ planId: currentPlanId });
+    const lateBody = await late.json();
+    assert.equal(late.status, 409); assert.equal(lateBody.code, 'PREVIEW_STALE');
+    assert.equal(lateBody.operation, undefined); assert.equal(lateBody.mutation, undefined);
+    assert.equal(directCalls, beforeNative + 1);
+    assert.equal(nativePreviewCalls, 5, 'both observation orderings pass through the actual Rename prearm');
+    directError = null; nativeEnabled = false;
     console.log('file operation routes: durable rename regardless updateLinks/overwrite, stable private preview, truthful pending/failure receipts, lock release, permission recheck, applied audit and unchanged copy contract OK');
   } finally { mock.reset(); }
 }

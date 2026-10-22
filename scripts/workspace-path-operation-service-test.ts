@@ -5,6 +5,7 @@ import type { WorkspaceOperationBatchAction, WorkspaceOperationLegacyBatchPlan a
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord, type WorkspaceOperationBatchStore } from '../app/lib/files/workspace-operation-batch-store';
 import { buildWorkspacePathOperationPlan, submitDirectWorkspacePathOperation, type WorkspacePathOperationInput } from '../app/lib/files/workspace-path-operation-service';
 import { createWorkspaceOperationNativeDeleteBatchPlanV4 } from '../app/lib/files/workspace-operation-native-delete-plan';
+import { WorkspaceOperationNativeMovePlanError } from '../app/lib/files/workspace-operation-native-move-plan';
 import { workspaceOperationMixedSourceEvidenceV5Fixture } from './workspace-operation-mixed-source-evidence-v5-test';
 
 const planId = 'a'.repeat(64);
@@ -265,6 +266,36 @@ async function main(): Promise<void> {
     hasCode('PREVIEW_STALE', 409));
   assert.equal(stale.builds.length, 1);
   assert.equal(stale.creates.length, 0, 'a stale expected plan never queues a job');
+  // A fresh native builder can reject before it can return a comparable plan ID.
+  for (const code of ['NATIVE_MOVE_PLAN_UNSUPPORTED', 'NATIVE_MOVE_PLAN_CHANGED'] as const) {
+    const checked = harness();
+    const error = new WorkspaceOperationNativeMovePlanError(code);
+    checked.setPlanError(error);
+    await assert.rejects(submitDirectWorkspacePathOperation(request({ expectedPlanId: planId }), checked.dependencies),
+      hasCode('PREVIEW_STALE', 409));
+    assert.deepEqual(checked.events, ['lock:start', 'get', 'plan', 'lock:end']);
+    assert.equal(checked.builds.length, 1);
+    assert.equal(checked.creates.length, 0);
+    assert.equal(checked.rows.size, 0, 'changed checked native evidence cannot create a batch');
+    await assert.rejects(submitDirectWorkspacePathOperation(request(), checked.dependencies),
+      (received: unknown) => received === error, 'without a checked preview the typed unsupported/changed error remains precise');
+    assert.equal(checked.creates.length, 0);
+    assert.equal(checked.rows.size, 0);
+  }
+  for (const error of [
+    new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_INVALID'),
+    new WorkspaceOperationNativeMovePlanError('NATIVE_MOVE_PLAN_TOO_LARGE'),
+    Object.assign(new Error('Untyped native lookalike'), { code: 'NATIVE_MOVE_PLAN_UNSUPPORTED', status: 409 }),
+    new WorkspaceOperationBatchError('BATCH_ACCESS_DENIED', 403, 'Current authority changed.'),
+    Object.assign(new Error('Database unavailable'), { code: 'DATABASE_UNAVAILABLE', status: 503 }),
+  ]) {
+    const unchanged = harness(); unchanged.setPlanError(error);
+    await assert.rejects(submitDirectWorkspacePathOperation(request({ expectedPlanId: planId }), unchanged.dependencies),
+      (received: unknown) => received === error);
+    assert.deepEqual(unchanged.events, ['lock:start', 'get', 'plan', 'lock:end']);
+    assert.equal(unchanged.creates.length, 0);
+    assert.equal(unchanged.rows.size, 0, 'unrelated planning failures retain their identity and never queue work');
+  }
   const changedHtml = harness();
   let htmlChecks = 0;
   await assert.rejects(submitDirectWorkspacePathOperation(request({ expectedPlanId: planId }), {
