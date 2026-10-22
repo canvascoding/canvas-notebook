@@ -6,6 +6,8 @@ import type { SqlConnection } from '../db';
 import { captureNativeCopyPhaseStage } from '../files/workspace-operation-native-copy-phase-contract';
 import { captureWorkspaceOperationNativePlanData } from '../files/workspace-operation-native-plan-data';
 import type { WorkspaceOperationRawHtmlCopyStageV8 } from '../files/workspace-operation-raw-html-copy-stage';
+import type { WorkspaceOperationRawHtmlCopyStageV9 } from '../files/workspace-operation-raw-html-copy-stage-v9';
+import { nativeCopyMarkdownNamespaceAssessmentForPlanV8 } from '../files/workspace-operation-managed-copy-plan-v8';
 import type { WorkspaceOperationManagedCopyStageV6 as LegacyRawStageV6 } from '../files/workspace-operation-managed-copy-stage';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
 import { decodeWorkspaceOperationCopyOrigin, type WorkspaceOperationCopyOrigin } from '../files/workspace-operation-copy-origin';
@@ -13,19 +15,20 @@ import { NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS } from '../db/native-copy-markdow
 import { MARKDOWN_FILE_IMPORT_STATEMENTS } from '../db/markdown-file-import-migration';
 import { readNativeCopyReceiptStorageIdentityOnConnection, readHistoricalNativeWorkspaceCopyReceiptOnConnection } from './native-copy-historical-receipt';
 import { bindPhysicalNativeImportLinks } from '../markdown/physical-native-import-binding';
+import { bindPhysicalNativeImportLinksV2 } from '../markdown/physical-native-import-binding-v2';
 import type { MarkdownFileImportReceipt } from './markdown-file-import-persistence';
 import { loadCollaborationStateOnConnection } from './persistence';
-import { decodeNativeCopyMarkdownBirthV1, nativeCopyMarkdownBirthText, nativeCopyMarkdownImportIds,
-  NATIVE_COPY_MARKDOWN_BIRTH_LIMIT, rejectNativeCopyMarkdownBirth as fail, type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
+import { nativeCopyMarkdownImportIds, NATIVE_COPY_MARKDOWN_BIRTH_LIMIT, rejectNativeCopyMarkdownBirth as fail } from './native-copy-markdown-birth-contract';
+import { decodeNativeCopyMarkdownBirth, nativeCopyMarkdownBirthAnyText, type NativeCopyMarkdownBirth } from './native-copy-markdown-birth-any-contract';
 
-type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8;
+type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8 | WorkspaceOperationRawHtmlCopyStageV9;
 type Row = Record<string, unknown>;
 const digest=(value:string)=>createHash('sha256').update(value).digest('hex');
 function stage6(stage:WorkspaceOperationManagedCopyStageV6):void {
   if (!stage || types.isProxy(stage) || Object.getPrototypeOf(stage)!==Object.prototype) fail();
   const discriminator=Object.getOwnPropertyDescriptor(stage,'version');
-  if (!discriminator?.enumerable || !Object.hasOwn(discriminator,'value') || (discriminator.value!==6 && discriminator.value!==8)) fail();
-  if (captureNativeCopyPhaseStage(stage).payloadSha256!==stage.payloadSha256 || (stage.version===6 ? stage.plan.version!==5 : stage.plan.version!==7)
+  if (!discriminator?.enumerable || !Object.hasOwn(discriminator,'value') || (discriminator.value!==6 && discriminator.value!==8 && discriminator.value!==9)) fail();
+  if (captureNativeCopyPhaseStage(stage).payloadSha256!==stage.payloadSha256 || (stage.version===6 ? stage.plan.version!==5 : stage.version===8 ? stage.plan.version!==7 : stage.plan.version!==8)
     || stage.rawOriginals.length!==stage.plan.rawImportRequirements.length) fail();
 }
 async function realm(database:SqlConnection):Promise<void> {
@@ -55,9 +58,13 @@ async function parent(database:SqlConnection,stage:WorkspaceOperationManagedCopy
       || row.xmin!==String(BigInt(row.xid)&BigInt('4294967295')))) fail();
   return row;
 }
-function bindRequirement(birth:NativeCopyMarkdownBirthV1,stage:WorkspaceOperationManagedCopyStageV6,index:number):void {
+function bindRequirement(birth:NativeCopyMarkdownBirth,stage:WorkspaceOperationManagedCopyStageV6,index:number):void {
   const req=stage.plan.rawImportRequirements[index],original=stage.rawOriginals[index],b=birth.binding;
   const ids=nativeCopyMarkdownImportIds(stage.identity.operationId,stage.payloadSha256,index);
+  if (stage.version===9) {
+    if (birth.version!==2 || !equal(birth.namespaceAssessment,nativeCopyMarkdownNamespaceAssessmentForPlanV8(stage.plan))
+      || !equal(birth.binding.original4,stage.plan.rawImportRequirements[index]?.sourceBinding.original4)) fail();
+  } else if (birth.version!==1) fail();
   if (!req || !original || !equal(birth.origin,stage.origin) || birth.parent.operationId!==stage.identity.operationId
     || birth.parent.planId!==stage.plan.planId || birth.parent.stageDigest!==stage.payloadSha256
     || birth.parent.requestHash!==stage.identity.canonicalRequestHash || birth.parent.requirementIndex!==index
@@ -71,14 +78,14 @@ function bindRequirement(birth:NativeCopyMarkdownBirthV1,stage:WorkspaceOperatio
     || b.receipt.target.newlineStyle!==req.preparation.newlineStyle || b.receipt.target.hasBom!==req.preparation.hasBom
     || req.linkBindings.some(link=>!b.links.some(actual=>actual.physicalLinkId===link.physicalLinkId))) fail();
 }
-async function originalImport(database:SqlConnection,stage:WorkspaceOperationManagedCopyStageV6,birth:NativeCopyMarkdownBirthV1,fresh:boolean):Promise<void> {
+async function originalImport(database:SqlConnection,stage:WorkspaceOperationManagedCopyStageV6,birth:NativeCopyMarkdownBirth,fresh:boolean):Promise<void> {
   if (birth.parent.operationId!==stage.identity.operationId || birth.parent.stageDigest!==stage.payloadSha256
     || !equal(birth.origin,stage.origin)) fail();
   return originalImportReceipt(database,birth,fresh);
 }
 /** Shared immutable receipt checks; no current document, Yjs state or Stage is
  * read. Stage-owned and completed-history readers both bind their own parent. */
-async function originalImportReceipt(database:SqlConnection,birth:NativeCopyMarkdownBirthV1,fresh:boolean):Promise<void> {
+async function originalImportReceipt(database:SqlConnection,birth:NativeCopyMarkdownBirth,fresh:boolean):Promise<void> {
   const ids=nativeCopyMarkdownImportIds(birth.parent.operationId,birth.parent.stageDigest,birth.parent.requirementIndex);
   const origin=birth.origin;
   const row=await database.get(`SELECT version,organization_id,actor_user_id,actor_session_id,request_id,request_fingerprint,
@@ -106,7 +113,7 @@ async function originalImportReceipt(database:SqlConnection,birth:NativeCopyMark
  * current Copy principal are checked; a caller-supplied receipt grants nothing. */
 export async function persistNativeCopyMarkdownBirthOnConnection(database:SqlConnection,input:Readonly<{
   stage:WorkspaceOperationManagedCopyStageV6;requirementIndex:number;receipt:MarkdownFileImportReceipt;
-}>):Promise<NativeCopyMarkdownBirthV1> {
+}>):Promise<NativeCopyMarkdownBirth> {
   if (!input || types.isProxy(input) || Object.getPrototypeOf(input)!==Object.prototype || Reflect.ownKeys(input).length!==3
     || !['stage','requirementIndex','receipt'].every(key=>{const field=Object.getOwnPropertyDescriptor(input,key);
       return field?.enumerable && Object.hasOwn(field,'value');})) fail();
@@ -117,11 +124,19 @@ export async function persistNativeCopyMarkdownBirthOnConnection(database:SqlCon
   await realm(database); const header=await parent(database,stage,true);
   const state=await loadCollaborationStateOnConnection(database,receipt.target.documentId,true);
   if (!state) fail();
-  const binding=bindPhysicalNativeImportLinks({original:stage.rawOriginals[index],receipt,state,lineageId:receipt.target.lineageId});
-  const body={version:1 as const,parent:{operationId:stage.identity.operationId,planId:stage.plan.planId,stageDigest:stage.payloadSha256,
+  // Stage9 is a separate genuine Parser4 import. Legacy stages keep the
+  // original Binding1/Birth1 bytes and never reinterpret an HTML inventory.
+  const binding=stage.version===9
+    ? bindPhysicalNativeImportLinksV2({original:stage.rawOriginals[index],receipt,state,lineageId:receipt.target.lineageId})
+    : bindPhysicalNativeImportLinks({original:stage.rawOriginals[index],receipt,state,lineageId:receipt.target.lineageId});
+  const parentIdentity={operationId:stage.identity.operationId,planId:stage.plan.planId,stageDigest:stage.payloadSha256,
     requestHash:stage.identity.canonicalRequestHash,requirementIndex:index,entityKey:stage.plan.rawImportRequirements[index].entityKey,
-    requirementProof:proof(stage.plan.rawImportRequirements[index])},origin:stage.origin,binding,b1TransactionId:String(header.xid)};
-  const birth=decodeNativeCopyMarkdownBirthV1({...body,birthProof:proof(body)}); bindRequirement(birth,stage,index);
+    requirementProof:proof(stage.plan.rawImportRequirements[index])};
+  const body=stage.version===9
+    ? {version:2 as const,parent:parentIdentity,origin:stage.origin,binding,
+      namespaceAssessment:nativeCopyMarkdownNamespaceAssessmentForPlanV8(stage.plan),b1TransactionId:String(header.xid)}
+    : {version:1 as const,parent:parentIdentity,origin:stage.origin,binding,b1TransactionId:String(header.xid)};
+  const birth=decodeNativeCopyMarkdownBirth({...body,birthProof:proof(body)}); bindRequirement(birth,stage,index);
   await originalImport(database,stage,birth,true);
   const actual=await database.get(`SELECT d.xmin::text AS d,s.xmin::text AS s,l.xmin::text AS l,s.document_sequence,
     s.room_owner_epoch,s.room_owner_token,s.room_owner_backend_pid,s.room_owner_backend_start,l.workspace_id,l.organization_id,l.path,l.status
@@ -133,13 +148,13 @@ export async function persistNativeCopyMarkdownBirthOnConnection(database:SqlCon
     || Number(actual.room_owner_epoch)!==0 || actual.room_owner_token!==null || actual.room_owner_backend_pid!==null
     || actual.room_owner_backend_start!==null || actual.workspace_id!==receipt.target.workspaceId
     || actual.organization_id!==receipt.target.organizationId || actual.path!==receipt.target.path || actual.status!=='active') fail();
-  const serialized=nativeCopyMarkdownBirthText(birth);
+  const serialized=nativeCopyMarkdownBirthAnyText(birth);
   await assertNativeCopyMarkdownImportPreparationOnConnection(database,stage,index);
   const inserted=await database.get(`INSERT INTO collaboration_native_copy_markdown_births
     (workspace_id,parent_operation_id,requirement_index,version,import_operation_id,document_id,lineage_id,
      plan_id,stage_digest,request_hash,requirement_key,requirement_proof,birth_text,birth_digest,b1_transaction_id,created_at)
-    VALUES($1,$2,$3,1,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING xmin::text AS xmin`,
-  [stage.identity.destinationWorkspaceId,stage.identity.operationId,index,receipt.operationId,receipt.target.documentId,receipt.target.lineageId,
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING xmin::text AS xmin`,
+  [stage.identity.destinationWorkspaceId,stage.identity.operationId,index,birth.version,receipt.operationId,receipt.target.documentId,receipt.target.lineageId,
     stage.plan.planId,stage.payloadSha256,stage.identity.canonicalRequestHash,birth.parent.entityKey,birth.parent.requirementProof,
     serialized,digest(serialized),birth.b1TransactionId,receipt.target.persistedAt]) as Row|undefined;
   if (inserted?.xmin!==xmin) fail();
@@ -150,13 +165,13 @@ export async function persistNativeCopyMarkdownBirthOnConnection(database:SqlCon
  * Caller must additionally require all original link receipts/reservations. */
 export async function readNativeCopyMarkdownBirthsOnConnection(database:SqlConnection,input:Readonly<{
   stage:WorkspaceOperationManagedCopyStageV6;
-}>):Promise<readonly NativeCopyMarkdownBirthV1[]> {
+}>):Promise<readonly NativeCopyMarkdownBirth[]> {
   if (!input || types.isProxy(input) || Object.getPrototypeOf(input)!==Object.prototype || Reflect.ownKeys(input).length!==1) fail();
   const field=Object.getOwnPropertyDescriptor(input,'stage');
   if (!field?.enumerable || !Object.hasOwn(field,'value')) fail();
   const stage:WorkspaceOperationManagedCopyStageV6=field.value;
   await owner(database,stage); await parent(database,stage,false);
-  const rows=await database.all(`SELECT requirement_index,document_id,lineage_id,import_operation_id,plan_id,stage_digest,request_hash,
+  const rows=await database.all(`SELECT version,requirement_index,document_id,lineage_id,import_operation_id,plan_id,stage_digest,request_hash,
     requirement_key,requirement_proof,birth_digest,b1_transaction_id,created_at,
     octet_length(birth_text) AS bytes FROM collaboration_native_copy_markdown_births
     WHERE workspace_id=$1 AND parent_operation_id=$2 ORDER BY requirement_index LIMIT 10001`,
@@ -165,7 +180,7 @@ export async function readNativeCopyMarkdownBirthsOnConnection(database:SqlConne
   const total=rows.reduce((sum,row)=>sum+Number(row.bytes),0);
   if (!Number.isSafeInteger(total) || total>64*1024*1024 || rows.some(row=>!Number.isSafeInteger(Number(row.bytes))
     || Number(row.bytes)<1 || Number(row.bytes)>NATIVE_COPY_MARKDOWN_BIRTH_LIMIT)) fail();
-  const births:NativeCopyMarkdownBirthV1[]=[];
+  const births:NativeCopyMarkdownBirth[]=[];
   for (const [index,row] of rows.entries()) {
     const size=Number(row.bytes);
     const payload=await database.get(`SELECT birth_text FROM collaboration_native_copy_markdown_births
@@ -175,8 +190,8 @@ export async function readNativeCopyMarkdownBirthsOnConnection(database:SqlConne
     if (Number(row.requirement_index)!==index || !payload || typeof payload.birth_text!=='string'
       || Buffer.byteLength(payload.birth_text)!==size || digest(payload.birth_text)!==row.birth_digest) fail();
     let parsed:unknown; try { parsed=JSON.parse(payload.birth_text); } catch { return fail(); }
-    const birth=decodeNativeCopyMarkdownBirthV1(parsed); bindRequirement(birth,stage,index);
-    if (nativeCopyMarkdownBirthText(birth)!==payload.birth_text || row.document_id!==birth.binding.receipt.target.documentId
+    const birth=decodeNativeCopyMarkdownBirth(parsed); bindRequirement(birth,stage,index);
+    if (row.version!==birth.version || nativeCopyMarkdownBirthAnyText(birth)!==payload.birth_text || row.document_id!==birth.binding.receipt.target.documentId
       || row.lineage_id!==birth.binding.receipt.target.lineageId || row.import_operation_id!==birth.binding.receipt.operationId
       || row.plan_id!==birth.parent.planId || row.stage_digest!==birth.parent.stageDigest || row.request_hash!==birth.parent.requestHash
       || row.requirement_key!==birth.parent.entityKey || row.requirement_proof!==birth.parent.requirementProof
@@ -197,7 +212,7 @@ const historyQuote = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 /** Ordered digest of already decoded immutable births. This data helper grants
  * no authority and does not infer a current document from a historical ID. */
-export function nativeCopyMarkdownBirthsProof(births: readonly NativeCopyMarkdownBirthV1[]): string {
+export function nativeCopyMarkdownBirthsProof(births: readonly NativeCopyMarkdownBirth[]): string {
   if (!births || types.isProxy(births) || !Array.isArray(births) || Object.getPrototypeOf(births) !== Array.prototype
     || births.length > HISTORY_COHORT_COUNT || Reflect.ownKeys(births).length !== births.length + 1) fail();
   const birthProofs = Array.from({ length: births.length }, (_, index) => {
@@ -214,10 +229,16 @@ export function nativeCopyMarkdownBirthsProof(births: readonly NativeCopyMarkdow
 export type HistoricalNativeCopyMarkdownBirthsInput = Readonly<{
   operationId: string; planId: string; stageDigest: string; requestHash: string;
   origin: WorkspaceOperationCopyOrigin; expectedBirthsProof: string; expectedBirthCount: number;
+  /** Omitted for original completions; only the distinct C2 completion selects 2. */
+  expectedBirthVersion?: 1 | 2;
 }>;
 function historyInput(input: HistoricalNativeCopyMarkdownBirthsInput): HistoricalNativeCopyMarkdownBirthsInput {
   const captured = captureWorkspaceOperationNativePlanData(input, fail, 65536) as HistoricalNativeCopyMarkdownBirthsInput;
   const keys = ['operationId', 'planId', 'stageDigest', 'requestHash', 'origin', 'expectedBirthsProof', 'expectedBirthCount'];
+  if (captured && typeof captured==='object' && Object.hasOwn(captured,'expectedBirthVersion')) {
+    if (captured.expectedBirthVersion!==1 && captured.expectedBirthVersion!==2) return fail();
+    keys.push('expectedBirthVersion');
+  }
   if (!captured || typeof captured !== 'object' || Array.isArray(captured)
     || Reflect.ownKeys(captured).length !== keys.length || keys.some(key => !Object.hasOwn(captured, key))
     || !historyId(captured.operationId) || ![captured.planId, captured.stageDigest, captured.requestHash, captured.expectedBirthsProof].every(historyHash)
@@ -306,7 +327,7 @@ async function historyStorage(database: SqlConnection, schemaName: string): Prom
  * This function opens nothing, authorizes nothing and never reads today's
  * registry/state/lineage, imports, rebinds, repairs, reserves or writes a row. */
 export async function readHistoricalNativeCopyMarkdownBirthsOnConnection(database: SqlConnection,
-  supplied: HistoricalNativeCopyMarkdownBirthsInput): Promise<readonly NativeCopyMarkdownBirthV1[]> {
+  supplied: HistoricalNativeCopyMarkdownBirthsInput): Promise<readonly NativeCopyMarkdownBirth[]> {
   const input = historyInput(supplied), initial = await historyWitness(database);
   const storage = await historyStorage(database, initial.schemaName);
   const parentStorage = await readNativeCopyReceiptStorageIdentityOnConnection(database, initial.schemaName);
@@ -342,14 +363,14 @@ export async function readHistoricalNativeCopyMarkdownBirthsOnConnection(databas
       AND octet_length(requirement_key)<=16384 AND octet_length(requirement_proof)=64 AND octet_length(birth_digest)=64
       AND octet_length(b1_transaction_id)<=32 ORDER BY requirement_index LIMIT 10001`, args) as Row[];
   if (rows.length !== input.expectedBirthCount) return fail();
-  const births: NativeCopyMarkdownBirthV1[] = [];
+  const births: NativeCopyMarkdownBirth[] = [];
   const documents = new Set(parentReceipt.documents.map(document => document.clone.documentId));
   const lineages = new Set(parentReceipt.documents.map(document => document.clone.lineageId));
   const imports = new Set<string>(), requirements = new Set<string>(), destinations = new Set<string>();
   let bytes = 0, transaction: string | null = null;
   for (const [index, row] of rows.entries()) {
     const size = Number(row.bytes);
-    if (row.version !== 1 || Number(row.requirement_index) !== index || !historyInteger(size, NATIVE_COPY_MARKDOWN_BIRTH_LIMIT) || size < 1
+    if (row.version !== (input.expectedBirthVersion ?? 1) || Number(row.requirement_index) !== index || !historyInteger(size, NATIVE_COPY_MARKDOWN_BIRTH_LIMIT) || size < 1
       || row.plan_id !== input.planId || row.stage_digest !== input.stageDigest || row.request_hash !== input.requestHash
       || !historyHash(row.birth_digest) || !historyHash(row.requirement_proof)) return fail();
     bytes += size; if (bytes > HISTORY_COHORT_LIMIT) return fail();
@@ -360,9 +381,9 @@ export async function readHistoricalNativeCopyMarkdownBirthsOnConnection(databas
     if (!payload || typeof payload.birth_text !== 'string' || Buffer.byteLength(payload.birth_text) !== size
       || digest(payload.birth_text) !== row.birth_digest) return fail();
     let parsed: unknown; try { parsed = JSON.parse(payload.birth_text); } catch { return fail(); }
-    const birth = decodeNativeCopyMarkdownBirthV1(parsed), target = birth.binding.receipt.target;
+    const birth = decodeNativeCopyMarkdownBirth(parsed), target = birth.binding.receipt.target;
     const ids = nativeCopyMarkdownImportIds(input.operationId, input.stageDigest, index);
-    if (nativeCopyMarkdownBirthText(birth) !== payload.birth_text || !equal(birth.origin, input.origin)
+    if (birth.version !== row.version || nativeCopyMarkdownBirthAnyText(birth) !== payload.birth_text || !equal(birth.origin, input.origin)
       || birth.parent.operationId !== input.operationId || birth.parent.planId !== input.planId
       || birth.parent.stageDigest !== input.stageDigest || birth.parent.requestHash !== input.requestHash
       || birth.parent.requirementIndex !== index || birth.parent.entityKey !== row.requirement_key

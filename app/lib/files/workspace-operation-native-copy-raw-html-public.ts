@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { WorkspaceOperationNativeCopyPreviewPublicV4 } from './workspace-operation-native-copy-public';
-import { decodeWorkspaceOperationManagedCopyPlanV7, type WorkspaceOperationManagedCopyPlanV7 } from './workspace-operation-managed-copy-plan-v7';
+import { decodeWorkspaceOperationManagedRawHtmlCopyPlan, type WorkspaceOperationManagedRawHtmlCopyPlan } from './workspace-operation-managed-copy-plan-v8';
 import { workspaceOperationMixedSourceSnapshotV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { buildWorkspaceMixedHtmlLinkGraphV5 } from '../markdown/workspace-native-link-graph';
 import { nativeLinkJsonProof as proof } from '../markdown/workspace-native-link-inventory';
@@ -13,8 +13,8 @@ export type WorkspaceOperationNativeCopyPreviewPublicV6 = Omit<WorkspaceOperatio
   sourceCoverage: Array<{ workspaceId: string; coverage: { complete: boolean; gaps: Array<{ code: string; path: string }> } }>;
 };
 /** Display only: never native IDs, recipes, bytes, catalogue or current grants. */
-export function workspaceOperationNativeCopyRawHtmlPublicPreview(input: WorkspaceOperationManagedCopyPlanV7): WorkspaceOperationNativeCopyPreviewPublicV6 {
-  const plan = decodeWorkspaceOperationManagedCopyPlanV7(input);
+export function workspaceOperationNativeCopyRawHtmlPublicPreview(input: WorkspaceOperationManagedRawHtmlCopyPlan): WorkspaceOperationNativeCopyPreviewPublicV6 {
+  const plan = decodeWorkspaceOperationManagedRawHtmlCopyPlan(input);
   const evidence = plan.sourceScope.workspaceId === plan.destinationScope.workspaceId ? [plan.sourceEvidence] : [plan.sourceEvidence, plan.destinationEvidence];
   const graphs = evidence.map(value => buildWorkspaceMixedHtmlLinkGraphV5(workspaceOperationMixedSourceSnapshotV5(value)));
   const unresolved = graphs.flatMap(graph => graph.edges.filter(edge => edge.classification === 'local' && edge.resolution.status !== 'resolved')

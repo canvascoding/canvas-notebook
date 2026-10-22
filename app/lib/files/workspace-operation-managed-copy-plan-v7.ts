@@ -156,7 +156,7 @@ function rawCopyV7Historical(value: WorkspaceOperationManagedCopyPlanV7): Worksp
   if (compiled.contractVersion !== 6 || compiled.compilerVersion !== 1 || compiled.executionReady !== false || compiled.issues.length
     || !compiled.htmlAssessment.complete || compiled.htmlAssessment.blockers.length
     || !/^[a-f0-9]{64}$/u.test(compiled.htmlAssessmentProof) || !equal(compiled.sourceCoverage,
-      (value.sourceScope.workspaceId === value.destinationScope.workspaceId ? [source] : [source, destination]).map(value => ({ workspaceId: value.workspaceScope.workspaceId, coverage: value.coverage })).sort((a,b) => a.workspaceId.localeCompare(b.workspaceId)))
+      (value.sourceScope.workspaceId === value.destinationScope.workspaceId ? [source] : [source, destination]).map(value => ({ workspaceId: value.workspaceScope.workspaceId, coverage: value.coverage })))
     || compiled.requests.length !== 1 || compiled.steps.length !== 1 || proof(compilerBody) !== compilerId
     || compilerId !== value.compilerPlanProof || compiled.finalGraphProof !== value.finalGraphProof
     || ![value.compilerPlanProof, value.finalGraphProof, value.planId, value.integrityProof].every(hash => typeof hash === 'string' && /^[a-f0-9]{64}$/u.test(hash))

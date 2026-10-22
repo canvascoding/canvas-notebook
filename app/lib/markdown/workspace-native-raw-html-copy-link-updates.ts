@@ -4,24 +4,24 @@ import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal, types } from 'node:util';
 import type { NativeCopyReceipt } from '../collaboration/native-copy-persistence';
 import type { NativeRecoveryRecord } from '../collaboration/native-document-recovery';
-import { decodeNativeCopyMarkdownBirthV1, nativeCopyMarkdownImportIds,
-  type NativeCopyMarkdownBirthV1 } from '../collaboration/native-copy-markdown-birth-contract';
+import { nativeCopyMarkdownImportIds } from '../collaboration/native-copy-markdown-birth-contract';
+import { decodeNativeCopyMarkdownBirth, type NativeCopyMarkdownBirth } from '../collaboration/native-copy-markdown-birth-any-contract';
 import { authoritativeNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
 import { Y } from '../collaboration/server-runtime';
-import { decodeWorkspaceOperationManagedCopyPlanV7, type WorkspaceOperationManagedCopyPlanV7 } from '../files/workspace-operation-managed-copy-plan-v7';
+import { decodeWorkspaceOperationManagedRawHtmlCopyPlan, nativeCopyMarkdownNamespaceAssessmentForPlanV8, type WorkspaceOperationManagedRawHtmlCopyPlan } from '../files/workspace-operation-managed-copy-plan-v8';
 import { captureWorkspaceOperationNativePlanData } from '../files/workspace-operation-native-plan-data';
 import { NativeCopyLinkBindingError } from './workspace-native-copy-link-updates';
 import type { NativeLinkMutationRecipe } from './workspace-link-contract-v2';
 import { inspectPersistedDocumentLinksV4, nativeLinkJsonProof as proof } from './workspace-native-link-inventory';
 import { nativeRawCopyLinkMutationId } from './workspace-native-raw-copy-link-updates';
-import { captureRawHtmlCopyNativeBindingV2 } from './workspace-raw-html-copy-binding';
+import { captureRawHtmlCopyNativeBindingV2, captureRawHtmlCopyNativeBindingV3 } from './workspace-raw-html-copy-binding';
 import { formatNativeLinkTargetForPathChange } from './workspace-native-mixed-batch-compiler';
 import { prepareNativeLinkMutationsV4, prepareNativeLinkInverseV4, type PreparedNativeLinkUpdateV4 } from './workspace-native-link-mutations';
 
 export type NativeRawHtmlCopyLinkUpdatesInput = Readonly<{
-  plan: WorkspaceOperationManagedCopyPlanV7;
+  plan: WorkspaceOperationManagedRawHtmlCopyPlan;
   parent: Readonly<{ operationId: string; stageDigest: string; requestHash: string }>;
-  births: readonly NativeCopyMarkdownBirthV1[];
+  births: readonly NativeCopyMarkdownBirth[];
   nativeReceipt: NativeCopyReceipt;
 }>;
 export type NativeRawHtmlCopyLinkUpdates = Readonly<{
@@ -36,7 +36,7 @@ export type NativeRawHtmlCopyLinkUpdates = Readonly<{
  * callback is used. B2 can call this against original birth facts after seq1. */
 export function nativeRawHtmlCopyLinkTargets(input: NativeRawHtmlCopyLinkUpdatesInput): readonly NativeRawHtmlCopyLinkUpdates[] {
   try {
-    const plan = decodeWorkspaceOperationManagedCopyPlanV7(input.plan);
+    const plan = decodeWorkspaceOperationManagedRawHtmlCopyPlan(input.plan);
     const parent = captureWorkspaceOperationNativePlanData(input.parent, () => { throw new NativeCopyLinkBindingError(); }) as typeof input.parent;
     // Block-ID dictionaries may legally contain reserved/long opaque IDs.
     // This adapter needs only already owner-validated source/clone identities;
@@ -72,7 +72,7 @@ export function nativeRawHtmlCopyLinkTargets(input: NativeRawHtmlCopyLinkUpdates
     const births = Array.from({ length: input.births.length }, (_, index) => {
       const field = Object.getOwnPropertyDescriptor(input.births, String(index));
       if (!field?.enumerable || !Object.hasOwn(field, 'value')) throw new NativeCopyLinkBindingError();
-      const birth = decodeNativeCopyMarkdownBirthV1(field.value); budget -= Buffer.byteLength(JSON.stringify(birth));
+      const birth = decodeNativeCopyMarkdownBirth(field.value); budget -= Buffer.byteLength(JSON.stringify(birth));
       if (budget < 0) throw new NativeCopyLinkBindingError(); return birth;
     });
     const targets = new Map<string, string>();
@@ -96,6 +96,7 @@ export function nativeRawHtmlCopyLinkTargets(input: NativeRawHtmlCopyLinkUpdates
     }
     for (const [index, birth] of births.entries()) {
       const requirement = plan.rawImportRequirements[index], target = birth.binding.receipt.target;
+      if (plan.version === 8 ? birth.version !== 2 || !equal(birth.namespaceAssessment, nativeCopyMarkdownNamespaceAssessmentForPlanV8(plan)) : birth.version !== 1) throw new NativeCopyLinkBindingError();
       const idsForImport = nativeCopyMarkdownImportIds(parent.operationId, parent.stageDigest, index);
       if (birth.parent.operationId !== parent.operationId || birth.parent.stageDigest !== parent.stageDigest
         || birth.parent.requestHash !== parent.requestHash || birth.parent.planId !== plan.planId
@@ -155,13 +156,14 @@ export function prepareNativeRawHtmlCopyLinkUpdates(input: NativeRawHtmlCopyLink
     const targets = nativeRawHtmlCopyLinkTargets(input);
     if (!Array.isArray(input.initialRecords) || types.isProxy(input.initialRecords) || input.initialRecords.length !== targets.length) throw new NativeCopyLinkBindingError();
     return targets.map((target, index) => {
-      const record = input.initialRecords[index], birth = decodeNativeCopyMarkdownBirthV1(input.births[index]), state = record.state;
+      const record = input.initialRecords[index], birth = decodeNativeCopyMarkdownBirth(input.births[index]), state = record.state;
       const receipt = birth.binding.receipt.target;
-      if (record.lineageId !== receipt.lineageId || !equal(inspectPersistedDocumentLinksV4(state), captureRawHtmlCopyNativeBindingV2(birth, state).inventory4)
+      if (record.lineageId !== receipt.lineageId || !equal(inspectPersistedDocumentLinksV4(state), (birth.version === 1 ? captureRawHtmlCopyNativeBindingV2(birth, state) : captureRawHtmlCopyNativeBindingV3(birth, state)).inventory4)
         || state.newlineStyle !== receipt.newlineStyle || state.hasBom !== receipt.hasBom
         || createHash('sha256').update(state.yjsState).digest('hex') !== birth.binding.nativeBinaryHash
         || createHash('sha256').update(state.stateVector).digest('hex') !== birth.binding.nativeVectorHash) throw new NativeCopyLinkBindingError();
-      captureRawHtmlCopyNativeBindingV2(birth, state);
+      if (birth.version === 1) captureRawHtmlCopyNativeBindingV2(birth, state);
+      else captureRawHtmlCopyNativeBindingV3(birth, state);
       if (!target.recipes.length) return { ...target, prepared: null };
       const prepared = prepareNativeLinkMutationsV4({ state, recipes: target.recipes, operationId: target.mutationId });
       const scratch = new Y.Doc();

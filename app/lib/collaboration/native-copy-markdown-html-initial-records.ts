@@ -3,8 +3,8 @@ import { isDeepStrictEqual as equal } from 'node:util';
 import type { SqlConnection } from '../db';
 import { assertNativeCopyStatusSessionOnConnection } from '../files/workspace-operation-native-copy-status';
 import { assertNativeCopySessionOnConnection } from '../files/workspace-operation-native-copy-owner';
-import { decodeNativeCopyMarkdownBirthV1, type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
-import { nativeCopyMarkdownHtmlInitialCertificate, type RawHtmlCopyNativeBindingV2 } from '../markdown/workspace-raw-html-copy-binding';
+import { decodeNativeCopyMarkdownBirth, type NativeCopyMarkdownBirth } from './native-copy-markdown-birth-any-contract';
+import { nativeCopyMarkdownHtmlInitialCertificate, type RawHtmlCopyNativeBindingV2, type RawHtmlCopyNativeBindingV3 } from '../markdown/workspace-raw-html-copy-binding';
 import { captureWorkspaceOperationNativePlanData } from '../files/workspace-operation-native-plan-data';
 import { nativeCopyMarkdownImportIds } from './native-copy-markdown-birth-contract';
 import { RawHtmlSourceBindingError } from '../markdown/workspace-raw-html-source-binding';
@@ -13,10 +13,10 @@ function fail(): never { throw new RawHtmlSourceBindingError('RAW_HTML_BINDING_C
  * The caller proves the original Parent/Birth/receipt cohort. No historical
  * content/state is reconstructed; no current D1/seq0/S2 or room read occurs. */
 export async function readNativeCopyMarkdownHtmlInitialRecordsOnConnection(database: SqlConnection,
-  inputs: readonly NativeCopyMarkdownBirthV1[], mode:'owner'|'mcp-status'='owner'): Promise<Readonly<{ certificates: readonly RawHtmlCopyNativeBindingV2[] }>> {
+  inputs: readonly NativeCopyMarkdownBirth[], mode:'owner'|'mcp-status'='owner'): Promise<Readonly<{ certificates: readonly (RawHtmlCopyNativeBindingV2 | RawHtmlCopyNativeBindingV3)[] }>> {
   const captured = captureWorkspaceOperationNativePlanData(inputs, fail, 16 * 1024 * 1024);
   if (!Array.isArray(captured) || captured.length > 10000) fail();
-  const births = captured.map(decodeNativeCopyMarkdownBirthV1);
+  const births = captured.map(decodeNativeCopyMarkdownBirth);
   if (!births.length) return { certificates: [] };
   const origin = births[0].origin, ids = births.map(birth => birth.binding.receipt.operationId);
   if (new Set(ids).size !== ids.length || births.some(birth => !equal(birth.origin, origin))) fail();
@@ -35,7 +35,7 @@ export async function readNativeCopyMarkdownHtmlInitialRecordsOnConnection(datab
     FROM collaboration_markdown_file_import_receipts WHERE workspace_id=$1 AND operation_id=ANY($2::text[])
     ORDER BY operation_id COLLATE "C" LIMIT 10001`, [origin.destinationScope.workspaceId, ids]) as Array<Record<string, unknown>>;
   if (rows.length !== ids.length || new Set(rows.map(row => row.operation_id)).size !== ids.length) fail();
-  const certificates: RawHtmlCopyNativeBindingV2[] = [];
+  const certificates: Array<RawHtmlCopyNativeBindingV2 | RawHtmlCopyNativeBindingV3> = [];
   for (const birth of births) {
     const target = birth.binding.receipt.target, row = rows.find(row => row.operation_id === birth.binding.receipt.operationId),
       original = nativeCopyMarkdownImportIds(birth.parent.operationId,birth.parent.stageDigest,birth.parent.requirementIndex);

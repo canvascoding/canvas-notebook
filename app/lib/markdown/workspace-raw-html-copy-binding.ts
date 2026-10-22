@@ -8,6 +8,10 @@ import { inspectPersistedDocumentLinksV3, inspectPersistedDocumentLinksV4, nativ
   type NativeDocumentLinkInventoryV4 } from './workspace-native-link-inventory';
 import { RawHtmlSourceBindingError } from './workspace-raw-html-source-binding';
 import { Y } from '../collaboration/server-runtime';
+import { decodeNativeCopyMarkdownBirthV2, type NativeCopyMarkdownBirthV2 } from '../collaboration/native-copy-markdown-birth-v2-contract';
+import { inspectPersistedNativeCollaborationSnapshot } from '../collaboration/document-snapshot';
+import { richMarkdownFromYDoc } from '../collaboration/markdown-state';
+import { inspectWorkspaceMarkdownHtmlV4 } from './workspace-local-link-parser';
 
 /** Compact original journal commitment. History binds immutable Birth and
  * content-free Snapshot facts; fresh B1 separately inspects actual state. */
@@ -34,13 +38,37 @@ export function assertRawHtmlCopyNativeBindingV2(input: unknown, expected: RawHt
   if (!equal(value, expected)) fail();
 }
 
+/** Birth2 gets a separate certificate from its actual immutable Native4 bytes.
+ * Legacy certificate2 above still accepts only Birth1 and actual Parser3/4 parity. */
+export type RawHtmlCopyNativeBindingV3 = Readonly<{ version: 3; birthProof: string;
+  inventory4Proof: string; htmlBindingProof: string; bindingProof: string }>;
+export function inspectRawHtmlCopyImportedHtml(state: PersistedCollaborationState) {
+  return inspectPersistedNativeCollaborationSnapshot(state, (doc, snapshot) => inspectWorkspaceMarkdownHtmlV4(
+    snapshot.content.kind === 'plain_text' ? snapshot.content.text : richMarkdownFromYDoc(doc), state.path));
+}
+export function captureRawHtmlCopyNativeBindingV3(input: NativeCopyMarkdownBirthV2,
+  state: PersistedCollaborationState): Readonly<{ certificate: RawHtmlCopyNativeBindingV3; inventory4: NativeDocumentLinkInventoryV4 }> {
+  const birth = decodeNativeCopyMarkdownBirthV2(input), inventory4 = inspectPersistedDocumentLinksV4(state);
+  const target = birth.binding.receipt.target;
+  if (!equal(inventory4, birth.binding.nativeInventory) || inventory4.parserVersion !== 4
+    || state.newlineStyle !== target.newlineStyle || state.hasBom !== target.hasBom
+    || createHash('sha256').update(state.yjsState).digest('hex') !== birth.binding.nativeBinaryHash
+    || createHash('sha256').update(state.stateVector).digest('hex') !== birth.binding.nativeVectorHash) fail();
+  const inspection = inspectRawHtmlCopyImportedHtml(state);
+  if (!equal(inspection, birth.binding.html.imported)) fail();
+  const body = { version: 3 as const, birthProof: birth.birthProof, inventory4Proof: proof(inventory4),
+    htmlBindingProof: proof(birth.binding.html) };
+  return { certificate: Object.freeze({ ...body, bindingProof: proof(body) }), inventory4 };
+}
+
 /** Data-only expected historical journal commitment, not a Native4 inventory
  * or authority. The fixed caller binds the immutable Parent/Birth/import
  * receipt and compares the exact original journal confirmation. Fresh B1 still
  * inspects actual state for Parser3/4 parity or Native4/HTML equality. */
-export function nativeCopyMarkdownHtmlInitialCertificate(birthInput: NativeCopyMarkdownBirthV1,
-  snapshotInput: Uint8Array, liveBinaryHash: unknown, liveVectorHash: unknown): RawHtmlCopyNativeBindingV2 {
-  const birth = decodeNativeCopyMarkdownBirthV1(birthInput);
+export function nativeCopyMarkdownHtmlInitialCertificate(birthInput: NativeCopyMarkdownBirthV1 | NativeCopyMarkdownBirthV2,
+  snapshotInput: Uint8Array, liveBinaryHash: unknown, liveVectorHash: unknown): RawHtmlCopyNativeBindingV2 | RawHtmlCopyNativeBindingV3 {
+  const supplied = captureWorkspaceOperationNativePlanData(birthInput,fail,16*1024*1024) as NativeCopyMarkdownBirthV1 | NativeCopyMarkdownBirthV2;
+  const birth = supplied.version===1 ? decodeNativeCopyMarkdownBirthV1(supplied) : decodeNativeCopyMarkdownBirthV2(supplied);
   if (liveBinaryHash !== birth.binding.nativeBinaryHash || liveVectorHash !== birth.binding.nativeVectorHash) fail();
   let snapshot: Buffer;
   try {
@@ -66,6 +94,11 @@ export function nativeCopyMarkdownHtmlInitialCertificate(birthInput: NativeCopyM
     if (!Buffer.from(Y.encodeSnapshot(decoded)).equals(snapshot)
       || !Buffer.from(Y.encodeStateVector(decoded.sv)).equals(vector)) fail();
   } catch { return fail(); }
+  if (birth.version===2) {
+    const body = {version:3 as const,birthProof:birth.birthProof,inventory4Proof:proof(birth.binding.nativeInventory),
+      htmlBindingProof:proof(birth.binding.html)};
+    return Object.freeze({...body,bindingProof:proof(body)});
+  }
   // Expected digest only: fresh B1 already proved actual Parser3/4 body
   // parity before mutations. No historical Native4 inspection is fabricated.
   const body = { version:2 as const, birthProof:birth.birthProof,

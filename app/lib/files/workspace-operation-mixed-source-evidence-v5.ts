@@ -943,3 +943,10 @@ export async function decodeWorkspaceOperationPhysicalDeleteAfterTrashObservatio
     return reject(error instanceof RangeError ? 'too-large' : 'invalid');
   }
 }
+
+/** Strict parser4 historical physical facts only, using the same existing E5
+ * validator. This neither reparses unavailable bytes nor grants current FD,
+ * namespace-operation assessment, import or persistence authority. */
+export function decodePhysicalMarkdownSourceEvidenceV5(input: unknown): PhysicalMarkdownSourceEvidenceV5 {
+  return physicalV5Inventory(input, { bytes: MAX_INDEXED_MARKDOWN_BYTES, links: MAX_LINKS });
+}

@@ -1,10 +1,11 @@
-/** Additive Raw-Copy B1 facts. No original CloneReceipt shape is extended. */
+/** Additive Raw-Copy B1 facts. Birth1 and Birth2 are disjoint immutable
+ * profiles; no original CloneReceipt shape or stored Birth1 row is extended. */
 export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS collaboration_native_copy_markdown_births (
     workspace_id text NOT NULL CHECK(length(workspace_id) BETWEEN 1 AND 256),
     parent_operation_id text NOT NULL CHECK(length(parent_operation_id) BETWEEN 1 AND 256),
     requirement_index integer NOT NULL CHECK(requirement_index BETWEEN 0 AND 9999),
-    version integer NOT NULL CHECK(version=1),
+    version integer NOT NULL CHECK(version IN (1,2)),
     import_operation_id text NOT NULL CHECK(length(import_operation_id) BETWEEN 1 AND 256),
     document_id text NOT NULL CHECK(length(document_id) BETWEEN 1 AND 256),
     lineage_id text NOT NULL CHECK(length(lineage_id) BETWEEN 1 AND 256),
@@ -22,6 +23,19 @@ export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
     FOREIGN KEY(workspace_id,parent_operation_id) REFERENCES collaboration_native_copy_receipts(workspace_id,operation_id),
     FOREIGN KEY(workspace_id,import_operation_id) REFERENCES collaboration_markdown_file_import_receipts(workspace_id,operation_id)
   )`,
+  // CREATE TABLE IF NOT EXISTS cannot upgrade an existing Birth1 relation.
+  // Retain the original relation and its cross-profile identity/FK fences.
+  `DO $$ BEGIN
+    IF NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint
+      WHERE conrelid='collaboration_native_copy_markdown_births'::regclass
+        AND conname='collaboration_native_copy_markdown_births_version_check'
+        AND contype='c' AND convalidated
+        AND pg_catalog.pg_get_expr(conbin,conrelid)='(version = ANY (ARRAY[1, 2]))') THEN
+      ALTER TABLE collaboration_native_copy_markdown_births
+        DROP CONSTRAINT IF EXISTS collaboration_native_copy_markdown_births_version_check,
+        ADD CONSTRAINT collaboration_native_copy_markdown_births_version_check CHECK(version IN (1,2));
+    END IF;
+  END $$`,
   `CREATE OR REPLACE FUNCTION validate_native_copy_markdown_birth() RETURNS trigger LANGUAGE plpgsql AS $$
     DECLARE birth jsonb; parent jsonb; origin jsonb; binding jsonb; receipt jsonb; target jsonb; source jsonb;
       actual record; xid text; xmin32 text; value text; actual_count bigint; previous_bytes bigint;
@@ -36,7 +50,7 @@ export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
       END IF;
       xid:=pg_catalog.pg_current_xact_id()::text;
       xmin32:=(xid::numeric % 4294967296)::text;
-      IF NEW.version<>1 OR NEW.b1_transaction_id<>xid
+      IF NEW.version NOT IN (1,2) OR NEW.b1_transaction_id<>xid
         OR NEW.birth_digest IS DISTINCT FROM pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(NEW.birth_text,'UTF8')),'hex') THEN
         RAISE EXCEPTION 'Raw Markdown Copy birth transaction or bytes changed' USING ERRCODE='23514';
       END IF;
@@ -48,6 +62,7 @@ export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
       birth:=NEW.birth_text::jsonb;
       parent:=birth->'parent'; origin:=birth->'origin'; binding:=birth->'binding';
       receipt:=binding->'receipt'; target:=receipt->'target'; source:=binding->'source';
+      IF NEW.version=1 THEN
       IF pg_catalog.jsonb_typeof(birth) IS DISTINCT FROM 'object'
         OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(birth))<>6
         OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(birth) k WHERE k NOT IN
@@ -99,6 +114,112 @@ export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
         OR binding->'nativeInventory'->'version'->'stateProof' IS DISTINCT FROM target->'initialStateProof'
         OR binding->'nativeInventory'->'coverage'->'complete' IS DISTINCT FROM 'true'::jsonb THEN
         RAISE EXCEPTION 'Raw Markdown Copy birth data changed' USING ERRCODE='23514';
+      END IF;
+      ELSE
+      IF pg_catalog.jsonb_typeof(birth) IS DISTINCT FROM 'object'
+        OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(birth))<>7
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(birth) k WHERE k NOT IN
+          ('version','parent','origin','binding','namespaceAssessment','b1TransactionId','birthProof'))
+        OR birth->'version' IS DISTINCT FROM '2'::jsonb
+        OR birth->>'b1TransactionId' IS DISTINCT FROM xid
+        OR pg_catalog.jsonb_typeof(parent) IS DISTINCT FROM 'object'
+        OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(parent))<>7
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(parent) k WHERE k NOT IN
+          ('operationId','planId','stageDigest','requestHash','requirementIndex','entityKey','requirementProof'))
+        OR parent->>'operationId' IS DISTINCT FROM NEW.parent_operation_id
+        OR parent->>'planId' IS DISTINCT FROM NEW.plan_id OR parent->>'stageDigest' IS DISTINCT FROM NEW.stage_digest
+        OR parent->>'requestHash' IS DISTINCT FROM NEW.request_hash OR parent->>'requirementIndex' IS DISTINCT FROM NEW.requirement_index::text
+        OR parent->>'entityKey' IS DISTINCT FROM NEW.requirement_key OR parent->>'requirementProof' IS DISTINCT FROM NEW.requirement_proof
+        OR pg_catalog.jsonb_typeof(binding) IS DISTINCT FROM 'object'
+        OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(binding))<>10
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(binding) k WHERE k NOT IN
+          ('version','original4','source','receipt','nativeInventory','nativeBinaryHash','nativeVectorHash','html','links','bindingProof'))
+        OR binding->'version' IS DISTINCT FROM '2'::jsonb
+        OR pg_catalog.jsonb_typeof(binding->'nativeBinaryHash') IS DISTINCT FROM 'string'
+        OR pg_catalog.jsonb_typeof(binding->'nativeVectorHash') IS DISTINCT FROM 'string'
+        OR pg_catalog.jsonb_typeof(binding->'bindingProof') IS DISTINCT FROM 'string'
+        OR pg_catalog.jsonb_typeof(birth->'birthProof') IS DISTINCT FROM 'string'
+        OR ((binding->>'nativeBinaryHash') ~ '^[a-f0-9]{64}$') IS DISTINCT FROM true
+        OR ((binding->>'nativeVectorHash') ~ '^[a-f0-9]{64}$') IS DISTINCT FROM true
+        OR ((binding->>'bindingProof') ~ '^[a-f0-9]{64}$') IS DISTINCT FROM true
+        OR ((birth->>'birthProof') ~ '^[a-f0-9]{64}$') IS DISTINCT FROM true
+        OR pg_catalog.jsonb_typeof(binding->'links') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(binding->'links')>20000
+        OR pg_catalog.jsonb_typeof(origin) IS DISTINCT FROM 'object'
+        OR pg_catalog.jsonb_typeof(source) IS DISTINCT FROM 'object'
+        OR pg_catalog.jsonb_typeof(target) IS DISTINCT FROM 'object'
+        OR receipt->>'operationId' IS DISTINCT FROM NEW.import_operation_id
+        OR target->>'documentId' IS DISTINCT FROM NEW.document_id OR target->>'lineageId' IS DISTINCT FROM NEW.lineage_id
+        OR target->>'workspaceId' IS DISTINCT FROM NEW.workspace_id OR target->'lifecycleGeneration' IS DISTINCT FROM '1'::jsonb
+        OR target->'schemaVersion' IS DISTINCT FROM '1'::jsonb OR target->'initialSequence' IS DISTINCT FROM '0'::jsonb
+        OR target->>'persistedAt' IS DISTINCT FROM NEW.created_at::text
+        OR source->'workspaceId' IS DISTINCT FROM origin->'sourceScope'->'workspaceId'
+        OR source->'organizationId' IS DISTINCT FROM origin->'sourceScope'->'organizationId'
+        OR target->'workspaceId' IS DISTINCT FROM origin->'destinationScope'->'workspaceId'
+        OR target->'organizationId' IS DISTINCT FROM origin->'destinationScope'->'organizationId'
+        OR source->'sourceHash' IS DISTINCT FROM receipt->'sourceHash'
+        OR source->'sourceBytes' IS DISTINCT FROM receipt->'sourceBytes'
+        OR binding->'nativeInventory'->'document'->>'documentId' IS DISTINCT FROM NEW.document_id
+        OR binding->'nativeInventory'->'document'->>'path' IS DISTINCT FROM target->>'path'
+        OR binding->'nativeInventory'->'contractVersion' IS DISTINCT FROM '2'::jsonb
+        OR binding->'nativeInventory'->'parserVersion' IS DISTINCT FROM '4'::jsonb
+        OR binding->'nativeInventory'->'version'->'documentSequence' IS DISTINCT FROM '0'::jsonb
+        OR binding->'nativeInventory'->'version'->'stateProof' IS DISTINCT FROM target->'initialStateProof'
+        OR pg_catalog.jsonb_typeof(binding->'nativeInventory'->'coverage'->'gaps') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(binding->'nativeInventory'->'coverage'->'gaps')>20000
+        OR binding->'nativeInventory'->'coverage'->'complete' IS DISTINCT FROM
+          pg_catalog.to_jsonb(pg_catalog.jsonb_array_length(binding->'nativeInventory'->'coverage'->'gaps')=0)
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(binding->'nativeInventory'->'coverage'->'gaps') gap
+          WHERE gap->>'code' IS DISTINCT FROM 'uninspected-html')
+        OR pg_catalog.jsonb_typeof(binding->'original4') IS DISTINCT FROM 'object'
+        OR binding->'original4'->'physicalSourceVersion' IS DISTINCT FROM '1'::jsonb
+        OR binding->'original4'->'parserVersion' IS DISTINCT FROM '4'::jsonb
+        OR source->'parserVersion' IS DISTINCT FROM '4'::jsonb
+        OR source->'workspaceId' IS DISTINCT FROM binding->'original4'->'workspaceId'
+        OR source->'organizationId' IS DISTINCT FROM binding->'original4'->'organizationId'
+        OR source->'path' IS DISTINCT FROM binding->'original4'->'path'
+        OR source->'physicalSourceProof' IS DISTINCT FROM binding->'original4'->'physicalSourceProof'
+        OR source->'filesystemIdentity' IS DISTINCT FROM binding->'original4'->'physical'->'filesystemIdentity'
+        OR source->'sourceHash' IS DISTINCT FROM binding->'original4'->'physical'->'byteHash'
+        OR source->'sourceBytes' IS DISTINCT FROM binding->'original4'->'physical'->'byteLength'
+        OR pg_catalog.jsonb_typeof(binding->'original4'->'coverage'->'gaps') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(binding->'original4'->'coverage'->'gaps')>20000
+        OR binding->'original4'->'coverage'->'complete' IS DISTINCT FROM
+          pg_catalog.to_jsonb(pg_catalog.jsonb_array_length(binding->'original4'->'coverage'->'gaps')=0)
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(binding->'original4'->'coverage'->'gaps') gap
+          WHERE gap->>'code' IS DISTINCT FROM 'uninspected-html')
+        OR pg_catalog.jsonb_typeof(binding->'html') IS DISTINCT FROM 'object'
+        OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(binding->'html'))<>5
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(binding->'html') k WHERE k NOT IN
+          ('version','original','imported','originalSourceProof','nativeSourceProof'))
+        OR binding->'html'->'version' IS DISTINCT FROM '1'::jsonb
+        OR binding->'html'->'original' IS DISTINCT FROM binding->'original4'->'htmlInspection'
+        OR binding->'html'->'original'->'parserVersion' IS DISTINCT FROM '4'::jsonb
+        OR binding->'html'->'imported'->'parserVersion' IS DISTINCT FROM '4'::jsonb
+        OR pg_catalog.jsonb_typeof(binding->'html'->'original'->'occurrences') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(binding->'html'->'original'->'occurrences') NOT BETWEEN 1 AND 20000
+        OR pg_catalog.jsonb_typeof(binding->'html'->'imported'->'occurrences') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(binding->'html'->'imported'->'occurrences')<>
+          pg_catalog.jsonb_array_length(binding->'html'->'original'->'occurrences')
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(binding->'html'->'original'->'occurrences') occurrence
+          WHERE occurrence->'fullyInspected' IS DISTINCT FROM 'true'::jsonb)
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_array_elements(binding->'html'->'imported'->'occurrences') occurrence
+          WHERE occurrence->'fullyInspected' IS DISTINCT FROM 'true'::jsonb)
+        OR pg_catalog.jsonb_typeof(birth->'namespaceAssessment') IS DISTINCT FROM 'object'
+        OR (SELECT count(*) FROM pg_catalog.jsonb_object_keys(birth->'namespaceAssessment'))<>8
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_object_keys(birth->'namespaceAssessment') k WHERE k NOT IN
+          ('version','kind','sourceSemanticProof','destinationSemanticProof','requestProof','beforeNamespaceProof','finalNamespaceProof','htmlAssessmentProof'))
+        OR birth->'namespaceAssessment'->'version' IS DISTINCT FROM '1'::jsonb
+        OR birth->'namespaceAssessment'->>'kind' IS DISTINCT FROM 'copy-html-v4-assessment'
+        OR birth->'namespaceAssessment'->'sourceSemanticProof' IS DISTINCT FROM birth->'namespaceAssessment'->'destinationSemanticProof'
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(birth->'namespaceAssessment') field
+          WHERE field.key NOT IN ('version','kind') AND
+            (pg_catalog.jsonb_typeof(field.value) IS DISTINCT FROM 'string' OR (field.value #>> '{}') !~ '^[a-f0-9]{64}$'))
+        OR EXISTS(SELECT 1 FROM pg_catalog.jsonb_each(binding->'html') field
+          WHERE field.key IN ('originalSourceProof','nativeSourceProof') AND
+            (pg_catalog.jsonb_typeof(field.value) IS DISTINCT FROM 'string' OR (field.value #>> '{}') !~ '^[a-f0-9]{64}$')) THEN
+        RAISE EXCEPTION 'Raw Markdown Copy Birth2 data changed' USING ERRCODE='23514';
+      END IF;
       END IF;
       EXECUTE pg_catalog.format('SELECT coalesce(sum(octet_length(birth_text)),0)::bigint
         FROM %I.collaboration_native_copy_markdown_births WHERE workspace_id=$1 AND parent_operation_id=$2',TG_TABLE_SCHEMA)
@@ -155,6 +276,16 @@ export const NATIVE_COPY_MARKDOWN_BIRTH_STATEMENTS = [
         OR actual.representation IS DISTINCT FROM target->>'representation' OR actual.newline_style IS DISTINCT FROM target->>'newlineStyle'
         OR pg_catalog.to_jsonb(actual.has_bom<>0) IS DISTINCT FROM target->'hasBom' OR actual.persisted_at<>NEW.created_at THEN
         RAISE EXCEPTION 'Raw Markdown Copy birth actual rows changed' USING ERRCODE='23514';
+      END IF;
+      -- Copy-only first C2 runtime profile. Its owner derives the namespace
+      -- assessment from actual E5/compiler replay; declared hashes grant none.
+      IF NEW.version=2 AND (NEW.requirement_index<>0 OR actual.source_workspace_id IS DISTINCT FROM actual.destination_workspace_id
+        OR actual.request_json::jsonb->>'kind' IS DISTINCT FROM 'copy'
+        OR pg_catalog.jsonb_typeof(actual.request_json::jsonb->'selections') IS DISTINCT FROM 'array'
+        OR pg_catalog.jsonb_array_length(actual.request_json::jsonb->'selections')<>1
+        OR actual.request_json::jsonb->'selections'->0->>'sourcePath' IS DISTINCT FROM source->>'path'
+        OR actual.request_json::jsonb->'selections'->0->>'destinationPath' IS DISTINCT FROM target->>'path') THEN
+        RAISE EXCEPTION 'Raw Markdown Copy Birth2 operation changed' USING ERRCODE='23514';
       END IF;
       RETURN NEW;
     END $$`,

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Y } from '../app/lib/collaboration/server-runtime';
+import { bindPhysicalNativeImportLinksV2, decodePhysicalNativeImportBindingV2, type PhysicalNativeImportBindingInputV2 } from '../app/lib/markdown/physical-native-import-binding-v2';
+import { decodeNativeCopyMarkdownBirthV2, nativeCopyMarkdownBirthV2Text } from '../app/lib/collaboration/native-copy-markdown-birth-v2-contract';
 import { decodeNativeCopyMarkdownBirthV1 } from '../app/lib/collaboration/native-copy-markdown-birth-contract';
 import { authoritativeNativeCollaborationSnapshot, inspectPersistedNativeCollaborationSnapshot } from '../app/lib/collaboration/document-snapshot';
 import { prepareMarkdownFileImport } from '../app/lib/collaboration/markdown-file-import';
@@ -8,7 +10,7 @@ import type { MarkdownFileImportReceipt } from '../app/lib/collaboration/markdow
 import type { PersistedCollaborationState } from '../app/lib/collaboration/persistence';
 import { bindPhysicalNativeImportLinks, PhysicalNativeImportBindingError,
   type PhysicalNativeImportBindingInput } from '../app/lib/markdown/physical-native-import-binding';
-import { captureRawHtmlCopyNativeBindingV2, nativeCopyMarkdownHtmlInitialCertificate } from '../app/lib/markdown/workspace-raw-html-copy-binding';
+import { captureRawHtmlCopyNativeBindingV2, nativeCopyMarkdownHtmlInitialCertificate, captureRawHtmlCopyNativeBindingV3 } from '../app/lib/markdown/workspace-raw-html-copy-binding';
 import { MAX_INDEXED_MARKDOWN_BYTES } from '../app/lib/markdown/workspace-link-limits';
 import { inspectPersistedDocumentLinks, inspectPersistedDocumentLinksV3,
   nativeLinkJsonProof } from '../app/lib/markdown/workspace-native-link-inventory';
@@ -323,6 +325,155 @@ export function physicalNativeImportBindingTest(): void {
   passed++;
   assert.equal(passed, 13);
 
+  // C2 contract-only additions. These real parsers/import/Rehearsal bytes use
+  // declared receipts and namespace hashes; no SQL, FD, Owner or unaffected
+  // namespace-operation result is asserted by any case below.
+  const c2Fixture = (source: string, targetPath = 'source/original.md', targetWorkspaceId = 'source-workspace', registered = false): PhysicalNativeImportBindingInputV2 => {
+    const seed = fixture('# Seed\n', 'plain_text', targetPath, targetWorkspaceId, registered);
+    const bytes = Buffer.from(source, 'utf8'), prepared = prepareMarkdownFileImport(bytes, { representation: 'auto' });
+    const state = { ...seed.state, representation: prepared.representation, newlineStyle: prepared.newlineStyle, hasBom: prepared.hasBom,
+      yjsState: prepared.yjsState, stateVector: prepared.stateVector };
+    const actual = authoritativeNativeCollaborationSnapshot(state);
+    const receipt = { ...seed.receipt, sourceHash: prepared.sourceHash, sourceBytes: prepared.sourceBytes,
+      target: { ...seed.receipt.target, representation: state.representation, newlineStyle: state.newlineStyle, hasBom: state.hasBom,
+        initialStateProof: actual.version.stateProof } };
+    const original = inspectOriginalPhysicalLinksV4({ workspaceId: seed.original.workspaceId, organizationId: seed.original.organizationId,
+      path: seed.original.path, authority: seed.original.authority, filesystemIdentity: `1:42:${bytes.byteLength}:100:101`, bytes });
+    return { original, receipt, state, lineageId: seed.lineageId };
+  };
+  {
+    for (const cross of [false, true]) {
+      const input = c2Fixture('\uFEFF---\r\ntitle: Exact C2\r\n---\r\n\r\n# Heading\r\n\r\n😀 [one](target.md) [two](target.md)\r\n\r\n<img src="/stable.png" alt="Unchanged">\r\n',
+        cross ? 'copies/new.md' : 'source/original.md', cross ? 'different-workspace' : 'source-workspace');
+      const before = structuredClone(input), binding = bindPhysicalNativeImportLinksV2(input);
+      assert.equal(binding.version, 2); assert.equal(binding.original4.parserVersion, 4); assert.equal(binding.nativeInventory.parserVersion, 4);
+      assert.deepEqual(binding.original4.coverage, input.original.coverage);
+      assert.equal(binding.original4.coverage.complete, false); assert.equal(binding.nativeInventory.coverage.complete, false);
+      assert.equal(binding.html.original.occurrences.length, 1); assert.equal(binding.html.imported.occurrences.length, 1);
+      assert.deepEqual(binding.html.original.occurrences[0].explicitLocalTargets, ['/stable.png']);
+      assert.equal(binding.links.length, 2); assert.equal(new Set(binding.links.map(link => link.occurrenceProof)).size, 2);
+      assert.deepEqual(decodePhysicalNativeImportBindingV2(JSON.parse(JSON.stringify(binding))), binding);
+      const snapshot = initialSnapshot(input.state);
+      assert.notEqual(sha(snapshot), binding.nativeBinaryHash, 'C2 full-update hash is distinct from Snapshot stateProof');
+      assert.equal(`yjs-snapshot-sha256-v1:${sha(snapshot)}`, binding.nativeInventory.version.stateProof);
+      assert.deepEqual(input, before); assert.throws(() => bindPhysicalNativeImportLinks(input as unknown as PhysicalNativeImportBindingInput));
+    }
+  }
+  passed++;
+  {
+    for (const cross of [false, true]) for (const source of ['<p>Static HTML</p>\n', '[self](target.md)\n\n<img src="/stable.png">\n']) {
+      const input = c2Fixture(source, cross ? 'copies/renamed.md' : 'source/original.md', cross ? 'different-workspace' : 'source-workspace', true);
+      const binding = bindPhysicalNativeImportLinksV2(input);
+      assert.equal(binding.nativeInventory.document.documentId === 'registered-pristine-document', !cross);
+      assert.equal(binding.receipt.target.lineageId === 'pristine-original-lineage', !cross);
+      assert.deepEqual(binding.original4.htmlInspection, binding.html.original);
+      if (!source.startsWith('[self]')) assert.deepEqual(binding.links, []);
+    }
+  }
+  passed++;
+  {
+    const input = c2Fixture('[one](target.md)\n\n<img src="/stable.png">\n'), binding = bindPhysicalNativeImportLinksV2(input);
+    for (const changed of ['version', 'native-parser', 'false-complete', 'physical-html', 'native-html', 'drop-occurrence', 'vector', 'receipt', 'binary-nonstring', 'occurrence-nonstring'] as const) {
+      const forged = structuredClone(binding);
+      if (changed === 'version') Reflect.set(forged, 'version', 1);
+      if (changed === 'native-parser') Reflect.set(forged.nativeInventory, 'parserVersion', 3);
+      if (changed === 'false-complete') { forged.nativeInventory.coverage.complete = true; forged.nativeInventory.coverage.gaps = []; }
+      if (changed === 'physical-html') forged.html.original.occurrences[0].raw = '<img src="/changed.png">';
+      if (changed === 'native-html') forged.html.imported.occurrences[0].explicitLocalTargets = ['/changed.png'];
+      if (changed === 'drop-occurrence') Reflect.set(forged, 'links', []);
+      if (changed === 'vector') Reflect.set(forged, 'nativeVectorHash', '0'.repeat(64));
+      if (changed === 'receipt') forged.receipt.sourceHash = 'f'.repeat(64);
+      if (changed === 'binary-nonstring') Reflect.set(forged, 'nativeBinaryHash', [binding.nativeBinaryHash]);
+      if (changed === 'occurrence-nonstring') Reflect.set(forged.links[0], 'occurrenceProof', [binding.links[0].occurrenceProof]);
+      const { bindingProof: _oldProof, ...body } = forged; Reflect.set(forged, 'bindingProof', nativeLinkJsonProof(body));
+      assert.throws(() => decodePhysicalNativeImportBindingV2(forged));
+    }
+    for (const changed of ['original-bytes', 'state-bytes', 'lineage', 'source-proof'] as const) {
+      const value = structuredClone(input);
+      if (changed === 'original-bytes') value.original.originalBytes[0] ^= 1;
+      if (changed === 'state-bytes') value.state.yjsState[0] ^= 1;
+      if (changed === 'lineage') Reflect.set(value, 'lineageId', 'foreign-lineage');
+      if (changed === 'source-proof') value.original.physicalSourceProof = 'f'.repeat(64);
+      assert.throws(() => bindPhysicalNativeImportLinksV2(value));
+    }
+  }
+  passed++;
+  {
+    for (const source of ['[one](target.md)\n\n<unknown data-path="stable.png">Opaque</unknown>\n',
+      '[one](target.md)\n\n<script src="stable.js"></script>\n']) {
+      const input = c2Fixture(source), before = structuredClone(input);
+      assert(input.original.htmlInspection.occurrences.some(row => !row.fullyInspected));
+      assert.throws(() => bindPhysicalNativeImportLinksV2(input)); assert.deepEqual(input, before);
+    }
+  }
+  passed++;
+  {
+    let calls = 0;
+    const input = c2Fixture('[one](target.md)\n\n<p>Static HTML</p>\n'), binding = bindPhysicalNativeImportLinksV2(input);
+    for (const key of ['original', 'receipt', 'state', 'lineageId'] as const) {
+      const hostile = { ...input }; Object.defineProperty(hostile, key, { enumerable: true, get() { calls++; throw Error('must not run'); } });
+      assert.throws(() => bindPhysicalNativeImportLinksV2(hostile));
+    }
+    const historical = { ...binding }; Object.defineProperty(historical, 'html', { enumerable: true, get() { calls++; throw Error('must not run'); } });
+    assert.throws(() => decodePhysicalNativeImportBindingV2(historical));
+    assert.throws(() => decodePhysicalNativeImportBindingV2(new Proxy(binding, { ownKeys() { calls++; throw Error('must not run'); } })));
+    assert.equal(calls, 0);
+  }
+  passed++;
+  {
+    const input = c2Fixture('[one](target.md)\n\n<img src="/stable.png">\n', 'copies/new.md', 'different-workspace');
+    const binding = bindPhysicalNativeImportLinksV2(input);
+    const sourceScope = { version: 1 as const, workspaceId: 'source-workspace', workspaceType: 'personal' as const,
+      organizationId: null, customerId: null, projectId: null, ownerUserId: 'fixture-owner',
+      rootPath: '/data/users/source-workspace/files', rootRelativePath: null, legacy: false };
+    const destinationScope = { ...sourceScope, workspaceId: 'different-workspace', rootPath: '/data/users/different-workspace/files' };
+    const body = { version: 2 as const, parent: { operationId: 'declared-copy-parent', planId: 'a'.repeat(64), stageDigest: 'b'.repeat(64),
+      requestHash: 'c'.repeat(64), requirementIndex: 0, entityKey: 'declared-raw-source', requirementProof: 'd'.repeat(64) },
+      origin: { version: 1 as const, actor: { type: 'user' as const, userId: 'fixture-owner', actorId: 'fixture-owner', sessionId: 'fixture-session' },
+        sourceScope, destinationScope }, binding,
+      namespaceAssessment: { version: 1 as const, kind: 'copy-html-v4-assessment' as const, sourceSemanticProof: '1'.repeat(64),
+        destinationSemanticProof: '2'.repeat(64), requestProof: '3'.repeat(64), beforeNamespaceProof: '4'.repeat(64),
+        finalNamespaceProof: '5'.repeat(64), htmlAssessmentProof: '6'.repeat(64) }, b1TransactionId: '42' };
+    const birth = decodeNativeCopyMarkdownBirthV2({ ...body, birthProof: nativeLinkJsonProof(body) });
+    assert.equal(birth.version, 2); assert.deepEqual(decodeNativeCopyMarkdownBirthV2(JSON.parse(nativeCopyMarkdownBirthV2Text(birth))), birth);
+    assert.throws(() => decodeNativeCopyMarkdownBirthV1(birth));
+
+    const original = structuredClone(input), snapshot = initialSnapshot(input.state);
+    assert.notEqual(sha(snapshot), birth.binding.nativeBinaryHash);
+    const certificate = captureRawHtmlCopyNativeBindingV3(birth, input.state).certificate;
+    assert.deepEqual(nativeCopyMarkdownHtmlInitialCertificate(birth, snapshot, birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash), certificate);
+    const later = new Y.Doc();
+    try {
+      Y.applyUpdate(later, input.state.yjsState);
+      later.getText(input.state.representation === 'plain_text' ? 'content' : 'frontmatter').insert(0, 'Later C2 edit\n');
+      const laterState = { ...input.state, documentSequence: 1, persistedAt: input.state.persistedAt + 1,
+        yjsState: Y.encodeStateAsUpdate(later), stateVector: Y.encodeStateVector(later) };
+      assert.notEqual(authoritativeNativeCollaborationSnapshot(laterState).version.stateProof, birth.binding.receipt.target.initialStateProof);
+      assert.throws(() => captureRawHtmlCopyNativeBindingV3(birth, laterState));
+      assert.deepEqual(nativeCopyMarkdownHtmlInitialCertificate(birth, snapshot, birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash), certificate);
+    } finally { later.destroy(); }
+    assert.deepEqual(input, original);
+    const corruptSnapshot = Buffer.from(snapshot); corruptSnapshot[corruptSnapshot.length - 1] ^= 1;
+    assert.throws(() => nativeCopyMarkdownHtmlInitialCertificate(birth, corruptSnapshot, birth.binding.nativeBinaryHash, birth.binding.nativeVectorHash));
+
+    for (const mode of ['retag', 'binding1', 'wrong-scope', 'assessment-extra', 'xid', 'stale-proof'] as const) {
+      const changed = structuredClone(birth);
+      if (mode === 'retag') Reflect.set(changed, 'version', 1);
+      if (mode === 'binding1') Reflect.set(changed.binding, 'version', 1);
+      if (mode === 'wrong-scope') Reflect.set(changed.origin.destinationScope, 'workspaceId', 'foreign-workspace');
+      if (mode === 'assessment-extra') Reflect.set(changed.namespaceAssessment, 'validated', true);
+      if (mode === 'xid') Reflect.set(changed, 'b1TransactionId', '18446744073709551616');
+      if (mode === 'stale-proof') Reflect.set(changed.namespaceAssessment, 'htmlAssessmentProof', 'e'.repeat(64));
+      if (mode !== 'stale-proof') { const { birthProof: _proof, ...facts } = changed; Reflect.set(changed, 'birthProof', nativeLinkJsonProof(facts)); }
+      assert.throws(() => decodeNativeCopyMarkdownBirthV2(changed));
+    }
+    // A rehashed assessment digest remains valid DATA. It is deliberately no
+    // evidence of an actual namespace assessment or permission to persist.
+    const other = structuredClone(body); other.namespaceAssessment.htmlAssessmentProof = 'f'.repeat(64);
+    assert.doesNotThrow(() => decodeNativeCopyMarkdownBirthV2({ ...other, birthProof: nativeLinkJsonProof(other) }));
+  }
+  passed++;
+  assert.equal(passed, 19);
   console.log(JSON.stringify({ suite: 'physical-native-import-binding', passed, pureFactsOnly: true,
     realParserAndNativeRehearsal: true, databaseOrAuthorityAcceptance: false }));
 }

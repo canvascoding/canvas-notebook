@@ -15,11 +15,16 @@ import { decodeWorkspaceOperationMixedSourceEvidenceV5, workspaceOperationMixedS
   type WorkspaceOperationMixedSourceEvidenceV5, type WorkspaceOperationMixedSourceSnapshotV5 } from './workspace-operation-mixed-source-evidence-v5';
 import { captureWorkspaceOperationNativeCatalogueWitness } from './workspace-operation-native-catalogue-witness';
 import type { WorkspaceDocumentCatalogueEntry } from '../collaboration/workspace-document-catalogue';
-import { decodeNativeCopyMarkdownBirthV1, nativeCopyMarkdownImportIds, type NativeCopyMarkdownBirthV1 } from '../collaboration/native-copy-markdown-birth-contract';
+import { nativeCopyMarkdownImportIds } from '../collaboration/native-copy-markdown-birth-contract';
+import { decodeNativeCopyMarkdownBirth, type NativeCopyMarkdownBirth } from '../collaboration/native-copy-markdown-birth-any-contract';
 import type { NativeLinkMutationReceipt } from '../markdown/native-link-mutation-persistence';
 import { formatNativeLinkTargetForPathChange } from '../markdown/workspace-native-mixed-batch-compiler';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
 import type { ManagedCopyRawImportRequirementV7 } from './workspace-operation-managed-copy-plan-v7';
+import type { ManagedCopyRawImportRequirementV8 } from './workspace-operation-managed-copy-plan-v8';
+import { decodeRawHtmlSourceBindingV2 } from '../markdown/workspace-raw-html-source-binding-v2';
+import { inspectRawHtmlCopyImportedHtml } from '../markdown/workspace-raw-html-copy-binding';
+type RawHtmlRequirement = ManagedCopyRawImportRequirementV7 | ManagedCopyRawImportRequirementV8;
 import { decodeRawHtmlSourceBindingV1 } from '../markdown/workspace-raw-html-source-binding';
 import { NativeCopyFinalGraphError } from './workspace-operation-native-copy-graph';
 
@@ -29,8 +34,8 @@ export type NativeCopyFinalRawHtmlGraphInput = {
   states: readonly PersistedCollaborationState[];
   physicalCopies: readonly Readonly<{ entityKey: string; entry: NativeNamespaceEntry }>[];
   createdParents: readonly NativeNamespaceEntry[];
-  rawParent: Pick<NativeCopyMarkdownBirthV1['parent'],'operationId'|'planId'|'stageDigest'|'requestHash'>;
-  rawRequirements: readonly ManagedCopyRawImportRequirementV7[]; rawBirths: readonly NativeCopyMarkdownBirthV1[];
+  rawParent: Pick<NativeCopyMarkdownBirth['parent'],'operationId'|'planId'|'stageDigest'|'requestHash'>;
+  rawRequirements: readonly RawHtmlRequirement[]; rawBirths: readonly NativeCopyMarkdownBirth[];
   rawLinkReceipts: readonly NativeLinkMutationReceipt[];
   physicalEvidence: readonly Readonly<{ original: WorkspaceOperationMixedSourceEvidenceV5;
     current: WorkspaceOperationMixedSourceEvidenceV5; currentCatalogue: readonly Readonly<WorkspaceDocumentCatalogueEntry>[] }>[];
@@ -287,7 +292,7 @@ function assertRawHtmlCopyGraph(input: NativeCopyFinalRawHtmlGraphInput): void {
 
 /** Reverse exactly actual receipt-certified inserted catalogue rows. All
  * original rows, scopes, raw bytes, FSI, metadata and HTML facts stay bound. */
-function assertRawHtmlCopyPhysicalReadSources(input: NativeCopyFinalRawHtmlGraphInput, raw: ReadonlyMap<string,NativeCopyMarkdownBirthV1>): void {
+function assertRawHtmlCopyPhysicalReadSources(input: NativeCopyFinalRawHtmlGraphInput, raw: ReadonlyMap<string,NativeCopyMarkdownBirth>): void {
   if (input.physicalEvidence.length !== input.originals.length || input.originals.length < 1 || input.originals.length > 2) fail();
   const seen = new Set<string>(), bornIds = new Set<string>();
   for (const piece of input.physicalEvidence) {
@@ -356,12 +361,12 @@ function sceneField(input: unknown, name: string): unknown {
   if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value')) fail(); return descriptor.value;
 }
 
-function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<string, NativeCopyMarkdownBirthV1> {
+function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<string, NativeCopyMarkdownBirth> {
   const parent = captureWorkspaceOperationNativePlanData(input.rawParent, fail) as NativeCopyFinalRawHtmlGraphInput['rawParent'];
   if (Object.keys(parent).length !== 4 || !parent.operationId || parent.operationId !== input.receipt.operationId
     || ![parent.planId, parent.stageDigest, parent.requestHash].every(value => typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value))) fail();
-  const requirements = captureWorkspaceOperationNativePlanData(input.rawRequirements, fail, 16 * 1024 * 1024) as readonly ManagedCopyRawImportRequirementV7[];
-  const births = sceneArray(input.rawBirths).map(decodeNativeCopyMarkdownBirthV1), result = new Map<string, NativeCopyMarkdownBirthV1>();
+  const requirements = captureWorkspaceOperationNativePlanData(input.rawRequirements, fail, 16 * 1024 * 1024) as readonly RawHtmlRequirement[];
+  const births = sceneArray(input.rawBirths).map(decodeNativeCopyMarkdownBirth), result = new Map<string, NativeCopyMarkdownBirth>();
   if (births.length !== requirements.length || requirements.length !== input.compiled.rawImportRequirements.length
     || input.compiled.finalNamespace.filter(entity => entity.binding.kind === 'unbound-import').length !== births.length) fail();
   const originalIds = new Set(input.originals.flatMap(snapshot => snapshot.namespace.flatMap(entry => entry.documentId ? [entry.documentId] : [])));
@@ -384,7 +389,20 @@ function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<strin
     const source = input.originals.find(snapshot => snapshot.workspaceId === requirement.sourceWorkspaceId)
       ?.physicalSources.find(source => source.path === requirement.sourcePath);
     if(!source)fail();
-    const source3=decodeRawHtmlSourceBindingV1(sourceBinding,source).original3;
+    if (birth.version===1 ? sourceBinding.version!==1 : sourceBinding.version!==2) fail();
+    const source3=sourceBinding.version===1 ? decodeRawHtmlSourceBindingV1(sourceBinding,source).original3
+      : decodeRawHtmlSourceBindingV2(sourceBinding,source).original4;
+    if (birth.version===2) {
+      const sourcePiece=pieces.find(piece=>piece.original.workspaceScope.workspaceId===requirement.sourceWorkspaceId)?.original;
+      const destinationPiece=pieces.find(piece=>piece.original.workspaceScope.workspaceId===requirement.destinationWorkspaceId)?.original;
+      if (!sourcePiece || !destinationPiece || requirement.sourceWorkspaceId!==requirement.destinationWorkspaceId
+        || input.compiled.requests[0].selections.length!==1 || births.length!==1
+        || !equal(birth.namespaceAssessment,{version:1,kind:'copy-html-v4-assessment',
+          sourceSemanticProof:sourcePiece.semanticProof,destinationSemanticProof:destinationPiece.semanticProof,
+          requestProof:proof(input.compiled.requests[0]),
+          beforeNamespaceProof:proof(pieces.map(piece=>({workspaceId:piece.original.workspaceScope.workspaceId,namespace:piece.original.namespace}))),
+          finalNamespaceProof:proof(input.compiled.finalNamespace),htmlAssessmentProof:input.compiled.htmlAssessmentProof})) fail();
+    }
     const originalEntry = input.originals.find(snapshot => snapshot.workspaceId === requirement.sourceWorkspaceId)
       ?.namespace.find(entry => entry.path === requirement.sourcePath);
     const entity = input.compiled.finalNamespace.find(entity => entity.entityKey === requirement.entityKey);
@@ -399,7 +417,7 @@ function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<strin
       || !equal(birth.origin, births[0].origin) || birth.b1TransactionId !== births[0].b1TransactionId
       || !source || source3.physicalSourceProof !== requirement.physicalSourceProof || !equal(source.physical, requirement.physical)
       || !originalEntry || originalEntry.documentId !== null || entityKey(originalEntry) !== requirement.sourceEntityKey
-      || !equal(birth.binding.source, { workspaceId: source.workspaceId, organizationId: source.organizationId, path: source.path,
+      || !equal(birth.binding.source, { ...(birth.version===2?{parserVersion:4}:{}), workspaceId: source.workspaceId, organizationId: source.organizationId, path: source.path,
         physicalSourceProof: source3.physicalSourceProof, filesystemIdentity: source.physical.filesystemIdentity,
         sourceHash: source.physical.byteHash, sourceBytes: source.physical.byteLength })
       || !entity || entity.binding.kind !== 'unbound-import' || entity.binding.sourceEntityKey !== requirement.sourceEntityKey
@@ -425,6 +443,12 @@ function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<strin
         || native.alias !== link.alias || native.embed !== link.embed) fail();
     }
     const current = inspectPersistedDocumentLinksV4(state), receipt = receipts.get(target.documentId);
+    if (birth.version===2) {
+      const html=inspectRawHtmlCopyImportedHtml(state);
+      const htmlProof=proof({parserVersion:4,occurrences:html.occurrences.map(row=>({raw:row.raw,
+        fullyInspected:row.fullyInspected,explicitLocalTargets:row.explicitLocalTargets}))});
+      if (htmlProof!==birth.binding.html.nativeSourceProof) fail();
+    }
     const changed = birth.binding.links.some(binding => {
       const original = birth.binding.nativeInventory.links.find(link => link.id === binding.nativeLinkId) ?? fail();
       const intent = input.compiled.steps[0].physicalLinkIntents.find(intent => intent.entityKey === requirement.entityKey
@@ -444,7 +468,7 @@ function assertRawCopyBirths(input: NativeCopyFinalRawHtmlGraphInput): Map<strin
 }
 
 
-function assertRawCopyLinkVersion(birth: NativeCopyMarkdownBirthV1, current: NativeDocumentLinkInventoryV4,
+function assertRawCopyLinkVersion(birth: NativeCopyMarkdownBirth, current: NativeDocumentLinkInventoryV4,
   supplied: NativeLinkMutationReceipt | undefined): void {
   const initial = birth.binding.nativeInventory;
   if (!equal(current.document, initial.document)) fail();

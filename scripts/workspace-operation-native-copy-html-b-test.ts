@@ -13,6 +13,11 @@ import { workspaceSourceAuthorityStageProof } from '../app/lib/markdown/workspac
 import { workspaceOperationMixedSourceEvidenceV5Fixture as fixture } from './workspace-operation-mixed-source-evidence-v5-test';
 import { createWorkspaceOperationManagedCopyPlanV6, decodeWorkspaceOperationManagedCopyPlanV6,
   assertWorkspaceOperationManagedCopyPlanV6Current } from '../app/lib/files/workspace-operation-managed-copy-plan-v6';
+import { createWorkspaceOperationManagedCopyPlanV7, decodeWorkspaceOperationManagedCopyPlanV7,
+  WorkspaceOperationManagedCopyPlanV7Error } from '../app/lib/files/workspace-operation-managed-copy-plan-v7';
+import { createWorkspaceOperationManagedCopyPlanV8, decodeWorkspaceOperationManagedCopyPlanV8, WorkspaceOperationManagedCopyPlanV8Error }
+  from '../app/lib/files/workspace-operation-managed-copy-plan-v8';
+import { compileWorkspaceMixedSelectedHtmlImportCopyBatchV6 } from '../app/lib/markdown/workspace-native-mixed-batch-compiler';
 import { prepareHtmlCopyStage, decodeHtmlCopyStage, replayHtmlCopyStageCompiler, assertHtmlCopyStageManifestDigest }
   from '../app/lib/files/workspace-operation-html-copy-stage';
 import { captureWorkspaceOperationCopyOrigin } from '../app/lib/files/workspace-operation-copy-origin';
@@ -164,6 +169,42 @@ export function workspaceOperationNativeCopyHtmlBTest(): void {
     const value = observation(), destination = fixture({ workspaceId: 'html-destination', native: [], raw: [['other.html', '<p>Other</p>']] });
     const plan = build(value, destination); assert.notEqual(plan.sourceScope.workspaceId, plan.destinationScope.workspaceId);
     assert.equal(plan.destinationEvidence.physicalHtmlSources4.length, 1); assert.equal(plan.cloneRequirements.length, 2);
+    // Request order is semantic even when the two workspace IDs sort the
+    // other way round. Exercise genuine V7 raw-import planning in both orders.
+    for (const [sourceId, destinationId] of [['raw-order-a', 'raw-order-z'], ['raw-order-z', 'raw-order-a']] as const) {
+      const source = fixture({ workspaceId: sourceId, native: [],
+        raw: [['folder/note.md', '# Raw\n\n[Self](note.md) [Asset](picture.png)\n'], ['unrelated.html', '<p>Unrelated source HTML</p>']],
+        extra: [{ path: 'folder/picture.png', kind: 'file' }] });
+      const target = fixture({ workspaceId: destinationId, native: [], raw: [['other.html', '<p>Unrelated destination HTML</p>']] });
+      const original = structuredClone([source.observation, target.observation]);
+      const rawPlan = createWorkspaceOperationManagedCopyPlanV7({ sourceScope: { workspace: scope(source), fileOptions: {} },
+        destinationScope: { workspace: scope(target), fileOptions: {} },
+        selections: [{ sourcePath: 'folder', destinationPath: 'folder-copy' }],
+        sourceObservation: source.observation, destinationObservation: target.observation });
+      assert.equal(rawPlan.version, 7); assert.equal(rawPlan.compilation.contractVersion, 6);
+      assert.deepEqual(rawPlan.rawImportRequirements.map(requirement => requirement.sourcePath), ['folder/note.md']);
+      assert.equal(rawPlan.sourceEvidence.coverage.complete, false); assert.equal(rawPlan.nativePathPlan.htmlAssessment.complete, true);
+      const expectedCoverage = [{ workspaceId: sourceId, coverage: rawPlan.sourceEvidence.coverage },
+        { workspaceId: destinationId, coverage: rawPlan.destinationEvidence.coverage }];
+      assert.deepEqual(rawPlan.compilation.sourceCoverage, expectedCoverage);
+      assert.deepEqual(rawPlan.nativePathPlan.sourceCoverage, expectedCoverage);
+      assert.deepEqual(decodeWorkspaceOperationManagedCopyPlanV7(JSON.parse(JSON.stringify(rawPlan))), rawPlan);
+      // Re-sign every affected transport proof. Reordered coverage must still
+      // disagree with the original source/destination request and evidence.
+      const { planId: _compilerProof, ...compilerBody } = rawPlan.compilation;
+      const swappedBody = { ...compilerBody, sourceCoverage: [...expectedCoverage].reverse() };
+      const compilation = { ...swappedBody, planId: proof(swappedBody) };
+      const { planId: _pathProof, ...pathBody } = rawPlan.nativePathPlan;
+      const swappedPath = { ...pathBody, sourceCoverage: compilation.sourceCoverage };
+      const nativePathPlan = { ...swappedPath, planId: proof(swappedPath) };
+      const { integrityProof: _integrity, ...planBody } = rawPlan;
+      const forgedBody = { ...planBody, compilation, compilerPlanProof: compilation.planId, nativePathPlan };
+      const forged = { ...forgedBody, integrityProof: proof(forgedBody) };
+      assert.equal(forged.planId, rawPlan.planId);
+      assert.throws(() => decodeWorkspaceOperationManagedCopyPlanV7(forged), error => error instanceof WorkspaceOperationManagedCopyPlanV7Error
+        && error.code === 'MANAGED_COPY_PLAN_INVALID' && error.status === 409);
+      assert.deepEqual([source.observation, target.observation], original);
+    }
   });
   family('opaque HTML blocks; missing target newly occupied by Copy blocks', () => {
     for (const html of ['<unknown value="hidden.md">x</unknown>', '<a href="note-copy.md">future</a>']) {
@@ -177,6 +218,47 @@ export function workspaceOperationNativeCopyHtmlBTest(): void {
     const scene = observation(); scene.observation.stage.namespace.push({ workspaceId: scene.scope.workspaceId, path: 'canvas.excalidraw', kind: 'file',
       provider: 'excalidraw', documentId: null, lifecycleGeneration: null, filesystemIdentity: null, identity: 'scene:fixture:1:content' });
     scene.observation.stage.stageProof = workspaceSourceAuthorityStageProof(scene.observation.stage); assert.throws(() => build(scene));
+    // External-only own HTML compiles as C2 even without a legacy Parser3 gap.
+    // The unchanged central assessor still rejects selected local HTML links.
+    for (const htmlMode of ['external-only', 'local-and-external'] as const) {
+      const externalHtml = '<p><a href="https://example.com">Unchanged C2 HTML Ω</a></p>';
+      const html = htmlMode === 'external-only' ? externalHtml
+        : externalHtml.replace('</p>', ' <a href="stable.png">Unchanged C2 local asset</a></p>');
+      const ownHtml = fixture({ native: [], raw: [['own.md', `# C2\n\n[Self](own.md) [Asset](stable.png)\n\n${html}\n`]],
+        extra: [{ path: 'stable.png', kind: 'file' }] });
+      const original = structuredClone(ownHtml.observation);
+      const compiled = compileWorkspaceMixedSelectedHtmlImportCopyBatchV6({ sourceEvidence: ownHtml.evidence,
+        states: ownHtml.observation.privateNativeStates, requests: [{ kind: 'copy', sourceWorkspaceId: ownHtml.scope.workspaceId,
+          destinationWorkspaceId: ownHtml.scope.workspaceId, selections: [{ sourcePath: 'own.md', destinationPath: 'own-copy.md' }] }] });
+      if (htmlMode === 'local-and-external') {
+        assert(compiled.issues.some(issue => issue.code === 'affected-html-link'));
+        assert.throws(() => createWorkspaceOperationManagedCopyPlanV8({ sourceScope: { workspace: scope(ownHtml), fileOptions: {} },
+          destinationScope: { workspace: scope(ownHtml), fileOptions: {} },
+          selections: [{ sourcePath: 'own.md', destinationPath: 'own-copy.md' }],
+          sourceObservation: ownHtml.observation, destinationObservation: ownHtml.observation }),
+        error => error instanceof WorkspaceOperationManagedCopyPlanV8Error && error.code === 'MANAGED_COPY_PLAN_UNSUPPORTED' && error.status === 409);
+        assert.deepEqual(ownHtml.observation, original); continue;
+      }
+      assert.deepEqual(compiled.issues, []);
+      const plan8 = createWorkspaceOperationManagedCopyPlanV8({ sourceScope: { workspace: scope(ownHtml), fileOptions: {} },
+        destinationScope: { workspace: scope(ownHtml), fileOptions: {} },
+        selections: [{ sourcePath: 'own.md', destinationPath: 'own-copy.md' }],
+        sourceObservation: ownHtml.observation, destinationObservation: ownHtml.observation });
+      assert.equal(plan8.version, 8); assert.equal(plan8.compilation.contractVersion, 6);
+      assert.equal(plan8.sourceEvidence.coverage.complete, htmlMode === 'external-only');
+      assert.equal(plan8.rawImportRequirements.length, 1); assert.equal(plan8.rawImportRequirements[0].sourcePath, 'own.md');
+      assert.equal(plan8.rawImportRequirements[0].sourceBinding.original4.parserVersion, 4);
+      const inspection = plan8.sourceEvidence.physicalSources4[0].htmlInspection;
+      assert.equal(inspection.occurrences.length, 1); assert(inspection.occurrences[0].fullyInspected);
+      assert(inspection.occurrences[0].raw.includes(html));
+      assert.deepEqual(plan8.compilation.sourceCoverage,
+        [{ workspaceId: ownHtml.scope.workspaceId, coverage: ownHtml.evidence.coverage }]);
+      assert.deepEqual(decodeWorkspaceOperationManagedCopyPlanV8(JSON.parse(JSON.stringify(plan8))), plan8);
+      const public8 = workspaceOperationNativeCopyPublicPreview(plan8);
+      assert.equal(public8.version, 6); assert.equal(public8.coverage.complete, htmlMode === 'external-only');
+      assert.equal(public8.linkAssessment?.complete, true); assert.equal(public8.linkAssessment?.blockers.length, 0);
+      assert.deepEqual(ownHtml.observation, original);
+    }
   });
   family('public V5 and MCP output retain original incompleteness without leaking private facts', () => {
     const value = observation(), publicPlan = workspaceOperationNativeCopyPublicPreview(build(value));

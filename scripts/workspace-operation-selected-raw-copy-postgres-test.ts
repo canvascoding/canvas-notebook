@@ -585,6 +585,412 @@ export async function workspaceOperationSelectedRawCopyPostgresTest(): Promise<v
       assert.equal(workspaceCopyFailureV1(error).body.code, 'COPY_NATIVE_REQUIRED'); return true;
     });
     groups++; assert.equal(groups, 11);
+    // C2 additions start only after every original eleven family body. These
+    // operations use the writable destination as BOTH actual workspace sides.
+    const { decodeNativeCopyMarkdownBirthV2: c2DecodeBirth } = await import('../app/lib/collaboration/native-copy-markdown-birth-v2-contract');
+    const { inspectPersistedDocumentLinksV4: c2InspectLinks, nativeLinkJsonProof: c2Proof } = await import('../app/lib/markdown/workspace-native-link-inventory');
+    const { inspectWorkspaceMarkdownHtmlV4: c2InspectHtml } = await import('../app/lib/markdown/workspace-local-link-parser');
+    const { authoritativeNativeCollaborationSnapshot: c2Snapshot } = await import('../app/lib/collaboration/document-snapshot');
+    const { DirectMcpDocumentReadPrincipalError: C2PrincipalError } = await import('../app/lib/mcp/server/document-read-principal');
+    const { captureWorkspaceOperationMixedSourceEvidenceV5: c2CaptureSourceEvidence,
+      workspaceOperationMixedSourceSnapshotV5: c2SourceSnapshot } = await import('../app/lib/files/workspace-operation-mixed-source-evidence-v5');
+    const { buildWorkspaceMixedHtmlLinkGraphV5: c2BuildGraph } = await import('../app/lib/markdown/workspace-native-link-graph');
+    type C2Stage = import('../app/lib/files/workspace-operation-raw-html-copy-stage-v9').WorkspaceOperationRawHtmlCopyStageV9;
+    type C2Birth = ReturnType<typeof c2DecodeBirth>;
+    type C2Command = { operation_id: string; plan_id: string; selections: Array<{ source_path: string; destination_path: string }> };
+    const c2Call = (body: Record<string, unknown>, token = currentToken) => rawCopyCall({
+      source_workspace_id: h.destination.workspaceId, destination_workspace_id: h.destination.workspaceId, ...body }, token);
+    const c2Seed = async () => {
+      const prefix = `c2_${crypto.randomUUID().replaceAll('-', '')}`, source = prefix + '.md', target = prefix + '-copied.md', asset = prefix + '.png';
+      const html = '<p><a href="https://example.com">Unchanged C2 HTML Ω</a></p>';
+      const bytes = Buffer.from(`# C2\n\n[Self](${source}) [Asset](${asset})\n\n${html}\n`);
+      const assetBytes = Buffer.from([137,80,78,71,13,10,26,10,0,255]);
+      await fs.writeFile(path.join(h.destination.rootPath, source), bytes, { flag: 'wx', mode: 0o600 });
+      await fs.writeFile(path.join(h.destination.rootPath, asset), assetBytes, { flag: 'wx', mode: 0o600 });
+      const sourceFiles = await rawCopyFilesystem(path.join(h.destination.rootPath, source));
+      const assetFiles = await rawCopyFilesystem(path.join(h.destination.rootPath, asset));
+      const sourceStat = await fs.lstat(path.join(h.destination.rootPath, source)); assert(sourceStat.isFile());
+      const original = await readWorkspaceCopySourceObservationOnConnection(h.connection, h.destination, { physicalParserVersion: 3 });
+      const originalSource = original.stage.sources.find(row => row.kind === 'physical' && row.inventory.path === source);
+      assert(originalSource?.kind === 'physical'); assert.equal(originalSource.inventory.parserVersion, 3);
+      assert.deepEqual(Buffer.from(originalSource.inventory.originalBytes), bytes);
+      assert.deepEqual(originalSource.inventory.coverage, { complete: true, gaps: [] });
+      const originalGraph = c2BuildGraph(c2SourceSnapshot(c2CaptureSourceEvidence(captureWorkspaceOperationJobScope(h.destination), {
+        stage: original.stage, nativeBindings: original.nativeBindings, privateNativeStates: original.privateNativeStates,
+        privateCatalogue: original.privateCatalogue,
+      })));
+      const originalUnresolved = originalGraph.edges.filter(edge => edge.classification === 'local' && edge.resolution.status !== 'resolved')
+        .map(edge => ({ sourcePath: edge.source.path, targetLiteral: edge.literal, status: edge.resolution.status }));
+      const originalCoverage = { complete: originalGraph.coverage.complete && originalUnresolved.length === 0,
+        omittedSources: [], unresolvedLinks: originalUnresolved };
+      const originalSourceCoverage = [{ workspaceId: originalGraph.workspaceId, coverage: { complete: originalGraph.coverage.complete,
+        gaps: originalGraph.coverage.gaps.map(gap => ({ code: gap.code, path: gap.path })) } }];
+      const preview = await rawCopyNoWrites(() => c2Call({ action: 'preview', selections: [{ source_path: source, destination_path: target }] }));
+      assert(preview.action === 'preview'); assert(preview.preview.version === 6); assert.equal(preview.preview.readiness, 'ready');
+      assert.deepEqual(preview.preview.coverage, originalCoverage);
+      assert.equal(preview.preview.linkAssessment!.complete, true);
+      assert.equal(preview.preview.linkAssessment!.blockers.length, 0); assert.equal(preview.preview.sourceCoverage.length, 1);
+      assert.equal(preview.preview.sourceCoverage[0].workspaceId, h.destination.workspaceId);
+      assert.deepEqual(preview.preview.sourceCoverage, originalSourceCoverage);
+      assert.equal(preview.preview.sourceCoverage[0].coverage.gaps.some(gap => gap.path === source), false);
+      assert.deepEqual(preview.preview.pathMappings.map(row => [row.sourcePath, row.destinationPath]), [[source, target]]);
+      const command: C2Command = { operation_id: `c2_copy_${crypto.randomUUID().replaceAll('-', '')}`, plan_id: preview.preview.planId,
+        selections: [{ source_path: source, destination_path: target }] };
+      return { source, target, asset, html, bytes, assetBytes, sourceFiles, assetFiles, sourceStat, command };
+    };
+    type C2Seed = Awaited<ReturnType<typeof c2Seed>>;
+    const c2BirthRows = async (operationId: string, raw?: MetadataSqlEvent['raw']) => {
+      const sql = `SELECT b.version,b.birth_text,b.birth_digest,b.b1_transaction_id,b.xmin::text AS birth_xmin,
+        r.xmin::text AS import_xmin,r.actor_user_id,r.actor_session_id,r.private_result,
+        d.xmin::text AS registry_xmin,l.xmin::text AS lineage_xmin,s.xmin::text AS state_xmin,s.document_sequence,
+        s.lifecycle_generation,s.room_owner_epoch,s.room_owner_token,s.room_owner_backend_pid,s.room_owner_backend_start
+        FROM collaboration_native_copy_markdown_births b JOIN collaboration_markdown_file_import_receipts r
+          ON r.workspace_id=b.workspace_id AND r.operation_id=b.import_operation_id
+        JOIN collaboration_documents d ON d.id=b.document_id AND d.workspace_id=b.workspace_id AND d.lineage_id=b.lineage_id
+        JOIN file_collaboration_lineages l ON l.id=b.lineage_id JOIN collaboration_yjs_states s ON s.document_id=b.document_id
+        WHERE b.workspace_id=$1 AND b.parent_operation_id=$2 ORDER BY b.requirement_index LIMIT 2`;
+      const values = [h.destination.workspaceId, operationId]; return (raw ? await raw(sql, values) : await h.admin.query(sql, values)).rows;
+    };
+    const c2JournalRows = async (operationId: string, raw?: MetadataSqlEvent['raw']) => {
+      const sql = `SELECT step_key,status,before_fence,after_fence,receipt_json,xmin::text AS xmin FROM workspace_file_operation_steps
+        WHERE operation_id=$1 AND (step_key='copy-completion' OR step_key LIKE 'copy-raw-target:%') ORDER BY step_key`;
+      return (raw ? await raw(sql, [operationId]) : await h.admin.query(sql, [operationId])).rows;
+    };
+    const c2NativeRows = async (documentId: string) => {
+      const rows: Record<string, unknown> = {};
+      for (const [table, field] of [['collaboration_documents','id'],['file_collaboration_lineages','id'],
+        ['collaboration_yjs_states','document_id'],['collaboration_file_projections','document_id'],
+        ['collaboration_native_link_mutation_receipts','document_id']] as const) {
+        rows[table] = (await h.admin.query(`SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM ${table} t
+          WHERE ${field}=$1 ORDER BY to_jsonb(t)::text,xmin::text`, [table === 'file_collaboration_lineages'
+          ? (await h.admin.query('SELECT lineage_id FROM collaboration_documents WHERE id=$1', [documentId])).rows[0].lineage_id : documentId])).rows;
+      }
+      return rows;
+    };
+    const c2AssertBirth = (stage: C2Stage, row: Awaited<ReturnType<typeof c2BirthRows>>[number], seed: C2Seed) => {
+      assert.equal(Number(row.version), 2); const birth = c2DecodeBirth(JSON.parse(row.birth_text));
+      assert.equal(birth.version, 2); assert.equal(birth.binding.version, 2); assert.equal(birth.binding.source.parserVersion, 4);
+      assert.equal(birth.binding.nativeInventory.parserVersion, 4); assert.equal(birth.binding.original4.parserVersion, 4);
+      assert.equal(birth.parent.operationId, seed.command.operation_id); assert.equal(birth.parent.planId, stage.plan.planId);
+      assert.equal(birth.parent.stageDigest, stage.payloadSha256); assert.equal(birth.parent.requestHash, stage.identity.canonicalRequestHash);
+      assert.equal(birth.parent.requirementIndex, 0); assert.equal(birth.parent.entityKey, stage.plan.rawImportRequirements[0].entityKey);
+      assert.deepEqual(birth.origin, stage.origin); assert.equal(birth.origin.sourceScope.workspaceId, h.destination.workspaceId);
+      assert.equal(birth.origin.destinationScope.workspaceId, h.destination.workspaceId);
+      assert.equal(birth.binding.source.path, seed.source); assert.equal(birth.binding.receipt.target.path, seed.target);
+      assert.equal(birth.binding.receipt.target.initialSequence, 0); assert.equal(birth.binding.nativeInventory.version.documentSequence, 0);
+      assert.equal(birth.binding.source.sourceHash, crypto.createHash('sha256').update(seed.bytes).digest('hex'));
+      assert.equal(birth.binding.source.sourceBytes, seed.bytes.length); assert.equal(birth.binding.links.length, 2);
+      assert.equal(birth.binding.original4.physical.byteHash, birth.binding.source.sourceHash);
+      assert.deepEqual(birth.binding.original4, stage.plan.sourceEvidence.physicalSources4.find(source => source.path === seed.source));
+      assert.equal(birth.binding.source.physicalSourceProof, stage.plan.rawImportRequirements[0].physicalSourceProof);
+      const sourceEntry = stage.plan.sourceEvidence.namespace.find(entry => entry.path === seed.source); assert(sourceEntry);
+      assert.equal(sourceEntry.kind, 'file'); assert.equal(sourceEntry.documentId, null);
+      assert.equal(sourceEntry.filesystemIdentity, `${seed.sourceStat.dev}:${seed.sourceStat.ino}:${seed.sourceStat.size}:${seed.sourceStat.mtimeMs}:${seed.sourceStat.ctimeMs}`);
+      assert(stage.plan.compilation.finalNamespace.some(entry => entry.path === seed.source));
+      assert(stage.plan.compilation.finalNamespace.some(entry => entry.path === seed.target));
+      assert.equal(birth.namespaceAssessment.sourceSemanticProof, stage.plan.sourceEvidence.semanticProof);
+      assert.equal(birth.namespaceAssessment.destinationSemanticProof, stage.plan.destinationEvidence.semanticProof);
+      assert.equal(birth.namespaceAssessment.htmlAssessmentProof, stage.plan.compilation.htmlAssessmentProof);
+      assert.equal(row.birth_digest, crypto.createHash('sha256').update(row.birth_text).digest('hex'));
+      assert.equal(row.b1_transaction_id, birth.b1TransactionId); assert.equal(row.actor_user_id, 'member');
+      assert.equal(row.actor_session_id, stage.origin.actor.sessionId); assert.equal(Number(row.lifecycle_generation), 1);
+      assert.deepEqual(row.private_result, birth.binding.receipt);
+      const xmin = String(BigInt(birth.b1TransactionId) % (BigInt(1) << BigInt(32)));
+      assert.equal(row.birth_xmin, xmin); assert.equal(row.import_xmin, xmin); assert.equal(row.registry_xmin, xmin); assert.equal(row.lineage_xmin, xmin);
+      return birth;
+    };
+    const c2AssertComplete = async (seed: C2Seed, stage: C2Stage, original: C2Birth) => {
+      const rows = await c2BirthRows(seed.command.operation_id); assert.equal(rows.length, 1);
+      const birth = c2AssertBirth(stage, rows[0], seed); assert.deepEqual(birth, original);
+      const state = await load(h.connection, birth.binding.receipt.target.documentId); assert(state);
+      assert.equal(state.documentId, original.binding.receipt.target.documentId); assert.equal(state.path, seed.target);
+      assert.equal(state.lifecycleGeneration, original.binding.receipt.target.lifecycleGeneration); assert.equal(state.documentSequence, 1);
+      const inventory = c2InspectLinks(state); assert.equal(inventory.parserVersion, 4); assert.equal(inventory.links.length, 2);
+      assert.deepEqual(inventory.links.map(link => link.literal).sort(), [seed.target, seed.asset].sort());
+      const snapshot = c2Snapshot(state); assert(snapshot.content.kind === 'plain_text');
+      assert.equal(snapshot.content.text, seed.bytes.toString('utf8').replace(`(${seed.source})`, `(${seed.target})`));
+      const htmlFacts = (text: string, file: string) => c2InspectHtml(text, file).occurrences.map(({ raw, fullyInspected, explicitLocalTargets }) =>
+        ({ raw, fullyInspected, explicitLocalTargets }));
+      assert.deepEqual(htmlFacts(snapshot.content.text, seed.target), htmlFacts(seed.bytes.toString('utf8'), seed.source));
+      assert(htmlFacts(snapshot.content.text, seed.target).some(row => row.raw.includes(seed.html)));
+      assert.deepEqual(await rawCopyFilesystem(path.join(h.destination.rootPath, seed.source)), seed.sourceFiles);
+      assert.deepEqual(await rawCopyFilesystem(path.join(h.destination.rootPath, seed.asset)), seed.assetFiles);
+      assert.deepEqual(await fs.readFile(path.join(h.destination.rootPath, seed.target)), seed.bytes);
+      const targetStat = await fs.lstat(path.join(h.destination.rootPath, seed.target)); assert(targetStat.isFile());
+      assert(targetStat.dev !== seed.sourceStat.dev || targetStat.ino !== seed.sourceStat.ino, 'Copy target must have independent physical identity.');
+      assert.equal((await h.admin.query('SELECT count(*)::int AS n FROM collaboration_documents WHERE workspace_id=$1 AND path=$2',
+        [h.destination.workspaceId, seed.source])).rows[0].n, 0, 'The physical source is never imported by Copy.');
+      const mutations = (await h.admin.query(`SELECT operation_id,before_sequence,after_sequence,actor_session_id,request_hash,xmin::text AS xmin
+        FROM collaboration_native_link_mutation_receipts WHERE document_id=$1`, [state.documentId])).rows;
+      assert.equal(mutations.length, 1); assert.equal(Number(mutations[0].before_sequence), 0); assert.equal(Number(mutations[0].after_sequence), 1);
+      assert.equal(mutations[0].actor_session_id, stage.origin.actor.sessionId); assert.equal(mutations[0].request_hash, stage.identity.canonicalRequestHash);
+      assert.equal(mutations[0].xmin, rows[0].birth_xmin, 'Raw ordinary rebinding belongs to the genuine B1 cohort.');
+      const journal = await c2JournalRows(seed.command.operation_id), completion = journal.filter(row => row.step_key === 'copy-completion');
+      assert.equal(completion.length, 1); assert.equal(completion[0].status, 'applied'); const body = JSON.parse(completion[0].receipt_json);
+      assert.equal(body.version, 8); assert.equal(body.rawBirthCount, 1); assert.equal(body.rawBirthsProof, nativeCopyMarkdownBirthsProof([birth]));
+      const confirmation = journal.filter(row => row.step_key.startsWith('copy-raw-target:')); assert.equal(confirmation.length, 1);
+      assert.equal(confirmation[0].status, 'applied'); const receipt = JSON.parse(confirmation[0].receipt_json);
+      assert.equal(receipt.version, 3); assert.equal(receipt.operationId, seed.command.operation_id); assert.equal(receipt.planId, stage.plan.planId);
+      assert.equal(receipt.stageDigest, stage.payloadSha256); assert.equal(receipt.requestHash, stage.identity.canonicalRequestHash);
+      assert.equal(receipt.documentId, state.documentId); assert.equal(receipt.lineageId, birth.binding.receipt.target.lineageId);
+      assert.equal(receipt.birthProof, birth.birthProof); assert.equal(receipt.mutationId, mutations[0].operation_id);
+      assert.equal(receipt.ordinaryBinding.version, 3); assert.equal(receipt.ordinaryBinding.birthProof, birth.birthProof);
+      assert.equal(receipt.ordinaryBinding.inventory4Proof, c2Proof(birth.binding.nativeInventory));
+      assert.equal(receipt.ordinaryBinding.htmlBindingProof, c2Proof(birth.binding.html));
+      assert.deepEqual(Object.keys(receipt.ordinaryBinding).sort(), ['bindingProof','birthProof','htmlBindingProof','inventory4Proof','version'].sort());
+      const { bindingProof: certificateProof, ...certificate } = receipt.ordinaryBinding; assert.equal(certificateProof, c2Proof(certificate));
+      assert.equal(receipt.after.documentSequence, 1); assert.equal(receipt.after.stateProof, inventory.version.stateProof);
+      assert.equal(confirmation[0].after_fence, c2Proof(receipt));
+      assert.equal(await staging.loadOwnedCopyByOperationId(seed.command.operation_id), null);
+      const native = await readDocumentForRequest(await h.request(h.destination, 'member', false, sessionToken), {
+        apiVersion: 1, workspaceId: h.destination.workspaceId, documentId: state.documentId, format: 'native', maxBytes: 262144 });
+      assert(native.complete); assert.equal(native.document.documentId, state.documentId); assert.equal(native.document.lineageId, birth.binding.receipt.target.lineageId);
+      const markdown = await readDocumentForRequest(await h.request(h.destination, 'member', false, sessionToken), {
+        apiVersion: 1, workspaceId: h.destination.workspaceId, documentId: state.documentId, expectedVersion: native.document.version,
+        format: 'markdown', maxBytes: 262144 });
+      assert(markdown.complete); assert.deepEqual(markdown.document, native.document); assert.equal(markdown.fragment, snapshot.content.text);
+      await rawCopyNoWrites(async () => {
+        await assertCurrentCollaborationProjectionIdentity(state); let entered = false;
+        await withCollaborationProjectionPublicationGuard(state, async current => { entered = true; await current(); }); assert(entered);
+        const status = await c2Call({ action: 'status', operation_id: seed.command.operation_id }); assert(status.action === 'status');
+        assert.equal(status.operation.completion.status, 'confirmed');
+        for (const action of ['apply','recover'] as const) {
+          const history = await c2Call({ action, ...seed.command }); assert(history.action === action);
+          assert.equal(history.execution.status, 'complete'); assert.equal(history.alreadyKnown, true);
+          assert.equal(history.execution.operationId, seed.command.operation_id); assert.deepEqual(history.copied, [seed.target]);
+        }
+      });
+      assert.deepEqual(await c2BirthRows(seed.command.operation_id), rows); assert.deepEqual(await c2JournalRows(seed.command.operation_id), journal);
+      return { birth, state, journal, targetStat };
+    };
+    type C2Witness = { client: MetadataSqlEvent['client']; pid: number; start: string; xid: string };
+    const c2Run = async (seed: C2Seed, fault: 'none' | 'b1-commit-ack' | 'b2-completion-rollback') => {
+      const rollbackError = Object.assign(new Error('Genuine C2 B2 completion write rolled back.'), { code: 'C2_B2_COMPLETION_ROLLBACK' });
+      const observed: { stage?: C2Stage; birth?: C2Birth; b1?: C2Witness; b2?: C2Witness; initialRows?: Awaited<ReturnType<typeof c2BirthRows>>;
+        b1Committed?: Awaited<ReturnType<typeof c2BirthRows>>; b2Committed?: Awaited<ReturnType<typeof c2JournalRows>>;
+        nativeBeforeRollback?: Awaited<ReturnType<typeof c2NativeRows>>; journalBeforeRollback?: Awaited<ReturnType<typeof c2JournalRows>>;
+        b1Link: boolean; fired: boolean } = { b1Link: false, fired: false };
+      const witness = async (event: MetadataSqlEvent): Promise<C2Witness> => {
+        const row = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+          pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+          to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+        assert.equal(row.schema, h.schema); assert.equal(row.schema_oid, h.schemaOid); assert.equal(typeof row.xid, 'string');
+        assert.notEqual(Number((await h.admin.query('SELECT pg_backend_pid() AS pid')).rows[0].pid), Number(row.pid));
+        return { client: event.client, pid: Number(row.pid), start: row.start, xid: row.xid };
+      };
+      const apply = () => h.withProbe(async event => {
+        if (!observed.stage && /^\s*INSERT\s+INTO\s+workspace_file_operations\b/iu.test(event.text) && event.values[0] === seed.command.operation_id) {
+          const stage = await staging.loadOwnedCopyByOperationId(seed.command.operation_id); assert(stage?.version === 9); observed.stage = stage;
+          assert.equal(stage.plan.version, 8); assert.equal(stage.plan.rawImportRequirements.length, 1);
+          assert.equal(stage.rawOriginals[0].parserVersion, 4); assert.deepEqual(Buffer.from(stage.rawOriginals[0].originalBytes), seed.bytes);
+          assert.equal(stage.origin.actor.sessionId, sessionId); assert.equal(stage.origin.sourceScope.workspaceId, h.destination.workspaceId);
+          assert.equal(stage.origin.destinationScope.workspaceId, h.destination.workspaceId);
+        }
+        if (/^\s*INSERT\s+INTO\s+collaboration_native_copy_markdown_births\b/iu.test(event.text)
+          && event.values[1] === seed.command.operation_id && event.values[2] === 0) {
+          assert(observed.stage); assert(!observed.b1); observed.b1 = await witness(event);
+          const rows = await c2BirthRows(seed.command.operation_id, event.raw); assert.equal(rows.length, 1);
+          const birth = c2AssertBirth(observed.stage, rows[0], seed); assert.equal(birth.b1TransactionId, observed.b1.xid);
+          assert.equal(Number(rows[0].document_sequence), 0); assert.equal(rows[0].state_xmin, rows[0].birth_xmin);
+          assert.equal(Number(rows[0].room_owner_epoch), 0); assert.equal(rows[0].room_owner_token, null);
+          assert.equal(rows[0].room_owner_backend_pid, null); assert.equal(rows[0].room_owner_backend_start, null);
+          assert.equal((await c2BirthRows(seed.command.operation_id)).length, 0); observed.birth = birth; observed.initialRows = rows;
+        }
+        if (observed.birth && /^\s*INSERT\s+INTO\s+collaboration_native_link_mutation_receipts\b/iu.test(event.text)
+          && event.values[1] === observed.birth.binding.receipt.target.documentId) {
+          assert(observed.b1); assert.deepEqual(await witness(event), observed.b1); assert.equal(event.result.rowCount, 1);
+          const rows = await c2BirthRows(seed.command.operation_id, event.raw); assert.equal(Number(rows[0].document_sequence), 1);
+          assert.equal(rows[0].state_xmin, rows[0].birth_xmin); assert.equal((await c2BirthRows(seed.command.operation_id)).length, 0);
+          observed.b1Link = true;
+        }
+        if (observed.b1 && !observed.b1Committed && event.client === observed.b1.client && /^COMMIT\s*;?$/iu.test(event.text.trim())) {
+          assert(observed.b1Link && observed.birth); assert.equal(event.result.command, 'COMMIT');
+          const current = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(Number(current.pid), observed.b1.pid); assert.equal(current.start, observed.b1.start); assert.equal(current.xid, null);
+          observed.b1Committed = await c2BirthRows(seed.command.operation_id); assert.equal(observed.b1Committed.length, 1);
+          assert.equal(Number(observed.b1Committed[0].document_sequence), 1);
+          assert.deepEqual(c2DecodeBirth(JSON.parse(observed.b1Committed[0].birth_text)), observed.birth);
+          await assert.rejects(fs.lstat(path.join(h.destination.rootPath, seed.target)), { code: 'ENOENT' });
+          if (fault === 'b1-commit-ack') { observed.fired = true;
+            throw Object.assign(new Error('Genuine C2 B1 COMMIT acknowledgement lost.'), { code: 'C2_B1_ACK_LOST' }); }
+        }
+        if (/^\s*UPDATE\s+workspace_file_operation_steps\s+SET\b/iu.test(event.text) && event.values[0] === seed.command.operation_id
+          && event.values[1] === 'copy-completion') {
+          assert(observed.stage && observed.birth && observed.b1Committed && observed.b1); observed.b2 = await witness(event);
+          assert.equal(observed.b2.client, observed.b1.client); assert.equal(observed.b2.pid, observed.b1.pid);
+          assert.equal(observed.b2.start, observed.b1.start); assert.notEqual(observed.b2.xid, observed.b1.xid);
+          const actual = await c2JournalRows(seed.command.operation_id, event.raw);
+          assert.equal(actual.filter(row => row.step_key === 'copy-completion' && row.status === 'applied').length, 1);
+          assert.equal(JSON.parse(actual.find(row => row.step_key === 'copy-completion')!.receipt_json).version, 8);
+          assert.equal(actual.filter(row => row.step_key.startsWith('copy-raw-target:') && row.status === 'applied').length, 1);
+          observed.journalBeforeRollback = await c2JournalRows(seed.command.operation_id);
+          assert(observed.journalBeforeRollback.every(row => row.status !== 'applied'));
+          assert.deepEqual(await fs.readFile(path.join(h.destination.rootPath, seed.target)), seed.bytes);
+          if (fault === 'b2-completion-rollback') {
+            observed.nativeBeforeRollback = await c2NativeRows(observed.birth.binding.receipt.target.documentId); observed.fired = true;
+            throw rollbackError;
+          }
+        }
+        if (observed.b2 && event.client === observed.b2.client && /^COMMIT\s*;?$/iu.test(event.text.trim())) {
+          const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert.equal(event.result.command, 'COMMIT'); assert.equal(Number(actual.pid), observed.b2.pid);
+          assert.equal(actual.start, observed.b2.start); assert.equal(actual.xid, null);
+          observed.b2Committed = await c2JournalRows(seed.command.operation_id);
+          assert.equal(observed.b2Committed.filter(row => row.step_key === 'copy-completion' && row.status === 'applied').length, 1);
+        }
+      }, () => c2Call({ action: 'apply', ...seed.command }));
+      let result: Awaited<ReturnType<typeof apply>> | undefined;
+      if (fault === 'b2-completion-rollback') {
+        await assert.rejects(apply, error => {
+          assert.equal(error, rollbackError);
+          assert.deepEqual(workspaceCopyFailureV1(error, seed.command.operation_id), {
+            status: 503, body: { apiVersion: 1, success: false, code: 'COPY_UNAVAILABLE', operationId: seed.command.operation_id },
+          });
+          return true;
+        });
+      } else result = await apply();
+      assert(observed.stage && observed.birth && observed.b1 && observed.b1Committed && observed.b1Link);
+      if (fault === 'b2-completion-rollback') {
+        assert(observed.fired && observed.b2); assert.equal(observed.b2Committed, undefined);
+        assert.deepEqual(await staging.loadOwnedCopyByOperationId(seed.command.operation_id), observed.stage);
+        await rawCopyNoWrites(async () => {
+          const status = await c2Call({ action: 'status', operation_id: seed.command.operation_id }); assert(status.action === 'status');
+          assert.equal(status.operation.operationId, seed.command.operation_id); assert.equal(status.operation.planId, seed.command.plan_id);
+          assert.deepEqual(status.operation.completion, { status: 'not_confirmed' });
+        });
+        assert(observed.nativeBeforeRollback && observed.journalBeforeRollback);
+        assert.deepEqual(await c2NativeRows(observed.birth.binding.receipt.target.documentId), observed.nativeBeforeRollback);
+        assert.deepEqual(await c2JournalRows(seed.command.operation_id), observed.journalBeforeRollback);
+      } else {
+        assert(result); assert(result.action === 'apply'); assert.equal(result.execution.operationId, seed.command.operation_id);
+        if (fault === 'none') { assert.equal(observed.fired, false); assert(observed.b2 && observed.b2Committed);
+          assert.equal(result.execution.status, 'complete'); assert.equal(result.alreadyKnown, false); assert.deepEqual(result.copied, [seed.target]); }
+        else { assert(observed.fired); assert.equal(result.execution.status, 'needs_recovery'); assert.equal(result.execution.errorCode, 'COPY_OUTCOME_UNCONFIRMED');
+          assert.deepEqual(result.copied, []); assert(await staging.loadOwnedCopyByOperationId(seed.command.operation_id));
+          assert.equal(observed.b2, undefined); await assert.rejects(fs.lstat(path.join(h.destination.rootPath, seed.target)), { code: 'ENOENT' });
+        }
+      }
+      return { ...observed, stage: observed.stage, birth: observed.birth, b1: observed.b1 };
+    };
+
+    phase = 'C2 same-workspace own-HTML Copy has genuine independent FD/Birth2/B1/B2/rawtarget3 witnesses';
+    const c2Success = await c2Seed(), c2SuccessObserved = await c2Run(c2Success, 'none');
+    const c2SuccessCompleted = await c2AssertComplete(c2Success, c2SuccessObserved.stage, c2SuccessObserved.birth); groups++;
+
+    phase = 'C2 affected HTML, opaque HTML, cross-workspace and folder cases are fully non-mutating';
+    for (const mode of ['affected','local-asset','opaque','cross','folder'] as const) {
+      const prefix = `c2_block_${crypto.randomUUID().replaceAll('-', '')}`, source = mode === 'folder' ? prefix + '/note.md' : prefix + '.md';
+      if (mode === 'folder') await fs.mkdir(path.join(h.destination.rootPath, prefix));
+      const html = mode === 'affected' ? `<a href="${source}">Affected self HTML</a>`
+        : mode === 'local-asset' ? `<a href="${c2Success.asset}">Affected stable asset HTML</a>`
+        : mode === 'opaque' ? `<unknown data-source="${source}">Opaque HTML</unknown>` : '<p>Unchanged own HTML</p>';
+      await fs.writeFile(path.join(h.destination.rootPath, source), html + '\n', { flag: 'wx', mode: 0o600 });
+      try {
+        await assert.rejects(rawCopyNoWrites(() => c2Call({ action: 'preview',
+          ...(mode === 'cross' ? { destination_workspace_id: h.source.workspaceId } : {}),
+          selections: [{ source_path: mode === 'folder' ? prefix : source, destination_path: prefix + '-copy.md' }] })), error => {
+          assert.equal(workspaceCopyFailureV1(error).body.code, 'COPY_NATIVE_REQUIRED'); return true;
+        });
+      } finally {
+        // A deliberately opaque unselected source must not contaminate the
+        // later independent positive/fault plans. NoEffect was already pinned.
+        await fs.unlink(path.join(h.destination.rootPath, source));
+        if (mode === 'folder') await fs.rmdir(path.join(h.destination.rootPath, prefix));
+      }
+    }
+    groups++;
+
+    phase = 'C2 actual B1 ACK loss and B2 rollback retain original IDs through genuine grant denial and SID-B recovery';
+    for (const fault of ['b1-commit-ack','b2-completion-rollback'] as const) {
+      const seed = await c2Seed(), originalSession = sessionId, observed = await c2Run(seed, fault);
+      const originalBirthRows = await c2BirthRows(seed.command.operation_id);
+      const targetBeforeRecovery = fault === 'b2-completion-rollback' ? await rawCopyFilesystem(path.join(h.destination.rootPath, seed.target)) : null;
+      assert.equal((await h.admin.query(`DELETE FROM mcp_direct_workspace_grant WHERE client_id=$1 AND user_id='member'
+        AND workspace_id=$2 RETURNING workspace_id`, [clientId, h.destination.workspaceId])).rowCount, 1);
+      try {
+        await rawCopyNoWrites(() => assert.rejects(c2Call({ action: 'recover', ...seed.command }),
+          error => {
+            assert(error instanceof C2PrincipalError);
+            assert.equal(error.code, 'MCP_READ_PRINCIPAL_ACCESS_DENIED'); assert.equal(error.status, 403);
+            assert.deepEqual(workspaceCopyFailureV1(error, seed.command.operation_id), {
+              status: 403, body: { apiVersion: 1, success: false, code: 'ACCESS_DENIED', operationId: seed.command.operation_id },
+            });
+            return true;
+          }));
+      } finally {
+        await h.admin.query(`INSERT INTO mcp_direct_workspace_grant(client_id,user_id,workspace_id,created_at,updated_at)
+          VALUES($1,'member',$2,100,100)`, [clientId, h.destination.workspaceId]);
+      }
+      assert.deepEqual(await c2BirthRows(seed.command.operation_id), originalBirthRows);
+      const oldToken = currentToken, next = `c2-session-${crypto.randomUUID()}`, now = Date.now();
+      sessionToken = crypto.randomBytes(32).toString('hex');
+      await h.admin.query('INSERT INTO "session"(id,token,user_id,expires_at,created_at,updated_at) VALUES($1,$2,\'member\',$3,$4,$4)',
+        [next, sessionToken, now + 3600000, now]);
+      assert.equal((await h.admin.query('UPDATE "session" SET expires_at=1 WHERE id=$1 RETURNING id', [originalSession])).rowCount, 1);
+      sessionId = next; currentToken = await rawCopyIssueToken(next);
+      const session = await auth.api.getSession({ headers: (await h.request(h.destination, 'member', false, sessionToken)).headers });
+      assert.equal(session?.session.id, next); assert.equal(session?.user.id, 'member'); assert.notEqual(next, originalSession);
+      await assert.rejects(c2Call({ action: 'status', operation_id: seed.command.operation_id }, oldToken),
+        error => error instanceof DirectMcpAuthorizationError && error.status === 401);
+      const recovered = await c2Call({ action: 'recover', ...seed.command }); assert(recovered.action === 'recover');
+      assert.equal(recovered.execution.status, 'complete'); assert.equal(recovered.alreadyKnown, true);
+      assert.equal(recovered.execution.operationId, seed.command.operation_id); assert.deepEqual(recovered.copied, [seed.target]);
+      const completed = await c2AssertComplete(seed, observed.stage, observed.birth);
+      assert.equal(completed.birth.origin.actor.sessionId, originalSession);
+      assert.deepEqual(await c2BirthRows(seed.command.operation_id), originalBirthRows);
+      if (targetBeforeRecovery) assert.deepEqual(await rawCopyFilesystem(path.join(h.destination.rootPath, seed.target)), targetBeforeRecovery);
+    }
+    // Finish the final new family with a real later native D1 edit and real
+    // independent physical S2/D2. History must use immutable Birth2/Native4 facts.
+    phase = 'C2 completed immutable history preserves a later legitimate D1 edit and independent physical S2/D2';
+    const { persistCollaborationYDoc: c2Persist } = await import('../app/lib/collaboration/persistence');
+    const { Y: c2Y } = await import('../app/lib/collaboration/server-runtime');
+    await h.metadata(h.destination, c2Success.target, { title: 'Later C2 editorial title' }, 'member', sessionToken);
+    const editedDocument = new c2Y.Doc();
+    try {
+      c2Y.applyUpdate(editedDocument, c2SuccessCompleted.state.yjsState);
+      const content = editedDocument.getText('content'); content.insert(content.length, '\nLater legitimate C2 D1 edit.\n');
+      const edited = await c2Persist(c2SuccessCompleted.state.documentId, c2SuccessCompleted.state.lifecycleGeneration, editedDocument, {
+        workspaceId: c2SuccessCompleted.state.workspaceId, organizationId: c2SuccessCompleted.state.organizationId,
+        path: c2SuccessCompleted.state.path, representation: c2SuccessCompleted.state.representation,
+        schemaVersion: c2SuccessCompleted.state.schemaVersion });
+      assert.equal(edited.persistenceDisposition, 'advanced');
+    } finally { editedDocument.destroy(); }
+    const editedState = await load(h.connection, c2SuccessCompleted.state.documentId); assert(editedState);
+    assert(editedState.documentSequence > c2SuccessCompleted.state.documentSequence);
+    const editedSnapshot = c2Snapshot(editedState); assert(editedSnapshot.content.kind === 'plain_text');
+    assert(editedSnapshot.content.text.includes('Later legitimate C2 D1 edit.'));
+    const savedD1 = path.join(h.dataRoot, `c2-d1-original-${crypto.randomUUID()}`), savedS1 = path.join(h.dataRoot, `c2-s1-original-${crypto.randomUUID()}`);
+    await fs.rename(path.join(h.destination.rootPath, c2Success.target), savedD1);
+    await fs.rename(path.join(h.destination.rootPath, c2Success.source), savedS1);
+    const d2Bytes = Buffer.from('Later independent C2 D2 physical file\n'), s2Bytes = Buffer.from('Later independent C2 S2 physical file\n');
+    await fs.writeFile(path.join(h.destination.rootPath, c2Success.target), d2Bytes, { flag: 'wx', mode: 0o600 });
+    await fs.writeFile(path.join(h.destination.rootPath, c2Success.source), s2Bytes, { flag: 'wx', mode: 0o600 });
+    const d2 = await fs.lstat(path.join(h.destination.rootPath, c2Success.target)), s2 = await fs.lstat(path.join(h.destination.rootPath, c2Success.source));
+    assert(d2.dev !== c2SuccessCompleted.targetStat.dev || d2.ino !== c2SuccessCompleted.targetStat.ino);
+    assert(s2.dev !== c2Success.sourceStat.dev || s2.ino !== c2Success.sourceStat.ino);
+    const originalBirths = await c2BirthRows(c2Success.command.operation_id), originalHistory = await c2JournalRows(c2Success.command.operation_id);
+    const currentD1Rows = await c2NativeRows(editedState.documentId);
+    await rawCopyNoWrites(async () => {
+      const status = await c2Call({ action: 'status', operation_id: c2Success.command.operation_id }); assert(status.action === 'status');
+      assert.equal(status.operation.completion.status, 'confirmed');
+      for (const action of ['apply','recover'] as const) {
+        const history = await c2Call({ action, ...c2Success.command }); assert(history.action === action);
+        assert.equal(history.execution.status, 'complete'); assert.equal(history.alreadyKnown, true);
+        assert.equal(history.execution.operationId, c2Success.command.operation_id); assert.deepEqual(history.copied, [c2Success.target]);
+      }
+    });
+    assert.deepEqual(await c2BirthRows(c2Success.command.operation_id), originalBirths);
+    assert.deepEqual(await c2JournalRows(c2Success.command.operation_id), originalHistory);
+    assert.deepEqual(await c2NativeRows(editedState.documentId), currentD1Rows);
+    assert.deepEqual(await fs.readFile(path.join(h.destination.rootPath, c2Success.target)), d2Bytes);
+    assert.deepEqual(await fs.readFile(path.join(h.destination.rootPath, c2Success.source)), s2Bytes);
+    assert.equal((await fs.lstat(path.join(h.destination.rootPath, c2Success.target))).ino, d2.ino);
+    assert.equal((await fs.lstat(path.join(h.destination.rootPath, c2Success.source))).ino, s2.ino);
+    assert.deepEqual(await fs.readFile(savedD1), c2Success.bytes); assert.deepEqual(await fs.readFile(savedS1), c2Success.bytes);
+    groups++; assert.equal(groups, 14);
     assert.equal(projectionPendingTargets, 2); assert.equal(projectionReleasedTargets, 2);
   }); complete = true; console.log(JSON.stringify({ test: 'workspace-operation-selected-raw-copy-postgres', groups, originalExit: 0,
     projectionPendingTargets, projectionReleasedTargets, releasedProjectionGuardReadOnly: true })); }

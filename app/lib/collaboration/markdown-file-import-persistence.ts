@@ -1,3 +1,5 @@
+import type { WorkspaceOperationRawHtmlCopyStageV9 } from '../files/workspace-operation-raw-html-copy-stage-v9';
+import type { NativeCopyMarkdownBirth } from './native-copy-markdown-birth-any-contract';
 import 'server-only';
 
 import { createHash, randomUUID } from 'node:crypto';
@@ -71,8 +73,7 @@ import { withBorrowedWriteTransaction } from '../db/borrowed-write-transaction';
 import type { WorkspaceOperationRawHtmlCopyStageV8 } from '../files/workspace-operation-raw-html-copy-stage';
 import type { WorkspaceOperationManagedCopyStageV6 as LegacyRawStageV6 } from '../files/workspace-operation-managed-copy-stage';
 import { nativeLinkJsonProof } from '../markdown/workspace-native-link-inventory';
-import { nativeCopyMarkdownImportIds, NativeCopyMarkdownBirthError,
-  type NativeCopyMarkdownBirthV1 } from './native-copy-markdown-birth-contract';
+import { nativeCopyMarkdownImportIds, NativeCopyMarkdownBirthError } from './native-copy-markdown-birth-contract';
 import { persistNativeCopyMarkdownBirthOnConnection } from './native-copy-markdown-birth-persistence';
 import type { WorkspacePathImportPreparationHandle } from '../files/workspace-path-import-preparation-phase';
 import type { WorkspacePathImportRequirementV1 } from '../files/workspace-path-import-preparation-plan';
@@ -2419,7 +2420,7 @@ async function projectAuthenticatedMarkdownBirth(frame: BootstrapFrame, source: 
   return { ...result, projection: { status: 'projected', claimId: claim.id, ...publication } };
 }
 
-type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8;
+type WorkspaceOperationManagedCopyStageV6 = LegacyRawStageV6 | WorkspaceOperationRawHtmlCopyStageV8 | WorkspaceOperationRawHtmlCopyStageV9;
 type CopyMarkdownImportScope = { active: boolean; database: SqlConnection; stage: WorkspaceOperationManagedCopyStageV6;
   requirementIndex: number; documentId: string; lineageId: string; existingLineage: boolean };
 const copyMarkdownImportScopes = new WeakMap<Captured, CopyMarkdownImportScope>();
@@ -2458,7 +2459,7 @@ async function bindCopyMarkdownImportLineage(database: SqlConnection, input: Cap
  * lease, checkpoint or file writer. The caller owns rollback and COMMIT proof. */
 export async function persistNativeCopyMarkdownImportOnConnection(database: SqlConnection, supplied: Readonly<{
   stage: WorkspaceOperationManagedCopyStageV6; requirementIndex: number;
-}>): Promise<NativeCopyMarkdownBirthV1> {
+}>): Promise<NativeCopyMarkdownBirth> {
   if (!supplied || types.isProxy(supplied) || Object.getPrototypeOf(supplied)!==Object.prototype
     || Reflect.ownKeys(supplied).length!==2 || !['stage','requirementIndex'].every(key=>{
       const property=Object.getOwnPropertyDescriptor(supplied,key);return property?.enumerable && Object.hasOwn(property,'value');
@@ -2468,7 +2469,7 @@ export async function persistNativeCopyMarkdownImportOnConnection(database: SqlC
   const {assertNativeCopyMarkdownImportPreparationOnConnection}=await import('../files/workspace-operation-native-copy-phase');
   const current=await assertNativeCopyMarkdownImportPreparationOnConnection(database,stage,requirementIndex);
   const req=stage.plan.rawImportRequirements[requirementIndex],original=stage.rawOriginals[requirementIndex];
-  if (!req || !original || (stage.version===6 ? stage.plan.version!==5 : stage.version!==8 || stage.plan.version!==7)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
+  if (!req || !original || (stage.version===6 ? stage.plan.version!==5 : stage.version===8 ? stage.plan.version!==7 : stage.version!==9 || stage.plan.version!==8)) return fail('MARKDOWN_IMPORT_INVALID_INPUT');
   const ids=nativeCopyMarkdownImportIds(stage.identity.operationId,stage.payloadSha256,requirementIndex);
   const input=capture({workspace:current.destinationWorkspace,path:req.destinationPath,...ids,
     actorUserId:stage.origin.actor.userId,actorSessionId:stage.origin.actor.sessionId,bytes:original.originalBytes,

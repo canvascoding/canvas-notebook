@@ -346,6 +346,20 @@ export function compileWorkspaceMixedHtmlImportCopyBatchV6(input: {
   states: readonly PersistedCollaborationState[];
   requests: readonly NativeMixedBatchRequest[];
 }): NativeMixedHtmlImportCopyBatchPlanV6 {
+  return compileMixedHtmlImportCopyBatchV6(input, 'ordinary');
+}
+
+/** Exact C2: one same-workspace physical Markdown file with its own HTML.
+ * This is still Compiler6 data rehearsal, never import or mutation authority. */
+export function compileWorkspaceMixedSelectedHtmlImportCopyBatchV6(
+  input: Parameters<typeof compileWorkspaceMixedHtmlImportCopyBatchV6>[0],
+): NativeMixedHtmlImportCopyBatchPlanV6 {
+  return compileMixedHtmlImportCopyBatchV6(input, 'selected-own-html');
+}
+
+function compileMixedHtmlImportCopyBatchV6(
+  input: Parameters<typeof compileWorkspaceMixedHtmlImportCopyBatchV6>[0], profile: 'ordinary' | 'selected-own-html',
+): NativeMixedHtmlImportCopyBatchPlanV6 {
   if (input.requests.length !== 1 || input.requests[0]?.kind !== 'copy') throw new Error('HTML_IMPORT_COPY_SINGLE_REQUEST_REQUIRED');
   const source = decodeWorkspaceOperationMixedSourceEvidenceV5(input.sourceEvidence);
   const destination = input.destinationEvidence === undefined ? source : decodeWorkspaceOperationMixedSourceEvidenceV5(input.destinationEvidence);
@@ -355,6 +369,23 @@ export function compileWorkspaceMixedHtmlImportCopyBatchV6(input: {
     && value.htmlInspection.occurrences.length === 0 && value.coverage.complete && value.coverage.gaps.length === 0).map(value => value.path));
   const original = createWorkspaceMixedHtmlFileOperationPlanV5({ ...request, sourceEvidence: source,
     ...(input.destinationEvidence === undefined ? {} : { destinationEvidence: destination }) });
+  if (profile === 'selected-own-html') {
+    const selection = request.selections[0];
+    const entry = selection && source.namespace.find(value => value.path === selection.sourcePath);
+    const selectedSource = selection && source.physicalSources4.find(value => value.path === selection.sourcePath);
+    if (request.sourceWorkspaceId !== request.destinationWorkspaceId || request.selections.length !== 1
+      || !entry || entry.kind !== 'file' || entry.documentId !== null || !selectedSource
+      || !/\.(?:md|markdown)$/iu.test(selectedSource.path) || selectedSource.htmlInspection.occurrences.length === 0) {
+      throw new Error('HTML_IMPORT_COPY_SELECTED_HTML_PROFILE_REQUIRED');
+    }
+    // Only this genuine selected Markdown source can enter C2. The full E5
+    // assessment ran above; opaque/affected HTML and all original gaps stay facts.
+    supported.clear();
+    if (original.htmlAssessment.complete
+      && selectedSource.htmlInspection.occurrences.every(occurrence => occurrence.fullyInspected === true)
+      && selectedSource.coverage.gaps.every(gap => gap.code === 'uninspected-html')
+      && (selectedSource.coverage.complete || selectedSource.coverage.gaps.length > 0)) supported.add(selectedSource.path);
+  }
   const plan = { ...original, issues: original.issues.filter(issue => !(issue.code === 'physical-source-import-required'
     && issue.workspaceId === source.workspaceScope.workspaceId && supported.has(issue.path))) };
   for (const value of source.physicalSources4) if (selected(value.path) && !supported.has(value.path)) plan.issues.push({

@@ -1,3 +1,4 @@
+import type { WorkspaceOperationManagedCopyPlanV8 } from './workspace-operation-managed-copy-plan-v8';
 import { workspaceOperationNativeCopyRawHtmlPublicPreview, type WorkspaceOperationNativeCopyPreviewPublicV6 } from './workspace-operation-native-copy-raw-html-public';
 import type { WorkspaceOperationManagedCopyPlanV7 } from './workspace-operation-managed-copy-plan-v7';
 import 'server-only';
@@ -49,7 +50,9 @@ export type WorkspaceOperationNativeCopyPreviewPublicV4 = {
 
 export type WorkspaceOperationNativeCopyPreviewPublic = WorkspaceOperationNativeCopyPreviewPublicV4 | WorkspaceOperationNativeCopyPreviewPublicV5 | WorkspaceOperationNativeCopyPreviewPublicV6;
 
-export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7): WorkspaceOperationNativeCopyPreviewPublic {
+export function workspaceOperationNativeCopyPublicPreview(input: WorkspaceOperationNativeCopyPlan | WorkspaceOperationAnyManagedCopyPlan | WorkspaceOperationManagedCopyPlanV5 | WorkspaceOperationManagedCopyPlanV6 | WorkspaceOperationManagedCopyPlanV7 | WorkspaceOperationManagedCopyPlanV8): WorkspaceOperationNativeCopyPreviewPublic {
+  if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
+    && Object.getOwnPropertyDescriptor(input, 'version')?.value === 8) return workspaceOperationNativeCopyRawHtmlPublicPreview(input as WorkspaceOperationManagedCopyPlanV8);
   if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
     && Object.getOwnPropertyDescriptor(input, 'version')?.value === 7) return workspaceOperationNativeCopyRawHtmlPublicPreview(input as WorkspaceOperationManagedCopyPlanV7);
   if (input !== null && typeof input === 'object' && !types.isProxy(input) && Object.getPrototypeOf(input) === Object.prototype
