@@ -16,6 +16,7 @@ import { proveCollaborationAdmissionQuiescenceOnConnection } from '../collaborat
 import { readHistoricalCollaborationAdmissionOutcomeOnConnection,
   type CollaborationAdmissionOutcome } from '../collaboration/room-admission-outcome';
 import { createCollaborationAdmissionHandoffService } from '../collaboration/room-admission-handoff';
+import { lockIdentity } from '../collaboration/room-owner';
 import { withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
   type WorkspaceRequestHistoricalOrigin, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
@@ -372,7 +373,16 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
 }
 async function finish(original: NextRequest, saved: Saved): Promise<Snapshot> {
   const workspaceId = saved.selection.scope.workspaceId, lookup = { workspaceId, requestId: saved.request.requestId };
-  const handoff = createCollaborationAdmissionHandoffService({ openConnection: openDb,
+  let mutationEntered = false, closeFailed = false;
+  const roomKeys = saved.request.expectedDocuments.map(document => lockIdentity(document.documentId).key);
+  const uniqueRoomKeys = new Set(roomKeys).size === roomKeys.length;
+  const handoff = createCollaborationAdmissionHandoffService({ openConnection: async () => {
+    const database = await openDb();
+    return { ...database, close: async (error?: Error) => {
+      try { await database.close(error); }
+      catch (closeError) { closeFailed = true; throw closeError; }
+    } };
+  },
     withMutationLocks: (ids, execute) => {
       if (!equal(ids, [workspaceId])) fail(); return withWorkspaceMutationLock(workspaceId, execute);
     } });
@@ -391,6 +401,7 @@ async function finish(original: NextRequest, saved: Saved): Promise<Snapshot> {
   try {
     await handoff.execute(saved.request, { authorize, prepare,
       mutate: async database => {
+        mutationEntered = true; // Before the first await: a failed mutation is never a busy retry.
         const result = await prepareWorkspaceImplicitMoveOperationOnConnection(database, saved.request);
         boundHere = true; return result;
       },
@@ -405,11 +416,20 @@ async function finish(original: NextRequest, saved: Saved): Promise<Snapshot> {
     // AFTER its actual B/mutex scope unwound. This performs no selection replan.
     const recovered = await runPhase(original, { kind: 'observe', lookup });
     if (!recovered.snapshot) fail('IMPLICIT_MOVE_OUTCOME_UNCONFIRMED', 503);
-    if (recovered.snapshot!.result.state !== 'pending') {
-      // An unconfirmed backend disposal is not silently upgraded by saved facts.
-      if (error instanceof AggregateError) throw new WorkspaceImplicitMoveOperationError(
-        'IMPLICIT_MOVE_DISPOSAL_UNCONFIRMED', 503, saved.selection.operationId, saved.request.requestId, { cause: error });
-      return recovered.snapshot!;
+    // A failed close may itself throw an admission-shaped error. Neither it nor
+    // an aggregate can become a retry or be silently upgraded by saved facts.
+    if (closeFailed || error instanceof AggregateError) throw new WorkspaceImplicitMoveOperationError(
+      'IMPLICIT_MOVE_DISPOSAL_UNCONFIRMED', 503, saved.selection.operationId, saved.request.requestId, { cause: error });
+    if (recovered.snapshot.result.state !== 'pending') return recovered.snapshot;
+    if (error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT'
+      && !mutationEntered && uniqueRoomKeys && recovered.snapshot.saved.outcome === null
+      && ['reserved','draining'].includes(recovered.snapshot.saved.headerStatus)
+      && recovered.snapshot.result.canResume
+      && equal(recovered.snapshot.saved.request, saved.request)
+      && equal(recovered.snapshot.saved.selection, saved.selection)) {
+      // Only a fresh identical sealed reservation may resume after every old
+      // connection, Principal, room guard and kernel scope has fully unwound.
+      return recovered.snapshot;
     }
     const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
     if (['IMPLICIT_MOVE_SELECTION_CHANGED','NATIVE_MOVE_PLAN_CHANGED','NATIVE_MOVE_PLAN_UNSUPPORTED'].includes(code)) {
@@ -463,7 +483,12 @@ async function continueSaved(original: NextRequest, first: Snapshot, waitMs: num
       if (current.result.state !== 'pending') return current.result;
       pending ||= advanced.progress?.proofText == null;
     }
-    if (!pending) return (await finish(original, current.saved)).result;
+    if (!pending) {
+      if (Date.now() >= deadline) return current.result;
+      current = await finish(original, current.saved);
+      if (current.result.state !== 'pending') return current.result;
+    }
+    if (Date.now() >= deadline) return current.result;
     // No SQL connection, Principal phase, kernel mutex or lifecycle lease remains while waiting.
     await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
   }
