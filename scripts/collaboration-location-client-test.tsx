@@ -437,6 +437,124 @@ async function main() {
       assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'document', negative);
       assert.equal(useFileStore.getState().currentFile?.path, file.path, negative);
     }
+    // A retained read-ID change invalidates even a deleted view. Its old reply
+    // cannot move the editor; a fresh ID read may recover the same native doc.
+    await act(async () => root.render(null));
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'deleted-load-session' } } });
+    mountedGeneration = 1; mountedRepresentation = 'plain_text';
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace' });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    const deletedFile: CurrentFile = { ...file, editorIdentity: 'deleted-load-open', unavailable: 'deleted' };
+    useFileStore.setState({ currentFile: deletedFile, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content); useEditorStore.getState().updateDraft('Pending deleted-view draft');
+    let deletedRejoins = 0;
+    requestAdmissionRejoin = async () => { deletedRejoins++; };
+    const deletedLookup = requests.length;
+    await render(); await until(() => requests.length === deletedLookup + 1);
+    await act(async () => useFileStore.getState().applyPathsDeleted([file.path], 'workspace', true));
+    assert.equal(requests[deletedLookup].signal.aborted, true);
+    await reply(deletedLookup, 'moved/stale-deleted.txt');
+    expectPath(file.path); assert.equal(deletedRejoins, 0);
+    assert.equal(useFileStore.getState().currentFile?.unavailable, 'deleted');
+    await until(() => requests.length === deletedLookup + 2);
+    await reply(deletedLookup + 1, 'moved/deleted-recovered.txt');
+    expectPath('moved/deleted-recovered.txt');
+    assert.equal(useFileStore.getState().currentFile?.editorIdentity, deletedFile.editorIdentity);
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document, deletedFile.collaboration?.document);
+    assert.equal(useEditorStore.getState().draft, 'Pending deleted-view draft');
+    await until(() => requests.length === deletedLookup + 3);
+    await reply(deletedLookup + 2, 'moved/deleted-recovered.txt');
+    assert.equal(deletedRejoins, 1, 'the fresh adopted path uses the existing admission callback');
+
+    // Retained replacement/deletion hints share the original refresh deadline.
+    // A new load ID ten seconds into it must not grant a new twenty-second window.
+    for (const retainedStatus of ['replaced', 'deleted'] as const) {
+      await act(async () => root.render(null));
+      authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'bounded-' + retainedStatus } } });
+      useFileStore.getState().resetWorkspaceView('workspace');
+      useFileStore.setState({ currentFile: { ...file, editorIdentity: 'bounded-' + retainedStatus, unavailable: retainedStatus },
+        currentFileWorkspaceId: 'workspace', refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+      useEditorStore.getState().setActiveFile(file.path, file.content); useEditorStore.getState().updateDraft('Bounded pending draft');
+      let retainedRejoins = 0;
+      requestAdmissionRejoin = async () => { retainedRejoins++; };
+      const retainedNow = Date.now;
+      let retainedClock = retainedNow();
+      Date.now = () => retainedClock;
+      try {
+        const index: number = requests.length;
+        await render(); await until(() => requests.length === index + 1);
+        retainedClock += 10_000;
+        await act(async () => useFileStore.setState({ fileLoadRequestId: useFileStore.getState().fileLoadRequestId + 1 }));
+        assert.equal(requests[index].signal.aborted, true, retainedStatus);
+        await reply(index, file.path);
+        assert.equal(retainedRejoins, 0, 'the invalidated reply cannot rejoin');
+        await until(() => requests.length === index + 2);
+        retainedClock += 7_000;
+        await reply(index + 1, file.path);
+        assert.equal(retainedRejoins, 0, 'retained invalidation cannot replenish the common deadline');
+        assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+        assert.equal(useFileStore.getState().currentFile?.unavailable, retainedStatus);
+        assert.equal(useEditorStore.getState().draft, 'Bounded pending draft');
+        await act(async () => { await new Promise(done => setTimeout(done, 1100)); });
+        assert.equal(requests.length, index + 2, 'the original exhausted window stays terminal');
+      } finally { Date.now = retainedNow; }
+    }
+
+    // Real store adoption rejects a mismatched active editor path. That rejection
+    // must preserve the draft and retry a fresh ID lookup without a new hint.
+    await act(async () => root.render(null));
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'adoption-retry-session' } } });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    const retryFile: CurrentFile = { ...file, editorIdentity: 'adoption-retry-open' };
+    useFileStore.setState({ currentFile: retryFile, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content); useEditorStore.getState().updateDraft('Pending adoption draft');
+    useEditorStore.setState({ activePath: 'another-editor.txt' });
+    let adoptionRejoins = 0;
+    requestAdmissionRejoin = async () => { adoptionRejoins++; };
+    const adoptionLookup = requests.length;
+    await render(); await until(() => requests.length === adoptionLookup + 1);
+    await reply(adoptionLookup, 'moved/adoption-recovered.txt');
+    expectPath(file.path); assert.equal(adoptionRejoins, 0);
+    assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+    assert.equal(useFileStore.getState().currentFile, retryFile);
+    assert.equal(useEditorStore.getState().draft, 'Pending adoption draft');
+    await act(async () => useEditorStore.setState({ activePath: file.path }));
+    await until(() => requests.length === adoptionLookup + 2);
+    await reply(adoptionLookup + 1, 'moved/adoption-recovered.txt');
+    expectPath('moved/adoption-recovered.txt');
+    assert.equal(useFileStore.getState().currentFile?.editorIdentity, retryFile.editorIdentity);
+    assert.equal(useFileStore.getState().currentFile?.collaboration?.document, retryFile.collaboration?.document);
+    assert.equal(useEditorStore.getState().draft, 'Pending adoption draft');
+    await until(() => requests.length === adoptionLookup + 3);
+    await reply(adoptionLookup + 2, 'moved/adoption-recovered.txt');
+    assert.equal(adoptionRejoins, 1);
+
+    // A permanently false adoption is bounded by the unchanged six attempts.
+    await act(async () => root.render(null));
+    authRegistry.observeOpenedDocumentAuth({ data: { user: { id: 'user' }, session: { id: 'adoption-bounded-session' } } });
+    useFileStore.getState().resetWorkspaceView('workspace');
+    const blockedFile: CurrentFile = { ...file, editorIdentity: 'adoption-bounded-open' };
+    useFileStore.setState({ currentFile: blockedFile, currentFileWorkspaceId: 'workspace',
+      refreshDirectory: async () => {}, loadSubdirectory: async () => {} });
+    useEditorStore.getState().setActiveFile(file.path, file.content); useEditorStore.getState().updateDraft('Still pending adoption draft');
+    useEditorStore.setState({ activePath: 'still-another-editor.txt' });
+    let boundedRejoins = 0;
+    requestAdmissionRejoin = async () => { boundedRejoins++; };
+    const boundedLookup = requests.length;
+    await render();
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await until(() => requests.length === boundedLookup + attempt + 1);
+      await reply(boundedLookup + attempt, 'moved/never-adopted.txt');
+      expectPath(file.path); assert.equal(useFileStore.getState().currentFile, blockedFile);
+      assert.equal(document.querySelector('#root output')?.textContent, 'lookupFailed');
+    }
+    await act(async () => { await new Promise(done => setTimeout(done, 1200)); });
+    assert.equal(requests.length, boundedLookup + 6, 'false adoption cannot create an unbounded location loop');
+    assert.equal(boundedRejoins, 0);
+    assert.equal(useEditorStore.getState().draft, 'Still pending adoption draft');
+
     await act(async () => root.render(null));
     authRegistry.observeOpenedDocumentAuth(null);
     console.log('Location hook handles rename bursts, both reconnects, recovery errors, stale lifetimes, and reused-path session identity.');

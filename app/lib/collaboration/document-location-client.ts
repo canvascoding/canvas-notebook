@@ -38,11 +38,11 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
   const { workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, connection } = input;
   const unavailable = useFileStore(state => state.currentFile?.unavailable);
   const fileLoadRequestId = useFileStore(state => state.fileLoadRequestId);
-  const replacementRequestId = unavailable === 'replaced' ? fileLoadRequestId : null;
-  const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation,
-    unavailable, replacementRequestId]);
+  const retainedRequestId = unavailable === 'replaced' || unavailable === 'deleted' ? fileLoadRequestId : null;
+  const key = JSON.stringify([workspaceId, documentId, documentKey, path, lifecycleGeneration, representation]);
   const [issue, setIssue] = useState<{ key: string; value: CollaborationLocationIssue | null } | null>(null);
   const refresh = useRef<(() => void) | null>(null);
+  const refreshRetained = useRef<(() => void) | null>(null);
   const admissionRejoin = useRef(input.requestAdmissionRejoin);
   useEffect(() => { admissionRejoin.current = input.requestAdmissionRejoin; }, [input.requestAdmissionRejoin]);
 
@@ -87,6 +87,12 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       }
       schedule(150);
     };
+    const invalidateRetained = () => {
+      // A retained file request is a fresh hint, not a new document lifetime or
+      // retry budget. Reject its older reply even when fetch ignores abort.
+      invalidate();
+      active?.abort(new Error('The retained document file request changed.'));
+    };
     const resolve = async () => {
       if (!isCurrent() || !requested || !retryBudget) return;
       const budget = retryBudget, authScope = retryAuthScope;
@@ -114,14 +120,19 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
           || (representation !== undefined && location.representation !== representation)) {
           retryBudget = null; requested = false; report('generationChanged'); return;
         }
-        report(null);
         if (requestTimeout) clearTimeout(requestTimeout);
         requestTimeout = null;
         if (location.path !== path) {
-          retryBudget = null; requested = false;
-          useFileStore.getState().adoptCurrentCollaborationLocation(scope, location.path);
+          if (useFileStore.getState().adoptCurrentCollaborationLocation(scope, location.path)) {
+            report(null); retryBudget = null; requested = false;
+          } else {
+            // A current ID reply does not imply that the mounted editor can
+            // adopt it yet. Reobserve within this same finite refresh window.
+            report('lookupFailed'); requested = true;
+          }
         }
         else {
+          report(null);
           // An unchanged Incoming path still needs a new ticket after its room
           // was drained. This hint is not a grant; the registry performs fresh
           // HTTP authorization and exact identity checks before reconnecting.
@@ -179,11 +190,13 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
     window.addEventListener('focus', invalidate);
     document.addEventListener('visibilitychange', onVisible);
     refresh.current = invalidate;
+    refreshRetained.current = invalidateRetained;
     watcher.acquire();
     invalidate();
     return () => {
       disposed = true;
       if (refresh.current === invalidate) refresh.current = null;
+      if (refreshRetained.current === invalidateRetained) refreshRetained.current = null;
       if (timer) clearTimeout(timer);
       active?.abort();
       if (requestTimeout) clearTimeout(requestTimeout);
@@ -196,7 +209,11 @@ export function useCollaborationDocumentLocation(input: LocationInput): Collabor
       document.removeEventListener('visibilitychange', onVisible);
       watcher.releaseConnection();
     };
-  }, [workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, unavailable, replacementRequestId, key]);
+  }, [workspaceId, documentId, documentKey, path, lifecycleGeneration, representation, key]);
+
+  useEffect(() => {
+    if (retainedRequestId !== null) refreshRetained.current?.();
+  }, [unavailable, retainedRequestId]);
 
   useEffect(() => { refresh.current?.(); }, [connection]);
   return issue?.key === key ? issue.value : null;
