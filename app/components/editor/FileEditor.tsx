@@ -254,6 +254,7 @@ function EditorModuleLoadingSkeleton() {
 interface FileEditorProps {
   onClosePreview?: () => void;
   onRevealInExplorer?: () => void;
+  onRetryMissingFile?: () => Promise<void>;
 }
 
 class SupersededEditorOperation extends Error {}
@@ -268,7 +269,7 @@ function captureEditorScope() {
 
 type HtmlViewMode = 'code' | 'preview';
 
-export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorProps = {}) {
+export function FileEditor({ onClosePreview, onRevealInExplorer, onRetryMissingFile }: FileEditorProps = {}) {
   const t = useTranslations('notebook');
   const [markdownControlsTarget, setMarkdownControlsTarget] = useState<HTMLDivElement | null>(null);
   const {
@@ -992,6 +993,10 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
 
   const retryOperation = async () => {
     try {
+      if (!currentFile && missingFilePath && onRetryMissingFile) {
+        await onRetryMissingFile();
+        return;
+      }
       if (currentFile && (isDirty || isCrdtCollaboration || isSceneCollaboration)) {
         await useFileStore.getState().prepareCurrentFileForTransition();
       } else {

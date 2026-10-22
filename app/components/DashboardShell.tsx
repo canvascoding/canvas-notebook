@@ -806,12 +806,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         const authScope = openedDocumentAuthScope();
         const timer = setTimeout(() => controller.abort(), 10_000);
         const isCurrent = () => canOpen()
+          && openedDocumentAuthScope() === authScope
           && useFileStore.getState().openFileRequestId === before.openFileRequestId
           && useFileStore.getState().fileLoadRequestId === before.fileLoadRequestId;
         try {
           const location = await requestCollaborationDocumentLocation(workspaceId, expectedDocumentId, controller.signal);
           if (!isCurrent()) return { status: 'superseded' as const, path: normalizedPath };
-          if (!location) return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
+          if (!location) {
+            // A pinned identity miss must not fall through to a path read: that
+            // path can already belong to a different document after deletion.
+            useFileStore.setState((state) => {
+              if (!isCurrent() || state.currentFile) return state;
+              return { isLoadingFile: false, loadingFilePath: null, fileError: null,
+                fileErrorPath: null, missingFilePath: normalizedPath };
+            });
+            return { status: 'missing' as const, path: normalizedPath, error: 'The original document is unavailable.' };
+          }
           const tabs = documentTabsRef.current;
           if (tabs.documentIds?.[normalizedPath] === expectedDocumentId && tabs.openPaths.includes(normalizedPath)) {
             const next = adoptNotebookDocumentLocation(tabs, normalizedPath, expectedDocumentId, location.path);
@@ -1462,6 +1472,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       || isLoadingFile)
     ? pendingDocumentOpen.path : null;
   const documentLoadingPath = pendingDocumentPath ?? (isLoadingFile ? loadingFilePath : null);
+  const missingDocumentId = missingFilePath && documentTabs.activePath === missingFilePath
+    ? documentTabs.documentIds?.[missingFilePath] : undefined;
+  const missingDocumentGeneration = documentOpenGenerationRef.current;
   const documentContent = <NotebookSurfaceMount key={activeWorkspaceId} active={state.mainSurface === 'document'}>
     {documentLoadingPath
     ? <DocumentLoadingSkeleton path={documentLoadingPath} label={tNotebook('loadingPreview')} showHeader />
@@ -1470,6 +1483,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         key={activeWorkspaceId}
         onClosePreview={handleCloseDocument}
         onRevealInExplorer={() => void handleRevealCurrentDocument()}
+        onRetryMissingFile={missingFilePath && missingDocumentId ? async () => {
+          const fileState = useFileStore.getState();
+          if (!activeWorkspaceId || !notebookMountedRef.current
+            || documentOpenGenerationRef.current !== missingDocumentGeneration
+            || useWorkspaceStore.getState().activeWorkspaceId !== activeWorkspaceId
+            || documentTabsWorkspaceIdRef.current !== activeWorkspaceId
+            || fileState.currentFile || fileState.missingFilePath !== missingFilePath
+            || documentTabsRef.current.activePath !== missingFilePath
+            || documentTabsRef.current.documentIds?.[missingFilePath] !== missingDocumentId) return;
+          // Re-enter the same pinned-ID lookup, including its fresh auth fence.
+          await openNotebookEntry(missingFilePath);
+        } : undefined}
       />
     : (
       <NotebookEmptyDocumentState

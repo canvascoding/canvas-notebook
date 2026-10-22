@@ -56,11 +56,13 @@ async function main() {
   const locations = new Map([['doc-a', 'folder/a.md'], ['doc-b', 'folder/b.md']]);
   const errors: string[] = [];
   const searches: string[] = [];
+  const reads: string[] = [];
   let holdLocation: ((documentId: string) => Promise<Response> | null) | null = null;
   let holdRead: ((path: string) => Promise<Response> | null) | null = null;
   let useLocation!: typeof import('../app/lib/collaboration/document-location-client').useCollaborationDocumentLocation;
-  function EditorStandIn() {
+  function EditorStandIn({ onRetryMissingFile }: { onRetryMissingFile?: () => Promise<void> }) {
     const current = useFileStore(state => state.currentFile);
+    const missingFilePath = useFileStore(state => state.missingFilePath);
     useEffect(() => {
       if (!current) return;
       useEditorStore.getState().setActiveFile(current.path, current.content);
@@ -68,6 +70,11 @@ async function main() {
     }, [current]);
     useLocation({ workspaceId: 'workspace', documentId: current?.collaboration?.document?.id ?? null,
       documentKey: current?.editorIdentity, path: current?.path ?? null, lifecycleGeneration: 1, representation: 'tiptap_blocks', connection: 'live' });
+    if (!current && missingFilePath) return <div data-testid="missing-file-notice">
+      {missingFilePath}
+      <button data-testid="retry-missing-file" disabled={!onRetryMissingFile}
+        onClick={() => void onRetryMissingFile?.()}>Retry original document</button>
+    </div>;
     return <div data-editor-path={current?.path}>{current?.content}</div>;
   }
   const emptyComponents: Record<string, string[]> = {
@@ -101,6 +108,7 @@ async function main() {
     }
     if (url.pathname === '/api/files/read') {
       const path = url.searchParams.get('path')!;
+      reads.push(path);
       const held = holdRead?.(path); if (held) return held;
       const data = files.get(path);
       return data ? Response.json({ success: true, data }) : new Response('', { status: 404 });
@@ -244,6 +252,7 @@ async function main() {
     const resetScenario = () => {
       errors.length = 0;
       searches.length = 0;
+      reads.length = 0;
       holdLocation = null;
       holdRead = null;
       files.clear();
@@ -267,11 +276,25 @@ async function main() {
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old', 'a failed route keeps the original tab identity pinned');
     assert(errors.some(message => /linked document is no longer available/iu.test(message)),
       'a failed route lookup reports that the linked document is unavailable');
+    assert.equal(useFileStore.getState().missingFilePath, 'folder/a.md', 'the archived route identity has a persistent missing-file state');
+    assert.match(scenarioContainer.querySelector('[data-testid="missing-file-notice"]')?.textContent ?? '', /folder\/a\.md/);
+    assert.equal(reads.includes('folder/a.md'), false, 'an identity miss never reads the same-path replacement');
+    const routeRetry = scenarioContainer.querySelector<HTMLButtonElement>('[data-testid="retry-missing-file"]');
+    assert(routeRetry && !routeRetry.disabled, 'the unavailable route exposes the bound original-ID retry');
+    const routeSearchesBeforeRetry = searches.length;
+    await act(async () => routeRetry.click()); await settle();
+    assert(searches.length > routeSearchesBeforeRetry, 'retry performs a fresh original-ID lookup');
+    assert(searches.slice(routeSearchesBeforeRetry).every(id => id === 'doc-old'), 'route retry never resolves the replacement identity');
+    assert.equal(reads.includes('folder/a.md'), false, 'route retry does not fall back to a D2 path read');
+    assert.equal(useFileStore.getState().currentFile, null);
+    assert.equal(useFileStore.getState().missingFilePath, 'folder/a.md');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old', 'retry preserves the archived original identity');
     let replacement!: OpenWorkspaceFileResult;
     await act(async () => { replacement = await useFileStore.getState().revealAndLoadFile('folder/a.md', {
       workspaceId: 'workspace', revealInTree: false,
     }); });
     assert.equal(replacement.status, 'opened', 'an explicit file-browser selection opens the replacement');
+    assert(reads.includes('folder/a.md'), 'the path-read observer also sees the explicitly allowed replacement selection');
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-replacement', 'the tab adopts the replacement identity only after explicit selection');
 
@@ -282,11 +305,25 @@ async function main() {
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old', 'a failed restore keeps the original tab identity pinned');
     assert(errors.some(message => /linked document is no longer available/iu.test(message)),
       'a failed saved-tab lookup reports that the linked document is unavailable');
+    assert.equal(useFileStore.getState().missingFilePath, 'folder/a.md', 'saved-tab identity failure is visible after hydration');
+    assert.match(scenarioContainer.querySelector('[data-testid="missing-file-notice"]')?.textContent ?? '', /folder\/a\.md/);
+    assert.equal(reads.includes('folder/a.md'), false, 'saved-tab restore never reads a D2 replacement');
+    const restoreRetry = scenarioContainer.querySelector<HTMLButtonElement>('[data-testid="retry-missing-file"]');
+    assert(restoreRetry && !restoreRetry.disabled, 'the restored missing tab retains its original-ID retry');
+    const restoreSearchesBeforeRetry = searches.length;
+    await act(async () => restoreRetry.click()); await settle();
+    assert(searches.length > restoreSearchesBeforeRetry);
+    assert(searches.slice(restoreSearchesBeforeRetry).every(id => id === 'doc-old'), 'saved-tab retry stays bound to the original ID');
+    assert.equal(reads.includes('folder/a.md'), false, 'saved-tab retry does not bootstrap or read the replacement path');
+    assert.equal(useFileStore.getState().currentFile, null);
+    assert.equal(useFileStore.getState().missingFilePath, 'folder/a.md');
+    assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-old');
     let restoredReplacement!: OpenWorkspaceFileResult;
     await act(async () => { restoredReplacement = await useFileStore.getState().revealAndLoadFile('folder/a.md', {
       workspaceId: 'workspace', revealInTree: false,
     }); });
     assert.equal(restoredReplacement.status, 'opened');
+    assert(reads.includes('folder/a.md'), 'only the explicit replacement selection reaches the saved-tab path');
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
 
     await act(async () => scenarioRoot.render(null));
@@ -310,6 +347,8 @@ async function main() {
     assert.equal(errors.length, 0, 'a superseded old 404 must not show a misleading error after the new selection');
     assert.equal(useFileStore.getState().currentFile?.collaboration?.document?.id, 'doc-replacement');
     assert.equal(tabs().documentIds?.['folder/a.md'], 'doc-replacement');
+    assert.equal(useFileStore.getState().missingFilePath, null, 'a delayed original-ID 404 cannot overwrite the new selection with a missing state');
+    assert.equal(scenarioContainer.querySelector('[data-testid="missing-file-notice"]'), null);
 
     await act(async () => scenarioRoot.render(null));
     resetScenario();
@@ -333,10 +372,13 @@ async function main() {
     assert.match(document.querySelector('[data-testid="file-loading-skeleton"]')?.textContent ?? '', /other\.md/);
     await act(async () => { for (const resolve of oldWorkspaceLookup.splice(0)) resolve(new Response('', { status: 404 })); });
     assert.equal(useFileStore.getState().currentFile, null, 'the old workspace lookup cannot restore its document after the switch');
+    assert.equal(useFileStore.getState().missingFilePath, null, 'an old workspace 404 cannot replace the new workspace loader with a missing-file state');
+    assert.equal(scenarioContainer.querySelector('[data-testid="missing-file-notice"]'), null);
     assert.ok(document.querySelector('[data-testid="file-loading-skeleton"]'), 'the new workspace skeleton survives an old lookup response');
     await act(async () => finishOtherRead(Response.json({ success: true, data: { path: 'other.md', content: 'Other workspace document' } })));
     await settle();
     assert.equal(useFileStore.getState().currentFile?.path, 'other.md');
+    assert.equal(useFileStore.getState().missingFilePath, null);
     assert.equal(document.querySelector('[data-testid="file-loading-skeleton"]'), null, 'the new workspace skeleton settles when its document is ready');
 
     await act(async () => scenarioRoot.render(null));
