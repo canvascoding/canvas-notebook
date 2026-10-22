@@ -17,7 +17,7 @@ import { readHistoricalCollaborationAdmissionOutcomeOnConnection,
   type CollaborationAdmissionOutcome } from '../collaboration/room-admission-outcome';
 import { createCollaborationAdmissionHandoffService } from '../collaboration/room-admission-handoff';
 import { lockIdentity } from '../collaboration/room-owner';
-import { withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
+import { WorkspaceRequestPrincipalError, withWorkspaceRequestPrincipalOriginalOrigin, withWorkspaceRequestPrincipalOnConnection,
   type WorkspaceRequestHistoricalOrigin, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
 import { captureWorkspaceOperationNativePlanData } from './workspace-operation-native-plan-data';
@@ -67,6 +67,9 @@ export class WorkspaceImplicitMoveOperationError extends Error {
     super(code, options); this.name = 'WorkspaceImplicitMoveOperationError';
   }
 }
+// A public Busy code alone never permits replay. This private, single-use
+// witness belongs to one exact advance command after all its scopes close.
+const retryableAdvanceFailures = new WeakMap<WorkspaceImplicitMoveOperationError, Extract<Command, { kind: 'advance' }>>();
 function fail(code = 'IMPLICIT_MOVE_HISTORY_CHANGED', status: 401 | 403 | 409 | 422 | 503 = 409): never {
   throw new WorkspaceImplicitMoveOperationError(code, status);
 }
@@ -235,6 +238,7 @@ class UnconfirmedPhase extends Error {
 }
 async function runPhase(original: NextRequest, command: Command): Promise<PhaseResult> {
   const workspaceId = command.kind === 'select' ? command.input.workspaceId : command.lookup.workspaceId;
+  let rollbackClosedFailure: { error: unknown } | undefined;
   const execute = (): Promise<PhaseResult> => {
     let actual: WorkspaceRequestHistoricalOrigin | undefined;
     return withWorkspaceRequestPrincipalOriginalOrigin(original, { workspaceId, permission: 'canWrite' }, origin => {
@@ -330,9 +334,32 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
         if (!saved || !equal(saved.request, captured.request)) fail();
         return { snapshot: await snapshot(database, access, saved!) };
         });
-      }, recoverCommitted: async (attempted, cause) => { throw new UnconfirmedPhase(attempted, cause); } }));
+      }, recoverCommitted: async (attempted, cause) => { throw new UnconfirmedPhase(attempted, cause); },
+      afterRollbackClosed: error => {
+        if (command.kind === 'advance' && (error instanceof WorkspaceRequestPrincipalError && error.code === 'PRINCIPAL_BUSY'
+          || error instanceof CollaborationAdmissionError && error.code === 'ADMISSION_CONFLICT')) rollbackClosedFailure = { error };
+      } }));
   };
-  try { return command.kind === 'observe' ? await execute() : await withWorkspaceMutationLock(workspaceId, execute); }
+  try {
+    if (command.kind === 'observe') return await execute();
+    if (command.kind === 'select') return await withWorkspaceMutationLock(workspaceId, execute);
+    const settled = await withWorkspaceMutationLock(workspaceId, async (): Promise<
+      { kind: 'value'; value: PhaseResult } | { kind: 'rolled-back-busy'; error: unknown }> => {
+      try { return { kind: 'value', value: await execute() }; }
+      catch (error) {
+        // execute has also left the Principal scope. Returning a private value
+        // makes a later mutex disposal rejection ineligible, even if it throws
+        // the very same error object as the original SQL failure.
+        if (rollbackClosedFailure && rollbackClosedFailure.error === error) return { kind: 'rolled-back-busy', error };
+        throw error;
+      }
+    });
+    if (settled.kind === 'value') return settled.value;
+    const retryable = new WorkspaceImplicitMoveOperationError('IMPLICIT_MOVE_BUSY', 503,
+      undefined, command.lookup.requestId, { cause: settled.error });
+    retryableAdvanceFailures.set(retryable, command);
+    throw retryable;
+  }
   catch (error) {
     if (!(error instanceof UnconfirmedPhase)) {
       const code = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
@@ -349,6 +376,8 @@ async function runPhase(original: NextRequest, command: Command): Promise<PhaseR
       // fabricated pending operation. Preserve the stable caller operation ID.
       if (['ADMISSION_CONFLICT','PRINCIPAL_BUSY','PRINCIPAL_EXPIRED','55P03','25P04',
         'FILE_MUTATION_LOCK_BUSY','FILE_MUTATION_LOCK_TIMEOUT','FILE_MUTATION_LOCK_UNAVAILABLE'].includes(code)) {
+        reportWorkspaceOperationFailureDiagnostics(error, diagnostic => console.error(
+          '[workspace-implicit-move] Preparation phase unavailable.', { phase: command.kind, diagnostic }));
         throw new WorkspaceImplicitMoveOperationError(code === '25P04' || code === 'PRINCIPAL_EXPIRED'
           ? 'IMPLICIT_MOVE_PHASE_TIMEOUT' : 'IMPLICIT_MOVE_BUSY', 503,
         command.kind === 'select' ? command.input.operationId : undefined,
@@ -473,12 +502,27 @@ async function continueSaved(original: NextRequest, first: Snapshot, waitMs: num
   if (first.result.state !== 'pending') return first.result;
   const deadline = Date.now() + waitMs;
   let current = first;
+  const pause = () => new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
   while (Date.now() < deadline) {
     let pending = false;
     for (const document of current.saved.request.expectedDocuments) {
       if (Date.now() >= deadline) return current.result;
-      const advanced = await runPhase(original, { kind: 'advance', lookup: { workspaceId: current.saved.selection.scope.workspaceId,
-        requestId: current.saved.request.requestId }, expected: current.saved.request, documentId: document.documentId });
+      const command: Extract<Command, { kind: 'advance' }> = { kind: 'advance', lookup: {
+        workspaceId: current.saved.selection.scope.workspaceId, requestId: current.saved.request.requestId },
+      expected: current.saved.request, documentId: document.documentId };
+      let advanced: PhaseResult;
+      while (true) {
+        if (Date.now() >= deadline) return current.result;
+        try { advanced = await runPhase(original, command); break; }
+        catch (error) {
+          if (!(error instanceof WorkspaceImplicitMoveOperationError) || retryableAdvanceFailures.get(error) !== command) throw error;
+          retryableAdvanceFailures.delete(error);
+          // Fresh authentication and SQL on the next attempt, with the same
+          // request/document and original deadline. No scope survives this wait.
+          if (Date.now() >= deadline) return current.result;
+          await pause();
+        }
+      }
       if (!advanced.snapshot) fail(); current = advanced.snapshot!;
       if (current.result.state !== 'pending') return current.result;
       pending ||= advanced.progress?.proofText == null;
@@ -490,7 +534,7 @@ async function continueSaved(original: NextRequest, first: Snapshot, waitMs: num
     }
     if (Date.now() >= deadline) return current.result;
     // No SQL connection, Principal phase, kernel mutex or lifecycle lease remains while waiting.
-    await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(1, deadline - Date.now()))));
+    await pause();
   }
   return current.result;
 }

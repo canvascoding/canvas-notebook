@@ -7,9 +7,12 @@ export async function executeLifecycleTransaction<T>(input: {
   openConnection: () => Promise<SqlConnection>;
   execute: (database: SqlConnection) => Promise<T>;
   recoverCommitted: (value: T, commitError: unknown) => Promise<T>;
+  /** Synchronous observer only; no commit/recovery or failed cleanup is confirmed here. */
+  afterRollbackClosed?: (operationError: unknown) => void;
 }): Promise<T> {
   const database = await input.openConnection();
   let closed = false;
+  let rolledBack: { operationError: unknown } | undefined;
   const close = async (error?: Error) => {
     // A failed release must never be retried as an ordinary pool release.
     closed = true;
@@ -30,6 +33,7 @@ export async function executeLifecycleTransaction<T>(input: {
         } catch (discardError) { errors.push(discardError); }
         throw new AggregateError(errors, 'Lifecycle mutation rollback could not be confirmed.');
       }
+      rolledBack = { operationError };
       throw operationError;
     }
     try {
@@ -47,5 +51,9 @@ export async function executeLifecycleTransaction<T>(input: {
     return value;
   } finally {
     if (!closed) await close();
+    if (rolledBack) {
+      try { input.afterRollbackClosed?.(rolledBack.operationError); }
+      catch { /* An observer must not replace the original operation failure. */ }
+    }
   }
 }

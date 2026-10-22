@@ -4,7 +4,8 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Client, type Notification } from 'pg';
+import { types } from 'node:util';
+import { Client, type Notification, type Pool, type PoolClient } from 'pg';
 import { WebSocket } from 'ws';
 import { Hocuspocus, MessageType } from '@hocuspocus/server';
 import { AuthMessageType } from '@hocuspocus/common';
@@ -1823,10 +1824,147 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           assert.notDeepEqual(acceptedBinary, Buffer.from(oldState.yjsState));
 
           const nativeIntentsBeforeTransfer=await nativeIntentRows();
+          const renameWithActualAdvanceRowLocks = async (): Promise<WebRenameResult> => {
+            const { getPostgresRuntimeQueryable } = await import('../app/lib/db');
+            const { captureCollaborationAdmissionRequest } = await import('../app/lib/collaboration/room-admission-contract');
+            const pool = getPostgresRuntimeQueryable() as Pool; assert(pool);
+            const targetHolder = new Client({ connectionString: process.env.DATABASE_URL,
+              application_name: `${h.applicationName}-advance-target`, connectionTimeoutMillis: 5000,
+              options: `-c search_path=${h.schema},pg_catalog -c statement_timeout=15000` });
+            const locks = { header: { client: h.admin, active: false, releasing: false, released: false },
+              target: { client: targetHolder, active: false, releasing: false, released: false } };
+            type Phase = { ordinal: number; checkout: number; afterClosedFailures: number; sessionRead: boolean; userRead: boolean };
+            type Busy = { kind: 'header' | 'target'; client: PoolClient; phase: Phase; rollback: boolean; released: boolean };
+            const descriptors = new Map<PoolClient, PropertyDescriptor | undefined>(), checkouts = new Map<PoolClient, number>();
+            const phases = new Map<PoolClient, Phase>(), failures: Busy[] = [], releaseWork: Promise<void>[] = [];
+            const successfulAdvances: Phase[] = [];
+            let ordinal = 0, unobservedModes = 0, bootstrapClient: PoolClient | undefined, bootstrapCommits = 0;
+            let firstDocumentId: string | undefined, originalSelection: Awaited<ReturnType<typeof immutableSelection>> | undefined;
+            let observerFailure: Error | undefined;
+            const onClient = (client: PoolClient) => {
+              if (descriptors.has(client)) return;
+              descriptors.set(client, Object.getOwnPropertyDescriptor(client, 'query')); const original = client.query;
+              Object.defineProperty(client, 'query', { configurable: true, writable: true, value: (...args: unknown[]) => {
+                // Keep callback/Query-object overloads untouched. Only genuine
+                // Promise failures from these two exact native SQL reads count.
+                if (args.some(value => typeof value === 'function')) { unobservedModes++; return Reflect.apply(original, client, args); }
+                const first = args[0]; let text: string | undefined, values: unknown[] | undefined;
+                if (typeof first === 'string') { text = first; if (Array.isArray(args[1])) values = args[1]; }
+                else if (first && typeof first === 'object' && !types.isProxy(first)) {
+                  const sql = Object.getOwnPropertyDescriptor(first, 'text'), parameters = Object.getOwnPropertyDescriptor(first, 'values');
+                  if (sql && 'value' in sql && typeof sql.value === 'string') text = sql.value;
+                  if (parameters && 'value' in parameters && Array.isArray(parameters.value)) values = parameters.value;
+                }
+                const sql = text?.replace(/\s+/gu, ' ').trim();
+                const kind = values?.[0] !== identity.requestId ? undefined
+                  : sql?.startsWith('SELECT request_id,request_digest,status,revision,') && sql.includes('FOR SHARE') ? 'header'
+                    : sql?.startsWith('SELECT status,active,') && sql.includes('collaboration_admission_targets')
+                      && sql.includes('FOR UPDATE') && values[1] === firstDocumentId ? 'target' : undefined;
+                const result = Reflect.apply(original, client, args);
+                if (kind && result instanceof Promise) void result.then(() => undefined, error => {
+                  try {
+                    // The public/domain code projector excludes numeric-leading
+                    // SQLSTATEs. Observe this exact native pg data field instead.
+                    const sqlstate = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+                    if (sqlstate !== '55P03') { observerFailure = new Error('Advance row contention returned a different SQLSTATE.', { cause: error }); return; }
+                    const phase = phases.get(client); assert(phase);
+                    failures.push({ kind, client, phase, rollback: false, released: false });
+                  } catch (error) { observerFailure = error instanceof Error ? error : new Error('Advance query observation failed.'); }
+                });
+                else if (kind) unobservedModes++;
+                return result;
+              } });
+            };
+            const onAcquire = (client: PoolClient) => { onClient(client); checkouts.set(client, (checkouts.get(client) ?? 0) + 1); };
+            const onRelease = (...args: [unknown, PoolClient]) => {
+              const client = args[1], entry = [...failures].reverse().find(value => value.client === client && !value.released);
+              if (!entry) return;
+              if (!entry.rollback) { observerFailure = new Error('Busy lease released before its actual successful rollback.'); return; }
+              entry.released = true;
+              const lock = locks[entry.kind]; if (lock.releasing) return; lock.releasing = true;
+              // Run after pg-pool's synchronous release returns; no scope or
+              // client is replaced, and the original query Promise is retained.
+              releaseWork.push(Promise.resolve().then(async () => {
+                await lock.client.query('ROLLBACK'); lock.active = false; lock.released = true;
+              }).catch(error => { observerFailure = error instanceof Error ? error : new Error('Row holder rollback failed.'); }));
+            };
+            pool.on('connect', onClient); pool.on('acquire', onAcquire); pool.on('release', onRelease);
+            try {
+              await targetHolder.connect();
+              const response = await h.withProbe(async event => {
+                const sql = event.text.replace(/\s+/gu, ' ').trim();
+                if (/^BEGIN\b/iu.test(sql)) phases.set(event.client, { ordinal: ++ordinal, checkout: checkouts.get(event.client) ?? 0,
+                  afterClosedFailures: failures.filter(value => value.released).length, sessionRead: false, userRead: false });
+                const phase = phases.get(event.client);
+                if (phase && sql.includes('."session"') && sql.includes('FOR SHARE') && event.values[0] === sessionA) phase.sessionRead = true;
+                if (phase && sql.includes('."user"') && sql.includes('SELECT id,banned') && sql.includes('FOR SHARE')
+                  && event.values[0] === 'member') phase.userRead = true;
+                if (/^INSERT INTO\b/iu.test(sql) && sql.includes('collaboration_admission_requests') && event.values[0] === identity.requestId) {
+                  assert.equal(bootstrapClient, undefined); assert.equal(event.result.rowCount, 1); bootstrapClient = event.client;
+                }
+                if (bootstrapCommits === 0 && event.client === bootstrapClient && sql === 'COMMIT') {
+                  assert.equal(++bootstrapCommits, 1); assert.equal(event.result.command, 'COMMIT');
+                  assert.equal((await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid')).rows[0].xid, null);
+                  originalSelection = await immutableSelection(); assert.equal(originalSelection.length, 1);
+                  const captured = captureCollaborationAdmissionRequest(JSON.parse(String(originalSelection[0].intent_text)));
+                  const saved = decodeWorkspaceImplicitMoveSelectionRequest(captured.request);
+                  assert.equal(saved.operationId, operationId); assert.equal(saved.batchId, identity.batchId); assert.equal(saved.origin.sessionId, sessionA);
+                  firstDocumentId = captured.request.expectedDocuments[0]?.documentId; assert(firstDocumentId);
+                  await h.admin.query('BEGIN'); locks.header.active = true;
+                  assert.equal((await h.admin.query('SELECT request_id FROM collaboration_admission_requests WHERE request_id=$1 FOR UPDATE NOWAIT',
+                    [identity.requestId])).rows[0]?.request_id, identity.requestId);
+                  await targetHolder.query('BEGIN'); locks.target.active = true;
+                  assert.equal((await targetHolder.query('SELECT document_id FROM collaboration_admission_targets WHERE request_id=$1 AND document_id=$2 FOR UPDATE NOWAIT',
+                    [identity.requestId, firstDocumentId])).rows[0]?.document_id, firstDocumentId);
+                }
+                if (sql === 'ROLLBACK') {
+                  const entry = [...failures].reverse().find(value => value.client === event.client && !value.rollback);
+                  if (entry) {
+                    assert.equal(event.result.command, 'ROLLBACK');
+                    const witness = (await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema')).rows[0];
+                    assert.equal(witness.xid, null); assert.equal(witness.schema, h.schema); entry.rollback = true;
+                  }
+                }
+                if (phase && sql.startsWith('SELECT status,active,') && sql.includes('collaboration_admission_targets')
+                  && sql.includes('FOR UPDATE') && event.values[0] === identity.requestId && event.values[1] === firstDocumentId) successfulAdvances.push(phase);
+              }, () => renameWithActualCookie(requestBody));
+              await Promise.all(releaseWork); if (observerFailure) throw observerFailure;
+              assert.equal(bootstrapCommits, 1); assert(originalSelection && firstDocumentId);
+              assert(failures.some(value => value.kind === 'header')); assert(failures.some(value => value.kind === 'target'));
+              for (const [index, entry] of failures.entries()) {
+                assert(entry.rollback && entry.released); assert(entry.phase.sessionRead && entry.phase.userRead);
+                assert(entry.phase.checkout > 0); assert(entry.phase.afterClosedFailures >= index);
+                if (index && failures[index - 1].client === entry.client) assert(entry.phase.checkout > failures[index - 1].phase.checkout);
+              }
+              assert(locks.header.released && locks.target.released);
+              assert(successfulAdvances.some(phase => phase.sessionRead && phase.userRead && phase.afterClosedFailures === failures.length
+                && phase.ordinal > failures[failures.length - 1].phase.ordinal));
+              assert.deepEqual(await immutableSelection(), originalSelection);
+              assert.equal(await store.get(identity.batchId), null);
+              for (const table of ['workspace_file_operation_move_preparations','workspace_file_operation_move_intents','workspace_file_operation_move_receipts'])
+                assert.equal((await row(table, identity.batchId)).length, 0);
+              assert.deepEqual(await nativeIntentRows(), nativeIntentsBeforeTransfer);
+              console.log(JSON.stringify({ test: 'implicit-advance-real-row-contention', requestId: identity.requestId,
+                header55P03: failures.filter(value => value.kind === 'header').length, target55P03: failures.filter(value => value.kind === 'target').length,
+                rollbackClosedFreshPrincipal: true, oneCommittedSelection: true, unobservedModes }));
+              return response;
+            } finally {
+              await Promise.all(releaseWork);
+              pool.off('connect', onClient); pool.off('acquire', onAcquire); pool.off('release', onRelease);
+              for (const [client, descriptor] of descriptors) {
+                if (descriptor) Object.defineProperty(client, 'query', descriptor); else Reflect.deleteProperty(client, 'query');
+              }
+              try { if (locks.header.active) { await h.admin.query('ROLLBACK'); locks.header.active = false; } }
+              finally {
+                try { if (locks.target.active) { await targetHolder.query('ROLLBACK'); locks.target.active = false; } }
+                finally { await targetHolder.end(); }
+              }
+            }
+          };
           // Use the real default 20s HTTP preparation wait. The actual save
           // mutex remains held throughout; no test wait option is supplied.
           const started = performance.now();
-          const initial = await renameWithActualCookie(requestBody), elapsed = performance.now() - started;
+          const initial = await renameWithActualAdvanceRowLocks(), elapsed = performance.now() - started;
           assert(elapsed >= 19_000, `Initial pending response skipped the actual 20s budget (${Math.round(elapsed)}ms).`);
           assert.equal(initial.status, 202); const first = initial.body as unknown as PreparationResult['body'];
           assert.equal(first.success, true); assert.equal(Object.hasOwn(first, 'operation'), false);
