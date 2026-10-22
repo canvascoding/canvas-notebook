@@ -11,6 +11,7 @@ import { getDocumentTransitionGuard, registerDocumentTransitionGuard } from '../
 import { useFileStore } from '../../app/store/file-store';
 import { useEditorStore } from '../../app/store/editor-store';
 import { useWorkspaceStore } from '../../app/store/workspace-store';
+import { authClient } from '../../app/lib/auth-client';
 import messages from '../../messages/en.json';
 
 const doc = new Y.Doc();
@@ -39,6 +40,9 @@ async function main() {
   useEditorStore.getState().setActiveFile(path, doc.getText('content').toString());
   function App() {
     const [error, setError] = useState('');
+    const auth = authClient.useSession();
+    const authReady = !auth.isPending && !auth.error && auth.data?.user.id === session.user.id
+      && auth.data?.session.id === 'recovery-fixture-session' && auth.data.session.userId === session.user.id;
     const currentFile = useFileStore((state) => state.currentFile);
     const currentPath = currentFile?.path;
     const draft = useEditorStore((state) => state.draft);
@@ -105,9 +109,9 @@ async function main() {
       <output data-testid="collaboration-view">{handle ? 'retained' : 'detached'}</output>
       <output data-testid="browser-reveal">{revealStatus ?? 'none'}</output>
       {currentPath === path && <MarkdownSaveState collaboration={collaboration} content={doc.getText('content').toString()} available={!currentFile?.unavailable} filePath={path} />}
-      <button disabled={!activeDoc} onClick={() => void action('close')}>Close document</button>
-      <button disabled={!activeDoc} onClick={() => void action('switch')}>Open other document</button>
-      <button disabled={!activeDoc} onClick={() => void action('delete')}>Delete document</button>
+      <button disabled={!activeDoc || !authReady} onClick={() => void action('close')}>Close document</button>
+      <button disabled={!activeDoc || !authReady} onClick={() => void action('switch')}>Open other document</button>
+      <button disabled={!activeDoc || !authReady} onClick={() => void action('delete')}>Delete document</button>
       <p role="alert" data-testid="fixture-error">{error}</p>
     </NextIntlClientProvider>;
   }

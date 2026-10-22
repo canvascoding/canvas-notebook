@@ -102,6 +102,38 @@ async function login(context: BrowserContext): Promise<Identity> {
 async function reviewOff(context: BrowserContext): Promise<void> {
   const response = await ok(await context.request.get('/api/document-review/availability'), 'Review availability');
   assert.equal(object(response.data).documentReviewEnabled, false);
+  assert.equal(process.env.FILE_VERSION_CENTER_MODE, 'off');
+  await requireOwnedYjsQaTarget();
+  // Observe actual optional history storage in this held private database.
+  // Current-file revision/CAS rows and native operation receipts remain valid.
+  const database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
+    options: '-c default_transaction_read_only=on -c statement_timeout=10000 -c application_name=native-mcp-http-off-read' });
+  let ended = false, asynchronous: Error | undefined, failure: unknown, failed = false, backendPid = 0, counts: Row | undefined;
+  database.once('end', () => { ended = true; }); database.on('error', error => { asynchronous ??= error; });
+  try {
+    await database.connect(); await database.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+    const actual = (await database.query<Row>(`SELECT current_database() AS name,d.oid::text,pg_get_userbyid(d.datdba) AS owner,
+      current_user AS role,shobj_description(d.oid,'pg_database') AS marker,pg_backend_pid() AS pid,
+      current_setting('transaction_read_only') AS read_only,current_setting('transaction_isolation') AS isolation,
+      pg_current_xact_id_if_assigned() IS NULL AS unassigned FROM pg_database d WHERE d.datname=current_database()`)).rows[0];
+    assert(actual); assertDatabaseOwnership(owned, actual as unknown as DatabaseIdentity);
+    assert.equal(actual.read_only, 'on'); assert.equal(actual.isolation, 'repeatable read'); assert.equal(actual.unassigned, true);
+    assert(typeof actual.pid === 'number'); backendPid = actual.pid;
+    counts = (await database.query<Row>(`SELECT
+      (SELECT count(*)::text FROM file_revision_contents) AS revision_contents,
+      (SELECT count(*)::text FROM file_version_blobs) AS version_blobs,
+      (SELECT count(*)::text FROM file_revisions WHERE history_only=true) AS history_only_revisions`)).rows[0];
+    assert.deepEqual(counts, { revision_contents: '0', version_blobs: '0', history_only_revisions: '0' },
+      'Revision capture stays OFF for the complete genuine search/read/create/import/edit/copy/path workflow.');
+    assert.equal((await database.query<Row>('SELECT pg_current_xact_id_if_assigned() IS NULL AS unassigned')).rows[0].unassigned, true);
+    await database.query('COMMIT');
+  } catch (error) { failure = error; failed = true; }
+  let closing: unknown; try { await database.end(); assert(ended); } catch (error) { closing = error; }
+  if (failed || closing || asynchronous) throw new AggregateError([...(failed ? [failure] : []), ...(closing ? [closing] : []),
+    ...(asynchronous ? [asynchronous] : [])], 'Owned revisions-OFF observation failed or did not close.');
+  assert(counts);
+  console.log(JSON.stringify({ evidence: 'native-mcp-revisions-off', mode: 'off', counts,
+    backendPid, readOnly: true, xidUnassigned: true, closed: true }));
 }
 function tokenIdentity(client: Mcp, identity: Identity): void {
   const observed = client.observeTokenIdentity();
@@ -192,7 +224,10 @@ async function snapshotOriginals(): Promise<{ rows: Row[]; probe: Probe }> {
         WHERE c.workspace_id=$1 AND c.lineage_id=$2 ORDER BY b.blob_id,c.revision_id LIMIT 3`, [r.workspace_id, r.lineage_id])).rows;
       const metadata = (await database.query<Row>('SELECT to_jsonb(m) AS value,m.xmin::text AS xmin FROM workspace_file_metadata m WHERE workspace_id=$1 AND path=$2 LIMIT 2', [r.workspace_id, r.path])).rows;
       assert(metadata.length <= 1);
-      for (const actualRows of [documents, lineages, states, projections, revisions, history, blobs]) assert.equal(actualRows.length, 1);
+      for (const actualRows of [documents, lineages, states, projections, revisions]) assert.equal(actualRows.length, 1);
+      assert.deepEqual(history, [], 'OFF creates no optional revision contents');
+      assert.deepEqual(blobs, [], 'OFF creates no optional version blob');
+      assert.equal(object(revisions[0].value).history_only, false, 'the ordinary physical projection/CAS revision remains required');
       assert.equal(object(documents[0].value).provider, 'yjs'); assert.equal(object(documents[0].value).yjs_state_lifecycle, 'initialized');
       assert.equal(object(documents[0].value).lineage_id, r.lineage_id); assert.equal(object(lineages[0].value).status, 'active');
       assert.equal(Number(object(states[0].value).lifecycle_generation), 1); assert.equal(Number(object(states[0].value).document_sequence), 0);
@@ -201,8 +236,6 @@ async function snapshotOriginals(): Promise<{ rows: Row[]; probe: Probe }> {
       assert.equal(object(revisions[0].value).created_by_actor_type, 'agent'); assert.equal(object(revisions[0].value).source_session_id, identityA.sessionId);
       assert.equal(object(revisions[0].value).id, r.revision_id); assert.equal(object(revisions[0].value).content_hash, r.sha256);
       assert.equal(Number(object(revisions[0].value).size_bytes), r.size);
-      assert.equal(object(history[0].value).source, 'external_import'); assert.equal(object(history[0].value).lineage_id, r.lineage_id);
-      assert.equal(object(blobs[0].value).content_sha256, r.sha256); assert.equal(Number(object(blobs[0].value).raw_size_bytes), r.size);
       const claimPath = path.join(owned.dataRoot, store, String(birth.claim_id), 'intent.json');
       const claim = await ownedFile(claimPath, 128 * 1024), intent = object(JSON.parse(claim.bytes.toString('utf8')));
       const source = object(intent.source), historical = object(intent.origin);
@@ -245,6 +278,7 @@ function editResultValue(value: unknown): DocumentEditOperationResultV1 {
   assert.match(String(effect.afterVersion), /^canvas-document-v1:[a-f0-9]{64}$/u); assert.notEqual(effect.afterVersion, effect.beforeVersion);
   assert(Number.isSafeInteger(effect.appliedAt)); assert.equal(persistence.status, 'confirmed'); assert(Number.isSafeInteger(persistence.confirmedInSequence));
   assert(Number.isSafeInteger(persistence.confirmedAt)); assert(Buffer.byteLength(JSON.stringify(row)) <= 8192);
+  assert.deepEqual(row.history, { status: 'unconfirmed', revisionId: null }, 'OFF retains the existing public no-capture result');
   for (const key of ['original', 'after', 'origin', 'actor', 'targets', 'stateProof', 'yjsState', 'stateVector', 'rootPath', 'sessionId']) assert.equal(Object.hasOwn(row, key), false);
   return row as unknown as DocumentEditOperationResultV1;
 }
@@ -312,6 +346,9 @@ async function editRows(): Promise<{ rows: Row; released: boolean; probe: Probe 
     const blobs = (await database.query<Row>(`SELECT to_jsonb(b)-'compressed_content' AS value,b.xmin::text AS xmin,encode(sha256(b.compressed_content),'hex') AS stored_sha256
       FROM file_version_blobs b JOIN file_revision_contents c ON c.blob_id=b.blob_id AND c.workspace_id=b.workspace_id
       WHERE c.workspace_id=$1 AND c.lineage_id=$2 ORDER BY b.blob_id,c.revision_id LIMIT 17`, [selected.workspaceId, selected.lineageId])).rows; assert(blobs.length <= 16);
+    assert.deepEqual(contents, [], 'OFF edit/status/retry creates no optional revision contents');
+    assert.deepEqual(blobs, [], 'OFF edit/status/retry creates no optional version blobs');
+    assert(revisions.every(row => object(row.value).history_only === false), 'ordinary current-file revisions cannot be replaced by optional history');
     const projections = (await database.query<Row>('SELECT to_jsonb(p) AS value,p.xmin::text AS xmin FROM collaboration_file_projections p WHERE document_id=$1', [selected.documentId])).rows;
     const metadata = (await database.query<Row>('SELECT to_jsonb(m) AS value,m.xmin::text AS xmin FROM workspace_file_metadata m WHERE workspace_id=$1 AND path=$2', [selected.workspaceId, selected.path])).rows; assert(metadata.length <= 1);
     const key = sha(`canvas.collaboration.room-owner.v1\0${selected.documentId}`).slice(0, 16);
@@ -451,7 +488,7 @@ async function snapshotRawMarkdownPair(selected: Workspace, physicalPaths: reado
 test.describe.serial('Owned compiled native MCP create/import and renewed OAuth', () => {
   test.beforeAll(async () => {
     owned = await requireOwnedYjsQaTarget(); assert.equal(owned.activeSpec, spec);
-    assert.equal(process.env.FILE_VERSION_CENTER_MODE, 'shadow'); assert.equal(process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE, 'settings');
+    assert.equal(process.env.FILE_VERSION_CENTER_MODE, 'off'); assert.equal(process.env.CANVAS_MCP_DIRECT_SETTINGS_SOURCE, 'settings');
     const published = parse(await privateBytes(path.join(owned.fixtureRoot, 'runtime.env')));
     for (const name of ['FILE_VERSION_CENTER_MODE', 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE']) assert.equal(process.env[name], published[name]);
   });
@@ -574,8 +611,8 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     const current = await nativeRead(mcpB, retry, retryMutation.document.version); mutationMatchesRead(retryMutation, retry, current);
     assert.deepEqual(current.document, imported.native.document); assert.deepEqual(current.currency, imported.native.currency); assert.equal(current.fragment, imported.native.fragment);
     const after = await snapshotOriginals(); assert.deepEqual(after.rows, before);
-    await reviewOff(contextB); await evidence(info, { scope: 'completed original source/history untouched by B with unusable URL', originalRowsUnchanged: true,
-      noDownloadRequired: true, historySource: 'external_import', historyAttributedToOriginalA: true, fullVersion: current.document.version, readOnlyProbe: after.probe,
+    await reviewOff(contextB); await evidence(info, { scope: 'completed original import and capture-OFF state untouched by B with unusable URL', originalRowsUnchanged: true,
+      noDownloadRequired: true, revisionMode: 'off', optionalHistoryRows: 0, optionalBlobRows: 0, originalImportAttributedToA: true, fullVersion: current.document.version, readOnlyProbe: after.probe,
       mutationApiVersion: 1, metadataVersion: current.document.metadataVersion, legacySameKeyReceiptUnchanged: true });
   });
   test('4: compiled OAuth MCP edit reaches the open native editor and same-key/status preserve its actual operation', async ({ browser: _browser }, info) => {
