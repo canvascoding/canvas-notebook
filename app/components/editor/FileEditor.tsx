@@ -1434,6 +1434,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
                 externalCollaboration={{ resolution: textSession, document: activeCollaborationDocument }}
                 value={draft}
                 onChange={updateCollaborativeDraft}
+                readOnly={Boolean(currentFile.unavailable)}
                 filePath={currentFile.path}
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
                 agentTargets={agentTargets}
@@ -1447,7 +1448,7 @@ export function FileEditor({ onClosePreview, onRevealInExplorer }: FileEditorPro
               documentKey={currentFile.editorIdentity}
               expectedCollaborationDocumentId={collaborationDocumentId}
               onChange={updateCollaborativeDraft}
-              readOnly={false}
+              readOnly={Boolean(currentFile.unavailable)}
               path={currentFile.path}
               collaborationEnabled={Boolean(collaboration?.crdtCapable)}
               collaborationSession={textSession.session}
