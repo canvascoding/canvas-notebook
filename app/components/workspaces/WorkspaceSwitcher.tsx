@@ -40,7 +40,7 @@ import {
   type WorkspaceSwitchSource,
 } from '@/app/store/workspace-store';
 
-type WorkspaceSwitcherVariant = 'default' | 'compact' | 'chat-compact' | 'toolbar' | 'file-toolbar' | 'mobile-sheet';
+type WorkspaceSwitcherVariant = 'default' | 'compact' | 'chat-compact' | 'toolbar' | 'file-toolbar' | 'mobile-sheet' | 'mobile-header';
 
 type WorkspaceSwitcherProps = {
   source: WorkspaceSwitchSource;
@@ -141,7 +141,8 @@ export function WorkspaceSwitcher({
   const isChatCompact = variant === 'chat-compact';
   const isToolbar = variant === 'toolbar';
   const isFileToolbar = variant === 'file-toolbar';
-  const isMobileSheet = variant === 'mobile-sheet';
+  const isMobileHeader = variant === 'mobile-header';
+  const isMobileSheet = variant === 'mobile-sheet' || isMobileHeader;
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
   const canManageWorkspaces = hasWorkspaceManagementControls(workspaces);
   const hasOrganizationWorkspace = workspaces.some(
@@ -212,7 +213,11 @@ export function WorkspaceSwitcher({
               data-testid="workspace-switcher"
               data-active-workspace-id={activeWorkspace?.id ?? ''}
               data-active-workspace-type={activeWorkspace?.type ?? ''}
-              className={cn('h-10 w-full justify-between gap-2 px-3 text-left', className)}
+              className={cn(
+                'h-10 w-full min-w-0 justify-between gap-2 px-3 text-left',
+                isMobileHeader && 'h-11 px-2 @container',
+                className,
+              )}
               title={buttonTitle}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -224,7 +229,10 @@ export function WorkspaceSwitcher({
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-semibold">{activeLabel}</span>
                   {activeWorkspace ? (
-                    <span className="block truncate text-[11px] font-normal text-muted-foreground">
+                    <span className={cn(
+                      'block truncate text-[11px] font-normal text-muted-foreground',
+                      isMobileHeader && 'hidden @[14rem]:block',
+                    )}>
                       {getWorkspaceKindLabel(activeWorkspace, kindLabels)} · {getAccessLabel(activeWorkspace, accessLabels)}
                     </span>
                   ) : null}
