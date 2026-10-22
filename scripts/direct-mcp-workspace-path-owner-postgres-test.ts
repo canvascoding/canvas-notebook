@@ -3768,8 +3768,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           let faultFiles: Awaited<ReturnType<typeof filesystem>> | undefined, ownerClient: MetadataSqlEvent['client'] | undefined;
           let stageWitness: { pid: number; start: string; xid: string } | undefined;
           let b2Witness: { pid: number; start: string; xid: string } | undefined;
-          let committed = false, injected = false, archiveWrites = 0, b2Notifications = 0;
-          const expectedTables = ['collaboration_yjs_states', 'collaboration_documents', 'file_collaboration_lineages', 'collaboration_file_projections'];
+          let committed = false, injected = false, registryDrifted = false, archiveWrites = 0, b2Notifications = 0;
           await assert.rejects(run('delete', currentToken, h.source.workspaceId, async live => {
             await create(job, live); assert(job.batch);
             return store.withClaim(job.batch, async claim => {
@@ -3803,10 +3802,30 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   }
                   if (!committed || !intent || injected) return;
                   if (/\bpg_notify\s*\(/iu.test(event.text)) b2Notifications++;
-                  const match = /^\s*(?:UPDATE|INSERT\s+INTO)\s+"[^"]+"\.(collaboration_yjs_states|collaboration_documents|file_collaboration_lineages|collaboration_file_projections)\b/iu.exec(event.text);
-                  if (!match || !event.values.includes(job.targetId) && !event.values.includes(job.lineageId)) return;
-                  assert.equal(match[1], expectedTables[archiveWrites]); assert.equal(event.result.rowCount, 1); archiveWrites++;
-                  if (archiveWrites !== stopAfter) return;
+                  if (stopAfter === 1 && !registryDrifted && /^\s*SELECT\s+\*\s+FROM\s+/iu.test(event.text)
+                    && event.text.includes('"' + h.schema + '".collaboration_file_projections')
+                    && /\bFOR\s+UPDATE\s+NOWAIT\s*$/iu.test(event.text) && event.values[0] === job.targetId) {
+                    const mutationIds = intent.nativeLinks.map(item => item.prepared.operationId);
+                    if ((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])', [mutationIds])).rowCount !== 2) return;
+                    // After the genuine original rows have been read, change a
+                    // real later CAS operand on this B2 client. The first CTE
+                    // still archives state; the registry CAS must return none.
+                    assert.equal((await event.raw(`UPDATE collaboration_documents SET state_version=state_version+1
+                      WHERE id=$1 AND status='active' RETURNING id`, [job.targetId])).rowCount, 1);
+                    registryDrifted = true;
+                    return;
+                  }
+                  if (!/^\s*WITH\s+archived_state\s+AS\s*\(/iu.test(event.text)
+                    || !event.text.includes('"' + h.schema + '".collaboration_yjs_states')
+                    || event.values[1] !== job.targetId || event.values[13] !== job.lineageId) return;
+                  assert.equal(event.result.command, 'SELECT'); assert.equal(event.result.rowCount, 1);
+                  const changed = event.result.rows[0];
+                  assert.equal(changed.state_document_id, job.targetId);
+                  assert.equal(changed.registry_document_id, stopAfter === 4 ? job.targetId : null);
+                  assert.equal(changed.lineage_id, stopAfter === 4 ? job.lineageId : null);
+                  assert.equal(changed.projection_document_id, stopAfter === 4 ? job.targetId : null);
+                  archiveWrites = Object.values(changed).filter(value => value !== null).length;
+                  assert.equal(archiveWrites, stopAfter); assert.equal(registryDrifted, stopAfter === 1);
                   assert(stageWitness && baseline);
                   const actual = (await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
                     pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
@@ -3834,14 +3853,18 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   const payload = path.join(h.dataRoot, intent.physical.trashRelativePath), physical = await fs.stat(payload);
                   assert.equal(physical.dev, sourceIdentity.dev); assert.equal(physical.ino, sourceIdentity.ino);
                   assert.deepEqual(await fs.readFile(payload), sourceBytes); faultFiles = await filesystem();
-                  injected = true; throw Object.assign(new Error('Owned fault after an actual E6 archive CAS.'), { code: 'FIXTURE_DELETE6_ARCHIVE_CAS' });
+                  injected = true;
+                  // There is no client fault seam between atomic CTEs. The
+                  // one-write case must fail through the real product guard;
+                  // the four-write case faults the actual complete SQL ACK.
+                  if (stopAfter === 4) throw Object.assign(new Error('Owned fault after the actual atomic E6 archive statement.'), { code: 'FIXTURE_DELETE6_ARCHIVE_CAS' });
                 }, () => executeWorkspaceOperationOriginalDelete(claim, openDb, live));
               } catch (error) {
                 assert(await store.finishClaim(job.batch!, { status: 'needs_recovery', phase: 'recovery', errorCode: code(error) ?? 'UNCLASSIFIED' }));
                 throw error;
               }
             });
-          }), rejected('FIXTURE_DELETE6_ARCHIVE_CAS'));
+          }), rejected(stopAfter === 1 ? 'ORIGINAL_NATIVE_DELETE_CHANGED' : 'FIXTURE_DELETE6_ARCHIVE_CAS'));
           assert(injected && committed && intent && committedIntent && original && baseline && faultFiles && b2Witness && job.batch && job.original);
           assert.equal(archiveWrites, stopAfter); assert.equal(b2Notifications, 0);
           const after = await snapshot(); delete after.rows.workspace_file_operation_batches;
@@ -4229,16 +4252,143 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.deepEqual(checked.rows.intent,rows.intent);assert.deepEqual(checked.batch.authorization,original);
     });
     await check('Cohort6 real archive CAS fault rolls back B2 native links and all target archives, then exact recovery completes',async()=>{
-      const seed=await seedCohort(),plan=await cohortPlan(seed),batchId=cohortBatchId(seed);let faulted=false;
-      await assert.rejects(h.withProbe(async event=>{
-        if(faulted||!/^\s*UPDATE\s+/iu.test(event.text)||!event.text.includes('collaboration_yjs_states')||!/\bSET\s+status\s*=\s*'archived'/iu.test(event.text)||event.result.rowCount!==1)return;
-        const rows=await physicalRows(batchId);if(rows.intent.length!==1||rows.completion.length)return;faulted=true;
-        throw Object.assign(new Error('Actual cohort first archive CAS before B2 COMMIT.'),{code:'FIXTURE_COHORT6_ARCHIVE'});
-      },()=>executeCohortClaim(seed,plan)),rejected('FIXTURE_COHORT6_ARCHIVE'));
-      assert(faulted);const rows=await physicalRows(batchId);assert.equal(rows.completion.length,0);assert.equal(rows.trash.length,0);
-      for(const[index,item]of [seed.first,seed.second,seed.incoming].entries())assert.deepEqual(await load(h.connection,item.documentId),seed.states[index]);
-      assert.equal((await h.admin.query('SELECT id FROM workspace_trash_entries WHERE original_path=ANY($1::text[])',[seed.roots])).rowCount,0);
-      await rotate();await executeCohortClaim(seed,plan,true);const checked=await checkCohort(seed,batchId);assert.deepEqual(checked.rows.intent,rows.intent);
+      for(const fault of ['atomic-ack','projection-update-miss','projection-insert-miss'] as const){
+        const seed=await seedCohort(),plan=await cohortPlan(seed),batchId=cohortBatchId(seed);
+        const target=fault==='atomic-ack'?seed.first:seed.second,targetState=seed.states[fault==='atomic-ack'?0:1]!;
+        type Intent=import('../app/lib/files/workspace-operation-cohort-delete-evidence').CohortDeleteIntent;
+        let intent:Intent|undefined,committedIntent:Awaited<ReturnType<typeof row>>|undefined;
+        let original:WorkspaceOperationBatchRecord|undefined,baseline:Awaited<ReturnType<typeof snapshot>>|undefined;
+        let faultFiles:Awaited<ReturnType<typeof filesystem>>|undefined,ownerClient:MetadataSqlEvent['client']|undefined;
+        let stageWitness:{pid:number;start:string;xid:string}|undefined,b2Witness:{pid:number;start:string;xid:string}|undefined;
+        let removedProjection:Record<string,unknown>|undefined,committed=false,faulted=false,drifted=false,absentProjectionRead=false;
+        await assert.rejects(h.withProbe(async event=>{
+          if(/^\s*INSERT\s+INTO\b/iu.test(event.text)&&event.text.includes('workspace_file_operation_delete_intents')
+            &&event.values[0]===batchId&&event.result.rowCount===1){
+            assert.equal(ownerClient,undefined);ownerClient=event.client;
+            const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+              pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+              pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+            assert.equal(actual.schema,h.schema);assert.equal(actual.schema_oid,h.schemaOid);assert(actual.xid);
+            stageWitness={pid:Number(actual.pid),start:actual.start,xid:actual.xid};
+            committedIntent=(await event.raw('SELECT to_jsonb(t)::text AS body,xmin::text AS xmin FROM workspace_file_operation_delete_intents t WHERE batch_id=$1',[batchId])).rows;
+            assert.equal(committedIntent.length,1);assert.equal((await physicalRows(batchId)).intent.length,0);
+          }
+          if(event.client!==ownerClient)return;
+          if(!committed&&/^\s*COMMIT\s*$/iu.test(event.text)){
+            assert(stageWitness&&committedIntent);assert.equal(event.result.command,'COMMIT');
+            assert.equal((await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid')).rows[0].xid,null);
+            assert.deepEqual((await physicalRows(batchId)).intent,committedIntent);
+            intent=JSON.parse(JSON.parse(committedIntent[0].body).intent_text) as Intent;
+            assert.equal(intent.kind,'cohort-delete-original');assert.equal(intent.nativeLinks.length,1);
+            original=(await store.get(batchId))!;assert(original);baseline=await snapshot();delete baseline.rows.workspace_file_operation_batches;
+            committed=true;return;
+          }
+          if(!committed||!intent||faulted)return;
+          const native=intent.targets.find(item=>item.native?.documentId===target.documentId)?.native;assert(native);
+          const originalRead=/^\s*SELECT\s+\*\s+FROM\s+/iu.test(event.text)&&event.values[0]===target.documentId;
+          if(originalRead&&(event.text.includes('"'+h.schema+'".collaboration_yjs_states')&&event.values.length===3
+            ||event.text.includes('"'+h.schema+'".collaboration_file_projections')&&/\bFOR\s+UPDATE\s+NOWAIT\s*$/iu.test(event.text))){
+            const mutationIds=intent.nativeLinks.map(item=>item.prepared.operationId);
+            if((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])',[mutationIds])).rowCount!==1)return;
+            if(fault==='projection-insert-miss'&&!removedProjection&&event.text.includes('collaboration_yjs_states')){
+              // Remove the real row on the held B2 connection before the real
+              // projection SELECT. No room/projector race or fake absent DTO.
+              const removed=await event.raw('DELETE FROM collaboration_file_projections WHERE document_id=$1 RETURNING *',[target.documentId]);
+              assert.equal(removed.rowCount,1);removedProjection=removed.rows[0];assert.equal(removedProjection!.document_id,target.documentId);return;
+            }
+            if(!drifted&&event.text.includes('collaboration_file_projections')){
+              if(fault==='projection-update-miss'){
+                assert.equal(event.result.rowCount,1);
+                assert.equal((await event.raw('UPDATE collaboration_file_projections SET projected_sequence=projected_sequence+1 WHERE document_id=$1 RETURNING document_id',[target.documentId])).rowCount,1);
+                drifted=true;return;
+              }
+              if(fault==='projection-insert-miss'){
+                assert(removedProjection);assert.equal(event.result.rowCount,0);absentProjectionRead=true;
+                const p=removedProjection;
+                assert.equal((await event.raw(`INSERT INTO collaboration_file_projections
+                  (document_id,lifecycle_generation,projected_sequence,revision_id,canonical_hash,serialized_hash,finalized,updated_at)
+                  VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING document_id`,[p.document_id,p.lifecycle_generation,p.projected_sequence,
+                  p.revision_id,p.canonical_hash,p.serialized_hash,p.finalized,p.updated_at])).rowCount,1);
+                drifted=true;return;
+              }
+            }
+          }
+          if(!/^\s*WITH\s+archived_state\s+AS\s*\(/iu.test(event.text)||!event.text.includes('"'+h.schema+'".collaboration_yjs_states')
+            ||event.values[1]!==target.documentId||event.values[13]!==native.lineageId)return;
+          assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,1);
+          const changed=event.result.rows[0];assert.equal(changed.state_document_id,target.documentId);
+          assert.equal(changed.registry_document_id,target.documentId);assert.equal(changed.lineage_id,native.lineageId);
+          assert.equal(changed.projection_document_id,fault==='atomic-ack'?target.documentId:null);
+          assert.equal(drifted,fault!=='atomic-ack');
+          if(fault==='projection-insert-miss'){assert(absentProjectionRead);assert.equal(event.values.length,17);assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));}
+          else assert.equal(event.values.length,19);
+          const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
+            pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
+            pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
+          assert(stageWitness&&baseline);assert.equal(actual.schema,h.schema);assert.equal(actual.schema_oid,h.schemaOid);
+          assert.equal(Number(actual.pid),stageWitness.pid);assert.equal(actual.start,stageWitness.start);assert(actual.xid);assert.notEqual(actual.xid,stageWitness.xid);
+          b2Witness={pid:Number(actual.pid),start:actual.start,xid:actual.xid};
+          const state=(await event.raw(`SELECT s.status AS state_status,d.status AS registry_status,l.status AS lineage_status,
+            s.lifecycle_generation,s.yjs_state,s.state_vector,p.lifecycle_generation AS projection_generation FROM collaboration_yjs_states s
+            JOIN collaboration_documents d ON d.id=s.document_id JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+            LEFT JOIN collaboration_file_projections p ON p.document_id=d.id WHERE d.id=$1`,[target.documentId])).rows;
+          assert.equal(state.length,1);assert.equal(state[0].state_status,'archived');assert.equal(state[0].registry_status,'archived');assert.equal(state[0].lineage_status,'archived');
+          assert.equal(Number(state[0].lifecycle_generation),targetState.lifecycleGeneration+1);
+          assert.deepEqual(Buffer.from(state[0].yjs_state),Buffer.from(targetState.yjsState));assert.deepEqual(Buffer.from(state[0].state_vector),Buffer.from(targetState.stateVector));
+          if(fault==='atomic-ack')assert.equal(Number(state[0].projection_generation),targetState.lifecycleGeneration+1);
+          else assert.equal(Number(state[0].projection_generation),Number(fault==='projection-insert-miss'?removedProjection!.lifecycle_generation:event.values[17]));
+          const mutationIds=intent.nativeLinks.map(item=>item.prepared.operationId);
+          assert.equal((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])',[mutationIds])).rowCount,1);
+          const visible=await snapshot();delete visible.rows.workspace_file_operation_batches;
+          assert.deepEqual(visible,baseline,'The independent backend sees no uncommitted cohort unlink, archive or injected projection drift.');
+          for(const root of seed.roots)await absent(path.join(h.source.rootPath,root));
+          for(const[index,file]of [seed.pngPath,seed.pdfPath].entries()){
+            const root:Intent['roots'][number]|undefined=intent.roots.find(item=>file.startsWith(item.physical.canonicalPath+'/'));assert(root);
+            const payload=path.join(h.dataRoot,root.physical.trashRelativePath,file.slice(root.physical.canonicalPath.length+1)),identity=await fs.lstat(payload);
+            assert.equal(identity.dev,seed.identities[index].dev);assert.equal(identity.ino,seed.identities[index].ino);
+            assert.deepEqual(await fs.readFile(payload),index===0?seed.png:seed.pdf);
+          }
+          faultFiles=await filesystem();faulted=true;
+          if(fault==='atomic-ack')throw Object.assign(new Error('Actual atomic cohort archive SQL ACK before B2 COMMIT.'),{code:'FIXTURE_COHORT6_ARCHIVE'});
+          // Real null RETURNING from the last CAS must reach the unchanged
+          // product guard; do not replace it with a fixture exception.
+        },()=>executeCohortClaim(seed,plan)),rejected(fault==='atomic-ack'?'FIXTURE_COHORT6_ARCHIVE':'ORIGINAL_NATIVE_DELETE_CHANGED'));
+        assert(faulted&&committed&&intent&&committedIntent&&original&&baseline&&faultFiles&&b2Witness);
+        const rows=await physicalRows(batchId);assert.deepEqual(rows.intent,committedIntent);assert.equal(rows.completion.length,0);assert.equal(rows.trash.length,0);
+        const after=await snapshot();delete after.rows.workspace_file_operation_batches;assert.deepEqual(after,baseline,'All real cohort B2 archive/link writes and injected CAS drift roll back.');
+        assert.deepEqual(await filesystem(),faultFiles);
+        for(const[index,item]of [seed.first,seed.second,seed.incoming].entries())assert.deepEqual(await load(h.connection,item.documentId),seed.states[index]);
+        assert.equal((await h.admin.query('SELECT id FROM workspace_trash_entries WHERE original_path=ANY($1::text[])',[seed.roots])).rowCount,0);
+        assert(original.authorization.mode==='direct-mcp');
+        const sidA=original.authorization.actorSessionId;await rotate();assert.notEqual(currentSession,sidA);
+        if(fault==='projection-insert-miss'){
+          let removed=false,readAbsent=false,inserted=false,recoveryClient:MetadataSqlEvent['client']|undefined;
+          await h.withProbe(async event=>{
+            if(event.values[0]===target.documentId&&/^\s*SELECT\s+\*\s+FROM\s+/iu.test(event.text)
+              &&event.text.includes('"'+h.schema+'".collaboration_yjs_states')&&event.values.length===3&&!removed){
+              const mutationIds=intent!.nativeLinks.map(item=>item.prepared.operationId);
+              if((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])',[mutationIds])).rowCount!==1)return;
+              assert.equal((await event.raw('DELETE FROM collaboration_file_projections WHERE document_id=$1 RETURNING document_id',[target.documentId])).rowCount,1);
+              removed=true;recoveryClient=event.client;return;
+            }
+            if(!removed||event.client!==recoveryClient||inserted)return;
+            if(event.values[0]===target.documentId&&/^\s*SELECT\s+\*\s+FROM\s+/iu.test(event.text)
+              &&event.text.includes('"'+h.schema+'".collaboration_file_projections')&&/\bFOR\s+UPDATE\s+NOWAIT\s*$/iu.test(event.text)){
+              assert.equal(event.result.rowCount,0);readAbsent=true;return;
+            }
+            if(!/^\s*WITH\s+archived_state\s+AS\s*\(/iu.test(event.text)||event.values[1]!==target.documentId)return;
+            assert(readAbsent);assert.equal(event.values.length,17);assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));
+            assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,1);
+            const native=intent!.targets.find(item=>item.native?.documentId===target.documentId)?.native;assert(native);
+            assert.deepEqual(event.result.rows,[{state_document_id:target.documentId,registry_document_id:target.documentId,lineage_id:native.lineageId,projection_document_id:target.documentId}]);
+            const projection=(await event.raw('SELECT lifecycle_generation,projected_sequence FROM collaboration_file_projections WHERE document_id=$1',[target.documentId])).rows;
+            assert.equal(projection.length,1);assert.equal(Number(projection[0].lifecycle_generation),targetState.lifecycleGeneration+1);
+            assert.equal(Number(projection[0].projected_sequence),targetState.documentSequence);inserted=true;
+          },()=>executeCohortClaim(seed,plan,true));
+          assert(removed&&readAbsent&&inserted);
+        }else await executeCohortClaim(seed,plan,true);
+        const checked=await checkCohort(seed,batchId);assert.deepEqual(checked.rows.intent,rows.intent);assert.deepEqual(checked.batch.authorization,original.authorization);
+      }
     });
     await check('Cohort6 actual B2 COMMIT ACK loss preserves later folder occupant and every original receipt on SID-B recovery',async()=>{
       const seed=await seedCohort(),plan=await cohortPlan(seed),batchId=cohortBatchId(seed);let client:MetadataSqlEvent['client']|undefined,committed=false;

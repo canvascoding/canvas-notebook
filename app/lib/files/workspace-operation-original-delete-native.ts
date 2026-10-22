@@ -291,43 +291,49 @@ Promise<NativeFileArchiveTransition> {
     const transition = prepareNativeFileArchiveTransition(original.state, expected, { trashEntryId, archivedAt });
     markDeleteArchive('transition-prepared');
     if (assertCurrent !== undefined) await assertCurrent();
-    const stateChanged = await database.get(`UPDATE ${selected.schema}.collaboration_yjs_states SET status='archived',lifecycle_generation=$1,
+    // RETURNING dependencies couple the four CAS writes into one statement.
+    // A missing predecessor cannot authorize a later write; the caller rolls
+    // back the whole transaction if any returned identity is absent or changed.
+    // Keep current authority at the actual statement boundary, without extra
+    // client roundtrips between its dependent writes.
+    const projectionWrite = original.projection
+      ? `UPDATE ${selected.schema}.collaboration_file_projections SET lifecycle_generation=$1,projected_sequence=$9,
+      revision_id=NULL,canonical_hash=NULL,serialized_hash=NULL,finalized=0,updated_at=$13 WHERE document_id=$2
+      AND lifecycle_generation=$18 AND projected_sequence=$19
+      AND EXISTS (SELECT 1 FROM archived_lineage WHERE id=$14) RETURNING document_id`
+      : `INSERT INTO ${selected.schema}.collaboration_file_projections
+      (document_id,lifecycle_generation,projected_sequence,revision_id,canonical_hash,serialized_hash,finalized,updated_at)
+      SELECT $2,$1,$9,NULL,NULL,NULL,0,$13 FROM archived_lineage WHERE id=$14
+      ON CONFLICT(document_id) DO NOTHING RETURNING document_id`;
+    const changed = await database.get(`WITH archived_state AS (
+    UPDATE ${selected.schema}.collaboration_yjs_states SET status='archived',lifecycle_generation=$1,
     checkpoint_sequence=0,checkpointed_at=NULL,canonical_hash=NULL,serialized_hash=NULL,degraded=0,
     projection_error_code=NULL,projection_error_sequence=NULL,projection_error_generation=NULL,projection_error_phase=NULL,
     projection_error_cause=NULL,projection_error_permanent=0 WHERE document_id=$2 AND workspace_id=$3
     AND organization_id IS NOT DISTINCT FROM $4 AND path=$5 AND representation=$6 AND schema_version=$7
     AND lifecycle_generation=$8 AND status='active' AND document_sequence=$9 AND persisted_at=$10
-    AND yjs_state=$11 AND state_vector=$12 RETURNING document_id`,
+    AND yjs_state=$11 AND state_vector=$12 RETURNING document_id
+    ), archived_registry AS (
+    UPDATE ${selected.schema}.collaboration_documents SET status='archived',state_version=0,
+    snapshot_revision_id=NULL,updated_at=$13 WHERE id=$2 AND lineage_id=$14 AND provider='yjs' AND yjs_state_lifecycle='initialized'
+    AND workspace_id=$3 AND workspace_type=$15 AND organization_id IS NOT DISTINCT FROM $4 AND path=$5
+    AND status='active' AND state_version=$16
+    AND EXISTS (SELECT 1 FROM archived_state WHERE document_id=$2) RETURNING id
+    ), archived_lineage AS (
+    UPDATE ${selected.schema}.file_collaboration_lineages SET status='archived',archived_at=$13,
+    trash_entry_id=$17 WHERE id=$14 AND workspace_id=$3 AND workspace_type=$15 AND organization_id IS NOT DISTINCT FROM $4
+    AND path=$5 AND status='active' AND EXISTS (SELECT 1 FROM archived_registry WHERE id=$2) RETURNING id
+    ), archived_projection AS (${projectionWrite})
+    SELECT (SELECT document_id FROM archived_state) AS state_document_id,
+      (SELECT id FROM archived_registry) AS registry_document_id,(SELECT id FROM archived_lineage) AS lineage_id,
+      (SELECT document_id FROM archived_projection) AS projection_document_id`,
     [transition.after.identity.lifecycleGeneration, expected.documentId, expected.workspaceId, expected.organizationId, expected.path,
       expected.representation, expected.schemaVersion, expected.lifecycleGeneration, expected.documentSequence, expected.persistedAt,
-      original.raw.yjs_state, original.raw.state_vector]) as Row | undefined;
-    if (stateChanged?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-    if (assertCurrent !== undefined) await assertCurrent();
-    const registryChanged = await database.get(`UPDATE ${selected.schema}.collaboration_documents SET status='archived',state_version=0,
-    snapshot_revision_id=NULL,updated_at=$1 WHERE id=$2 AND lineage_id=$3 AND provider='yjs' AND yjs_state_lifecycle='initialized'
-    AND workspace_id=$4 AND workspace_type=$5 AND organization_id IS NOT DISTINCT FROM $6 AND path=$7
-    AND status='active' AND state_version=$8 RETURNING id`,
-    [archivedAt, expected.documentId, expected.lineageId, expected.workspaceId, selected.workspaceType,
-      expected.organizationId, expected.path, expected.registryStateVersion]) as Row | undefined;
-    if (registryChanged?.id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-    if (assertCurrent !== undefined) await assertCurrent();
-    const lineageChanged = await database.get(`UPDATE ${selected.schema}.file_collaboration_lineages SET status='archived',archived_at=$1,
-    trash_entry_id=$2 WHERE id=$3 AND workspace_id=$4 AND workspace_type=$5 AND organization_id IS NOT DISTINCT FROM $6
-    AND path=$7 AND status='active' RETURNING id`,
-    [archivedAt, trashEntryId, expected.lineageId, expected.workspaceId, selected.workspaceType, expected.organizationId, expected.path]) as Row | undefined;
-    if (lineageChanged?.id !== expected.lineageId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
-    if (assertCurrent !== undefined) await assertCurrent();
-    const projectionChanged = original.projection
-      ? await database.get(`UPDATE ${selected.schema}.collaboration_file_projections SET lifecycle_generation=$1,projected_sequence=$2,
-      revision_id=NULL,canonical_hash=NULL,serialized_hash=NULL,finalized=0,updated_at=$3 WHERE document_id=$4
-      AND lifecycle_generation=$5 AND projected_sequence=$6 RETURNING document_id`,
-      [transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt, expected.documentId,
-        original.projection.lifecycle_generation, original.projection.projected_sequence])
-      : await database.get(`INSERT INTO ${selected.schema}.collaboration_file_projections
-      (document_id,lifecycle_generation,projected_sequence,revision_id,canonical_hash,serialized_hash,finalized,updated_at)
-      VALUES($1,$2,$3,NULL,NULL,NULL,0,$4) ON CONFLICT(document_id) DO NOTHING RETURNING document_id`,
-      [expected.documentId, transition.writes.projection.lifecycleGeneration, expected.documentSequence, archivedAt]);
-    if ((projectionChanged as Row | undefined)?.document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+      original.raw.yjs_state, original.raw.state_vector, archivedAt, expected.lineageId, selected.workspaceType,
+      expected.registryStateVersion, trashEntryId,
+      ...(original.projection ? [original.projection.lifecycle_generation, original.projection.projected_sequence] : [])]) as Row | undefined;
+    if (changed?.state_document_id !== expected.documentId || changed.registry_document_id !== expected.documentId
+      || changed.lineage_id !== expected.lineageId || changed.projection_document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
     markDeleteArchive('cas-complete');
     if (assertCurrent !== undefined) await assertCurrent();
     await verifyArchived(database, selected, original, transition);
