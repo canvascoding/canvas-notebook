@@ -41,6 +41,7 @@ async function main() {
   const errors: string[] = [], results: Array<{ path: string; status: string }> = [];
   const requests: Array<{ path: string; workspace: string | null }> = [];
   let respond: (path: string, count: number) => Response | Promise<Response> = path => success(path);
+  let workspaceResponse: Promise<Response> | undefined;
   const counts = new Map<string, number>();
   const empty: Record<string, string[]> = {
     '@/app/components/navigation/AppBackButton': ['AppBackButton'], '@/app/components/AppLauncher': ['AppLauncher'],
@@ -65,6 +66,7 @@ async function main() {
   };
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input), 'https://canvas.test');
+    if (url.pathname === '/api/workspaces' && workspaceResponse) return workspaceResponse;
     if (url.pathname === '/api/files/read') {
       const path = url.searchParams.get('path')!;
       requests.push({ path, workspace: new Headers(init?.headers).get('x-canvas-workspace-id') });
@@ -98,6 +100,56 @@ async function main() {
   };
   const preview = () => document.querySelector('[data-testid="loaded-preview"]')?.textContent ?? null;
   try {
+    // Exercise the actual toolbar + explorer VM while its first workspace GET
+    // is pending, then keep one real selection click through a tree refresh.
+    await reset();
+    await act(async () => useWorkspaceStore.setState({ initialized: false }));
+    const initialGeneration = useFileStore.getState().treeGeneration;
+    let completeWorkspace!: (response: Response) => void;
+    workspaceResponse = new Promise<Response>(resolve => { completeWorkspace = resolve; });
+    const selectButtons = () => Array.from(document.querySelectorAll<HTMLButtonElement>(
+      'button[aria-label="Toggle select mode"]',
+    ));
+    let hydration: Promise<void> | undefined;
+    const workspacePayload = () => Response.json({ success: true, activeWorkspaceId: 'workspace',
+      workspaces: ['workspace', 'other-workspace'].map(id => ({ id, type: 'personal', name: id, status: 'active',
+        permissions: { canRead: true, canWrite: true, canDelete: true, canCreatePublicLinks: false,
+          canManageWorkspace: false, canRunAgent: true } })) });
+    try {
+      await render('');
+      assert.equal(selectButtons().length, 2, 'fullscreen mounts its desktop and compact selection controls');
+      assert(selectButtons().every(button => button.disabled), 'visible selection controls wait for workspace initialization');
+      await act(async () => { for (const button of selectButtons()) button.click(); });
+      assert.equal(useFileStore.getState().isMultiSelectMode, false, 'an unready native button cannot accept a selection click');
+      await act(async () => { hydration = useWorkspaceStore.getState().hydrateWorkspaces(); });
+      assert.equal(useWorkspaceStore.getState().isLoading, true);
+      assert(selectButtons().every(button => button.disabled), 'the pending workspace GET keeps selection disabled');
+      await act(async () => { completeWorkspace(workspacePayload()); await hydration; });
+      await wait(() => selectButtons().every(button => !button.disabled));
+      assert.equal(useFileStore.getState().fileTreeWorkspaceId, 'workspace');
+      assert(useFileStore.getState().treeGeneration > initialGeneration, 'the real explorer VM performed its initial workspace reset');
+      await act(async () => { selectButtons()[0].click(); });
+      assert.equal(useFileStore.getState().isMultiSelectMode, true, 'one ready click activates the real global selection mode');
+      assert(selectButtons().every(button => button.getAttribute('aria-pressed') === 'true'));
+      await act(async () => { await useFileStore.getState().refreshRootTree(true, 'workspace'); });
+      assert.equal(useFileStore.getState().isMultiSelectMode, true, 'a same-workspace tree refresh preserves the accepted click');
+      await render('', 'other-workspace');
+      assert(selectButtons().every(button => button.disabled), 'a requested fullscreen workspace must match the active tree scope');
+      await act(async () => { for (const button of selectButtons()) button.click(); });
+      assert.equal(useFileStore.getState().isMultiSelectMode, true, 'a foreign-route disabled click cannot toggle the old workspace');
+      await act(async () => { assert.equal(await useWorkspaceStore.getState().setActiveWorkspace('other-workspace', 'test'), true); });
+      await wait(() => selectButtons().every(button => !button.disabled));
+      assert.equal(useFileStore.getState().isMultiSelectMode, false, 'a real workspace transition still clears the old selection');
+      assert.equal(useFileStore.getState().fileTreeWorkspaceId, 'other-workspace');
+      await act(async () => { selectButtons()[0].click(); });
+      assert.equal(useFileStore.getState().isMultiSelectMode, true, 'one ready click works after the real workspace transition');
+      assert.equal(requests.length, 0, 'selection readiness does not open a document');
+    } finally {
+      completeWorkspace(workspacePayload());
+      if (hydration) await act(async () => { await hydration; });
+      workspaceResponse = undefined;
+    }
+
     await reset(); respond = (path, count) => count === 1 ? busy() : success(path);
     await render('recovery.md'); await wait(() => preview() === 'recovery.md');
     assert.equal(counts.get('recovery.md'), 2); assert.deepEqual(errors, []); assert.equal(results.at(-1)?.status, 'opened');

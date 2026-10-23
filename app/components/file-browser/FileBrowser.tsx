@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback, useEffect, type DragEvent } from 'react';
+import { useRef, useState, useCallback, useEffect, useSyncExternalStore, type DragEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useRouter } from '@/i18n/navigation';
 import { Download, Globe2, Move, Search, X } from 'lucide-react';
@@ -52,6 +52,8 @@ interface FileBrowserProps {
   onFileSelect?: (path: string) => void;
 }
 
+const subscribeToHydration = () => () => {};
+
 export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserProps) {
   const t = useTranslations('notebook');
   const searchParams = useSearchParams();
@@ -70,6 +72,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const [publicShareOpen, setPublicShareOpen] = useState(false);
   const [publicSharePaths, setPublicSharePaths] = useState<string[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const clientMounted = useSyncExternalStore(subscribeToHydration, () => true, () => false);
 
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
@@ -84,6 +87,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery,
     collapseAllDirectories,
     fileTree,
+    fileTreeWorkspaceId,
     isMultiSelectMode,
     toggleMultiSelectMode,
     multiSelectPaths,
@@ -103,6 +107,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     setSearchQuery: state.setSearchQuery,
     collapseAllDirectories: state.collapseAllDirectories,
     fileTree: state.fileTree,
+    fileTreeWorkspaceId: state.fileTreeWorkspaceId,
     isMultiSelectMode: state.isMultiSelectMode,
     toggleMultiSelectMode: state.toggleMultiSelectMode,
     multiSelectPaths: state.multiSelectPaths,
@@ -113,7 +118,10 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     currentFile: state.currentFile,
     refreshCurrentFileContent: state.refreshCurrentFileContent,
   })));
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const { activeWorkspaceId, workspaceInitialized } = useWorkspaceStore(useShallow((state) => ({
+    activeWorkspaceId: state.activeWorkspaceId,
+    workspaceInitialized: state.initialized,
+  })));
   const updateDocumentLocation = useCallback((path: string | null, mode: 'push' | 'replace') => {
     if (!isFullscreen) return;
     const href = buildFileBrowserLocationHref({ search, workspaceId: activeWorkspaceId, path });
@@ -381,6 +389,11 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
 
   const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
   const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
+  // Initial explorer setup resets selection when it claims the workspace tree.
+  // Do not accept a selection click before that same scope is ready.
+  const isSelectionReady = clientMounted && workspaceInitialized && Boolean(activeWorkspaceId)
+    && fileTreeWorkspaceId === activeWorkspaceId
+    && (!isFullscreen || !requestedWorkspaceId || requestedWorkspaceId === activeWorkspaceId);
   const pathRequestKey = pathParam ? JSON.stringify([activeWorkspaceId, pathParam]) : null;
 
   useEffect(() => {
@@ -512,6 +525,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         <FileToolbar
           variant={toolbarVariant}
           isMultiSelectMode={isMultiSelectMode}
+          isSelectionReady={isSelectionReady}
           isDeleteDisabled={isDeleteDisabled}
           isRefreshing={isRefreshing}
           handlers={toolbarHandlers}
