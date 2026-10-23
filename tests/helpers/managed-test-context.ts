@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { waitForFileCreateBudget } from './create-request-budget';
+import { MANUAL_MARKDOWN_CREATE_CODES, parseManualMarkdownCreateCompletion } from '../../app/lib/files/markdown-create-result';
 
 import type {
   APIRequestContext,
@@ -364,12 +365,32 @@ export async function createCompletedWorkspaceMarkdownFile(input: {
   assert.match(input.filePath, /\.(?:md|markdown)$/iu);
   const completion = { status: 'completed' as const, requestId: randomUUID(), workspaceId: input.workspaceId, targetPath: input.filePath };
   await waitForFileCreateBudget();
-  const response = await input.request.post('/api/files/create', {
-    headers: { [WORKSPACE_ID_HEADER]: completion.workspaceId },
-    data: { path: completion.targetPath, type: 'file', requestId: completion.requestId },
-  });
-  await assertCompletedWorkspaceMarkdownCreate(response, completion);
-  return completion;
+  const deadline = performance.now() + 45_000;
+  while (true) {
+    const remaining = Math.floor(deadline - performance.now());
+    assert(remaining > 0, 'Native Markdown fixture did not reach Completed within its same-request check window.');
+    const response = await input.request.post('/api/files/create', {
+      headers: { [WORKSPACE_ID_HEADER]: completion.workspaceId },
+      data: { path: completion.targetPath, type: 'file', requestId: completion.requestId },
+      timeout: remaining,
+    });
+    if (response.status() !== 409) {
+      await assertCompletedWorkspaceMarkdownCreate(response, completion);
+      return completion;
+    }
+    const payload: unknown = await response.json();
+    assert(payload && typeof payload === 'object' && !Array.isArray(payload), 'Native Markdown fixture received an invalid pending response.');
+    const pending = payload as { success?: unknown; code?: unknown; completion?: unknown };
+    assert.equal(pending.success, false);
+    assert.equal(pending.code, MANUAL_MARKDOWN_CREATE_CODES.projection_pending);
+    const observed = parseManualMarkdownCreateCompletion(pending.completion, completion);
+    assert(observed?.status === 'projection_pending', 'Native Markdown pending coordinates must match the original creation.');
+    assert.equal(observed.code, MANUAL_MARKDOWN_CREATE_CODES.projection_pending);
+    assert(performance.now() < deadline, 'Native Markdown fixture did not reach Completed within its same-request check window.');
+    // Fully await the existing shared request budget; do not orphan its ledger
+    // reservation. The loop rechecks the deadline before issuing another POST.
+    await waitForFileCreateBudget();
+  }
 }
 
 export async function enterMarkdownEditMode(page: Page): Promise<void> {
