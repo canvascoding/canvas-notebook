@@ -59,7 +59,7 @@ async function verifyGuest(page: Page, invitation: Invitation, workspaceId: stri
       // Direct Node loading avoids tsx CLI's Unix socket under the long private
       // macOS TMPDIR while retaining the original driver and all its checks.
       const { stdout } = await execFileAsync(process.execPath,
-        ['--conditions=react-server', '--import', 'tsx', ownedNativeFixture
+        ['--conditions=react-server', '--import', 'tsx', '--import', './scripts/helpers/owned-application-esm-driver.mjs', ownedNativeFixture
           ? 'scripts/owned-file-guest-challenge-driver.ts' : 'scripts/collaboration-guest-challenge-driver.ts', encoded],
         { env: process.env, maxBuffer: 64 * 1024 });
       const result = stdout.split('\n').find(line => line.startsWith('CANVAS_GUEST_CHALLENGE_RESULT='));

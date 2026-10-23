@@ -142,7 +142,7 @@ async function session(request: APIRequestContext, workspace: Workspace, filePat
 async function durable(workspace: Workspace, filePath: string, identity: Identity): Promise<Durable> {
   const input = Buffer.from(JSON.stringify({ documentId: identity.documentId, workspaceId: workspace.id,
     path: filePath, generation: identity.lifecycleGeneration })).toString('base64url');
-  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx', 'scripts/owned-yjs-authority-storage-read.ts', input],
+  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx', '--import', './scripts/helpers/owned-application-esm-driver.mjs', 'scripts/owned-yjs-authority-storage-read.ts', input],
     { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 2 * 1024 * 1024 });
   expect(result.receipt).toMatchObject({ exitVerified: true, exitCode: 0 });
   return JSON.parse(result.stdout) as Durable;

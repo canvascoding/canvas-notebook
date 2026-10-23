@@ -108,7 +108,7 @@ async function createDocument(page: Page, workspace: Workspace, filePath: string
 async function durable(target: NativeTarget): Promise<Durable> {
   const input = Buffer.from(JSON.stringify({ documentId: target.documentId, workspaceId: target.workspaceId,
     path: target.path, generation: target.lifecycleGeneration })).toString('base64url');
-  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx',
+  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx', '--import', './scripts/helpers/owned-application-esm-driver.mjs',
     'scripts/owned-yjs-authority-storage-read.ts', input],
   { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 2 * 1024 * 1024 });
   expect(result.receipt).toMatchObject({ exitVerified: true, exitCode: 0 });

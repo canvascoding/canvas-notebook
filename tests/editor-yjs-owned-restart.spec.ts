@@ -45,7 +45,7 @@ async function identity(page: Page, workspace: Workspace, path: string): Promise
 
 async function durable(workspace: Workspace, path: string, state: Identity): Promise<Durable> {
   const input = Buffer.from(JSON.stringify({ documentId: state.documentId, workspaceId: workspace.id, path, generation: state.lifecycleGeneration })).toString('base64url');
-  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx', 'scripts/owned-yjs-authority-storage-read.ts', input],
+  const result = await runOwnedNativeCommand(['--conditions=react-server', '--import', 'tsx', '--import', './scripts/helpers/owned-application-esm-driver.mjs', 'scripts/owned-yjs-authority-storage-read.ts', input],
     { label: 'storage-evidence', timeoutMs: 30_000, maxBuffer: 2 * 1024 * 1024 });
   return JSON.parse(result.stdout);
 }
