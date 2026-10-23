@@ -319,7 +319,8 @@ test('a native peer edit during staged physical reads invalidates the native pro
       },
       close: async error => { await traced.connection.close(error); if (mode === 'close') throw cleanupFailure; },
     };
-    const principal = Object.freeze({ fixture: 'declared-current-principal' });
+    const principal = Object.freeze({ fixture: 'declared-current-principal' }) as unknown as
+      import('../app/lib/workspaces/request-principal').WorkspaceRequestPrincipal;
     const unexpected = () => { throw new Error('Unexpected preparation arm in rejection-only regression.'); };
     const mocks: Record<string, unknown> = {
       'server-only': {}, 'node:util': await import('node:util'), '../db': { openDb: async () => databaseConnection },
