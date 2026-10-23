@@ -1,6 +1,6 @@
-# M3: gemeinsame finale Abnahme – vorbereiteter Quellenstand
+# Historischer M3-/29-Fälle-Vorbereitungsindex
 
-Stand: 20. Oktober 2026. **Noch kein aktueller Build-/Browser-Gesamtpass.** M1/M2, die beiden Undo-OFF-Regressionskorrekturen und die dokumentierten CodeQL-Korrekturen sind getrennt belegt. Diese Datei hält die verbleibende tatsächliche Endabnahme fest.
+Historischer Stand: 20. Oktober 2026. Die nachfolgenden M3-/29-Fälle-Belege behalten ihre ursprünglichen Quellen- und Laufbindungen; sie sind keine aktuelle 94/23-Gesamtabnahme. Maßgeblich sind der [aktuelle MVP-Abnahmeindex](./yjs-mvp-tool-and-restore-acceptance.md) und die [aktuelle E2E-Matrix](./yjs-mvp-e2e-matrix.md). A4- und EB9-MCP10 bleiben separat bestanden; UI76 auf A4 RED49/1/26 und EB9 RED62/2/12 bleibt jeweils trotz geschlossenem Ressourcenbericht rot. Produktstand `7c24a631860787d668aea288b6573d7a48e3b6f0`: Die funktionale MVP-Abnahme ist im unveränderten Umfang mit 94 bestandenen Fällen in 23 ganzen Specs abgeschlossen: originale8e2-MCP10/1 und UI67/17 werden aufgrund belegter Produkt-/Orakelparität wiederverwendet (77/18); auf7c24 sind Rest-UI9/3 sowie Restart2/1 und REST6/1 neu bestanden (17/5). Dies ist die ausdrücklich erlaubte Komposition mehrerer echter Läufe, kein einzelner frischer Whole94-Lauf. Der ursprüngliche8e2-UI76-RED67/3/6 bleibt unverändert. Rest-UI9 endet mit Original4778/49c0a6 Exit0,9/9 und14/14 Abschlusschecks. Die gemeinsame remaining10-Runtime endet mit Original33018/94b3ac Exit0,10/10 und14/14 Abschlusschecks: Restart2 zuerst mit zwei echten Neustarts, danach REST6 und zuletzt Metadata2. Nur die acht Restart-/REST-Fälle zählen zu94; Metadata2 ist ein bestandener Zusatztest. PI12 ist zusätzlich12/12 bestanden und unabhängig geschlossen; verpasste optionale Anfangsidentitäten bleiben NULL. Maßgeblich sind der aktuelle Abnahmeindex und die E2E-Matrix mit tatsächlich gebundenen Originalen. Die vier von Root visuell geprüften Bilder bleiben Originalaufnahmen von8e2 mit belegter Produktparität, keine neuen7c24-Aufnahmen. Der Code-CI-Snapshot auf7c24 ist mit sieben erfolgreichen Checks abgeschlossen. Er nimmt den späteren Dokumentations-Head nicht vorweg: dessen erforderliche CI, vollständige Reviews, Main-Frische und tatsächlicher Merge/Remote-Main-Abschluss sind über [PR #176](https://github.com/canvascoding/canvas-notebook/pull/176) noch frisch zu prüfen. Keine Main-/Produktionsfreigabe oder künftige Commit-/Merge-SHA wird vorweggenommen.
 
 ## Unveränderter Produktkern, ergänzte Raw-Web-Prüfung
 
@@ -14,7 +14,7 @@ NoWrite bedeutet hier die acht benannten Dokument-/Operations-/Projektions-Tabel
 
 Unabhängiger Quellenreview ohne konkreten P1/P2. Drei neue Symbolimpacts wurden vorab mit UNKNOWN/not-found versucht; dies ist kein Sicherheitsurteil. Tatsächliche erste Typprüfung fand eine fehlende Typannotation im neuen Test (TS7022); der erhaltene RED ist keine Produktregression. Ausschließlich `found: Row[]` wurde ergänzt. Danach: TypeScript Exit 0 / 18,146 s, ESLint Exit 0 / 2,048 s, reine Collection genau 10 Fälle Exit 0 / 0,802 s. Keine Browserausführung wird daraus abgeleitet.
 
-## Erforderliche echte Laufmatrix auf demselben frischen Produktionsbuild
+## Historische geplante Laufmatrix der M3-/29-Auswahl
 
 | Serielle eigene Runtime | Spec | Tatsächlich deklarierte Fälle | Erwartete Hostneustarts |
 |---|---|---:|---:|
