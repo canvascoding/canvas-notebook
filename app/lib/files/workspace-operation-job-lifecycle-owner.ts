@@ -43,7 +43,8 @@ import { readWorkspaceOperationNativePathAdmissionOnConnection } from './workspa
 import { readWorkspaceOperationOriginalMovePreparationOnConnection } from './workspace-operation-original-move-preparation';
 import { parseIntent, assertOriginalDeleteIntentPlan, type WorkspaceOperationOriginalDeleteResult } from './workspace-operation-original-delete-evidence';
 import { readWorkspaceOperationOriginalDeleteObservationOnConnection } from './workspace-operation-original-delete-observation';
-import { archiveOriginalNativeDeleteTargetOnConnection } from './workspace-operation-original-delete-native';
+import { archiveOriginalNativeDeleteTargetOnConnection,
+  archiveOriginalNativeCohortDeleteTargetsOnConnection } from './workspace-operation-original-delete-native';
 import type { NativeFileArchiveTransition } from '../collaboration/native-file-archive-transition';
 import { withNativeInspectionSchema } from '../collaboration/native-inspection-schema';
 import { completeWorkspaceOperationOriginalDeleteDomain } from './workspace-operation-original-delete-domain';
@@ -578,13 +579,14 @@ function runLifecycleTransaction<T>(owner: WorkspaceOperationJobLifecycleOwner,
               if(!row||row.intentDigest!==expectedIntentDigest)fail('JOB_LIFECYCLE_CHANGED');
               const intent=parseCohortDeleteIntent(row,binding,access.workspace,resolveWorkspaceDataRoot());
               const validate=async()=>{phase.stage='before-operation-check';checkPhase(captured,phase);await check();checkPhase(captured,phase);phase.stage='sql';};
-              const result:Array<{path:string;transition:NativeFileArchiveTransition}>=[];
-              for(const target of intent.targets){if(!target.native)continue;
+              const targets=intent.targets.flatMap(target=>{if(!target.native)return [];
                 const root=intent.roots.find(root=>root.stepKey===target.rootStep);if(!root)fail('JOB_LIFECYCLE_CHANGED');
-                const transition=await archiveOriginalNativeDeleteTargetOnConnection(database,{schema:schemaName,workspace:access.workspace,
-                  expected:target.native,trashEntryId:root.physical.trashEntryId,archivedAt:root.physical.deletedAtMs},validate);
-                result.push({path:target.path,transition});}
-              return Object.freeze(result);
+                return [{path:target.path,archive:{expected:target.native,trashEntryId:root.physical.trashEntryId,archivedAt:root.physical.deletedAtMs}}];});
+              if(!targets.length)return Object.freeze([]);
+              const archived=await archiveOriginalNativeCohortDeleteTargetsOnConnection(database,{schema:schemaName,workspace:access.workspace,
+                targets:targets.map(target=>target.archive)},validate);
+              if(archived.length!==targets.length||archived.some((target,index)=>target.path!==targets[index].path))fail('JOB_LIFECYCLE_CHANGED');
+              return archived;
             },'native-archive-write'),
             archiveOriginalNativeHtmlDeleteTarget: (expectedIntentDigest: string) => dispatch(undefined, async () => {
               const { binding } = captured;

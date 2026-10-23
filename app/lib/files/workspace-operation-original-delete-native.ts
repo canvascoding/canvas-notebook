@@ -175,9 +175,9 @@ function assertProjection(projection: Row | undefined, state: PersistedCollabora
     fail('ORIGINAL_NATIVE_DELETE_CHANGED');
   }
 }
-async function readActiveTarget(database: SqlConnection, selected: Selection): Promise<LockedRows & {
+async function readActiveTarget(database: SqlConnection, selected: Selection, maxStateBytes = MAX_STATE_BYTES): Promise<LockedRows & {
   state: PersistedCollaborationState; expected: NativeFileArchiveExpected }> {
-  const rows = await lockOriginalRows(database, selected), { registry, lineage, raw } = rows;
+  const rows = await lockOriginalRows(database, selected, maxStateBytes), { registry, lineage, raw } = rows;
   assertScope(registry, selected); assertScope(lineage, selected);
   if (registry.id !== selected.documentId || registry.lineage_id !== selected.lineageId || lineage.id !== selected.lineageId
     || registry.provider !== 'yjs' || registry.yjs_state_lifecycle !== 'initialized' || registry.status !== 'active'
@@ -346,6 +346,172 @@ Promise<NativeFileArchiveTransition> {
       milestones: deleteArchiveMilestones })); }
     catch { /* Timing diagnostics never replace the original operation result. */ }
   }
+}
+
+type CohortArchiveTarget = Readonly<{ expected: NativeFileArchiveExpected; trashEntryId: string; archivedAt: number }>;
+type CohortArchiveInput = Readonly<{ schema: string; workspace: WorkspaceContext; targets: readonly CohortArchiveTarget[] }>;
+type CapturedCohortArchiveTarget = Readonly<{ selected: Selection; expected: NativeFileArchiveExpected;
+  trashEntryId: string; archivedAt: number }>;
+type PreparedCohortArchiveTarget = Readonly<{ target: CapturedCohortArchiveTarget;
+  original: Awaited<ReturnType<typeof readActiveTarget>>; transition: NativeFileArchiveTransition }>;
+// One accepted original plus one fresh postcondition row never retains more
+// binary/vector bytes than the existing single-target archive. Larger cohorts
+// use more chunks on the SAME caller-owned B/TX; no partial receipt is returned.
+const COHORT_ARCHIVE_RETAINED_BYTES = ARCHIVED_NATIVE_BINARY_LIMIT + MAX_VECTOR_BYTES;
+const COHORT_ARCHIVE_SQL_TARGETS = 64;
+const COHORT_ARCHIVE_MAX_TARGETS = 1024;
+
+async function readCohortArchiveSizes(database: SqlConnection, targets: readonly CapturedCohortArchiveTarget[]): Promise<number[]> {
+  const first = targets[0].selected;
+  const rows = await database.all(`SELECT s.document_id,requested.ordinal::integer AS ordinal,
+    octet_length(s.yjs_state) AS state_bytes,octet_length(s.state_vector) AS vector_bytes
+    FROM pg_catalog.unnest($2::text[]) WITH ORDINALITY requested(document_id,ordinal)
+      JOIN ${first.schema}.collaboration_yjs_states s ON s.document_id=requested.document_id
+    WHERE s.workspace_id=$1 ORDER BY requested.ordinal LIMIT $3 FOR UPDATE OF s NOWAIT`,
+  [first.workspaceId, targets.map(target => target.expected.documentId), targets.length + 1]) as Row[];
+  if (rows.length !== targets.length) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+  return rows.map((row, index) => {
+    if (row.document_id !== targets[index].expected.documentId || !safe(row.ordinal, 1) || Number(row.ordinal) !== index + 1) {
+      fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    }
+    assertBounds(row);
+    if (Number(row.state_bytes) > ARCHIVED_NATIVE_BINARY_LIMIT) fail('ORIGINAL_NATIVE_DELETE_TOO_LARGE');
+    return Number(row.state_bytes);
+  });
+}
+
+function cohortArchiveStatement(prepared: readonly PreparedCohortArchiveTarget[]): { sql: string; values: unknown[] } {
+  const values: unknown[] = [];
+  const types = ['bigint', 'text', 'text', 'text', 'text', 'text', 'bigint', 'bigint', 'bigint', 'bigint',
+    'bytea', 'bytea', 'bigint', 'text', 'text', 'bigint', 'text', 'boolean', 'bigint', 'bigint'];
+  const rows = prepared.map(({ target, original, transition }, index) => {
+    const expected = target.expected;
+    const row = [transition.after.identity.lifecycleGeneration, expected.documentId, expected.workspaceId,
+      expected.organizationId, expected.path, expected.representation, expected.schemaVersion, expected.lifecycleGeneration,
+      expected.documentSequence, expected.persistedAt, original.raw.yjs_state, original.raw.state_vector,
+      target.archivedAt, expected.lineageId, target.selected.workspaceType, expected.registryStateVersion, target.trashEntryId,
+      original.projection !== undefined, original.projection?.lifecycle_generation ?? null, original.projection?.projected_sequence ?? null];
+    const parameters = row.map((value, column) => { values.push(value); return `$${values.length}::${types[column]}`; });
+    return `(${index + 1}::integer,${parameters.join(',')})`;
+  });
+  const schema = prepared[0].target.selected.schema;
+  const sql = `WITH selected(ordinal,next_generation,document_id,workspace_id,organization_id,path,representation,schema_version,
+    lifecycle_generation,document_sequence,persisted_at,yjs_state,state_vector,archived_at,lineage_id,workspace_type,
+    registry_state_version,trash_entry_id,has_projection,projection_generation,projection_sequence) AS MATERIALIZED (
+    VALUES ${rows.join(',')}
+    ), archived_state AS (
+    UPDATE ${schema}.collaboration_yjs_states s SET status='archived',lifecycle_generation=q.next_generation,
+      checkpoint_sequence=0,checkpointed_at=NULL,canonical_hash=NULL,serialized_hash=NULL,degraded=0,
+      projection_error_code=NULL,projection_error_sequence=NULL,projection_error_generation=NULL,projection_error_phase=NULL,
+      projection_error_cause=NULL,projection_error_permanent=0 FROM selected q
+    WHERE s.document_id=q.document_id AND s.workspace_id=q.workspace_id
+      AND s.organization_id IS NOT DISTINCT FROM q.organization_id AND s.path=q.path AND s.representation=q.representation
+      AND s.schema_version=q.schema_version AND s.lifecycle_generation=q.lifecycle_generation AND s.status='active'
+      AND s.document_sequence=q.document_sequence AND s.persisted_at=q.persisted_at
+      AND s.yjs_state=q.yjs_state AND s.state_vector=q.state_vector RETURNING s.document_id
+    ), archived_registry AS (
+    UPDATE ${schema}.collaboration_documents d SET status='archived',state_version=0,snapshot_revision_id=NULL,updated_at=q.archived_at
+      FROM selected q JOIN archived_state s ON s.document_id=q.document_id
+    WHERE d.id=q.document_id AND d.lineage_id=q.lineage_id AND d.provider='yjs' AND d.yjs_state_lifecycle='initialized'
+      AND d.workspace_id=q.workspace_id AND d.workspace_type=q.workspace_type
+      AND d.organization_id IS NOT DISTINCT FROM q.organization_id AND d.path=q.path AND d.status='active'
+      AND d.state_version=q.registry_state_version RETURNING d.id
+    ), archived_lineage AS (
+    UPDATE ${schema}.file_collaboration_lineages l SET status='archived',archived_at=q.archived_at,trash_entry_id=q.trash_entry_id
+      FROM selected q JOIN archived_registry d ON d.id=q.document_id
+    WHERE l.id=q.lineage_id AND l.workspace_id=q.workspace_id AND l.workspace_type=q.workspace_type
+      AND l.organization_id IS NOT DISTINCT FROM q.organization_id AND l.path=q.path AND l.status='active' RETURNING l.id
+    ), updated_projection AS (
+    UPDATE ${schema}.collaboration_file_projections p SET lifecycle_generation=q.next_generation,projected_sequence=q.document_sequence,
+      revision_id=NULL,canonical_hash=NULL,serialized_hash=NULL,finalized=0,updated_at=q.archived_at
+      FROM selected q JOIN archived_lineage l ON l.id=q.lineage_id
+    WHERE q.has_projection AND p.document_id=q.document_id AND p.lifecycle_generation=q.projection_generation
+      AND p.projected_sequence=q.projection_sequence RETURNING p.document_id
+    ), inserted_projection AS (
+    INSERT INTO ${schema}.collaboration_file_projections
+      (document_id,lifecycle_generation,projected_sequence,revision_id,canonical_hash,serialized_hash,finalized,updated_at)
+    SELECT q.document_id,q.next_generation,q.document_sequence,NULL,NULL,NULL,0,q.archived_at
+      FROM selected q JOIN archived_lineage l ON l.id=q.lineage_id WHERE NOT q.has_projection
+      ON CONFLICT(document_id) DO NOTHING RETURNING document_id
+    ), archived_projection AS (
+    SELECT document_id FROM updated_projection UNION ALL SELECT document_id FROM inserted_projection
+    )
+    SELECT q.ordinal,q.document_id,
+      (SELECT document_id FROM archived_state WHERE document_id=q.document_id) AS state_document_id,
+      (SELECT id FROM archived_registry WHERE id=q.document_id) AS registry_document_id,
+      (SELECT id FROM archived_lineage WHERE id=q.lineage_id) AS lineage_id,
+      (SELECT document_id FROM archived_projection WHERE document_id=q.document_id) AS projection_document_id
+      FROM selected q ORDER BY q.ordinal`;
+  if (!prepared.length || prepared.length > COHORT_ARCHIVE_SQL_TARGETS || values.length > 65535 || sql.length > 32768) {
+    fail('ORIGINAL_NATIVE_DELETE_INVALID');
+  }
+  return { sql, values };
+}
+
+/** Fixed Cohort archive mechanics only. The genuine Owner supplies every target
+ * from its freshly verified original intent and owns authorization/admission,
+ * rollback, the unchanged B/TX and the final all-cohort receipts. Four fresh
+ * Current fences surround each bounded atomic SQL group; no authority or rows
+ * survive this call and no partial result escapes if any later group fails. */
+export async function archiveOriginalNativeCohortDeleteTargetsOnConnection(database: SqlConnection, input: CohortArchiveInput,
+  assertCurrent: () => Promise<void>): Promise<readonly Readonly<{ path: string; transition: NativeFileArchiveTransition }>[]> {
+  const captured = data(input, ['schema', 'workspace', 'targets']);
+  if (typeof assertCurrent !== 'function' || !Array.isArray(captured.targets)
+    || captured.targets.length > COHORT_ARCHIVE_MAX_TARGETS) fail('ORIGINAL_NATIVE_DELETE_INVALID');
+  // Validate the common realm even when the original cohort has no native targets.
+  schemaName(captured.schema); captureScope(captured.workspace);
+  const ids = new Set<string>(), lineages = new Set<string>(), paths = new Set<string>();
+  const targets: CapturedCohortArchiveTarget[] = captured.targets.map(item => {
+    const fields = data(item, ['expected', 'trashEntryId', 'archivedAt']);
+    const expected = captureExpected(fields.expected as NativeFileArchiveExpected);
+    const selected = selection(captured.schema, captured.workspace, expected.documentId, expected.lineageId, expected.path);
+    const trashEntryId = fields.trashEntryId, archivedAt = fields.archivedAt;
+    if (expected.workspaceId !== selected.workspaceId || expected.organizationId !== selected.organizationId
+      || !id(trashEntryId) || typeof archivedAt !== 'number' || !safe(archivedAt) || archivedAt < expected.persistedAt
+      || ids.has(expected.documentId) || lineages.has(expected.lineageId) || paths.has(expected.path)) fail('ORIGINAL_NATIVE_DELETE_INVALID');
+    ids.add(expected.documentId); lineages.add(expected.lineageId); paths.add(expected.path);
+    return Object.freeze({ selected, expected, trashEntryId, archivedAt });
+  });
+  const result: Readonly<{ path: string; transition: NativeFileArchiveTransition }>[] = [];
+  for (let offset = 0; offset < targets.length;) {
+    await assertCurrent(); // 1: before every fresh header/BLOB read in this group.
+    const candidates = targets.slice(offset, offset + COHORT_ARCHIVE_SQL_TARGETS);
+    const sizes = await readCohortArchiveSizes(database, candidates);
+    let count = 0, reservedBytes = 0;
+    while (count < candidates.length && reservedBytes + sizes[count] + MAX_VECTOR_BYTES <= COHORT_ARCHIVE_RETAINED_BYTES) {
+      reservedBytes += sizes[count] + MAX_VECTOR_BYTES; count++;
+    }
+    if (!count) fail('ORIGINAL_NATIVE_DELETE_TOO_LARGE');
+    const prepared: PreparedCohortArchiveTarget[] = [];
+    let retainedBytes = 0;
+    for (let index = 0; index < count; index++) {
+      const target = candidates[index];
+      const original = await readActiveTarget(database, target.selected,
+        Math.min(ARCHIVED_NATIVE_BINARY_LIMIT, COHORT_ARCHIVE_RETAINED_BYTES - retainedBytes - MAX_VECTOR_BYTES));
+      if (original.state.yjsState.byteLength !== sizes[index]
+        || expectedKeys.some(key => original.expected[key] !== target.expected[key])) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+      retainedBytes += original.state.yjsState.byteLength + original.state.stateVector.byteLength;
+      const transition = prepareNativeFileArchiveTransition(original.state, target.expected,
+        { trashEntryId: target.trashEntryId, archivedAt: target.archivedAt });
+      prepared.push({ target, original, transition });
+    }
+    const statement = cohortArchiveStatement(prepared);
+    await assertCurrent(); // 2: every original/transition is proven, immediately before the atomic CAS.
+    const changed = await database.all(statement.sql, statement.values) as Row[];
+    if (changed.length !== prepared.length) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    for (const [index, item] of prepared.entries()) {
+      const row = changed[index], expected = item.target.expected;
+      if (!row || !safe(row.ordinal, 1) || Number(row.ordinal) !== index + 1 || row.document_id !== expected.documentId
+        || row.state_document_id !== expected.documentId || row.registry_document_id !== expected.documentId
+        || row.lineage_id !== expected.lineageId || row.projection_document_id !== expected.documentId) fail('ORIGINAL_NATIVE_DELETE_CHANGED');
+    }
+    await assertCurrent(); // 3: after the CAS, before fresh complete postcondition reads.
+    for (const item of prepared) await verifyArchived(database, item.target.selected, item.original, item.transition);
+    await assertCurrent(); // 4: after all postconditions, before the next group or returning.
+    for (const item of prepared) result.push(Object.freeze({ path: item.target.expected.path, transition: item.transition }));
+    offset += count;
+  }
+  return Object.freeze(result);
 }
 
 type CapturedRestore = Readonly<{ selected: Selection; expected: NativeFileArchiveExpected;

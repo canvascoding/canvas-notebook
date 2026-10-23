@@ -4121,28 +4121,44 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
     const physicalRows=async(batchId:string)=>({intent:await row('workspace_file_operation_delete_intents',batchId),completion:await row('workspace_file_operation_delete_receipts',batchId),trash:await row('workspace_file_operation_delete_trash_receipts',batchId)});
     // Additive Cohort6 families use this same genuine JWT/PG18/room/FD owner
     // fixture. Every earlier owner family remains part of the default run.
-    const seedCohort=async(multi=false)=>{
+    const seedCohort=async(multi=false,nativeCount=2,fileSelections=false)=>{
+      assert(Number.isSafeInteger(nativeCount)&&nativeCount>=2&&nativeCount<=10);
       const prefix='cohort6-'+crypto.randomUUID(),roots=multi?[prefix+'/a',prefix+'/b']:[prefix+'/folder'];
       for(const root of roots)await fs.mkdir(path.join(h.source.rootPath,root,'sub'),{recursive:true});
       const firstPath=roots[0]+'/note.md',secondPath=roots.at(-1)!+'/sub/other.md',pngPath=roots[0]+'/picture.png',pdfPath=roots.at(-1)!+'/report.pdf';
       const first=await h.upload(firstPath,Buffer.from('# First original\n')),second=await h.upload(secondPath,Buffer.from('# Second original\n'));
+      const extraPaths=Array.from({length:nativeCount-2},(_,index)=>roots[index%roots.length]+'/sub/extra-'+String(index+3).padStart(2,'0')+'.md');
+      const extras=[] as typeof first[];
+      for(const[index,file]of extraPaths.entries())extras.push(await h.upload(file,Buffer.from('# Extra original '+String(index+3)+'\n')));
+      const nativeTargets=[first,second,...extras],nativePaths=[firstPath,secondPath,...extraPaths];
+      const keepPath=nativeCount>2?prefix+'-keep.md':null;
+      const keep=keepPath?await h.upload(keepPath,Buffer.from('# Native keep remains identical\n')):null;
       const png=Buffer.from([137,80,78,71,13,10,26,10,0,255]),pdf=Buffer.from('%PDF-1.7\nOriginal cohort asset\n%%EOF\n');
       await fs.writeFile(path.join(h.source.rootPath,pngPath),png,{mode:0o600,flag:'wx'});await fs.writeFile(path.join(h.source.rootPath,pdfPath),pdf,{mode:0o600,flag:'wx'});
-      // One native target deliberately has no projection. No fake file is made
-      // for it by the Delete cohort and its durable Yjs bytes remain original.
-      await fs.unlink(path.join(h.source.rootPath,secondPath));
-      const incoming=await h.upload(prefix+'-incoming.md',Buffer.from(`[First](${firstPath}) [Second](${secondPath}) ![Picture](${pngPath}) [PDF](${pdfPath})\n\n<p><a href="https://example.com">Unchanged HTML</a></p>\n`));
+      // The original folder fixtures keep one absent projection. The added
+      // ten-file Web selection keeps all ten actual file payloads present.
+      if(!fileSelections)await fs.unlink(path.join(h.source.rootPath,secondPath));
+      const extraLinks=extraPaths.map((file,index)=>` [Extra ${index+3}](${file})`).join('');
+      const incoming=await h.upload(prefix+'-incoming.md',Buffer.from(`[First](${firstPath}) [Second](${secondPath}) ![Picture](${pngPath}) [PDF](${pdfPath})${extraLinks}${keepPath?` [Keep](${keepPath})`:''}\n\n<p><a href="https://example.com">Unchanged HTML</a></p>\n`));
       const pagePath=prefix+'-unrelated.html',page=Buffer.from('<p>Unaffected physical HTML</p>\n');await fs.writeFile(path.join(h.source.rootPath,pagePath),page,{mode:0o600,flag:'wx'});
       const states=await Promise.all([first,second,incoming].map(item=>load(h.connection,item.documentId)));assert(states.every(Boolean));
+      const extraStates=await Promise.all(extras.map(item=>load(h.connection,item.documentId)));assert(extraStates.every(Boolean));
+      const nativeStates=[states[0]!,states[1]!,...extraStates.map(state=>{assert(state);return state;})];
+      const nativeFiles=fileSelections?await Promise.all(nativePaths.map(file=>fs.readFile(path.join(h.source.rootPath,file)))):[];
+      const keepState=keep?await load(h.connection,keep.documentId):null;
+      const keepProjection=keep?(await h.admin.query('SELECT * FROM collaboration_file_projections WHERE document_id=$1',[keep.documentId])).rows:null;
+      const keepFile=keepPath?await fs.readFile(path.join(h.source.rootPath,keepPath)):null;
+      if(keep)assert(keepState&&keepProjection?.length===1&&keepFile);
       const identities=await Promise.all([pngPath,pdfPath].map(file=>fs.lstat(path.join(h.source.rootPath,file))));
       const operationId=crypto.randomUUID();
-      await absent(path.join(h.source.rootPath,secondPath));
-      return {roots,first,second,incoming,firstPath,secondPath,pngPath,pdfPath,png,pdf,pagePath,page,states,identities,operationId};
+      if(!fileSelections)await absent(path.join(h.source.rootPath,secondPath));
+      return {roots:fileSelections?nativePaths:roots,first,second,incoming,firstPath,secondPath,pngPath,pdfPath,png,pdf,pagePath,page,states,identities,operationId,fileSelections,
+        nativeTargets,nativePaths,nativeStates,nativeFiles,keep,keepPath,keepState,keepProjection,keepFile};
     };
     type CohortSeed=Awaited<ReturnType<typeof seedCohort>>;
-    const cohortPlan=async(seed:CohortSeed)=>run('delete',currentToken,h.source.workspaceId,async live=>{
+    const cohortPlan=async(seed:CohortSeed)=>withSettledProjectionReadBoundary(()=>run('delete',currentToken,h.source.workspaceId,async live=>{
       const scope=await freshScope(live),plan=await buildWorkspaceOperationBatchPlan({scope,actions:[{reviewId:'cohort-'+seed.operationId,kind:'delete',selections:seed.roots.map(sourcePath=>({sourcePath}))}]});
-      assert(plan.version===6);assert.equal(plan.sourceEvidence.evidenceVersion,5);assert.equal(plan.linkAssessment.complete,true);assert.equal(plan.issues.length,0);return plan;});
+      assert(plan.version===6);assert.equal(plan.sourceEvidence.evidenceVersion,5);assert.equal(plan.linkAssessment.complete,true);assert.equal(plan.issues.length,0);return plan;}));
     const executeCohortClaim=async(seed:CohortSeed,plan:Awaited<ReturnType<typeof cohortPlan>>,recover=false)=>run('delete',currentToken,h.source.workspaceId,async live=>{
       assert(live.kind==='delete');const selection=recover?await store.claimExistingMcpDelete(live.principal,{workspaceId:h.source.workspaceId,operationId:seed.operationId,planId:plan.planId})
         :await store.createMcpDeleteAndClaim(live.principal,{operationId:seed.operationId,plan});
@@ -4164,17 +4180,57 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.equal(intent.kind,'cohort-delete-original');assert.equal(intent.roots.length,seed.roots.length);assert.equal(intent.nativeLinks.length,1);
       assert.equal(completion.kind,'cohort-delete-completion');assert.equal(completion.physical.length,seed.roots.length);assert.equal(completion.nativeLinks.length,1);
       assert.equal(completion.nativeLinks[0].resultEvidenceVersion,4);assert.equal(completion.nativeLinks[0].after.documentSequence,seed.states[2]!.documentSequence+1);
-      const archived=await Promise.all([seed.first,seed.second].map(item=>load(h.connection,item.documentId,true)));
-      for(const[index,state]of archived.entries()){assert(state);assert.equal(state.status,'archived');assert.equal(state.lifecycleGeneration,seed.states[index]!.lifecycleGeneration+1);
-        assert.deepEqual(Buffer.from(state.yjsState),Buffer.from(seed.states[index]!.yjsState));assert.deepEqual(Buffer.from(state.stateVector),Buffer.from(seed.states[index]!.stateVector));}
-      const incoming=await load(h.connection,seed.incoming.documentId);assert(incoming);assert.equal(incoming.documentSequence,seed.states[2]!.documentSequence+1);assert.equal(physicalLinks(incoming).links.length,0);
+      const nativeIntents=intent.targets.filter(item=>item.native!==null),nativeCompleted=completion.targets.filter(item=>item.native!==null);
+      assert.equal(nativeIntents.length,seed.nativeTargets.length);assert.equal(nativeCompleted.length,seed.nativeTargets.length);
+      const archived=await Promise.all(seed.nativeTargets.map(item=>load(h.connection,item.documentId,true)));
+      const metadata=(await h.admin.query(`SELECT d.id,d.lineage_id,d.path,d.status,d.state_version,l.status AS lineage_status,l.trash_entry_id,
+        p.lifecycle_generation AS projection_generation,p.projected_sequence,p.finalized,p.revision_id,p.canonical_hash,p.serialized_hash
+        FROM collaboration_documents d JOIN file_collaboration_lineages l ON l.id=d.lineage_id
+        JOIN collaboration_file_projections p ON p.document_id=d.id WHERE d.id=ANY($1::text[])`,[seed.nativeTargets.map(item=>item.documentId)])).rows;
+      assert.equal(metadata.length,seed.nativeTargets.length);
+      for(const[index,state]of archived.entries()){
+        const before=seed.nativeStates[index],file=seed.nativePaths[index];assert(state&&before);
+        assert.equal(state.documentId,before.documentId);assert.equal(state.workspaceId,before.workspaceId);assert.equal(state.organizationId,before.organizationId);
+        assert.equal(state.path,file);assert.equal(state.representation,before.representation);assert.equal(state.schemaVersion,before.schemaVersion);
+        assert.equal(state.status,'archived');assert.equal(state.lifecycleGeneration,before.lifecycleGeneration+1);
+        assert.equal(state.documentSequence,before.documentSequence);assert.equal(state.persistedAt,before.persistedAt);
+        assert.deepEqual(Buffer.from(state.yjsState),Buffer.from(before.yjsState));assert.deepEqual(Buffer.from(state.stateVector),Buffer.from(before.stateVector));
+        const original=nativeIntents.find(item=>item.native!.documentId===state.documentId),completed=nativeCompleted.find(item=>item.native!.after.identity.documentId===state.documentId);
+        assert(original?.native&&completed?.native);assert.equal(original.path,file);assert.equal(completed.path,file);
+        assert.equal(original.native.binaryHash,sha(before.yjsState));assert.equal(original.native.vectorHash,sha(before.stateVector));
+        const root=intent.roots.find(item=>item.stepKey===original.rootStep);assert(root);
+        const row=metadata.find(item=>item.id===state.documentId);assert(row);assert.equal(row.lineage_id,original.native.lineageId);
+        assert.equal(row.path,file);assert.equal(row.status,'archived');assert.equal(Number(row.state_version),0);assert.equal(row.lineage_status,'archived');
+        assert.equal(row.trash_entry_id,root.physical.trashEntryId);assert.equal(Number(row.projection_generation),state.lifecycleGeneration);
+        assert.equal(Number(row.projected_sequence),before.documentSequence);assert.equal(Number(row.finalized),0);
+        assert.equal(row.revision_id,null);assert.equal(row.canonical_hash,null);assert.equal(row.serialized_hash,null);
+        if(seed.fileSelections){
+          assert.equal(root.physical.canonicalPath,file);
+          assert.deepEqual(await fs.readFile(path.join(h.dataRoot,root.physical.trashRelativePath)),seed.nativeFiles[index]);
+        }
+      }
+      const incoming=await load(h.connection,seed.incoming.documentId);assert(incoming);assert.equal(incoming.documentSequence,seed.states[2]!.documentSequence+1);
+      const remainingLinks=physicalLinks(incoming).links;assert.equal(remainingLinks.length,(seed.keep?1:0)+(seed.fileSelections?2:0));
+      if(seed.fileSelections)assert.deepEqual(remainingLinks.map(link=>link.targetPathText).sort(),[seed.pngPath,seed.pdfPath,seed.keepPath].sort());
+      if(seed.keep){
+        assert(seed.keepPath&&seed.keepState&&seed.keepProjection&&seed.keepFile);assert.equal(remainingLinks.filter(link=>link.targetPathText===seed.keepPath).length,1);
+        assert.deepEqual(await load(h.connection,seed.keep.documentId),seed.keepState);
+        assert.deepEqual((await h.admin.query('SELECT * FROM collaboration_file_projections WHERE document_id=$1',[seed.keep.documentId])).rows,seed.keepProjection);
+        assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.keepPath)),seed.keepFile);
+      }
+      assert.equal((await h.admin.query('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=$1',
+        [intent.nativeLinks[0].prepared.operationId])).rowCount,1);
       for(const root of seed.roots)await absent(path.join(h.source.rootPath,root));
-      for(const[index,file]of [seed.pngPath,seed.pdfPath].entries()){const root=intent.roots.find(root=>file.startsWith(root.physical.canonicalPath+'/'));assert(root);
-        const payload=path.join(h.dataRoot,root.physical.trashRelativePath,file.slice(root.physical.canonicalPath.length+1)),stat=await fs.lstat(payload);
-        assert.equal(stat.dev,seed.identities[index].dev);assert.equal(stat.ino,seed.identities[index].ino);assert.deepEqual(await fs.readFile(payload),index===0?seed.png:seed.pdf);}
+      for(const[index,file]of [seed.pngPath,seed.pdfPath].entries()){
+        const root=intent.roots.find(root=>file.startsWith(root.physical.canonicalPath+'/'));
+        if(!seed.fileSelections)assert(root);
+        const payload=seed.fileSelections?path.join(h.source.rootPath,file)
+          :path.join(h.dataRoot,root!.physical.trashRelativePath,file.slice(root!.physical.canonicalPath.length+1)),stat=await fs.lstat(payload);
+        assert.equal(stat.dev,seed.identities[index].dev);assert.equal(stat.ino,seed.identities[index].ino);assert.deepEqual(await fs.readFile(payload),index===0?seed.png:seed.pdf);
+      }
       assert.deepEqual(await fs.readFile(path.join(h.source.rootPath,seed.pagePath)),seed.page);
       const trash=(await h.admin.query('SELECT id,original_path,item_type,metadata_json FROM workspace_trash_entries WHERE id=ANY($1::text[]) ORDER BY original_path',[intent.roots.map(root=>root.physical.trashEntryId)])).rows;
-      assert.equal(trash.length,seed.roots.length);for(const entry of trash){assert.equal(entry.item_type,'directory');const metadata=JSON.parse(entry.metadata_json);assert.equal(metadata.payloadKind,'cohort');assert.equal(metadata.cohortBatchId,batchId);}
+      assert.equal(trash.length,seed.roots.length);for(const entry of trash){assert.equal(entry.item_type,seed.fileSelections?'file':'directory');assert(seed.roots.includes(entry.original_path));const metadata=JSON.parse(entry.metadata_json);assert.equal(metadata.payloadKind,'cohort');assert.equal(metadata.cohortBatchId,batchId);}
       return {batch,intent,completion,rows,incoming};
     };
     // Keep the existing Cohort room/projector alive through all seven cases.
@@ -4190,7 +4246,8 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.deepEqual(await physicalRows(result.operation.batchId),checked.rows);
     });
     await check('Cohort6 actual cookie Web multi-folder DELETE and worker preserve all original identities and one common backlink source',async()=>{
-      const seed=await seedCohort(true),{DELETE:webDelete}=await import('../app/api/files/delete/route'),{GET:webBatch}=await import('../app/api/files/operations/batches/[batchId]/route');
+      const executeCookieCohortDelete=async(seed:CohortSeed)=>{
+      const {DELETE:webDelete}=await import('../app/api/files/delete/route'),{GET:webBatch}=await import('../app/api/files/operations/batches/[batchId]/route');
       const credentials=await h.request(h.source,'member',true,currentRequestToken),headers=new Headers(credentials.headers);headers.set('Content-Type','application/json');
       // Establish the genuine cookie session and workspace before the pure preview, as in the existing Physical Web case.
       const {requireRequestWorkspace}=await import('../app/lib/workspaces/request');
@@ -4217,9 +4274,13 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           }while(body.operation?.status!=='applied'&&Date.now()<deadline);
           if(body.operation?.status!=='applied')throw new Error('Cohort6 Web multi Delete did not complete.');
         }
-        assert.equal(body.operation?.status,'applied');assert.deepEqual(body.deleted,seed.roots);assert.equal(body.linkUpdates?.updatedFiles.length,1);assert.equal(body.linkUpdates?.updatedLinks,4);assert.equal(body.trashEntries?.length,2);
+        assert.equal(body.operation?.status,'applied');assert.deepEqual(body.deleted,seed.roots);assert.equal(body.linkUpdates?.updatedFiles.length,1);assert.deepEqual(body.linkUpdates?.updatedFiles,[seed.states[2]!.path]);assert.equal(body.linkUpdates?.updatedLinks,seed.nativeTargets.length+(seed.fileSelections?0:2));assert.equal(body.trashEntries?.length,seed.roots.length);
         await checkCohort(seed,batchId);
       }finally{stop=true;await pump;}if(workerFailure)throw workerFailure;
+      };
+      await executeCookieCohortDelete(await seedCohort(true));
+      const tenFiles=await seedCohort(true,10,true);assert.equal(tenFiles.nativeTargets.length,10);assert.equal(tenFiles.roots.length,10);
+      await executeCookieCohortDelete(tenFiles);
     });
     await check('Cohort6 open native target and backlink rooms drain and remain archived after folder Delete',async()=>{
       assert(cohortRooms);
@@ -4252,7 +4313,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
       assert.deepEqual(checked.rows.intent,rows.intent);assert.deepEqual(checked.batch.authorization,original);
     });
     await check('Cohort6 real archive CAS fault rolls back B2 native links and all target archives, then exact recovery completes',async()=>{
-      for(const fault of ['atomic-ack','projection-update-miss','projection-insert-miss'] as const){
+      for(const fault of ['atomic-ack','registry-update-miss','projection-update-miss','projection-insert-miss'] as const){
         const seed=await seedCohort(),plan=await cohortPlan(seed),batchId=cohortBatchId(seed);
         const target=fault==='atomic-ack'?seed.first:seed.second,targetState=seed.states[fault==='atomic-ack'?0:1]!;
         type Intent=import('../app/lib/files/workspace-operation-cohort-delete-evidence').CohortDeleteIntent;
@@ -4297,6 +4358,11 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               assert.equal(removed.rowCount,1);removedProjection=removed.rows[0];assert.equal(removedProjection!.document_id,target.documentId);return;
             }
             if(!drifted&&event.text.includes('collaboration_file_projections')){
+              if(fault==='registry-update-miss'){
+                assert.equal(event.result.rowCount,1);
+                assert.equal((await event.raw('UPDATE collaboration_documents SET state_version=state_version+1 WHERE id=$1 RETURNING id',[target.documentId])).rowCount,1);
+                drifted=true;return;
+              }
               if(fault==='projection-update-miss'){
                 assert.equal(event.result.rowCount,1);
                 assert.equal((await event.raw('UPDATE collaboration_file_projections SET projected_sequence=projected_sequence+1 WHERE document_id=$1 RETURNING document_id',[target.documentId])).rowCount,1);
@@ -4313,15 +4379,27 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               }
             }
           }
-          if(!/^\s*WITH\s+archived_state\s+AS\s*\(/iu.test(event.text)||!event.text.includes('"'+h.schema+'".collaboration_yjs_states')
-            ||event.values[1]!==target.documentId||event.values[13]!==native.lineageId)return;
-          assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,1);
-          const changed=event.result.rows[0];assert.equal(changed.state_document_id,target.documentId);
-          assert.equal(changed.registry_document_id,target.documentId);assert.equal(changed.lineage_id,native.lineageId);
+          if(!/^\s*WITH\s+selected\s*\(/iu.test(event.text)||!event.text.includes('"'+h.schema+'".collaboration_yjs_states'))return;
+          assert.equal(event.values.length,seed.nativeTargets.length*20);
+          const slot=event.values.findIndex((value,index)=>index%20===1&&value===target.documentId);assert(slot>=1);
+          const offset=slot-1;assert.equal(event.values[offset+13],native.lineageId);
+          assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,seed.nativeTargets.length);
+          const changed=event.result.rows.find(row=>row.document_id===target.documentId);assert(changed);
+          assert.equal(Number(changed.ordinal),offset/20+1);assert.equal(changed.state_document_id,target.documentId);
+          assert.equal(changed.registry_document_id,fault==='registry-update-miss'?null:target.documentId);
+          assert.equal(changed.lineage_id,fault==='registry-update-miss'?null:native.lineageId);
           assert.equal(changed.projection_document_id,fault==='atomic-ack'?target.documentId:null);
           assert.equal(drifted,fault!=='atomic-ack');
-          if(fault==='projection-insert-miss'){assert(absentProjectionRead);assert.equal(event.values.length,17);assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));}
-          else assert.equal(event.values.length,19);
+          assert.equal(event.values[offset+17],fault!=='projection-insert-miss');
+          if(fault==='projection-insert-miss'){
+            assert(absentProjectionRead);assert.equal(event.values[offset+18],null);assert.equal(event.values[offset+19],null);
+          }
+          assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));
+          const untouched=event.result.rows.filter(row=>row.document_id!==target.documentId);assert.equal(untouched.length,seed.nativeTargets.length-1);
+          for(const result of untouched){const original:Intent['targets'][number]['native']|undefined=intent.targets.find(item=>item.native?.documentId===result.document_id)?.native;assert(original);
+            assert.deepEqual(result,{ordinal:result.ordinal,document_id:original.documentId,state_document_id:original.documentId,
+              registry_document_id:original.documentId,lineage_id:original.lineageId,projection_document_id:original.documentId});}
+
           const actual=(await event.raw(`SELECT pg_backend_pid() AS pid,extract(epoch FROM backend_start)::text AS start,
             pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema,
             pg_catalog.to_regnamespace(current_schema())::oid::text AS schema_oid FROM pg_stat_activity WHERE pid=pg_backend_pid()`)).rows[0];
@@ -4329,14 +4407,17 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           assert.equal(Number(actual.pid),stageWitness.pid);assert.equal(actual.start,stageWitness.start);assert(actual.xid);assert.notEqual(actual.xid,stageWitness.xid);
           b2Witness={pid:Number(actual.pid),start:actual.start,xid:actual.xid};
           const state=(await event.raw(`SELECT s.status AS state_status,d.status AS registry_status,l.status AS lineage_status,
-            s.lifecycle_generation,s.yjs_state,s.state_vector,p.lifecycle_generation AS projection_generation FROM collaboration_yjs_states s
+            s.lifecycle_generation,s.yjs_state,s.state_vector,d.state_version AS registry_version,p.lifecycle_generation AS projection_generation FROM collaboration_yjs_states s
             JOIN collaboration_documents d ON d.id=s.document_id JOIN file_collaboration_lineages l ON l.id=d.lineage_id
             LEFT JOIN collaboration_file_projections p ON p.document_id=d.id WHERE d.id=$1`,[target.documentId])).rows;
-          assert.equal(state.length,1);assert.equal(state[0].state_status,'archived');assert.equal(state[0].registry_status,'archived');assert.equal(state[0].lineage_status,'archived');
+          assert.equal(state.length,1);assert.equal(state[0].state_status,'archived');
+          assert.equal(state[0].registry_status,fault==='registry-update-miss'?'active':'archived');
+          assert.equal(state[0].lineage_status,fault==='registry-update-miss'?'active':'archived');
+          assert.equal(Number(state[0].registry_version),fault==='registry-update-miss'?native.registryStateVersion+1:0);
           assert.equal(Number(state[0].lifecycle_generation),targetState.lifecycleGeneration+1);
           assert.deepEqual(Buffer.from(state[0].yjs_state),Buffer.from(targetState.yjsState));assert.deepEqual(Buffer.from(state[0].state_vector),Buffer.from(targetState.stateVector));
           if(fault==='atomic-ack')assert.equal(Number(state[0].projection_generation),targetState.lifecycleGeneration+1);
-          else assert.equal(Number(state[0].projection_generation),Number(fault==='projection-insert-miss'?removedProjection!.lifecycle_generation:event.values[17]));
+          else assert.equal(Number(state[0].projection_generation),Number(fault==='projection-insert-miss'?removedProjection!.lifecycle_generation:event.values[offset+18]));
           const mutationIds=intent.nativeLinks.map(item=>item.prepared.operationId);
           assert.equal((await event.raw('SELECT operation_id FROM collaboration_native_link_mutation_receipts WHERE operation_id=ANY($1::text[])',[mutationIds])).rowCount,1);
           const visible=await snapshot();delete visible.rows.workspace_file_operation_batches;
@@ -4350,7 +4431,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
           }
           faultFiles=await filesystem();faulted=true;
           if(fault==='atomic-ack')throw Object.assign(new Error('Actual atomic cohort archive SQL ACK before B2 COMMIT.'),{code:'FIXTURE_COHORT6_ARCHIVE'});
-          // Real null RETURNING from the last CAS must reach the unchanged
+          // Real null RETURNING from a dependent CAS must reach the unchanged
           // product guard; do not replace it with a fixture exception.
         },()=>executeCohortClaim(seed,plan)),rejected(fault==='atomic-ack'?'FIXTURE_COHORT6_ARCHIVE':'ORIGINAL_NATIVE_DELETE_CHANGED'));
         assert(faulted&&committed&&intent&&committedIntent&&original&&baseline&&faultFiles&&b2Witness);
@@ -4376,11 +4457,16 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               &&event.text.includes('"'+h.schema+'".collaboration_file_projections')&&/\bFOR\s+UPDATE\s+NOWAIT\s*$/iu.test(event.text)){
               assert.equal(event.result.rowCount,0);readAbsent=true;return;
             }
-            if(!/^\s*WITH\s+archived_state\s+AS\s*\(/iu.test(event.text)||event.values[1]!==target.documentId)return;
-            assert(readAbsent);assert.equal(event.values.length,17);assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));
-            assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,1);
+            if(!/^\s*WITH\s+selected\s*\(/iu.test(event.text))return;
+            const slot=event.values.findIndex((value,index)=>index%20===1&&value===target.documentId);assert(slot>=1);
+            assert(readAbsent);assert.equal(event.values.length,seed.nativeTargets.length*20);assert.equal(event.values[slot+16],false);
+            assert.equal(event.values[slot+17],null);assert.equal(event.values[slot+18],null);
+            assert(event.text.includes('INSERT INTO "'+h.schema+'".collaboration_file_projections'));
+            assert.equal(event.result.command,'SELECT');assert.equal(event.result.rowCount,seed.nativeTargets.length);
             const native=intent!.targets.find(item=>item.native?.documentId===target.documentId)?.native;assert(native);
-            assert.deepEqual(event.result.rows,[{state_document_id:target.documentId,registry_document_id:target.documentId,lineage_id:native.lineageId,projection_document_id:target.documentId}]);
+            const result=event.result.rows.find(row=>row.document_id===target.documentId);assert(result);
+            assert.deepEqual(result,{ordinal:(slot-1)/20+1,document_id:target.documentId,state_document_id:target.documentId,
+              registry_document_id:target.documentId,lineage_id:native.lineageId,projection_document_id:target.documentId});
             const projection=(await event.raw('SELECT lifecycle_generation,projected_sequence FROM collaboration_file_projections WHERE document_id=$1',[target.documentId])).rows;
             assert.equal(projection.length,1);assert.equal(Number(projection[0].lifecycle_generation),targetState.lifecycleGeneration+1);
             assert.equal(Number(projection[0].projected_sequence),targetState.documentSequence);inserted=true;

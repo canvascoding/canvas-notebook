@@ -796,7 +796,9 @@ test.describe('native path operations through ordinary UI, durable jobs and orig
       await expect(targetViewer.getByTestId('unavailable-document-recovery')).toBeVisible({ timeout: 45_000 });
       await expect.poll(async () => await targetViewer.locator(selector).count() > 0
         && await targetViewer.locator(selector).getAttribute('contenteditable') === 'true', { timeout: 45_000 }).toBe(false);
-      await expect.poll(async () => (await readNativeRichCandidate(backlinkViewer, selector)).document, { timeout: 45_000 }).toEqual(expected);
+      await expect(async () => {
+        expect((await readNativeRichCandidate(backlinkViewer, selector)).document).toEqual(expected);
+      }).toPass({ timeout: 45_000 });
       const backlinkAfter = await session(actor.request, fixture.workspaceId, backlink);
       expect(backlinkAfter).toMatchObject({ documentId: backlinkBefore.session.documentId,
         lifecycleGeneration: backlinkBefore.session.lifecycleGeneration, documentSequence: backlinkBefore.session.documentSequence + 1 });
