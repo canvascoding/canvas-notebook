@@ -18,7 +18,7 @@ import { richMarkdownCodecExtensions } from '../app/lib/markdown/rich-markdown-c
 import type { DirectMcpFileReceipt } from '../app/lib/mcp/server/file-ingest';
 import { authorizeIngestE2EMcp, type IngestE2EToolResult } from '../scripts/mcp-file-ingest-e2e-helpers';
 import { readNativeRichCandidate } from './helpers/native-rich-candidate';
-import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjsQaTarget,
+import { assertDatabaseOwnership, assertOwnedRoot, privateBytes, requireOwnedYjsQaTarget, requireOwnedYjsQaRuntimeTarget,
   type DatabaseIdentity, type OwnedYjsReceipt } from '../scripts/lib/owned-yjs-authority-qa';
 
 // Artifact options are worker-scoped and must be set at file level. This
@@ -103,7 +103,7 @@ async function reviewOff(context: BrowserContext): Promise<void> {
   const response = await ok(await context.request.get('/api/document-review/availability'), 'Review availability');
   assert.equal(object(response.data).documentReviewEnabled, false);
   assert.equal(process.env.FILE_VERSION_CENTER_MODE, 'off');
-  await requireOwnedYjsQaTarget();
+  await requireOwnedYjsQaRuntimeTarget();
   // Observe actual optional history storage in this held private database.
   // Current-file revision/CAS rows and native operation receipts remain valid.
   const database = new Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 5000,
@@ -386,7 +386,7 @@ function assertRecordedEdit(rows: Row, edited: DocumentEditOperationResultV1, or
 // Fixture-only legacy bytes: no registry, native state, API grant or production
 // seed endpoint is manufactured. Every action after this seed uses real HTTP.
 async function seedOwnedRawMarkdownPair(selected: Workspace, kind: 'move' | 'delete') {
-  await requireOwnedYjsQaTarget(); await assertOwnedRoot(owned);
+  await requireOwnedYjsQaRuntimeTarget(); await assertOwnedRoot(owned);
   const parts = selected.rootRelativePath.split('/');
   assert(parts.length > 0 && parts.every(part => part && part !== '.' && part !== '..' && !/[\\\u0000]/u.test(part)));
   const root = path.join(owned.dataRoot, ...parts); assert(root.startsWith(`${owned.dataRoot}${path.sep}`));
@@ -434,7 +434,7 @@ async function seedOwnedRawMarkdownPair(selected: Workspace, kind: 'move' | 'del
 }
 
 async function snapshotRawMarkdownPair(selected: Workspace, physicalPaths: readonly string[]) {
-  await requireOwnedYjsQaTarget(); await assertOwnedRoot(owned);
+  await requireOwnedYjsQaRuntimeTarget(); await assertOwnedRoot(owned);
   assert(physicalPaths.length > 0 && physicalPaths.length <= 4);
   const root = path.join(owned.dataRoot, selected.rootRelativePath);
   assert(root.startsWith(`${owned.dataRoot}${path.sep}`)); assert.equal(await fs.realpath(root), root);
@@ -492,7 +492,12 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
     const published = parse(await privateBytes(path.join(owned.fixtureRoot, 'runtime.env')));
     for (const name of ['FILE_VERSION_CENTER_MODE', 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE']) assert.equal(process.env[name], published[name]);
   });
+  // Full source/build byte checks bracket each case. Repeated read-only
+  // observations still revalidate the live runtime, DB and filesystem ownership.
+  test.beforeEach(async () => { assert.deepEqual(await requireOwnedYjsQaTarget(), owned); });
+  test.afterEach(async () => { assert.deepEqual(await requireOwnedYjsQaTarget(), owned); });
   test.afterAll(async () => {
+    assert.deepEqual(await requireOwnedYjsQaTarget(), owned);
     const errors: unknown[] = [], active = contextB ?? contextA, current = mcpB ?? mcpA;
     const clean = async (operation: () => Promise<void>) => { try { await operation(); } catch (error) { errors.push(error); } };
     // Only after all comparisons: connection revocation affects all this
@@ -522,6 +527,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
       });
       await clean(() => context.close());
     }
+    await clean(async () => { assert.deepEqual(await requireOwnedYjsQaTarget(), owned); });
     if (errors.length) throw new AggregateError(errors, 'Own compiled MCP OAuth cleanup remained unconfirmed.');
   });
   test('1: real authorization-code session A creates and HTTPS-imports native documents over compiled MCP HTTP', async ({ browser }, info) => {
@@ -1540,6 +1546,21 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
   test('10: real Web Move and Delete import raw Markdown only at Apply and update complete native documents and visible links',
     async function rawMarkdownWebFileActions({ browser: _browser }, info) {
       test.setTimeout(180000);
+      const rawWebTimingStart = performance.now();
+      let rawWebTimingPrevious = rawWebTimingStart;
+      const markRawWebPhase = (phase: 'setup' | 'preview' | 'apply' | 'applied-snapshot' | 'native-read'
+        | 'editor-open' | 'editor-entry' | 'editor-capture-close' | 'projection' | 'files-refresh'
+        | 'final-review' | 'cleanup-pages' | 'cleanup-workspace' | 'evidence' | 'callback-complete',
+      kind: 'none' | 'move' | 'delete' = 'none', role: 'none' | 'target' | 'incoming' = 'none',
+      entry: 'none' | 'initial' | 'reload' = 'none'): void => {
+        const now = performance.now();
+        try {
+          console.info(JSON.stringify({ evidence: 'raw-web-case10-timing', phase, kind, role, entry,
+            elapsedMs: Math.round(now - rawWebTimingStart), deltaMs: Math.round(now - rawWebTimingPrevious) }));
+        } catch { /* Timing diagnostics must not replace an original outcome. */ }
+        rawWebTimingPrevious = now;
+      };
+      markRawWebPhase('setup');
       assert(contextB && identityB); const active = contextB, actor = identityB;
       await reviewOff(active);
       const pages: Awaited<ReturnType<BrowserContext['newPage']>>[] = [], errors: unknown[] = [], proofs: Row[] = [];
@@ -1559,6 +1580,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
         const { createRichMarkdownManager, serializeRichMarkdownBody } = await import('../app/lib/markdown/rich-markdown-codec');
         const manager = createRichMarkdownManager(), schema = getSchema(richMarkdownCodecExtensions());
         for (const pair of pairs) {
+          markRawWebPhase('preview', pair.kind);
           await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
           const sourceRow = files.locator(`[data-file-path="${pair.targetPath}"]`).filter({ visible: true });
           await expect(sourceRow.first()).toBeVisible();
@@ -1611,6 +1633,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
           await expect(dialog).toContainText('1 link(s) in those files need updating.');
           const afterPreview = await snapshotRawMarkdownPair(selected, [pair.targetPath, pair.incomingPath]);
           assert.deepEqual(afterPreview.rows, before.rows); assert.deepEqual(afterPreview.physical, before.physical);
+          markRawWebPhase('apply', pair.kind);
           const applyObserver = Promise.allSettled([files.waitForResponse(candidate => {
             if (new URL(candidate.url()).pathname !== endpoint || !['POST', 'DELETE'].includes(candidate.request().method())) return false;
             const body = object(candidate.request().postDataJSON()); return body.dryRun !== true
@@ -1635,6 +1658,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
           assert.equal(operation.batchId, firstOperation.batchId); assert.equal(operation.planId, firstOperation.planId);
           assert.equal(operation.completedActions, operation.totalActions); assert.equal(completed.linkStatus, 'complete');
           assert.equal(object(completed.linkUpdates).updatedLinks, 1); assert.deepEqual(object(completed.linkUpdates).updatedFiles, [pair.incomingPath]);
+          markRawWebPhase('applied-snapshot', pair.kind);
           await expect(dialog).toHaveCount(0); await expect(sourceRow).toHaveCount(0);
           if (pair.kind === 'move') {
             const folder = files.locator(`[data-file-path="${pair.destinationDirectory}"]`).filter({ visible: true }).first().getByRole('treeitem');
@@ -1668,6 +1692,7 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
             const registry = after.rows.collaboration_documents.map(row => object(JSON.parse(String(row.body)))).filter(row => row.id === identity.documentId);
             assert.equal(registry.length, 1); assert.equal(registry[0].lineage_id, identity.lineageId);
             const isTarget = identity.path === pair.targetPath;
+            markRawWebPhase('native-read', pair.kind, isTarget ? 'target' : 'incoming');
             if (pair.kind === 'delete' && isTarget) {
               assert.equal(registry[0].status, 'archived');
               const archived = await active.request.post('/api/documents/read', { data: { apiVersion: 1, workspaceId: selected.id, documentId: identity.documentId, format: 'native' } });
@@ -1708,10 +1733,12 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
             const markdown = await ok(await active.request.post('/api/documents/read', { data: { apiVersion: 1, workspaceId: selected.id,
               documentId: identity.documentId, format: 'markdown', expectedVersion: native.document.version, maxBytes: 262144 } }), 'Read version-bound complete Markdown after actual Web action');
             assert.equal(markdown.complete, true); assert.equal(markdown.fragment, expectedMarkdown);
+            markRawWebPhase('editor-open', pair.kind, isTarget ? 'target' : 'incoming');
             const editorPage = await active.newPage(); pages.push(editorPage);
             await editorPage.addInitScript(({ id, host }) => { if (location.origin === host) { localStorage.setItem('canvas.activeWorkspaceId', id);
               localStorage.setItem('canvas.notebook.chatVisible', 'false'); } }, { id: selected.id, host: origin });
             for (const reload of [false, true]) {
+              markRawWebPhase('editor-entry', pair.kind, isTarget ? 'target' : 'incoming', reload ? 'reload' : 'initial');
               const sessions = Promise.allSettled([editorPage.waitForResponse(candidate => new URL(candidate.url()).pathname === '/api/files/collaboration/session'
                 && candidate.request().method() === 'POST' && candidate.request().headers()['x-canvas-workspace-id'] === selected.id
                 && object(candidate.request().postDataJSON()).path === currentPath)]);
@@ -1729,9 +1756,11 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
               }
               await expect(editorPage.getByRole('button', { name: 'Read', exact: true })).toHaveCount(0); await expect(editorPage.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
             }
+            markRawWebPhase('editor-capture-close', pair.kind, isTarget ? 'target' : 'incoming');
             await editorPage.locator(editorSelector).screenshot({ path: info.outputPath(`raw-web-${pair.kind}-${isTarget ? 'target' : 'incoming'}-reloaded.png`), animations: 'disabled' });
             await editorPage.close();
           }
+          markRawWebPhase('projection', pair.kind);
           // Native link completion precedes asynchronous Markdown publication.
           // Read fresh bytes; the earlier frozen snapshot cannot observe a later checkpoint.
           let projected = after;
@@ -1748,24 +1777,30 @@ test.describe.serial('Owned compiled native MCP create/import and renewed OAuth'
             afterPreviewHash: sha(JSON.stringify(afterPreview.rows)), fullPreviewDocumentAndFileNoWrite: true,
             completeNativeBodyAndExpectedLinkDelta: true, actualVisibleEditorAndReload: true,
             probes: [before.probe, afterPreview.probe, after.probe, projected.probe] });
+          markRawWebPhase('files-refresh', pair.kind);
           await files.reload({ waitUntil: 'domcontentloaded' });
           await files.getByRole('navigation', { name: 'Current folder path', exact: true }).getByRole('button', { name: 'Jump to workspace root', exact: true }).click();
           await expect(files.locator(`[data-file-path="${pair.targetPath}"]`).filter({ visible: true })).toHaveCount(0);
           await expect(files.locator(`[data-file-path="${pair.incomingPath}"]`).filter({ visible: true }).first()).toBeVisible();
         }
+        markRawWebPhase('final-review');
         assert.equal(proofs.length, 2); await reviewOff(active);
       } catch (error) { errors.push(error); }
       finally {
+        markRawWebPhase('cleanup-pages');
         for (const page of pages) if (!page.isClosed()) try { await page.close(); } catch { errors.push(new Error('Own Raw-Web page did not close.')); }
+        markRawWebPhase('cleanup-workspace');
         if (rawWorkspace) try { await ok(await active.request.delete(`/api/workspaces/${encodeURIComponent(rawWorkspace.id)}`), 'Delete only own Raw-Web fixture workspace'); }
         catch { errors.push(new Error('Own Raw-Web workspace cleanup remained unconfirmed.')); }
       }
       if (errors.length) throw new AggregateError(errors, 'Actual Raw-Web Move/Delete or own fixture cleanup failed.');
+      markRawWebPhase('evidence');
       await evidence(info, { scope: 'actual compiled Web Move/Delete from two disjoint legacy Raw pairs, no MCP/SDK dispatch claim',
         fixtureSeed: 'exclusive no-follow owned-workspace Markdown only; no registry/state or product seed endpoint',
         preservedOriginalNineCases: true, noRawEditorBeforePreview: true, previewDoesNotImport: true,
         sameOriginalPreviewIdAndActualClientOperationKey: true, freshNativePlanMappingVerified: true,
         actualMoveDialogAndDeleteConfirmDialog: true, actualWebRequestPrincipalAttribution: true,
         completeNativeIdReadsAndEditorReload: true, centralRewriteAndUnlink: true, reviewAndUndoEnabled: false, operations: proofs });
+      markRawWebPhase('callback-complete');
     });
 });

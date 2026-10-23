@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import { Client } from 'pg';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { assertBuildProof, assertCompletedYjsBrowserGate, assertDatabaseOwnership, assertOrigin, assertOwnedRoot, buildFingerprint,
-  buildProofName, privateBytes, redactBoundedOutput, sourceFingerprint, writePrivateJson, type OwnedYjsReceipt } from './lib/owned-yjs-authority-qa';
+  buildProofName, privateBytes, redactBoundedOutput, requireOwnedYjsQaTarget, requireOwnedYjsQaRuntimeTarget,
+  sourceFingerprint, writePrivateJson, type OwnedYjsReceipt } from './lib/owned-yjs-authority-qa';
 
 async function main() {
   const { runOwnedYjsAcceptance, runOwnedYjsIntegrationAcceptance, child, signalOwnChild, ownedGroupEmpty } = await import('./run-yjs-authority-e2e');
@@ -150,6 +152,78 @@ fs.open = async function(filename, ...args) {
     const source = await sourceFingerprint(repo), built = await buildFingerprint(repo);
     await writePrivateJson(path.join(repo, '.next', buildProofName), { version: 1, repo, head: source.head, sourceFingerprint: source.fingerprint,
       buildId: built.buildId, buildFingerprint: built.fingerprint, createdAt: new Date().toISOString() }, true);
+    await assertBuildProof(repo);
+    // Both public guard modes reject concrete invalid ownership/configuration
+    // before any PostgreSQL connect. The whole existing build-drift matrix below
+    // still exercises the full guard's unchanged source/artifact verification.
+    const targetResults = path.join(root, 'results', 'synthetic-runtime-guard');
+    await fs.mkdir(targetResults, { recursive: true, mode: 0o700 });
+    const targetReceipt: OwnedYjsReceipt = { ...receipt, repo, head: source.head,
+      sourceFingerprint: source.fingerprint, buildFingerprint: built.fingerprint, buildId: built.buildId,
+      phase: 'browser', actorId: null, uncertain: false, parentPid: process.pid, parentStart: 'synthetic parent start',
+      serverPid: process.pid, serverStart: 'synthetic server start', issuerPid: null,
+      issuerDatabaseOid: null, issuerDatabaseOwner: null, issuerDatabaseMarker: null,
+      restartCount: 0, port: 42345, databaseDropped: false, dataRemoved: false,
+      controlPlaneRoot: path.join(root, 'synthetic-control-plane'), controlPlaneHead: 'b'.repeat(40),
+      passed: false, selectedSpecs: ['tests/synthetic-never-run.spec.ts'], completedSpecs: [], activeSpec: null, failurePhase: null };
+    const targetReceiptPath = path.join(root, 'recovery.json'), publishedPath = path.join(root, 'runtime.env');
+    const targetEnv: NodeJS.ProcessEnv = { CANVAS_YJS_AUTHORITY_E2E: '1', E2E_EXTERNAL_SERVER: '1', NODE_ENV: 'production',
+      CANVAS_YJS_QA_RECEIPT: targetReceiptPath, CANVAS_YJS_QA_RESULTS: targetResults,
+      BASE_URL: 'http://127.0.0.1:42345', BETTER_AUTH_BASE_URL: 'http://127.0.0.1:42345',
+      DATABASE_URL: `postgresql://fixture-role:synthetic-password@127.0.0.1:55433/${receipt.databaseName}`,
+      DATA: dataRoot, CANVAS_DATA_ROOT: dataRoot, CANVAS_INSTANCE_ID: `synthetic-${nonce}`, CANVAS_ORGANIZATION_ID: 'synthetic-org',
+      BOOTSTRAP_ADMIN_EMAIL: 'owner@guard.test', BOOTSTRAP_ADMIN_PASSWORD: 'synthetic-owner-password',
+      TEST_LOGIN_EMAIL: 'owner@guard.test', TEST_LOGIN_PASSWORD: 'synthetic-owner-password',
+      TEST_SECONDARY_EMAIL: 'peer@guard.test', TEST_SECONDARY_PASSWORD: 'synthetic-peer-password',
+      CANVAS_YJS_QA_RESTART_URL: 'http://127.0.0.1:42346', CANVAS_YJS_QA_RESTART_TOKEN: 'synthetic-restart-token',
+      CANVAS_DATABASE_PROVIDER: 'postgres', CANVAS_POSTGRES_MODE: 'external',
+      CANVAS_DEPLOYMENT_MODE: 'team', CANVAS_TEAM_FEATURES_ENABLED: 'true' };
+    await writePrivateJson(targetReceiptPath, targetReceipt, true);
+    const published = (env: NodeJS.ProcessEnv) => Object.entries(env).map(([key, value]) => `${key}=${JSON.stringify(value)}\n`).join('');
+    await fs.writeFile(publishedPath, published(targetEnv), { mode: 0o600, flag: 'wx' });
+    const proofPath = path.join(repo, '.next', buildProofName), proofBytes = await privateBytes(proofPath);
+    const originalConnect = Client.prototype.connect;
+    let connectAttempts = 0;
+    Client.prototype.connect = function(): never { connectAttempts++; throw new Error('Synthetic guard must reject before PostgreSQL connect.'); };
+    const targetCwd = process.cwd(); process.chdir(repo);
+    try {
+      for (const guard of [requireOwnedYjsQaTarget, requireOwnedYjsQaRuntimeTarget]) {
+        await assert.rejects(guard({ ...targetEnv, TEST_LOGIN_PASSWORD: 'foreign-current-value' }),
+          /Owned runtime configuration mismatch \(TEST_LOGIN_PASSWORD\)/u);
+        await fs.writeFile(publishedPath, published({ ...targetEnv, TEST_SECONDARY_PASSWORD: 'foreign-published-value' }));
+        try { await assert.rejects(guard(targetEnv), /Owned runtime configuration mismatch \(TEST_SECONDARY_PASSWORD\)/u); }
+        finally { await fs.writeFile(publishedPath, published(targetEnv)); }
+        const wrongDatabase = { ...targetEnv,
+          DATABASE_URL: 'postgresql://fixture-role:synthetic-password@127.0.0.1:55433/canvas_notebook' };
+        await fs.writeFile(publishedPath, published(wrongDatabase));
+        try { await assert.rejects(guard(wrongDatabase), error => {
+          assert(error instanceof assert.AssertionError); assert.equal(error.actual, '/canvas_notebook');
+          assert.equal(error.expected, `/${receipt.databaseName}`); return true;
+        }); } finally { await fs.writeFile(publishedPath, published(targetEnv)); }
+        await writePrivateJson(targetReceiptPath, { ...targetReceipt, sourceFingerprint: 'f'.repeat(64) });
+        try { await assert.rejects(guard(targetEnv), error => {
+          assert(error instanceof assert.AssertionError); assert.equal(error.actual, 'f'.repeat(64));
+          assert.equal(error.expected, source.fingerprint); return true;
+        }); } finally { await writePrivateJson(targetReceiptPath, targetReceipt); }
+        await writePrivateJson(proofPath, { ...JSON.parse(proofBytes.toString()), buildId: 'foreign-build-id' });
+        try { await assert.rejects(guard(targetEnv), error => {
+          assert(error instanceof assert.AssertionError); assert.equal(error.actual, 'foreign-build-id');
+          assert.equal(error.expected, built.buildId); return true;
+        }); } finally { await fs.writeFile(proofPath, proofBytes); }
+        await fs.writeFile(path.join(root, '.fixture-owner'), 'a'.repeat(48));
+        try { await assert.rejects(guard(targetEnv), error => {
+          assert(error instanceof assert.AssertionError); assert.equal(error.actual, 'a'.repeat(48));
+          assert.equal(error.expected, marker); return true;
+        }); } finally { await fs.writeFile(path.join(root, '.fixture-owner'), marker); }
+        assert.equal(connectAttempts, 0, 'Every invalid binding must reject before even a mocked connect.');
+      }
+    } finally {
+      process.chdir(targetCwd); Client.prototype.connect = originalConnect;
+      await fs.writeFile(publishedPath, published(targetEnv)); await writePrivateJson(targetReceiptPath, targetReceipt);
+      await fs.writeFile(proofPath, proofBytes); await fs.writeFile(path.join(root, '.fixture-owner'), marker);
+    }
+    assert.equal(await fs.readFile(publishedPath, 'utf8'), published(targetEnv));
+    assert((await privateBytes(proofPath)).equals(proofBytes));
     await assertBuildProof(repo);
     await fs.writeFile(path.join(repo, '.next/runtime.js'), 'stale compiled fixture'); await assert.rejects(assertBuildProof(repo));
     await fs.writeFile(path.join(repo, '.next/runtime.js'), 'compiled fixture');

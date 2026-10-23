@@ -368,8 +368,7 @@ export function redactBoundedOutput(raw: string, secrets: string[], maxBytes = 1
   return text;
 }
 
-/** Read-only guard used before a selected browser suite contacts the owned host. */
-export async function requireOwnedYjsQaTarget(env: NodeJS.ProcessEnv = process.env): Promise<OwnedYjsReceipt> {
+async function requireOwnedYjsQaTargetWithVerification(env: NodeJS.ProcessEnv, verification: 'full' | 'runtime'): Promise<OwnedYjsReceipt> {
   assert.equal(env.CANVAS_YJS_AUTHORITY_E2E, '1'); assert.equal(env.E2E_EXTERNAL_SERVER, '1'); assert.equal(env.NODE_ENV, 'production');
   const receiptPath = env.CANVAS_YJS_QA_RECEIPT ?? '';
   const receipt = JSON.parse((await privateBytes(receiptPath)).toString()) as OwnedYjsReceipt;
@@ -380,8 +379,18 @@ export async function requireOwnedYjsQaTarget(env: NodeJS.ProcessEnv = process.e
   const outputStat = await fs.lstat(outputRoot);
   assert(outputStat.isDirectory() && !outputStat.isSymbolicLink() && outputStat.uid === process.getuid?.() && (outputStat.mode & 0o777) === 0o700);
   assert.equal(receipt.repo, await fs.realpath(process.cwd()));
-  const proof = await assertBuildProof(receipt.repo);
+  const proof = verification === 'full' ? await assertBuildProof(receipt.repo)
+    : JSON.parse((await privateBytes(path.join(receipt.repo, '.next', buildProofName))).toString()) as OwnedYjsBuildProof;
+  assert.equal(proof.version, 1); assert.equal(proof.repo, receipt.repo); assert.equal(proof.buildId, receipt.buildId);
   assert.equal(receipt.head, proof.head); assert.equal(receipt.sourceFingerprint, proof.sourceFingerprint); assert.equal(receipt.buildFingerprint, proof.buildFingerprint);
+  if (verification === 'runtime') {
+    assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: receipt.repo, encoding: 'utf8' }).trim(), proof.head);
+    const buildId = await fs.open(path.join(receipt.repo, '.next', 'BUILD_ID'), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const held = await buildId.stat(); assert(held.isFile() && held.nlink === 1 && held.size > 0 && held.size < 256);
+      assert.equal((await buildId.readFile()).toString().trim(), proof.buildId);
+    } finally { await buildId.close(); }
+  }
   const published = parse(await privateBytes(path.join(receipt.fixtureRoot, 'runtime.env')));
   const origin = assertOrigin(env.BASE_URL ?? '', receipt.port);
   for (const key of ['BASE_URL', 'BETTER_AUTH_BASE_URL', 'DATABASE_URL', 'DATA', 'CANVAS_DATA_ROOT', 'CANVAS_INSTANCE_ID', 'CANVAS_ORGANIZATION_ID',
@@ -413,4 +422,18 @@ export async function requireOwnedYjsQaTarget(env: NodeJS.ProcessEnv = process.e
   const cwd = execFileSync('lsof', ['-a', '-p', String(receipt.serverPid), '-d', 'cwd', '-Fn'], { encoding: 'utf8' });
   assert(cwd.split('\n').includes(`n${receipt.repo}`));
   return receipt;
+}
+
+/** Read-only guard used before a selected browser suite contacts the owned host. */
+export async function requireOwnedYjsQaTarget(env: NodeJS.ProcessEnv = process.env): Promise<OwnedYjsReceipt> {
+  return requireOwnedYjsQaTargetWithVerification(env, 'full');
+}
+
+/**
+ * Fresh runtime/ownership checks between full build checks at test boundaries.
+ * Only fixture observations bracketed by requireOwnedYjsQaTarget may use this:
+ * it rereads the sealed proof, but does not rehash the source/build trees.
+ */
+export async function requireOwnedYjsQaRuntimeTarget(env: NodeJS.ProcessEnv = process.env): Promise<OwnedYjsReceipt> {
+  return requireOwnedYjsQaTargetWithVerification(env, 'runtime');
 }
