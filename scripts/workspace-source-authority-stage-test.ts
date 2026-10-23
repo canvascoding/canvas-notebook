@@ -256,6 +256,156 @@ test('a native peer edit during staged physical reads invalidates the native pro
     loadState: async () => loads++ ? later : initial, afterSourceFingerprint: async (filePath) => { physicalReads.push(filePath); } });
   assert.equal(stage.readiness, 'blocked'); assert(stage.coverage.gaps.some((gap) => gap.code === 'native-source-changed'));
   assert.equal(stage.sources.length, 0); assert.deepEqual(physicalReads, ['incoming.md']);
+  // Actual public preview + actual collector/E5/lifecycle code, with declared
+  // SQL/Principal mechanics only. No genuine PG/authorization or mutation proof.
+  const [tsModule, transaction, admission, jobScope, htmlPreparation, pathContract] = await Promise.all([
+    import('typescript'), import('../app/lib/collaboration/lifecycle-transaction'),
+    import('../app/lib/collaboration/room-admission-contract'), import('../app/lib/files/workspace-operation-job-scope'),
+    import('../app/lib/files/workspace-path-html-import-preparation'), import('../app/lib/mcp/server/workspace-path-tool-contract'),
+  ]);
+  const ts = tsModule.default;
+  const staleSource = ts.createSourceFile('workspace-file-operation-preview.ts', await fs.readFile(path.resolve(
+    'app/lib/markdown/workspace-file-operation-preview.ts'), 'utf8'), ts.ScriptTarget.Latest, true);
+  const staleClass = staleSource.statements.find(statement => ts.isClassDeclaration(statement)
+    && statement.name?.text === 'WorkspacePreviewStaleError');
+  assert(staleClass);
+  const staleExports = {} as { WorkspacePreviewStaleError: new () => Error };
+  new Function('exports', ts.transpileModule(staleClass.getText(staleSource), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText)(staleExports);
+  const Stale = staleExports.WorkspacePreviewStaleError;
+  const sourceModule = await import('../app/lib/markdown/workspace-source-authority-stage');
+  const compiled = ts.transpileModule(await fs.readFile(path.resolve(
+    'app/lib/files/workspace-path-import-operation-preview.ts'), 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+  }).outputText;
+  const changed = (value: import('../app/lib/markdown/workspace-source-authority-stage').WorkspaceLinkSourceAuthorityObservation) => {
+    // Missing on the old product: no missing-export startup failure may count as RED.
+    const getter: unknown = Reflect.get(sourceModule, 'requiresWorkspaceLinkSourceAuthorityRevalidation');
+    return typeof getter === 'function' && getter(value) === true;
+  };
+  type Mode = 'native' | 'catalogue' | 'catalogue-missing' | 'sql' | 'corrupt' | 'unrelated-gap' | 'auth' | 'current-sql' | 'close' | 'rollback';
+  const runPreview = async (mode: Mode) => {
+    const states = [initial];
+    const traced = database([record('native.bin', 'initialized')], { states,
+      ...(mode === 'catalogue' ? { after: [{ ...record('native.bin', 'initialized'), state_version: 8 }] }
+        : mode === 'catalogue-missing' ? { after: [record('native.bin', 'missing-state')] } : {}) });
+    const realAll = traced.connection.all, realGet = traced.connection.get, realRun = traced.connection.run;
+    let binaryReads = 0, headerReads = 0, currentChecks = 0, principalDepth = 0, htmlCalls = 0;
+    let observation: import('../app/lib/markdown/workspace-source-authority-stage').WorkspaceLinkSourceAuthorityObservation | undefined;
+    const currentFailure = Object.assign(new Error('Declared fresh current failure.'), { status: mode === 'auth' ? 403 : 503,
+      code: mode === 'auth' ? 'PRINCIPAL_AUTH_REVOKED' : '55P03' });
+    const cleanupFailure = new Error('Declared cleanup failure.');
+    const databaseConnection: SqlConnection = {
+      ...traced.connection,
+      get: async (sql, values) => {
+        if (sql.includes('pg_try_advisory_xact_lock_shared')) {
+          // The existing SQL-trace fixture models the acquired shared fence.
+          await realGet('SELECT pg_advisory_xact_lock_shared($1::bigint)', values); return { locked: true };
+        }
+        return realGet(sql, values);
+      },
+      all: async (sql, values) => {
+        if (sql.startsWith('SELECT requested.document_id') && ++headerReads === 2 && mode === 'sql') throw currentFailure;
+        const rows = await realAll(sql, values);
+        if (sql.startsWith('WITH expected AS MATERIALIZED') && ++binaryReads === 1 && mode !== 'sql') {
+          states[0] = mode === 'corrupt' ? { ...later, yjsState: new Uint8Array([0xff]) } : later;
+        }
+        return rows;
+      },
+      run: async (sql, values) => {
+        if (sql === 'ROLLBACK' && mode === 'rollback') throw cleanupFailure;
+        return realRun(sql, values);
+      },
+      close: async error => { await traced.connection.close(error); if (mode === 'close') throw cleanupFailure; },
+    };
+    const principal = Object.freeze({ fixture: 'declared-current-principal' });
+    const unexpected = () => { throw new Error('Unexpected preparation arm in rejection-only regression.'); };
+    const mocks: Record<string, unknown> = {
+      'server-only': {}, 'node:util': await import('node:util'), '../db': { openDb: async () => databaseConnection },
+      '../collaboration/lifecycle-transaction': transaction,
+      '../collaboration/native-text-session-activation': { authenticatedNativeTextSessionEnabled: () => true },
+      '../collaboration/room-admission-contract': admission,
+      '../markdown/workspace-file-operation-preview': staleExports,
+      '../markdown/workspace-source-authority-stage': { ...sourceModule,
+        readWorkspaceLinkSourceAuthorityOnConnection: async (...args: Parameters<typeof sourceModule.readWorkspaceLinkSourceAuthorityOnConnection>) => {
+          observation = await sourceModule.readWorkspaceLinkSourceAuthorityOnConnection(...args); return observation;
+        } },
+      '../workspaces/request-principal': { withWorkspaceRequestPrincipalOnConnection: async (actual: SqlConnection,
+        supplied: object, read: (access: { workspace: WorkspaceContext; assertCurrent: () => Promise<void> }) => Promise<unknown>) => {
+        assert.equal(typeof actual.get, 'function'); assert.equal(supplied, principal);
+        assert.deepEqual(traced.trace.slice(0, 2), ['BEGIN', 'SET TRANSACTION ISOLATION LEVEL READ COMMITTED, READ WRITE']);
+        principalDepth++;
+        try { return await read({ workspace, assertCurrent: async () => {
+          currentChecks++; if (currentChecks === 2 && (mode === 'auth' || mode === 'current-sql')) throw currentFailure;
+        } }); } finally { principalDepth--; }
+      } },
+      '../mcp/server/document-read-principal': { withDirectMcpWorkspaceMovePrincipalOnConnection: unexpected,
+        withDirectMcpWorkspaceDeletePrincipalOnConnection: unexpected },
+      './workspace-operation-job-scope': jobScope,
+      './workspace-path-cohort-delete-preparation': { isWorkspaceCohortDeleteRequest: unexpected,
+        createWorkspacePathCohortDeletePreparation: unexpected },
+      './workspace-path-physical-delete-preparation-v5': { createWorkspacePathPhysicalDeletePreparationPlanV5: unexpected },
+      './workspace-path-import-preparation-plan': { createWorkspacePathImportPreparationPlanV1: unexpected },
+      './workspace-path-html-no-import-preparation': { createWorkspacePathHtmlNoImportPreparationPlanV2: unexpected },
+      './workspace-path-html-native-delete-preparation': { createWorkspacePathHtmlNativeDeletePreparationPlanV3: unexpected },
+      './workspace-path-html-import-preparation': { createWorkspacePathHtmlImportPreparationPlanV4:
+        (...args: Parameters<typeof htmlPreparation.createWorkspacePathHtmlImportPreparationPlanV4>) => {
+          htmlCalls++; return htmlPreparation.createWorkspacePathHtmlImportPreparationPlanV4(...args);
+        } },
+    };
+    const exported = {} as typeof import('../app/lib/files/workspace-path-import-operation-preview');
+    new Function('require', 'module', 'exports', compiled)((name: string) => {
+      assert(Object.hasOwn(mocks, name), `Unexpected preview runtime import ${name}`); return mocks[name];
+    }, { exports: exported }, exported);
+    const invalidPath = path.join(root, 'unrelated-alias.md');
+    if (mode === 'unrelated-gap') await fs.symlink('incoming.md', invalidPath);
+    let received: unknown;
+    try { await exported.readWorkspacePathImportPreparationPlan({ principal: { kind: 'request', principal }, kind: 'rename',
+      selections: [{ sourcePath: 'native.bin', destinationPath: 'renamed.bin' }] }); }
+    catch (error) { received = error; }
+    finally { if (mode === 'unrelated-gap') await fs.unlink(invalidPath); }
+    assert(observation, `Collector was not reached: ${received instanceof Error ? `${received.name}: ${received.message}` : String(received)}`);
+    assert.equal(principalDepth, 0); assert.equal(traced.trace.at(-1), 'close');
+    assert(!traced.trace.includes('COMMIT')); assert.equal(observation.stage.sources.length, 0);
+    assert.equal(observation.privateCatalogue, undefined); assert.equal(observation.stage.coverage.complete, false);
+    assert.equal(observation.stage.executionReady, false);
+    assert.equal(await fs.readFile(path.join(root, 'native.bin'), 'utf8'), 'Stale projection');
+    assert.equal(await fs.readFile(path.join(root, 'incoming.md'), 'utf8'), '[Native](native.bin)');
+    return { received, observation, traced, currentChecks, htmlCalls, currentFailure, cleanupFailure };
+  };
+  // This is the first new oracle: old public preview reports the actual E5
+  // NATIVE_SOURCE_EVIDENCE_INVALID here, not a missing new export at startup.
+  for (const mode of ['native', 'catalogue'] as const) {
+    const result = await runPreview(mode);
+    assert.equal(result.received instanceof Stale, true,
+      `Expected PREVIEW_STALE for two valid differing reads; got ${(result.received as { code?: string })?.code}`);
+    const failure = result.received as { status?: number; code?: string };
+    assert.equal(failure.status, 409); assert.equal(failure.code, 'PREVIEW_STALE');
+    assert.equal(pathContract.normalizePublicWorkspacePathErrorCode(failure.code), 'PATH_PLAN_CHANGED');
+    assert.equal(result.currentChecks, 2); assert.equal(result.htmlCalls, 0);
+    assert(result.traced.trace.includes('ROLLBACK')); assert.equal(changed(result.observation), true);
+    assert.equal(changed(structuredClone(result.observation)), false);
+    assert.equal(changed({ ...result.observation }), false);
+    assert.equal(changed(new Proxy(result.observation, {})), false);
+  }
+  for (const mode of ['sql', 'corrupt', 'unrelated-gap', 'catalogue-missing'] as const) {
+    const result = await runPreview(mode);
+    assert.equal(result.received instanceof Stale, false); assert.equal(changed(result.observation), false);
+    assert.equal((result.received as { code?: string }).code, 'NATIVE_SOURCE_EVIDENCE_INVALID');
+    assert.equal(result.currentChecks, 1); assert.equal(result.htmlCalls, 1); assert(result.traced.trace.includes('ROLLBACK'));
+  }
+  for (const mode of ['auth', 'current-sql', 'close', 'rollback'] as const) {
+    const result = await runPreview(mode);
+    if (mode === 'auth' || mode === 'current-sql') assert.equal(result.received, result.currentFailure);
+    else if (mode === 'close') {
+      const failure = result.received as { code?: string; status?: number; cause?: unknown };
+      assert.equal(failure.code, 'PATH_IMPORT_PREVIEW_UNAVAILABLE'); assert.equal(failure.status, 503);
+      assert.equal(failure.cause, result.cleanupFailure);
+    }
+    else { assert(result.received instanceof AggregateError); assert(result.received.errors.includes(result.cleanupFailure)); }
+    assert.equal(result.htmlCalls, 0); assert.equal(result.currentChecks, 2);
+  }
 }));
 
 test('directory inode replacement retaining the original file inode is detected after async fingerprint', async () => fixture(async (root, workspace) => {

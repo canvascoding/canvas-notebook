@@ -46,6 +46,7 @@ const EXCLUDED_FILES = new Set(['.gitkeep', '.keep']);
 class PhysicalStageConflict extends Error {
   constructor(readonly code: string, readonly filePath: string) { super(code); }
 }
+class ConfirmedSourceReadChange extends PhysicalStageConflict {}
 const fail = (code: string, filePath: string): never => { throw new PhysicalStageConflict(code, filePath); };
 
 export type WorkspaceNativeSourceBinding = Readonly<{
@@ -71,6 +72,11 @@ export type WorkspaceLinkSourceAuthorityObservation = Readonly<{
   privateSceneSnapshots?: readonly WorkspaceSceneSnapshotRecord[];
   privateSceneCatalogue?: readonly Readonly<WorkspaceSceneCatalogueEntry>[];
 }>;
+// Rejection-only provenance. No public DTO field or current authority is cached.
+const confirmedSourceReadChanges = new WeakSet<WorkspaceLinkSourceAuthorityObservation>();
+export function requiresWorkspaceLinkSourceAuthorityRevalidation(observation: WorkspaceLinkSourceAuthorityObservation): boolean {
+  return confirmedSourceReadChanges.has(observation);
+}
 /** A data-reader choice only. It never changes the caller's fences or rights. */
 export type WorkspacePhysicalSourceReadOptions = Readonly<{ physicalParserVersion?: 2 | 3 }>;
 type CollectorDependencies = Omit<Dependencies, 'openConnection'> & WorkspacePhysicalSourceReadOptions;
@@ -230,6 +236,7 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
   const sources: WorkspaceSourceAuthorityStage['sources'] = []; const namespace = new Map<string, NativeNamespaceEntry>();
   const gaps: PhysicalSourceGap[] = []; const excludedPaths: string[] = []; const observed: WorkspaceOriginalPathObservation[] = [];
   let catalogueProof: string | null = null;
+  let confirmedSourceReadChange = false;
   let privateCatalogue: readonly Readonly<WorkspaceDocumentCatalogueEntry>[] | undefined;
   const nativeBindings: WorkspaceNativeSourceBinding[] = [], privateNativeStates: PersistedCollaborationState[] = [];
   const gap = (code: string, filePath: string) => gaps.push({ code, path: filePath });
@@ -359,7 +366,11 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     }
     // READ COMMITTED gives a fresh catalogue while the SAME shared admission
     // fence remains held. Never release it between classification and FS reads.
-    if (nativeLinkJsonProof(await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths })) !== catalogueProof) fail('source-authority-changed', '');
+    const recheckedCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    if (nativeLinkJsonProof(recheckedCatalogue) !== catalogueProof) {
+      if (recheckedCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
+      throw new ConfirmedSourceReadChange('source-authority-changed', '');
+    }
     const physicalBytes = totalBytes - privateNativeStates.reduce((sum, state) => sum + state.yjsState.byteLength + state.stateVector.byteLength, 0);
     let currentSources: NativeSourceRead[];
     try { currentSources = await readNativeSources(connection, workspace, nativeBindings.map(binding => registered.get(binding.expected.path)!),
@@ -367,13 +378,19 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     catch { fail('native-source-changed', ''); }
     for (const [index, binding] of nativeBindings.entries()) {
       if (!isDeepStrictEqual(currentSources![index].binding, binding) || !isDeepStrictEqual(currentSources![index].state, privateNativeStates[index])) {
-        fail('native-source-changed', binding.expected.path);
+        throw new ConfirmedSourceReadChange('native-source-changed', binding.expected.path);
       }
     }
     await assertWorkspaceOriginalPathsCurrent({ configuredRootPath: workspace.rootPath, root, observed });
     if (filesystemFileVersion(await fs.stat(realRoot)) !== root.identity || await fs.realpath(workspace.rootPath) !== realRoot) fail('physical-scope-changed', '');
-    if (nativeLinkJsonProof(await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths })) !== catalogueProof) fail('source-authority-changed', '');
+    const finalCatalogue = await readWorkspaceDocumentCatalogue(connection, workspace, { maxEntries: limits.maxPaths });
+    if (nativeLinkJsonProof(finalCatalogue) !== catalogueProof) {
+      if (finalCatalogue.some(entry => entry.authority === 'missing-state')) fail('source-authority-changed', '');
+      throw new ConfirmedSourceReadChange('source-authority-changed', '');
+    }
   } catch (error) {
+    confirmedSourceReadChange = error instanceof ConfirmedSourceReadChange
+      && gaps.every(entry => entry.code === 'uninspected-html');
     if (error instanceof PhysicalStageConflict || error instanceof WorkspaceOriginalFileSourceError) gap(error.code, error.filePath); else gap('source-authority-unavailable', '');
     // Incoherent global authority/namespace observations cannot certify bytes.
     sources.length = 0; nativeBindings.length = 0; privateNativeStates.length = 0;
@@ -385,12 +402,14 @@ export async function readWorkspaceLinkSourceAuthorityOnConnection(connection: S
     scope: { kind: 'visible-workspace', excludedPaths: excludedPaths.sort() },
     coverage: { complete: !gaps.length, gaps }, readiness: gaps.length ? 'blocked'
       : sources.some((source) => source.kind === 'physical') ? 'requires-import-and-rebinding' : 'native-coordinator-required', executionReady: false };
-  return Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
+  const observation = Object.freeze({ stage: { ...body, stageProof: workspaceSourceAuthorityStageProof(body) },
     // Coherent catalogue facts remain private read evidence even when a source
     // has a coverage gap. Each versioned consumer still validates its own
     // coverage contract; retaining this witness grants no execution authority.
     ...(privateCatalogue ? { privateCatalogue } : {}),
     nativeBindings: Object.freeze(nativeBindings), privateNativeStates: Object.freeze(privateNativeStates) });
+  if (confirmedSourceReadChange) confirmedSourceReadChanges.add(observation);
+  return observation;
 }
 
 /** Original standalone API. Its own short read TX/shared fence is retained;

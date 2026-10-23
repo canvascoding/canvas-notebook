@@ -7,7 +7,8 @@ import { openDb } from '../db';
 import { executeLifecycleTransaction } from '../collaboration/lifecycle-transaction';
 import { authenticatedNativeTextSessionEnabled } from '../collaboration/native-text-session-activation';
 import { collaborationAdmissionLockKey, isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
-import { readWorkspaceLinkSourceAuthorityOnConnection } from '../markdown/workspace-source-authority-stage';
+import { readWorkspaceLinkSourceAuthorityOnConnection, requiresWorkspaceLinkSourceAuthorityRevalidation } from '../markdown/workspace-source-authority-stage';
+import { WorkspacePreviewStaleError } from '../markdown/workspace-file-operation-preview';
 import { withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
@@ -102,6 +103,10 @@ export async function readWorkspacePathImportPreparationPlan(supplied: Input): P
           [collaborationAdmissionLockKey(workspace.workspaceId)]) as { locked?: unknown } | undefined;
         if (locked?.locked !== true) throw new WorkspacePathImportPreviewError('PATH_IMPORT_PREVIEW_BUSY');
         const observation = await readWorkspaceLinkSourceAuthorityOnConnection(database, workspace, { physicalParserVersion: 3 });
+        if (requiresWorkspaceLinkSourceAuthorityRevalidation(observation)) {
+          await access.assertCurrent();
+          throw Object.assign(new WorkspacePreviewStaleError(), { status: 409, code: 'PREVIEW_STALE' });
+        }
         const scope = captureWorkspaceOperationJobScope(workspace);
         const physicalPath = captured.selections.length === 1 ? captured.selections[0].sourcePath : null;
         const physicalNode = physicalPath ? observation.stage.namespace.find(entry => entry.path === physicalPath) : null;
