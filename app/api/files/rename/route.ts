@@ -17,7 +17,7 @@ import { workspacePathOperationPreview, workspacePathImportPreparationPreview } 
 import { authenticatedNativeTextSessionEnabled } from '@/app/lib/collaboration/native-text-session-activation';
 import { withWorkspaceRequestPrincipal } from '@/app/lib/workspaces/request-principal';
 import { readWorkspacePathImportPreparationPlan } from '@/app/lib/files/workspace-path-import-operation-preview';
-import { readWorkspacePathImportOperationHistory } from '@/app/lib/files/workspace-path-import-operation-history';
+import { readRequestWorkspacePathImportOperationHistory } from '@/app/lib/files/workspace-path-import-operation-history';
 import { prepareWorkspacePathImportOperation } from '@/app/lib/files/workspace-path-import-operation';
 import { WorkspaceOperationBatchError, type WorkspaceOperationBatchRecord } from '@/app/lib/files/workspace-operation-batch-store';
 import type { WorkspaceOperationBatchScope } from '@/app/lib/files/workspace-operation-batch-contract';
@@ -98,13 +98,15 @@ export async function POST(request: NextRequest): Promise<Response> {
         actorUserId: fresh.session.user.id, actorId: fresh.session.user.id,
         actorDisplayName: fresh.session.user.name || 'Workspace user', actorType: 'user' as const };
       if (authenticatedNativeTextSessionEnabled() && !fresh.workspace.legacy) {
+        preparationReadOnly = true;
+        const historical = !dryRun && idempotencyKey
+          ? await readRequestWorkspacePathImportOperationHistory(original, { workspaceId: fresh.workspace.workspaceId, operationId: idempotencyKey,
+            ...(planId ? { expected: { planId, request: { kind: input.kind, selections: input.selections } } } : {}) }) : null;
         const prepared = await withWorkspaceRequestPrincipal(original,
           { permission: 'canWrite', workspaceId: fresh.workspace.workspaceId }, async principal => {
             const selected = { kind: 'request' as const, principal };
             preparationReadOnly = true;
             if (!dryRun && idempotencyKey) {
-              const historical = await readWorkspacePathImportOperationHistory({ principal: selected, operationId: idempotencyKey,
-                ...(planId ? { expected: { planId, request: { kind: input.kind, selections: input.selections } } } : {}) });
               if (historical) {
                 if (!planId || overwrite) throw new WorkspaceOperationBatchError('PREVIEW_UNSUPPORTED_APPLY', 409,
                   'Retry the original file action with its preview and options.');

@@ -1831,13 +1831,20 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
             const targetHolder = new Client({ connectionString: process.env.DATABASE_URL,
               application_name: `${h.applicationName}-advance-target`, connectionTimeoutMillis: 5000,
               options: `-c search_path=${h.schema},pg_catalog -c statement_timeout=15000` });
+            const historyHolder = new Client({ connectionString: process.env.DATABASE_URL,
+              application_name: `${h.applicationName}-advance-target`, connectionTimeoutMillis: 5000,
+              options: `-c search_path=${h.schema},pg_catalog -c statement_timeout=15000` });
             const locks = { header: { client: h.admin, active: false, releasing: false, released: false },
-              target: { client: targetHolder, active: false, releasing: false, released: false } };
+              target: { client: targetHolder, active: false, releasing: false, released: false },
+              history: { client: historyHolder, active: false, releasing: false, released: false } };
+            const [beforeHistory, filesBeforeHistory] = await withSettledProjectionReadBoundary(async () =>
+              [await snapshot(), await filesystem()] as const);
             type Phase = { ordinal: number; checkout: number; afterClosedFailures: number; sessionRead: boolean; userRead: boolean };
-            type Busy = { kind: 'header' | 'target'; client: PoolClient; phase: Phase; rollback: boolean; released: boolean };
+            type Busy = { kind: 'header' | 'target' | 'history'; client: PoolClient; phase: Phase; rollback: boolean; released: boolean };
             const descriptors = new Map<PoolClient, PropertyDescriptor | undefined>(), checkouts = new Map<PoolClient, number>();
             const phases = new Map<PoolClient, Phase>(), failures: Busy[] = [], releaseWork: Promise<void>[] = [];
-            const successfulAdvances: Phase[] = [];
+            const successfulAdvances: Phase[] = [], historyFailures: Busy[] = [];
+            let historyNullPhase: Phase | undefined;
             let ordinal = 0, unobservedModes = 0, bootstrapClient: PoolClient | undefined, bootstrapCommits = 0;
             let firstDocumentId: string | undefined, originalSelection: Awaited<ReturnType<typeof immutableSelection>> | undefined;
             let observerFailure: Error | undefined;
@@ -1846,7 +1853,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               descriptors.set(client, Object.getOwnPropertyDescriptor(client, 'query')); const original = client.query;
               Object.defineProperty(client, 'query', { configurable: true, writable: true, value: (...args: unknown[]) => {
                 // Keep callback/Query-object overloads untouched. Only genuine
-                // Promise failures from these two exact native SQL reads count.
+                // Promise failures from these exact native SQL reads count.
                 if (args.some(value => typeof value === 'function')) { unobservedModes++; return Reflect.apply(original, client, args); }
                 const first = args[0]; let text: string | undefined, values: unknown[] | undefined;
                 if (typeof first === 'string') { text = first; if (Array.isArray(args[1])) values = args[1]; }
@@ -1856,7 +1863,9 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                   if (parameters && 'value' in parameters && Array.isArray(parameters.value)) values = parameters.value;
                 }
                 const sql = text?.replace(/\s+/gu, ' ').trim();
-                const kind = values?.[0] !== identity.requestId ? undefined
+                const kind = locks.history.active && values?.[0] === 'member'
+                  && sql?.startsWith('SELECT id,banned FROM ') && sql.includes('."user"') && sql.endsWith('FOR SHARE NOWAIT') ? 'history'
+                  : values?.[0] !== identity.requestId ? undefined
                   : sql?.startsWith('SELECT request_id,request_digest,status,revision,') && sql.includes('FOR SHARE') ? 'header'
                     : sql?.startsWith('SELECT status,active,') && sql.includes('collaboration_admission_targets')
                       && sql.includes('FOR UPDATE') && values[1] === firstDocumentId ? 'target' : undefined;
@@ -1868,7 +1877,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                     const sqlstate = error && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
                     if (sqlstate !== '55P03') { observerFailure = new Error('Advance row contention returned a different SQLSTATE.', { cause: error }); return; }
                     const phase = phases.get(client); assert(phase);
-                    failures.push({ kind, client, phase, rollback: false, released: false });
+                    (kind === 'history' ? historyFailures : failures).push({ kind, client, phase, rollback: false, released: false });
                   } catch (error) { observerFailure = error instanceof Error ? error : new Error('Advance query observation failed.'); }
                 });
                 else if (kind) unobservedModes++;
@@ -1877,7 +1886,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
             };
             const onAcquire = (client: PoolClient) => { onClient(client); checkouts.set(client, (checkouts.get(client) ?? 0) + 1); };
             const onRelease = (...args: [unknown, PoolClient]) => {
-              const client = args[1], entry = [...failures].reverse().find(value => value.client === client && !value.released);
+              const client = args[1], entry = [...historyFailures, ...failures].reverse().find(value => value.client === client && !value.released);
               if (!entry) return;
               if (!entry.rollback) { observerFailure = new Error('Busy lease released before its actual successful rollback.'); return; }
               entry.released = true;
@@ -1890,12 +1899,36 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
             };
             pool.on('connect', onClient); pool.on('acquire', onAcquire); pool.on('release', onRelease);
             try {
-              await targetHolder.connect();
+              await targetHolder.connect(); await historyHolder.connect();
+              const targetIdentity: Record<string, unknown> = (await targetHolder.query('SELECT pid,backend_start::text AS start,application_name FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
+              const historyIdentity: Record<string, unknown> = (await historyHolder.query('SELECT pid,backend_start::text AS start,application_name FROM pg_stat_activity WHERE pid=pg_backend_pid()')).rows[0];
+              for (const holderIdentity of [targetIdentity, historyIdentity]) {
+                assert(Number.isSafeInteger(holderIdentity.pid)); assert.equal(typeof holderIdentity.start, 'string');
+                assert.equal(holderIdentity.application_name, `${h.applicationName}-advance-target`);
+              }
+              assert.notEqual(historyIdentity.pid, targetIdentity.pid, 'The same monitored application name still owns two independent PG holders.');
+              await historyHolder.query('BEGIN'); locks.history.active = true;
+              assert.equal((await historyHolder.query('SELECT id FROM "user" WHERE id=$1 FOR UPDATE NOWAIT', ['member'])).rows[0]?.id, 'member');
               const response = await h.withProbe(async event => {
                 const sql = event.text.replace(/\s+/gu, ' ').trim();
                 if (/^BEGIN\b/iu.test(sql)) phases.set(event.client, { ordinal: ++ordinal, checkout: checkouts.get(event.client) ?? 0,
                   afterClosedFailures: failures.filter(value => value.released).length, sessionRead: false, userRead: false });
                 const phase = phases.get(event.client);
+                if (!historyNullPhase) {
+                  assert.equal(/\b(?:INSERT\s+INTO|DELETE\s+FROM|UPDATE\s+[\s\S]*?\bSET\b|MERGE\s+INTO|TRUNCATE\s+(?:TABLE\s+)?|CREATE\s+(?:TABLE|INDEX)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX))\b/iu.test(event.text)
+                    || /\bpg_notify\s*\(/iu.test(event.text), false, 'No SQL/notify mutation may precede the proven historical miss.');
+                }
+                if (phase && sql.startsWith('SELECT workspace_id,batch_id,operation_id,version,preview_plan_id,native_plan_id,record_digest,b0_xid,created_at,')
+                  && sql.includes('.workspace_path_import_preparations WHERE workspace_id=$1 AND batch_id=$2')
+                  && event.values[0] === h.source.workspaceId && event.values[1] === identity.batchId) {
+                  assert.equal(historyNullPhase, undefined); assert.equal(historyFailures.length, 1);
+                  const failed: Busy = historyFailures[0]; assert(failed.rollback && failed.released && locks.history.released);
+                  assert.equal(event.result.command, 'SELECT'); assert.equal(event.result.rowCount, 0); assert.equal(event.result.rows.length, 0);
+                  assert(phase.sessionRead && phase.userRead && phase.checkout > 0 && phase.ordinal > failed.phase.ordinal);
+                  if (event.client === failed.client) assert(phase.checkout > failed.phase.checkout);
+                  assert.deepEqual(await snapshot(), beforeHistory); assert.deepEqual(await filesystem(), filesBeforeHistory);
+                  historyNullPhase = phase;
+                }
                 if (phase && sql.includes('."session"') && sql.includes('FOR SHARE') && event.values[0] === sessionA) phase.sessionRead = true;
                 if (phase && sql.includes('."user"') && sql.includes('SELECT id,banned') && sql.includes('FOR SHARE')
                   && event.values[0] === 'member') phase.userRead = true;
@@ -1918,7 +1951,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                     [identity.requestId, firstDocumentId])).rows[0]?.document_id, firstDocumentId);
                 }
                 if (sql === 'ROLLBACK') {
-                  const entry = [...failures].reverse().find(value => value.client === event.client && !value.rollback);
+                  const entry = [...historyFailures, ...failures].reverse().find(value => value.client === event.client && !value.rollback);
                   if (entry) {
                     assert.equal(event.result.command, 'ROLLBACK');
                     const witness = (await event.raw('SELECT pg_current_xact_id_if_assigned()::text AS xid,current_schema() AS schema')).rows[0];
@@ -1930,6 +1963,9 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               }, () => renameWithActualCookie(requestBody));
               await Promise.all(releaseWork); if (observerFailure) throw observerFailure;
               assert.equal(bootstrapCommits, 1); assert(originalSelection && firstDocumentId);
+              assert(historyNullPhase); assert.equal(historyFailures.length, 1);
+              assert(historyFailures[0].rollback && historyFailures[0].released && locks.history.released);
+              assert(historyNullPhase.ordinal < failures[0].phase.ordinal);
               assert(failures.some(value => value.kind === 'header')); assert(failures.some(value => value.kind === 'target'));
               for (const [index, entry] of failures.entries()) {
                 assert(entry.rollback && entry.released); assert(entry.phase.sessionRead && entry.phase.userRead);
@@ -1945,6 +1981,7 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
                 assert.equal((await row(table, identity.batchId)).length, 0);
               assert.deepEqual(await nativeIntentRows(), nativeIntentsBeforeTransfer);
               console.log(JSON.stringify({ test: 'implicit-advance-real-row-contention', requestId: identity.requestId,
+                history55P03: historyFailures.length, historyMissAfterRollbackCloseAndFreshPrincipal: true,
                 header55P03: failures.filter(value => value.kind === 'header').length, target55P03: failures.filter(value => value.kind === 'target').length,
                 rollbackClosedFreshPrincipal: true, oneCommittedSelection: true, unobservedModes }));
               return response;
@@ -1957,7 +1994,13 @@ export async function directMcpWorkspacePathOwnerPostgresTest(): Promise<void> {
               try { if (locks.header.active) { await h.admin.query('ROLLBACK'); locks.header.active = false; } }
               finally {
                 try { if (locks.target.active) { await targetHolder.query('ROLLBACK'); locks.target.active = false; } }
-                finally { await targetHolder.end(); }
+                finally {
+                  try { await targetHolder.end(); }
+                  finally {
+                    try { if (locks.history.active) { await historyHolder.query('ROLLBACK'); locks.history.active = false; } }
+                    finally { await historyHolder.end(); }
+                  }
+                }
               }
             }
           };

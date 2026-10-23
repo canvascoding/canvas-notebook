@@ -2,9 +2,11 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual as equal, types } from 'node:util';
+import { NextRequest } from 'next/server';
 import { openDb, type SqlConnection } from '../db';
 import { isCanonicalAdmissionPath } from '../collaboration/room-admission-contract';
-import { withWorkspaceRequestPrincipalOnConnection, type WorkspaceRequestPrincipalAccess } from '../workspaces/request-principal';
+import { withWorkspaceRequestPrincipalOnConnection, withWorkspaceRequestPrincipalOriginalOrigin, WorkspaceRequestPrincipalError,
+  type WorkspaceRequestPrincipalAccess, type WorkspaceRequestHistoricalOrigin } from '../workspaces/request-principal';
 import { withDirectMcpWorkspaceMovePrincipalOnConnection, withDirectMcpWorkspaceDeletePrincipalOnConnection,
   type DirectMcpWorkspaceMovePrincipalAccess, type DirectMcpWorkspaceDeletePrincipalAccess } from '../mcp/server/document-read-principal';
 import { captureWorkspaceOperationJobScope } from './workspace-operation-job-scope';
@@ -23,6 +25,7 @@ export type WorkspacePathImportOperationHistoryInput = Readonly<{
 type HistoryAccess = WorkspaceRequestPrincipalAccess | DirectMcpWorkspaceMovePrincipalAccess | DirectMcpWorkspaceDeletePrincipalAccess;
 type HistoryRealm = Readonly<{ schemaName: string; schemaOid: number; databaseOid: number; searchPath: string;
   backendPid: number; backendStart: string; transactionId: string }>;
+const retryableRequestHistoryReads = new WeakSet<WorkspaceRequestPrincipalError>();
 
 export class WorkspacePathImportOperationHistoryError extends Error {
   readonly status: 422 | 409 | 503;
@@ -56,15 +59,23 @@ function captureWorkspacePathImportHistoryInput(input: WorkspacePathImportOperat
   const fields = workspacePathImportHistoryFields(input, ['principal', 'operationId'], ['expected']);
   const selected = workspacePathImportHistoryFields(fields.principal, ['kind', 'principal']);
   if (selected.kind !== 'request' && selected.kind !== 'move' && selected.kind !== 'delete'
-    || !selected.principal || typeof selected.principal !== 'object' || types.isProxy(selected.principal)
-    || typeof fields.operationId !== 'string' || !fields.operationId || fields.operationId.length > 512
-    || Buffer.from(fields.operationId).toString('utf8') !== fields.operationId || /[\u0000-\u001f\u007f]/u.test(fields.operationId)
-    || selected.kind !== 'request' && !/^[A-Za-z0-9_-]{16,128}$/u.test(fields.operationId)) {
+    || !selected.principal || typeof selected.principal !== 'object' || types.isProxy(selected.principal)) {
+    throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID');
+  }
+  return Object.freeze({ principal: Object.freeze({ kind: selected.kind, principal: selected.principal }) as WorkspacePathImportPreparationPrincipal,
+    ...captureWorkspacePathImportHistoryQuestion(selected.kind, fields.operationId, fields.expected) });
+}
+
+function captureWorkspacePathImportHistoryQuestion(principalKind: WorkspacePathImportPreparationPrincipal['kind'], operationId: unknown,
+  suppliedExpected: unknown): Pick<WorkspacePathImportOperationHistoryInput, 'operationId' | 'expected'> {
+  if (typeof operationId !== 'string' || !operationId || operationId.length > 512
+    || Buffer.from(operationId).toString('utf8') !== operationId || /[\u0000-\u001f\u007f]/u.test(operationId)
+    || principalKind !== 'request' && !/^[A-Za-z0-9_-]{16,128}$/u.test(operationId)) {
     throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID');
   }
   let expected: WorkspacePathImportOperationHistoryInput['expected'];
-  if (fields.expected !== undefined) {
-    const value = captureWorkspaceOperationNativePlanData(fields.expected,
+  if (suppliedExpected !== undefined) {
+    const value = captureWorkspaceOperationNativePlanData(suppliedExpected,
       () => { throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID'); }, 16 * 1024 * 1024);
     const captured = workspacePathImportHistoryFields(value, ['planId', 'request']);
     const request = workspacePathImportHistoryFields(captured.request, ['kind', 'selections']), kind = request.kind;
@@ -85,13 +96,12 @@ function captureWorkspacePathImportHistoryInput(input: WorkspacePathImportOperat
       return Object.freeze({ sourcePath: selection.sourcePath as string,
         ...(kind === 'delete' ? {} : { destinationPath: selection.destinationPath as string }) });
     });
-    if (selected.kind === 'delete' && kind !== 'delete' || selected.kind === 'move' && kind !== 'move') {
+    if (principalKind === 'delete' && kind !== 'delete' || principalKind === 'move' && kind !== 'move') {
       throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID');
     }
     expected = Object.freeze({ planId: captured.planId, request: Object.freeze({ kind, selections: Object.freeze(selections) }) });
   }
-  return Object.freeze({ principal: Object.freeze({ kind: selected.kind, principal: selected.principal }) as WorkspacePathImportPreparationPrincipal,
-    operationId: fields.operationId, ...(expected === undefined ? {} : { expected }) });
+  return Object.freeze({ operationId, ...(expected === undefined ? {} : { expected }) });
 }
 
 async function readWorkspacePathImportHistoryRealm(database: SqlConnection): Promise<HistoryRealm> {
@@ -165,7 +175,7 @@ export async function readWorkspacePathImportOperationHistory(supplied: Workspac
   let database: SqlConnection;
   try { database = await openDb(); }
   catch (cause) { throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE', { cause }); }
-  let begun = false, commitAttempted = false, committed = false, failure: unknown;
+  let begun = false, commitAttempted = false, committed = false, rollbackConfirmed = false, failure: unknown;
   let result: Readonly<{ value: WorkspacePathImportOperationPreparation | null }> | undefined;
   try {
     await database.run('BEGIN ISOLATION LEVEL READ COMMITTED READ WRITE'); begun = true;
@@ -180,14 +190,52 @@ export async function readWorkspacePathImportOperationHistory(supplied: Workspac
     result = Object.freeze({ value }); commitAttempted = true; await database.run('COMMIT'); committed = true; begun = false;
   } catch (error) {
     failure = commitAttempted ? new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE', { cause: error }) : error;
-    if (begun && !commitAttempted) try { await database.run('ROLLBACK'); begun = false; }
+    if (begun && !commitAttempted) try { await database.run('ROLLBACK'); begun = false; rollbackConfirmed = true; }
     catch (rollback) { failure = new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE', {
       cause: new AggregateError([failure, rollback], 'Historical import selection rollback is unconfirmed.') }); }
   }
   try { await database.close(new Error('Discarding dedicated original import history session.', { cause: failure })); }
   catch (close) { failure = new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE', {
     cause: failure === undefined ? close : new AggregateError([failure, close], 'Historical import selection disposal is unconfirmed.') }); }
-  if (failure !== undefined) throw failure;
+  if (failure !== undefined) {
+    // The same failed Principal is never reused. This private evidence is
+    // consumed only after its whole factory has unwound in the Web reader.
+    if (input.principal.kind === 'request' && rollbackConfirmed && !commitAttempted
+      && failure instanceof WorkspaceRequestPrincipalError && failure.code === 'PRINCIPAL_BUSY') {
+      retryableRequestHistoryReads.add(failure);
+    }
+    throw failure;
+  }
   if (!committed || !result) throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE');
   return result.value;
+}
+
+/** Only the fixed, side-effect-free history question can be retried. Every
+ * attempt freshly authenticates the original request; no planning, admission,
+ * import or mutation callback can enter this loop. */
+export async function readRequestWorkspacePathImportOperationHistory(request: NextRequest,
+  supplied: Readonly<{ workspaceId: string; operationId: string; expected?: WorkspacePathImportOperationHistoryInput['expected'] }>
+): Promise<WorkspacePathImportOperationPreparation | null> {
+  if (!(request instanceof NextRequest)) throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID');
+  const original = new NextRequest(request.url, { method: request.method, headers: new Headers(request.headers) });
+  const fields = workspacePathImportHistoryFields(supplied, ['workspaceId', 'operationId'], ['expected']);
+  const workspaceId = fields.workspaceId;
+  if (typeof workspaceId !== 'string' || !workspaceId || workspaceId.length > 256 || workspaceId !== workspaceId.trim()
+    || /[\u0000-\u001f\u007f]/u.test(workspaceId)) throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_INVALID');
+  const question = captureWorkspacePathImportHistoryQuestion('request', fields.operationId, fields.expected);
+  let origin: WorkspaceRequestHistoricalOrigin | undefined;
+  const observe = (current: WorkspaceRequestHistoricalOrigin): void => {
+    if (origin && !equal(origin, current)) throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_CHANGED');
+    origin ??= current;
+  };
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await withWorkspaceRequestPrincipalOriginalOrigin(original, { permission: 'canWrite', workspaceId }, observe,
+        principal => readWorkspacePathImportOperationHistory({ principal: { kind: 'request', principal }, ...question }));
+    } catch (error) {
+      if (!(error instanceof WorkspaceRequestPrincipalError) || !retryableRequestHistoryReads.delete(error)) throw error;
+      if (!origin || attempt === 2) throw new WorkspacePathImportOperationHistoryError('PATH_IMPORT_HISTORY_UNAVAILABLE', { cause: error });
+      await new Promise<void>(resolve => setTimeout(resolve, 25));
+    }
+  }
 }
