@@ -1064,6 +1064,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [
     activeWorkspaceId,
     documentTabsHydratedFor,
+    layout.preferencesHydrated,
+    layout.viewportWidth,
+    workspaceReady,
     openNotebookEntry,
     routeFilePath,
     routeWorkspaceId,
