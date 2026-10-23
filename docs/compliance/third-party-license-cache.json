@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "b6cad98bb1ddf2de408cf0f3f2f98084c92dda94e8ba82fcd15fcfb71b72aef1",
+  "lockfileSha256": "d4c26daa5ae1fefcb51d3c92f3c80737b067d43d8b6a32deeccc7880c37af0d3",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.74": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -6382,6 +6382,24 @@
       "copyrightNotices": [
         "Copyright (c) 2015-2020 Formidable Labs.",
         "Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,"
+      ]
+    },
+    "node_modules/@types/unzipper@0.10.11": {
+      "packagePath": "node_modules/@types/unzipper",
+      "name": "@types/unzipper",
+      "version": "0.10.11",
+      "packageResolved": "https://registry.npmjs.org/@types/unzipper/-/unzipper-0.10.11.tgz",
+      "packageIntegrity": "sha512-D25im2zjyMCcgL9ag6N46+wbtJBnXIr7SI4zHf9eJD2Dw2tEB5e+p5MYkrxKIVRscs5QV0EhtU9rgXSPx90oJg==",
+      "lookupCompleted": true,
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "sourceRevision": null,
+      "verificationSource": "https://registry.npmjs.org/@types/unzipper/-/unzipper-0.10.11.tgz#LICENSE",
+      "verificationNote": null,
+      "licenseFileName": "LICENSE",
+      "licenseText": "    MIT License\n\n    Copyright (c) Microsoft Corporation.\n\n    Permission is hereby granted, free of charge, to any person obtaining a copy\n    of this software and associated documentation files (the \"Software\"), to deal\n    in the Software without restriction, including without limitation the rights\n    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n    copies of the Software, and to permit persons to whom the Software is\n    furnished to do so, subject to the following conditions:\n\n    The above copyright notice and this permission notice shall be included in all\n    copies or substantial portions of the Software.\n\n    THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n    SOFTWARE\n",
+      "noticeTexts": [],
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
       ]
     }
   }

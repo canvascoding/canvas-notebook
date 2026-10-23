@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.10.17.2",
-  "lockfileSha256": "b6cad98bb1ddf2de408cf0f3f2f98084c92dda94e8ba82fcd15fcfb71b72aef1",
+  "packageVersion": "2026.10.23.1",
+  "lockfileSha256": "d4c26daa5ae1fefcb51d3c92f3c80737b067d43d8b6a32deeccc7880c37af0d3",
   "summary": {
     "totalComponents": 1966,
     "npmComponents": 1940,
@@ -2480,13 +2480,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@types/unzipper/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@types/unzipper@0.10.11",
       "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
       "copyrightNotices": [
         "Copyright (c) Microsoft Corporation."
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@types/unzipper/-/unzipper-0.10.11.tgz#LICENSE"
     },
     {
       "name": "@types/ws",

@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.10.23.1] - 2026-10-23
+
+### Added
+
+- Added native Yjs document authority, authenticated collaboration sessions, and recovery receipts for document lifecycle operations.
+- Added Markdown create, paste, import, copy, move, archive, restore, and link workflows backed by native document state.
+
+### Changed
+
+- Made document editing and search read from authoritative native state while preserving Markdown export and file compatibility.
+- Improved editor focus controls, mobile layouts, and workspace lifecycle handling.
+
+### Fixed
+
+- Hardened concurrent file and document operations with admission fences, revision checks, and recovery for transient contention.
+- Fixed Markdown round trips for rich content and control characters, plus stale preview and collaboration recovery cases.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.10.17.2] - 2026-10-17
 
 ### Added
