@@ -637,6 +637,9 @@ test.describe('shared workspace HTML move safety', () => {
       const origins = await Promise.all([fixture.adminPage, fixture.peerPage].map((page) => page.evaluate(() => performance.timeOrigin)));
       const adminMarker = ` ADMIN-${randomUUID()}`;
       const peerMarker = ` PEER-${randomUUID()}`;
+      const peerParagraphId = await fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')
+        .getByText('Peer: Anfang', { exact: true }).getAttribute('data-id');
+      expect(peerParagraphId, 'Bind continued editing to the original Peer paragraph').toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu);
       for (const [page, paragraph] of [[fixture.adminPage, 'Admin: Anfang'], [fixture.peerPage, 'Peer: Anfang']] as const) {
         await page.locator('.tiptap-editor-shell .ProseMirror').getByText(paragraph, { exact: true }).click({ position: { x: 12, y: 8 } });
         await page.keyboard.press('End');
@@ -674,8 +677,10 @@ test.describe('shared workspace HTML move safety', () => {
       }
       // A new accepted edit after relocation proves that recovery restored real write access.
       const resumed = ` FORTSETZUNG-${randomUUID()}`;
-      await fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror').getByText(`Peer: Anfang${peerMarker}`, { exact: true })
-        .click({ position: { x: 12, y: 8 } });
+      const continuedPeerParagraph = fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')
+        .locator(`p[data-id="${peerParagraphId}"]`);
+      await expect(continuedPeerParagraph).toContainText('Peer: Anfang');
+      await continuedPeerParagraph.click({ position: { x: 12, y: 8 } });
       await fixture.peerPage.keyboard.press('End');
       await fixture.peerPage.keyboard.insertText(resumed);
       await expect(fixture.peerPage.locator('.tiptap-editor-shell .ProseMirror')).toContainText(resumed.trim());
