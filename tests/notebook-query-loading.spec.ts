@@ -1,9 +1,10 @@
-import { expect, test, type APIResponse, type Page } from '@playwright/test';
+import { expect, request, test, type APIRequestContext, type APIResponse, type Page } from '@playwright/test';
 import type { AiAppRuntimeCatalog, AiCatalogProviderUpdate } from '../app/lib/agent-runtime-policy/types';
 import { requireOwnedYjsQaTarget } from '../scripts/lib/owned-yjs-authority-qa';
 import { startOwnedAgentToolModel } from './helpers/owned-agent-tool-model';
 import { randomUUID } from 'node:crypto';
 import { createAuthenticatedContext, uploadWorkspaceTextFile } from './helpers/managed-test-context';
+import { withOwnedTestCleanup } from './helpers/owned-test-cleanup';
 
 test.setTimeout(60_000);
 
@@ -13,8 +14,10 @@ test('cold document entry with a hidden chat makes no chat queries', async ({ br
   const { workspaces } = await (await page.request.get('/api/workspaces')).json();
   const workspace = workspaces.find((value: { type: string }) => value.type === 'personal');
   const filePath = `query-loading-${randomUUID()}.md`;
-  await uploadWorkspaceTextFile({ request: page.request, workspaceId: workspace.id, filePath, content: '# Document loading QA\n\nIndependent document surface.\n' });
-  try {
+  let cleanupApi: APIRequestContext | undefined;
+  await withOwnedTestCleanup(async () => {
+    cleanupApi = await request.newContext({ baseURL: process.env.BASE_URL, storageState: await context.storageState() });
+    await uploadWorkspaceTextFile({ request: page.request, workspaceId: workspace.id, filePath, content: '# Document loading QA\n\nIndependent document surface.\n' });
     await page.addInitScript(id => {
       localStorage.setItem('canvas.activeWorkspaceId', id);
       localStorage.setItem('canvas.notebookLayout.v2', JSON.stringify({ version: 2, chatDocked: false }));
@@ -31,13 +34,17 @@ test('cold document entry with a hidden chat makes no chat queries', async ({ br
     await expect(page.getByText('Independent document surface.', { exact: true })).toBeVisible();
     expect(chatReads).toEqual([]);
     await page.screenshot({ path: info.outputPath('document-without-chat.png') });
-  } finally {
-    const deleted = await page.request.delete('/api/files/delete', {
-      headers: { 'x-canvas-workspace-id': workspace.id }, data: { path: filePath },
-    });
-    expect(deleted.ok()).toBeTruthy();
-    await context.close();
-  }
+  }, [
+    { label: 'document browser context', run: () => context.close() },
+    { label: 'document file', run: async () => {
+      if (!cleanupApi) return;
+      const deleted = await cleanupApi.delete('/api/files/delete', {
+        headers: { 'x-canvas-workspace-id': workspace.id }, data: { path: filePath },
+      });
+      expect(deleted.ok()).toBeTruthy();
+    } },
+    { label: 'document cleanup API', run: async () => { await cleanupApi?.dispose(); } },
+  ]);
 });
 
 function gate() {
